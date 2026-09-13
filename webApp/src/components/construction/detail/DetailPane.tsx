@@ -101,6 +101,7 @@ import {
 import {
   attemptsForTask,
   breadcrumbFor,
+  decisionActionState,
   detailActionsFor,
   evidencePointerFor,
   headerProvenanceChipsFor,
@@ -380,9 +381,9 @@ export function DetailPane({
             .filter((a) => !(composing && a.id === 'sendBack'))
             .map(
               (a): DetailAction =>
-                a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
+                a.id === 'run' ? a : { ...a, ...decisionActionState(decision, decisionApplies) }
             ),
-    [reviewOnly, state, row, selection, decisionLive, decision, composing]
+    [reviewOnly, state, row, selection, decision, decisionApplies, composing]
   );
   // After a decision, while its record lives, the chip says what was decided
   // (designer P1-4): "Decided · approved" / "Sent back". Where nothing is owed or

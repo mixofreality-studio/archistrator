@@ -541,8 +541,10 @@ export function liveChipFor(
  * activity" / "this phase" / "this task"), and carries ↻ (run AGAIN) only where
  * the selection holds at least one attempt, ▶ otherwise.
  *
- * Presence and `disabled` do not depend on any of that: `run` is enabled in every
- * state (detailActionsFor), whatever its label says.
+ * Presence does not depend on any of that: `run` is in the action bar in every
+ * state (detailActionsFor), whatever its label says. Its `disabled` here is only
+ * the default; detailActionsFor turns it off, with RUN_NOT_WIRED_REASON, until the
+ * console can start work.
  */
 export function runActionFor(
   row: ConstructionRow | undefined,
@@ -628,6 +630,31 @@ export function detailActionsFor(state: TaskDetailState, run: DetailAction): Det
  * review-only one. Nothing else is offered: no Approve or Send back, and never a
  * Retry, Re-queue or Skip.
  */
+/** Why Approve / Send back are off — said on hover (final review minor: an owed gate
+ *  with no lifecycle phase disabled both with no reason at all). */
+export const DECISION_NO_PHASE_REASON =
+  'The activity reports no current phase, so there is no gate to send a decision to.';
+export const DECISION_ELSEWHERE_REASON = 'Select the gated phase to decide it.';
+export const DECISION_CLOSED_REASON = 'This gate has been decided; it no longer waits on you.';
+export const DECISION_BUSY_REASON = 'A decision on this gate is on its way.';
+
+/**
+ * Approve / Send back's enabled state and, when off, why. They act only where a live
+ * decision backs them: a decision the route handed down (it hands none for a gate
+ * with no lifecycle phase — no decision can be addressed to it), that applies to the
+ * selection, is still open, and has none on the wire.
+ */
+export function decisionActionState(
+  decision: { open: boolean; busy: boolean } | undefined,
+  applies: boolean
+): { disabled: boolean; reason?: string } {
+  if (decision === undefined) return { disabled: true, reason: DECISION_NO_PHASE_REASON };
+  if (!applies) return { disabled: true, reason: DECISION_ELSEWHERE_REASON };
+  if (!decision.open) return { disabled: true, reason: DECISION_CLOSED_REASON };
+  if (decision.busy) return { disabled: true, reason: DECISION_BUSY_REASON };
+  return { disabled: false };
+}
+
 export function reviewOnlyActionsFor(run: DetailAction): DetailAction[] {
   return [{ ...run, disabled: true, reason: REVIEW_ONLY_NOTE }];
 }
