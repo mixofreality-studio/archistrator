@@ -38,7 +38,7 @@ import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contr
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
-import { useConstructionSessions } from '../hooks/useConstructionSessions';
+import { TASKS_FRESHNESS_MS, useConstructionSessions } from '../hooks/useConstructionSessions';
 import { useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useGateOccurrences } from '../hooks/useGateOccurrences';
 import { occurrenceKey } from '../hooks/gateOccurrences';
@@ -169,11 +169,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // permanently `running` (they are not live pump work); progress (the done count) is the
   // honest signal that the pump is actively completing activities.
   const [cascading, setCascading] = useState(false);
+  // Outside a cascade the read still refreshes on the TASKS freshness cadence: the
+  // owed set's probe candidates come from it, and a gate on an activity started by
+  // the sweep, another tab or MCP must not stay invisible (review I3).
   const {
     data: project,
     isLoading: projectLoading,
     dataUpdatedAt: projectReadAt,
-  } = useProject(projectId, cascading ? 1500 : false);
+  } = useProject(projectId, cascading ? 1500 : TASKS_FRESHNESS_MS);
 
   const integratedCount = useMemo(() => {
     const rows = project?.constructionRows;

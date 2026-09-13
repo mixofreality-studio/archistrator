@@ -41,7 +41,11 @@ export function sessionQueryOptions(
   queryClient: QueryClient,
   projectId: string,
   activityId: string | undefined,
-  enabled: boolean
+  enabled: boolean,
+  /** How often to re-ask after the dormant 404. The single pane probe stops (a
+   *  Begin invalidates it); the TASKS fan-out re-asks on the freshness cadence, so a
+   *  workflow that starts later — the sweep, another tab, MCP — is found (review I3). */
+  absentPollMs: number | false = false
 ): UseQueryOptions<ConstructionSessionState | null, Error, ConstructionSessionState | null> {
   const hasActivity = activityId !== undefined && activityId.length > 0;
   const key = constructionSessionKey(projectId, activityId);
@@ -66,7 +70,7 @@ export function sessionQueryOptions(
       // Dormant pump (absence established as null): stop polling so the console
       // does not spam a 3s 404 storm. The project-read cascade poll drives the
       // tracker meanwhile; a Begin mutation invalidates this query.
-      if (query.state.data === null) return false;
+      if (query.state.data === null) return absentPollMs;
       const stage = query.state.data?.stage;
       if (stage !== undefined && TERMINAL_STAGES.has(stage)) return false;
       return POLL_INTERVAL_MS;

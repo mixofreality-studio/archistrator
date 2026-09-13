@@ -188,6 +188,12 @@ test.beforeEach(async ({ page, request }) => {
   await trapWrites(page);
 });
 
+// The console re-reads the project every 10s (review I3), so a route handler can be
+// mid-fetch when a test ends; that is teardown, not a failure.
+test.afterEach(async ({ page }) => {
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
 test('live: nothing is owed, and the lens says so without probing a session', async ({ page }) => {
   const sessionGets: string[] = [];
   page.on('request', (r) => {
@@ -253,6 +259,67 @@ test('a probe still in flight reads "Checking…", never the all-clear', async (
     'Nothing needs you.',
     { timeout: 10_000 }
   );
+});
+
+test('a gate on an activity started after the page loaded appears without a reload (review I3)', async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  // The first reads show nothing started; then the sweep (or another tab) starts
+  // the GATE activity, and its session opens a gate. No Begin, no cascade poll.
+  let startedYet = false;
+  await page.route('**/system-design/get-project/archistrator**', async (route) => {
+    const response = await route.fetch();
+    const wire = (await response.json()) as Wire;
+    const row = wire.ActivityConstruction?.[GATE];
+    if (row === undefined) throw new Error(`no row ${GATE} in the read`);
+    if (startedYet) {
+      Object.assign(row, {
+        recorded: true,
+        hasBuildEvidence: true,
+        classified: true,
+        startedAt: '2026-09-12T20:00:00Z',
+        BuildStatus: BUILD.inConstruction,
+        CurrentPhase: 'detailed_design',
+      });
+    }
+    await route.fulfill({ response, json: wire });
+  });
+  await page.route('**/get-session-state/archistrator/**', async (route) => {
+    await route.fulfill({
+      json: { projectId: 'archistrator', activityId: GATE, stage: STAGE.awaitingApproval },
+    });
+  });
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText('Nothing needs you.');
+  startedYet = true;
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toBeVisible({
+    timeout: 20_000,
+  });
+  await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('1');
+});
+
+test('a probe that met the dormant 404 asks again, and finds the gate that opened (review I3)', async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  await serveOwed(page, {}, [GATE]);
+  let opened = false;
+  await page.route('**/get-session-state/archistrator/**', async (route) => {
+    if (!opened) {
+      await route.fulfill({ status: 404, json: { error: 'no construction session' } });
+      return;
+    }
+    await route.fulfill({
+      json: { projectId: 'archistrator', activityId: GATE, stage: STAGE.awaitingApproval },
+    });
+  });
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText('Nothing needs you.');
+  opened = true;
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toBeVisible({
+    timeout: 20_000,
+  });
 });
 
 test('owed rows come from the live stage, risk floor first; a running in-review row is not owed', async ({

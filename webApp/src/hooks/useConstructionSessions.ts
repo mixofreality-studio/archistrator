@@ -19,6 +19,16 @@ import { erroredProbesFor, sessionsByActivity, type SessionProbes } from './cons
 
 export type { SessionsById, SessionProbes } from './constructionSessions';
 
+/**
+ * The owed set's freshness cadence (review I3). The probe candidates come from the
+ * project read, which otherwise polls only during a Begin cascade — so a gate on an
+ * activity started later (by the sweep, another tab or MCP) stayed invisible, and a
+ * probe that met the dormant 404 never asked again. While the console is mounted
+ * (the TASKS badge lives in its toolbar) the project read and every absent probe
+ * re-ask at this interval: modest, and at most the supervision cap of probes.
+ */
+export const TASKS_FRESHNESS_MS = 10_000;
+
 export function useConstructionSessions(
   projectId: string,
   activityIds: readonly string[]
@@ -39,7 +49,9 @@ export function useConstructionSessions(
     [idsKey]
   );
   const probes = useQueries({
-    queries: activityIds.map((id) => sessionQueryOptions(queryClient, projectId, id, true)),
+    queries: activityIds.map((id) =>
+      sessionQueryOptions(queryClient, projectId, id, true, TASKS_FRESHNESS_MS)
+    ),
     combine,
   });
   const erroredKey = probes.errored.join(' ');
