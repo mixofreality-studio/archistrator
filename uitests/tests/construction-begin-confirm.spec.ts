@@ -18,15 +18,17 @@
  * Then the fix-A review found a double-click on the dispatch button sent TWO
  * execute-next-activity POSTs, each with a fresh tickID — two pump workflows.
  *
- * SAFETY: every execute-next-activity request is TRAPPED and ABORTED by
- * page.route, installed before the page is opened, so no case here can dispatch
- * to the live server — including a mutant that makes Cancel, Escape or the
- * backdrop confirm. The trapped calls are what each case asserts on.
+ * SAFETY: the shared dispatch guard (support/dispatchGuard) aborts EVERY non-GET
+ * before any navigation. On top of it, every execute-next-activity request is
+ * TRAPPED by a page.route installed before the page is opened, so no case here
+ * can dispatch to the live server — including a mutant that makes Cancel, Escape
+ * or the backdrop confirm. The trapped calls are what each case asserts on.
  *
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 

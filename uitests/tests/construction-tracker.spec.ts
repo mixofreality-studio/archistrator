@@ -37,7 +37,7 @@
  * search-reveal auto-expand (`matchingTaskIds`) only fires on a TASK-field
  * match, not an activity-id-only one.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 import { tagUseCase } from './support/useCases.js';

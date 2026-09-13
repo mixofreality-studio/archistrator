@@ -14,7 +14,8 @@
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
