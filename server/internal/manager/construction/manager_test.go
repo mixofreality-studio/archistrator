@@ -4123,6 +4123,59 @@ func Test_Construct_LocalMerge_CheckpointsHoldsUntilMergeApproval(t *testing.T) 
 	}
 }
 
+// envSignalClient is a Temporal client whose SignalWorkflow delivers into a
+// testsuite environment BY WORKFLOW ID. It lets a workflow test drive the gates
+// through the real façade — SubmitPhaseDecision's gate-key validation AND its
+// workflow-id routing — where env.SignalWorkflow bypasses both (which is how the
+// merge hold shipped unreleasable while every test passed).
+type envSignalClient struct {
+	client.Client
+	env *testsuite.TestWorkflowEnvironment
+}
+
+func (c *envSignalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg any) error {
+	return c.env.SignalWorkflowByID(workflowID, signalName, arg)
+}
+
+// Test_Construct_LocalMerge_ReleasedThroughFacade is the production path for the
+// merge hold: every approval — the three checkpoints phase gates AND the merge
+// gate — arrives via constructionManager.SubmitPhaseDecision, not a direct
+// signal. If the façade refuses mergeGateKey (the 2026-09-12 wedge) the merge
+// callback records ContractMisuse and the activity never merges or exits.
+func Test_Construct_LocalMerge_ReleasedThroughFacade(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(checkpointsPreset())
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	// Run under the id the façade computes, so SignalWorkflowByID proves the
+	// routing as well as the validation.
+	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: constructActivityWorkflowID("p", "C-Orders")})
+	m := newTestConstructionManager(&envSignalClient{env: env})
+	approve := func(phase string) func() {
+		return func() {
+			if err := m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", phase, PhaseApprove, nil); err != nil {
+				t.Errorf("SubmitPhaseDecision(%q, Approve): %v", phase, err)
+			}
+		}
+	}
+	env.RegisterDelayedCallback(approve("detailed_design"), 20*time.Second)
+	env.RegisterDelayedCallback(approve("construction"), 40*time.Second)
+	env.RegisterDelayedCallback(approve("integration"), 60*time.Second)
+	env.RegisterDelayedCallback(approve(mergeGateKey), 80*time.Second)
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if merges := mergeSubmits(pipe.submitted); len(merges) != 1 {
+		t.Fatalf("expected exactly 1 merge-job submit after a façade merge approval, got %d", len(merges))
+	}
+	if len(ps.exited) != 1 {
+		t.Fatalf("expected the activity to exit after the façade-approved merge, exits = %d", len(ps.exited))
+	}
+}
+
 // Test_Construct_LocalMerge_CheckpointsHoldsWithoutMergeApproval is the negative
 // control: with the phase approvals delivered but NO merge approval, the merge
 // job is never dispatched and the activity never exits (the Temporal test env's
@@ -4944,6 +4997,57 @@ func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
 		m := newTestConstructionManager(&fakeTemporalClient{})
 		if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil); err != nil {
 			t.Errorf("phase %q must be accepted, got %v", phase, err)
+		}
+	}
+}
+
+// TestSubmitPhaseDecision_MergeApproveSignalsActivityWorkflow: the local merge
+// hold (runLocalMergeStep) suspends on mergeGateKey, and this op is the only
+// operator path that releases it. Approve on "merge" must pass validation and
+// land on the per-activity workflow with the key intact.
+func TestSubmitPhaseDecision_MergeApproveSignalsActivityWorkflow(t *testing.T) {
+	fc := &fakeTemporalClient{}
+	m := newTestConstructionManager(fc)
+	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseApprove, nil); err != nil {
+		t.Fatalf("SubmitPhaseDecision(merge, Approve): %v", err)
+	}
+	if want := constructActivityWorkflowID("proj-1", "C-Orders"); fc.lastWorkflowID != want || fc.lastSignalName != signalPhaseDecision {
+		t.Fatalf("wfID=%q signal=%q, want wfID=%q signal=%q", fc.lastWorkflowID, fc.lastSignalName, want, signalPhaseDecision)
+	}
+	sig, ok := fc.lastSignalArg.(phaseDecisionSignal)
+	if !ok || sig.Phase != mergeGateKey || sig.Decision != PhaseApprove {
+		t.Fatalf("payload=%+v", fc.lastSignalArg)
+	}
+}
+
+// TestSubmitPhaseDecision_MergeSendBackIsContractMisuse: a merge has no draft to
+// send back and the hold ignores anything but Approve, so SendBack on "merge"
+// would be a silent no-op. Feedback notes are supplied so the ONLY rule that can
+// refuse it is the merge-gate rule, and nothing may be signalled.
+func TestSubmitPhaseDecision_MergeSendBackIsContractMisuse(t *testing.T) {
+	fc := &fakeTemporalClient{}
+	m := newTestConstructionManager(fc)
+	err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseSendBack, &ReviewFeedback{Notes: "redo the merge"})
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for SendBack on the merge gate, got %s", got)
+	}
+	if fc.lastSignalName != "" {
+		t.Fatalf("a refused merge SendBack must not signal, got signal %q to %q", fc.lastSignalName, fc.lastWorkflowID)
+	}
+}
+
+// TestSubmitPhaseDecision_UnknownGateKeyStillRejected: admitting mergeGateKey
+// must not reopen the vocabulary — near-misses of it are still ContractMisuse.
+func TestSubmitPhaseDecision_UnknownGateKeyStillRejected(t *testing.T) {
+	for _, phase := range []string{"Merge", "merge ", "merged", "local_merge", "approve"} {
+		fc := &fakeTemporalClient{}
+		m := newTestConstructionManager(fc)
+		err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil)
+		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("gate key %q: want ContractMisuse, got %s", phase, got)
+		}
+		if fc.lastSignalName != "" {
+			t.Errorf("gate key %q: a rejected key must not signal", phase)
 		}
 	}
 }
