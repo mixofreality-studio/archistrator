@@ -332,6 +332,20 @@ export const NO_CURRENT_PHASE_NOTE =
   'lifecycle is drawn in the list — select a phase or task there for its exit criterion and weight.';
 
 /**
+ * The GRAPH lens's words for the two notes above (designer P2: lens-aware pane
+ * copy). There the lifecycle is drawn on the activity's card, and a phase is
+ * reached by clicking a segment of its lifecycle bar — "select a phase or task
+ * there [in the list]" pointed at a surface not on screen.
+ */
+export const NO_CURRENT_PHASE_NOTE_GRAPH =
+  'Nothing is recorded against this activity yet, so it has no current phase to brief. Its ' +
+  'lifecycle is drawn on its card — click a segment of its lifecycle bar for its exit criterion and weight.';
+
+export const OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH =
+  'Nothing observed against this activity, so it has no current phase to brief. Its ' +
+  'lifecycle is drawn on its card — click a segment of its lifecycle bar for its exit criterion and weight.';
+
+/**
  * The line the unknown card shows in place of the briefing table when
  * `briefingFor` resolves nothing. Two different reasons, never conflated: an
  * activity with NO profile (unclassified — inventing one is the fabrication
@@ -340,9 +354,16 @@ export const NO_CURRENT_PHASE_NOTE =
  * profile the list is drawing right beside this card. Telling the second one
  * "the server could not classify it" would be false.
  */
-export function noBriefingNoteFor(row: ConstructionRow | undefined, hiddenCount = 0): string {
+export function noBriefingNoteFor(
+  row: ConstructionRow | undefined,
+  hiddenCount = 0,
+  /** Which lens the pane sits beside — the graph points at the card, not the list. */
+  lens: 'list' | 'graph' | 'tasks' = 'list'
+): string {
   if (profileFor(row) === undefined) return NO_PROFILE_NOTE;
-  return hiddenCount > 0 ? OBSERVED_ONLY_NO_PHASE_NOTE : NO_CURRENT_PHASE_NOTE;
+  const graph = lens === 'graph';
+  if (hiddenCount > 0) return graph ? OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH : OBSERVED_ONLY_NO_PHASE_NOTE;
+  return graph ? NO_CURRENT_PHASE_NOTE_GRAPH : NO_CURRENT_PHASE_NOTE;
 }
 
 /**

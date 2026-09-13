@@ -35,6 +35,7 @@ import {
   SEGMENT_STATE_LABEL,
   hollowKeyText,
   layeringCheckText,
+  layeringCheckTone,
   ribbonCountLabel,
   segmentPaint,
 } from './graphPresentation';
@@ -298,7 +299,8 @@ export function GraphKeyBar({
   model: Pick<ActivityGraphModel, 'alarms' | 'sanctionedSideways' | 'hollowCount'>;
   t: Tokens;
 }): ReactElement {
-  const alarmed = model.alarms.up + model.alarms.sideways > 0;
+  // Red only for a real alarm; muted at zero (designer P2).
+  const tone = layeringCheckTone(model);
   const [anchor, setAnchor] = useState<HTMLElement | null>(null);
   return (
     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
@@ -306,6 +308,7 @@ export function GraphKeyBar({
         component="span"
         data-alarms={String(model.alarms.up + model.alarms.sideways)}
         data-testid={UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK}
+        data-tone={tone}
         sx={{
           flex: '1 1 auto',
           minWidth: 0,
@@ -314,7 +317,7 @@ export function GraphKeyBar({
           scrollbarWidth: 'thin',
           fontFamily: t.mono,
           fontSize: 10.5,
-          color: alarmed ? t.dangerFg : t.ink,
+          color: tone === 'alarm' ? t.dangerFg : t.muted,
           fontWeight: 700,
         }}
         title="Every edge is an architecture call. In this layered drawing an upward call, or a sideways one other than the queued Manager→Manager call App C sanctions, is a layering violation and is drawn in red."

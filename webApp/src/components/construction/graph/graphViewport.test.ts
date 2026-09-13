@@ -17,6 +17,7 @@ import {
   loadGraphViewport,
   lodFor,
   saveGraphViewport,
+  selectionOutlinePx,
 } from './graphViewport.ts';
 
 // ---------------------------------------------------------------------------
@@ -114,6 +115,23 @@ void test('LOD-1 at and above the 0.8 threshold', () => {
 
 void test('LOD-1 under hover at any zoom', () => {
   assert.equal(lodFor(0.3, true), 1);
+});
+
+// ---------------------------------------------------------------------------
+// The selection outline (designer P2)
+// ---------------------------------------------------------------------------
+
+void test('the selection outline is 2/zoom, clamped to 2–5px', () => {
+  assert.equal(selectionOutlinePx(1), 2);
+  assert.equal(selectionOutlinePx(0.5), 4);
+  assert.equal(selectionOutlinePx(0.4), 5);
+  assert.equal(selectionOutlinePx(0.2), 5, 'clamped at 5');
+  assert.equal(selectionOutlinePx(1.4), 2, 'clamped at 2');
+});
+
+void test('a zoom that is not a positive number falls back to the minimum', () => {
+  assert.equal(selectionOutlinePx(0), 2);
+  assert.equal(selectionOutlinePx(Number.NaN), 2);
 });
 
 // ---------------------------------------------------------------------------

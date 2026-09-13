@@ -80,6 +80,7 @@ import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { scanlines } from '../../../utilities/theme/textures.ts';
 import { useLensSelection, type LensSelection } from '../lens/useLensSelection';
+import { detailDrawerModal } from '../lens/detailDrawer';
 import {
   GRADE_LABEL,
   provenanceGradeOf,
@@ -210,7 +211,10 @@ export function DetailPane({
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
-  const { select } = useLensSelection();
+  const { select, lens } = useLensSelection();
+  // Below 1200px the pane is a Drawer; in the graph lens it is NON-modal, so
+  // the canvas beside it stays reachable (designer P2, detailDrawer.ts).
+  const modal = detailDrawerModal(lens);
   const isWide = useMediaQuery(WIDE_BREAKPOINT);
 
   const [width, setWidth] = useState<number>(readStoredWidth);
@@ -368,16 +372,32 @@ export function DetailPane({
   return (
     <Drawer
       anchor="right"
+      data-modal={String(modal)}
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_DRAWER}
       open={open}
       slotProps={{
         paper: {
           'aria-labelledby': 'construction-detail-pane-title',
+          'aria-modal': modal,
           role: 'dialog',
-          sx: { width: { xs: '100%', sm: 480 }, bgcolor: t.paper, backgroundImage: 'none' },
+          sx: {
+            width: { xs: '100%', sm: 480 },
+            bgcolor: t.paper,
+            backgroundImage: 'none',
+            // Non-modal: the root lets clicks through; the paper takes its own.
+            ...(modal ? {} : { pointerEvents: 'auto' }),
+          },
         },
       }}
       onClose={onClose}
+      {...(modal
+        ? {}
+        : {
+            hideBackdrop: true,
+            disableEnforceFocus: true,
+            disableScrollLock: true,
+            sx: { pointerEvents: 'none' },
+          })}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <DetailHeader

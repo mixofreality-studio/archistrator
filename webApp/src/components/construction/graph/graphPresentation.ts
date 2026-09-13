@@ -28,11 +28,13 @@ export const SEGMENT_STATES: readonly SegmentState[] = [
 
 /** What each segment state is called — the list's own words wherever it has one. */
 export const SEGMENT_STATE_LABEL: Record<SegmentState, string> = {
-  complete: 'Gate passed',
+  // ONE vocabulary (designer P2): the lane chip says "Passed", so the spine,
+  // the key and the hover card say it too.
+  complete: ROW_STATE_LABEL.passed,
   awaitingHuman: ROW_STATE_LABEL.awaitingHuman,
   failed: ROW_STATE_LABEL.failed,
   running: ROW_STATE_LABEL.running,
-  incomplete: 'Gate not passed',
+  incomplete: 'Not passed',
   notStarted: ROW_STATE_LABEL.notStarted,
   unknown: ROW_STATE_LABEL.unknown,
   absent: ROW_STATE_LABEL.absent,
@@ -151,6 +153,16 @@ export function tickPaint(t: Tokens, state: RowState): TickPaint {
     case 'absent':
       return { color: t.line, hollow: true, dashed: false };
   }
+}
+
+/**
+ * The check's ink (designer P2): red only when there IS an alarm; at zero it is
+ * muted — a clean check is a quiet statement, not a headline.
+ */
+export function layeringCheckTone(m: {
+  alarms: { up: number; sideways: number };
+}): 'alarm' | 'quiet' {
+  return m.alarms.up + m.alarms.sideways > 0 ? 'alarm' : 'quiet';
 }
 
 // ---------------------------------------------------------------------------

@@ -84,6 +84,24 @@ export function saveGraphViewport(signature: string, viewport: GraphViewport): v
 }
 
 // ---------------------------------------------------------------------------
+// The selection outline (designer P2)
+// ---------------------------------------------------------------------------
+
+export const SELECTION_OUTLINE_MIN_PX = 2;
+export const SELECTION_OUTLINE_MAX_PX = 5;
+
+/**
+ * The selected lane's outline, in FLOW px: 2 / zoom, clamped to 2–5, so it
+ * reads as a steady ~2 screen px while zoomed in and never vanishes at fit
+ * (at zoom 0.4 a flat 2px outline drew as 0.8 screen px). A zoom that is not a
+ * positive number falls back to the minimum.
+ */
+export function selectionOutlinePx(zoom: number): number {
+  if (!Number.isFinite(zoom) || zoom <= 0) return SELECTION_OUTLINE_MIN_PX;
+  return Math.min(SELECTION_OUTLINE_MAX_PX, Math.max(SELECTION_OUTLINE_MIN_PX, 2 / zoom));
+}
+
+// ---------------------------------------------------------------------------
 // Level of detail (spec §7.6, Decision D7)
 // ---------------------------------------------------------------------------
 

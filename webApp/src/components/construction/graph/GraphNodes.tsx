@@ -46,7 +46,7 @@ import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../pro
 import type { GraphCard } from './activityGraphModel';
 import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
-import { lodFor, type Lod } from './graphViewport';
+import { lodFor, selectionOutlinePx, type Lod } from './graphViewport';
 import {
   HOLLOW_HOVER_TEXT,
   SEGMENT_STATE_LABEL,
@@ -208,6 +208,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
               selected={d.selectedActivityId === lane.activityId}
               spine={spine}
               t={t}
+              zoom={zoom}
               onSelect={d.onSelect}
             />
           );
@@ -240,6 +241,7 @@ function Lane({
   spine,
   schedule,
   lod,
+  zoom,
   selected,
   dim,
   t,
@@ -249,12 +251,15 @@ function Lane({
   spine: LaneSpine;
   schedule: LaneSchedule | undefined;
   lod: Lod;
+  zoom: number;
   selected: boolean;
   dim: boolean;
   t: Tokens;
   onSelect: (activityId: string, lifecyclePhase?: string) => void;
 }): ReactElement {
   const critical = schedule?.critical === true;
+  // 2/zoom, clamped 2–5px (designer P2): steady on screen, never lost at fit.
+  const outlinePx = selectionOutlinePx(zoom);
   const reading = readProvenance(lane);
   const state = activityRowState(lane.row);
   const chip = chipFor(state);
@@ -275,6 +280,7 @@ function Lane({
       className="nodrag nopan"
       data-critical={String(critical)}
       data-effort={schedule?.effortDays ?? ''}
+      data-outline-px={outlinePx}
       data-provenance={reading.origin}
       data-selected={String(selected)}
       data-state={state}
@@ -296,12 +302,14 @@ function Lane({
         }`,
         cursor: 'pointer',
         opacity: dim ? MUTED_OPACITY : 1,
-        outline: selected ? `2px solid ${t.accent}` : 'none',
-        outlineOffset: -2,
+        outline: selected ? `${String(outlinePx)}px solid ${t.accent}` : 'none',
+        outlineOffset: -outlinePx,
         borderRadius: 0.5,
         '&:hover': { bgcolor: t.paperAlt },
-        '&:focus-visible': { outline: `2px solid ${t.accent}` },
+        '&:focus-visible': { outline: `${String(outlinePx)}px solid ${t.accent}` },
       }}
+      // Keyboard focus opens the card's hover card (the canvas's focus capture —
+      // ActivityGraphLens), so the unscaled reading surface needs no mouse.
       tabIndex={0}
       onClick={(e) => {
         e.stopPropagation();

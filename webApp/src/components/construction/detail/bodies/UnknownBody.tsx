@@ -42,7 +42,7 @@ import type { ConstructionRow } from '../../../../contracts/types';
 import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
-import type { LensSelection } from '../../lens/useLensSelection';
+import { useLensSelection, type LensSelection } from '../../lens/useLensSelection';
 import {
   briefingFor,
   noBriefingNoteFor,
@@ -82,11 +82,14 @@ export function UnknownBody({
   hiddenCount = 0,
 }: UnknownBodyProps): ReactElement {
   const t = useTokens();
+  // The pane sits beside a lens; the note points at the surface on screen
+  // (designer P2 — "click a segment of its lifecycle bar" beside the graph).
+  const { lens } = useLensSelection();
   const briefing = briefingFor(row, selection);
   return (
     <UnknownCard
       briefing={briefing}
-      noBriefingNote={noBriefingNoteFor(row, hiddenCount)}
+      noBriefingNote={noBriefingNoteFor(row, hiddenCount, lens)}
       statement={statement ?? unknownStatementFor(briefing?.scope, hiddenCount)}
       t={t}
       title={title ?? unknownTitleFor(briefing, selection)}

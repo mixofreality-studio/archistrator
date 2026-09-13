@@ -338,6 +338,9 @@ function GraphCanvas({
     }, LEAVE_MS);
   }, []);
   useEffect(() => cancelPendingLeave, []);
+  // Whether the open hover card was opened by keyboard focus (so only that
+  // focus's blur closes it). Read and written in event handlers only.
+  const focusOpened = useRef(false);
 
   const focus = useMemo((): GraphFocus | null => {
     if (hoveredId !== null) return hoverFocusFor(hoveredId, model.edges);
@@ -418,6 +421,25 @@ function GraphCanvas({
       data-testid={UI_IDENTIFIERS.Construction.GRAPH_CANVAS}
       ref={boxRef}
       sx={{ height: CANVAS_MIN_PX }}
+      // A lane's KEYBOARD focus opens its card's hover card; its blur closes it
+      // (designer P2), through the same debounced enter/leave the mouse uses —
+      // handled here at event time, so no ref-reading callback enters render.
+      // Keyboard only (`:focus-visible`): a mouse press focuses the lane too,
+      // and changing the hover inside a press swallowed the click.
+      onBlurCapture={() => {
+        if (focusOpened.current) {
+          focusOpened.current = false;
+          leave();
+        }
+      }}
+      onFocusCapture={(e) => {
+        const target = e.target as HTMLElement;
+        if (!target.matches(':focus-visible')) return;
+        const id = target.closest('.react-flow__node-graphCard')?.getAttribute('data-id');
+        if (id === null || id === undefined) return;
+        focusOpened.current = true;
+        enter({ id, type: 'graphCard' });
+      }}
     >
       <FlowCanvas
         // Bottom-right: the pinned row gutter owns the left edge (P1-6).
