@@ -371,18 +371,52 @@ void test('in flight by state: a row running or awaiting a human, or a live sess
 });
 
 // Tasks merge review I1: a probe candidate with no answer is not "nothing in flight".
-void test('an unchecked probe candidate (pending or errored) is in flight; an answered one is not', () => {
+void test('a PENDING probe candidate is in flight; an answered one is not', () => {
   const none = { rows: {}, sessionStage: undefined };
-  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 1 }), true, 'one unanswered');
-  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 3 }), true, 'several');
-  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 0 }), false, 'all answered');
+  assert.equal(constructionInFlight({ ...none, pendingProbes: 1 }), true, 'one unanswered');
+  assert.equal(constructionInFlight({ ...none, pendingProbes: 3 }), true, 'several');
+  assert.equal(constructionInFlight({ ...none, pendingProbes: 0 }), false, 'all answered');
   assert.equal(constructionInFlight(none), false, 'no candidates at all');
   // An answered probe that found no live session settles it: the stage decides.
   assert.equal(
-    constructionInFlight({ ...none, uncheckedProbes: 0, sessionStage: 'exited' }),
+    constructionInFlight({ ...none, pendingProbes: 0, sessionStage: 'exited' }),
     false,
     'answered, and the session has ended'
   );
+});
+
+// Tasks merge-2 ruling (a), fix I: while a probe keeps FAILING, the true state is
+// unknown, so the button checks rather than claiming a running pump.
+void test('a probe that keeps failing reads "Checking construction…", disabled, for Begin and Resume alike', () => {
+  for (const constructionStarted of [true, false]) {
+    const c = beginControlFor({
+      constructionStarted,
+      projectLoading: false,
+      running: false,
+      probesFailing: true,
+    });
+    assert.equal(c.label, 'Checking construction…', `started: ${String(constructionStarted)}`);
+    assert.equal(c.disabled, true);
+    assert.doesNotMatch(c.label, /Construction running…/);
+    assert.doesNotMatch(c.label, COMMITTED_WORDS);
+  }
+  // What the state DOES show still wins: work in flight reads running.
+  const running = beginControlFor({
+    constructionStarted: true,
+    projectLoading: false,
+    running: true,
+    probesFailing: true,
+  });
+  assert.equal(running.label, 'Construction running…');
+  // The probes settle: the read decides again.
+  const settled = beginControlFor({
+    constructionStarted: true,
+    projectLoading: false,
+    running: false,
+    probesFailing: false,
+  });
+  assert.equal(settled.label, 'Resume construction');
+  assert.equal(settled.disabled, false);
 });
 
 // Tasks-lens merge round: "awaiting" comes from the live owed set (Q4), never

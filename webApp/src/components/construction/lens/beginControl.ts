@@ -50,11 +50,20 @@ export function beginControlFor(input: {
    * Begin.
    */
   awaitingPump?: boolean;
+  /**
+   * A session probe keeps FAILING (errored, re-asking on its backoff) and nothing
+   * else says construction is in flight. The true state is unknown, so the button
+   * says so: "Checking construction…", disabled — never "Construction running…",
+   * which would claim a pump nobody has seen (tasks merge-2 ruling (a), fix I).
+   */
+  probesFailing?: boolean;
 }): BeginControl {
   if (input.running) {
     return { label: 'Construction running…', disabled: true, busy: true, verb: 'Resume' };
   }
-  if (input.projectLoading || input.awaitingPump === true) return CHECKING;
+  if (input.projectLoading || input.awaitingPump === true || input.probesFailing === true) {
+    return CHECKING;
+  }
   if (input.constructionStarted === undefined) {
     // Loaded, but no project read to answer from: neither word can be claimed, and
     // nothing can sensibly be dispatched.
@@ -150,12 +159,16 @@ function sessionIsLive(stage: ConstructionStage | undefined): boolean {
  * both are in flight. A recorded failure reads failed, which is not: the pump has
  * stopped on it.
  *
- * A probe CANDIDATE whose probe has not answered (still pending, or failed without
- * answering) is in flight too (tasks merge review I1). A candidate is an activity
- * the pump started and has not finished; picked up a moment ago, it has no build
- * evidence yet, so its row reads not started and only its session can say the pump
- * runs. Until that probe answers nobody knows, and an enabled Begin beside a fresh
- * pickup was a second pump one click away. An answer of "no session" settles it.
+ * A probe CANDIDATE whose probe is still PENDING is in flight too (tasks merge
+ * review I1). A candidate is an activity the pump started and has not finished;
+ * picked up a moment ago, it has no build evidence yet, so its row reads not
+ * started and only its session can say the pump runs. Until that probe answers
+ * nobody knows, and an enabled Begin beside a fresh pickup was a second pump one
+ * click away. An answer of "no session" settles it.
+ *
+ * A probe that keeps FAILING is not counted here (tasks merge-2 ruling (a), fix I):
+ * nothing has said the pump runs, so the button reads "Checking construction…"
+ * (beginControlFor's `probesFailing`), still disabled, instead of claiming it.
  *
  * This, not a timer, is what says a pump is running. The 30s no-progress
  * watchdog used to decide it: 30s after the last integration it handed the label
@@ -167,14 +180,14 @@ export function constructionInFlight(state: {
   owed?: OwedMarks | undefined;
   /** A live probed session's stage, if any (newestLiveSession). */
   sessionStage: ConstructionStage | undefined;
-  /** How many probe candidates have no answer yet, pending or errored
-   *  (owedWorkFor's `unchecked`). Omitted, none. */
-  uncheckedProbes?: number | undefined;
+  /** How many probe candidates are still waiting on their first answer (owedWorkFor's
+   *  `unchecked.pending`). Errored ones are `probesFailing`, not this. Omitted, none. */
+  pendingProbes?: number | undefined;
 }): boolean {
   return (
     anyRowInFlight(state.rows, state.owed) ||
     sessionIsLive(state.sessionStage) ||
-    (state.uncheckedProbes ?? 0) > 0
+    (state.pendingProbes ?? 0) > 0
   );
 }
 

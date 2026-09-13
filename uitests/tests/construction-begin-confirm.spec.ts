@@ -828,12 +828,29 @@ test('I1 (tasks merge review): a fresh pickup whose probe is still PENDING holds
   expect(h.trapped).toEqual([]);
 });
 
-test('I1 (tasks merge review): a fresh pickup whose probe answers 500 holds Begin off through the re-asks, until one answers', async ({
-  page,
-}) => {
-  await page.clock.install();
-  const h = await harness(page, (route) => route.abort());
-  h.edit.fn = freshPickup;
+/**
+ * Sample one copy of the Begin label for `ms`: while a probe keeps failing, the
+ * true state is unknown, so it reads "Checking construction…" and is disabled —
+ * never "Construction running…" (a pump nobody has seen) and never an enabled
+ * Begin or Resume (tasks merge-2 ruling (a), fix I).
+ */
+async function expectChecking(page: Page, testId: string, ms: number): Promise<void> {
+  const copy = page.getByTestId(testId);
+  await expect(copy).toHaveText(/Checking construction…/, { timeout: 10_000 });
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const s = await copy.evaluate((el) => ({
+      label: (el as HTMLElement).innerText.trim(),
+      enabled: !(el as HTMLButtonElement).disabled,
+    }));
+    expect(s.enabled, `"${s.label}" enabled while a probe keeps failing`).toBe(false);
+    expect(s.label).toMatch(/Checking construction…/);
+    await page.waitForTimeout(150);
+  }
+}
+
+/** A fresh pickup whose session probe answers 500 until `answer.failing` is false. */
+async function failingProbe(page: Page): Promise<{ answer: { failing: boolean }; probes: number[] }> {
   const answer = { failing: true };
   const probes: number[] = [];
   await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
@@ -842,21 +859,64 @@ test('I1 (tasks merge review): a fresh pickup whose probe answers 500 holds Begi
       answer.failing ? { status: 500, json: { error: 'session store unavailable' } } : NO_SESSION
     );
   });
+  return { answer, probes };
+}
+
+test('I1 (tasks merge review): a fresh pickup whose probe answers 500 holds Begin off through the re-asks, until one answers', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = freshPickup;
+  const { answer, probes } = await failingProbe(page);
   await gotoApp(page, '/project/archistrator/construction?lens=list');
   await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
-  await expectRunning(page, 1_500);
-  // Through the errored probe's backoff and its re-ask, still running.
+  // A probe that fails is no answer: the button checks, disabled (fix I). It used
+  // to read "Construction running…", claiming a pump nobody had seen.
+  await expectChecking(page, TESTID.constructionBegin, 1_500);
+  // Through the errored probe's backoff and its re-ask, still checking.
   const asked = probes.length;
   await page.clock.fastForward(12_000);
   await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(asked);
-  await expectRunning(page, 1_500);
+  await expectChecking(page, TESTID.constructionBegin, 1_500);
   // A re-ask answers: no session. Begin comes back.
   answer.failing = false;
   await page.clock.fastForward(25_000);
   const begin = page.getByTestId(TESTID.constructionBegin);
   await expect(begin).toHaveText(/Begin construction/, { timeout: 15_000 });
   await expect(begin).toBeEnabled();
+  expect(h.trapped).toEqual([]);
+});
+
+// Both copies of the label (fix I): the header's button and the tasks lens's own
+// Begin/Resume in its "nothing needs you" state, which reads the same control.
+test('fix I: while a probe keeps failing, BOTH copies of the label read "Checking construction…", disabled, until one answers', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = freshPickup;
+  const { answer, probes } = await failingProbe(page);
+  await gotoApp(page, '/project/archistrator/construction?lens=tasks');
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expect(page.getByTestId(TESTID.constructionTasksResume)).toBeVisible({ timeout: 10_000 });
+  await expectChecking(page, TESTID.constructionBegin, 1_500);
+  await expectChecking(page, TESTID.constructionTasksResume, 1_500);
+  // Through a re-ask that fails again: both still check.
+  const asked = probes.length;
+  await page.clock.fastForward(12_000);
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(asked);
+  await expectChecking(page, TESTID.constructionBegin, 1_000);
+  await expectChecking(page, TESTID.constructionTasksResume, 1_000);
+  // A re-ask answers: no session. Both copies hand the decision back to the read.
+  answer.failing = false;
+  await page.clock.fastForward(25_000);
+  for (const copy of [TESTID.constructionBegin, TESTID.constructionTasksResume]) {
+    await expect(page.getByTestId(copy)).toHaveText(COMMITTED_LABEL, { timeout: 15_000 });
+    await expect(page.getByTestId(copy)).toBeEnabled();
+  }
   expect(h.trapped).toEqual([]);
 });
 

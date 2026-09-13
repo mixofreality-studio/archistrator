@@ -552,15 +552,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       return { stage: o?.stage, requestedAt: o?.requestedAt ?? 0 };
     })
   );
-  // A probe candidate whose probe has not answered, pending or errored, is in
-  // flight too (tasks merge review I1): a fresh pickup reads not started until its
-  // session says otherwise, so an unanswered probe is not "nothing running".
+  // A probe candidate whose probe is still pending is in flight too (tasks merge
+  // review I1): a fresh pickup reads not started until its session says otherwise,
+  // so an unanswered probe is not "nothing running". One that keeps FAILING is not
+  // evidence either way: the button reads "Checking construction…" for it, disabled
+  // (probesFailing below; tasks merge-2 ruling (a), fix I).
   const inFlight = constructionInFlight({
     rows: project?.constructionRows,
     owed: owedMarks,
     sessionStage: liveSession?.stage,
-    uncheckedProbes: owedWork.unchecked.pending.length + owedWork.unchecked.errored.length,
+    pendingProbes: owedWork.unchecked.pending.length,
   });
+  const probesFailing = owedWork.unchecked.errored.length > 0;
   // Pump evidence counts only from reads REQUESTED after the failure, never by when
   // they arrived, and only what CHANGED after it: the project shows work in flight
   // (owed-aware) or newly says construction started, or a probed session is live
@@ -686,6 +689,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     projectLoading,
     running: beginActive,
     awaitingPump: beginHold === 'held',
+    probesFailing,
   });
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
