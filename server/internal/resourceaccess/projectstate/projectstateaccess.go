@@ -1211,6 +1211,9 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
 	}
+	if err := checkActivityConstructionKeys(doc.ActivityConstruction); err != nil {
+		return Project{}, false, err
+	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		// A committed slot model that will not decode — e.g. free prose in a CLOSED-ENUM
 		// field (a Trigger/Axis/CallMode wire name), a type mismatch — is MALFORMED
@@ -1221,6 +1224,32 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode slots")
 	}
 	return p, true, nil
+}
+
+// checkActivityConstructionKeys refuses a stored construction row whose ActivityID
+// is non-empty and differs from its map key (Task 8 review, item 2).
+//
+// The map key IS the row's identity. ResolveConstructionRow classifies name-first,
+// from the activity-list item joined by that key, and the construction view keys
+// every row by it. Other readers still read r.ActivityID. Nothing enforced that the
+// two agree: a hand edit or a buggy writer could store row "C-b" under key "C-a",
+// and the two paths would then disagree about which activity the row is, with no
+// error anywhere. That is MALFORMED COMMITTED STATE, so it is terminal
+// (ContractMisuse) like every other decode failure here (QA F36).
+//
+// An EMPTY ActivityID is allowed. The only writer, upsertActivityConstruction,
+// stamps it from the key, but a legacy row born before that stamp may carry none,
+// and it names no other activity. Keys are checked in sorted order, so the error
+// is deterministic.
+func checkActivityConstructionKeys(rows map[string]ActivityConstructionStatus) error {
+	for _, key := range slices.Sorted(maps.Keys(rows)) {
+		if id := rows[key].ActivityID; id != "" && id != key {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: activityConstruction[%q] carries activityID %q, but the map key is the row's identity",
+				key, id))
+		}
+	}
+	return nil
 }
 
 // DecodeProjectJSON decodes a raw `.aiarch/state/project.json` document into the

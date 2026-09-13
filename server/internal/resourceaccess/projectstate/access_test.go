@@ -8273,6 +8273,59 @@ func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
 	}
 }
 
+// Evidence is encoded on every attempt, even when it is empty (Task 8 review, item
+// 1). The committed corpus carries 132 `"evidence":{}` entries. An omitempty or
+// omitzero tag would silently drop every one of them on the next encode, and the
+// rest of the suite would stay green: the reviewer proved that by mutation. So the
+// tag must be exactly "evidence".
+func TestTaskAttempt_EvidenceIsNotOmitempty(t *testing.T) {
+	f, ok := reflect.TypeFor[TaskAttempt]().FieldByName("Evidence")
+	if !ok {
+		t.Fatal("TaskAttempt has no Evidence field")
+	}
+	if got := f.Tag.Get("json"); got != "evidence" {
+		t.Errorf(`TaskAttempt.Evidence json tag = %q, want exactly "evidence" (no omitempty, no omitzero): an empty evidence ref must still be encoded`, got)
+	}
+}
+
+// The activityConstruction map key IS the row's identity (Task 8 review, item 2).
+// A row stored under another activity's key must fail decode as TERMINAL, naming
+// both ids. A matching key, and a legacy row with no activityID, decode cleanly.
+func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing.T) {
+	id := ProjectID("11111111-1111-1111-1111-111111111111")
+	encode := func(rows map[string]ActivityConstructionStatus) []byte {
+		t.Helper()
+		raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: rows})
+		if err != nil {
+			t.Fatalf("EncodeProjectJSON: %v", err)
+		}
+		return raw
+	}
+	for name, rows := range map[string]map[string]ActivityConstructionStatus{
+		"matching key":          {"C-a": {ActivityID: "C-a"}},
+		"legacy row with no id": {"C-a": {}},
+		"several matching rows": {"C-a": {ActivityID: "C-a"}, "N-STP": {ActivityID: "N-STP"}},
+	} {
+		if _, _, err := DecodeProjectJSON(encode(rows), id); err != nil {
+			t.Errorf("%s: want a clean decode, got %v", name, err)
+		}
+	}
+
+	_, _, err := DecodeProjectJSON(encode(map[string]ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-a"},
+		"C-b": {ActivityID: "C-c"},
+	}), id)
+	if err == nil {
+		t.Fatal("a row whose activityID differs from its map key must FAIL decode")
+	}
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("decode error kind = %v, want ContractMisuse (terminal: malformed committed state)", k)
+	}
+	if !strings.Contains(err.Error(), `activityConstruction["C-b"]`) || !strings.Contains(err.Error(), `"C-c"`) {
+		t.Errorf("the error must name the key and the stored id; got: %v", err)
+	}
+}
+
 // Phase is denormalized from PhaseForTask(Task). Assert the rule itself over all
 // twelve tasks so the two cannot drift once real writers start populating the field.
 func TestTaskAttempt_PhaseIsDenormalizedFromTask(t *testing.T) {
