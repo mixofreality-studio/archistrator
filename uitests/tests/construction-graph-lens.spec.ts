@@ -700,3 +700,140 @@ test('segment codes: shown only where they FIT — none wider than its segment, 
   expect(facts.letterSpacings.every((l) => l === '0px' || l === 'normal')).toBe(true);
   expect(facts.heights, 'every code row keeps one height, shown or not').toEqual([7]);
 });
+
+test('segment codes re-measure once a font finishes loading — a ResizeObserver alone misses it (graph round 3)', async ({
+  page,
+}) => {
+  // The regression this pins: GraphNodes.tsx's SegmentCode only re-measured
+  // inside a ResizeObserver callback, which never fires for a web font
+  // finishing load — the segment's own box does not resize, only the glyphs a
+  // re-flowed font draws inside it do. A code that fit the fallback font could
+  // go on to clip, unnoticed, once the real font swapped in.
+  //
+  // Simulated here with a `measureText` override standing in for that font
+  // swap's effect on measured width, flipped via `document.fonts`' own
+  // `loadingdone` event — the exact signal the fix subscribes to (the other,
+  // `fonts.ready`, is covered by a node:test against a fake FontFaceSet in
+  // segmentCode.test.ts, where its timing is fully controllable).
+  await page.addInitScript(() => {
+    const w = window as typeof window & { __wideMetrics?: boolean };
+    w.__wideMetrics = false;
+    const orig = CanvasRenderingContext2D.prototype.measureText;
+    CanvasRenderingContext2D.prototype.measureText = function (
+      this: CanvasRenderingContext2D,
+      text: string
+    ): TextMetrics {
+      if (w.__wideMetrics) return { width: 100_000 } as unknown as TextMetrics;
+      return orig.call(this, text);
+    };
+  });
+  await openGraph(page);
+  const scale = async (): Promise<number> =>
+    canvas(page).evaluate((root) => {
+      const m = /scale\(([\d.]+)\)/.exec(
+        root.querySelector('.react-flow__viewport')?.getAttribute('style') ?? ''
+      );
+      return m === null ? 0 : Number(m[1]);
+    });
+  for (let i = 0; i < 8 && (await scale()) < 0.85; i += 1) {
+    await page.getByRole('button', { name: /zoom in/i }).click();
+    await page.waitForTimeout(350);
+  }
+  await page.waitForTimeout(500);
+  expect(await scale(), 'zoomed past the LOD-1 threshold').toBeGreaterThanOrEqual(0.8);
+
+  const shownCount = async (): Promise<number> =>
+    canvas(page).evaluate(
+      (root) => root.querySelectorAll('[data-segment-code-fits="true"]').length
+    );
+  const before = await shownCount();
+  expect(before, 'some codes fit under the (real) fallback-font metrics').toBeGreaterThan(0);
+
+  // The swap: metrics change, and the ONLY signal fired is `loadingdone` — no
+  // segment resizes, so a ResizeObserver alone would never see this.
+  await page.evaluate(() => {
+    (window as typeof window & { __wideMetrics?: boolean }).__wideMetrics = true;
+    document.fonts.dispatchEvent(new Event('loadingdone'));
+  });
+  await expect
+    .poll(shownCount, {
+      message: 'every code re-measures against the new (huge) width and stops fitting',
+    })
+    .toBe(0);
+});
+
+test('a segment code unsubscribes its font-metric listener on unmount — no leak (graph round 3)', async ({
+  page,
+}) => {
+  // Counts document.fonts' own 'loadingdone' add/removeEventListener calls, so
+  // an un-mounted SegmentCode that forgot its cleanup (the subscription stays
+  // registered forever) is visible even though nothing it renders looks wrong.
+  await page.addInitScript(() => {
+    const counts = { add: 0, remove: 0 };
+    (window as typeof window & { __fontListenerCounts?: typeof counts }).__fontListenerCounts =
+      counts;
+    const fonts = document.fonts;
+    const origAdd = fonts.addEventListener.bind(fonts);
+    const origRemove = fonts.removeEventListener.bind(fonts);
+    fonts.addEventListener = ((
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | AddEventListenerOptions
+    ): void => {
+      if (type === 'loadingdone') counts.add += 1;
+      origAdd(type, listener, options);
+    }) as typeof fonts.addEventListener;
+    fonts.removeEventListener = ((
+      type: string,
+      listener: EventListenerOrEventListenerObject,
+      options?: boolean | EventListenerOptions
+    ): void => {
+      if (type === 'loadingdone') counts.remove += 1;
+      origRemove(type, listener, options);
+    }) as typeof fonts.removeEventListener;
+  });
+  await openGraph(page);
+  const listenerCounts = async (): Promise<{ add: number; remove: number }> =>
+    page.evaluate(
+      () =>
+        (window as typeof window & { __fontListenerCounts?: { add: number; remove: number } })
+          .__fontListenerCounts ?? { add: 0, remove: 0 }
+    );
+
+  const scale = async (): Promise<number> =>
+    canvas(page).evaluate((root) => {
+      const m = /scale\(([\d.]+)\)/.exec(
+        root.querySelector('.react-flow__viewport')?.getAttribute('style') ?? ''
+      );
+      return m === null ? 0 : Number(m[1]);
+    });
+  for (let i = 0; i < 8 && (await scale()) < 0.85; i += 1) {
+    await page.getByRole('button', { name: /zoom in/i }).click();
+    await page.waitForTimeout(350);
+  }
+  await page.waitForTimeout(500);
+  expect(await scale(), 'zoomed past the LOD-1 threshold').toBeGreaterThanOrEqual(0.8);
+
+  // The zoom-in animation itself can pass through the LOD-1 threshold more
+  // than once (mounting and unmounting SegmentCode along the way), so `add`
+  // and `remove` both grow during it — that churn is expected, not a leak.
+  // The invariant is net subscriptions: at rest with codes on screen, more
+  // were added than have been removed.
+  const mounted = await listenerCounts();
+  expect(
+    mounted.add - mounted.remove,
+    'at least one SegmentCode is currently mounted and subscribed'
+  ).toBeGreaterThan(0);
+
+  // Fit View drops well under the LOD-1 threshold, unmounting every SegmentCode.
+  await page.getByRole('button', { name: /fit view/i }).click();
+  await page.waitForTimeout(500);
+  expect(await scale(), 'back under the LOD-1 threshold').toBeLessThan(0.8);
+
+  await expect
+    .poll(async () => (await listenerCounts()).add - (await listenerCounts()).remove, {
+      message:
+        'every loadingdone listener ever added is removed once its SegmentCode unmounts — net zero, no leak',
+    })
+    .toBe(0);
+});

@@ -71,7 +71,11 @@ import {
   type LaneSchedule,
 } from './laneSchedule';
 import { bandTokens } from '../../project/bandTokens';
-import { SEGMENT_CODE_LETTER_SPACING, segmentCodeFits } from './segmentCode';
+import {
+  SEGMENT_CODE_LETTER_SPACING,
+  segmentCodeFits,
+  subscribeToFontMetricChanges,
+} from './segmentCode';
 
 /** What the lens hands each card node through `data`. */
 export interface GraphCardData {
@@ -624,6 +628,13 @@ function textWidthPx(text: string, font: string): number {
  * segment's, in a ResizeObserver callback — never during render. A code that
  * does not fit renders no text: never an ellipsis, never "R…". The row keeps its
  * 7px either way, so the lane never jumps.
+ *
+ * A ResizeObserver alone MISSES a web font finishing load after the fallback
+ * font's measurement already ran (round 3, designer re-check): the segment's
+ * own box never resizes, only the glyphs a re-flowed font draws inside it do,
+ * so a code that fit the fallback could go on to clip unnoticed. `document.
+ * fonts.ready` and its `loadingdone` event (segmentCode.subscribeToFontMetricChanges)
+ * re-measure for exactly that case.
  */
 function SegmentCode({ code, t }: { code: string; t: Tokens }): ReactElement {
   const rowRef = useRef<HTMLDivElement>(null);
@@ -631,12 +642,15 @@ function SegmentCode({ code, t }: { code: string; t: Tokens }): ReactElement {
   useLayoutEffect(() => {
     const row = rowRef.current;
     if (row === null) return undefined;
-    const observer = new ResizeObserver(() => {
+    const remeasure = (): void => {
       setFits(segmentCodeFits(textWidthPx(code, getComputedStyle(row).font), row.clientWidth));
-    });
+    };
+    const observer = new ResizeObserver(remeasure);
     observer.observe(row);
+    const unsubscribeFonts = subscribeToFontMetricChanges(document.fonts, remeasure);
     return (): void => {
       observer.disconnect();
+      unsubscribeFonts();
     };
   }, [code]);
   return (
