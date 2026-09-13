@@ -54,8 +54,10 @@ export function owedMarksFor(
 /**
  * Steer-needed and failed activities are REVIEW-ONLY until follow-up B1 persists
  * the operator's note and delivers it to the next attempt (the PM's must-hold): no
- * Retry, Re-queue, Skip — and no Run, which would be a no-op beside them. The pane
- * says so in this muted line (designer P0-2, orchestrator ruling).
+ * Retry, Re-queue or Skip. Run stays in the bar, because Run is always present, but
+ * disabled with this line as its reason (tasks merge review I2 ruling;
+ * detailPaneState.reviewOnlyActionsFor). The pane also says so in this muted line
+ * (designer P0-2, orchestrator ruling).
  */
 export const REVIEW_ONLY_NOTE =
   'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.';

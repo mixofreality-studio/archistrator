@@ -511,7 +511,10 @@ test('folded beside the pane, WAITING reads on one line; the drawer offers the n
   await expect(page).toHaveURL(new RegExp(`a=${target}`));
 });
 
-test('steer-needed and failed rows stay review-only: the pane says why and offers nothing yet', async ({
+const REVIEW_ONLY =
+  'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.';
+
+test('steer-needed and failed rows stay review-only: the pane says why, and Run is there but disabled with that reason', async ({
   page,
 }) => {
   await serveOwed(page, initialStages());
@@ -537,11 +540,15 @@ test('steer-needed and failed rows stay review-only: the pane says why and offer
   await expect(page.getByTestId(TESTID.constructionDetailOwedReason)).toContainText(
     'three builds failed the contract tests'
   );
-  await expect(page.getByTestId(TESTID.constructionDetailReviewOnlyNote)).toHaveText(
-    'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.'
-  );
-  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionDetailReviewOnlyNote)).toHaveText(REVIEW_ONLY);
+  // Run is always present (spec §7.8, §9.3): here disabled, with the review-only
+  // reason (tasks merge review I2 ruling). Nothing else is offered.
+  const run = page.getByTestId(TESTID.constructionDetailAction('run'));
+  await expect(run).toBeVisible();
+  await expect(run).toBeDisabled();
+  await expect(run).toHaveAttribute('data-reason', REVIEW_ONLY);
   await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionDetailAction('sendBack'))).toHaveCount(0);
 
   await page.getByTestId(TESTID.constructionTasksReview(`${FAILED}:failed`)).click();
   await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/^failed$/i);
@@ -549,7 +556,10 @@ test('steer-needed and failed rows stay review-only: the pane says why and offer
     'the provisioning pipeline ran past its budget'
   );
   await expect(page.getByTestId(TESTID.constructionDetailReviewOnlyNote)).toBeVisible();
-  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toHaveCount(0);
+  await expect(run).toBeVisible();
+  await expect(run).toBeDisabled();
+  await expect(run).toHaveAttribute('data-reason', REVIEW_ONLY);
+  await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
   for (const name of [/^Retry/, /Re-queue/, /^Skip/, /Takeover/, /Reassign/]) {
     await expect(page.getByRole('button', { name })).toHaveCount(0);
   }

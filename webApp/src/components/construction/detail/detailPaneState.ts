@@ -29,6 +29,7 @@ import {
 } from '../lifecycleTemplates.gen.ts';
 import type { ProvenanceBearing, ProvenanceOrigin } from '../provenanceAxis.ts';
 import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
+import { REVIEW_ONLY_NOTE } from '../tasks/owedChip.ts';
 
 // ---------------------------------------------------------------------------
 // The beside-content (>= 1200px) layout contract.
@@ -598,4 +599,16 @@ export function detailActionsFor(state: TaskDetailState, run: DetailAction): Det
   // Last: the decision is the primary act where one is owed.
   actions.push({ ...run, disabled: true, reason: RUN_NOT_WIRED_REASON });
   return actions;
+}
+
+/**
+ * The action bar on a REVIEW-ONLY selection: a steer-needed or failed activity,
+ * until follow-up B1 delivers the operator's note to the next attempt (PM
+ * must-hold). Run is still in the bar, because Run is always present (spec §7.8,
+ * §9.3; tasks merge review I2 ruling). It is disabled, and its reason is the
+ * review-only one. Nothing else is offered: no Approve or Send back, and never a
+ * Retry, Re-queue or Skip.
+ */
+export function reviewOnlyActionsFor(run: DetailAction): DetailAction[] {
+  return [{ ...run, disabled: true, reason: REVIEW_ONLY_NOTE }];
 }

@@ -23,10 +23,12 @@ import {
   observedOnlyChipLabel,
   outcomeStateOf,
   resolvePhaseTask,
+  reviewOnlyActionsFor,
   runActionFor,
   taskDetailStateFor,
   WIDE_PANE_SX,
 } from './detailPaneState.ts';
+import { REVIEW_ONLY_NOTE } from '../tasks/owedChip.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -89,6 +91,21 @@ void test('the run action is in every task state, off with its reason — never 
   // Run's reason is in the operator's words: no ticket names (tasks round 2).
   assert.doesNotMatch(RUN_NOT_WIRED_REASON, /\b[BQ]\d\b|follow-ups?\b/i);
   assert.match(RUN_NOT_WIRED_REASON, /not wired/i);
+});
+
+// Tasks merge review I2 (ruling): Run is always present. On a review-only selection
+// (a steer or a failure) it is the only action, disabled with the review-only reason.
+void test('a review-only selection keeps Run, disabled with the review-only reason, and offers nothing else', () => {
+  const actions = reviewOnlyActionsFor({ ...RUN, disabled: false });
+  assert.deepEqual(
+    actions.map((a) => a.id),
+    ['run']
+  );
+  const run = actions[0];
+  assert.ok(run !== undefined);
+  assert.equal(run.disabled, true, 'a review-only Run is never enabled');
+  assert.equal(run.reason, REVIEW_ONLY_NOTE);
+  assert.equal(run.label, RUN.label, 'the label still names the selection');
 });
 
 void test('where the ledger cannot place the selection, the chip says what the live workflow says (round 2, designer)', () => {

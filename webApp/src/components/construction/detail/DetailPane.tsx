@@ -103,6 +103,7 @@ import {
   observedOnlyChipLabel,
   provenanceNodeFor,
   resolvePhaseTask,
+  reviewOnlyActionsFor,
   runActionFor,
   selectedAttemptOf,
   selectionSummaryFor,
@@ -355,14 +356,16 @@ export function DetailPane({
   const [sendBackNote, setSendBackNote] = useState('');
   const composing = decisionLive && composingFor === activityId;
   // Approve / Send back act only where a live decision backs them (and not while
-  // one is in flight); `run` keeps Stage B's invariant — present and enabled always.
-  // A steer-needed or failed activity offers nothing: review-only (PM must-hold).
+  // one is in flight). Run is present in every state, disabled with its reason
+  // until the console can start the work (spec §7.8, §9.3).
+  // A steer-needed or failed activity is review-only (PM must-hold): Run alone,
+  // disabled with the review-only reason (tasks merge review I2 ruling).
   // While the composer is open, its own "Send back with this note" is the send:
   // the bar's Send back steps aside (tasks round 2, designer).
   const actions = useMemo(
     () =>
       reviewOnly
-        ? []
+        ? reviewOnlyActionsFor(runActionFor(row, selection))
         : detailActionsFor(state, runActionFor(row, selection))
             .filter((a) => !(composing && a.id === 'sendBack'))
             .map(
