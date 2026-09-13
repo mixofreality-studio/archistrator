@@ -120,7 +120,7 @@ jobs:
             --headless \
             --port 7233 \
             --log-level error &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
               echo "Temporal ready"
               break
@@ -153,7 +153,7 @@ jobs:
         run: |
           /tmp/archistrator-server &
           # Wait up to 60s for /healthz
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
               echo "Server ready"
               break
@@ -301,7 +301,7 @@ jobs:
             --headless \
             --port 7233 \
             --log-level error &
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
               echo "Temporal ready"
               break
@@ -324,7 +324,7 @@ jobs:
         run: |
           /tmp/archistrator-server &
           # Wait up to 60s for /healthz
-          for i in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if curl -sf http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
               echo "Server ready"
               break
