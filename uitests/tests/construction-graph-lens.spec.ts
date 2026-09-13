@@ -436,6 +436,34 @@ test('P0-1: the hover card never launders a reconstructed lane — stamp + chip 
   expect(withRecon, 'a card with a reconstructed lane exists').toBeDefined();
 });
 
+test('P1-3: at LOD-1 a segment shows a short code; its full name is its title and aria-label', async ({
+  page,
+}) => {
+  await openGraph(page);
+  // Hovering a card puts it at LOD-1; take the first card whose lane has a
+  // canonical Service requirements segment.
+  const target = await page.getByTestId(LANE_ID).evaluateAll((els) =>
+    els
+      .map((e) => (e.getAttribute('data-testid') ?? '').replace('construction-graph-lane-', ''))
+      .find((id) => id.startsWith('C-'))
+  );
+  expect(target).toBeDefined();
+  const id = target ?? '';
+  await page
+    .getByTestId(CARD_ID)
+    .filter({ has: page.getByTestId(TESTID.constructionGraphLane(id)) })
+    .hover();
+  const seg = page.getByTestId(TESTID.constructionGraphSegment(id, 'requirements'));
+  const facts = await seg.evaluate((el) => ({
+    code: el.querySelector('[data-segment-code]')?.textContent ?? null,
+    title: el.getAttribute('title') ?? '',
+    aria: el.getAttribute('aria-label') ?? '',
+  }));
+  expect(facts.code).toBe('REQ');
+  expect(facts.title).toMatch(/^Requirements · /);
+  expect(facts.aria).toMatch(/^Requirements · /);
+});
+
 test('Sort and "Expand to current phase" are list-only', async ({ page }) => {
   await openGraph(page);
   await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();

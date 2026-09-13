@@ -153,6 +153,47 @@ export function tickPaint(t: Tokens, state: RowState): TickPaint {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Segment codes (designer P1-3)
+// ---------------------------------------------------------------------------
+
+/**
+ * The canonical codes — the Service profile's five phases, Figure A-1 verbatim,
+ * keyed by the phase AND the name it carries there. A profile that renames a
+ * phase ("UX Requirements", "Plan Authoring") is not the canonical phase in
+ * the reader's eyes, so it gets its own initials instead.
+ */
+const CANONICAL_CODES: Readonly<Record<string, { name: string; code: string }>> = {
+  requirements: { name: 'Requirements', code: 'REQ' },
+  detailed_design: { name: 'Detailed Design', code: 'DD' },
+  test_plan: { name: 'Test Plan', code: 'TP' },
+  construction: { name: 'Construction', code: 'CON' },
+  integration: { name: 'Integration', code: 'INT' },
+};
+
+/** At most this many initials — a code, not a word. */
+const MAX_INITIALS = 3;
+
+/**
+ * The short code a spine segment shows at LOD-1 (designer P1-3: phase labels
+ * truncated at every zoom). REQ / DD / TP / CON / INT for the canonical phases;
+ * for any other profile, the label's initials ("Use-Case Trace" → "UCT"). The
+ * full name always rides in the segment's title and aria-label. An absent gap
+ * has no code.
+ */
+export function segmentCodeFor(segment: { phase: string; name?: string }): string | undefined {
+  if (segment.name === undefined) return undefined;
+  const canonical = CANONICAL_CODES[segment.phase];
+  if (canonical?.name === segment.name) return canonical.code;
+  const initials = segment.name
+    .split(/[\s\-/]+/)
+    .map((word) => /[A-Za-z0-9]/.exec(word)?.[0] ?? '')
+    .join('')
+    .toUpperCase()
+    .slice(0, MAX_INITIALS);
+  return initials.length > 0 ? initials : undefined;
+}
+
 /**
  * Why Sort and "Expand to current phase" are off in the GRAPH lens (Decision
  * D4): a card's position is the architecture's, never a sort key, and every

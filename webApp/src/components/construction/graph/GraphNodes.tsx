@@ -47,7 +47,7 @@ import type { GraphCard } from './activityGraphModel';
 import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
 import { lodFor, type Lod } from './graphViewport';
-import { SEGMENT_STATE_LABEL, segmentPaint, tickPaint } from './graphPresentation';
+import { SEGMENT_STATE_LABEL, segmentCodeFor, segmentPaint, tickPaint } from './graphPresentation';
 import { cardFrameFor } from './graphCardPresentation';
 import {
   effortText,
@@ -450,6 +450,7 @@ function Segment({
       ? `${segment.name} · ${SEGMENT_STATE_LABEL[segment.state]}`
       : SEGMENT_STATE_LABEL.absent;
   const animate = paint.animated && !prefersReducedMotion();
+  const code = segmentCodeFor(segment);
 
   return (
     <Box
@@ -533,12 +534,24 @@ function Segment({
             })
           : null}
       </Box>
-      {lod === 1 && segment.name !== undefined ? (
+      {/* A short code, never a truncated name (designer P1-3); the full name
+          rides in the title and aria-label above. */}
+      {lod === 1 && code !== undefined ? (
         <Typography
+          aria-hidden
           noWrap
-          sx={{ fontFamily: t.mono, fontSize: 6.5, lineHeight: '7px', color: t.muted, mt: '1px' }}
+          data-segment-code={code}
+          sx={{
+            fontFamily: t.mono,
+            fontSize: 6.5,
+            fontWeight: 700,
+            letterSpacing: '0.04em',
+            lineHeight: '7px',
+            color: t.muted,
+            mt: '1px',
+          }}
         >
-          {segment.name}
+          {code}
         </Typography>
       ) : null}
     </Box>

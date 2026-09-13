@@ -16,6 +16,7 @@ import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
   layeringCheckText,
+  segmentCodeFor,
   ribbonCountLabel,
   segmentPaint,
   tickPaint,
@@ -112,6 +113,36 @@ void test('the sanctioned queued Manager→Manager calls are counted apart, citi
     layeringCheckText({ alarms: { up: 1, sideways: 0 }, sanctionedSideways: 2 }),
     'Up/sideways check: 1 upward · 0 sideways · 2 queued Manager→Manager (sanctioned, App C §3.4)'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Segment codes (designer P1-3)
+// ---------------------------------------------------------------------------
+
+void test('the five canonical phases read REQ / DD / TP / CON / INT', () => {
+  assert.deepEqual(
+    [
+      ['requirements', 'Requirements'],
+      ['detailed_design', 'Detailed Design'],
+      ['test_plan', 'Test Plan'],
+      ['construction', 'Construction'],
+      ['integration', 'Integration'],
+    ].map(([phase, name]) => segmentCodeFor({ phase: phase ?? '', name: name ?? '' })),
+    ['REQ', 'DD', 'TP', 'CON', 'INT']
+  );
+});
+
+void test("a renamed phase is not the canonical one — it takes its label's initials", () => {
+  assert.equal(segmentCodeFor({ phase: 'requirements', name: 'UX Requirements' }), 'UR');
+  assert.equal(segmentCodeFor({ phase: 'requirements', name: 'Use-Case Trace' }), 'UCT');
+  assert.equal(segmentCodeFor({ phase: 'test_plan', name: 'Flows' }), 'F');
+  assert.equal(segmentCodeFor({ phase: 'integration', name: 'Regression & Sign-off' }), 'RSO');
+  assert.equal(segmentCodeFor({ phase: 'detailed_design', name: 'Perf Scenario Design' }), 'PSD');
+});
+
+void test('initials stop at three letters, and an absent gap has no code', () => {
+  assert.equal(segmentCodeFor({ phase: 'construction', name: 'A Very Long Phase Name' }), 'AVL');
+  assert.equal(segmentCodeFor({ phase: 'test_plan' }), undefined);
 });
 
 // ---------------------------------------------------------------------------
