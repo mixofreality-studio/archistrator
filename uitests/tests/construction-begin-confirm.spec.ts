@@ -217,29 +217,159 @@ test('three clicks in one task send exactly ONE request', async ({ page }) => {
   expect(trapped[0]?.tickID).toBe(tick);
 });
 
-// Fix-B review M3. A failed dispatch used to leave the button on "Construction
-// running…" for ~30s with nothing said. Failures must be loud (spec §6): the error
-// shows at once and the console stops waiting. The route is FULFILLED with a 500 in
-// the browser — the request never reaches the server.
-test('a failed dispatch is loud, and the console stops waiting at once', async ({ page }) => {
-  const trapped: string[] = [];
+// ---------------------------------------------------------------------------
+// A FAILED dispatch (fix-B review M3, then the fix-C review's Important). The
+// server starts the pump BEFORE it answers and can still answer 5xx after that,
+// or the response can be dropped — so a 5xx or a network error says "outcome
+// unknown", keeps polling, and Begin stays off until a project read newer than
+// the failure answers. Only a 4xx is "rejected", with the server's own message.
+//
+// SAFETY: the dispatch route is FULFILLED (500 / 400) or ABORTED in the browser.
+// Nothing reaches the server. Project READS may be answered 503 in the browser to
+// hold the refresh back; otherwise they go through untouched (a GET).
+// ---------------------------------------------------------------------------
+
+const UNKNOWN_HEADLINE =
+  'Outcome unknown — the pump may have started; the list will show it if it did.';
+
+interface Harness {
+  trapped: string[];
+  /** Timestamps of every project read the page made. */
+  reads: number[];
+  /** While true, project reads are answered 503 in the browser. */
+  holdReads: { on: boolean };
+}
+
+async function harness(
+  page: Page,
+  answer: (route: import('@playwright/test').Route) => Promise<void>
+): Promise<Harness> {
+  const h: Harness = { trapped: [], reads: [], holdReads: { on: false } };
   await page.route('**/execute-next-activity/**', async (route) => {
-    trapped.push(route.request().url());
-    await route.fulfill({
+    h.trapped.push(route.request().url());
+    await answer(route);
+  });
+  await page.route('**/system-design/get-project/archistrator**', async (route) => {
+    h.reads.push(Date.now());
+    if (h.holdReads.on) {
+      await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
+    } else {
+      await route.continue();
+    }
+  });
+  return h;
+}
+
+async function dispatchOnce(page: Page): Promise<number> {
+  await openDialog(page);
+  const at = Date.now();
+  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).click();
+  return at;
+}
+
+/** Sample the button for `ms`: it must never be enabled, nor claim Begin/Resume. */
+async function expectBeginHeldOff(page: Page, ms: number): Promise<void> {
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const s = await begin.evaluate((el) => ({
+      label: (el as HTMLElement).innerText.trim(),
+      enabled: !(el as HTMLButtonElement).disabled,
+    }));
+    expect(s.enabled, `Begin enabled while the refresh is held ("${s.label}")`).toBe(false);
+    expect(s.label).not.toMatch(COMMITTED_LABEL);
+    await page.waitForTimeout(150);
+  }
+}
+
+test('a 500 says the outcome is unknown, and Begin waits for a refreshed project', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) =>
+    route.fulfill({
       status: 500,
       contentType: 'application/json',
-      body: JSON.stringify({ message: 'pump unavailable' }),
-    });
-  });
+      body: JSON.stringify({ code: 'internal', error: 'decode pump decision' }),
+    })
+  );
   await openConsole(page);
-  await openDialog(page);
-  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).click();
+  h.holdReads.on = true;
+  const sentAt = await dispatchOnce(page);
 
   const alert = page.getByTestId(TESTID.constructionBeginError);
-  await expect(alert).toBeVisible({ timeout: 5_000 });
-  await expect(alert).toContainText('dispatch failed');
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'unknown');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await expect(alert).not.toContainText(/again|retry/i);
+  // Severity is error, pinned by MUI's own class.
+  await expect(alert).toHaveClass(/MuiAlert-colorError/);
+  // No read has answered since: Begin stays off, and keeps polling.
+  await expectBeginHeldOff(page, 2_500);
+  // Dismissing the alert hides it WITHOUT lifting the gate.
+  await alert.getByRole('button', { name: 'Close' }).click();
+  await expect(alert).toBeHidden();
+  await expectBeginHeldOff(page, 1_000);
+  expect(h.reads.filter((t) => t > sentAt).length, 'the project is re-read').toBeGreaterThan(1);
+
+  // The refreshed project answers — and Begin says what IT says.
+  h.holdReads.on = false;
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a dropped response (network error) is an unknown outcome too', async ({ page }) => {
+  const h = await harness(page, (route) => route.abort('failed'));
+  await openConsole(page);
+  h.holdReads.on = true;
+  const sentAt = await dispatchOnce(page);
+
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'unknown');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await expectBeginHeldOff(page, 1_500);
+  expect(h.reads.filter((t) => t > sentAt).length, 'the project is re-read').toBeGreaterThan(0);
+
+  h.holdReads.on = false;
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled({ timeout: 10_000 });
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a 400 is a rejection: the server’s message, Begin back at once, and no polling', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'contract_misuse', error: 'empty tickId' }),
+    })
+  );
+  await openConsole(page);
+  const sentAt = await dispatchOnce(page);
+
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'rejected');
+  await expect(alert).toContainText('Construction dispatch rejected: empty tickId.');
+  await expect(alert).toContainText('nothing was started');
+  await expect(alert).not.toContainText('Outcome unknown');
+  await expect(alert).toHaveClass(/MuiAlert-colorError/);
   const begin = page.getByTestId(TESTID.constructionBegin);
   await expect(begin).toHaveText(/Begin construction/, { timeout: 5_000 });
   await expect(begin).toBeEnabled();
-  expect(trapped).toHaveLength(1);
+  // The failure refreshed the project even though nothing polls after a rejection.
+  const readsAfter = h.reads.filter((t) => t > sentAt).length;
+  expect(readsAfter, 'the project is re-read on a failure').toBeGreaterThan(0);
+  await page.waitForTimeout(3_500);
+  expect(h.reads.filter((t) => t > sentAt).length, 'a rejection does not keep polling').toBe(
+    readsAfter
+  );
+
+  // The dismiss works.
+  await alert.getByRole('button', { name: 'Close' }).click();
+  await expect(alert).toBeHidden();
+  expect(h.trapped).toHaveLength(1);
 });

@@ -57,9 +57,14 @@ import {
 } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
+  awaitingRefreshAfter,
   beginControlFor,
+  dispatchOutcomeCopy,
+  dispatchOutcomeFor,
   notStartedActivities,
+  type DispatchOutcome,
 } from '../components/construction/lens/beginControl';
+import { ApiError } from '../contracts/errors';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import {
@@ -135,10 +140,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // permanently `running` (they are not live pump work); progress (the done count) is the
   // honest signal that the pump is actively completing activities.
   const [cascading, setCascading] = useState(false);
-  const { data: project, isLoading: projectLoading } = useProject(
-    projectId,
-    cascading ? 1500 : false
-  );
+  const {
+    data: project,
+    isLoading: projectLoading,
+    dataUpdatedAt: projectReadAt,
+  } = useProject(projectId, cascading ? 1500 : false);
 
   const integratedCount = useMemo(() => {
     const rows = project?.constructionRows;
@@ -263,27 +269,55 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // re-render could report the first as pending (pinned by the same-task triple
   // click in construction-begin-confirm.spec).
   const beginInFlightRef = useRef(false);
-  // A failed dispatch is LOUD (spec §6 "Failures must be loud", fix-B review M3). It
-  // used to leave `cascading` armed, so the button read "Construction running…" for
-  // ~30s and nothing said why.
-  const [beginError, setBeginError] = useState<string | null>(null);
+  // A failed dispatch is LOUD (spec §6 "Failures must be loud", fix-B review M3) —
+  // and HONEST about what it knows (fix-C review). The server starts the pump before
+  // it answers and can still answer 5xx after that, or the response can be dropped,
+  // so only a 4xx means nothing started (dispatchOutcomeFor). On an unknown outcome
+  // the console keeps polling, as it does after a success, and Begin stays off until
+  // a project read newer than the failure has answered (awaitingRefreshAfter) — a
+  // stale "Begin" there was a second pump one click away. `at` is when the console
+  // learned of the failure; `dismissed` hides the alert without lifting that gate.
+  const [beginFailure, setBeginFailure] = useState<{
+    outcome: DispatchOutcome;
+    at: number;
+    dismissed: boolean;
+  } | null>(null);
   const onBegin = (tickId: string): void => {
     if (beginInFlightRef.current) return;
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
-    setBeginError(null);
+    setBeginFailure(null);
     setCascading(true);
     begin.mutate(tickId, {
       onError: (err) => {
-        setCascading(false);
-        setBeginError(err.message.length > 0 ? err.message : 'no reason given');
+        const outcome = dispatchOutcomeFor(
+          err instanceof ApiError ? err.status : undefined,
+          err.message
+        );
+        const at = Date.now();
+        if (outcome.kind === 'rejected') {
+          // Refused: nothing started, so there is nothing to wait on.
+          setCascading(false);
+        } else {
+          // Keep polling, exactly as after a success: the list shows the pump if it
+          // started. The progress window restarts from here.
+          lastProgressAtRef.current = at;
+        }
+        setBeginFailure({ outcome, at, dismissed: false });
       },
       onSettled: () => {
         beginInFlightRef.current = false;
       },
     });
   };
-  const beginActive = cascading || begin.isPending;
+  // Running only on the strength of a dispatch that SUCCEEDED: a failed one may
+  // still be polled, but the button's state is then the refreshed project's.
+  const beginActive = begin.isPending || (cascading && beginFailure === null);
+  const awaitingRefresh = awaitingRefreshAfter(beginFailure, projectReadAt);
+  const beginFailureCopy =
+    beginFailure !== null && !beginFailure.dismissed
+      ? dispatchOutcomeCopy(beginFailure.outcome)
+      : undefined;
 
   // --- Lens state (Stage B) -------------------------------------------------
   // Selection is NOT component state: it lives in the URL's search params
@@ -369,6 +403,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     constructionStarted: project?.constructionStarted,
     projectLoading,
     running: beginActive,
+    awaitingRefresh,
   });
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
@@ -564,17 +599,22 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             title="Construction"
           />
 
-          {beginError !== null ? (
+          {beginFailure !== null && beginFailureCopy !== undefined ? (
             <Alert
+              data-outcome={beginFailure.outcome.kind}
               data-testid={UI_IDENTIFIERS.Construction.BEGIN_ERROR}
               severity="error"
               sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
               onClose={() => {
-                setBeginError(null);
+                setBeginFailure({ ...beginFailure, dismissed: true });
               }}
             >
-              Construction dispatch failed: {beginError}. The console has stopped waiting on it;
-              the list shows only what the server recorded. Begin again to retry.
+              <Box component="span" sx={{ display: 'block', fontWeight: 700 }}>
+                {beginFailureCopy.headline}
+              </Box>
+              <Box component="span" sx={{ display: 'block' }}>
+                {beginFailureCopy.detail}
+              </Box>
             </Alert>
           ) : null}
 

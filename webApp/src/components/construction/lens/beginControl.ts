@@ -41,11 +41,17 @@ export function beginControlFor(input: {
   constructionStarted: boolean | undefined;
   projectLoading: boolean;
   running: boolean;
+  /**
+   * A dispatch ended with an UNKNOWN outcome (a 5xx or a dropped response) and no
+   * project read has answered since. The pump may have started, so the button
+   * cannot say Begin until the refreshed project decides it (fix-C review).
+   */
+  awaitingRefresh?: boolean;
 }): BeginControl {
   if (input.running) {
     return { label: 'Construction running…', disabled: true, busy: true, verb: 'Resume' };
   }
-  if (input.projectLoading) return CHECKING;
+  if (input.projectLoading || input.awaitingRefresh === true) return CHECKING;
   if (input.constructionStarted === undefined) {
     // Loaded, but no project read to answer from: neither word can be claimed, and
     // nothing can sensibly be dispatched.
@@ -54,6 +60,64 @@ export function beginControlFor(input: {
   return input.constructionStarted
     ? { label: 'Resume construction', disabled: false, busy: false, verb: 'Resume' }
     : { label: 'Begin construction', disabled: false, busy: false, verb: 'Begin' };
+}
+
+/**
+ * What a FAILED dispatch tells the operator (fix-C review, Important).
+ *
+ * The server starts the pump workflow BEFORE it answers, and it can still answer
+ * 5xx after that (a decode failure, a cancelled context, the terminal fallback) —
+ * or a proxy or the network can drop the response. So a 5xx or a network error
+ * does not mean "nothing started", and "Begin again to retry" on it invited a
+ * second pump. Only a 4xx is the server REFUSING the request: nothing started.
+ *
+ *   - `rejected` — a 4xx. Carries the server's own message where it sent one.
+ *   - `unknown`  — anything else: a 5xx, no status at all (the request never got
+ *                  an answer), or a status this rule does not recognise.
+ */
+export type DispatchOutcome =
+  | { kind: 'rejected'; message: string }
+  | { kind: 'unknown'; message: string };
+
+export function dispatchOutcomeFor(
+  /** The HTTP status, or `undefined` when no response arrived (network error). */
+  status: number | undefined,
+  message: string
+): DispatchOutcome {
+  const said = message.trim().length > 0 ? message.trim() : 'no reason given';
+  if (status !== undefined && status >= 400 && status < 500) {
+    return { kind: 'rejected', message: said };
+  }
+  return { kind: 'unknown', message: said };
+}
+
+/** The alert's words for one outcome. The unknown sentence is the review's ruling
+ *  verbatim; it never says "retry", because a retry could start a second pump. */
+export function dispatchOutcomeCopy(outcome: DispatchOutcome): { headline: string; detail: string } {
+  switch (outcome.kind) {
+    case 'rejected':
+      return {
+        headline: `Construction dispatch rejected: ${outcome.message}.`,
+        detail: 'The server refused the request, so nothing was started.',
+      };
+    case 'unknown':
+      return {
+        headline: 'Outcome unknown — the pump may have started; the list will show it if it did.',
+        detail: `The dispatch got no clean answer (${outcome.message}). Begin stays off until the refreshed project says whether construction started.`,
+      };
+  }
+}
+
+/**
+ * Whether Begin must still wait: an unknown outcome, and no project read has
+ * completed since the console learned of it. `projectReadAt` is the query's
+ * `dataUpdatedAt` (0 before any read). A 4xx never waits — nothing started.
+ */
+export function awaitingRefreshAfter(
+  failure: { outcome: DispatchOutcome; at: number } | null,
+  projectReadAt: number
+): boolean {
+  return failure !== null && failure.outcome.kind === 'unknown' && projectReadAt <= failure.at;
 }
 
 export interface DispatchCandidate {

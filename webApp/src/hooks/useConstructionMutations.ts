@@ -28,6 +28,16 @@ export function useBeginConstruction(
   projectId: string
 ): UseMutationResult<undefined, Error, string> {
   const client = useQueryClient();
+  // Refresh the project read so the just-dispatched activity (flipping to
+  // in-construction) shows up; the console's cascade poll keeps it fresh. The
+  // session probes are re-read too: a dispatch may have just created a session
+  // they had settled as absent.
+  const refresh = async (): Promise<void> => {
+    await Promise.all([
+      client.invalidateQueries({ queryKey: projectKey(projectId) }),
+      client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) }),
+    ]);
+  };
   return useMutation<undefined, Error, string>({
     mutationFn: async (tickID) => {
       const { error, response } = await apiClient.POST(
@@ -37,16 +47,12 @@ export function useBeginConstruction(
       if (error !== undefined) throw toApiError(response.status, error);
       return undefined;
     },
-    // Refresh the project read so the just-dispatched activity (flipping to
-    // in-construction) shows up; the console's cascade poll keeps it fresh. The
-    // session probes are re-read too: Begin/Resume is answered from them, and a
-    // dispatch has just created a session they had settled as absent.
-    onSuccess: async () => {
-      await Promise.all([
-        client.invalidateQueries({ queryKey: projectKey(projectId) }),
-        client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) }),
-      ]);
-    },
+    onSuccess: refresh,
+    // A FAILED dispatch refreshes exactly as a successful one does (fix-C review):
+    // the server starts the pump before it answers and can still answer 5xx after
+    // that, or the response can be dropped on the way. Only a fresh read can say
+    // whether construction started, so the console never guesses from the error.
+    onError: refresh,
   });
 }
 

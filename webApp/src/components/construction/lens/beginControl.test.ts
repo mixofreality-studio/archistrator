@@ -1,7 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConstructionRow } from '../../../contracts/types';
-import { beginControlFor, notStartedActivities } from './beginControl.ts';
+import {
+  awaitingRefreshAfter,
+  beginControlFor,
+  dispatchOutcomeCopy,
+  dispatchOutcomeFor,
+  notStartedActivities,
+} from './beginControl.ts';
 
 const COMMITTED_WORDS = /Begin construction|Resume construction/;
 
@@ -78,4 +84,56 @@ void test('a Begin names exactly the unrecorded rows, sorted, with titles where 
     [],
     'no rows yet is nothing to name'
   );
+});
+
+// ---------------------------------------------------------------------------
+// A failed dispatch (fix-C review, Important): a 5xx or a dropped response can
+// arrive AFTER the server started the pump, so only a 4xx is a refusal.
+// ---------------------------------------------------------------------------
+
+void test('only a 4xx is a rejection; a 5xx, no status at all, or anything else is an unknown outcome', () => {
+  assert.deepEqual(dispatchOutcomeFor(400, 'empty tickId'), {
+    kind: 'rejected',
+    message: 'empty tickId',
+  });
+  assert.equal(dispatchOutcomeFor(404, 'no such project').kind, 'rejected');
+  assert.equal(dispatchOutcomeFor(499, 'x').kind, 'rejected');
+  for (const status of [500, 502, 503, 504, undefined, 302, 200]) {
+    assert.equal(dispatchOutcomeFor(status, 'boom').kind, 'unknown', String(status));
+  }
+  assert.equal(dispatchOutcomeFor(400, '  ').message, 'no reason given');
+});
+
+void test('the unknown copy is the ruling verbatim and never invites a retry; the rejection quotes the server', () => {
+  const unknown = dispatchOutcomeCopy(dispatchOutcomeFor(500, 'request failed with status 500'));
+  assert.equal(
+    unknown.headline,
+    'Outcome unknown — the pump may have started; the list will show it if it did.'
+  );
+  assert.doesNotMatch(`${unknown.headline} ${unknown.detail}`, /again|retry|failed:/i);
+  const rejected = dispatchOutcomeCopy(dispatchOutcomeFor(400, 'empty tickId'));
+  assert.match(rejected.headline, /^Construction dispatch rejected: empty tickId\.$/);
+  assert.match(rejected.detail, /nothing was started/);
+});
+
+void test('after an unknown outcome Begin waits for a project read newer than the failure; a rejection never waits', () => {
+  const unknown = { outcome: dispatchOutcomeFor(503, 'x'), at: 1000 };
+  assert.equal(awaitingRefreshAfter(unknown, 0), true, 'no read yet');
+  assert.equal(awaitingRefreshAfter(unknown, 1000), true, 'a read from the same instant is not newer');
+  assert.equal(awaitingRefreshAfter(unknown, 1001), false, 'the refreshed project answered');
+  assert.equal(awaitingRefreshAfter({ outcome: dispatchOutcomeFor(400, 'x'), at: 1000 }, 0), false);
+  assert.equal(awaitingRefreshAfter(null, 0), false);
+});
+
+void test('while awaiting the refresh the button is disabled and names neither Begin nor Resume', () => {
+  for (const constructionStarted of [true, false]) {
+    const c = beginControlFor({
+      constructionStarted,
+      projectLoading: false,
+      running: false,
+      awaitingRefresh: true,
+    });
+    assert.equal(c.disabled, true);
+    assert.doesNotMatch(c.label, COMMITTED_WORDS);
+  }
 });
