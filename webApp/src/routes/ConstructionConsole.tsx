@@ -38,8 +38,18 @@ import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contr
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
-import { useConstructionSession } from '../hooks/useConstructionSession';
 import { useConstructionSessions } from '../hooks/useConstructionSessions';
+import {
+  decisionBusy,
+  decisionNoteFor,
+  decisionViewFor,
+  type DecisionRecord,
+  type DecisionView,
+  type FlowNote,
+  type GateDecision,
+  type ObservedGate,
+  type PaneDecision,
+} from '../components/construction/tasks/decisionFlow';
 import { owedItemsFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
 import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
 import { emptyStateCounts, shapeFor } from '../components/construction/tasks/tasksLensCopy';
@@ -90,7 +100,6 @@ import {
 import { KIND_META, type ActivityKind } from '../components/construction/KindBadge';
 import { DetailPane } from '../components/construction/detail/DetailPane';
 import { ConstructionEpisodeBodyContainer } from '../containers/ConstructionEpisodeBodyContainer';
-import { PhaseGatePanel } from '../components/construction/PhaseGatePanel';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
 
 import { useTokens } from '../utilities/theme/ThemeContext';
@@ -182,89 +191,21 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const begin = useBeginConstruction(projectId);
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
 
-  // Phase-gate detection: find the currently in-construction activity and poll its
-  // session. When the workflow suspends at a phase gate (StageAwaitingApproval = 7),
-  // the PhaseGatePanel is shown so the human can Approve or Send back.
-  const constructionRows = project?.constructionRows;
-  const activeInConstructionId = useMemo(() => {
-    if (constructionRows === undefined) return undefined;
-    return Object.values(constructionRows).find((r): boolean => r.status === 'in-construction')
-      ?.activityId;
-  }, [constructionRows]);
-
-  const phaseGateSessionQuery = useConstructionSession(projectId, activeInConstructionId);
-  const phaseGateSession = phaseGateSessionQuery.data;
-  const isAwaitingApproval = phaseGateSession?.stage === 'awaitingApproval';
-
-  // The construction row for the gated activity — provides phase + kind for the panel.
-  const phaseGateRow =
-    isAwaitingApproval && activeInConstructionId !== undefined
-      ? project?.constructionRows?.[activeInConstructionId]
-      : undefined;
-  // A phase gate cannot exist without the server having dispatched at least one
-  // phase for a CLASSIFIED activity, so this is always defined in practice —
-  // but currentLifecyclePhase is optional on the type, so narrow it explicitly
-  // rather than asserting: never submit a decision with no real phase to name.
-  const gatePhase = phaseGateRow?.currentLifecyclePhase;
-
-  const approvePhase = (): void => {
-    if (
-      activeInConstructionId === undefined ||
-      phaseGateRow === undefined ||
-      gatePhase === undefined
-    )
-      return;
-    submitPhaseDecision.mutate(
-      {
-        activityId: activeInConstructionId,
-        phase: gatePhase,
-        decision: 'approve',
-      },
-      // Clear any accumulated anchors/comments once the gate is decided so they do
-      // not bleed into the next activity's gate cycle.
-      {
-        onSuccess: () => {
-          reset();
-        },
-      }
-    );
-  };
-
-  const sendBackPhase = (): void => {
-    if (
-      activeInConstructionId === undefined ||
-      phaseGateRow === undefined ||
-      gatePhase === undefined
-    )
-      return;
-    // Attach the accumulated anchored comments + free-form notes to the phase-gate
-    // redraft, exactly like Phase-1's send-back. The submit-phase-decision endpoint
-    // already carries ConstructionReviewFeedback { notes, comments } — no server
-    // contract change needed. The Manager weaves the comments beneath the notes into
-    // the role redraft prompt (jsonPath is opaque, human-meaningful guidance).
-    const wireComments = toWire();
-    const freeform = freeformNotes();
-    // notes is required on the wire; when the operator only anchored comments (no
-    // free-form note) synthesize the notes from them so the redraft always carries
-    // actionable guidance (mirrors DesignExperience.sendBack).
-    const notes = freeform.length > 0 ? freeform : wireComments.map((c) => c.text).join('\n');
-    const hasFeedback = wireComments.length > 0 || notes.length > 0;
-    submitPhaseDecision.mutate(
-      {
-        activityId: activeInConstructionId,
-        phase: gatePhase,
-        decision: 'sendBack',
-        ...(hasFeedback
-          ? { feedback: { notes, ...(wireComments.length > 0 ? { comments: wireComments } : {}) } }
-          : {}),
-      },
-      {
-        onSuccess: () => {
-          reset();
-        },
-      }
-    );
-  };
+  // --- Gate decisions (Stage C) ----------------------------------------------
+  // The single `.find()` of "the" in-construction activity is gone (spec §1: it
+  // could only ever return one); decisions are made from the shared pane, for any
+  // owed gate. What happened on the wire is recorded HERE, per owed-item key, in
+  // event handlers only; what it means — sending, resumed, did not land — is
+  // derived at render against the live session (tasks/decisionFlow.ts), so no
+  // effect ever sets state to follow the workflow.
+  const [decisions, setDecisions] = useState<
+    Record<string, { record: DecisionRecord; item: RankedOwed }>
+  >({});
+  // The clock the derivation reads: ticks once a second while a decision is live.
+  const [decisionNow, setDecisionNow] = useState(0);
+  // One click, one signal: clicks delivered in one task all land before a re-render
+  // could report the first as in flight (the same reason onBegin keeps a ref).
+  const decidingRef = useRef(new Set<string>());
 
   // Begin is a real dispatch, so the button only opens a confirm step that names
   // what would be started (BeginConfirmDialog). Each opening mints ONE tickID, which
@@ -471,7 +412,19 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // count is the same either way; what the view may strip is a mixed-ledger row's
   // current phase, which the lens then reports as unreported rather than guessed.
   const probeIds = useMemo(() => probeCandidatesFor(viewRows), [viewRows]);
-  const sessionsByActivity = useConstructionSessions(projectId, probeIds);
+  // An activity a decision was just sent for stays probed until its record is
+  // done, so its resume can be OBSERVED even once the pump marks it finished.
+  const decidedIdsKey = [...new Set(Object.values(decisions).map((d) => d.record.activityId))]
+    .sort((a, b) => a.localeCompare(b))
+    .join(' ');
+  const sessionIds = useMemo(
+    () =>
+      [
+        ...new Set([...probeIds, ...(decidedIdsKey.length > 0 ? decidedIdsKey.split(' ') : [])]),
+      ].sort((a, b) => a.localeCompare(b)),
+    [probeIds, decidedIdsKey]
+  );
+  const sessionsByActivity = useConstructionSessions(projectId, sessionIds);
   const owedItems = useMemo(
     () => owedItemsFor({ rows: viewRows, sessions: sessionsByActivity, titleFor: titleForId }),
     [viewRows, sessionsByActivity, titleForId]
@@ -527,6 +480,120 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         : new Map<string, never>();
     return emptyStateCounts(statuses, probeIds.length);
   }, [networkModel, project, viewRows, probeIds]);
+  // Each recorded decision, read against the live session and the clock.
+  const observedGateFor = (activityId: string): ObservedGate => {
+    const s = sessionsByActivity[activityId];
+    return {
+      stage: s === undefined ? undefined : s === null ? null : s.stage,
+      // The pump's own current phase (raw head-state), for "now in <phase>".
+      lifecyclePhase: project?.constructionRows?.[activityId]?.currentLifecyclePhase,
+    };
+  };
+  const decisionViews: Record<string, DecisionView> = {};
+  for (const [key, d] of Object.entries(decisions)) {
+    decisionViews[key] = decisionViewFor(
+      d.record,
+      observedGateFor(d.record.activityId),
+      decisionNow
+    );
+  }
+  const anyDecisionLive = Object.values(decisionViews).some((v) => v.kind !== 'done');
+  useEffect(() => {
+    if (!anyDecisionLive) return undefined;
+    const tick = (): void => {
+      setDecisionNow(Date.now());
+    };
+    const id = setInterval(tick, 1000);
+    const first = setTimeout(tick, 0);
+    return (): void => {
+      clearInterval(id);
+      clearTimeout(first);
+    };
+  }, [anyDecisionLive]);
+  const noteForKey = (key: string): FlowNote | undefined => {
+    const d = decisions[key];
+    const view = decisionViews[key];
+    return d !== undefined && view !== undefined
+      ? decisionNoteFor(view, d.record.decision)
+      : undefined;
+  };
+  // A resumed row lingers in place (spec §6) after the owed set has dropped it.
+  const lingering = Object.entries(decisions)
+    .filter(
+      ([key]) => decisionViews[key]?.kind !== 'done' && !rankedOwed.some((i) => i.key === key)
+    )
+    .map(([, d]) => d.item);
+
+  const decideGate = (item: RankedOwed, decision: GateDecision, note = ''): void => {
+    const lifecyclePhase = item.gate?.lifecyclePhase;
+    // Never address a decision to a guessed key: no reported phase, no signal.
+    if (lifecyclePhase === undefined) return;
+    const key = item.key;
+    if (decidingRef.current.has(key) || decisionBusy(decisionViews[key])) return;
+    decidingRef.current.add(key);
+    setDecisions((prev) => ({
+      ...prev,
+      [key]: { record: { key, activityId: item.activityId, decision }, item },
+    }));
+    // Send back carries the human's words: the pane's note, any free-form notes and
+    // the anchored comments from the co-author rail (ConstructionReviewFeedback).
+    const wireComments = decision === 'sendBack' ? toWire() : [];
+    const notes =
+      decision === 'sendBack'
+        ? [note.trim(), freeformNotes()].filter((s) => s.length > 0).join('\n') ||
+          wireComments.map((c) => c.text).join('\n')
+        : '';
+    const answered = (error?: { status?: number | undefined; message: string }): void => {
+      setDecisions((prev) => {
+        const cur = prev[key];
+        if (cur === undefined) return prev;
+        return {
+          ...prev,
+          [key]: {
+            ...cur,
+            record: {
+              ...cur.record,
+              sentAt: Date.now(),
+              ...(error !== undefined ? { error } : {}),
+            },
+          },
+        };
+      });
+    };
+    submitPhaseDecision.mutate(
+      {
+        activityId: item.activityId,
+        phase: lifecyclePhase,
+        decision,
+        ...(decision === 'sendBack'
+          ? {
+              feedback: {
+                notes,
+                ...(wireComments.length > 0 ? { comments: wireComments } : {}),
+              },
+            }
+          : {}),
+      },
+      {
+        onSuccess: () => {
+          // The anchored comments rode this decision; they must not bleed into the
+          // next gate's.
+          reset();
+          answered();
+        },
+        onError: (err) => {
+          answered({
+            status: err instanceof ApiError ? err.status : undefined,
+            message: err.message,
+          });
+        },
+        onSettled: () => {
+          decidingRef.current.delete(key);
+        },
+      }
+    );
+  };
+
   const shapeOf = (item: RankedOwed): string => {
     const contract = contractForActivity(project, item.activityId);
     const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
@@ -543,6 +610,35 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // operator has since collapsed.
   const [expandToPhaseSignal, setExpandToPhaseSignal] = useState(0);
 
+  // The decision the pane can make: the selected activity's live gate, if it has
+  // one with a reported phase to address the signal to (DetailPane's `decision`).
+  const selectedGate =
+    selectedActivityId !== null
+      ? rankedOwed.find(
+          (i) =>
+            i.activityId === selectedActivityId &&
+            i.reason === 'gate' &&
+            i.gate?.lifecyclePhase !== undefined
+        )
+      : undefined;
+  const selectedGatePhase = selectedGate?.gate?.lifecyclePhase;
+  const paneDecision: PaneDecision | undefined =
+    selectedGate !== undefined && selectedGatePhase !== undefined
+      ? {
+          lifecyclePhase: selectedGatePhase,
+          gateTask: selectedGate.gate?.task,
+          busy: decisionBusy(decisionViews[selectedGate.key]),
+          anchoredCount: toWire().length,
+          note: noteForKey(selectedGate.key),
+          onApprove: (): void => {
+            decideGate(selectedGate, 'approve');
+          },
+          onSendBack: (note): void => {
+            decideGate(selectedGate, 'sendBack', note);
+          },
+        }
+      : undefined;
+
   // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
   // (never owned by the pane itself), so it cannot lose it to the cascade
   // poll's remount. Beside-content at >=1200px, the existing overlay Drawer
@@ -555,6 +651,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         // hooks, so the EPISODE body's queries are handed down from here as a
         // containers-layer render prop (the same reason ActivityLifecyclePanel
         // took an `episodesSlot`).
+        decision={paneDecision}
         episodeSlot={({ activityId, attemptId }) => (
           <ConstructionEpisodeBodyContainer
             activityId={activityId}
@@ -564,17 +661,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         )}
         hiddenAttempts={evidenceView.hidden[selectedActivityId]}
         project={project}
-        // ONLY when the selected activity IS the one at a phase gate. Another
-        // activity's reviewer set rendered under this one's review body would be
-        // the most direct mis-attribution available on this surface.
-        // The selected activity's OWN session, when it is at a gate (Stage C) —
-        // any activity, not only the one the old single-activity lookup found.
+        // The selected activity's OWN session, and only while it is at a gate —
+        // another activity's reviewer set under this one's review body would be the
+        // most direct mis-attribution available on this surface.
         reviewSet={
           sessionsByActivity[selectedActivityId]?.stage === 'awaitingApproval'
             ? sessionsByActivity[selectedActivityId].view.reviewSet
-            : activeInConstructionId === selectedActivityId
-              ? phaseGateSession?.view.reviewSet
-              : undefined
+            : undefined
         }
         row={viewRows?.[selectedActivityId]}
         selection={selection}
@@ -601,14 +694,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             }
           : {}),
       }}
+      flowOf={noteForKey}
       gitOf={(id) => gitFor(project, id)}
-      items={visibleOwed}
+      // Just-decided rows first, lingering in place with their evidence line.
+      items={[...lingering, ...visibleOwed]}
       policy={project?.reviewPolicy}
       projectId={projectId}
       selection={selection}
       shapeOf={shapeOf}
       supervisionCap={project?.constructionProgress?.supervisionCap}
-      totalOwed={rankedOwed.length}
+      totalOwed={rankedOwed.length + lingering.length}
       onClearFilters={() => {
         setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
       }}
@@ -752,17 +847,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                       }}
                       onSelect={select}
                     />
-                    {/* Phase gate — rendered when ConstructionSessionView.stage === awaitingApproval */}
-                    {phaseGateRow !== undefined && gatePhase !== undefined && (
-                      <PhaseGatePanel
-                        activityKind={phaseGateRow.kind}
-                        pending={submitPhaseDecision.isPending}
-                        phase={gatePhase}
-                        reviewSet={phaseGateSession?.view.reviewSet}
-                        onApprove={approvePhase}
-                        onSendBack={sendBackPhase}
-                      />
-                    )}
+                    {/* The phase gate is decided in the shared pane now (Stage C),
+                        for any owed gate — not in a panel under the list. */}
                   </Box>
                 ) : lens === 'tasks' ? (
                   tasksContent

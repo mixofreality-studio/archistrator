@@ -60,6 +60,7 @@ import Drawer from '@mui/material/Drawer';
 import IconButton from '@mui/material/IconButton';
 import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
+import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
@@ -113,6 +114,12 @@ import { ProvenanceNote } from './bodies/ProvenanceNote';
 import { ReviewBody } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
 import { hiddenInScope } from '../list/observedOnly';
+import {
+  paneDecisionApplies,
+  sendBackReady,
+  type FlowNote,
+  type PaneDecision,
+} from '../tasks/decisionFlow.ts';
 
 // Re-exported alongside the component per the brief: a caller (and this
 // file's own test) can reach the pure invariant without rendering anything.
@@ -195,6 +202,16 @@ export interface DetailPaneProps {
    * (designer re-check B1).
    */
   hiddenAttempts?: readonly TaskAttemptRow[] | undefined;
+  /**
+   * The decision this pane can make (Stage C) — handed down ONLY for an activity
+   * the live workflow reports at a gate (tasks/owedWork.ts). Where it applies
+   * (paneDecisionApplies: the activity, its gated phase or its gate task) the
+   * selection reads AWAITING YOU and Approve / Send back act; Send back asks for
+   * the note it will carry. Everywhere else Approve / Send back stay off: a
+   * head-state `in-review` row is not a gate, and a button that sends nothing is
+   * worse than none (spec §6).
+   */
+  decision?: PaneDecision | undefined;
   onClose: () => void;
 }
 
@@ -207,6 +224,7 @@ export function DetailPane({
   systemEnvelope,
   reviewSet,
   hiddenAttempts,
+  decision,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -266,11 +284,27 @@ export function DetailPane({
     }
   }, []);
 
-  const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
-  const actions = useMemo(
-    () => detailActionsFor(state, runActionFor(row, selection)),
-    [state, row, selection]
+  // Stage C: a live gate handed down by the route makes the gated selection
+  // AWAITING YOU — the one source of that state; head-state `in-review` is not it.
+  const decisionLive = decision !== undefined && paneDecisionApplies(decision, selection);
+  const state = useMemo(
+    (): TaskDetailState => (decisionLive ? 'awaitingHuman' : taskDetailStateFor(row, selection)),
+    [decisionLive, row, selection]
   );
+  // Approve / Send back act only where a live decision backs them (and not while
+  // one is in flight); `run` keeps Stage B's invariant — present and enabled always.
+  const actions = useMemo(
+    () =>
+      detailActionsFor(state, runActionFor(row, selection)).map(
+        (a): DetailAction =>
+          a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
+      ),
+    [state, row, selection, decisionLive, decision]
+  );
+  // The send-back composer, open for one activity at a time — keyed by the
+  // activity rather than reset in an effect, so selecting elsewhere closes it.
+  const [composingFor, setComposingFor] = useState<string | null>(null);
+  const [sendBackNote, setSendBackNote] = useState('');
   // Attempts "Observed only" set aside in whatever is selected — above zero, the
   // chip and the unknown card say so rather than calling the record absent (B1).
   const hiddenCount = useMemo(
@@ -308,6 +342,39 @@ export function DetailPane({
     select({ ...selection, attempt });
   };
 
+  const onAction = (id: DetailAction['id']): void => {
+    if (decision === undefined || !decisionLive) return;
+    if (id === 'approve') decision.onApprove();
+    else if (id === 'sendBack') setComposingFor(activityId);
+  };
+  const composing = decisionLive && composingFor === activityId;
+  const actionBar = (
+    <ActionBar
+      actions={actions}
+      composer={
+        composing ? (
+          <SendBackComposer
+            anchoredCount={decision.anchoredCount}
+            note={sendBackNote}
+            t={t}
+            onCancel={() => {
+              setComposingFor(null);
+            }}
+            onChange={setSendBackNote}
+            onSend={() => {
+              decision.onSendBack(sendBackNote);
+              setComposingFor(null);
+              setSendBackNote('');
+            }}
+          />
+        ) : undefined
+      }
+      flow={decisionLive ? decision.note : undefined}
+      t={t}
+      onAction={onAction}
+    />
+  );
+
   const body = (
     <>
       {/* Invariant across every body — provenance is an ORTHOGONAL axis, so
@@ -331,7 +398,7 @@ export function DetailPane({
 
   const paneContent = (
     <DetailPaneChrome
-      actions={actions}
+      actionBar={actionBar}
       body={body}
       breadcrumb={breadcrumb}
       collapsed={collapsed}
@@ -400,7 +467,7 @@ export function DetailPane({
         >
           {body}
         </Box>
-        <ActionBar actions={actions} t={t} />
+        {actionBar}
       </Box>
     </Drawer>
   );
@@ -423,7 +490,7 @@ function DetailPaneChrome({
   exitCriterion,
   weight,
   body,
-  actions,
+  actionBar,
   hiddenCount,
   taskSelected,
   onClose,
@@ -445,7 +512,9 @@ function DetailPaneChrome({
   exitCriterion: string | undefined;
   weight: number | undefined;
   body: ReactElement;
-  actions: DetailAction[];
+  /** The invariant action bar, built once in DetailPane so this path and the
+   *  Drawer path render the same one. */
+  actionBar: ReactElement;
   onClose: () => void;
   onToggleCollapsed: () => void;
   onResizePointerDown: (e: ReactPointerEvent<HTMLDivElement>) => void;
@@ -536,7 +605,7 @@ function DetailPaneChrome({
         >
           {body}
         </Box>
-        <ActionBar actions={actions} t={t} />
+        {actionBar}
       </Box>
     </>
   );
@@ -882,13 +951,28 @@ function AttemptSelector({
 // EVERY state (detailActionsFor is the single source of truth for this).
 // ---------------------------------------------------------------------------
 
-function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): ReactElement {
+function ActionBar({
+  actions,
+  t,
+  onAction,
+  composer,
+  flow,
+}: {
+  actions: DetailAction[];
+  t: Tokens;
+  onAction?: ((id: DetailAction['id']) => void) | undefined;
+  /** Stage C: the send-back note composer, above the buttons while open. */
+  composer?: ReactNode;
+  /** Stage C: the decision's line — sending, resumed, or did not land (loud). */
+  flow?: FlowNote | undefined;
+}): ReactElement {
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR}
       sx={{
         flexShrink: 0,
         display: 'flex',
+        flexDirection: 'column',
         gap: 1,
         px: 2,
         py: 1.25,
@@ -896,29 +980,126 @@ function ActionBar({ actions, t }: { actions: DetailAction[]; t: Tokens }): Reac
         bgcolor: t.paperAlt,
       }}
     >
-      {actions.map((a) => (
-        <Button
-          data-testid={UI_IDENTIFIERS.Construction.detailAction(a.id)}
-          disabled={a.disabled}
-          key={a.id}
-          size="small"
-          startIcon={a.id === 'approve' ? <CheckRoundedIcon /> : undefined}
+      {composer}
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        {actions.map((a) => (
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.detailAction(a.id)}
+            disabled={a.disabled}
+            key={a.id}
+            size="small"
+            startIcon={a.id === 'approve' ? <CheckRoundedIcon /> : undefined}
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 11.5,
+              textTransform: 'none',
+              ...(a.id === 'run'
+                ? { color: t.bg, bgcolor: t.accent, '&:hover': { bgcolor: t.accent2 } }
+                : a.id === 'approve'
+                  ? { color: t.committedFg, borderColor: t.committedDot }
+                  : { color: t.muted, borderColor: t.line }),
+            }}
+            variant={a.id === 'run' ? 'contained' : 'outlined'}
+            onClick={() => {
+              onAction?.(a.id);
+            }}
+          >
+            {a.label}
+          </Button>
+        ))}
+      </Box>
+      {flow !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW}
+          data-tone={flow.tone}
+          role="status"
           sx={{
             fontFamily: t.mono,
+            fontSize: 11,
             fontWeight: 700,
-            fontSize: 11.5,
-            textTransform: 'none',
-            ...(a.id === 'run'
-              ? { color: t.bg, bgcolor: t.accent, '&:hover': { bgcolor: t.accent2 } }
-              : a.id === 'approve'
-                ? { color: t.committedFg, borderColor: t.committedDot }
-                : { color: t.muted, borderColor: t.line }),
+            color:
+              flow.tone === 'danger'
+                ? t.dangerFg
+                : flow.tone === 'ok'
+                  ? t.committedFg
+                  : t.awaitingFg,
           }}
-          variant={a.id === 'run' ? 'contained' : 'outlined'}
         >
-          {a.label}
+          {flow.text}
+        </Typography>
+      ) : null}
+    </Box>
+  );
+}
+
+/**
+ * Send back's note (spec §6): the human's words are what the redraft is for, so
+ * the send is off until there are some — typed here, or anchored comments already
+ * collected in the co-author rail, which ride along.
+ */
+function SendBackComposer({
+  note,
+  anchoredCount,
+  t,
+  onChange,
+  onSend,
+  onCancel,
+}: {
+  note: string;
+  anchoredCount: number;
+  t: Tokens;
+  onChange: (note: string) => void;
+  onSend: () => void;
+  onCancel: () => void;
+}): ReactElement {
+  const ready = sendBackReady(note, anchoredCount);
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+      <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+        Send back — tell the agent what must change. A note is required
+        {anchoredCount > 0
+          ? `; ${String(anchoredCount)} anchored comment${anchoredCount === 1 ? '' : 's'} ride along`
+          : ''}
+        .
+      </Typography>
+      <TextField
+        multiline
+        maxRows={6}
+        minRows={2}
+        placeholder="What must change before this passes?"
+        size="small"
+        slotProps={{
+          htmlInput: {
+            'aria-label': 'Send-back note',
+            'data-testid': UI_IDENTIFIERS.Construction.DETAIL_DECISION_NOTE,
+          },
+        }}
+        sx={{ bgcolor: t.paper, '& textarea': { fontFamily: t.body, fontSize: 12.5 } }}
+        value={note}
+        onChange={(e) => {
+          onChange(e.target.value);
+        }}
+      />
+      <Box sx={{ display: 'flex', gap: 1 }}>
+        <Button
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_DECISION_SEND_BACK}
+          disabled={!ready}
+          size="small"
+          sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, textTransform: 'none' }}
+          variant="contained"
+          onClick={onSend}
+        >
+          Send back with this note
         </Button>
-      ))}
+        <Button
+          size="small"
+          sx={{ fontFamily: t.mono, fontSize: 11.5, textTransform: 'none', color: t.muted }}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+      </Box>
     </Box>
   );
 }
