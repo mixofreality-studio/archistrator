@@ -102,7 +102,7 @@ export interface OwedWhy {
 }
 
 /** EffectiveGate's preset switch — attribution only (see the module comment). */
-const PRESET_GATES: Readonly<Record<string, readonly string[] | 'all'>> = {
+export const PRESET_GATES: Readonly<Record<string, readonly string[] | 'all'>> = {
   vibes: [],
   checkpoints: ['detailed_design', 'construction', 'integration'],
   full: 'all',
@@ -175,8 +175,11 @@ export function whyFor(item: OwedItem, policy: ReviewPolicyView | undefined): Ow
 // ---------------------------------------------------------------------------
 
 export interface OwedBlast {
-  /** Activities transitively waiting on this decision. */
+  /** Activities transitively waiting on this decision — the count, and the ids,
+   *  so a header can count the UNION across rows instead of double-counting an
+   *  activity waiting on two decisions. */
   downstream: number;
+  downstreamIds: readonly string[];
   /** The activity's own total float and critical-path flag from the committed CPM —
    *  ABSENT when the network carries no entry for it, never a fabricated 0 (which
    *  would render as "on the critical path"). */
@@ -197,12 +200,13 @@ export function rankOwed(
 ): RankedOwed[] {
   const ranked = items.map((item): RankedOwed => {
     const cpm = ctx.network?.computed?.[item.activityId];
-    const downstream =
-      ctx.network !== undefined ? downstreamOf(ctx.network, item.activityId, ctx.done).length : 0;
+    const downstreamIds =
+      ctx.network !== undefined ? downstreamOf(ctx.network, item.activityId, ctx.done) : [];
     return {
       ...item,
       blast: {
-        downstream,
+        downstream: downstreamIds.length,
+        downstreamIds,
         ...(cpm !== undefined
           ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
           : {}),

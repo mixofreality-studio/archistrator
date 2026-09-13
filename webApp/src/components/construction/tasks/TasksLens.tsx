@@ -1,0 +1,666 @@
+/**
+ * The TASKS lens (Stage C) — one row per decision the construction pipeline is
+ * stopped on, waiting for a human (spec §6, §7.7).
+ *
+ * WHAT A ROW IS
+ * -------------
+ * One DECISION, not one activity: `(activityId, gate, round)` for a gate, or the
+ * activity itself where the machine stopped (a variance awaiting a steer, a
+ * terminal failure). The owed set comes from the live workflow stage
+ * (owedWork.ts), ranked risk-floor-first then by blast radius (owedRanking.ts);
+ * every sentence it says is in tasksLensCopy.ts. This file is presentation only —
+ * the pure `components` layer: props and useTokens, nothing else.
+ *
+ * THE COLUMNS (§7.7): WHAT (the float rail + critical-path border weight on the
+ * left edge, `activity › phase › gate task`, the ask, what you are about to read,
+ * the machine's verdict) · WHY (the rule that opened it) · WHO (the reviewer set)
+ * · WAITING (and the round) · BLAST (`↓N` downstream, float, critical path) ·
+ * ACTION ([Review] opens the shared pane in place; [GitHub ↗] only where a PR
+ * exists — never a dead link).
+ *
+ * UNKNOWN IS SAID, NOT FILLED: the client is never told when a gate opened (plan
+ * Q2), so WAITING reads `—` with a tooltip saying why; a round with no ledger
+ * entry reads `round —`; a reviewer set nobody reported reads `—`.
+ *
+ * GEOMETRY: seven columns when the lens has the room; under ~860px of its own
+ * width (the shared pane open at 1280/1366) each row folds into three lines —
+ * WHAT across, then WHY/WHO, then WAITING/BLAST — with ACTION held on the right, so
+ * no column is ever scrolled out of sight. Folding is a container query on the
+ * lens itself, not a viewport media query: it is the pane, not the window, that
+ * takes the room.
+ */
+import type { ReactElement, ReactNode } from 'react';
+import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
+import Link from '@mui/material/Link';
+import Tooltip from '@mui/material/Tooltip';
+import Typography from '@mui/material/Typography';
+import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
+
+import type { GitRow, ReviewPolicyView } from '../../../contracts/types';
+import type { FloatBand } from '../../../contracts/projectAdapters';
+import { useTokens } from '../../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../../utilities/theme/themes';
+import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import { bandTokens } from '../../project/bandTokens';
+import { KindBadge } from '../KindBadge';
+import type { LensSelection } from '../lens/useLensSelection';
+import { criticalBorderPx, floatPresentation } from '../list/activityRowPresentation.ts';
+import { taskDetailStateFill } from '../detail/detailPaneState.ts';
+import type { RankedOwed } from './owedRanking.ts';
+import {
+  askFor,
+  ciVerdictFor,
+  emptyStateLine,
+  headlineFor,
+  policyBannerFor,
+  policySummaryFor,
+  roundLabel,
+  slotsLineFor,
+  STOP_ASKING_LABEL,
+  WAITING_UNKNOWN_TOOLTIP,
+  type EmptyStateCounts,
+} from './tasksLensCopy.ts';
+
+const FLOAT_BANDS: ReadonlySet<string> = new Set(['critical', 'red', 'yellow', 'green']);
+const asBand = (band: string | undefined): FloatBand | undefined =>
+  band !== undefined && FLOAT_BANDS.has(band) ? (band as FloatBand) : undefined;
+
+/** The one line the row shows while a decision it sent is in flight (Task 5). */
+export interface RowFlowNote {
+  tone: 'progress' | 'ok' | 'danger';
+  text: string;
+}
+
+export interface TasksLensProps {
+  /** The owed decisions the toolbar lets through, already ranked. */
+  items: readonly RankedOwed[];
+  /** How many are owed before the toolbar's filters — tells "nothing is owed"
+   *  apart from "your filters hide what is owed". */
+  totalOwed: number;
+  projectId: string;
+  policy: ReviewPolicyView | undefined;
+  supervisionCap: number | undefined;
+  selection: LensSelection;
+  /** "Contract · 12 ops" / "Test plan · 5 scenarios" / "—" for one item. */
+  shapeOf: (item: RankedOwed) => string;
+  gitOf: (activityId: string) => GitRow | undefined;
+  /** The decision-in-flight note for a row, if one is showing (Task 5). */
+  flowOf?: (key: string) => RowFlowNote | undefined;
+  empty: {
+    counts: EmptyStateCounts;
+    /** The header's Begin/Resume, opening the same confirm step. Absent when the
+     *  project is operating (nothing left to begin). */
+    resume?: { label: string; disabled: boolean; onClick: () => void };
+  };
+  onReview: (item: RankedOwed) => void;
+  onClearFilters: () => void;
+}
+
+export function TasksLens(props: TasksLensProps): ReactElement {
+  const t = useTokens();
+  const { items, totalOwed, policy, projectId } = props;
+  const banner = policyBannerFor(policy);
+  const slots = slotsLineFor(items, props.supervisionCap);
+
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.TASKS_LENS}
+      sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, containerType: 'inline-size' }}
+    >
+      {banner !== undefined ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_BANNER}
+          role="note"
+          sx={{
+            px: 1.75,
+            py: 1.1,
+            border: `1.5px dashed ${t.line}`,
+            borderRadius: `${String(t.radius)}px`,
+            bgcolor: t.paperAlt,
+          }}
+        >
+          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+            {banner}
+          </Typography>
+        </Box>
+      ) : null}
+
+      <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 1 }}>
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_SUMMARY}
+          sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
+        >
+          {policySummaryFor(policy)}
+        </Typography>
+        <Link
+          data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK}
+          href={`/project/${projectId}/home`}
+          sx={{ fontFamily: t.mono, fontSize: 11, fontWeight: 700, color: t.accent2 }}
+          underline="hover"
+        >
+          {STOP_ASKING_LABEL}
+        </Link>
+      </Box>
+
+      {totalOwed === 0 ? (
+        <NothingNeedsYou empty={props.empty} t={t} />
+      ) : items.length === 0 ? (
+        <FilteredOut t={t} totalOwed={totalOwed} onClearFilters={props.onClearFilters} />
+      ) : (
+        <>
+          <Box>
+            <Typography
+              component="h2"
+              data-testid={UI_IDENTIFIERS.Construction.TASKS_HEADLINE}
+              sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 17, color: t.ink }}
+            >
+              {headlineFor(items)}
+            </Typography>
+            {slots !== undefined ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.Construction.TASKS_SLOTS}
+                sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.awaitingFg, mt: 0.25 }}
+              >
+                {slots}
+              </Typography>
+            ) : null}
+          </Box>
+          <OwedTable {...props} t={t} />
+        </>
+      )}
+    </Box>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The table
+// ---------------------------------------------------------------------------
+
+const FOLD = '@container (max-width: 860px)';
+
+const COLUMNS = [
+  { area: 'what', label: 'What' },
+  { area: 'why', label: 'Why' },
+  { area: 'who', label: 'Who' },
+  { area: 'wait', label: 'Waiting' },
+  { area: 'blast', label: 'Blast' },
+  { area: 'action', label: 'Action' },
+] as const;
+
+const GRID_SX = {
+  display: 'grid',
+  columnGap: 1.5,
+  rowGap: 0.5,
+  gridTemplateColumns:
+    'minmax(0, 2.6fr) minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.75fr) minmax(0, 0.85fr) auto',
+  gridTemplateAreas: '"what why who wait blast action"',
+  [FOLD]: {
+    gridTemplateColumns: 'minmax(0, 1fr) minmax(0, 1fr) auto',
+    gridTemplateAreas: '"what what action" "why who action" "wait blast action"',
+  },
+} as const;
+
+function OwedTable({
+  items,
+  selection,
+  shapeOf,
+  gitOf,
+  flowOf,
+  onReview,
+  t,
+}: TasksLensProps & { t: Tokens }): ReactElement {
+  return (
+    <Box data-testid={UI_IDENTIFIERS.Construction.TASKS_TABLE} role="table">
+      <Box
+        role="row"
+        sx={{
+          ...GRID_SX,
+          px: 1.5,
+          pb: 0.75,
+          borderBottom: `1.5px solid ${t.line}`,
+          [FOLD]: { display: 'none' },
+        }}
+      >
+        {COLUMNS.map((c) => (
+          <Typography
+            key={c.area}
+            role="columnheader"
+            sx={{
+              gridArea: c.area,
+              fontFamily: t.mono,
+              fontSize: 9.5,
+              fontWeight: 700,
+              letterSpacing: '0.1em',
+              textTransform: 'uppercase',
+              color: t.muted,
+            }}
+          >
+            {c.label}
+          </Typography>
+        ))}
+      </Box>
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
+        {items.map((item) => (
+          <OwedRow
+            flow={flowOf?.(item.key)}
+            git={gitOf(item.activityId)}
+            item={item}
+            key={item.key}
+            selected={isSelected(item, selection)}
+            shape={shapeOf(item)}
+            t={t}
+            onReview={() => {
+              onReview(item);
+            }}
+          />
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function isSelected(item: RankedOwed, selection: LensSelection): boolean {
+  if (selection.activityId !== item.activityId) return false;
+  const task = item.gate?.task;
+  return task === undefined || selection.task === undefined || selection.task === task;
+}
+
+const REASON_CHIP: Record<RankedOwed['reason'], string> = {
+  gate: 'Awaiting you',
+  takeover: 'Steer needed',
+  failed: 'Stopped',
+};
+
+function OwedRow({
+  item,
+  git,
+  shape,
+  selected,
+  flow,
+  t,
+  onReview,
+}: {
+  item: RankedOwed;
+  git: GitRow | undefined;
+  shape: string;
+  selected: boolean;
+  flow: RowFlowNote | undefined;
+  t: Tokens;
+  onReview: () => void;
+}): ReactElement {
+  const fl = floatPresentation(item.blast.float, asBand(item.blast.band));
+  const rail = fl.band !== undefined ? bandTokens(t, fl.band).fg : t.line;
+  const fill = taskDetailStateFill(t, item.reason === 'failed' ? 'failed' : 'awaitingHuman');
+  const ci = ciVerdictFor(git?.ciStatus);
+  const key = item.key;
+  const cell = (column: string): string => UI_IDENTIFIERS.Construction.tasksCell(key, column);
+
+  return (
+    <Box
+      aria-selected={selected}
+      data-reason={item.reason}
+      data-risk-floor={String(item.why.riskFloor)}
+      data-testid={UI_IDENTIFIERS.Construction.tasksRow(key)}
+      role="row"
+      sx={{
+        ...GRID_SX,
+        alignItems: 'start',
+        px: 1.5,
+        py: 1.25,
+        bgcolor: t.awaitingBg,
+        borderRadius: `${String(t.radius)}px`,
+        // The float rail, at the critical-path border weight (§7.2) — dashed
+        // hairline where no float is known, never a fabricated band.
+        borderLeft: `${String(criticalBorderPx(item.blast.onCriticalPath))}px ${fl.known ? 'solid' : 'dashed'} ${rail}`,
+        outline: selected ? `2px solid ${t.accent}` : 'none',
+        outlineOffset: -2,
+      }}
+    >
+      {/* WHAT */}
+      <Box data-testid={cell('what')} sx={{ gridArea: 'what', minWidth: 0 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+          <Box
+            sx={{
+              px: 0.75,
+              py: 0.15,
+              borderRadius: 99,
+              border: `1px solid ${fill.border}`,
+              bgcolor: fill.bg,
+              color: fill.fg,
+              fontFamily: t.mono,
+              fontSize: 9,
+              fontWeight: 800,
+              letterSpacing: '0.06em',
+              textTransform: 'uppercase',
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {REASON_CHIP[item.reason]}
+          </Box>
+          <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
+            {item.activityId}
+          </Typography>
+          {item.title !== undefined ? (
+            <Typography
+              sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, minWidth: 0 }}
+              title={item.title}
+            >
+              {item.title}
+            </Typography>
+          ) : null}
+          {item.kind !== undefined ? <KindBadge kind={item.kind} size="xs" t={t} /> : null}
+        </Box>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.awaitingFg, mt: 0.4 }}>
+          {whereLabel(item)}
+        </Typography>
+        <Typography
+          sx={{
+            fontFamily: t.body,
+            fontSize: 13,
+            fontWeight: 600,
+            color: item.reason === 'failed' ? t.dangerFg : t.ink,
+            lineHeight: 1.4,
+            mt: 0.4,
+          }}
+        >
+          {askFor(item)}
+        </Typography>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25, mt: 0.5, fontFamily: t.mono }}>
+          <Typography
+            data-testid={cell('shape')}
+            sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+          >
+            {shape}
+          </Typography>
+          <Typography
+            data-testid={cell('ci')}
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              fontWeight: ci.tone === 'danger' ? 700 : 400,
+              color: ci.tone === 'danger' ? t.dangerFg : ci.tone === 'ok' ? t.committedFg : t.muted,
+            }}
+          >
+            {ci.label}
+          </Typography>
+        </Box>
+      </Box>
+
+      {/* WHY */}
+      <Cell area="why" caption="Why" t={t} testid={cell('why')}>
+        <Tooltip title={item.why.tooltip}>
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 11,
+              fontWeight: item.why.riskFloor ? 800 : 500,
+              color: item.why.riskFloor ? t.dangerFg : t.ink,
+            }}
+          >
+            {item.why.riskFloor ? '⚑ ' : ''}
+            {item.why.rule}
+          </Typography>
+        </Tooltip>
+      </Cell>
+
+      {/* WHO */}
+      <Cell area="who" caption="Who" t={t} testid={cell('who')}>
+        {item.reviewers.length > 0 ? (
+          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink }}>
+            {item.reviewers.map((r) => r.role).join(' · ')}
+          </Typography>
+        ) : (
+          <Unknown t={t} tooltip="No reviewer set was reported for this decision." />
+        )}
+      </Cell>
+
+      {/* WAITING */}
+      <Cell area="wait" caption="Waiting" t={t} testid={cell('waiting')}>
+        <Unknown t={t} tooltip={WAITING_UNKNOWN_TOOLTIP} />
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+          {item.reason === 'gate' ? roundLabel(item.round) : ''}
+        </Typography>
+      </Cell>
+
+      {/* BLAST */}
+      <Cell area="blast" caption="Blast" t={t} testid={cell('blast')}>
+        <Tooltip
+          title={
+            item.blast.downstreamIds.length > 0
+              ? `Waiting on this: ${item.blast.downstreamIds.join(', ')}`
+              : 'Nothing downstream is waiting on this decision.'
+          }
+        >
+          <Typography sx={{ fontFamily: t.mono, fontSize: 13, fontWeight: 800, color: t.ink }}>
+            ↓{item.blast.downstream}
+          </Typography>
+        </Tooltip>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
+          float {fl.numeral}
+          {item.blast.onCriticalPath === true ? ' · critical path' : ''}
+        </Typography>
+      </Cell>
+
+      {/* ACTION */}
+      <Box
+        sx={{
+          gridArea: 'action',
+          display: 'flex',
+          flexDirection: 'column',
+          alignItems: 'flex-end',
+          gap: 0.5,
+        }}
+      >
+        <Button
+          data-testid={UI_IDENTIFIERS.Construction.tasksReview(key)}
+          size="small"
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 11.5,
+            textTransform: 'none',
+            color: t.bg,
+            bgcolor: t.accent,
+            '&:hover': { bgcolor: t.accent2 },
+          }}
+          variant="contained"
+          onClick={onReview}
+        >
+          Review
+        </Button>
+        {git?.prUrl !== undefined ? (
+          <Link
+            data-testid={UI_IDENTIFIERS.Construction.tasksGitHub(key)}
+            href={git.prUrl}
+            rel="noopener noreferrer"
+            sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+            target="_blank"
+            underline="hover"
+          >
+            GitHub ↗
+          </Link>
+        ) : null}
+        {flow !== undefined ? (
+          <Typography
+            data-testid={UI_IDENTIFIERS.Construction.tasksFlow(key)}
+            role="status"
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              fontWeight: 700,
+              textAlign: 'right',
+              maxWidth: 200,
+              color:
+                flow.tone === 'danger'
+                  ? t.dangerFg
+                  : flow.tone === 'ok'
+                    ? t.committedFg
+                    : t.awaitingFg,
+            }}
+          >
+            {flow.text}
+          </Typography>
+        ) : null}
+      </Box>
+    </Box>
+  );
+}
+
+/** `Detailed Design › Design Review (book: Design Review)`, or what stopped. */
+function whereLabel(item: RankedOwed): string {
+  if (item.reason === 'takeover') return 'Variance · awaiting an operator steer';
+  if (item.reason === 'failed') return 'Terminal failure · the pump will not restart it';
+  const g = item.gate;
+  const phase = g?.phaseName ?? g?.lifecyclePhase ?? 'phase unreported';
+  if (g?.label === undefined) return `${phase} › gate`;
+  const book =
+    g.bookLabel !== undefined && g.bookLabel !== g.label ? ` (book: ${g.bookLabel})` : '';
+  return `${phase} › ${g.label}${book}`;
+}
+
+function Cell({
+  area,
+  caption,
+  testid,
+  t,
+  children,
+}: {
+  area: string;
+  caption: string;
+  testid: string;
+  t: Tokens;
+  children: ReactNode;
+}): ReactElement {
+  return (
+    <Box data-testid={testid} sx={{ gridArea: area, minWidth: 0 }}>
+      {/* The column's name inside the cell, shown only once the table has folded
+          and its header row is gone. */}
+      <Typography
+        sx={{
+          display: 'none',
+          fontFamily: t.mono,
+          fontSize: 9,
+          fontWeight: 700,
+          letterSpacing: '0.1em',
+          textTransform: 'uppercase',
+          color: t.muted,
+          [FOLD]: { display: 'block' },
+        }}
+      >
+        {caption}
+      </Typography>
+      {children}
+    </Box>
+  );
+}
+
+function Unknown({ t, tooltip }: { t: Tokens; tooltip: string }): ReactElement {
+  return (
+    <Tooltip title={tooltip}>
+      <Typography component="span" sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
+        —
+      </Typography>
+    </Tooltip>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// The two non-table states
+// ---------------------------------------------------------------------------
+
+function NothingNeedsYou({
+  empty,
+  t,
+}: {
+  empty: TasksLensProps['empty'];
+  t: Tokens;
+}): ReactElement {
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.TASKS_EMPTY}
+      sx={{
+        border: `1.5px solid ${t.line}`,
+        borderRadius: `${String(t.radius)}px`,
+        bgcolor: t.paper,
+        px: 3,
+        py: 5,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        gap: 1.25,
+        textAlign: 'center',
+      }}
+    >
+      <Typography
+        component="h2"
+        sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 22, color: t.ink }}
+      >
+        Nothing needs you.
+      </Typography>
+      <Typography
+        data-testid={UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS}
+        sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.muted }}
+      >
+        {emptyStateLine(empty.counts)}
+      </Typography>
+      {empty.resume !== undefined ? (
+        <Button
+          data-testid={UI_IDENTIFIERS.Construction.TASKS_RESUME}
+          disabled={empty.resume.disabled}
+          size="small"
+          startIcon={<PlayArrowRoundedIcon />}
+          sx={{
+            mt: 0.5,
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 12,
+            textTransform: 'none',
+            color: t.bg,
+            bgcolor: t.accent,
+            '&:hover': { bgcolor: t.accent2 },
+          }}
+          variant="contained"
+          onClick={empty.resume.onClick}
+        >
+          {empty.resume.label}
+        </Button>
+      ) : null}
+    </Box>
+  );
+}
+
+function FilteredOut({
+  totalOwed,
+  t,
+  onClearFilters,
+}: {
+  totalOwed: number;
+  t: Tokens;
+  onClearFilters: () => void;
+}): ReactElement {
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.TASKS_EMPTY}
+      sx={{
+        border: `1.5px dashed ${t.line}`,
+        borderRadius: `${String(t.radius)}px`,
+        px: 3,
+        py: 3,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.5,
+        flexWrap: 'wrap',
+      }}
+    >
+      <Typography sx={{ fontFamily: t.body, fontSize: 13, color: t.ink }}>
+        {totalOwed === 1
+          ? '1 decision is owed, but the toolbar’s filters hide it.'
+          : `${String(totalOwed)} decisions are owed, but the toolbar’s filters hide them.`}
+      </Typography>
+      <Button size="small" variant="outlined" onClick={onClearFilters}>
+        Clear filters
+      </Button>
+    </Box>
+  );
+}

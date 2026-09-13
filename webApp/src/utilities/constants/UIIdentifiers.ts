@@ -388,6 +388,28 @@ export const UI_IDENTIFIERS = {
     INTERVENTION_DRAWER_CLOSE: 'construction-intervention-drawer-close',
     INTERVENTION_OPERATOR_BAR: 'construction-intervention-operator-bar',
     interventionSteerButton: (kind: string) => `construction-intervention-steer-${kind}`,
+    // The TASKS lens (Stage C) — one row per decision the pipeline is stopped on
+    // (tasks/owedWork.ts), keyed by the item's own key
+    // (`<activityId>:<gateTask>:<round>` or `<activityId>:<reason>`).
+    TASKS_LENS: 'construction-tasks-lens',
+    TASKS_HEADLINE: 'construction-tasks-headline',
+    TASKS_SLOTS: 'construction-tasks-slots',
+    TASKS_POLICY_BANNER: 'construction-tasks-policy-banner',
+    TASKS_POLICY_SUMMARY: 'construction-tasks-policy-summary',
+    TASKS_POLICY_LINK: 'construction-tasks-policy-link',
+    TASKS_TABLE: 'construction-tasks-table',
+    TASKS_EMPTY: 'construction-tasks-empty',
+    TASKS_EMPTY_COUNTS: 'construction-tasks-empty-counts',
+    TASKS_RESUME: 'construction-tasks-resume',
+    tasksRow: (key: string) => `construction-tasks-row-${key}`,
+    tasksCell: (key: string, column: string) => `construction-tasks-${column}-${key}`,
+    tasksReview: (key: string) => `construction-tasks-review-${key}`,
+    tasksGitHub: (key: string) => `construction-tasks-github-${key}`,
+    tasksFlow: (key: string) => `construction-tasks-flow-${key}`,
+    // The decision the shared pane carries for an owed gate (Stage C Task 5).
+    DETAIL_DECISION_NOTE: 'construction-detail-decision-note',
+    DETAIL_DECISION_SEND_BACK: 'construction-detail-decision-send-back',
+    DETAIL_DECISION_FLOW: 'construction-detail-decision-flow',
     // The lens shell (Stage B): ONE route, three lenses over one dataset, a
     // shared toolbar whose state survives a lens switch, and a persistent
     // detail slot. Replaces the Tracker/Interventions/Artifacts tab bar.

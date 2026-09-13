@@ -41,6 +41,12 @@ import { useProject } from '../hooks/useProject';
 import { useConstructionSession } from '../hooks/useConstructionSession';
 import { useConstructionSessions } from '../hooks/useConstructionSessions';
 import { owedItemsFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
+import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
+import { emptyStateCounts, shapeFor } from '../components/construction/tasks/tasksLensCopy';
+import { TasksLens } from '../components/construction/tasks/TasksLens';
+import { computeActivityStatuses } from '../contracts/constructionAdapters';
+import { contractForActivity } from '../contracts/serviceContracts';
+import { gitFor } from '../contracts/types';
 import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -484,6 +490,53 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [activityTree, toolbar]
   );
 
+  // --- The TASKS lens (Stage C) ------------------------------------------------
+  // The owed set, ranked risk-floor-first then by blast radius over the committed
+  // network (done = integrated in the evidence view), then passed through the SAME
+  // toolbar pipeline as the list: a row shows iff its activity does.
+  const doneIds = useMemo(
+    () =>
+      new Set(
+        Object.values(viewRows ?? {})
+          .filter((r) => r.status === 'integrated')
+          .map((r) => r.activityId)
+      ),
+    [viewRows]
+  );
+  const rankedOwed = useMemo(
+    () =>
+      rankOwed(owedItems, { network: networkModel, done: doneIds, policy: project?.reviewPolicy }),
+    [owedItems, networkModel, doneIds, project]
+  );
+  const visibleOwed = useMemo(() => {
+    const shown = new Set(visibleActivityTree.map((n) => n.activityId));
+    return rankedOwed.filter((i) => shown.has(i.activityId));
+  }, [rankedOwed, visibleActivityTree]);
+  // "Nothing needs you." is not a dead end: eligible/blocked from the network over
+  // the evidence view, in flight = what the pump started and has not finished.
+  const emptyCounts = useMemo(() => {
+    const statuses =
+      networkModel !== undefined
+        ? computeActivityStatuses(
+            networkModel,
+            (id) => gitFor(project, id),
+            undefined,
+            'not-started',
+            (id) => viewRows?.[id]
+          )
+        : new Map<string, never>();
+    return emptyStateCounts(statuses, probeIds.length);
+  }, [networkModel, project, viewRows, probeIds]);
+  const shapeOf = (item: RankedOwed): string => {
+    const contract = contractForActivity(project, item.activityId);
+    const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
+    const isPlan = viewRows?.[item.activityId]?.variant === 'plan';
+    return shapeFor(item.kind, {
+      ...(contract?.ops !== undefined ? { contractOps: contract.ops.length } : {}),
+      ...(isPlan && scenarios !== undefined ? { scenarios } : {}),
+    });
+  };
+
   // "Expand to current phase" is an IMPERATIVE action, not persisted toolbar
   // state (see ConstructionShellProps.onExpandToCurrentPhase) — a monotonic
   // signal the tree view watches, so a second click re-opens whatever the
@@ -529,6 +582,48 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         onClose={clear}
       />
     ) : undefined;
+
+  const tasksContent = (
+    <TasksLens
+      empty={{
+        counts: emptyCounts,
+        // The header's own Begin/Resume (its label is the server's
+        // constructionStarted), opening the same confirm step — never a dispatch.
+        ...(project?.operating !== true
+          ? {
+              resume: {
+                label: beginControl.label,
+                disabled: beginControl.disabled,
+                onClick: (): void => {
+                  setBeginTick(crypto.randomUUID());
+                },
+              },
+            }
+          : {}),
+      }}
+      gitOf={(id) => gitFor(project, id)}
+      items={visibleOwed}
+      policy={project?.reviewPolicy}
+      projectId={projectId}
+      selection={selection}
+      shapeOf={shapeOf}
+      supervisionCap={project?.constructionProgress?.supervisionCap}
+      totalOwed={rankedOwed.length}
+      onClearFilters={() => {
+        setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
+      }}
+      onReview={(item) => {
+        // [Review] opens the shared pane in place: on the gate TASK where the
+        // profile names one (the review body), else on the activity.
+        const g = item.gate;
+        select(
+          g?.task !== undefined && g.lifecyclePhase !== undefined
+            ? { activityId: item.activityId, lifecyclePhase: g.lifecyclePhase, task: g.task }
+            : { activityId: item.activityId }
+        );
+      }}
+    />
+  );
 
   return (
     <ExperienceChrome
@@ -669,10 +764,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                       />
                     )}
                   </Box>
+                ) : lens === 'tasks' ? (
+                  tasksContent
                 ) : (
                   // Honest placeholder — NOT sample rows. GRAPH is the Stage-D
-                  // layer-stack projection; TASKS is the Stage-C owed-work lens.
-                  <LensComingLater lens={lens} stage={lens === 'graph' ? 'Stage D' : 'Stage C'} />
+                  // layer-stack projection.
+                  <LensComingLater lens={lens} stage="Stage D" />
                 )
               }
               detail={detailPane}
