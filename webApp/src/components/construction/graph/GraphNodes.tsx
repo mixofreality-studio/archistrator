@@ -203,7 +203,12 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
               builds {card.buildsComponent}
             </Typography>
           ) : null}
-          <ProvenanceGroupStamp reading={cardReading} t={t} />
+          {/* No pointer events on the stamp (graph round 3): the card is already
+              hover-anchored to its own unscaled hover card, so the badge's own
+              MUI Tooltip must never open on top of it — one popup, not two. */}
+          <Box component="span" sx={{ display: 'inline-flex', pointerEvents: 'none' }}>
+            <ProvenanceGroupStamp reading={cardReading} t={t} />
+          </Box>
         </Box>
       </Box>
 

@@ -27,7 +27,13 @@ import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ActivityNode } from '../list/activityTree';
 import { ProvenanceGroupStamp, ProvenanceRailMark, ReconstructedBadge } from '../provenance';
-import { provenanceBasesOf, provenanceRailFor, provenanceTooltipFor } from '../provenanceAxis';
+import {
+  provenanceBasesOf,
+  provenanceGradeOf,
+  provenanceRailFor,
+  provenanceTooltipFor,
+  type ProvenanceOrigin,
+} from '../provenanceAxis';
 import { bandTokens } from '../../project/bandTokens';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
@@ -47,10 +53,23 @@ import {
 // The ribbon
 // ---------------------------------------------------------------------------
 
-/** A milestone chip's one tooltip: its count sentence, then — when its feeders
- *  carry reconstructed evidence — the provenance prose its stamp would have said. */
-function milestoneTooltipText(count: string, provenance: string, origin: string): string {
-  return origin === 'recorded' || origin === 'unknown' ? count : `${count}\n\n${provenance}`;
+/**
+ * The one line a reconstructed chip's tooltip adds below its count sentence.
+ *
+ * Never a feeder's own basis prose: that ran 948-1752 characters across a
+ * milestone's several feeders, truncated mid-word, and overran the viewport at
+ * 1366×768 (round 3 — the tooltip used to fold provenanceTooltipFor's full,
+ * per-basis text in here). A reader who wants a basis opens the feeder itself.
+ */
+const RECONSTRUCTED_HINT =
+  'Reconstructed (backfilled): written from a basis, not observed. Select a feeder for its basis.';
+
+/** A milestone chip's one tooltip: its count sentence, then — only when its
+ *  feeders' worst provenance is reconstructed — the fixed hint above. */
+function milestoneTooltipText(count: string, origin: ProvenanceOrigin): string {
+  return provenanceGradeOf(origin) === 'reconstructed'
+    ? `${count}\n\n${RECONSTRUCTED_HINT}`
+    : count;
 }
 
 function countTooltip(m: RibbonMilestone): string {
@@ -318,7 +337,7 @@ export function GateRibbon({
             key={m.id}
             title={
               <span style={{ whiteSpace: 'pre-line' }}>
-                {milestoneTooltipText(countTooltip(m), reading.tooltip, m.provenance)}
+                {milestoneTooltipText(countTooltip(m), m.provenance)}
               </span>
             }
           >

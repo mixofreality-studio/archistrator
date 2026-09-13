@@ -585,6 +585,76 @@ test('hovering a milestone chip\'s stamp opens ONE tooltip, carrying the count a
   await expect(tips.first()).toContainText(/reconstruct/i);
 });
 
+test('a reconstructed milestone chip\'s tooltip stays short — never a feeder\'s basis text (graph round 3)', async ({
+  page,
+}) => {
+  // The regression this pins: 3938e6c (polish 10.10) folded EVERY feeder's
+  // full basis prose into the chip's one tooltip — 948-1752 characters,
+  // truncated mid-word, running off-screen at 1366x768. The fix replaces that
+  // with the count sentence plus one fixed line naming where a basis actually
+  // lives (a feeder), never quoting one here.
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await gotoApp(page, GRAPH);
+  const ribbon = page.getByTestId(TESTID.constructionGraphRibbon);
+  await expect(ribbon).toBeVisible();
+  const stamped = ribbon.getByTestId(TESTID.constructionProvenanceBadge).first();
+  test.skip((await stamped.count()) === 0, 'no milestone carries reconstructed evidence');
+  const box = await stamped.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  const tip = page.getByRole('tooltip');
+  await expect(tip).toHaveCount(1);
+  const text = (await tip.first().innerText()).trim();
+  expect(text.length, `tooltip text: ${JSON.stringify(text)}`).toBeLessThan(200);
+  expect(text).not.toContain('…');
+  expect(text).toContain('Select a feeder for its basis.');
+});
+
+test('hovering a card\'s ≈ RECONSTRUCTED stamp opens exactly ONE popup — the hover card, never its own tooltip too (graph round 3)', async ({
+  page,
+}) => {
+  await openGraph(page);
+  const cards = await page.getByTestId(CARD_ID).evaluateAll((els) =>
+    els
+      .filter((e) => Number(e.getAttribute('data-lanes') ?? '0') > 0)
+      .map((e) => ({
+        id: (e.getAttribute('data-testid') ?? '').replace('construction-graph-card-', ''),
+        reconstructed: Array.from(
+          e.querySelectorAll('[data-testid^="construction-graph-lane-"]')
+        ).some((l) => {
+          const o = l.getAttribute('data-provenance');
+          return o === 'backfilled' || o === 'synthesized';
+        }),
+      }))
+  );
+  const target = cards.find((c) => c.reconstructed);
+  test.skip(target === undefined, 'no card carries reconstructed evidence');
+  const card = page.getByTestId(TESTID.constructionGraphCard(target?.id ?? ''));
+  // The card's OWN head stamp — never the (portalled) hover card's copy, which
+  // lives outside this locator's DOM subtree.
+  const headStamp = card.getByTestId(TESTID.constructionProvenanceBadge);
+  await expect(headStamp).toHaveCount(1);
+  const box = await headStamp.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  // The hover card still opens (the stamp takes no pointer events, so the
+  // pointer reads as resting on the card, not on nothing). MUI's bare Popper
+  // (BasePopper) defaults its OWN root to role="tooltip" — the hover card is
+  // legitimately one "tooltip" by that role alone, so the fix is pinned by
+  // COUNT (exactly one, never a second from the badge's own MUI Tooltip
+  // opening on top of it), not by absence.
+  await expect(page.getByTestId(TESTID.constructionGraphHoverCard)).toBeVisible();
+  // Give the badge's own MUI Tooltip every chance to open (its default hover
+  // delay) before asserting the count never grows past the hover card itself.
+  await page.waitForTimeout(400);
+  const tips = page.getByRole('tooltip');
+  await expect(tips).toHaveCount(1);
+  // The one tooltip IS the hover card (id `construction-graph-hover-<cardId>`),
+  // never a second, separate popper the badge's own Tooltip would have opened.
+  await expect(tips.first()).toHaveId(`construction-graph-hover-${target?.id ?? ''}`);
+  await expect(tips.first().getByTestId(TESTID.constructionGraphHoverCard)).toBeVisible();
+});
+
 test('segment codes: shown only where they FIT — none wider than its segment, no "…", rows never jump (designer re-check blocker)', async ({
   page,
 }) => {
