@@ -368,6 +368,14 @@ export interface ArtifactSlotView {
    */
   staleCause?: string;
   /**
+   * The same cause, structured (wire `staleBasisCause.upstreamKind` /
+   * `.upstreamRevision`) — for a surface that names the slot in its own words
+   * (the graph's M0 gate: "the activity list (revision 3)"). Absent together
+   * with `staleCause`.
+   */
+  staleCauseKind?: string;
+  staleCauseRevision?: number;
+  /**
    * Commit provenance for a committed slot (PM-P2-4): who committed / when / which rail
    * drafted it. Absent on never-committed slots and on slots committed before provenance
    * was recorded (no back-fill). Each field is independently optional.

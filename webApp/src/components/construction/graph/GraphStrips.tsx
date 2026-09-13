@@ -13,8 +13,10 @@
  */
 import type { ReactElement } from 'react';
 import Box from '@mui/material/Box';
+import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
+import WarningAmberIcon from '@mui/icons-material/WarningAmber';
 
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
@@ -24,6 +26,7 @@ import { provenanceBasesOf, provenanceTooltipFor } from '../provenanceAxis';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
 import { SCHEDULE_CAPTION } from './laneSchedule';
+import { M0_STALE_LABEL, m0PresentationFor, type M0Facts } from './m0Gate';
 import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
@@ -50,16 +53,129 @@ function countTooltip(m: RibbonMilestone): string {
   return `${String(m.complete)} of ${String(m.feeders.length)} feeders have passed every lifecycle gate, all of it observed.`;
 }
 
+/**
+ * M0 — the SDP review gate (PM Q4 ruling). Its state is the project's phase
+ * and its amber flag the SDP review slot's staleness (m0Gate.ts); the chip and
+ * hover copy are the ruling's, verbatim. No date, option, cost or duration.
+ */
+function M0Chip({
+  m,
+  m0,
+  t,
+  onHover,
+  onOpenSdpReview,
+}: {
+  m: RibbonMilestone;
+  m0: M0Facts;
+  t: Tokens;
+  onHover: (milestoneId: string | null) => void;
+  onOpenSdpReview: (() => void) | undefined;
+}): ReactElement {
+  const p = m0PresentationFor(m0, m.gates.length);
+  return (
+    <Tooltip
+      slotProps={{
+        tooltip: {
+          sx: {
+            bgcolor: t.paper,
+            color: t.ink,
+            border: `1.5px solid ${t.line}`,
+            boxShadow: 3,
+            maxWidth: 380,
+          },
+        },
+      }}
+      title={
+        <Box data-testid={UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER} sx={{ p: 0.5 }}>
+          <Typography sx={{ fontWeight: 700, fontSize: 12.5, color: t.ink }}>{p.title}</Typography>
+          <Typography sx={{ fontSize: 12, lineHeight: 1.45, color: t.ink, mt: 0.5 }}>
+            {p.body}
+          </Typography>
+          {p.link !== undefined && onOpenSdpReview !== undefined ? (
+            <Link
+              component="button"
+              data-testid={UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP}
+              sx={{ mt: 0.75, fontSize: 12, color: t.accent }}
+              onClick={onOpenSdpReview}
+            >
+              {p.link}
+            </Link>
+          ) : null}
+        </Box>
+      }
+    >
+      <Box
+        data-m0-state={p.state}
+        data-stale={String(p.stale)}
+        data-testid={UI_IDENTIFIERS.Construction.graphMilestone(m.id)}
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          flexShrink: 0,
+          px: 1,
+          py: 0.4,
+          bgcolor: t.paper,
+          border: `1.5px solid ${t.line}`,
+          borderRadius: `${String(Math.min(t.radius, 8))}px`,
+          fontFamily: t.mono,
+          fontSize: 11,
+          color: t.ink,
+          whiteSpace: 'nowrap',
+          '&:focus-visible': { outline: `2px solid ${t.accent}` },
+        }}
+        tabIndex={0}
+        onBlur={() => {
+          onHover(null);
+        }}
+        onFocus={() => {
+          onHover(m.id);
+        }}
+        onMouseEnter={() => {
+          onHover(m.id);
+        }}
+        onMouseLeave={() => {
+          onHover(null);
+        }}
+      >
+        {p.chipParts.map((part, i) => (
+          <Box component="span" key={part} sx={{ display: 'inline-flex', alignItems: 'center' }}>
+            {i > 0 ? ' · ' : ''}
+            {part === M0_STALE_LABEL ? (
+              <Box
+                component="span"
+                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.3, fontWeight: 700 }}
+              >
+                <WarningAmberIcon aria-hidden sx={{ fontSize: 13, color: t.bandYellow }} />
+                {part}
+              </Box>
+            ) : (
+              <Box component="span" sx={{ fontWeight: i === 0 ? 800 : 400 }}>
+                {part}
+              </Box>
+            )}
+          </Box>
+        ))}
+      </Box>
+    </Tooltip>
+  );
+}
+
 export function GateRibbon({
   ribbon,
   nodes,
+  m0,
   t,
   onHover,
+  onOpenSdpReview,
 }: {
   ribbon: readonly RibbonMilestone[];
   nodes: readonly ActivityNode[];
+  /** M0's facts from the project read (m0Gate.m0FactsFor); absent reads "—". */
+  m0: M0Facts;
   t: Tokens;
   onHover: (milestoneId: string | null) => void;
+  /** Navigation only — the stale approval's way back to the SDP review. */
+  onOpenSdpReview?: () => void;
 }): ReactElement | null {
   if (ribbon.length === 0) return null;
   const byId = new Map(nodes.map((n) => [n.activityId, n]));
@@ -71,6 +187,18 @@ export function GateRibbon({
       sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 0.75 }}
     >
       {ribbon.map((m) => {
+        if (m.id === 'M0') {
+          return (
+            <M0Chip
+              key={m.id}
+              m={m}
+              m0={m0}
+              t={t}
+              onHover={onHover}
+              onOpenSdpReview={onOpenSdpReview}
+            />
+          );
+        }
         const feederNodes = m.feeders
           .map((id) => byId.get(id))
           .filter((n): n is ActivityNode => n !== undefined);

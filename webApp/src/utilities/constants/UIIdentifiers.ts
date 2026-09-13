@@ -390,6 +390,9 @@ export const UI_IDENTIFIERS = {
     // family by that prefix, and a float mark must never count as a lane.
     graphLaneFloat: (activityId: string) => `construction-graph-float-${activityId}`,
     GRAPH_SCHEDULE_CAPTION: 'construction-graph-schedule-caption',
+    /** M0's hover (PM Q4 copy) and its navigation-only link to the SDP review. */
+    GRAPH_M0_HOVER: 'construction-graph-m0-hover',
+    GRAPH_M0_OPEN_SDP: 'construction-graph-m0-open-sdp',
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,

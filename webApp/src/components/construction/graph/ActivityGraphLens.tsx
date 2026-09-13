@@ -67,6 +67,7 @@ import { cardSetFocusFor, edgePresentationFor, hoverFocusFor, type GraphFocus } 
 import { CARD_W, UTIL_PAD, layoutActivityGraph, type GraphLayout } from './activityGraphLayout';
 import { laneSpineFor, type LaneSpine } from './laneSpine';
 import { laneScheduleFor, maxEffortOf, type LaneSchedule } from './laneSchedule';
+import type { M0Facts } from './m0Gate';
 import { gateRibbonFor } from './gateRibbon';
 import {
   CANVAS_MIN_PX,
@@ -98,6 +99,10 @@ export interface ActivityGraphLensProps {
   network: NetworkModel | undefined;
   selection: LensSelection;
   onSelect: (selection: LensSelection) => void;
+  /** M0's facts from the project read (phase + SDP review staleness) — m0Gate.ts. */
+  m0: M0Facts;
+  /** Navigation only: the stale M0 approval's way back to the SDP review. */
+  onOpenSdpReview?: () => void;
 }
 
 export function ActivityGraphLens({
@@ -108,6 +113,8 @@ export function ActivityGraphLens({
   network,
   selection,
   onSelect,
+  m0,
+  onOpenSdpReview,
 }: ActivityGraphLensProps): ReactElement {
   const t = useTokens();
   const c4 = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
@@ -177,7 +184,14 @@ export function ActivityGraphLens({
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-      <GateRibbon nodes={activities} ribbon={ribbon} t={t} onHover={setRibbonHover} />
+      <GateRibbon
+        m0={m0}
+        nodes={activities}
+        ribbon={ribbon}
+        t={t}
+        onHover={setRibbonHover}
+        {...(onOpenSdpReview !== undefined ? { onOpenSdpReview } : {})}
+      />
       <GraphKey model={model} t={t} />
       <GraphCanvas
         // A genuinely different architecture or plan starts from its own

@@ -97,9 +97,13 @@ Three structural findings:
 - **`CoarsePhaseFor` / `CoarseBuildStatusFor` are dead code** (`projectstateaccess.go:7058`, `:7069`).
   Documented as the compute-at-read entry points; the read path passes stored values straight
   through (`systemdesignmanager.go:3369-3370`). Every stored/derived contradiction is silent.
-- **M0 gates nothing.** `deriveMilestones` emits it with no fan-in (`estimationengine.go:1831`),
-  `resolveDependencySatisfied` treats a milestone with no `DependsOn` as satisfied
-  (`constructionmanager.go:1024-1027`), and no committed dependency names it.
+- **M0 has no fan-in.** `deriveMilestones` emits it with no fan-in (`estimationengine.go:1831`),
+  and `resolveDependencySatisfied` treats a milestone with no `DependsOn` as satisfied
+  (`constructionmanager.go:1024-1027`). *(Corrected 2026-09-12, PM Q4: this finding used to read
+  "M0 gates nothing … no committed dependency names it". That is no longer true — 18 committed
+  activities depend on M0, and its real exit is the SDP review: the pump refuses to begin unless
+  `project.phase` is Construction (`constructionmanager.go:815-822`). See §7.6 for what the graph
+  shows.)*
 - **Slot 10 is not materialized.** `materializePhase2Draft` discards two of four return values —
   `list, _, _, err := ...` (`projectdesignmanager.go:3181`). The network is still agent-authored,
   held honest only by the CI drift gate.
@@ -561,6 +565,19 @@ follows him, the list carries the truth.
 `no activity`. `ACT-COMPONENT-COVERAGE` is a real gate, and a hollow node in the layer stack is the
 most legible possible rendering of "the architecture has a component the plan never builds".
 
+**M0 — what the gate ribbon claims (PM Q4 ruling, 2026-09-12).** M0 has no feeders; its exit is
+the SDP review. Its **state** comes from `project.phase` — the same gate the pump applies
+(`constructionmanager.go:815-822`): Construction reads **passed**, an earlier phase **not passed**,
+an unreadable phase **"—"**. It is never inferred from the SDP review's contents. **Staleness**
+comes only from the SDP review slot's `staleBasis` and `staleBasisCause`: a separate, non-blocking
+flag in the house stale vocabulary (`StaleBasisChip`, amber, "basis changed"), never red, never the
+provenance hatch. M0 shows **no** date, chosen option, or option durations, costs or risk, and the
+Observed only toggle does not affect it. The chip reads `M0 · SDP review · passed · gates {n}`
+(`… · passed · ⚠ basis changed · gates {n}` when stale; `not passed` / `—` otherwise), and the hover
+copy is the PM's, verbatim (`pm-q4-ruling.md`), with a navigation-only "Open the SDP review →" on a
+stale approval. Both facts already ride on the read model (`Phase`, `slots[].staleBasis` +
+`staleBasisCause`) — a client wiring change only.
+
 **Mandatory carry-over:** copy the `signatureOf()` + module-level `selectionStore` pattern from
 `NetworkView.tsx:106-128`. The console polls at 1.5s while cascading; without it the operator's
 selection and viewport are wiped mid-glance. This is a recorded, previously-fixed bug.
@@ -689,7 +706,10 @@ coverage strip, the always-enabled retry.
   met). **New tripwire: fix before any override is reintroduced** — the codec must carry the
   sidecar and `materializePhase2Draft` must apply the deltas (a contract change).
 - Slot 10 not materialized (`list, _, _, err :=`).
-- M0 gates nothing.
+- ~~M0 gates nothing.~~ Corrected (PM Q4, 2026-09-12): M0 gates 18 activities; the graph shows its
+  state from `project.phase` (§7.6). **Open, founder's call:** construction is currently authorized
+  against a stale SDP approval (the seal was acknowledged, not reconciled) — reconcile before more
+  construction?
 - `ProducedArtifact` PascalCase keys.
 - The server's sideways rule is looser than App C. `edgeLayeringFindings`
   (`designhealthengine.go:2522`, `RuleGraphSidewaysSync`) exempts every queued same-layer edge; it

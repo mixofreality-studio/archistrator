@@ -68,6 +68,8 @@ import { ApiError } from '../contracts/errors';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { ActivityGraphLens } from '../components/construction/graph/ActivityGraphLens';
 import { GRAPH_LIST_ONLY_REASON } from '../components/construction/graph/graphPresentation';
+import { m0FactsFor } from '../components/construction/graph/m0Gate';
+import { slugForKind } from '../contracts/methodMetadata';
 import { buildActivityTree } from '../components/construction/list/activityTree';
 import { activityMetaFor } from '../components/construction/list/activityMeta';
 import {
@@ -371,6 +373,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [project]
   );
 
+  // M0 — the SDP review gate (PM Q4): the project's phase (the pump's own gate)
+  // and the SDP review slot's staleness. The read model already carries both.
+  const m0 = useMemo(() => m0FactsFor(project), [project]);
+
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
@@ -648,11 +654,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                   // the pane never disagree about one activity.
                   <ActivityGraphLens
                     activities={activityTree}
+                    // M0 reads the project's phase and the SDP review slot —
+                    // never the evidence view, so "Observed only" leaves it be.
+                    m0={m0}
                     network={networkModel}
                     projectId={projectId}
                     selection={selection}
                     systemEnvelope={paneSystemEnvelope}
                     visible={visibleActivityTree}
+                    onOpenSdpReview={() =>
+                      void navigate({
+                        to: '/project/$projectId/design/project/{-$stepSlug}',
+                        params: { projectId, stepSlug: slugForKind('sdpReview') },
+                      })
+                    }
                     onSelect={select}
                   />
                 ) : (
