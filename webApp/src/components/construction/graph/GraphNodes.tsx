@@ -21,12 +21,14 @@
  *
  * LOD (Decision D7): below zoom 0.8 a lane is its id and a bare spine; at 0.8
  * or on hover, segments gain phase names and per-task ticks. Hover at ANY zoom
- * also opens an unscaled card (NodeToolbar) naming each lane's phases, because
- * at fit zoom nothing on the canvas is legible.
+ * also opens an unscaled card (an MUI Popper in a portal, kept inside the
+ * canvas — hoverCardPlacement.ts) naming each lane's phases, because at fit
+ * zoom nothing on the canvas is legible.
  */
-import type { KeyboardEvent, ReactElement } from 'react';
-import { Handle, NodeToolbar, Position, useStore, type NodeProps } from '@xyflow/react';
+import { useState, type KeyboardEvent, type ReactElement } from 'react';
+import { Handle, Position, useStore, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
+import Popper from '@mui/material/Popper';
 import Typography from '@mui/material/Typography';
 import { alpha } from '@mui/material/styles';
 
@@ -38,6 +40,7 @@ import { MUTED_OPACITY } from '../../flow/flowLayout';
 import type { ActivityNode } from '../list/activityTree';
 import { activityRowState, chipFor, type RowChip } from '../list/activityRowPresentation';
 import { hoverCardStampFor, hoverLaneMarksFor } from './hoverCard';
+import { HOVER_CARD_PLACEMENT, hoverCardModifiers } from './hoverCardPlacement';
 import { taskDetailStateFill } from '../detail/detailPaneState';
 import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../provenance';
 import type { GraphCard } from './activityGraphModel';
@@ -70,9 +73,6 @@ export interface GraphCardData {
   outsideFocus: boolean;
   /** This card is the hovered one — LOD-1 and the hover card. */
   hovered: boolean;
-  /** The card's top lies in the canvas's first row band, so its hover card
-   *  opens BELOW it — opened above, the canvas edge clipped it. */
-  topRow: boolean;
   /** Activities the toolbar's filters do NOT match (dimmed, never removed — D4). */
   unmatched: ReadonlySet<string>;
   onSelect: (activityId: string, lifecyclePhase?: string) => void;
@@ -88,6 +88,11 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
   const cardReading = readProvenance({ phases: card.lanes });
   // The card's frame reads the card alone — never a lane's schedule (Q2 ruling).
   const frame = cardFrameFor(card, { outsideFocus: d.outsideFocus });
+  // The hover card's anchor, held in state through a callback ref (never read
+  // from a ref during render), and the canvas that bounds it.
+  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
+  const canvas = anchor?.closest(`[data-testid="${UI_IDENTIFIERS.Construction.GRAPH_CANVAS}"]`);
+  const hoverOpen: boolean = d.hovered && anchor !== null;
 
   return (
     <Box
@@ -96,6 +101,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       data-lanes={card.lanes.length}
       data-row={card.row}
       data-testid={UI_IDENTIFIERS.Construction.graphCard(card.id)}
+      ref={setAnchor}
       sx={{
         width: CARD_W,
         height: d.height,
@@ -192,9 +198,17 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
 
       <Handle id="b" position={Position.Bottom} style={{ opacity: 0 }} type="source" />
 
-      <NodeToolbar isVisible={d.hovered} position={d.topRow ? Position.Bottom : Position.Top}>
+      {/* A portal, anchored to the card, right then left, kept inside the
+          canvas (hoverCardPlacement.ts — designer P1-1). */}
+      <Popper
+        anchorEl={anchor}
+        modifiers={hoverCardModifiers(canvas)}
+        open={hoverOpen}
+        placement={HOVER_CARD_PLACEMENT}
+        sx={{ zIndex: 1300, pointerEvents: 'none' }}
+      >
         <HoverCard card={card} schedules={d.schedules} spines={d.spines} t={t} />
-      </NodeToolbar>
+      </Popper>
     </Box>
   );
 }

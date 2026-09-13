@@ -431,7 +431,6 @@ function buildNodes(args: {
       ...(holdsSelection ? { selectedActivityId } : {}),
       outsideFocus: focus !== null && !focus.cards.has(card.id),
       hovered: hoveredId === card.id,
-      topRow: (layout.pos.get(card.id)?.y ?? 0) < (layout.rows[0]?.height ?? 0),
       unmatched,
       onSelect: args.onSelectLane,
     };
