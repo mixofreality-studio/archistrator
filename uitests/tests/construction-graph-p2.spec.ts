@@ -247,3 +247,40 @@ test('at 1100 an open hover card never paints over the drawer (graph re-review)'
   );
   expect(onTop, 'the drawer paints over the hover card').toBe(true);
 });
+
+test('at 1100 the graph drawer takes focus, Escape closes it, and focus returns to the lane (graph re-review)', async ({
+  page,
+}) => {
+  await openGraph(page, 1100, 800);
+  const lanes = page.getByTestId(LANE_ID);
+  const first = (await lanes.first().getAttribute('data-testid')) ?? '';
+  await page.getByTestId(first).click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  // Focus moves INTO the drawer when it opens.
+  await expect.poll(() => drawer.evaluate((d) => d.contains(document.activeElement))).toBe(true);
+
+  // Non-modal: another lane is chosen with the drawer open — focus then returns to it.
+  const second = await lanes.evaluateAll(
+    (els, skip) =>
+      els
+        .filter((e) => e.getBoundingClientRect().right < window.innerWidth - 520)
+        .map((e) => e.getAttribute('data-testid') ?? '')
+        .find((id) => id !== skip) ?? '',
+    first
+  );
+  expect(second, 'a second lane clear of the drawer').not.toBe('');
+  await page.getByTestId(second).click();
+  await expect
+    .poll(() => new URL(page.url()).searchParams.get('a'))
+    .toBe(second.replace('construction-graph-lane-', ''));
+  await drawer.evaluate((d) => {
+    (d.querySelector('[tabindex="-1"]') as HTMLElement | null)?.focus();
+  });
+
+  // Escape inside the drawer closes it, and focus lands back on the lane.
+  await page.keyboard.press('Escape');
+  await expect(drawer).toHaveCount(0);
+  await expect.poll(() => new URL(page.url()).searchParams.get('a')).toBeNull();
+  await expect(page.getByTestId(second)).toBeFocused();
+});

@@ -270,6 +270,41 @@ export function DetailPane({
     }
   }, []);
 
+  // The graph's NON-modal drawer (below 1200px) gets the focus handling a Modal
+  // would have given it (graph re-review): focus moves INTO the drawer when it
+  // opens, Escape inside it closes it, and focus returns to what opened it — the
+  // lane — when it closes. The list's modal drawer keeps MUI's own handling.
+  const persistent = !isWide && !modal;
+  const drawerBodyRef = useRef<HTMLDivElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    if (!persistent || !open) return undefined;
+    const active = document.activeElement;
+    openerRef.current =
+      active instanceof HTMLElement && drawerBodyRef.current?.contains(active) !== true
+        ? active
+        : null;
+    drawerBodyRef.current?.focus({ preventScroll: true });
+    return (): void => {
+      const opener = openerRef.current;
+      openerRef.current = null;
+      if (opener?.isConnected === true) opener.focus({ preventScroll: true });
+    };
+  }, [persistent, open]);
+  // Non-modal: another lane can be chosen with the drawer open; focus then
+  // returns to THAT lane.
+  useEffect(() => {
+    if (!persistent || !open) return;
+    const active = document.activeElement;
+    if (
+      active instanceof HTMLElement &&
+      active !== document.body &&
+      drawerBodyRef.current?.contains(active) !== true
+    ) {
+      openerRef.current = active;
+    }
+  }, [persistent, open, activityId]);
+
   const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
   const actions = useMemo(
     () => detailActionsFor(state, runActionFor(row, selection)),
@@ -391,7 +426,16 @@ export function DetailPane({
       variant={modal ? 'temporary' : 'persistent'}
       onClose={onClose}
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box
+        ref={drawerBodyRef}
+        sx={{ display: 'flex', flexDirection: 'column', height: '100%', outline: 'none' }}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          if (!persistent || e.key !== 'Escape') return;
+          e.stopPropagation();
+          onClose();
+        }}
+      >
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={meta.exitCriterion}
