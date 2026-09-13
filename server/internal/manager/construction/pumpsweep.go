@@ -1,8 +1,6 @@
 package construction
 
 import (
-	"fmt"
-
 	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -27,10 +25,13 @@ import (
 //
 // OPERATOR PAUSE (fix round 1, Task 7c live-firing review): a project with
 // OperatorPaused=true is EXCLUDED from the fan-out — the sweep must not
-// override an operator's PauseProject call every 30s. This is the safe half of
-// the fix: the MANUAL ExecuteNextActivity path (constructionManager.md §2.1,
-// the founder/operator clicking "Begin"/driving construction directly) stays
-// DELIBERATELY UNGATED — it pumps regardless of OperatorPaused, and that is
+// override an operator's PauseProject call every 30s. The sweep starts its
+// child with pumpInput.OperatorDriven left FALSE, so even a pump it starts
+// inside the pause's relay window honours the RECORDED pause at the pump's own
+// recorded-pause gate (pumpnextactivity.go; I2 ruling, 2026-09-12). The MANUAL
+// ExecuteNextActivity path (constructionManager.md §2.1, the founder/operator
+// clicking "Begin"/driving construction directly) is the ungated one: it sets
+// OperatorDriven, so its pump ignores the recorded pause without clearing it —
 // the de-facto RESUME mechanism today (no dedicated "resume" verb exists). The
 // product question of a real resume verb is routed to the Task 11 founder
 // gate, not decided here.
@@ -67,16 +68,12 @@ type pumpSweepResult struct {
 // this one is chosen for readability in logs/traces.
 const pumpSweepOwnerScope = projectstate.OwnerScope("platform-sweep")
 
-// pumpSweepChildWorkflowID derives the STABLE (tick-invariant) per-project pump id
-// the sweep starts its child against: "{projectId}:nextActivity". Deliberately
-// DIFFERENT in shape from pumpWorkflowID's client-driven "{projectId}:nextActivity:
-// {tickId}" (which always carries a third, non-empty tickId segment) — the two id
-// spaces can never collide. The fixed id is what lets a still-cascading prior
-// tick's execution absorb a redundant firing (a benign "already started" — see
-// PumpSweepWorkflow) instead of a duplicate cascade racing the same project.
-func pumpSweepChildWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:nextActivity", projectID)
-}
+// The sweep starts each project's pump under pumpWorkflowID (constructionmanager.go)
+// — the SAME "{projectId}:nextActivity" id ExecuteNextActivity (Begin / MCP) starts or
+// joins. One pump per project (architect pump ruling, 2026-09-12): the shared,
+// tick-invariant id is what lets a still-cascading pump — whichever entry started it —
+// absorb a redundant firing (a benign "already started", see below) instead of a
+// second cascade racing the same dependency frontier.
 
 func (wf *workflows) PumpSweepWorkflow(ctx workflow.Context, _ pumpSweepInput) (pumpSweepResult, error) {
 	logger := workflow.GetLogger(ctx)
@@ -103,7 +100,7 @@ func (wf *workflows) PumpSweepWorkflow(ctx workflow.Context, _ pumpSweepInput) (
 		}
 		projectID := ProjectID(s.ProjectID)
 		cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-			WorkflowID:        pumpSweepChildWorkflowID(projectID),
+			WorkflowID:        pumpWorkflowID(projectID),
 			ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
 		})
 		child := workflow.ExecuteChildWorkflow(cctx, executionKindPump, pumpInput{ProjectID: projectID})
@@ -112,8 +109,10 @@ func (wf *workflows) PumpSweepWorkflow(ctx workflow.Context, _ pumpSweepInput) (
 		var childWE workflow.Execution
 		if serr := child.GetChildWorkflowExecution().Get(ctx, &childWE); serr != nil {
 			if temporal.IsWorkflowExecutionAlreadyStartedError(serr) {
-				// This project's prior tick is still cascading — exactly the outcome
-				// wanted (no duplicate cascade racing the same project), not a failure.
+				// This project's pump is already cascading — started by a prior sweep
+				// tick OR by ExecuteNextActivity (same pumpWorkflowID) — exactly the
+				// outcome wanted (no duplicate cascade racing the same project), not a
+				// failure.
 				logger.Info("pump sweep: project already cascading, skipped", "projectId", string(projectID))
 				continue
 			}

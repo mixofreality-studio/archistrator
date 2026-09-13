@@ -13,10 +13,15 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
+	workflowpb "go.temporal.io/api/workflow/v1"
+	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
@@ -96,6 +101,362 @@ func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+}
+
+// fakePumpRun satisfies client.WorkflowRun for the mocked ExecuteWorkflow result —
+// only the ids the façade reads (GetRunID pins the dispatch-decision Query).
+type fakePumpRun struct {
+	client.WorkflowRun
+	id, runID string
+}
+
+func (r fakePumpRun) GetID() string    { return r.id }
+func (r fakePumpRun) GetRunID() string { return r.runID }
+
+// fakeEncodedPumpDispatch satisfies converter.EncodedValue for the mocked
+// queryPumpDispatch answer.
+type fakeEncodedPumpDispatch struct{ d pumpDispatch }
+
+func (f fakeEncodedPumpDispatch) HasValue() bool { return true }
+func (f fakeEncodedPumpDispatch) Get(valuePtr any) error {
+	p, ok := valuePtr.(*pumpDispatch)
+	if !ok {
+		return errors.New("fakeEncodedPumpDispatch: want *pumpDispatch")
+	}
+	*p = f.d
+	return nil
+}
+
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12). Two client-driven calls
+// for the same project with DIFFERENT tickIDs (two Begin clicks, a page remount, an
+// MCP retry) must address the SAME pump workflow id — {projectId}:nextActivity — so
+// the second JOINS the first (USE_EXISTING) instead of forking a second pump racing
+// the same dependency frontier; ALLOW_DUPLICATE lets the next call restart a pump
+// that already closed (drained quiet / paused). The mock only answers ExecuteWorkflow
+// for exactly that id + policy pair: a per-tick id ({p}:nextActivity:{tick}) or a
+// stricter reuse policy matches no expectation and the mock panics the test.
+func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	wantID := string(pid) + ":nextActivity"
+	dispatched := ActivityID("C-1")
+
+	mc := &temporalmocks.Client{}
+	var startedIDs []string
+	mc.On("ExecuteWorkflow", mock.Anything,
+		mock.MatchedBy(func(o client.StartWorkflowOptions) bool {
+			return o.ID == wantID &&
+				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING &&
+				o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+		}),
+		// I2: Begin/MCP is the operator-driven path — the pump it starts ignores the
+		// recorded pause. A façade that dropped OperatorDriven matches nothing here.
+		executionKindPump, pumpInput{ProjectID: pid, OperatorDriven: true}).
+		Run(func(args mock.Arguments) {
+			startedIDs = append(startedIDs, args.Get(1).(client.StartWorkflowOptions).ID)
+		}).
+		Return(fakePumpRun{id: wantID, runID: "run-1"}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wantID, "run-1", queryPumpDispatch).
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatched}}, nil)
+
+	m := newTestConstructionManager(mc)
+	for _, tick := range []string{"t1", "t2"} {
+		res, err := m.ExecuteNextActivity(testCtx(), pid, tick)
+		if err != nil {
+			t.Fatalf("ExecuteNextActivity(tick %q): %v", tick, err)
+		}
+		if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != dispatched {
+			t.Fatalf("tick %q: want the pump's decided dispatch of %s, got %+v", tick, dispatched, res)
+		}
+	}
+	if len(startedIDs) != 2 || startedIDs[0] != wantID || startedIDs[1] != startedIDs[0] {
+		t.Fatalf("both ticks must address the one project pump %q, got %v", wantID, startedIDs)
+	}
+	mc.AssertExpectations(t)
+}
+
+// blockingPumpRun is a WorkflowRun whose Get blocks until its context ends — a joined
+// pump still cascading (Get follows the ContinueAsNew chain).
+type blockingPumpRun struct{ client.WorkflowRun }
+
+func (blockingPumpRun) GetID() string    { return "cascading" }
+func (blockingPumpRun) GetRunID() string { return "run-1" }
+func (blockingPumpRun) Get(ctx context.Context, _ any) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
+// failedPumpRun is a WorkflowRun that has already FAILED with err (Get returns at once).
+type failedPumpRun struct {
+	client.WorkflowRun
+	err error
+}
+
+func (failedPumpRun) GetID() string                    { return "failed" }
+func (failedPumpRun) GetRunID() string                 { return "run-1" }
+func (r failedPumpRun) Get(context.Context, any) error { return r.err }
+
+// withPumpPollBudgets shortens the façade's dispatch-decision poll budgets for one test.
+func withPumpPollBudgets(t *testing.T, dispatch, queryFailure, terminal, closureCheck time.Duration) {
+	t.Helper()
+	pd, pq, pt, pc := pumpDispatchWaitBudget, pumpQueryFailureBudget, pumpTerminalWaitBudget, pumpClosureCheckInterval
+	pumpDispatchWaitBudget, pumpQueryFailureBudget, pumpTerminalWaitBudget, pumpClosureCheckInterval = dispatch, queryFailure, terminal, closureCheck
+	t.Cleanup(func() {
+		pumpDispatchWaitBudget, pumpQueryFailureBudget, pumpTerminalWaitBudget, pumpClosureCheckInterval = pd, pq, pt, pc
+	})
+}
+
+// describeStatus is a DescribeWorkflowExecution answer carrying only a run status.
+func describeStatus(s enumspb.WorkflowExecutionStatus) *workflowservice.DescribeWorkflowExecutionResponse {
+	return &workflowservice.DescribeWorkflowExecutionResponse{WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{Status: s}}
+}
+
+// executeWithin runs ExecuteNextActivity under a wall-clock guard, so a regression that
+// blocks on the cascade (or waits out a long budget) fails fast instead of hanging.
+func executeWithin(t *testing.T, m *constructionManager, pid ProjectID, limit time.Duration) (PumpResult, error) {
+	t.Helper()
+	type outcome struct {
+		res PumpResult
+		err error
+	}
+	done := make(chan outcome, 1)
+	go func() {
+		res, err := m.ExecuteNextActivity(testCtx(), pid, "t1")
+		done <- outcome{res, err}
+	}()
+	select {
+	case o := <-done:
+		return o.res, o.err
+	case <-time.After(limit):
+		t.Fatalf("ExecuteNextActivity did not return within %s", limit)
+		return PumpResult{}, nil
+	}
+}
+
+// FIX ROUND 3, Minor 1 — "success after the budget". The dispatch-decision Query fails for
+// LONGER than the terminal-wait budget (no worker polling during a rolling restart), then
+// recovers and answers decided. A failing Query is retried, not read as "the run is gone",
+// so Begin returns the pump's real decision — not an Infrastructure error while the pump
+// in fact carries on and dispatches.
+func Test_ExecuteNextActivity_QueryOutageLongerThanTerminalBudget_StillReturnsTheDecision(t *testing.T) {
+	withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+	dispatched := ActivityID("C-1")
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(nil, errors.New("query failed: no poller")).Times(8) // ≈200ms of outage ≫ the 20ms terminal budget
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatched}}, nil)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
+
+	res, err := executeWithin(t, newTestConstructionManager(mc), pid, 3*time.Second)
+	if err != nil {
+		t.Fatalf("a query outage that recovers must return the decision, got %v", err)
+	}
+	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != dispatched {
+		t.Fatalf("want the pump's decided dispatch of %s, got %+v", dispatched, res)
+	}
+}
+
+// FIX ROUND 3, Minor 1 — "real failure after the budget". The run FAILS before deciding,
+// and the failure is only observable after the terminal-wait budget has elapsed (the Query
+// keeps answering "not decided" — closed runs are queried by replay). The façade detects
+// the closed run and surfaces ITS real error promptly, not after the whole poll budget.
+func Test_ExecuteNextActivity_RunFailsWhileUndecided_SurfacesItsRealError(t *testing.T) {
+	withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).
+		Return(failedPumpRun{err: errors.New("pump failed: readProject: store unreachable")}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: false}}, nil)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Times(6) // ≥60ms ≫ the 20ms terminal budget
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_FAILED), nil)
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second)
+	ce := asConstructionError(t, err)
+	if ce.Kind != fwmanager.Infrastructure || !strings.Contains(ce.Error(), "store unreachable") {
+		t.Fatalf("want the run's real failure surfaced, got kind %s: %v", ce.Kind, err)
+	}
+}
+
+// FIX ROUND 3, Minor 1 — "persistent query failure" (also fix-round M7). A Query that KEEPS
+// failing falls back to the bounded terminal wait: a Begin that joined a RUNNING pump must
+// not block for the whole self-cascade (Get follows ContinueAsNew) — it gets an
+// Infrastructure error once pumpQueryFailureBudget + the terminal budget pass, well
+// before the 30s poll budget. It is NOT the still-deciding outcome.
+func Test_ExecuteNextActivity_QueryFailure_DoesNotWaitOnCascade(t *testing.T) {
+	withPumpPollBudgets(t, 30*time.Second, 50*time.Millisecond, 50*time.Millisecond, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(nil, errors.New("query failed: no poller"))
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 5*time.Second)
+	ce := asConstructionError(t, err)
+	if ce.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure once the query keeps failing, got %s", ce.Kind)
+	}
+	if strings.Contains(ce.Error(), pumpStillDecidingDetail) {
+		t.Fatalf("a persistently failing query is not the still-deciding outcome, got %v", err)
+	}
+}
+
+// completedPumpRun is a WorkflowRun that COMPLETED (without having decided) with result.
+type completedPumpRun struct {
+	client.WorkflowRun
+	result PumpResult
+}
+
+func (completedPumpRun) GetID() string    { return "completed" }
+func (completedPumpRun) GetRunID() string { return "run-1" }
+func (r completedPumpRun) Get(_ context.Context, valuePtr any) error {
+	if p, ok := valuePtr.(*PumpResult); ok {
+		*p = r.result
+	}
+	return nil
+}
+
+// undecodableAnswer is a Query answer whose payload fails to decode.
+type undecodableAnswer struct{ err error }
+
+func (undecodableAnswer) HasValue() bool  { return true }
+func (u undecodableAnswer) Get(any) error { return u.err }
+
+// withPumpRPCTimeout shortens the per-RPC bound for one test.
+func withPumpRPCTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := pumpRPCTimeout
+	pumpRPCTimeout = d
+	t.Cleanup(func() { pumpRPCTimeout = prev })
+}
+
+// FIX ROUND 4, item 1. pumpRunClosed must treat EVERY non-running status as closed, not
+// just FAILED: a run that was Canceled / Terminated / TimedOut surfaces its own error
+// promptly, and one that COMPLETED without deciding returns its terminal result promptly.
+// Each row keeps answering "not decided" (closed runs are queried by replay), so a check
+// narrowed to `== FAILED` would poll the other rows out to the 5s budget and trip the 2s
+// guard.
+func Test_ExecuteNextActivity_EveryClosedStatus_EndsThePollPromptly(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  enumspb.WorkflowExecutionStatus
+		run     client.WorkflowRun
+		wantErr string // "" ⇒ want the run's terminal result, no error
+	}{
+		{"failed", enumspb.WORKFLOW_EXECUTION_STATUS_FAILED, failedPumpRun{err: errors.New("run failed: store unreachable")}, "store unreachable"},
+		{"canceled", enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED, failedPumpRun{err: errors.New("run canceled by operator")}, "canceled by operator"},
+		{"terminated", enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED, failedPumpRun{err: errors.New("run terminated: drain")}, "terminated: drain"},
+		{"timed out", enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT, failedPumpRun{err: errors.New("run timed out")}, "timed out"},
+		{"completed without deciding", enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED, completedPumpRun{result: PumpResult{Dispatched: false}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+			pid := ProjectID(uuid.NewString())
+			wfID := string(pid) + ":nextActivity"
+
+			mc := &temporalmocks.Client{}
+			mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(tc.run, nil)
+			mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+				Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: false}}, nil)
+			mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").Return(describeStatus(tc.status), nil)
+
+			res, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second)
+			if tc.wantErr == "" {
+				if err != nil || res.Dispatched {
+					t.Fatalf("a run that completed without deciding must return its terminal result, got %+v err %v", res, err)
+				}
+				return
+			}
+			if ce := asConstructionError(t, err); !strings.Contains(ce.Error(), tc.wantErr) {
+				t.Fatalf("want the %s run's own error (%q), got %v", tc.name, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// FIX ROUND 4, item 2. A Query the run DID serve but whose answer fails to decode is a
+// real error: it surfaces at once, with its message, and is never polled as "not
+// decided" (which would run out to the budget and return the still-deciding outcome).
+func Test_ExecuteNextActivity_UndecodableAnswer_SurfacesTheDecodeErrorPromptly(t *testing.T) {
+	withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(undecodableAnswer{err: errors.New("payload decode: unknown field \"decidedd\"")}, nil)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second)
+	ce := asConstructionError(t, err)
+	if !strings.Contains(ce.Error(), "payload decode") || strings.Contains(ce.Error(), pumpStillDecidingDetail) {
+		t.Fatalf("want the real decode error surfaced at once, got %v", err)
+	}
+}
+
+// FIX ROUND 4, item 3. Every Query / Describe RPC carries its own pumpRPCTimeout, so a
+// single HUNG RPC cannot defeat the wall-clock budgets (they are only checked between
+// RPCs). Both RPCs here block until their context is done — with the caller's context
+// never cancelled, an unbounded RPC would hang forever. The Query times out into the
+// failing-query path, the Describe into "not known closed", and the call ends with the
+// bounded fallback's Infrastructure error well inside the guard.
+func Test_ExecuteNextActivity_HungRPCs_AreBoundedPerCall(t *testing.T) {
+	withPumpPollBudgets(t, 30*time.Second, 100*time.Millisecond, 20*time.Millisecond, 10*time.Millisecond)
+	withPumpRPCTimeout(t, 20*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+	blockUntilDone := func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Run(blockUntilDone).Return(nil, context.DeadlineExceeded)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Run(blockUntilDone).Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), context.DeadlineExceeded)
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 3*time.Second)
+	if ce := asConstructionError(t, err); ce.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want the bounded fallback's Infrastructure error, got %s: %v", ce.Kind, err)
+	}
+}
+
+// FIX ROUND 3, Minor 1 — the budget-exhausted outcome. The Query keeps answering "not
+// decided" and the run is still RUNNING when the poll budget expires: the façade returns
+// PROMPTLY with the distinguishable still-deciding Detail, instead of waiting out the
+// terminal budget into a generic timeout. (Still an Infrastructure Kind on the wire until
+// the contract ruling — see pumpDispatchWaitBudget's OPEN note.)
+func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcome(t *testing.T) {
+	withPumpPollBudgets(t, 100*time.Millisecond, 2*time.Second, 5*time.Second, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: false}}, nil)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil)
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second) // a 5s terminal wait would blow this guard
+	if ce := asConstructionError(t, err); !strings.Contains(ce.Error(), pumpStillDecidingDetail) {
+		t.Fatalf("want the distinguishable still-deciding outcome, got %v", err)
 	}
 }
 
@@ -186,7 +547,7 @@ func Test_GetSessionState_EmptyActivityID(t *testing.T) {
 func Test_WorkflowIDDerivation(t *testing.T) {
 	pid := ProjectID("11111111-1111-1111-1111-111111111111")
 
-	if got := pumpWorkflowID(pid, "t1"); got != string(pid)+":nextActivity:t1" {
+	if got := pumpWorkflowID(pid); got != string(pid)+":nextActivity" {
 		t.Fatalf("pump id: %q", got)
 	}
 	if got := constructActivityWorkflowID(pid, "C-9"); got != string(pid)+":C-9" {
@@ -2036,6 +2397,10 @@ type fakeProjectState struct {
 	phaseDone []phaseCompletedCall
 
 	version projectstate.Version
+
+	// order, when set, receives "record" on every RecordOperatorPaused — a call-order
+	// log shared with the other fakes (callLog).
+	order *callLog
 }
 
 // phaseCompletedCall records one RecordPhaseCompleted transition (the gate's durable
@@ -2140,6 +2505,11 @@ func (f *fakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.P
 		return 0, err
 	}
 	f.paused = append(f.paused, reason)
+	// Like the real store (GitStore.RecordOperatorPaused): the pause lands in head-state,
+	// so a later read — the pump's readProject — sees it.
+	f.project.OperatorPaused = true
+	f.project.PauseReason = reason
+	f.order.add("record")
 	return f.bump(), nil
 }
 
@@ -2371,6 +2741,10 @@ type fakePipeline struct {
 	cancelled []agenticjob.PipelineHandle
 	polls     int
 
+	// order, when set, receives "cancel" on every cancel — a call-order log shared
+	// with the other fakes (callLog).
+	order *callLog
+
 	// episode, when set, rides EVERY observation — the local executor's mined
 	// EpisodeSummary (SP1 capture-seam). nil mirrors the GitHub-Actions arm / a lost run.
 	episode *agenticjob.EpisodeSummary
@@ -2406,6 +2780,7 @@ func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.Pipeli
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
+	p.order.add("cancel")
 	return nil
 }
 
@@ -2640,13 +3015,116 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 }
 
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
+	registerSupervisionWithBus(env, wf, ps, pipe, &recordingSignalBus{}, eps...)
+}
+
+// registerSupervisionWithBus is registerSupervision with the messageBus.deliverSignal
+// Activity backed by a caller-supplied bus — the pause branch relays the pause to the
+// project's pump through it.
+func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	registerGenPipeline(env, pipe)
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	acts := &genActivities{MessageBus: bus}
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
+
+// recordingSignalBus records every DeliverSignal and answers with err (nil ⇒
+// delivered). Satisfies messagebus.MessageBus.
+type recordingSignalBus struct {
+	mu       sync.Mutex
+	err      error
+	targets  []messagebus.ExecutionID
+	names    []messagebus.SignalName
+	payloads []messagebus.ExecutionPayload
+	// order, when set, receives "relay" on every DeliverSignal (callLog).
+	order *callLog
+	// onDeliver, when set, runs INSIDE the relay window — at DeliverSignal time, before
+	// the answer returns — so a test can put other executions there.
+	onDeliver func()
+}
+
+func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	if b.onDeliver != nil {
+		b.onDeliver()
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.targets = append(b.targets, target)
+	b.names = append(b.names, name)
+	b.payloads = append(b.payloads, payload)
+	b.order.add("relay")
+	return b.err
+}
+
+// callLog is one ordered record of calls shared across several fakes, so a test can
+// assert the ORDER of effects that land on DIFFERENT ports (state, bus, pipeline).
+// nil-safe: a fake without a log records nothing.
+type callLog struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (l *callLog) add(call string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, call)
+}
+
+func (l *callLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.calls, "→")
+}
+
+// pauseRun is one ProjectSupervisionWorkflow pause-branch run against fakes that share
+// one call-order log.
+type pauseRun struct {
+	err   error
+	ps    *fakeProjectState
+	pipe  *fakePipeline
+	bus   *recordingSignalBus
+	order *callLog
+}
+
+// runPauseBranch signals a pause to a fresh supervision workflow whose plan cancels one
+// pipeline and records the pause. busErr is what the relay's DeliverSignal answers;
+// setup (optional) adjusts the env before the run (e.g. an OnGetVersion override).
+func runPauseBranchRig(busErr error, setup func(*testsuite.TestWorkflowEnvironment)) pauseRun {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	order := &callLog{}
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}, order: order}
+	pipe := &fakePipeline{order: order}
+	bus := &recordingSignalBus{err: busErr, order: order}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+	if setup != nil {
+		setup(env)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+	return pauseRun{err: env.GetWorkflowError(), ps: ps, pipe: pipe, bus: bus, order: order}
+}
+
+func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleID, messagebus.ScheduleSpec) error {
+	return nil
+}
+
+var _ messagebus.MessageBus = (*recordingSignalBus)(nil)
 
 func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState) {
 	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
@@ -3380,7 +3858,625 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	}
 }
 
+// PAUSE-DELIVERY CO-GATE (architect pump ruling, 2026-09-12). A pause that lands while
+// the pump is parked in child.Get (the current activity still running) must stop the
+// cascade AFTER that activity: the pump drains its signal channel before the
+// self-cascade's ContinueAsNew and goes quiet, so no further child starts. Before the
+// fix the pump read its channel only at run start; the buffered pause was discarded by
+// ContinueAsNew and the next run dispatched the next activity. The pause is delivered in
+// the exact wire form the supervision relay sends (pumpPausePayload's bytes through
+// messageBus — binary/plain), which also pins that the pump's receive does not silently
+// drop that encoding.
+func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // the frontier never drains on its own
+		},
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	// Hold the per-activity child open for 10 minutes of workflow time, so the pump is
+	// parked in child.Get when the pause lands at minute 1.
+	var childStarts int
+	env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+		After(10 * time.Minute).
+		Run(func(mock.Arguments) { childStarts++ }).
+		Return(nil)
+
+	payload, err := pumpPausePayload(pid, "operator halt")
+	if err != nil {
+		t.Fatalf("encode pause payload: %v", err)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, payload.Bytes)
+	}, time.Minute)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pause during child.Get must end the cascade quietly (no ContinueAsNew into a next dispatch), got %v", err)
+	}
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+		t.Fatalf("the run dispatched C-XYZ before the pause; want that reported, got %+v", res)
+	}
+	if childStarts != 1 {
+		t.Fatalf("want exactly the one in-flight child (no further child after the pause), got %d", childStarts)
+	}
+}
+
+// cascadingPumpRig is a pump whose frontier never drains on its own, with the
+// per-activity child mocked to run for childRun of workflow time (counted in
+// childStarts). readDelay > 0 delays the head-state read (designSessionAccess.
+// readProjectOnBranch) by that much workflow time, delegating to the registered fake.
+type cascadingPumpRig struct {
+	env         *testsuite.TestWorkflowEnvironment
+	pid         ProjectID
+	ps          *fakeProjectState
+	childStarts *int
+}
+
+// recordedPause is a newCascadingPumpRig option: the project's head-state carries the
+// operator's RECORDED pause (as RecordOperatorPaused leaves it). The rig's read goes
+// through designSessionAccess.ReadProjectOnBranch → EncodeProject → the pump's Decode,
+// so the flag reaches the pump only if the envelope carries it.
+func recordedPause(p *projectstate.Project) {
+	p.OperatorPaused = true
+	p.PauseReason = "operator halt"
+}
+
+func newCascadingPumpRig(childRun, readDelay time.Duration, opts ...func(*projectstate.Project)) cascadingPumpRig {
+	return newPumpRig(pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}, childRun, readDelay, opts...)
+}
+
+// newPumpRig is newCascadingPumpRig with the frontier's selection supplied (e.g. a
+// BLOCKED verdict).
+func newPumpRig(sel pumpSelection, childRun, readDelay time.Duration, opts ...func(*projectstate.Project)) cascadingPumpRig {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	for _, opt := range opts {
+		opt(&ps.project)
+	}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return sel
+		},
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+	starts := new(int)
+	env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Run(func(mock.Arguments) { *starts++ }).
+		Return(nil)
+	if readDelay > 0 {
+		read := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
+		env.OnActivity("designSessionAccess.readProjectOnBranch", mock.Anything, mock.Anything, mock.Anything).
+			After(readDelay).
+			Return(read.DesignSessionReadProjectOnBranch)
+	}
+	return cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: starts}
+}
+
+// pauseAt delivers a pause to the pump at workflow time `at`, in the wire form the
+// supervision relay sends (pumpPausePayload's bytes, binary/plain).
+func (r cascadingPumpRig) pauseAt(t *testing.T, at time.Duration) {
+	t.Helper()
+	payload, err := pumpPausePayload(r.pid, "operator halt")
+	if err != nil {
+		t.Fatalf("encode pause payload: %v", err)
+	}
+	r.env.RegisterDelayedCallback(func() {
+		r.env.SignalWorkflow(signalOperatorPauseRequested, payload.Bytes)
+	}, at)
+}
+
+// run starts the pump sweep-shaped (OperatorDriven false); runInput takes any input.
+func (r cascadingPumpRig) run(t *testing.T) (PumpResult, error) {
+	t.Helper()
+	return r.runInput(t, pumpInput{ProjectID: r.pid})
+}
+
+func (r cascadingPumpRig) runInput(t *testing.T, in pumpInput) (PumpResult, error) {
+	t.Helper()
+	r.env.ExecuteWorkflow(executionKindPump, in)
+	if !r.env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	if err := r.env.GetWorkflowError(); err != nil {
+		return PumpResult{}, err
+	}
+	var res PumpResult
+	if err := r.env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	return res, nil
+}
+
+func isContinueAsNew(err error) bool {
+	var canErr *workflow.ContinueAsNewError
+	return errors.As(err, &canErr)
+}
+
+// FIX ROUND I1 (the reviewer's probe). readProject is an Activity, so a pause can land
+// AFTER the run-start check and BEFORE the dispatch. It must not dispatch a NEW
+// activity — nothing would cancel it (the pause plan's PipelinesToCancel is empty).
+// Pause at 1m while the head-state read is held to 2m: the pump goes quiet, no child.
+// THE BOUND this pins: the pause is DELIVERED BEFORE the dispatching workflow task
+// starts (the task that runs once readProject completes), so signal check 2 sees it. A
+// pause arriving DURING that task is honoured at signal check 3, after exactly one
+// activity (Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity).
+func Test_Pump_PauseDuringReadProject_NoNewDispatch(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
+	rig.pauseAt(t, time.Minute)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a pause during readProject must end the run quietly, got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("a pause that landed before dispatch must dispatch nothing, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
+// M1 (version gate "pump-pause-before-dispatch", DefaultVersion branch). A pre-change
+// execution keeps the old sequence: it dispatches straight after readProject even with
+// a pause buffered (the post-child drain, at its current version, then quiets it).
+func Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
+	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.pauseAt(t, time.Minute)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("want the drain to quiet the run after the old-sequence dispatch, got %v", err)
+	}
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("a pre-change execution must dispatch as it always did, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
+// M1 (version gate "pump-drain-pause-before-continue-as-new", DefaultVersion branch). A
+// pre-change execution continues-as-new straight after the Sleep, as it always did.
+func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig.env.OnGetVersion("pump-drain-pause-before-continue-as-new", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.pauseAt(t, time.Minute)
+
+	_, err := rig.run(t)
+	if !isContinueAsNew(err) {
+		t.Fatalf("a pre-change execution must continue-as-new (no drain), got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the one child, got %d", *rig.childStarts)
+	}
+}
+
+// M1/M2 (version gate "pump-pause-decode-any", DefaultVersion branch). A pre-change
+// execution keeps the OLD struct decode at run start, which drops a binary/plain
+// (relayed) pause — ReceiveAsync consumes it as corrupted — so the run dispatches and
+// continues-as-new exactly as its history recorded.
+func Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig.env.OnGetVersion("pump-pause-decode-any", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.pauseAt(t, 0)
+
+	_, err := rig.run(t)
+	if !isContinueAsNew(err) {
+		t.Fatalf("a pre-change execution must not see the byte pause (old struct decode), got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	}
+}
+
+// I2 test 3 (architect ruling, 2026-09-12). A SWEEP-started pump (OperatorDriven
+// false) on a project whose pause is RECORDED — no signal at all, an activity eligible
+// — must go quiet at the recorded-pause gate: no child, a clean completion (no
+// ContinueAsNew), a decided nothing-dispatched answer, and no blocked-activity failure
+// record. The read goes through EncodeProject/Decode (see recordedPause), so an
+// envelope that drops OperatorPaused fails this test.
+func Test_Pump_SweepStarted_RecordedPause_NoDispatch(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a sweep-started pump must honour the recorded pause quietly (no ContinueAsNew), got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("a recorded pause must stop a sweep-started pump before dispatch, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+	enc, err := rig.env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if !d.Decided || d.Dispatched {
+		t.Fatalf("want a decided, nothing-dispatched answer, got %+v", d)
+	}
+	if len(rig.ps.failed) != 0 {
+		t.Fatalf("the recorded-pause gate must not write a blocked-activity failure record, got %v", rig.ps.failed)
+	}
+}
+
+// FIX ROUND 3, Minor 2. The recorded-pause gate sits BEFORE `switch sel.Verdict`: on a
+// paused project a sweep-started pump must not act on the frontier at all — not even the
+// blocked-verdict branch's durable ActivityConstructionFailed record, which would
+// otherwise land while the operator has construction paused.
+func Test_Pump_SweepStarted_RecordedPause_BlockedFrontier_NoFailureRecord(t *testing.T) {
+	rig := newPumpRig(pumpSelection{
+		Verdict:              verdictBlocked,
+		BlockedActivityID:    "C-TLM",
+		BlockedFailureReason: projectstate.ComponentUnresolved,
+		BlockedReason:        "activity C-TLM names a component not in the committed systemDesign",
+	}, 10*time.Minute, 0, recordedPause)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a paused, sweep-started pump must go quiet before the verdicts, got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("nothing may be dispatched, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+	if len(rig.ps.failed) != 0 {
+		t.Fatalf("the recorded-pause gate must precede the blocked branch — no failure record, got %v", rig.ps.failed)
+	}
+}
+
+// windowPumps is what the two pumps that ran INSIDE the relay window did.
+type windowPumps struct {
+	ran                 bool
+	cascade             PumpResult
+	cascadeErr          error
+	sweepErr            error
+	sweepPumped         []ProjectID
+	sweepChildCompleted bool
+	sweepChild          PumpResult
+	sweepChildErr       error
+	childStarts         int
+}
+
+// runPumpsInWindow runs, against the SAME store, the two pumps that can read head-state
+// inside the pause's relay window: (a) the cascading pump's next run — a sweep-started
+// cascade after ContinueAsNew, so OperatorDriven is false; and (b) a NEW pump that
+// PumpSweepWorkflow starts from a STALE listing (the project not yet shown paused). Both
+// see an eligible activity; the per-activity child is mocked and counted.
+func runPumpsInWindow(ps *fakeProjectState, pid ProjectID) windowPumps {
+	out := windowPumps{ran: true}
+	newPumpWorkflows := func() *workflows {
+		return newWorkflows(wfDeps{
+			Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+			Review:       &fakeReview{},
+			NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+				return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+			},
+		})
+	}
+	countChildren := func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+			After(time.Minute).
+			Run(func(mock.Arguments) { out.childStarts++ }).
+			Return(nil)
+	}
+
+	var cascadeSuite testsuite.WorkflowTestSuite
+	cascadeEnv := cascadeSuite.NewTestWorkflowEnvironment()
+	registerPump(cascadeEnv, newPumpWorkflows(), ps, &fakePipeline{phase: PipelineSucceeded})
+	countChildren(cascadeEnv)
+	cascadeEnv.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+	if out.cascadeErr = cascadeEnv.GetWorkflowError(); out.cascadeErr == nil {
+		_ = cascadeEnv.GetWorkflowResult(&out.cascade)
+	}
+
+	var sweepSuite testsuite.WorkflowTestSuite
+	sweepEnv := sweepSuite.NewTestWorkflowEnvironment()
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: projectstate.ProjectID(pid), Phase: projectstate.PhaseConstruction}},
+	}
+	registerPumpSweep(sweepEnv, newPumpWorkflows(), lister, ps, &fakePipeline{phase: PipelineSucceeded})
+	countChildren(sweepEnv)
+	// The test env stops when its ROOT (the sweep) completes, so the ABANDON-policy child
+	// pump the sweep started is not run to completion there. Capture the child's exact
+	// start input instead, and run THAT pump to completion against the same store below.
+	var sweepChildInput *pumpInput
+	sweepEnv.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
+		if info.WorkflowType.Name != executionKindPump {
+			return
+		}
+		var in pumpInput
+		if err := args.Get(&in); err == nil {
+			sweepChildInput = &in
+		}
+	})
+	sweepEnv.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+	if out.sweepErr = sweepEnv.GetWorkflowError(); out.sweepErr == nil {
+		var res pumpSweepResult
+		_ = sweepEnv.GetWorkflowResult(&res)
+		out.sweepPumped = res.PumpedProjects
+	}
+	if sweepChildInput == nil {
+		return out
+	}
+
+	var childSuite testsuite.WorkflowTestSuite
+	childEnv := childSuite.NewTestWorkflowEnvironment()
+	registerPump(childEnv, newPumpWorkflows(), ps, &fakePipeline{phase: PipelineSucceeded})
+	countChildren(childEnv)
+	childEnv.ExecuteWorkflow(executionKindPump, *sweepChildInput)
+	out.sweepChildCompleted = childEnv.IsWorkflowCompleted()
+	if out.sweepChildErr = childEnv.GetWorkflowError(); out.sweepChildErr == nil {
+		_ = childEnv.GetWorkflowResult(&out.sweepChild)
+	}
+	return out
+}
+
+// FIX ROUND 3, Minor 3: the recorded-pause race, END TO END in one run. Supervision
+// RECORDS the pause; then, INSIDE the relay window (the bus's DeliverSignal), the
+// cascading pump's next run and a new sweep-started pump both read the SAME store
+// (runPumpsInWindow); the relay then answers NotFound (no pump left running). Both pumps
+// must go quiet with ZERO children, and supervision must succeed. It fails if record and
+// relay are swapped (the pumps would read an unpaused store) or if the envelope drops
+// OperatorPaused (the pumps' Decode could not see it).
+func Test_PauseRace_PumpsReadingInsideTheRelayWindow_GoQuiet(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	var window windowPumps
+	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
+	bus.onDeliver = func() { window = runPumpsInWindow(ps, pid) }
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision must succeed (the relay's NotFound is tolerated), got %v", err)
+	}
+	if !window.ran {
+		t.Fatal("the relay window never opened — DeliverSignal was not reached")
+	}
+	if window.cascadeErr != nil || window.cascade.Dispatched {
+		t.Fatalf("the cascading pump's next run must go quiet on the recorded pause, got result %+v err %v", window.cascade, window.cascadeErr)
+	}
+	if window.sweepErr != nil || len(window.sweepPumped) != 1 {
+		t.Fatalf("the sweep (stale listing) must start its child pump, got pumped %v err %v", window.sweepPumped, window.sweepErr)
+	}
+	if !window.sweepChildCompleted || window.sweepChildErr != nil || window.sweepChild.Dispatched {
+		t.Fatalf("the sweep-started pump must run and go quiet, got completed=%v result %+v err %v",
+			window.sweepChildCompleted, window.sweepChild, window.sweepChildErr)
+	}
+	if window.childStarts != 0 {
+		t.Fatalf("no pump may dispatch inside the relay window, got %d child start(s)", window.childStarts)
+	}
+	if len(ps.paused) != 1 || len(pipe.cancelled) != 1 {
+		t.Fatalf("want the pause recorded and the pipeline cancelled, got paused=%v cancels=%d", ps.paused, len(pipe.cancelled))
+	}
+}
+
+// I2 test 4. An OPERATOR-driven pump (Begin) ignores the recorded pause — the Task 11
+// ungated manual path, now enforced in the pump — and dispatches as usual.
+func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+
+	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	if !isContinueAsNew(err) {
+		t.Fatalf("an operator-driven pump must dispatch and self-cascade through a recorded pause, got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the one dispatched child, got %d", *rig.childStarts)
+	}
+}
+
+// I2 test 5. ContinueAsNew must carry the WHOLE input: a Begin-started cascade that
+// dropped OperatorDriven would honour the recorded pause on its second iteration and
+// stop after one activity.
+func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+
+	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	var canErr *workflow.ContinueAsNewError
+	if !errors.As(err, &canErr) {
+		t.Fatalf("want a ContinueAsNewError, got %v", err)
+	}
+	var next pumpInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &next); err != nil {
+		t.Fatalf("decode ContinueAsNew input: %v", err)
+	}
+	if next.ProjectID != rig.pid || !next.OperatorDriven {
+		t.Fatalf("ContinueAsNew must carry the whole input (OperatorDriven true), got %+v", next)
+	}
+}
+
+// I2 test 8 (version gate "pump-honors-recorded-pause", DefaultVersion branch). A
+// pre-change pump execution keeps the old sequence: no recorded-pause gate, so it
+// dispatches even with the pause recorded.
+func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+	rig.env.OnGetVersion("pump-honors-recorded-pause", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	_, err := rig.run(t)
+	if !isContinueAsNew(err) {
+		t.Fatalf("a pre-change pump must dispatch as it always did, got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	}
+}
+
+// M4 (decided: an undecodable pause COUNTS). The channel name carries the operator's
+// intent; dropping a pause over a malformed body would fail open (dispatch through a
+// halt), counting it fails safe. See pumpPauseRequested.
+func Test_Pump_UndecodablePauseSignal_StillPauses(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalOperatorPauseRequested, []byte("not json"))
+	}, 0)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("an undecodable pause must still quiet the pump, got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("an undecodable pause must still stop dispatch, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
 // ---- Tests: pause branch (ProjectSupervisionWorkflow / NCUC2) ---------------
+
+// M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
+// pre-change supervision execution keeps main's sequence EXACTLY: cancel, then record,
+// and no relay.
+func Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay(t *testing.T) {
+	r := runPauseBranchRig(nil, func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion("pause-relays-to-pump", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	})
+	if r.err != nil {
+		t.Fatalf("supervision error: %v", r.err)
+	}
+	if got := r.order.String(); got != "cancel→record" {
+		t.Fatalf("a pre-change execution must run main's cancel→record with no relay, got %q", got)
+	}
+	if len(r.bus.targets) != 0 {
+		t.Fatalf("a pre-change execution must not relay, got %v", r.bus.targets)
+	}
+}
+
+// I2 test 1 (architect ruling, 2026-09-12): RECORD → RELAY → CANCEL. The pause is
+// durable in head-state BEFORE it is relayed, so a pump the sweep (re)starts inside the
+// relay window reads it at its recorded-pause gate. One call-order log is shared across
+// the fake state (record), bus (relay) and pipeline (cancel).
+func Test_Pause_RecordsBeforeRelayingToPump(t *testing.T) {
+	r := runPauseBranchRig(nil, nil)
+	if r.err != nil {
+		t.Fatalf("supervision error: %v", r.err)
+	}
+	if got := r.order.String(); got != "record→relay→cancel" {
+		t.Fatalf("want record→relay→cancel, got %q", got)
+	}
+}
+
+// I2 test 2 (also fix-round M3). Only NotFound (no pump running) is tolerated: any other
+// relay failure FAILS the pause branch loudly. The pause was recorded FIRST, so it STAYS
+// recorded (the sweep keeps honouring it), and the pipelines are not cancelled.
+// ContractMisuse is used because it is non-retryable under the default Activity options
+// (a Transient error would retry indefinitely).
+func Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails(t *testing.T) {
+	r := runPauseBranchRig(fwra.New(fwra.ContractMisuse, "messagebus: invalid argument"), nil)
+	if r.err == nil {
+		t.Fatal("a non-NotFound relay failure must fail the pause branch, got nil")
+	}
+	if len(r.ps.paused) != 1 || r.ps.paused[0] != "operator halt" {
+		t.Fatalf("the pause was recorded before the relay and must stay recorded, got %v", r.ps.paused)
+	}
+	if got := r.order.String(); got != "record→relay" {
+		t.Fatalf("want record→relay and no cancel after the failed relay, got %q", got)
+	}
+}
+
+// PauseProject's signal lands on the supervision workflow, and nothing else reaches the
+// pump — so the pause branch must RELAY the pause to the project's one pump id through
+// messageBus.deliverSignal, in the wire form the pump decodes.
+func Test_Pause_RelaysPauseToProjectPump(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	bus := &recordingSignalBus{}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if len(bus.targets) != 1 || string(bus.targets[0]) != string(pid)+":nextActivity" {
+		t.Fatalf("want one pause relayed to the project pump %q, got %v", string(pid)+":nextActivity", bus.targets)
+	}
+	if bus.names[0] != messagebus.SignalName(signalOperatorPauseRequested) {
+		t.Fatalf("want signal %q, got %q", signalOperatorPauseRequested, bus.names[0])
+	}
+	var sig operatorPauseSignal
+	if err := json.Unmarshal(bus.payloads[0].Bytes, &sig); err != nil || sig.Reason != "operator halt" || sig.ProjectID != pid {
+		t.Fatalf("relayed payload must decode to the operator's pause, got %+v (err %v)", sig, err)
+	}
+	// The rest of the pause branch still runs.
+	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 {
+		t.Fatalf("want the pipeline cancel + recordOperatorPaused as before, got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	}
+}
+
+// No pump running (never started, or already closed quiet) is the normal case for a
+// project paused between cascades: messageBus reports the target NotFound, and the
+// pause branch must tolerate it and still cancel + record the pause.
+func Test_Pause_NoRunningPump_NotFoundTolerated(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pause with no running pump must succeed (NotFound tolerated), got %v", err)
+	}
+	if len(bus.targets) != 1 {
+		t.Fatalf("want the relay attempted once, got %d", len(bus.targets))
+	}
+	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
+		t.Fatalf("want the pipeline cancel + recordOperatorPaused(operator halt), got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	}
+}
 
 // The operator-pause branch: applyPausePolicy returns a plan naming a pipeline to
 // cancel + RecordPaused; the Manager EXECUTES the pipeline cancel + recordOperatorPaused.
@@ -3684,16 +4780,55 @@ func Test_PumpSweep_ConstructionPhaseProject_StartsChildPump(t *testing.T) {
 	}
 }
 
-// pumpSweepChildWorkflowID must be a DIFFERENT shape from pumpWorkflowID's
-// client-driven id (which always carries a non-empty tickId segment) — the two id
-// spaces must never collide.
-func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *testing.T) {
-	pid := ProjectID(uuid.NewString())
-	sweepID := pumpSweepChildWorkflowID(pid)
-	for _, tick := range []string{"t1", "2026-08-01T00:00:00Z"} {
-		if clientID := pumpWorkflowID(pid, tick); clientID == sweepID {
-			t.Fatalf("pumpSweepChildWorkflowID(%q) == pumpWorkflowID(%q, %q) — id spaces must never collide", pid, pid, tick)
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12) — the inverse of the
+// retired Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID, which
+// ENFORCED that the sweep's pump id and the client-driven per-tick id differed and so
+// guaranteed two pumps racing one frontier whenever the Schedule ran. The sweep must
+// start its per-project child under EXACTLY the id ExecuteNextActivity starts or
+// joins. Driven through the real PumpSweepWorkflow (not just the derivation helper):
+// the child pump the sweep starts is observed by its workflow id.
+func Test_PumpSweep_ChildPumpID_IsTheClientDrivenPumpWorkflowID(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction}},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	var startedChildIDs []string
+	var startedInputs []pumpInput
+	var mu sync.Mutex
+	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
+		mu.Lock()
+		defer mu.Unlock()
+		startedChildIDs = append(startedChildIDs, info.WorkflowExecution.ID)
+		var in pumpInput
+		if err := args.Get(&in); err != nil {
+			t.Errorf("decode child pump input: %v", err)
 		}
+		startedInputs = append(startedInputs, in)
+	})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	want := pumpWorkflowID(ProjectID(pid))
+	if want != string(pid)+":nextActivity" {
+		t.Fatalf("pumpWorkflowID = %q, want the tick-invariant %q", want, string(pid)+":nextActivity")
+	}
+	if len(startedChildIDs) != 1 || startedChildIDs[0] != want {
+		t.Fatalf("the sweep must start its child pump under the client-driven pump id %q, got %v", want, startedChildIDs)
+	}
+	// I2: the sweep's pump is NOT operator-driven — it must honour a recorded pause.
+	if len(startedInputs) != 1 || startedInputs[0].OperatorDriven {
+		t.Fatalf("the sweep must start its child pump with OperatorDriven false, got %+v", startedInputs)
 	}
 }
 
@@ -3707,7 +4842,7 @@ func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *test
 // §10d of the earlier report was WRONG to call this untestable — the cheap
 // trigger is simply two ProjectSummary entries sharing one ProjectID in the
 // SAME tick: the first starts the child; by the time the loop reaches the
-// second (same stable pumpSweepChildWorkflowID, since it depends only on
+// second (same stable pumpWorkflowID, since it depends only on
 // ProjectID), that child has not yet completed, so the second start collides
 // for real and the collapse branch runs.
 func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *testing.T) {

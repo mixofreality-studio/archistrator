@@ -23,10 +23,11 @@
 // so it cannot itself vary pumpInput.ProjectID per tick the way ExecuteNextActivity's
 // client-driven call does. PumpSweepWorkflow is the thin, platform-wide fan-out this
 // forces: it enumerates every construction-phase project (projectStateAccess.
-// listProjects) and starts (or, if a prior tick is still cascading, leaves alone)
-// that project's own PumpNextActivityWorkflow — which keeps every one of its
+// listProjects) and starts (or, if that project's pump is already cascading, leaves
+// alone) that project's own PumpNextActivityWorkflow — which keeps every one of its
 // existing single-project semantics (self-cascade, pause gate, dispatch query)
-// unchanged.
+// unchanged. The sweep and ExecuteNextActivity share ONE pump id per project
+// (pumpWorkflowID), so whichever entry started the pump, the other joins or skips it.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)
@@ -58,6 +59,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -191,20 +193,40 @@ func newConstructionManager(
 	}
 }
 
-// ExecuteNextActivity — op 2.1. Temporal Workflow (entry; scheduler-triggered).
-// Starts the per-tick PumpNextActivityWorkflow on the construction queue, id
-// {projectId}:nextActivity:{tickId}. The pump reads head-state, and on an eligible
-// activity executes a per-activity child workflow {projectId}:{activityId}. No
-// eligible activity ⇒ PumpResult{Dispatched:false} (a normal quiet tick).
+// ExecuteNextActivity — op 2.1. Temporal Workflow (entry; client/MCP-driven).
+// Starts — or JOINS — the project's ONE PumpNextActivityWorkflow on the construction
+// queue, id {projectId}:nextActivity (pumpWorkflowID). The pump reads head-state, and
+// on an eligible activity executes a per-activity child workflow
+// {projectId}:{activityId}. No eligible activity ⇒ PumpResult{Dispatched:false} (a
+// normal quiet tick).
 //
-// tickID is the scheduler firing id (Temporal-native firing idempotency: schedule
-// firing id = workflow id). SYNC from the scheduler's POV: returns THIS tick's
-// dispatch outcome (PumpResult{Dispatched:true, ActivityID} for the activity dispatched
-// this tick, or {Dispatched:false} when quiescent) as soon as the pump has decided —
-// it does NOT block until the per-activity child (or the pump's background self-cascade
-// over the dependency frontier) drains. The dispatch decision is read off the pump via
-// the queryPumpDispatch Query so a scheduler-style caller gets a prompt, per-tick answer
-// while the cascade continues durably in the background.
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12). The pump is the single
+// writer walking the project's dependency frontier; two pumps racing the same frontier
+// double-dispatch. Every entry — this façade (Begin / MCP) AND PumpSweepWorkflow's
+// Schedule fan-out — derives the SAME id from pumpWorkflowID, so:
+//   - WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING: a call while the pump runs (its
+//     self-cascade chains ContinueAsNew under the same id) JOINS that run instead of
+//     starting a second pump.
+//   - WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE: once the previous pump CLOSED (drained
+//     quiet, paused, or failed), the next call starts a fresh one. NOT
+//     ALLOW_DUPLICATE_FAILED_ONLY — a quiet-completed pump must be restartable, or the
+//     project could never be pumped again after its first drain.
+//
+// OPERATOR-DRIVEN (I2 ruling, 2026-09-12): the pump this op starts carries
+// pumpInput.OperatorDriven, so it ignores the project's RECORDED pause without clearing
+// it — the deliberately ungated manual path (Task 11), and the de-facto resume. The
+// 30s sweep's pump leaves the flag false and honours the recorded pause. A call that
+// JOINS a running pump inherits that run's input.
+//
+// tickID is a CORRELATION id only (logged here); it no longer shapes the workflow id,
+// so it cannot fork a second pump. It stays a required, non-empty input (the contract
+// shape is unchanged). SYNC: returns the pump's dispatch decision
+// (PumpResult{Dispatched:true, ActivityID}, or {Dispatched:false} when quiescent) as
+// soon as the pump run has decided — it does NOT block until the per-activity child (or
+// the background self-cascade over the dependency frontier) drains. A caller that
+// joined a running pump reads THAT run's decision. The decision is read off the pump
+// via the queryPumpDispatch Query while the cascade continues durably in the
+// background.
 func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -214,13 +236,16 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 		return PumpResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
 
-	wfID := pumpWorkflowID(projectID, tickID)
+	wfID := pumpWorkflowID(projectID)
+	slog.Default().InfoContext(ctx, "construction pump: start-or-join",
+		"projectId", string(projectID), "workflowId", wfID, "tickId", tickID)
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID, OperatorDriven: true})
 	if err != nil {
 		return PumpResult{}, mapStartError(err)
 	}
@@ -233,36 +258,80 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 // the poll converges within a few iterations.
 const pumpDispatchPollInterval = 25 * time.Millisecond
 
-// pumpDispatchWaitBudget bounds the poll so a run that fails BEFORE reaching its
-// decision point (an infra fault in the head-state read) cannot spin forever; on
-// expiry the terminal workflow result/error is surfaced instead (a failed run returns
-// promptly — there is no cascade to await on that path).
-const pumpDispatchWaitBudget = 30 * time.Second
+// pumpDispatchWaitBudget bounds the poll, so a run that never reaches its decision point
+// cannot hold the caller forever. A var (not a const) only so tests can shorten it.
+//
+// OPEN (fix round 3, pending a contract ruling): when this budget expires while the run
+// is still RUNNING and undecided, the honest answer is "still deciding — the pump is
+// running", which is not a failure. PumpResult has no such outcome and fwm has no
+// non-failure Kind, so saying it on the wire needs a contract change
+// (project.json .serviceContracts), which this branch must not make while D9 rewrites
+// project.json. Until then the façade returns promptly with a DISTINGUISHABLE
+// Infrastructure Detail (pumpStillDecidingDetail) instead of waiting out the terminal
+// budget into a generic timeout.
+var pumpDispatchWaitBudget = 30 * time.Second
 
-// awaitDispatchDecision returns THIS tick's dispatch outcome as soon as the pump run
-// has decided, WITHOUT waiting for the background self-cascade to drain the dependency
-// frontier. It polls queryPumpDispatch against the exact run ExecuteWorkflow started
-// (pinned RunID) so the answer stays this tick's FIRST decision even after the pump
-// ContinueAsNews into the next cascade iteration.
+// pumpQueryFailureBudget is how long the dispatch-decision Query may KEEP failing (e.g.
+// no worker polling during a rolling restart) before the façade stops retrying it and
+// falls back to the bounded terminal wait. A single failed Query is retried, never read
+// as "the run is gone". A var only so tests can shorten it.
+var pumpQueryFailureBudget = 10 * time.Second
+
+// pumpClosureCheckInterval paces the DescribeWorkflowExecution check that detects a run
+// which CLOSED without deciding (it failed before its decision point). Queries against a
+// closed run are served by replay and keep answering "not decided", so without this
+// check the caller would wait out the whole budget and could lose the run's real error.
+// A var only so tests can shorten it.
+var pumpClosureCheckInterval = 250 * time.Millisecond
+
+// pumpStillDecidingDetail marks the budget-exhausted, run-still-RUNNING outcome, so a
+// caller can tell a slow pump from a failed one (see pumpDispatchWaitBudget's OPEN note).
+const pumpStillDecidingDetail = "construction pump is still deciding — it is running, not failed; re-check with GetSessionState"
+
+// awaitDispatchDecision returns THIS run's dispatch outcome as soon as the pump run has
+// decided, WITHOUT waiting for the background self-cascade to drain the dependency
+// frontier. It polls queryPumpDispatch against the exact run ExecuteWorkflow started or
+// joined (pinned RunID), so the answer stays that run's decision even after the pump
+// ContinueAsNews into the next cascade iteration. A slow run is not a failed one:
+//   - "not decided" answers keep the poll going;
+//   - a FAILING Query is retried for up to pumpQueryFailureBudget before falling back to
+//     the bounded terminal wait;
+//   - a run that CLOSED without deciding surfaces its own terminal result / real error
+//     promptly (throttled Describe);
+//   - a run still RUNNING and undecided at the budget returns pumpStillDecidingDetail.
 func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we client.WorkflowRun, wfID string) (PumpResult, error) {
 	runID := we.GetRunID()
 	deadline := time.Now().Add(pumpDispatchWaitBudget)
+	var queryFailingSince, lastClosureCheck time.Time
 	for {
-		enc, qerr := m.client.QueryWorkflow(ctx, wfID, runID, queryPumpDispatch)
-		if qerr != nil {
-			// The run cannot serve the Query (gone / not-found). Surface the terminal
-			// result/error — prompt for a failed or already-quiescent run.
-			return m.terminalPumpResult(ctx, we)
+		d, qerr, fatal := m.pollPumpDispatch(ctx, wfID, runID)
+		if fatal != nil {
+			return PumpResult{}, fatal
 		}
-		var d pumpDispatch
-		if derr := enc.Get(&d); derr != nil {
-			return PumpResult{}, newError(fwm.Infrastructure, derr.Error())
-		}
-		if d.Decided {
+		if qerr == nil && d.Decided {
 			return PumpResult{Dispatched: d.Dispatched, ActivityID: d.ActivityID}, nil
 		}
-		if time.Now().After(deadline) {
+		now := time.Now()
+		switch {
+		case qerr == nil:
+			queryFailingSince = time.Time{}
+		case queryFailingSince.IsZero():
+			queryFailingSince = now
+		}
+		if now.Sub(lastClosureCheck) >= pumpClosureCheckInterval {
+			lastClosureCheck = now
+			if m.pumpRunClosed(ctx, wfID, runID) {
+				return m.terminalPumpResult(ctx, we)
+			}
+		}
+		if qerr != nil && now.Sub(queryFailingSince) >= pumpQueryFailureBudget {
 			return m.terminalPumpResult(ctx, we)
+		}
+		if now.After(deadline) {
+			if m.pumpRunClosed(ctx, wfID, runID) {
+				return m.terminalPumpResult(ctx, we)
+			}
+			return PumpResult{}, newError(fwm.Infrastructure, pumpStillDecidingDetail)
 		}
 		select {
 		case <-ctx.Done():
@@ -272,12 +341,67 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 	}
 }
 
+// pumpRPCTimeout bounds EACH Query / Describe RPC the dispatch-decision poll makes — the
+// same move terminalPumpResult makes for we.Get. Without it a single hung RPC would block
+// past every wall-clock budget (pumpDispatchWaitBudget, pumpQueryFailureBudget), since
+// those are only checked between RPCs. A timed-out Query reads as a failing Query
+// (retried, then the bounded fallback); a timed-out Describe as "not known closed". A var
+// only so tests can shorten it.
+var pumpRPCTimeout = 5 * time.Second
+
+// pollPumpDispatch runs one queryPumpDispatch against the pinned run, bounded by
+// pumpRPCTimeout. queryErr means the run could not SERVE the Query right now (the caller
+// retries); fatal is a decode failure of an answer it did serve — surfaced at once, never
+// polled as "not decided".
+func (m *constructionManager) pollPumpDispatch(ctx context.Context, wfID, runID string) (d pumpDispatch, queryErr, fatal error) {
+	qctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	enc, err := m.client.QueryWorkflow(qctx, wfID, runID, queryPumpDispatch)
+	if err != nil {
+		return pumpDispatch{}, err, nil
+	}
+	if err := enc.Get(&d); err != nil {
+		return pumpDispatch{}, nil, newError(fwm.Infrastructure, err.Error())
+	}
+	return d, nil, nil
+}
+
+// pumpRunClosed reports whether the pinned pump run has CLOSED (any status but
+// Running — Failed, Canceled, Terminated, TimedOut, or Completed without having decided).
+// Bounded by pumpRPCTimeout. A Describe failure, or an empty answer, reads as "not known
+// closed" — the poll carries on.
+func (m *constructionManager) pumpRunClosed(ctx context.Context, wfID, runID string) bool {
+	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, wfID, runID)
+	if err != nil {
+		return false
+	}
+	info := resp.GetWorkflowExecutionInfo()
+	if info == nil {
+		return false
+	}
+	return info.GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING
+}
+
+// pumpTerminalWaitBudget bounds terminalPumpResult's wait. A var (not a const) only so
+// a test can shorten it.
+var pumpTerminalWaitBudget = 10 * time.Second
+
 // terminalPumpResult is the safety-net fallback: it awaits the pump's terminal result
 // (used only when the dispatch decision never surfaced — a failed run or a run that
 // finished before it could be polled).
+//
+// BOUNDED (fix round, M7): WorkflowRun.Get FOLLOWS the ContinueAsNew chain, so for a
+// caller that joined a RUNNING pump (one pump per project) and then hit a query failure,
+// an unbounded Get would block until the whole self-cascade drains — hours of
+// construction. A failed run returns well inside the budget, so its error still
+// surfaces; past the budget the caller gets an Infrastructure error instead of a hang.
 func (m *constructionManager) terminalPumpResult(ctx context.Context, we client.WorkflowRun) (PumpResult, error) {
+	wctx, cancel := context.WithTimeout(ctx, pumpTerminalWaitBudget)
+	defer cancel()
 	var result PumpResult
-	if err := we.Get(ctx, &result); err != nil {
+	if err := we.Get(wctx, &result); err != nil {
 		return PumpResult{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return result, nil
@@ -322,8 +446,11 @@ func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectI
 // PauseProject — op 2.3. Temporal Signal (operatorPauseRequested) to the project's
 // in-flight construction execution(s). The suspended supervision resumes on its
 // awaitSignal and runs the pause branch (interventionEngine.applyPausePolicy →
-// pausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
-// operator's POV: returns once the signal is durably enqueued.
+// pausePlan, then the Manager EXECUTES the cancels/records). The pause branch also
+// relays the pause to the project's ONE pump ({projectId}:nextActivity) through
+// messageBus.deliverSignal, so a cascading pump stops after its current activity
+// instead of dispatching through the pause (runPauseBranch, projectsupervision.go).
+// SYNC from the operator's POV: returns once the signal is durably enqueued.
 func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -529,9 +656,14 @@ func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID Proje
 
 // --- workflow id derivation (continuity tokens; constructionManager.md §6.1) ---
 
-// pumpWorkflowID derives {projectId}:nextActivity:{tickId}.
-func pumpWorkflowID(projectID ProjectID, tickID string) string {
-	return fmt.Sprintf("%s:nextActivity:%s", projectID, tickID)
+// pumpWorkflowID derives the project's ONE pump workflow id, {projectId}:nextActivity.
+// It is the single derivation every pump entry uses — ExecuteNextActivity (Begin /
+// MCP) and PumpSweepWorkflow (the 30s Schedule fan-out) — so no two entries can start
+// competing pumps over the same dependency frontier (architect pump ruling,
+// 2026-09-12). Deliberately tick-invariant: a tick/firing id in the id would give each
+// caller its own pump.
+func pumpWorkflowID(projectID ProjectID) string {
+	return fmt.Sprintf("%s:nextActivity", projectID)
 }
 
 // replanSweepWorkflowID derives {projectId}:replanSweep:{tickId} or, for the
@@ -1528,7 +1660,9 @@ const (
 
 // ExecutionKinds — the registered workflow names (constructionManager.md §6.2).
 const (
-	// executionKindPump is the per-tick PumpNextActivityWorkflow (the 30s pump).
+	// executionKindPump is PumpNextActivityWorkflow — the project's ONE pump,
+	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
+	// 30s pump sweep (not one execution per tick).
 	executionKindPump = "constructionPumpNextActivity"
 	// executionKindConstructActivity is the per-activity child workflow.
 	executionKindConstructActivity = "constructionConstructActivity"
