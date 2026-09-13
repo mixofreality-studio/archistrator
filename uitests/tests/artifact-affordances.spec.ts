@@ -31,7 +31,7 @@
 // real project it drives is made by the seed step (tests/seed/shared-project.setup.ts).
 import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
-import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
+import { requireServer, skipUnlessLiveDrafting } from './support/gating.js';
 import { openSharedProject, enterDesignExperience, commitArtifactsThrough } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
@@ -48,7 +48,7 @@ test.describe('coreUseCases diagram + picker affordances (live backend — UITES
 
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
-    await skipUnlessServer(request, BASE);
+    await requireServer(request, BASE);
     tagUseCase('drive-system-design');
   });
 

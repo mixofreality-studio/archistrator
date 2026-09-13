@@ -22,7 +22,8 @@
  * drafting stack — the design-experience-regressions tactic. No infra gating
  * needed: only the SPA process is required.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { stubCommittedGlossary, type StubGlossaryItem } from './support/designStubs.js';
 

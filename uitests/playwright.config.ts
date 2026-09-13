@@ -25,9 +25,10 @@ import { defineConfig, devices } from '@playwright/test';
  *
  * ── Infra gating ────────────────────────────────────────────────────────────
  * Like systemtests, specs that need a live drafting backend (Postgres+Temporal
- * +worker) are gated: they SKIP unless UITESTS_LIVE_DRAFTING=1. The pure-UI /
- * navigation specs only need the SPA + a Postgres-backed server and self-skip
- * (annotate) when the server is unreachable. See README.md.
+ * +worker) are gated: they SKIP unless UITESTS_LIVE_DRAFTING=1, the one explicit
+ * opt-in. The pure-UI / navigation specs only need the SPA + a Postgres-backed
+ * server, and FAIL when it does not answer (requireServer): a skip reads as green.
+ * See README.md.
  */
 
 const SPA_URL = process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';

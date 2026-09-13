@@ -31,13 +31,13 @@
  * Self-contained (workers=1, fullyParallel=false): it creates no project and
  * mutates no state, so it neither depends on nor disturbs any other spec.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { readFileSync } from 'node:fs';
 import { TESTID } from './support/testids.js';
 import {
   fetchDesignEpisodes,
   gotoApp,
-  skipUnlessServer,
+  requireServer,
   type DesignEpisodes,
 } from './support/gating.js';
 import { tagUseCase } from './support/useCases.js';
@@ -62,7 +62,7 @@ const CSV_HEADER =
 let discovered: DesignEpisodes | undefined;
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
   discovered = await fetchDesignEpisodes(request, BASE);
   test.skip(
     discovered === undefined,

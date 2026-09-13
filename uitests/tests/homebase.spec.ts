@@ -13,7 +13,7 @@
  */
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID, ACTIVE_PHASE_ID, PHASE1_ARTIFACTS } from './support/testids.js';
-import { skipUnlessServer } from './support/gating.js';
+import { requireServer } from './support/gating.js';
 import { openStubbedProject, enterDesignExperience } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -22,7 +22,7 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 const PROJECT_ID = 'uitest-homebase-stub';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('home base shows the system-design phase card and the artifact TOC', async ({

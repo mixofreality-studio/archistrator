@@ -13,7 +13,7 @@
  */
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, gotoApp } from './support/gating.js';
+import { requireServer, gotoApp } from './support/gating.js';
 import { createProjectFromLanding } from './support/flows.js';
 import { stubCreatedProject } from './support/designStubs.js';
 
@@ -24,7 +24,7 @@ const CANNED_ID = 'uitest-landing-canned';
 const CANNED_NAME = 'Landing Canned Project';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('landing renders the projects catalog past the session gate', async ({ page }) => {

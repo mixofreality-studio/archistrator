@@ -15,7 +15,7 @@
 import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
+import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -23,7 +23,7 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 const ACTIVITY = 'U-SPA-web-client';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });
 

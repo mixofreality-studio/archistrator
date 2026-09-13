@@ -21,7 +21,7 @@
  */
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, gotoApp } from './support/gating.js';
+import { requireServer, gotoApp } from './support/gating.js';
 import { openStubbedProject } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
@@ -31,7 +31,7 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 const PROJECT_ID = 'uitest-billing-stub';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('Billing renders the honest "backend not yet provisioned" pending state', async ({

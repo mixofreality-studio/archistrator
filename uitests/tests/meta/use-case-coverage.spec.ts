@@ -8,7 +8,7 @@
  *
  *   (a) fetches the CORE-classified use case ids over the wire — the SAME
  *       GetProject("archistrator") read gating.ts's constructionArtifactsAvailable
- *       uses, via the new fetchCoreUseCases — and self-skips (skipUnlessServer
+ *       uses, via the new fetchCoreUseCases — and self-skips (requireServer
  *       pattern) when the server behind the SPA proxy is unreachable;
  *   (b) STATICALLY scans tests/*.spec.ts SOURCE (readdir + regex — it does NOT
  *       run those specs) for literal `tagUseCase('<id>')` call sites;
@@ -21,10 +21,10 @@
  * reach), not just asserted away. Do NOT add an entry to dodge a real,
  * fixable gap — only when the flow is provably unreachable in the UI today.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/dispatchGuard.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fetchCoreUseCases, skipUnlessServer } from '../support/gating.js';
+import { fetchCoreUseCases, requireServer } from '../support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -58,7 +58,7 @@ const KNOWN_GAPS: Record<string, string> = {
 };
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('every core use case has at least one tagged UI spec (or a documented gap)', async ({

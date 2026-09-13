@@ -192,6 +192,12 @@ jobs:
         working-directory: uitests
         run: npm run typecheck
 
+      # The selector discipline (no raw locator(), no hand-typed testid) is an
+      # ESLint rule set, so it holds only where lint runs (fix-H ruling).
+      - name: Lint uitests
+        working-directory: uitests
+        run: npm run lint
+
       - name: Install Playwright browsers
         working-directory: uitests
         run: npx playwright install --with-deps chromium

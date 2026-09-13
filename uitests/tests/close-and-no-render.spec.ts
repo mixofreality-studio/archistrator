@@ -18,7 +18,7 @@
 import type { Request } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer } from './support/gating.js';
+import { requireServer } from './support/gating.js';
 import {
   createProjectFromLanding,
   enterDesignExperience,
@@ -33,7 +33,7 @@ const PROJECT_ID = 'uitest-close-stub';
 const PROJECT_NAME = 'Close Stub Project';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('the design-experience ✕ returns to the home base', async ({ page, dispatchGuard }) => {

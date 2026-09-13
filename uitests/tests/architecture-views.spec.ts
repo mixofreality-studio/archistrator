@@ -36,7 +36,7 @@
 // real project it drives is made by the seed step (tests/seed/shared-project.setup.ts).
 import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
+import { requireServer, skipUnlessLiveDrafting } from './support/gating.js';
 import {
   openSharedProject,
   enterDesignExperience,
@@ -67,7 +67,7 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
 
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
-    await skipUnlessServer(request, BASE);
+    await requireServer(request, BASE);
     // commitArtifactsThrough below drives the same dispatch → observe → gate →
     // approve loop as design-experience.spec's drafting block, across the whole
     // Phase-1 spine — the Method core use case "Drive System Design".

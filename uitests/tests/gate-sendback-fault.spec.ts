@@ -17,7 +17,7 @@
  * deliberately NOT asserted here: interval timing is flaky under Playwright and is
  * pinned by the sessionPolling unit tests instead.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { stubAwaitingReviewGlossary } from './support/designStubs.js';
 

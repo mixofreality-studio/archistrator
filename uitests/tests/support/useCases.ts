@@ -17,7 +17,7 @@
  * test in that block) — as close to the top of the test as practical, right
  * after/alongside any other setup.
  */
-import { test } from '@playwright/test';
+import { test } from './dispatchGuard.js';
 
 /** The Playwright annotation `type` used for use-case tags. */
 export const USE_CASE_ANNOTATION_TYPE = 'use-case';

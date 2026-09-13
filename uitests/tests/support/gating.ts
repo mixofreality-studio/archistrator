@@ -7,9 +7,10 @@
  * systemtests' "structural always-runs / wire-skips-without-stack" split:
  *
  *   1. SERVER REACHABLE — needed by every spec. We probe /api/userinfo through
- *      the SPA origin (the Vite proxy forwards it to the Go server). If it is
- *      not 200, the pure-UI specs SKIP with an annotation rather than failing on
- *      a backend that was never provisioned.
+ *      the SPA origin (the Vite proxy forwards it to the Go server). If it does
+ *      not answer 200 within PROBE_TIMEOUT_MS, the test FAILS (requireServer).
+ *      It used to skip, and a probe that timed out under load read as green
+ *      (fix-H ruling). No probe that gets no answer ever skips.
  *
  *   2. LIVE DRAFTING — the co-author flow (request-draft → generating → render →
  *      gate) additionally needs Temporal + a worker provider. That stack is
@@ -18,7 +19,8 @@
  *      draftingMode() below. Specs needing it SKIP unless the mode is non-off,
  *      exactly as systemtests' wire tests skip without the ARCHISTRATOR_* infra env.
  */
-import { test, type Page, type APIRequestContext } from '@playwright/test';
+import type { Page, APIRequestContext, APIResponse } from '@playwright/test';
+import { test } from './dispatchGuard.js';
 import { TESTID } from './testids.js';
 
 /**
@@ -57,35 +59,51 @@ export function liveDraftingEnabled(): boolean {
 }
 
 /**
- * serverReachable probes the SPA's `/api/userinfo` (same origin → Vite proxy →
- * Go server). 200 means a dev-mode, Postgres-backed server is answering.
+ * How long a probe waits for the server to answer. Raised from 5s, which timed out
+ * under load and turned a whole case into a skip (fix-H report, concern 1).
  */
-export async function serverReachable(request: APIRequestContext, baseURL: string): Promise<boolean> {
+export const PROBE_TIMEOUT_MS = 15_000;
+
+/**
+ * probeGet GETs a probe URL through the SPA proxy. A probe that gets NO answer (a
+ * timeout, a refused connection) throws, so the test FAILS (fix-H ruling): a skip
+ * reads as green and can hide a regression. What an answer means is the caller's.
+ */
+async function probeGet(
+  request: APIRequestContext,
+  url: string,
+  what: string,
+): Promise<APIResponse> {
   try {
-    const res = await request.get(`${baseURL}/api/userinfo`, {
+    return await request.get(url, {
       headers: { Accept: 'application/json' },
-      timeout: 5_000,
+      timeout: PROBE_TIMEOUT_MS,
     });
-    return res.status() === 200;
-  } catch {
-    return false;
+  } catch (err) {
+    throw new Error(
+      `uitests: ${what} did not answer ${url} within ${String(PROBE_TIMEOUT_MS)}ms (${String(err)}). ` +
+        'This FAILS rather than skips: a skip reads as green. Bring up the dev-mode Go server ' +
+        '(Postgres) behind the SPA proxy; see README.',
+      { cause: err },
+    );
   }
 }
 
 /**
- * skipUnlessServer skips the current test (with a clear reason) when the
- * dev-mode server behind the SPA proxy is not reachable. Used by the pure-UI
- * specs so they degrade gracefully on a bare checkout, matching systemtests.
+ * requireServer FAILS the current test unless the dev-mode server behind the SPA
+ * proxy answers `/api/userinfo` with 200. It never skips (fix-H ruling): every
+ * spec needs the server, and a probe that timed out under load used to skip a case
+ * and read as green. The only skips left are explicit opt-ins (skipUnlessLiveDrafting)
+ * and fixture-content gates that a server ANSWERED (skipUnlessConstructionArtifacts).
  */
-export async function skipUnlessServer(
-  request: APIRequestContext,
-  baseURL: string,
-): Promise<void> {
-  const ok = await serverReachable(request, baseURL);
-  test.skip(
-    !ok,
-    'uitests: SPA-proxied server not reachable at /api/userinfo — bring up the dev-mode Go server (Postgres) behind the SPA proxy. See README.',
-  );
+export async function requireServer(request: APIRequestContext, baseURL: string): Promise<void> {
+  const res = await probeGet(request, `${baseURL}/api/userinfo`, 'the SPA-proxied server');
+  if (res.status() !== 200) {
+    throw new Error(
+      `uitests: /api/userinfo answered ${String(res.status())}, not 200: the dev-mode Go server ` +
+        '(Postgres) behind the SPA proxy is not serving. This FAILS rather than skips; see README.',
+    );
+  }
 }
 
 /**
@@ -117,19 +135,22 @@ export async function constructionArtifactsAvailable(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<boolean> {
-  try {
-    const res = await request.get(`${baseURL}/api/v1/system-design/get-project/archistrator`, {
-      headers: { Accept: 'application/json' },
-      timeout: 5_000,
-    });
-    if (res.status() !== 200) return false;
-    const data = (await res.json()) as {
-      testingState?: { systemTestPlan?: { scenarios?: unknown[] } };
-    };
-    return (data.testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
-  } catch {
-    return false;
+  // No answer, or an error answer, FAILS (fix-H ruling). Only an answer that says
+  // this server holds no such content is a reason to skip: get-project answers 200
+  // for any id (CreateProject's permissive resume), so that answer is a 200 whose
+  // project carries no system-test plan, as on CI's fresh repo.
+  const url = `${baseURL}/api/v1/system-design/get-project/archistrator`;
+  const res = await probeGet(request, url, 'the construction-artifacts probe');
+  if (res.status() !== 200) {
+    throw new Error(
+      `uitests: ${url} answered ${String(res.status())}. An error answer is not a missing fixture, ` +
+        'so this FAILS rather than skips.',
+    );
   }
+  const data = (await res.json()) as {
+    testingState?: { systemTestPlan?: { scenarios?: unknown[] } };
+  };
+  return (data.testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
 }
 
 /**
@@ -198,30 +219,28 @@ export async function fetchDesignEpisodes(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<DesignEpisodes | undefined> {
-  try {
-    const res = await request.get(
-      `${baseURL}/api/v1/system-design/list-episodes-for-artifact/archistrator?artifactKind=0`,
-      { headers: { Accept: 'application/json' }, timeout: 5_000 },
-    );
-    if (res.status() !== 200) return undefined;
-    const records = (await res.json()) as EpisodeListEntry[];
-    if (!Array.isArray(records)) return undefined;
+  // No answer FAILS (probeGet, fix-H ruling); an answer without the episodes skips.
+  const res = await probeGet(
+    request,
+    `${baseURL}/api/v1/system-design/list-episodes-for-artifact/archistrator?artifactKind=0`,
+    'the design-episodes probe',
+  );
+  if (res.status() !== 200) return undefined;
+  const records = (await res.json()) as EpisodeListEntry[];
+  if (!Array.isArray(records)) return undefined;
 
-    // Wire ordinals (episode.EpisodeOutcome): 0 succeeded, 1 failed, 2 cancelled, 3 gap.
-    const succeeded = records.find(
-      (r) => r.outcome === 0 && r.episodeId !== undefined && (r.tracePath ?? '').length > 0,
-    );
-    const gap = records.find((r) => r.outcome === 3 && r.episodeId !== undefined);
-    if (succeeded?.episodeId === undefined || gap?.episodeId === undefined) return undefined;
+  // Wire ordinals (episode.EpisodeOutcome): 0 succeeded, 1 failed, 2 cancelled, 3 gap.
+  const succeeded = records.find(
+    (r) => r.outcome === 0 && r.episodeId !== undefined && (r.tracePath ?? '').length > 0,
+  );
+  const gap = records.find((r) => r.outcome === 3 && r.episodeId !== undefined);
+  if (succeeded?.episodeId === undefined || gap?.episodeId === undefined) return undefined;
 
-    return {
-      succeededId: succeeded.episodeId,
-      gapId: gap.episodeId,
-      gapReason: gap.gapReason ?? '',
-    };
-  } catch {
-    return undefined;
-  }
+  return {
+    succeededId: succeeded.episodeId,
+    gapId: gap.episodeId,
+    gapReason: gap.gapReason ?? '',
+  };
 }
 
 /** A CORE-classified use case from the committed `coreUseCases` slot. */
@@ -258,26 +277,24 @@ export async function fetchCoreUseCases(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<CoreUseCase[] | undefined> {
-  try {
-    const res = await request.get(`${baseURL}/api/v1/system-design/get-project/archistrator`, {
-      headers: { Accept: 'application/json' },
-      timeout: 5_000,
-    });
-    if (res.status() !== 200) return undefined;
-    const data = (await res.json()) as GetProjectResponseShape;
-    const slot = data.Slots?.find((s) => s.kind === 'coreUseCases');
-    const decisions = slot?.model?.model?.decisions ?? [];
-    const core = decisions
-      .map((d) => d.useCase)
-      .filter(
-        (uc): uc is { id: string; name: string; classification: string } =>
-          uc?.id !== undefined && uc.name !== undefined && uc.classification === 'core',
-      )
-      .map((uc) => ({ id: uc.id, name: uc.name }));
-    return core.length > 0 ? core : undefined;
-  } catch {
-    return undefined;
-  }
+  // No answer FAILS (probeGet, fix-H ruling); an answer without the slot skips.
+  const res = await probeGet(
+    request,
+    `${baseURL}/api/v1/system-design/get-project/archistrator`,
+    'the core-use-cases probe',
+  );
+  if (res.status() !== 200) return undefined;
+  const data = (await res.json()) as GetProjectResponseShape;
+  const slot = data.Slots?.find((s) => s.kind === 'coreUseCases');
+  const decisions = slot?.model?.model?.decisions ?? [];
+  const core = decisions
+    .map((d) => d.useCase)
+    .filter(
+      (uc): uc is { id: string; name: string; classification: string } =>
+        uc?.id !== undefined && uc.name !== undefined && uc.classification === 'core',
+    )
+    .map((uc) => ({ id: uc.id, name: uc.name }));
+  return core.length > 0 ? core : undefined;
 }
 
 /**

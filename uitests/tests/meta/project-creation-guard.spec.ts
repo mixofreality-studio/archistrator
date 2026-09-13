@@ -12,7 +12,7 @@
  *       answers create-project in the browser; and every spec that opens a project
  *       runs under the shared dispatch guard.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from '../support/dispatchGuard.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import { guardLetsThrough, LIVE_DRAFTING_WRITES } from '../support/dispatchGuard.js';

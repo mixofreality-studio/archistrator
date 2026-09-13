@@ -15,7 +15,8 @@
  * drive the REAL SPA, so they run hermetically WITHOUT a live drafting stack — the same
  * "stub the wire" tactic the design experience already relies on for gate-error paths.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import {
   stubCommittedCoreUseCases,

@@ -15,7 +15,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, gotoApp } from './support/gating.js';
+import { requireServer, gotoApp } from './support/gating.js';
 import { stubAwaitingReviewGlossary } from './support/designStubs.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -56,7 +56,7 @@ for (const model of ['selfOperated', 'archistratorOperated'] as const) {
     page,
     request,
   }) => {
-    await skipUnlessServer(request, BASE);
+    await requireServer(request, BASE);
     const trap = await trapCreate(page);
     await openCreateDialog(page);
     await page.getByTestId(`operating-model-${model}`).check();
@@ -83,7 +83,7 @@ test('set-operating-model: create succeeds, then an EMPTY-body 500 on the model 
   // fix-F review: the second write of the create flow. Create answers with a
   // canned id (in the browser), then set-operating-model answers a bare 500. That
   // used to pass as success and navigate to the new project's home.
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
   const creates: string[] = [];
   const models: string[] = [];
   await page.route('**/api/v1/system-design/create-project', async (route) => {

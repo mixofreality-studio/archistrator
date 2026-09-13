@@ -63,14 +63,22 @@ without-stack" split:
 
 | Tier | Needs | Gate | Specs |
 |------|-------|------|-------|
-| **Pure UI / navigation** | SPA + dev-mode server with **Postgres** | self-skip when `/api/userinfo` ≠ 200 | `landing`, `homebase`, `close-and-no-render`, and the `structure` block of `design-experience` |
+| **Pure UI / navigation** | SPA + dev-mode server with **Postgres** | FAIL when `/api/userinfo` does not answer 200 within 15s (`requireServer`) | `landing`, `homebase`, `close-and-no-render`, and the `structure` block of `design-experience` |
 | **Live drafting** | a REAL GitHub App + repo (agentic dispatch — see the STALE NOTICE below) | opt-in `UITESTS_LIVE_DRAFTING` (see below) | the `co-author drafting` block of `design-experience`, plus `architecture-views` and `artifact-affordances` |
 
-The SPA gates its whole tree on `GET /api/userinfo` returning 200. The pure-UI
-specs probe that through the SPA proxy in `beforeEach` and **skip with a clear
-reason** when the server is absent — never failing on a backend that was never
-provisioned, matching systemtests. The live-drafting block additionally skips
-unless `UITESTS_LIVE_DRAFTING` is non-`off`, the UI `requireStack`.
+The SPA gates its whole tree on `GET /api/userinfo` returning 200. Every spec
+probes that through the SPA proxy in `beforeEach` and **fails** when the server
+does not answer (`requireServer`, 15s). It used to skip, but a skip reads as
+green: a probe that timed out under load hid a whole case (fix-H ruling). The
+live-drafting block is the one explicit opt-in: it skips unless
+`UITESTS_LIVE_DRAFTING` is non-`off`, the UI `requireStack`. A spec that needs
+fixture content the server may not hold (the committed dogfood project) still
+skips when the server ANSWERS without it, as on CI's fresh repo; it fails when
+the server does not answer.
+
+Every spec imports `test` from `tests/support/dispatchGuard.ts` (its default
+export, or the named `test`), never from `@playwright/test`: the guard aborts any
+write no page route answers. `tests/meta/suite-rules.spec.ts` pins both rules.
 
 ## Drafting modes (`UITESTS_LIVE_DRAFTING`)
 

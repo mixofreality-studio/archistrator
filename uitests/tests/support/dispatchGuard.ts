@@ -6,7 +6,11 @@
  * spec that forgot its own trap, or a mutant that pressed the wrong button, could
  * dispatch against the live server. Six specs had no trap at all.
  *
- * Import `test` and `expect` from here instead of '@playwright/test'. Two layers,
+ * Import `test` and `expect` from here instead of '@playwright/test'. The guarded
+ * `test` is also this module's DEFAULT export, and no spec may import
+ * '@playwright/test''s own `test` (fix-H ruling; pinned by
+ * meta/suite-rules.spec). The one exception is the seed step, which is the one
+ * place a real project may be created. Two layers,
  * because neither alone is enough (measured on the tasks-lens branch, round 2: the
  * guard alone let one held POST out; with the teardown abort, none):
  *
@@ -164,3 +168,6 @@ export const test = base.extend<{
 });
 
 export { expect };
+
+/** The guarded `test` is this module's default export (fix-H ruling). */
+export default test;

@@ -17,7 +17,7 @@
  */
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer } from './support/gating.js';
+import { requireServer } from './support/gating.js';
 import { openStubbedProject } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -30,7 +30,7 @@ const PROJECT_ID = 'uitest-team-stub';
 const SAMPLE_ROLE_IDS = ['system-architect', 'senior-developer', 'qa-engineer'] as const;
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 });
 
 test('the Team nav opens the Method-roles roster with role cards', async ({

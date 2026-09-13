@@ -41,7 +41,8 @@
  * switcher left to assert on (its `deploy-profile-switch` testid was deleted with the
  * page, and this package forbids hand-typed testid strings).
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { stubCommittedArchitecture, type StubNodeHealth } from './support/designStubs.js';
 

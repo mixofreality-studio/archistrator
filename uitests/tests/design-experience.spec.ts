@@ -27,7 +27,7 @@
 import type { Page } from '@playwright/test';
 import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
-import { skipUnlessServer, skipUnlessLiveDrafting, gotoApp } from './support/gating.js';
+import { requireServer, skipUnlessLiveDrafting, gotoApp } from './support/gating.js';
 import { openSharedProject, enterDesignExperience } from './support/flows.js';
 import { stubCreatedProject } from './support/designStubs.js';
 import { tagUseCase } from './support/useCases.js';
@@ -75,7 +75,7 @@ async function openFreshDesign(page: Page): Promise<void> {
 
 test.describe('structure (pure UI — server reachable)', () => {
   test.beforeEach(async ({ request }) => {
-    await skipUnlessServer(request, BASE);
+    await requireServer(request, BASE);
   });
 
   test('the spine renders a step per Phase-1 artifact', async ({ page, dispatchGuard }) => {
@@ -106,7 +106,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
 
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
-    await skipUnlessServer(request, BASE);
+    await requireServer(request, BASE);
     // This whole block drives the real dispatch → observe → gate → approve/
     // redraft loop — the Method core use case "Drive System Design" (see
     // .coreUseCases in project.json).

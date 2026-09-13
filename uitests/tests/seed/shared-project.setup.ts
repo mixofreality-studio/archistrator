@@ -21,14 +21,14 @@
  */
 import { test as setup, expect } from '@playwright/test';
 import { TESTID } from '../support/testids.js';
-import { gotoApp, skipUnlessLiveDrafting, skipUnlessServer } from '../support/gating.js';
+import { gotoApp, skipUnlessLiveDrafting, requireServer } from '../support/gating.js';
 import { createProjectFromLanding } from '../support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
 setup('seed the run’s one real project (live drafting only)', async ({ page, request }) => {
   skipUnlessLiveDrafting();
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
 
   await gotoApp(page, '/');
   await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();

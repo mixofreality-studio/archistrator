@@ -1,11 +1,11 @@
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
-import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
+import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
 test.beforeEach(async ({ request }) => {
-  await skipUnlessServer(request, BASE);
+  await requireServer(request, BASE);
   // This spec asserts against the REAL committed head-state — content that
   // only exists when the server's project-state git substrate is pointed at a
   // repo seeded from this checkout's .aiarch/state/project.json (see
