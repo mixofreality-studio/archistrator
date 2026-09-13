@@ -362,7 +362,8 @@ export function noBriefingNoteFor(
 ): string {
   if (profileFor(row) === undefined) return NO_PROFILE_NOTE;
   const graph = lens === 'graph';
-  if (hiddenCount > 0) return graph ? OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH : OBSERVED_ONLY_NO_PHASE_NOTE;
+  if (hiddenCount > 0)
+    return graph ? OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH : OBSERVED_ONLY_NO_PHASE_NOTE;
   return graph ? NO_CURRENT_PHASE_NOTE_GRAPH : NO_CURRENT_PHASE_NOTE;
 }
 
