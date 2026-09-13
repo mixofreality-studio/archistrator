@@ -4,7 +4,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -15,7 +17,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/temporalproto"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -23,6 +27,7 @@ import (
 	"go.temporal.io/sdk/converter"
 	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -6446,5 +6451,506 @@ func TestOverrideActivity_RequiresNotes(t *testing.T) {
 	}
 	if err := m.OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "policy skip"}); err != nil {
 		t.Fatalf("a noted override must be accepted: %v", err)
+	}
+}
+
+// ===========================================================================
+// B1.0 — THE WORKFLOW REPLAY HARNESS (plan-B1-B2.md §B1.0; amendment B.3 + D.4).
+//
+// Every history under testdata/replay/ was CAPTURED from a real Temporal dev server
+// running the workflow code as it stood when the fixture was taken (pre-b1/ and pre-d/
+// on the code BEFORE any B1 or D1 workflow change). Test_Replay_PreB1Histories_StayDeterministic
+// replays each one against the CURRENT code: a change that alters the command
+// sequence an in-flight execution already recorded fails here, instead of failing a
+// parked production workflow task after a deploy. A GetVersion guard is proven
+// load-bearing by removing it and watching the matching fixture fail.
+//
+// Capture and replay build the workflows receiver from the SAME rig, because the
+// workflow body branches on its deps (gitOn is GitStatus != nil; the escalation wait
+// arms a timer only when EscalationWaitTimeout > 0; the pump selects through
+// NextEligibleActivity). Re-capture a directory with
+//
+//	CONSTRUCT_HISTORY_CAPTURE=1 [CONSTRUCT_HISTORY_CAPTURE_DIR=<dir>] GOWORK=off \
+//	  go test ./internal/manager/construction/ -run '^TestCaptureConstructHistories$' -count=1
+//
+// It needs the `temporal` CLI on PATH (it starts an offline dev server through
+// testsuite.StartDevServer's ExistingPath, on its own port and namespace). NEVER
+// re-capture pre-* directories on changed code: they are the record of what already
+// ran.
+// ===========================================================================
+
+const (
+	replayProjectID  ProjectID  = "p-replay"
+	replayActivityID ActivityID = "C-Orders"
+)
+
+// replayRig is one scenario's workflows receiver plus the fakes behind its activities.
+type replayRig struct {
+	wf   *workflows
+	ps   *fakeProjectState
+	pipe agenticjob.AgenticJobAccess
+	bus  messagebus.MessageBus
+}
+
+// activities backs every generated activity from the rig's fakes, exactly as the
+// production worker registers them (RegisterWorker), so a capture runs the real
+// registration path.
+func (r replayRig) activities() genActivities {
+	full := fakeFullProjectState{r.ps}
+	bus := r.bus
+	if bus == nil {
+		bus = &recordingSignalBus{}
+	}
+	return genActivities{
+		ProjectState:           full,
+		Pipeline:               r.pipe,
+		ConstructionTransition: fakeConstructionTransition{r.ps},
+		GitStatus:              r.ps,
+		DesignSession:          projectstate.NewDesignSessionAccess(full),
+		MessageBus:             bus,
+		Episodes:               &fakeEpisodes{},
+	}
+}
+
+// replayScenario is one captured history: its fixture location, its rig, and how the
+// capture tool drives it. drive returns the execution to export, and open=true when the
+// execution is still running (or continues as new) and must be terminated after export.
+type replayScenario struct {
+	dir   string
+	name  string
+	rig   func() replayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, taskQueue string, r replayRig) (wfID, runID string, open bool)
+}
+
+func replayFixturePath(sc replayScenario) string {
+	return filepath.Join("testdata", "replay", sc.dir, sc.name+".json")
+}
+
+// replayRegistrations are the workflows a fixture can belong to, under their
+// registered names.
+func replayRegistrations(wf *workflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
+		{Name: executionKindConstructActivity, Fn: wf.ConstructActivityWorkflow},
+		{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+	}
+}
+
+// replayWorkflows builds the receiver with the production invoker option hook.
+func replayWorkflows(d wfDeps) *workflows {
+	d.Acts = genInvokers{Opts: activityOptions()}
+	if d.Review == nil {
+		d.Review = &fakeReview{}
+	}
+	return newWorkflows(d)
+}
+
+func replayGateRig(policy projectstate.ReviewPolicy) replayRig {
+	ps := newFakeProjectStateWithPolicy(policy)
+	ps.project.ID = projectstate.ProjectID(replayProjectID)
+	return replayRig{wf: replayWorkflows(gateDeps(ps)), ps: ps, pipe: newFakePipeline()}
+}
+
+func replayGatedOn(phases ...projectstate.ActivityMethodPhase) projectstate.ReviewPolicy {
+	return projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{"service": phases}}
+}
+
+// replayEscalateRig fails detailed_design's first dispatch into an Escalate directive.
+// gitOn follows GitStatus; wait is the escalation window (0 = wait forever, no timer).
+func replayEscalateRig(gitOn bool, wait time.Duration) replayRig {
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.project.ID = projectstate.ProjectID(replayProjectID)
+	d := wfDeps{Intervention: &fakeIntervention{directive: intervention.VarianceEscalate}, EscalationWaitTimeout: wait}
+	if gitOn {
+		d.GitStatus = ps
+	}
+	return replayRig{wf: replayWorkflows(d), ps: ps, pipe: newFakePipelineFailingOnce("detailed_design")}
+}
+
+// replayPumpRig serves proj to a pump that selects with the production rule.
+func replayPumpRig(proj projectstate.Project) replayRig {
+	proj.ID = projectstate.ProjectID(replayProjectID)
+	proj.Version = 1
+	ps := &fakeProjectState{project: proj}
+	return replayRig{
+		wf: replayWorkflows(wfDeps{
+			Intervention:         &fakeIntervention{directive: intervention.VarianceRetry},
+			NextEligibleActivity: nextEligibleActivity,
+		}),
+		ps:   ps,
+		pipe: newFakePipeline(),
+	}
+}
+
+// replayPartialLedgerPhases are the four service phases an integration-pending row's
+// ledger holds passed (architect (D), P1): everything but Integration.
+var replayPartialLedgerPhases = []projectstate.ActivityMethodPhase{
+	projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan,
+	projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction,
+}
+
+func replayScenarios() []replayScenario {
+	return []replayScenario{
+		{
+			dir: "pre-b1", name: "gate-sendback-redraft-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				before := replaySubmitted(r.pipe)
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{
+					Phase: "detailed_design", Decision: PhaseSendBack,
+					Feedback: &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}},
+				})
+				replayAwaitView(ctx, t, c, run.GetID(), "the redraft's gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == before+1
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "escalate-override-retry",
+			rig: func() replayRig { return replayEscalateRig(false, time.Hour) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the escalation", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingTakeover
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{
+					Kind: OverrideRetry, Notes: "the fixture server was down; retry",
+				}})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "escalate-override-skip",
+			rig: func() replayRig { return replayEscalateRig(true, 0) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the escalation", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingTakeover
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{
+					Kind: OverrideSkip, Notes: "built by hand; nothing to construct",
+				}})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "parked-at-gate",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				return run.GetID(), run.GetRunID(), true
+			},
+		},
+		{
+			dir: "pre-b1", name: "local-merge-hold-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseConstruction)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the construction gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+				// All five phases dispatched and the merge job not yet: the merge hold.
+				replayAwaitView(ctx, t, c, run.GetID(), "the merge hold", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == 5
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "supervision-pause-record-relay-cancel",
+			rig: func() replayRig {
+				ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(replayProjectID), Version: 2, Phase: 2}}
+				return replayRig{
+					wf: replayWorkflows(wfDeps{Intervention: &fakeIntervention{plan: intervention.PausePlan{
+						PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true,
+					}}}),
+					ps: ps, pipe: newFakePipeline(), bus: &recordingSignalBus{},
+				}
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				id := pauseTargetWorkflowID(replayProjectID)
+				run, err := c.SignalWithStartWorkflow(ctx, id, signalOperatorPauseRequested,
+					operatorPauseSignal{ProjectID: replayProjectID, Reason: "operator halt"},
+					client.StartWorkflowOptions{ID: id, TaskQueue: tq}, executionKindProjectSupervision,
+					projectSupervisionInput{ProjectID: replayProjectID})
+				if err != nil {
+					t.Fatalf("signal-with-start supervision: %v", err)
+				}
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "pump-operator-driven-over-recorded-pause",
+			rig: func() replayRig {
+				proj := ledgerChain()
+				proj.OperatorPaused = true
+				proj.PauseReason = "operator halt"
+				return replayPumpRig(proj)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				return replayRunPumpOnce(ctx, t, c, tq, pumpInput{ProjectID: replayProjectID, OperatorDriven: true})
+			},
+		},
+		{
+			// Architect (D), D.2: a pump that read a ledger-partial row whose dependencies
+			// were all Done, and chose ANOTHER activity (the pre-D1 rule only picks
+			// NotStarted). P is declared before O, so the widened rule would pick P.
+			dir: "pre-d", name: "pump-other-choice-with-partial-row-deps-done",
+			rig: func() replayRig { return replayPumpRig(replayPartialRowProject()) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				return replayRunPumpOnce(ctx, t, c, tq, pumpInput{ProjectID: replayProjectID})
+			},
+		},
+		{
+			// Architect (D), D.2: a construct run whose start snapshot read a row carrying a
+			// ledger and no stored phases. The pre-D1 seed reads the stored Phases only, so
+			// it walks all five phases.
+			dir: "pre-d", name: "construct-ledger-row-stored-seed",
+			rig: func() replayRig {
+				r := replayGateRig(projectstate.ReviewPolicy{})
+				r.ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+					string(replayActivityID): {ActivityID: string(replayActivityID), Attempts: passedLedger(string(replayActivityID), replayPartialLedgerPhases...)},
+				}
+				return r
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
+}
+
+// replayPartialRowProject is D (Done), P (integration-pending, depends on D) and O (not
+// started, depends on D), declared in that order.
+func replayPartialRowProject() projectstate.Project {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "D", Title: "D", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "P", Title: "P", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "O", Title: "O", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "D", DependsOn: []string{}},
+			{Activity: "P", DependsOn: []string{"D"}},
+			{Activity: "O", DependsOn: []string{"D"}},
+		},
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"D": {ActivityID: "D", Phase: projectstate.ActivityConstructionDone},
+		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
+	}
+	return proj
+}
+
+func replayStartConstruct(ctx context.Context, t *testing.T, c client.Client, tq string) client.WorkflowRun {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID: constructActivityWorkflowID(replayProjectID, replayActivityID), TaskQueue: tq,
+	}, executionKindConstructActivity, constructActivityInput{
+		ProjectID: replayProjectID, ActivityID: replayActivityID, Activity: sampleActivity(),
+	})
+	if err != nil {
+		t.Fatalf("start construct: %v", err)
+	}
+	return run
+}
+
+// replayRunPumpOnce starts the pump and returns once its FIRST run has closed (it
+// dispatched, waited for the child, and continued as new). The chain is still open.
+func replayRunPumpOnce(ctx context.Context, t *testing.T, c client.Client, tq string, in pumpInput) (string, string, bool) {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: pumpWorkflowID(in.ProjectID), TaskQueue: tq}, executionKindPump, in)
+	if err != nil {
+		t.Fatalf("start pump: %v", err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		resp, derr := c.DescribeWorkflowExecution(ctx, run.GetID(), run.GetRunID())
+		if derr == nil && resp.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			return run.GetID(), run.GetRunID(), true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("pump run %s never closed", run.GetRunID())
+	return "", "", false
+}
+
+func replayAwaitView(ctx context.Context, t *testing.T, c client.Client, wfID, what string, ok func(ConstructionSessionView) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", querySessionState); err == nil {
+			var v ConstructionSessionView
+			if enc.Get(&v) == nil && ok(v) {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never reached %s", wfID, what)
+}
+
+func replaySignal(ctx context.Context, t *testing.T, c client.Client, wfID, name string, arg any) {
+	t.Helper()
+	if err := c.SignalWorkflow(ctx, wfID, "", name, arg); err != nil {
+		t.Fatalf("signal %s to %s: %v", name, wfID, err)
+	}
+}
+
+func replayAwaitDone(ctx context.Context, t *testing.T, run client.WorkflowRun) {
+	t.Helper()
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("%s did not complete cleanly: %v", run.GetID(), err)
+	}
+}
+
+// replaySubmitted counts the pipeline submits a rig's fake has served.
+func replaySubmitted(pipe agenticjob.AgenticJobAccess) int {
+	switch p := pipe.(type) {
+	case *fakePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.submitted)
+	case *failOncePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.submitted)
+	default:
+		return -1
+	}
+}
+
+// replayExportHistory writes one run's full history in the CLI's JSON format, which is
+// what WorkflowReplayer.ReplayWorkflowHistoryFromJSONFile reads.
+func replayExportHistory(ctx context.Context, c client.Client, wfID, runID, path string) error {
+	it := c.GetWorkflowHistory(ctx, wfID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	var h historypb.History
+	for it.HasNext() {
+		ev, err := it.Next()
+		if err != nil {
+			return err
+		}
+		h.Events = append(h.Events, ev)
+	}
+	b, err := temporalproto.CustomJSONMarshalOptions{Indent: "  "}.Marshal(&h)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+// TestCaptureConstructHistories is the CAPTURE TOOL behind the replay fixtures (env-gated,
+// like derived-plan-write). See the section header for when, and when never, to run it.
+func TestCaptureConstructHistories(t *testing.T) {
+	if os.Getenv("CONSTRUCT_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set CONSTRUCT_HISTORY_CAPTURE=1 to (re)write testdata/replay/ fixtures")
+	}
+	only := os.Getenv("CONSTRUCT_HISTORY_CAPTURE_DIR")
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "b1-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	for i, sc := range replayScenarios() {
+		if only != "" && sc.dir != only {
+			continue
+		}
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			r := sc.rig()
+			tq := fmt.Sprintf("replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       replayRegistrations(r.wf),
+				ActivityOptions: activityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := replayExportHistory(ctx, c, wfID, runID, replayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", replayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// replayFixture replays one fixture against the current workflow code.
+func replayFixture(sc replayScenario) error {
+	rep := worker.NewWorkflowReplayer()
+	for _, reg := range replayRegistrations(sc.rig().wf) {
+		rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+	}
+	return rep.ReplayWorkflowHistoryFromJSONFile(nil, replayFixturePath(sc))
+}
+
+// Test_Replay_PreB1Histories_StayDeterministic replays every captured history against
+// the current code; each must replay with no non-determinism error. A missing fixture
+// fails (it never skips), and a fixture no scenario names fails too, so nothing under
+// testdata/replay/ can sit there unreplayed.
+func Test_Replay_PreB1Histories_StayDeterministic(t *testing.T) {
+	covered := map[string]bool{}
+	for _, sc := range replayScenarios() {
+		path := replayFixturePath(sc)
+		covered[path] = true
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with CONSTRUCT_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if err := replayFixture(sc); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "replay", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no replay fixtures found under testdata/replay")
+	}
+	for _, f := range files {
+		if !covered[f] {
+			t.Errorf("fixture %s has no replay scenario, so nothing replays it", f)
+		}
 	}
 }
