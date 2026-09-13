@@ -17,6 +17,7 @@ import { buildActivityTree, type ActivityNode, type TaskNode } from './activityT
 import {
   activityRowState,
   attemptRowState,
+  bookKeyFor,
   chipFor,
   criticalBorderPx,
   currentStageMarker,
@@ -246,6 +247,31 @@ void test('a task with no attempt is unknown — the majority case, chip-less', 
   const task = taskNamed(node, 'srs');
   assert.equal(taskRowState(task, undefined), 'unknown');
   assert.equal(chipFor(taskRowState(task, undefined)), undefined);
+});
+
+// Designer re-check N3: beneath an activity that reads "not started", a task with
+// no attempt is not started too — never UNKNOWN under a known zero.
+void test('a task with no attempt under a not-started activity is not started, not unknown', () => {
+  const planned = onlyNode(row({ kind: 'service', hasBuildEvidence: false, recorded: false }));
+  assert.equal(activityRowState(planned.row), 'notStarted');
+  const task = taskNamed(planned, 'srs');
+  assert.equal(taskRowState(task, planned.status, activityRowState(planned.row)), 'notStarted');
+  // An activity WITH evidence keeps a task it has no attempt for as unknown.
+  const started = onlyNode(
+    row({ kind: 'service', status: 'in-construction', attempts: [attempt()] })
+  );
+  const bare = taskNamed(started, 'srs');
+  assert.equal(taskRowState(bare, started.status, activityRowState(started.row)), 'unknown');
+});
+
+// Designer re-check N2: the book's key trails a renamed task, and never repeats
+// the label's own word.
+void test('the book key shows only where it adds a word the label lacks', () => {
+  assert.equal(bookKeyFor('Flow Review', 'STP Review', 'stpReview'), 'stpReview');
+  assert.equal(bookKeyFor('Scenario Review', 'Code Review', 'codeReview'), 'codeReview');
+  assert.equal(bookKeyFor('Flow Testing', 'Testing', 'testing'), undefined);
+  assert.equal(bookKeyFor('Harness Integration', 'Integration', 'integration'), undefined);
+  assert.equal(bookKeyFor('Code Review', 'Code Review', 'codeReview'), undefined);
 });
 
 void test('a pending gate task on an in-review activity is awaiting the human', () => {

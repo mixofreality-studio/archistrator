@@ -131,6 +131,7 @@ import {
 import { emptyListCopyFor } from './listEmptyState.ts';
 import {
   applyOperatorExpansion,
+  deepLinkReveal,
   NO_EXPANSION,
   openByOperator,
   revealForQuery,
@@ -141,6 +142,7 @@ import {
   activityGridColumns,
   activityRowState,
   attemptRowState,
+  bookKeyFor,
   chipFor,
   criticalBorderPx,
   idColumnWidthCh,
@@ -206,8 +208,20 @@ const LIST_SLOT_SX = {
     ...listSlotVars('compact'),
     '& [data-kind-full]': { display: 'none' },
     '& [data-kind-icon]': { display: 'inline-flex' },
+    // The compact float/effort slots are 30/36px, exactly the width of "FLOAT" and
+    // "EFFORT" at 9px with wide tracking — so "FLOAT EFFORT ID" ran together at
+    // 1600 with the pane open (designer re-check N5). Compact labels set smaller
+    // and tighter, which leaves each one a visible gutter inside its own slot.
+    [`& [data-testid="${UI_IDENTIFIERS.Construction.LIST_HEADER}"] .MuiTypography-root`]: {
+      fontSize: 8,
+      letterSpacing: '0.02em',
+    },
   },
 } as const;
+
+/** How long a deep link waits for its ancestors' Collapse to finish before the
+ *  second centring pass. MUI's auto duration for a group this size is < 350ms. */
+const DEEP_LINK_SETTLE_MS = 450;
 
 // ---------------------------------------------------------------------------
 // The item model
@@ -446,6 +460,35 @@ export function ActivityTreeView({
       }
     }
   }
+
+  // A DEEP LINK (?a=&p=&k=) opens its ancestors once, on the first render that
+  // has rows, and names the selected row as the scroll target (designer re-check
+  // N1) — before, a linked task sat hidden under a closed chevron beside a pane
+  // describing it. Same render-time-adjustment shape as the reveals above; the
+  // rows it opens are the operator's (a later search clear leaves them open).
+  // `undefined` = not yet applied; `null` = applied, nothing to scroll to.
+  const [linkTarget, setLinkTarget] = useState<string | null | undefined>(undefined);
+  if (linkTarget === undefined && nodes.length > 0) {
+    const link = deepLinkReveal(selection);
+    setLinkTarget(link.target);
+    if (link.expand.length > 0) setExpansion((prev) => openByOperator(prev, link.expand));
+  }
+  useEffect(() => {
+    if (linkTarget === null || linkTarget === undefined) return undefined;
+    const target = linkTarget;
+    // Centred, so the sticky lens toolbar can never cover it. Once on the next
+    // frame and once after the group's Collapse has finished growing, because the
+    // row moves while its ancestors' heights animate.
+    const center = (): void => {
+      apiRef.current?.getItemDOMElement(target)?.scrollIntoView({ block: 'center' });
+    };
+    const frame = requestAnimationFrame(center);
+    const settled = window.setTimeout(center, DEEP_LINK_SETTLE_MS);
+    return (): void => {
+      cancelAnimationFrame(frame);
+      window.clearTimeout(settled);
+    };
+  }, [linkTarget, apiRef]);
 
   // The one genuine SIDE EFFECT here (an imperative DOM/library call, not a
   // state update): once a reveal names a focus target, `focusItem` also
@@ -1330,8 +1373,9 @@ function StageRuleRow({
 function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
   const { t, onInlineRetry, searchMatchedTaskIds } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
-  const state = taskRowState(task, node.status);
+  const state = taskRowState(task, node.status, activityRowState(node.row));
   const chip = chipFor(state);
+  const bookKey = bookKeyFor(task.label, task.bookLabel, task.task);
   const loud = state === 'awaitingHuman';
   const failed = state === 'failed';
   const counter = retryCounterLabel(task.attemptCount);
@@ -1385,7 +1429,11 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
               fontFamily: t.body,
               fontSize: 11.5,
               fontWeight: task.gate ? 700 : 400,
-              color: failed ? t.dangerFg : state === 'unknown' ? t.muted : t.ink,
+              color: failed
+                ? t.dangerFg
+                : state === 'unknown' || state === 'notStarted'
+                  ? t.muted
+                  : t.ink,
               opacity: state === 'skipped' ? 0.55 : 1,
               textDecoration: state === 'skipped' ? 'line-through' : 'none',
               whiteSpace: 'nowrap',
@@ -1395,34 +1443,38 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
           >
             {task.label}
           </Typography>
-          {/* The book's own task KEY, small and secondary, only where this profile
-            renamed the task (a test plan's construction gate reads "Scenario
-            Review", not "Code Review") — so the Figure A-1 identity stays legible
-            without re-printing it beside every Service row whose label already is
-            the book's word. */}
-          {task.label !== task.bookLabel ? (
-            <Tooltip title={`Figure A-1 task: ${task.bookLabel}`}>
-              <Typography
-                data-testid={UI_IDENTIFIERS.Construction.listTaskBookKey(task.nodeId)}
-                sx={{
-                  fontFamily: t.mono,
-                  fontSize: 9,
-                  color: t.muted,
-                  opacity: 0.8,
-                  flexShrink: 0,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                {task.task}
-              </Typography>
-            </Tooltip>
-          ) : null}
           {task.gate ? (
             <Tooltip title="This task's success IS the phase's binary exit criterion (App A)">
               <Typography sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted, flexShrink: 0 }}>
                 gate
               </Typography>
             </Tooltip>
+          ) : null}
+          {/* The book's own task KEY, trailing the row's words behind a separator
+            ("Flow Review gate · stpReview"), only where this profile renamed the
+            task and the key adds a word the label lacks (bookKeyFor). It used to
+            sit between the label and the gate tag, where it read as part of the
+            label (designer re-check N2). */}
+          {bookKey !== undefined ? (
+            <Box sx={{ display: 'flex', alignItems: 'baseline', gap: 0.5, flexShrink: 0 }}>
+              <Typography aria-hidden sx={{ fontFamily: t.mono, fontSize: 9, color: t.muted }}>
+                ·
+              </Typography>
+              <Tooltip title={`Figure A-1 task: ${task.bookLabel}`}>
+                <Typography
+                  data-testid={UI_IDENTIFIERS.Construction.listTaskBookKey(task.nodeId)}
+                  sx={{
+                    fontFamily: t.mono,
+                    fontSize: 9,
+                    color: t.muted,
+                    opacity: 0.8,
+                    whiteSpace: 'nowrap',
+                  }}
+                >
+                  {bookKey}
+                </Typography>
+              </Tooltip>
+            </Box>
           ) : null}
           {/* needsInlineProvenanceMark matches the GROUP badge's own rule
             (ProvenanceGroupStamp) exactly: only `reconstructed` ever earns a

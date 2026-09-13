@@ -174,7 +174,12 @@ export function taskDetailStateFor(
 
   if (selection.task !== undefined) {
     const attempt = latestMatchingAttempt(row.attempts, selection.task, selection.attempt);
-    return attempt === undefined ? 'unknown' : stateForOutcome(attempt.outcome, row.status);
+    // No attempt: under an activity that HAS evidence, the task may have run before
+    // per-task history existed, so it is `unknown`. Under a classified activity
+    // with none, it is `notStarted` like the activity itself — "UNKNOWN" beneath a
+    // row that reads "not started" contradicted it (designer re-check N3).
+    if (attempt === undefined) return row.hasBuildEvidence ? 'unknown' : 'notStarted';
+    return stateForOutcome(attempt.outcome, row.status);
   }
 
   if (!row.hasBuildEvidence) return 'notStarted';

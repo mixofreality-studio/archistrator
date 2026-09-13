@@ -127,3 +127,177 @@ test('B2: the run action names its selection, and marks a re-run only where an a
     await expect(run, suffix).toBeEnabled();
   }
 });
+
+// ---------------------------------------------------------------------------
+// N1–N5 (designer re-check, non-blocking)
+// ---------------------------------------------------------------------------
+
+test('N1: a deep link to a task opens its ancestors and brings the task row into view', async ({
+  page,
+}) => {
+  await openList(page, '&a=N-STP&p=construction&k=codeReview');
+  const taskRow = page.getByTestId(TESTID.constructionListRow('N-STP::construction::codeReview'));
+  // No search, no click: the link alone reveals the row.
+  await expect(taskRow).toBeVisible();
+  await expect(taskRow).toBeInViewport();
+  await page.waitForTimeout(700);
+  const read = await page.evaluate(
+    ({ rowId, toolbarId }) => {
+      const row = document.querySelector(`[data-testid="${rowId}"]`)?.getBoundingClientRect();
+      const bar = document.querySelector(`[data-testid="${toolbarId}"]`)?.getBoundingClientRect();
+      return { rowTop: row?.top ?? -1, rowBottom: row?.bottom ?? -1, barBottom: bar?.bottom ?? 0, vh: window.innerHeight };
+    },
+    {
+      rowId: TESTID.constructionListRow('N-STP::construction::codeReview'),
+      toolbarId: TESTID.constructionLensToolbar,
+    }
+  );
+  // Not merely "in the viewport": clear of the sticky toolbar that covers the top.
+  expect(read.rowTop).toBeGreaterThanOrEqual(read.barBottom);
+  expect(read.rowBottom).toBeLessThanOrEqual(read.vh);
+});
+
+test('N2: the book key trails the gate tag behind a separator, and never repeats the label', async ({
+  page,
+}) => {
+  await openList(page, '&a=U-SPA-web-client&p=test_plan&k=stpReview');
+  const flowReview = 'U-SPA-web-client::test_plan::stpReview';
+  const row = page.getByTestId(TESTID.constructionListRow(flowReview));
+  await expect(row).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionListTaskBookKey(flowReview))).toHaveText('stpReview');
+  // Label, then the gate tag, then "· key" — not "Flow Review stpReview gate".
+  expect((await row.innerText()).replace(/\s+/g, ' ')).toMatch(/Flow Review gate · stpReview/);
+
+  // "Flow Testing" would only repeat `testing`: no key at all.
+  await openList(page, '&a=U-SPA-web-client&p=integration&k=testing');
+  const flowTesting = 'U-SPA-web-client::integration::testing';
+  await expect(page.getByTestId(TESTID.constructionListRow(flowTesting))).toContainText('Flow Testing');
+  await expect(page.getByTestId(TESTID.constructionListTaskBookKey(flowTesting))).toHaveCount(0);
+});
+
+test('N3: a task under a classified, not-started activity reads NOT STARTED, not UNKNOWN', async ({
+  page,
+}) => {
+  await openList(page, '&a=U-SPA-web-client&p=requirements&k=srs');
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText('NOT STARTED');
+});
+
+test('N4: the Begin confirm names "the N activities with nothing recorded yet"', async ({
+  page,
+  request,
+}) => {
+  const rows = await wireRows(request);
+  const n = Object.values(rows).filter((r) => !r.recorded).length;
+  expect(n).toBeGreaterThan(1);
+  await openList(page);
+  await page.getByTestId(TESTID.constructionBegin).click();
+  const dialog = page.getByTestId(TESTID.constructionBeginConfirm);
+  await expect(dialog).toContainText(`the ${String(n)} activities with nothing recorded yet:`);
+  await page.getByTestId(TESTID.constructionBeginConfirmCancel).click();
+  await expect(dialog).toBeHidden();
+});
+
+test('N5: Begin is disabled in EVERY committed frame until constructionStarted is known', async ({
+  page,
+}) => {
+  // Not sampled: a MutationObserver records the button's (label, disabled) after
+  // every DOM change, so no frame can fall between two reads. The designer's
+  // "enabled Checking…" frame came from reading the label and the disabled state
+  // as two separate calls across the Checking→Begin commit.
+  await page.addInitScript((beginId: string) => {
+    const log: string[] = [];
+    (window as unknown as { __beginLog: string[] }).__beginLog = log;
+    const record = (): void => {
+      const el = document.querySelector<HTMLButtonElement>(`[data-testid="${beginId}"]`);
+      if (el === null) return;
+      const entry = `${el.innerText.trim()}|${el.disabled ? 'disabled' : 'enabled'}`;
+      if (log[log.length - 1] !== entry) log.push(entry);
+    };
+    new MutationObserver(record).observe(document, {
+      subtree: true,
+      childList: true,
+      attributes: true,
+      characterData: true,
+    });
+  }, TESTID.constructionBegin);
+  await openList(page);
+  await expect(page.getByTestId(TESTID.constructionBegin)).toHaveText(/Begin construction/);
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled();
+  const log = await page.evaluate(() => (window as unknown as { __beginLog: string[] }).__beginLog);
+  expect(log.length, 'the observer saw the button').toBeGreaterThan(0);
+  for (const entry of log) {
+    const [label = '', flag] = entry.split('|');
+    if (/Begin construction|Resume construction/.test(label)) continue;
+    // Anything that is not the committed label is a disabled state.
+    expect(flag, `"${label}" was ${flag ?? '?'}`).toBe('disabled');
+  }
+  const enabledLabels = new Set(log.filter((e) => e.endsWith('|enabled')).map((e) => e.split('|')[0]));
+  expect([...enabledLabels]).toEqual(['Begin construction']);
+});
+
+test('N5: at 1600 with the pane open, header labels keep a gutter and fit their slots', async ({
+  page,
+}) => {
+  await openList(page, '&a=C-billing-engine');
+  await page.setViewportSize({ width: 1600, height: 900 });
+  await page.waitForTimeout(400);
+  const cells = await page.evaluate((headerId) => {
+    const header = document.querySelector(`[data-testid="${headerId}"]`);
+    if (header === null) throw new Error('no list header');
+    const text = (el: Element | null): { left: number; right: number; box: number } => {
+      if (el === null) throw new Error('missing header cell');
+      const r = document.createRange();
+      r.selectNodeContents(el);
+      const t = r.getBoundingClientRect();
+      return { left: t.left, right: t.right, box: el.getBoundingClientRect().width };
+    };
+    const idTitle = header.children[4];
+    return {
+      float: text(header.querySelector('[data-slot="float"]')),
+      effort: text(header.querySelector('[data-slot="effort"]')),
+      id: text(idTitle?.children[0] ?? null),
+    };
+  }, TESTID.constructionListHeader);
+  for (const [name, c] of Object.entries(cells)) {
+    expect(c.right - c.left, `${name} fits its slot`).toBeLessThanOrEqual(c.box + 0.5);
+  }
+  expect(cells.effort.left - cells.float.right, 'float→effort gutter').toBeGreaterThanOrEqual(8);
+  expect(cells.id.left - cells.effort.right, 'effort→id gutter').toBeGreaterThanOrEqual(8);
+});
+
+for (const width of [1280, 1366, 1600]) {
+  test(`N5: at ${String(width)} with the pane open, the search placeholder is never clipped`, async ({
+    page,
+  }) => {
+    await openList(page, '&a=C-billing-engine');
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const read = await page.evaluate((searchId) => {
+      const input = document.querySelector<HTMLInputElement>(`[data-testid="${searchId}"] input`);
+      if (input === null) throw new Error('no search input');
+      const cs = getComputedStyle(input);
+      const ctx = document.createElement('canvas').getContext('2d');
+      if (ctx === null) throw new Error('no canvas');
+      ctx.font = cs.font;
+      return {
+        text: ctx.measureText(input.placeholder).width,
+        room: input.clientWidth - parseFloat(cs.paddingLeft) - parseFloat(cs.paddingRight),
+      };
+    }, TESTID.constructionLensSearch);
+    expect(read.text, `placeholder ${String(read.text)}px in ${String(read.room)}px`).toBeLessThanOrEqual(
+      read.room + 0.5
+    );
+  });
+}
+
+test('N5: a disabled "Expand to current phase" looks disabled', async ({ page }) => {
+  await openList(page);
+  const expand = page.getByTestId(TESTID.constructionLensExpandToPhase);
+  await expect(expand).toBeDisabled();
+  const style = await expand.evaluate((el) => {
+    const cs = getComputedStyle(el);
+    return { opacity: parseFloat(cs.opacity), border: cs.borderTopStyle };
+  });
+  expect(style.opacity).toBeLessThanOrEqual(0.5);
+  expect(style.border).toBe('dashed');
+});

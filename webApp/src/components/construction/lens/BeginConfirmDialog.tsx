@@ -62,7 +62,7 @@ export function BeginConfirmDialog({
             <Typography sx={{ color: t.muted, fontSize: 13, lineHeight: 1.5 }}>
               This dispatches the construction pump. As their dependencies allow, it starts the{' '}
               {candidates.length === 1 ? 'activity' : `${String(candidates.length)} activities`}{' '}
-              nothing has been recorded for yet:
+              with nothing recorded yet:
             </Typography>
             <Box
               component="ul"

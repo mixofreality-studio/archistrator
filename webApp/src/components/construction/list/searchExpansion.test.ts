@@ -2,10 +2,26 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyOperatorExpansion,
+  deepLinkReveal,
   NO_EXPANSION,
   openByOperator,
   revealForQuery,
 } from './searchExpansion.ts';
+
+// Designer re-check N1: a link to a task opens its activity and phase and targets
+// the task row; a link to a phase opens its activity; an activity link opens nothing.
+void test('a deep link opens exactly its ancestors and targets the selected row', () => {
+  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }), {
+    expand: ['N-STP', 'N-STP::construction'],
+    target: 'N-STP::construction::codeReview',
+  });
+  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction' }), {
+    expand: ['N-STP'],
+    target: 'N-STP::construction',
+  });
+  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP' }), { expand: [], target: null });
+  assert.deepEqual(deepLinkReveal({}), { expand: [], target: null });
+});
 
 void test('clearing the query closes what the search opened, and only that', () => {
   const opened = revealForQuery(NO_EXPANSION, ['C-a', 'C-a::requirements', 'C-b']);

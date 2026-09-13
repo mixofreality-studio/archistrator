@@ -55,6 +55,26 @@ export function applyOperatorExpansion(
   return { expanded: [...next], searchOpened: state.searchOpened.filter((id) => nextSet.has(id)) };
 }
 
+/**
+ * What a DEEP LINK must open, and which row it must bring into view, on load
+ * (designer re-check N1). A link naming a phase (`p`) or a task (`k`) used to
+ * select a row inside a collapsed activity: the pane opened, and the row it
+ * described sat hidden under a closed chevron. The link's ancestors open — the
+ * activity for a phase, the activity and its phase for a task — and the selected
+ * row is the scroll target. An activity-only link needs nothing opened.
+ */
+export function deepLinkReveal(selection: {
+  activityId?: string | undefined;
+  lifecyclePhase?: string | undefined;
+  task?: string | undefined;
+}): { expand: string[]; target: string | null } {
+  const { activityId, lifecyclePhase, task } = selection;
+  if (activityId === undefined || lifecyclePhase === undefined) return { expand: [], target: null };
+  const phaseId = `${activityId}::${lifecyclePhase}`;
+  if (task === undefined) return { expand: [activityId], target: phaseId };
+  return { expand: [activityId, phaseId], target: `${phaseId}::${task}` };
+}
+
 /** An explicit operator action opened `ids` ("Expand to current phase"): they are
  *  the operator's now, including any a search had opened. */
 export function openByOperator(state: TreeExpansion, ids: readonly string[]): TreeExpansion {

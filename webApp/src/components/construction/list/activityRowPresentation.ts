@@ -278,11 +278,37 @@ export function activityRowState(row: ConstructionRow): RowState {
  */
 export function taskRowState(
   task: TaskNode,
-  rowStatus: ActivityBuildStatusRow | undefined
+  rowStatus: ActivityBuildStatusRow | undefined,
+  activityState?: RowState
 ): RowState {
   if (task.latestAttempt?.outcome === 'skipped') return 'skipped';
   if (task.state === 'running' && task.gate && rowStatus === 'in-review') return 'awaitingHuman';
+  // A task with no attempt under a classified, NOT-STARTED activity is not started
+  // (designer re-check N3): the row above it already says so, and "unknown" beneath
+  // a known zero reads as a contradiction. Where the activity has evidence, a task
+  // with none stays `unknown` — it may have run before per-task history existed.
+  if (task.latestAttempt === undefined && activityState === 'notStarted') return 'notStarted';
   return task.state;
+}
+
+function wordsOf(s: string): string[] {
+  return s
+    .replace(/([a-z])([A-Z])/g, '$1 $2')
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((w) => w.length > 0);
+}
+
+/**
+ * The book's task KEY as a task row's trailing secondary text (designer re-check
+ * N2), or nothing. It rides only where this profile renamed the task, and never
+ * where it would just repeat the label's own word: "Flow Testing" beside
+ * `testing`, or "Harness Integration" beside `integration`, says the key twice.
+ */
+export function bookKeyFor(label: string, bookLabel: string, key: string): string | undefined {
+  if (label === bookLabel) return undefined;
+  const labelWords = new Set(wordsOf(label));
+  return wordsOf(key).every((w) => labelWords.has(w)) ? undefined : key;
 }
 
 /**

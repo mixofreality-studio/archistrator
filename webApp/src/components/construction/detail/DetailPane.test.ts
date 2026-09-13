@@ -132,6 +132,15 @@ void test('a selected task with no attempt at all is unknown, not notStarted', (
   assert.equal(taskDetailStateFor(r, selection), 'unknown');
 });
 
+// Designer re-check N3: the pane agrees with the not-started activity above it.
+void test('a task under a classified, not-started activity reads notStarted, not unknown', () => {
+  const r = row({ hasBuildEvidence: false, recorded: false, attempts: [] });
+  const selection: LensSelection = { activityId: 'C-x', task: 'srs' };
+  assert.equal(taskDetailStateFor(r, selection), 'notStarted');
+  // Unclassified stays unknown whatever the evidence says.
+  assert.equal(taskDetailStateFor(row({ classified: false, hasBuildEvidence: false }), selection), 'unknown');
+});
+
 void test('picks the latest attempt by NUMBER, not array position', () => {
   const r = row({
     attempts: [

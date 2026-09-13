@@ -119,6 +119,9 @@ const SORT_HELP_TEXT =
  *  — Task 11 wires the 7 that Task 3 shipped disabled. */
 const ACTIVITY_KIND_KEYS: ReadonlySet<string> = new Set<string>(Object.keys(KIND_META));
 
+/** The search hint. Its length sizes the field's minimum width, so it is never cut. */
+const SEARCH_PLACEHOLDER = 'Search id, title or component…';
+
 function asActivityKind(value: string): ActivityKind | undefined {
   return ACTIVITY_KIND_KEYS.has(value) ? (value as ActivityKind) : undefined;
 }
@@ -289,13 +292,18 @@ export function ConstructionShell({
           <InputBase
             data-testid={UI_IDENTIFIERS.Construction.LENS_SEARCH}
             inputProps={{ 'aria-label': 'Search activities' }}
-            placeholder="Search activity, title or component…"
+            placeholder={SEARCH_PLACEHOLDER}
             sx={{
               flexGrow: 1,
               fontFamily: t.mono,
               fontSize: 12.5,
               color: t.ink,
               '& input::placeholder': { color: t.muted, opacity: 1 },
+              // The field never narrows below its own placeholder, so the hint is
+              // never clipped mid-word (designer re-check N5: "…or componer" at
+              // 1600). In a monospace face one `ch` is one glyph, so this is exact;
+              // the toolbar wraps before the placeholder is cut.
+              '& input': { minWidth: `${String(SEARCH_PLACEHOLDER.length)}ch` },
             }}
             value={toolbar.search}
             onChange={(e) => {
@@ -381,7 +389,15 @@ export function ConstructionShell({
                 textTransform: 'none',
                 color: t.ink,
                 borderColor: t.line,
-                '&.Mui-disabled': { color: t.muted, borderColor: alpha(t.line, 0.35) },
+                // Visibly OFF (designer re-check N5): muted ink alone read as a
+                // live button at a glance. Half opacity and a dashed border are the
+                // surface's own "not available" marks.
+                '&.Mui-disabled': {
+                  color: t.muted,
+                  borderColor: alpha(t.line, 0.5),
+                  borderStyle: 'dashed',
+                  opacity: 0.5,
+                },
               }}
               variant="outlined"
               onClick={onExpandToCurrentPhase}
