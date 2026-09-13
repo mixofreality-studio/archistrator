@@ -436,12 +436,13 @@ row, at the tier that owns it.
 | `running` | teal dot — the **only** animated element on screen | yes (xs) |
 | `awaitingHuman` | `awaitingBg`/`awaitingFg` + 3px accent left edge — loudest thing on screen | yes |
 | `passed` | olive check | yes (xs) |
-| `failed` | `dangerFg` on `awaitingBg` **+ inline `↻ Retry`** | yes |
+| `failed` | `dangerFg` on `awaitingBg` (no inline action: review-only until B1, §7.8 amended) | yes |
 | `superseded` | 55% opacity + `↻n` index | no |
 
-**Failure is never terminal.** Every `failed` row renders `↻ Retry` inline, and the detail action
-bar carries `↻ Run this task` in **every** state — including `passed` (re-run) and `unknown` (run
-it for the first time). `failed` is amber-backed with a red foreground: "needs you", not "dead".
+**Failure is never terminal.** The detail action bar carries `↻ Run this task` in **every** state —
+including `passed` (re-run) and `unknown` (run it for the first time) — enabled when the console can
+start that work, otherwise disabled with its reason (§7.8, amended in the tasks-lens merge round). A
+failed row carries no inline action of its own: until follow-up B1 it is review-only. `failed` is amber-backed with a red foreground: "needs you", not "dead".
 
 ### 7.3 Provenance is an orthogonal axis
 
@@ -587,8 +588,15 @@ project policy is exactly what this rewrite exists to stop.
 
 Invariant header — breadcrumb · state chip · provenance chip · attempt selector · exit criterion +
 weight. Invariant action bar — `[✓ Approve] [↩ Send back] [↻ Run this task] [⋯]`, with
-`↻ Run this task` present **and enabled in every state**. That makes the founder's "the app always
-lets u retry" ruling structural rather than conditional.
+`↻ Run this task` **present in every state**. That makes the founder's "the app always lets u retry"
+ruling structural rather than conditional.
+
+**Amended (tasks-lens merge round, orchestrator ruling):** an action with nothing behind it is
+**disabled with its reason, never a no-op**. `↻ Run this task` is always in the bar, and it is
+enabled only when the console can actually start that work; until then it is disabled and says why
+(`data-reason`, and its tooltip). The same rule covers the list: a failed task row carries no inline
+`↻ Retry` (it only selected the row). Steer-needed and failed activities are review-only until
+follow-up B1 delivers the operator's note to the next attempt, in every lens.
 
 Four bodies:
 
@@ -606,7 +614,8 @@ Four bodies:
   `FrontendArtifactView` (the UI spec) · `testing:*` → `TestPlanView` / `ScenarioBrowser` /
   `DynamicViewFlow` (the test dynamic diagrams). All three the founder named already have renderers.
 - **Unknown** — the majority body, designed as a feature: what the task is, its exit criterion, its
-  weight, the retry rule, and one enabled `↻ Run this task`. Calm, no error tone, no red, no
+  weight, the retry rule, and the bar's `↻ Run this task` (disabled with its reason until the
+console can start the work, per the amendment above). Calm, no error tone, no red, no
   spinner. A distinct sibling body for `absent`: *"Deployment activities carry no Test Plan phase.
   This is by design, not missing data."*
 
@@ -646,8 +655,9 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    "unrecorded"; the hidden-attempt count and the recorded/unrecorded split are from that pass.)
 2. **No laundered aggregate.** The project EV/progress header shows **"—"** whenever
    `worstOrigin != observed` — not a badged number, not a footnote.
-3. **Retry is never absent.** `↻ Run this task` is present and enabled in every state, in every
-   lens's detail pane.
+3. **Retry is never absent.** `↻ Run this task` is present in every state, in every lens's detail
+   pane: enabled when something backs it, otherwise disabled with its reason, never a no-op (§7.8,
+   amended in the tasks-lens merge round; this supersedes "enablement unchanged" below).
 
    (Amended 2026-09-12, designer re-check B2: the action's presence and enablement are unchanged,
    but its label names the selection — "Run this activity", "Run this phase", "Run this task" —
@@ -675,7 +685,7 @@ bar** (it shares the toolbar — that is the point of the lens model) · **editi
 Tasks** (read-only + link) · **virtualization**.
 
 **Do not cut** — these are the wave's reason to exist: the provenance hatch, the unknown body, the
-coverage strip, the always-enabled retry.
+coverage strip, the always-present retry (disabled with its reason where nothing backs it, §7.8).
 
 > **Amendment (2026-09-12):** the coverage strip is **retired, not cut**. It measured the seam between
 > the legacy and derived activity lists, and D9 removed that seam: the founder's D9 ruling ("no legacy
