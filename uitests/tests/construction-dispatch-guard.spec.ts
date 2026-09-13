@@ -12,7 +12,7 @@
  * only ever reach a 404, never a real write.
  */
 import type { Page } from '@playwright/test';
-import { test, expect } from './support/dispatchGuard.js';
+import { test, expect, type DispatchGuard } from './support/dispatchGuard.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
@@ -59,66 +59,94 @@ test('the guard lists what it aborted', async ({ page, dispatchGuard }) => {
 // A held write never outlives its test (orchestrator, from the tasks-lens leak
 // demo: the context route alone let one held POST out).
 //
-// When `unrouteAll` removes a page handler that is still HOLDING a request,
+// When an unroute removes a page handler that is still HOLDING a request,
 // Playwright sends that request on to the network, past the context route too.
 // A spec's own cleanup (`afterEach`) runs before any fixture teardown, so the
-// guard makes `page.unrouteAll` abort every hold first. The first case below FAILS
-// on purpose with a POST still held, and its `afterEach` unroutes everything, the
-// way a failing spec's cleanup would. The second reads what became of the POST.
+// guard makes `page.unrouteAll` AND `page.unroute` abort every hold first (fix-G
+// review M1: with only unrouteAll patched, a single `page.unroute` let a held
+// write out). Each first case below FAILS on purpose with writes still held, and
+// its `afterEach` cleans up the way a failing spec's cleanup would, once with
+// `unrouteAll` and once with a single `unroute`. The second reads what became of
+// the writes.
 //
-// SAFETY: the probe path does not exist on the server. Were the POST let out, it
+// Each holds TWO writes, under two separate holds (fix-G review M2). With one,
+// an abort the guard did not wait for still landed in time, so the pin could not
+// tell an awaited abort from an unawaited one: `void abortHolds()` survived.
+//
+// SAFETY: the probe paths do not exist on the server. Were a POST let out, it
 // could only reach the GET-only proxy, which refuses (and logs) it.
 // ---------------------------------------------------------------------------
 
-const HOLD_PROBE = '/api/v1/__dispatch-guard-hold-probe';
-/** What became of the held POST, as the page saw it: "failed" (aborted in the
- *  browser) or "response <status>" (it reached the network). */
-const heldOutcome: string[] = [];
-/** Resolves once the held POST has settled either way. */
-let heldSettled: Promise<void> = Promise.resolve();
+/** What became of each held POST, by probe path, as the page saw it: "failed"
+ *  (aborted in the browser) or "response <status>" (it reached the network). */
+const heldOutcome: Record<string, string[]> = {};
+/** Per probe path: resolves once both held POSTs have settled either way. */
+const heldSettled: Record<string, Promise<void>> = {};
 
-test.describe('a write a test still holds when it fails', () => {
-  test.describe.configure({ mode: 'serial' });
-
-  // The leak trigger: a spec's cleanup unroutes its page handlers while one of them
-  // still holds a request. Then, with the page still open, wait for that request to
-  // settle: an escaped request's answer must land while the page can still see it.
-  // (Measured: without the wait, a POST that reached the GET-only proxy could land
-  // after the page closed and be recorded as a failure, so the escape went unseen.)
-  test.afterEach(async ({ page }) => {
-    await page.unrouteAll({ behavior: 'ignoreErrors' });
-    await Promise.race([heldSettled, page.waitForTimeout(5_000)]);
+/** Fire two POSTs at `probe`, each held by its own hold, then fail the test. */
+async function failWithTwoHeld(
+  page: Page,
+  dispatchGuard: DispatchGuard,
+  probe: string
+): Promise<void> {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const outcomes: string[] = [];
+  heldOutcome[probe] = outcomes;
+  heldSettled[probe] = new Promise<void>((settle) => {
+    const record = (what: string): void => {
+      outcomes.push(what);
+      if (outcomes.length === 2) settle();
+    };
+    page.on('requestfailed', (r) => {
+      if (r.url().endsWith(probe)) record('failed');
+    });
+    page.on('response', (r) => {
+      if (r.url().endsWith(probe)) record(`response ${String(r.status())}`);
+    });
   });
-
-  test('a forced failure with a POST still held', async ({ page, dispatchGuard }) => {
-    test.fail(true, 'forced: this test ends by failing with the POST still held');
-    await gotoApp(page, '/project/archistrator/construction?lens=list');
-    heldSettled = new Promise<void>((settle) => {
-      page.on('requestfailed', (r) => {
-        if (!r.url().endsWith(HOLD_PROBE)) return;
-        heldOutcome.push('failed');
-        settle();
-      });
-      page.on('response', (r) => {
-        if (!r.url().endsWith(HOLD_PROBE)) return;
-        heldOutcome.push(`response ${String(r.status())}`);
-        settle();
-      });
-    });
-    const hold = dispatchGuard.hold();
-    let held = 0;
-    await page.route(`**${HOLD_PROBE}`, (route) => {
-      held += 1;
-      return hold.handle(route, () => route.fulfill({ status: 200, json: {} }));
-    });
+  const holds = [dispatchGuard.hold(), dispatchGuard.hold()];
+  let held = 0;
+  await page.route(`**${probe}`, (route) => {
+    const hold = holds[held];
+    held += 1;
+    if (hold === undefined) return route.abort();
+    return hold.handle(route, () => route.fulfill({ status: 200, json: {} }));
+  });
+  for (let i = 0; i < 2; i++) {
     void page
-      .evaluate((url) => fetch(url, { method: 'POST', body: '{}' }).then(() => undefined), HOLD_PROBE)
+      .evaluate((url) => fetch(url, { method: 'POST', body: '{}' }).then(() => undefined), probe)
       .catch(() => undefined);
-    await expect.poll(() => held).toBe(1);
-    throw new Error('forced failure: the test ends with the POST still held');
-  });
+  }
+  await expect.poll(() => held).toBe(2);
+  throw new Error('forced failure: the test ends with two POSTs still held');
+}
 
-  test('its held POST was aborted in the browser, and never reached the network', () => {
-    expect(heldOutcome).toEqual(['failed']);
+for (const [cleanup, probe] of [
+  ['unrouteAll', '/api/v1/__dispatch-guard-hold-probe'],
+  ['unroute', '/api/v1/__dispatch-guard-unroute-probe'],
+] as const) {
+  test.describe(`writes a test still holds when it fails, cleaned up with ${cleanup}`, () => {
+    test.describe.configure({ mode: 'serial' });
+
+    // The leak trigger: a spec's cleanup unroutes its page handlers while they
+    // still hold requests. Then, with the page still open, wait for those requests
+    // to settle: an escaped request's answer must land while the page can still
+    // see it. (Measured: without the wait, a POST that reached the GET-only proxy
+    // could land after the page closed and be recorded as a failure, so the escape
+    // went unseen.)
+    test.afterEach(async ({ page }) => {
+      if (cleanup === 'unrouteAll') await page.unrouteAll({ behavior: 'ignoreErrors' });
+      else await page.unroute(`**${probe}`);
+      await Promise.race([heldSettled[probe] ?? Promise.resolve(), page.waitForTimeout(5_000)]);
+    });
+
+    test('a forced failure with two POSTs still held', async ({ page, dispatchGuard }) => {
+      test.fail(true, 'forced: this test ends by failing with two POSTs still held');
+      await failWithTwoHeld(page, dispatchGuard, probe);
+    });
+
+    test('both held POSTs were aborted in the browser, and neither reached the network', () => {
+      expect(heldOutcome[probe]).toEqual(['failed', 'failed']);
+    });
   });
-});
+}

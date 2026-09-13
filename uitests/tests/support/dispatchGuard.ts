@@ -18,12 +18,15 @@
  *     route, so that handler answers first. GET and HEAD fall through untouched.
  *
  *  2. HOLDS. A page handler that holds a request open (to answer it later) and is
- *     then removed by `unrouteAll` does not fail that request: Playwright sends it
- *     on to the network, past the context route too. So a spec holds a request only
- *     through `dispatchGuard.hold()`, and every hold still open is ABORTED, and
- *     waited for, before anything is unrouted:
- *       - `page.unrouteAll` aborts every hold first, so a spec's own `afterEach`
- *         cleanup cannot let one out (afterEach runs before fixture teardown);
+ *     then removed by `unrouteAll` or `unroute` does not fail that request:
+ *     Playwright sends it on to the network, past the context route too. So a spec
+ *     holds a request only through `dispatchGuard.hold()`, and every hold still
+ *     open is ABORTED, and waited for, before anything is unrouted:
+ *       - `page.unrouteAll` and `page.unroute` abort every open hold first, so a
+ *         spec's own `afterEach` cleanup cannot let one out (afterEach runs before
+ *         fixture teardown). Only unrouteAll was patched until the fix-G review
+ *         (M1), and a single `page.unroute` let a held write out. A spec that
+ *         unroutes mid-test releases its holds first, or they are aborted;
  *       - the fixture's teardown aborts whatever is left, while every route is
  *         still in place. It depends on `page`, so it is torn down before the page.
  *     A held write can never outlive its test, whether the test passes, fails or
@@ -140,12 +143,17 @@ export const test = base.extend<{
         };
       };
 
-      // Every hold dies as an abort BEFORE any route is removed.
+      // Every hold dies as an abort BEFORE any route is removed, by either unroute.
       const unrouteAll = page.unrouteAll.bind(page);
       page.unrouteAll = (async (options?: Parameters<Page['unrouteAll']>[0]) => {
         await abortHolds();
         await unrouteAll(options);
       }) as Page['unrouteAll'];
+      const unroute = page.unroute.bind(page);
+      page.unroute = (async (...args: Parameters<Page['unroute']>) => {
+        await abortHolds();
+        await unroute(...args);
+      }) as Page['unroute'];
 
       await use({ blocked, hold, abortHolds });
 

@@ -124,8 +124,14 @@ export function ConstructionConsoleScreen(): ReactNode {
   // The CommentProvider wraps the body (mirrors Phase-1 SystemDesignScreen) so the
   // body itself can read useComments() — the accumulated anchored comments + the
   // toWire()/freeformNotes() the phase-gate "Send back" carries into the redraft.
+  //
+  // Keyed by project (fix-G review M3). An in-app switch to another project reuses
+  // this route's component, so the body's refs and state carried over: the Begin
+  // in-flight ref, `cascading`, the confirm's tick, the rail and its comments. With
+  // a dispatch still pending on the first project, the second's enabled Begin did
+  // nothing and said nothing. Another project is another console.
   return (
-    <CommentProvider>
+    <CommentProvider key={projectId}>
       <ConstructionConsoleBody projectId={projectId} />
     </CommentProvider>
   );

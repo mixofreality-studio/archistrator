@@ -1145,3 +1145,62 @@ test('I1: on a project already started, with nothing changing, a Resume 500 hold
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
+
+// ---------------------------------------------------------------------------
+// Fix-G review M3: an in-app switch to a second project reused the console's
+// component, and its Begin in-flight ref and cascade carried over. With a dispatch
+// still pending on the first project, the second's enabled Begin did nothing and
+// said nothing. The console is now keyed by project.
+//
+// SAFETY: as above. Both dispatches are answered in the browser (the first held,
+// then aborted at teardown; the second aborted). The second project is the first's
+// real read, served in the browser at another id; nothing is written.
+// ---------------------------------------------------------------------------
+
+const SECOND_PROJECT = 'uitest-second-console';
+
+test('M3: switching in-app to a second project gives it its own Begin, even with a dispatch pending on the first', async ({
+  page,
+  dispatchGuard,
+}) => {
+  const hold = dispatchGuard.hold();
+  const dispatched: string[] = [];
+  await page.route('**/execute-next-activity/**', async (route) => {
+    dispatched.push(new URL(route.request().url()).pathname);
+    if (dispatched.length === 1) return hold.handle(route, () => route.fulfill(SUCCESS));
+    await route.abort();
+  });
+  // The second project reads as the first, under its own id.
+  await page.route(`**/system-design/get-project/${SECOND_PROJECT}**`, async (route) => {
+    try {
+      const url = route.request().url().replace(SECOND_PROJECT, 'archistrator');
+      await route.fulfill({ response: await route.fetch({ url }) });
+    } catch (err) {
+      if (page.isClosed() || /has been closed/.test(String(err))) return;
+      throw err;
+    }
+  });
+
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => dispatched.length).toBe(1);
+  await expectRunning(page, 1_000);
+
+  // In-app to the second project's console: the same route, another id.
+  await page.evaluate((to) => {
+    window.history.pushState(null, '', to);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  }, `/project/${SECOND_PROJECT}/construction?lens=list`);
+  await expect(page).toHaveURL(new RegExp(`/project/${SECOND_PROJECT}/construction`));
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+
+  // Its Begin dispatches for IT: the first project's pending dispatch does not
+  // swallow it.
+  await dispatchOnce(page);
+  await expect
+    .poll(() => dispatched.length, { message: 'the second project dispatched' })
+    .toBe(2);
+  expect(dispatched[1]).toContain(`/execute-next-activity/${SECOND_PROJECT}`);
+});
