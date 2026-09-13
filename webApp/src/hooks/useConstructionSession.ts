@@ -34,8 +34,10 @@ export function constructionSessionsKey(projectId: string): readonly unknown[] {
   return ['constructionSession', projectId];
 }
 
-/** One per-activity session probe (useConstructionSession). */
-function sessionQueryOptions(
+/** One per-activity session probe (useConstructionSession, and — fanned out over
+ *  the activities in flight — useConstructionSessions; both share these keys, so a
+ *  probe the two ask for is fetched once). */
+export function sessionQueryOptions(
   queryClient: QueryClient,
   projectId: string,
   activityId: string | undefined,

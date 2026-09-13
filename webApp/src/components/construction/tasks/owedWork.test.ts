@@ -16,6 +16,7 @@ import type {
   TaskAttemptRow,
 } from '../../../contracts/types.ts';
 import { owedItemsFor, probeCandidatesFor, type SessionsByActivity } from './owedWork.ts';
+import { evidenceViewFor } from '../list/observedOnly.ts';
 
 /** A started, classified, in-review service row; `drop` removes optional fields
  *  outright (exactOptionalPropertyTypes forbids setting them to undefined). */
@@ -210,4 +211,31 @@ void test('probe only what the pump started and has not finished', () => {
   );
   assert.deepEqual(probeCandidatesFor(rows), ['C-live']);
   assert.deepEqual(probeCandidatesFor(undefined), []);
+});
+
+// --- "Observed only" never removes an owed decision (plan DC11) ----------------
+
+void test('the evidence view keeps the owed set and the probe set whole', () => {
+  const backfilled: TaskAttemptRow = {
+    ...attempt('srs', 1),
+    outcome: 'passed',
+    provenance: { origin: 'backfilled' },
+  };
+  // A live gate and a recorded failure, each on a row carrying reconstructed
+  // attempts — the rows "Observed only" strips hardest.
+  const rows = rowsOf(
+    row({ activityId: 'C-a', attempts: [backfilled] }),
+    row({
+      activityId: 'C-f',
+      status: 'failed',
+      failureReason: 'pipelineFailed',
+      attempts: [backfilled],
+    })
+  );
+  const sessions: SessionsByActivity = { 'C-a': session('C-a', 'awaitingApproval') };
+  const view = evidenceViewFor(rows, true).rows;
+  const whole = owedItemsFor({ rows, sessions }).map((i) => i.key);
+  const viewed = owedItemsFor({ rows: view, sessions }).map((i) => i.key);
+  assert.deepEqual(viewed, whole);
+  assert.deepEqual(probeCandidatesFor(view), probeCandidatesFor(rows));
 });

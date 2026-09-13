@@ -39,6 +39,8 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { useConstructionSession } from '../hooks/useConstructionSession';
+import { useConstructionSessions } from '../hooks/useConstructionSessions';
+import { owedItemsFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
 import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -359,15 +361,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return [...layers].sort((a, b) => a.localeCompare(b)).map((l) => ({ value: l, label: l }));
   }, [project]);
 
-  // The TASKS badge — the only lens that asserts something is owed. Counted from
-  // the real head-state: an in-review activity has reached the human code-review
-  // gate. Nothing is inferred for rows with no evidence.
-  const tasksOwed = useMemo(
-    () =>
-      Object.values(project?.constructionRows ?? {}).filter((r) => r.status === 'in-review').length,
-    [project]
-  );
-
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
@@ -458,6 +451,26 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [project, toolbar.observedOnly]
   );
   const viewRows = evidenceView.rows;
+
+  // --- Owed decisions (Stage C) ---------------------------------------------
+  // Every decision the pipeline is stopped on, from the LIVE workflow stage
+  // (tasks/owedWork.ts) — never head-state `in-review`, which only means some
+  // phases are complete (spec §1). The session probe is asked only of activities
+  // the pump started and has not finished: zero today, at most the supervision cap
+  // while cascading.
+  //
+  // ONE place for the TASKS badge, and it reads the EVIDENCE VIEW like every other
+  // surface here. "Observed only" cannot change the owed SET — a gate is the live
+  // session and a failure is the pump's own record, both kept by the view — so the
+  // count is the same either way; what the view may strip is a mixed-ledger row's
+  // current phase, which the lens then reports as unreported rather than guessed.
+  const probeIds = useMemo(() => probeCandidatesFor(viewRows), [viewRows]);
+  const sessionsByActivity = useConstructionSessions(projectId, probeIds);
+  const owedItems = useMemo(
+    () => owedItemsFor({ rows: viewRows, sessions: sessionsByActivity, titleFor: titleForId }),
+    [viewRows, sessionsByActivity, titleForId]
+  );
+  const tasksOwed = owedItems.length;
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
     [viewRows, activityMeta]
@@ -501,10 +514,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         // ONLY when the selected activity IS the one at a phase gate. Another
         // activity's reviewer set rendered under this one's review body would be
         // the most direct mis-attribution available on this surface.
+        // The selected activity's OWN session, when it is at a gate (Stage C) —
+        // any activity, not only the one the old single-activity lookup found.
         reviewSet={
-          activeInConstructionId === selectedActivityId
-            ? phaseGateSession?.view.reviewSet
-            : undefined
+          sessionsByActivity[selectedActivityId]?.stage === 'awaitingApproval'
+            ? sessionsByActivity[selectedActivityId].view.reviewSet
+            : activeInConstructionId === selectedActivityId
+              ? phaseGateSession?.view.reviewSet
+              : undefined
         }
         row={viewRows?.[selectedActivityId]}
         selection={selection}
