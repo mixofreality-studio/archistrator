@@ -15,6 +15,7 @@ import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire
 import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
+import { phaseDecisionMutationKey } from './phaseDecisionKey';
 import { projectKey } from './useProject';
 
 /**
@@ -126,11 +127,10 @@ export interface SubmitPhaseDecisionVars {
  * reads what is in flight — and what each one answered — from the QueryClient's
  * mutation cache (useMutationState) rather than from component state. A pending
  * decision therefore survives a remount of the console (navigating home and back),
- * and so does its evidence (tasks-lens review C1).
+ * and so does its evidence (tasks-lens review C1). The key lives in a pure module so
+ * node:test can pin that it is per project (phaseDecisionKey.test.ts).
  */
-export function phaseDecisionMutationKey(projectId: string): readonly unknown[] {
-  return ['submitPhaseDecision', projectId];
-}
+export { phaseDecisionMutationKey };
 
 /** When the server answered a decision that came back clean. */
 export interface PhaseDecisionAnswer {

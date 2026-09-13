@@ -7,8 +7,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  decisionActivityOf,
   decisionEntriesFrom,
-  decisionKeyOf,
+  pendingDecisionActivities,
   type DecisionEntry,
   type DecisionMutationState,
 } from './decisionRecords.ts';
@@ -95,11 +96,39 @@ void test('foreign or malformed cache entries are ignored, never guessed at', ()
     state({ status: 'idle' }),
   ]);
   assert.deepEqual(got, {});
-  assert.equal(decisionKeyOf(vars()), 'C-a:gate');
-  assert.equal(decisionKeyOf({ activityId: 'C-a' }), undefined);
+  assert.equal(decisionActivityOf(vars()), 'C-a');
+  assert.equal(decisionActivityOf({ activityId: 'C-a' }), undefined);
   // A snapshot that does not read as an owed item is dropped; the record stays.
   const noItem = decisionEntriesFrom([
     state({ variables: vars({ occurrence: { key: 'C-a:gate', epoch: 1, snapshot: 'x' } }) }),
   ]);
   assert.equal(only(noItem).item, undefined);
+});
+
+void test('an activity is held while ANY of its decisions is on the wire, even one no longer latest (round 2 I1)', () => {
+  // The pending decision answered epoch 1; a later decision on the same key (a newer
+  // occurrence) supersedes it as the entry, yet the first request is still pending.
+  const stillSending = state({ status: 'pending', submittedAt: 100 });
+  const newer = state({
+    status: 'success',
+    data: { answeredAt: 260 },
+    submittedAt: 200,
+    variables: vars({ occurrence: { key: 'C-a:gate', epoch: 2 } }),
+  });
+  assert.equal(only(decisionEntriesFrom([stillSending, newer])).pending, false);
+  assert.deepEqual([...pendingDecisionActivities([stillSending, newer])], ['C-a']);
+  // A pending decision on another activity's round key still names its activity.
+  const otherKey = state({
+    variables: vars({ activityId: 'C-b', occurrence: { key: 'C-b:designReview:2', epoch: 1 } }),
+  });
+  assert.deepEqual([...pendingDecisionActivities([otherKey])], ['C-b']);
+  // Settled decisions hold nothing; neither do entries that do not read as decisions.
+  assert.equal(
+    pendingDecisionActivities([
+      state({ status: 'success', data: { answeredAt: 1 } }),
+      state({ status: 'error', error: { message: 'x' } }),
+      state({ variables: { phase: 'x' } }),
+    ]).size,
+    0
+  );
 });

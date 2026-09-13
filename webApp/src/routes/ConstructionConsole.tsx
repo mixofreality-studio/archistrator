@@ -44,20 +44,20 @@ import { useGateOccurrences } from '../hooks/useGateOccurrences';
 import { occurrenceKey } from '../hooks/gateOccurrences';
 import {
   decidedFor,
-  decisionBusy,
-  decisionNoteFor,
   decisionViewFor,
+  gateControlFor,
   observedGateFor,
   type DecidedMark,
   type DecisionView,
-  type FlowNote,
+  type GateControl,
   type GateDecision,
   type ObservedGate,
   type PaneDecision,
 } from '../components/construction/tasks/decisionFlow';
 import {
+  decisionActivityOf,
   decisionEntriesFrom,
-  decisionKeyOf,
+  pendingDecisionActivities,
   type DecisionMutationState,
 } from '../components/construction/tasks/decisionRecords';
 import { owedWorkFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
@@ -453,6 +453,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // occurrence store — not from this render's probe set — so what is probed can
   // depend on it without a cycle.
   const decisionEntries = useMemo(() => decisionEntriesFrom(decisionStates), [decisionStates]);
+  // Every activity with a decision still on the wire, retired record or not: its
+  // Approve / Send back stay off until the request settles (review I1, round 2).
+  const pendingActivities = useMemo(
+    () => pendingDecisionActivities(decisionStates),
+    [decisionStates]
+  );
   const observedFor = (activityId: string): ObservedGate =>
     observedGateFor(occurrences.get(occurrenceKey(projectId, activityId)), {
       at: projectReadAt,
@@ -567,13 +573,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       clearTimeout(first);
     };
   }, [anyDecisionLive]);
-  const noteForKey = (key: string): FlowNote | undefined => {
-    const e = decisionEntries[key];
-    const view = decisionViews[key];
-    return e !== undefined && view !== undefined
-      ? decisionNoteFor(view, e.record.decision)
-      : undefined;
-  };
+  // One gate's controls and line: its own record's view, held off while ANY decision
+  // for the activity is still on the wire (decisionFlow.gateControlFor).
+  const controlFor = (item: Pick<RankedOwed, 'key' | 'activityId'>): GateControl =>
+    gateControlFor(
+      decisionViews[item.key],
+      decisionEntries[item.key]?.record.decision,
+      pendingActivities.has(item.activityId)
+    );
   // A decision made on a gate, while its record lives — the pane's "Decided ·
   // approved" chip and its lead line (designer P1-4).
   const decidedForKey = (key: string): DecidedMark | undefined => {
@@ -597,12 +604,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     const key = item.key;
     // One click, one signal — asked of the mutation cache itself, synchronously:
     // clicks delivered in one task all land before any re-render, and a remount
-    // keeps a pending decision pending (review C1).
+    // keeps a pending decision pending (review C1). Per ACTIVITY, the same rule the
+    // buttons follow (controlFor): a decision on the wire holds its whole activity.
     const onTheWire = queryClient.isMutating({
       mutationKey: phaseDecisionMutationKey(projectId),
-      predicate: (m) => decisionKeyOf(m.state.variables) === key,
+      predicate: (m) => decisionActivityOf(m.state.variables) === item.activityId,
     });
-    if (onTheWire > 0 || decisionBusy(decisionViews[key])) return;
+    if (onTheWire > 0 || controlFor(item).busy) return;
     // The occurrence this decision answers: a later one retires it (review C2).
     const epoch = occurrences.get(occurrenceKey(projectId, item.activityId))?.epoch ?? 0;
     // Send back carries the human's words: the pane's note, any free-form notes and
@@ -685,9 +693,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           lifecyclePhase: selectedGatePhase,
           open: rankedOwed.some((i) => i.key === selectedGate.key),
           gateTask: selectedGate.gate?.task,
-          busy: decisionBusy(decisionViews[selectedGate.key]),
+          busy: controlFor(selectedGate).busy,
           anchoredCount: toWire().length,
-          note: noteForKey(selectedGate.key),
+          note: controlFor(selectedGate).note,
           decided: decidedForKey(selectedGate.key),
           onApprove: (): void => {
             decideGate(selectedGate, 'approve');
@@ -785,7 +793,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             }
           : {}),
       }}
-      flowOf={noteForKey}
+      flowOf={(item) => controlFor(item).note}
       gitOf={(id) => gitFor(project, id)}
       // Just-decided rows first, lingering in place with their evidence line.
       items={[...lingering, ...visibleOwed]}

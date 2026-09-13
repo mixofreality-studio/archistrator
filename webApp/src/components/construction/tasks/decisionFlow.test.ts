@@ -18,7 +18,9 @@ import {
   decisionLeadFor,
   decisionNoteFor,
   decisionViewFor,
+  gateControlFor,
   observedGateFor,
+  PREVIOUS_STILL_SENDING,
   paneDecisionApplies,
   sendBackCaptionFor,
   sendBackReady,
@@ -112,7 +114,7 @@ void test('"now in <phase>" only from a project read taken after the gate was le
   const occ = {
     stage: 'pipelineRunning' as const,
     epoch: 1,
-    seenAt: T0 + 3_000,
+    requestedAt: T0 + 2_900,
     leftAt: T0 + 3_000,
   };
   // The read predates the resume: it still names the gated phase — no claim.
@@ -124,7 +126,7 @@ void test('"now in <phase>" only from a project read taken after the gate was le
   assert.equal(decisionNoteFor(view, 'approve')?.text, 'Resumed — now in Construction');
   // Never at the gate's left side yet: nothing to claim.
   const still = observedGateFor(
-    { stage: 'awaitingApproval', epoch: 1, seenAt: T0 },
+    { stage: 'awaitingApproval', epoch: 1, requestedAt: T0 },
     { at: T0 + 9_000, lifecyclePhase: 'construction' }
   );
   assert.equal(still.lifecyclePhase, undefined);
@@ -189,15 +191,72 @@ void test('a 4xx whose gate then clears is still a rejection, never "Resumed" (r
 
 void test('an unknown outcome keeps the decision off until a newer session read (review I1)', () => {
   const r = rec({ sentAt: T0, error: { status: 503, message: 'unavailable' } });
-  const before = decisionViewFor(r, at('awaitingApproval', { seenAt: T0 - 1 }), T0 + 1_000);
+  const before = decisionViewFor(r, at('awaitingApproval', { requestedAt: T0 - 1 }), T0 + 1_000);
   assert.ok(before.kind === 'failed' && before.watching);
   assert.equal(decisionBusy(before), true);
   const noRead = decisionViewFor(r, at('awaitingApproval'), T0 + 1_000);
   assert.equal(decisionBusy(noRead), true);
-  // A read newer than the failure still shows the gate: the human may decide again.
-  const after = decisionViewFor(r, at('awaitingApproval', { seenAt: T0 + 3_000 }), T0 + 3_000);
+  // A read asked for after the failure still shows the gate: decide again.
+  const after = decisionViewFor(r, at('awaitingApproval', { requestedAt: T0 + 3_000 }), T0 + 3_000);
   assert.ok(after.kind === 'failed' && !after.watching);
   assert.equal(decisionBusy(after), false);
+});
+
+void test('a read counts from when it was REQUESTED: one in flight at the failure is not evidence (round 2)', () => {
+  const r = rec({ sentAt: T0, error: { status: 503, message: 'unavailable' } });
+  // Requested before the failure came back, even if it arrives later: it describes
+  // the gate from before the decision, so the buttons stay off.
+  const stale = decisionViewFor(r, at('awaitingApproval', { requestedAt: T0 - 50 }), T0 + 5_000);
+  assert.ok(stale.kind === 'failed' && stale.watching);
+  assert.equal(decisionBusy(stale), true);
+  // Requested at the very instant of the failure is not after it either.
+  const same = decisionViewFor(r, at('awaitingApproval', { requestedAt: T0 }), T0 + 5_000);
+  assert.equal(decisionBusy(same), true);
+  // An unknown request time (0) never counts.
+  const unknownTime = decisionViewFor(r, at('awaitingApproval', { requestedAt: 0 }), T0 + 5_000);
+  assert.equal(decisionBusy(unknownTime), true);
+});
+
+void test('a POST still on the wire holds the gate after its record retires (round 2 I1)', () => {
+  // The reviewer's repro: the approval is held on the wire; the gate is left and
+  // re-entered, so the record (epoch 1) is retired by occurrence 2 — while the
+  // request is still pending.
+  const pending = rec();
+  const retired = decisionViewFor(pending, at('awaitingApproval', { epoch: 2 }), T0 + 9_000);
+  assert.equal(retired.kind, 'done');
+  // Its own view alone would re-enable the buttons; the activity's pending request
+  // keeps them off, and says why.
+  assert.deepEqual(gateControlFor(retired, 'approve', true), {
+    busy: true,
+    note: PREVIOUS_STILL_SENDING,
+  });
+  assert.equal(PREVIOUS_STILL_SENDING.text, 'Previous decision still sending…');
+  // No record for this gate at all, but another decision of the activity on the wire.
+  assert.deepEqual(gateControlFor(undefined, undefined, true), {
+    busy: true,
+    note: PREVIOUS_STILL_SENDING,
+  });
+  // Once it settles, the new gate is a fresh decision.
+  assert.deepEqual(gateControlFor(retired, 'approve', false), { busy: false });
+  assert.deepEqual(gateControlFor(undefined, undefined, false), { busy: false });
+  // A live view keeps its own line, and pending holds it busy even where the view
+  // alone would not (a rejection).
+  const rejected = decisionViewFor(
+    rec({ sentAt: T0, error: { status: 400, message: 'x' } }),
+    at('awaitingApproval'),
+    T0
+  );
+  const held = gateControlFor(rejected, 'approve', true);
+  assert.equal(held.busy, true);
+  assert.match(held.note?.text ?? '', /^Rejected/);
+  assert.equal(gateControlFor(rejected, 'approve', false).busy, false);
+  const sending = gateControlFor(
+    decisionViewFor(rec(), at('awaitingApproval'), T0),
+    'approve',
+    false
+  );
+  assert.equal(sending.busy, true);
+  assert.match(sending.note?.text ?? '', /Sending your approval/);
 });
 
 void test('send back needs a note — typed, or anchored comments', () => {

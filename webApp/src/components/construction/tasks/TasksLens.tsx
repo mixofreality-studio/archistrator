@@ -95,8 +95,9 @@ export interface TasksLensProps {
   /** "Contract · 12 ops" / "Test plan · 5 scenarios" / "—" for one item. */
   shapeOf: (item: RankedOwed) => string;
   gitOf: (activityId: string) => GitRow | undefined;
-  /** The decision-in-flight note for a row, if one is showing (Task 5). */
-  flowOf?: (key: string) => RowFlowNote | undefined;
+  /** The decision-in-flight note for a row, if one is showing (Task 5) — by item,
+   *  since an earlier decision for the same ACTIVITY can hold it (round 2). */
+  flowOf?: (item: RankedOwed) => RowFlowNote | undefined;
   /** Which decision a lingering row was decided with — a sent-back row reads
    *  SENT BACK, not RESUMED (designer P2). */
   decidedOf?: (key: string) => 'approve' | 'sendBack' | undefined;
@@ -289,7 +290,7 @@ function OwedTable({
         {items.map((item) => (
           <OwedRow
             decided={decidedOf?.(item.key)}
-            flow={flowOf?.(item.key)}
+            flow={flowOf?.(item)}
             git={gitOf(item.activityId)}
             item={item}
             key={item.key}

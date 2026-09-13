@@ -31,7 +31,18 @@
  * a rejection, nothing was decided; a 5xx or no answer is an UNKNOWN outcome — the
  * signal may have been delivered — so the row keeps watching the gate, says
  * "resumed" if it clears, and keeps Approve / Send back off until a session read
- * newer than the failure has answered (the Begin ruling, review I1).
+ * REQUESTED after the failure has answered (the Begin ruling, review I1). A read
+ * counts from when it was asked for, not when it arrived: one already in flight
+ * when the failure came back describes the gate from before it, and must not
+ * re-enable the buttons (tasks round 2).
+ *
+ * A POST STILL ON THE WIRE HOLDS ITS ACTIVITY (tasks round 2, review I1)
+ * ----------------------------------------------------------------------
+ * A record retires once a later occurrence opens, even while its own request is
+ * still pending. The new gate then read as undecided, with Approve enabled, while
+ * the one-click guard refused every click: an enabled button that did nothing. So
+ * while ANY decision for an activity is on the wire, that activity's Approve and
+ * Send back stay off, and say why (gateControlFor).
  */
 import type { ConstructionStage } from '../../../contracts/types';
 import type { LensSelection } from '../lens/useLensSelection';
@@ -86,8 +97,8 @@ export interface ObservedGate {
   stage: ConstructionStage | null | undefined;
   /** The gate occurrence now observed (gateOccurrences.ts). */
   epoch?: number | undefined;
-  /** When the latest session read was fetched. */
-  seenAt?: number | undefined;
+  /** When the latest session read was REQUESTED (0 where that is not known). */
+  requestedAt?: number | undefined;
   /** The activity's current phase — present only when a project read fetched after
    *  the gate was left reports it (observedGateFor). */
   lifecyclePhase?: string | undefined;
@@ -102,7 +113,7 @@ export interface ObservedGate {
  */
 export function observedGateFor(
   occurrence:
-    | { stage: ConstructionStage | null; epoch: number; seenAt: number; leftAt?: number }
+    | { stage: ConstructionStage | null; epoch: number; requestedAt: number; leftAt?: number }
     | undefined,
   read: { at: number; lifecyclePhase: string | undefined }
 ): ObservedGate {
@@ -114,7 +125,7 @@ export function observedGateFor(
   return {
     stage: occurrence.stage,
     epoch: occurrence.epoch,
-    seenAt: occurrence.seenAt,
+    requestedAt: occurrence.requestedAt,
     ...(fresh ? { lifecyclePhase: read.lifecyclePhase } : {}),
   };
 }
@@ -141,7 +152,9 @@ export function decisionViewFor(r: DecisionRecord, o: ObservedGate, now: number)
     // gate that clears afterwards cleared for some other reason.
     if (outcome.kind === 'unknown' && leftGate)
       return lingerOver ? { kind: 'done' } : resumed(r, o);
-    const newerRead = o.seenAt !== undefined && r.sentAt !== undefined && o.seenAt > r.sentAt;
+    // Asked for after the failure came back — not merely arrived after it.
+    const newerRead =
+      o.requestedAt !== undefined && r.sentAt !== undefined && o.requestedAt > r.sentAt;
     return { kind: 'failed', outcome, watching: outcome.kind === 'unknown' && !newerRead };
   }
   if (r.sentAt === undefined) return { kind: 'sending' };
@@ -164,6 +177,36 @@ export function decisionBusy(view: DecisionView | undefined): boolean {
 export interface FlowNote {
   tone: 'progress' | 'ok' | 'danger';
   text: string;
+}
+
+/** Said on a gate while an earlier decision for its activity is still on the wire. */
+export const PREVIOUS_STILL_SENDING: FlowNote = {
+  tone: 'progress',
+  text: 'Previous decision still sending…',
+};
+
+/** Approve / Send back for one gate: whether they are off, and the line beside them. */
+export interface GateControl {
+  busy: boolean;
+  note?: FlowNote | undefined;
+}
+
+/**
+ * The gate's controls from its own record's view and whether ANY decision for the
+ * activity is still on the wire (review I1, tasks round 2). A retired record says
+ * nothing about the new gate — but while its request is pending the new gate cannot
+ * be decided either (the one-click guard is per activity), so the buttons stay off
+ * and the line says why, never an enabled button that swallows the click.
+ */
+export function gateControlFor(
+  view: DecisionView | undefined,
+  decision: GateDecision | undefined,
+  activityPending: boolean
+): GateControl {
+  const note =
+    view !== undefined && decision !== undefined ? decisionNoteFor(view, decision) : undefined;
+  if (note !== undefined) return { busy: decisionBusy(view) || activityPending, note };
+  return activityPending ? { busy: true, note: PREVIOUS_STILL_SENDING } : { busy: false };
 }
 
 function phaseName(lifecyclePhase: string): string {

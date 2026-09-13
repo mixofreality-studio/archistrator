@@ -58,9 +58,26 @@ function varsOf(v: unknown): Vars | undefined {
   };
 }
 
-/** The owed-item key a cached decision's variables carry, if they read as one. */
-export function decisionKeyOf(variables: unknown): string | undefined {
-  return varsOf(variables)?.occurrence.key;
+/** The activity a cached decision's variables name, if they read as a decision. */
+export function decisionActivityOf(variables: unknown): string | undefined {
+  return varsOf(variables)?.activityId;
+}
+
+/**
+ * Every activity with a decision still on the wire — ANY of its decisions, not only
+ * the latest per owed-item key, and whether or not its gate occurrence has since
+ * been superseded (review I1, tasks round 2). The one-click guard refuses a second
+ * signal for such an activity, so its Approve / Send back must stay off too.
+ */
+export function pendingDecisionActivities(
+  states: readonly DecisionMutationState[]
+): ReadonlySet<string> {
+  const out = new Set<string>();
+  for (const s of states) {
+    const activityId = s.status === 'pending' ? decisionActivityOf(s.variables) : undefined;
+    if (activityId !== undefined) out.add(activityId);
+  }
+  return out;
 }
 
 /** A shallow read of the snapshot the route put there itself. */

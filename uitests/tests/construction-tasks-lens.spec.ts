@@ -702,6 +702,54 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   expect(posts).toHaveLength(1);
 });
 
+test('a POST still on the wire keeps the re-opened gate busy, and says why (round 2 I1)', async ({
+  page,
+}) => {
+  test.setTimeout(60_000);
+  const stages = initialStages();
+  await serveOwed(page, stages);
+  const posts: string[] = [];
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  // The reviewer's repro: hold the approval on the wire…
+  await page.route('**/submit-phase-decision/**', async (route) => {
+    posts.push(route.request().url());
+    await held;
+    await route.fulfill({ status: 200, json: {} }).catch(() => undefined);
+  });
+  await openTasks(page);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
+  await approve.click();
+  await expect.poll(() => posts.length).toBe(1);
+  const row = page.getByTestId(TESTID.constructionTasksRow(GATE_KEY));
+  const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
+  // …flip the session to running (the gate is left: the row lingers, still sending)…
+  stages[GATE] = STAGE.pipelineRunning;
+  await expect(row).toHaveAttribute('data-lingering', 'true', { timeout: 10_000 });
+  // …and back to the gate, which bumps the occurrence and retires the pending record.
+  stages[GATE] = STAGE.awaitingApproval;
+  await expect(row).toHaveAttribute('data-lingering', 'false', { timeout: 10_000 });
+  // The new gate cannot be decided while the first request is on the wire: the
+  // buttons stay off and the line says why — never an enabled Approve that does nothing.
+  await expect(flow).toHaveText('Previous decision still sending…');
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionFlow)).toHaveText(
+    'Previous decision still sending…'
+  );
+  await expect(approve).toBeDisabled();
+  await expect(page.getByTestId(TESTID.constructionDetailAction('sendBack'))).toBeDisabled();
+  await approve.evaluate((el) => {
+    (el as HTMLButtonElement).click();
+  });
+  // Once it settles, the re-opened gate is a fresh decision.
+  release();
+  await expect(approve).toBeEnabled({ timeout: 10_000 });
+  await expect(flow).toHaveCount(0);
+  expect(posts).toHaveLength(1);
+});
+
 for (const decision of ['sendBack', 'approve'] as const) {
   test(`${decision} → the gate opens again: a new decision, never a stale "did not land" (review C2)`, async ({
     page,
