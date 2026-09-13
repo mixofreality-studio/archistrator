@@ -252,6 +252,8 @@ export const TESTID = {
   constructionDetailDecisionFlow:
     UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
   constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
+  // The retired list-lens phase-gate panel — asserted ABSENT (the pane decides now).
+  constructionPhaseGatePanel: UI_IDENTIFIERS.Construction.PHASE_GATE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
