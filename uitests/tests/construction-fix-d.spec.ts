@@ -244,3 +244,124 @@ for (const width of [1280, 1366, 1600]) {
     }
   });
 }
+
+// ---------------------------------------------------------------------------
+// Designer final items: the toolbar's toggles, the header floor, never-run ink
+// ---------------------------------------------------------------------------
+
+for (const width of [1280, 1366, 1600]) {
+  test(`at ${String(width)}, Expand and Observed only wrap TOGETHER as the toolbar's second row`, async ({
+    page,
+  }) => {
+    await openList(page, '&a=C-billing-engine');
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const read = await page.evaluate(
+      ({ expandId, observedId, groupId, listId }) => {
+        const top = (id: string): number =>
+          document.querySelector(`[data-testid="${id}"]`)?.getBoundingClientRect().top ?? -1;
+        const group = document.querySelector(`[data-testid="${groupId}"]`);
+        return {
+          expand: top(expandId),
+          observed: top(observedId),
+          grouped:
+            group !== null &&
+            group.contains(document.querySelector(`[data-testid="${expandId}"]`)) &&
+            group.contains(document.querySelector(`[data-testid="${observedId}"]`)),
+          groupTop: group?.getBoundingClientRect().top ?? -1,
+          lensTop: top(listId),
+        };
+      },
+      {
+        expandId: TESTID.constructionLensExpandToPhase,
+        observedId: TESTID.constructionLensObservedOnly,
+        groupId: TESTID.constructionLensToolbarToggles,
+        listId: TESTID.constructionLensButton('list'),
+      }
+    );
+    expect(read.grouped, 'one group holds both').toBe(true);
+    // The switch sits a few px lower than the button's box: compare centres loosely.
+    expect(Math.abs(read.expand - read.observed), 'same row').toBeLessThan(12);
+    expect(read.groupTop, 'on the second row, below the lens control').toBeGreaterThan(
+      read.lensTop + 20
+    );
+  });
+
+  test(`at ${String(width)} with the pane open, no header label is under 9px`, async ({ page }) => {
+    await openList(page, '&a=C-billing-engine');
+    await page.setViewportSize({ width, height: 900 });
+    await page.waitForTimeout(400);
+    const sizes = await page.evaluate((headerId) => {
+      const header = document.querySelector(`[data-testid="${headerId}"]`);
+      if (header === null) throw new Error('no list header');
+      return Array.from(header.querySelectorAll('.MuiTypography-root')).map((el) => ({
+        text: (el as HTMLElement).innerText.trim(),
+        px: parseFloat(getComputedStyle(el).fontSize),
+      }));
+    }, TESTID.constructionListHeader);
+    expect(sizes.length).toBeGreaterThan(5);
+    for (const s of sizes) expect(s.px, `"${s.text}"`).toBeGreaterThanOrEqual(9);
+  });
+}
+
+test('a never-run N-IT names its targets in neutral ink; N-STP’s plan keeps its red', async ({
+  page,
+}) => {
+  await openList(page, '&a=N-IT');
+  const view = page.getByTestId(TESTID.constructionSystemTestView);
+  await expect(view).toBeVisible();
+  await expect(view).toContainText('not run');
+  const inks = async (): Promise<{
+    chip: Record<string, string | null>;
+    chipBorder: string;
+    neutral: string;
+    target: string | null;
+    targetColor: string;
+  }> =>
+    page.evaluate(
+      ({ viewId, negId, boundId }) => {
+        const root = document.querySelector(`[data-testid="${viewId}"]`);
+        if (root === null) throw new Error('no system test view');
+        const chip = (id: string): HTMLElement | null =>
+          root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+        const neg = chip(negId);
+        const target = root.querySelector<HTMLElement>('[data-step-status]');
+        // The view's own muted headline is the neutral ink to compare against.
+        const headline = root.firstElementChild as HTMLElement;
+        return {
+          chip: {
+            negative: neg?.getAttribute('data-case-ink') ?? null,
+            boundary: chip(boundId)?.getAttribute('data-case-ink') ?? null,
+          },
+          chipBorder: neg === null ? '' : getComputedStyle(neg).borderTopColor,
+          neutral: getComputedStyle(headline).color,
+          target: target?.getAttribute('data-step-status') ?? null,
+          targetColor: target === null ? '' : getComputedStyle(target).color,
+        };
+      },
+      { viewId: TESTID.constructionSystemTestView, negId: TESTID.constructionCaseChip('STP-UC1-N1'), boundId: TESTID.constructionCaseChip('STP-UC1-B1') }
+    );
+  const nit = await inks();
+  expect(nit.chip).toEqual({ negative: 'neutral', boundary: 'neutral' });
+  expect(nit.target).toBe('planned');
+  // Real colours, not only the attribute: the ink IS the muted headline's.
+  expect(nit.chipBorder).toBe(nit.neutral);
+  expect(nit.targetColor).toBe(nit.neutral);
+
+  // N-STP's plan is the PLAN: its targets stay red, its negative chips danger.
+  await openList(page, '&a=N-STP');
+  const plan = page.getByTestId(TESTID.constructionTestPlanView);
+  await expect(plan).toBeVisible();
+  const planInk = await page.evaluate(
+    ({ planId, negId }) => {
+      const root = document.querySelector(`[data-testid="${planId}"]`);
+      return {
+        negative:
+          root?.querySelector(`[data-testid="${negId}"]`)?.getAttribute('data-case-ink') ?? null,
+        target: root?.querySelector('[data-step-status]')?.getAttribute('data-step-status') ?? null,
+      };
+    },
+    { planId: TESTID.constructionTestPlanView, negId: TESTID.constructionCaseChip('STP-UC1-N1') }
+  );
+  expect(planInk).toEqual({ negative: 'danger', target: 'red' });
+});

@@ -371,68 +371,76 @@ export function ConstructionShell({
           }}
         />
 
-        <Tooltip title={expandToCurrentPhase.tooltip}>
-          {/* A disabled button fires no pointer events, so the tooltip hangs off
-              this wrapper: the operator still learns WHY there is nothing to open. */}
-          <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
-            <Button
-              data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
-              disabled={!expandToCurrentPhase.enabled}
-              size="small"
-              startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
-              sx={{
-                flexShrink: 0,
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 11,
-                letterSpacing: '0.04em',
-                textTransform: 'none',
-                color: t.ink,
-                borderColor: t.line,
-                // Visibly OFF (designer re-check N5): muted ink alone read as a
-                // live button at a glance. Half opacity and a dashed border are the
-                // surface's own "not available" marks.
-                '&.Mui-disabled': {
-                  color: t.muted,
-                  borderColor: alpha(t.line, 0.5),
-                  borderStyle: 'dashed',
-                  opacity: 0.5,
-                },
-              }}
-              variant="outlined"
-              onClick={onExpandToCurrentPhase}
-            >
-              Expand to current phase
-            </Button>
-          </Box>
-        </Tooltip>
+        {/* ONE no-wrap group (designer final items): "Expand to current phase" and
+            "Observed only" wrap TOGETHER onto the toolbar's second row, never one
+            without the other — at 1600 "Observed only" used to wrap alone. */}
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.LENS_TOOLBAR_TOGGLES}
+          sx={{ display: 'flex', alignItems: 'center', flexWrap: 'nowrap', gap: 1, flexShrink: 0 }}
+        >
+          <Tooltip title={expandToCurrentPhase.tooltip}>
+            {/* A disabled button fires no pointer events, so the tooltip hangs off
+                this wrapper: the operator still learns WHY there is nothing to open. */}
+            <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
+              <Button
+                data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
+                disabled={!expandToCurrentPhase.enabled}
+                size="small"
+                startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
+                sx={{
+                  flexShrink: 0,
+                  fontFamily: t.mono,
+                  fontWeight: 700,
+                  fontSize: 11,
+                  letterSpacing: '0.04em',
+                  textTransform: 'none',
+                  color: t.ink,
+                  borderColor: t.line,
+                  // Visibly OFF (designer re-check N5): muted ink alone read as a
+                  // live button at a glance. Half opacity and a dashed border are the
+                  // surface's own "not available" marks.
+                  '&.Mui-disabled': {
+                    color: t.muted,
+                    borderColor: alpha(t.line, 0.5),
+                    borderStyle: 'dashed',
+                    opacity: 0.5,
+                  },
+                }}
+                variant="outlined"
+                onClick={onExpandToCurrentPhase}
+              >
+                Expand to current phase
+              </Button>
+            </Box>
+          </Tooltip>
 
-        <Tooltip title="Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.">
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
-            <Switch
-              checked={toolbar.observedOnly}
-              data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY}
-              size="small"
-              slotProps={{ input: { 'aria-label': 'Observed only' } }}
-              onChange={(e) => {
-                onToolbar({ observedOnly: e.target.checked });
-              }}
-            />
-            <Typography
-              sx={{
-                fontFamily: t.mono,
-                fontSize: 10.5,
-                fontWeight: 700,
-                letterSpacing: '0.06em',
-                color: t.muted,
-                textTransform: 'uppercase',
-                whiteSpace: 'nowrap',
-              }}
-            >
-              Observed only
-            </Typography>
-          </Box>
-        </Tooltip>
+          <Tooltip title="Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.">
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
+              <Switch
+                checked={toolbar.observedOnly}
+                data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY}
+                size="small"
+                slotProps={{ input: { 'aria-label': 'Observed only' } }}
+                onChange={(e) => {
+                  onToolbar({ observedOnly: e.target.checked });
+                }}
+              />
+              <Typography
+                sx={{
+                  fontFamily: t.mono,
+                  fontSize: 10.5,
+                  fontWeight: 700,
+                  letterSpacing: '0.06em',
+                  color: t.muted,
+                  textTransform: 'uppercase',
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Observed only
+              </Typography>
+            </Box>
+          </Tooltip>
+        </Box>
       </Box>
 
       {/* The content row: where the detail pane sits in flow at rest. Its

@@ -11,15 +11,26 @@ import type { C4Component, DynamicViewModel, SequencedCall } from '../../../cont
 import type { Tokens } from '../../../utilities/theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
 import { useComments, testScenarioStepAnchor } from '../../comments/CommentContext';
+import { caseKindInk, stepStatusFor, type CaseInk, type ScenarioMode } from './scenarioInk.ts';
 
-/** 'plan' (N-STP) → every call is a red target; 'run' (N-IT) → coloured by last-run status. */
-export type ScenarioMode = 'plan' | 'run';
+export type { ScenarioMode } from './scenarioInk.ts';
 
-/** Case-kind accent: happy=green, negative=red, boundary=amber. */
-function kindColor(kind: string, t: Tokens): string {
-  if (kind === 'happy') return t.committedDot;
-  if (kind === 'negative') return t.dangerFg;
-  return t.awaitingFg; // boundary
+/** The token behind each case-kind ink (the rule itself is scenarioInk.caseKindInk). */
+function inkColor(ink: CaseInk, t: Tokens): string {
+  switch (ink) {
+    case 'good':
+      return t.committedDot;
+    case 'danger':
+      return t.dangerFg;
+    case 'caution':
+      return t.awaitingFg;
+    case 'neutral':
+      return t.muted;
+  }
+}
+
+function kindColor(kind: string, mode: ScenarioMode, t: Tokens): string {
+  return inkColor(caseKindInk(kind, mode), t);
 }
 
 /**
@@ -81,7 +92,7 @@ function caseToDynamic(
     callsInStep: 1,
   }));
   const statusBySeq = new Map<number, StepStatus>(
-    steps.map((st) => [st.seq, mode === 'run' && st.status === 'green' ? 'green' : 'red'])
+    steps.map((st) => [st.seq, stepStatusFor(mode, st.status)])
   );
   const detailBySeq = new Map<number, StepDetail>(
     steps.map((st) => [
@@ -220,9 +231,10 @@ export function ScenarioBrowser({
               </Typography>
               {cases.map((c) => {
                 const on = c.id === activeCase?.id;
-                const col = kindColor(c.kind, t);
+                const col = kindColor(c.kind, mode, t);
                 return (
                   <Chip
+                    data-case-ink={caseKindInk(c.kind, mode)}
                     data-testid={UI_IDENTIFIERS.Construction.caseChip(c.id)}
                     key={c.id}
                     label={`${c.kind} · ${c.title}`}
@@ -249,7 +261,11 @@ export function ScenarioBrowser({
           {/* case-level "what this proves / expected outcome" */}
           {activeCase !== undefined ? (
             <Box
-              sx={{ borderLeft: `3px solid ${kindColor(activeCase.kind, t)}`, pl: 1.25, py: 0.25 }}
+              sx={{
+                borderLeft: `3px solid ${kindColor(activeCase.kind, mode, t)}`,
+                pl: 1.25,
+                py: 0.25,
+              }}
             >
               {activeCase.proves !== undefined && activeCase.proves.length > 0 ? (
                 <Typography
@@ -262,7 +278,7 @@ export function ScenarioBrowser({
                 <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.35 }}>
                   <Box
                     component="span"
-                    sx={{ color: kindColor(activeCase.kind, t), fontWeight: 700 }}
+                    sx={{ color: kindColor(activeCase.kind, mode, t), fontWeight: 700 }}
                   >
                     EXPECT{' '}
                   </Box>

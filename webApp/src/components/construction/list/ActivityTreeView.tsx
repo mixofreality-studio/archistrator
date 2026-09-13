@@ -219,11 +219,14 @@ const LIST_SLOT_SX = {
     '& [data-kind-icon]': { display: 'inline-flex' },
     // The compact float/effort slots are 30/36px, exactly the width of "FLOAT" and
     // "EFFORT" at 9px with wide tracking — so "FLOAT EFFORT ID" ran together at
-    // 1600 with the pane open (designer re-check N5). Compact labels set smaller
-    // and tighter, which leaves each one a visible gutter inside its own slot.
+    // 1600 with the pane open (designer re-check N5). Compact labels set TIGHTER,
+    // which leaves each one a visible gutter inside its own slot — at 9px, never
+    // smaller: 9px is the floor for these labels (designer final items; they read
+    // 8px here for one round). At 9px, even 0.02em of tracking left "FLOAT" 7.5px
+    // from "EFFORT" (measured at 1600); untracked, the gutter is ~8.5px.
     [`& [data-testid="${UI_IDENTIFIERS.Construction.LIST_HEADER}"] .MuiTypography-root`]: {
-      fontSize: 8,
-      letterSpacing: '0.02em',
+      fontSize: 9,
+      letterSpacing: 0,
     },
   },
 } as const;
