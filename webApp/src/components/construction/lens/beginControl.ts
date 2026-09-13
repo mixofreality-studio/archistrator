@@ -150,49 +150,22 @@ function sessionIsLive(stage: ConstructionStage | undefined): boolean {
 }
 
 /**
- * Whether the STATE shows construction in flight (fix-F review, root-cause
- * ruling): any activity whose OWED-AWARE row state is running or awaiting a human
- * (the one rowIsInFlight), or any live session.
- *
- * "Awaiting" comes from the live owed set (tasks/owedChip.ts, Q4), never from
- * head-state: in-review reads running, a live gate or a steer reads awaiting, and
- * both are in flight. A recorded failure reads failed, which is not: the pump has
- * stopped on it.
- *
- * A probe CANDIDATE whose probe is still PENDING is in flight too (tasks merge
- * review I1). A candidate is an activity the pump started and has not finished;
- * picked up a moment ago, it has no build evidence yet, so its row reads not
- * started and only its session can say the pump runs. Until that probe answers
- * nobody knows, and an enabled Begin beside a fresh pickup was a second pump one
- * click away. An answer of "no session" settles it.
- *
- * A probe that keeps FAILING is not counted here (tasks merge-2 ruling (a), fix I):
- * nothing has said the pump runs, so the button reads "Checking construction…"
- * (beginControlFor's `probesFailing`), still disabled, instead of claiming it.
+ * Whether the STATE shows construction in flight is THE in-flight set
+ * (activityScope.inFlightActivityIds) being non-empty — the one rule Begin, the
+ * "In flight" chip, "Expand to current phase" and the TASKS count all read. There
+ * is no second rule here (the inflight-residual round deleted one only the tests
+ * called). A probe that keeps FAILING is not in the set (tasks merge-2 ruling (a),
+ * fix I): the button reads "Checking construction…" (beginControlFor's
+ * `probesFailing`), still disabled, instead of claiming a pump nobody has seen.
  *
  * This, not a timer, is what says a pump is running. The 30s no-progress
  * watchdog used to decide it: 30s after the last integration it handed the label
  * back to the read, and an ENABLED Begin or Resume stood beside a live session.
+ *
+ * Whether any row's owed-aware state is running or awaiting a human: THE in-flight
+ * set over the rows alone, for the readers that hold only a project read (the
+ * poll's cadence, the pickup evidence).
  */
-export function constructionInFlight(state: {
-  rows: ConstructionRows | undefined;
-  /** The live owed set, keyed by activity id; omitted, nothing is owed. */
-  owed?: OwedMarks | undefined;
-  /** A live probed session's stage, if any (newestLiveSession). */
-  sessionStage: ConstructionStage | undefined;
-  /** How many probe candidates are still waiting on their first answer (owedWorkFor's
-   *  `unchecked.pending`). Errored ones are `probesFailing`, not this. Omitted, none. */
-  pendingProbes?: number | undefined;
-}): boolean {
-  return (
-    anyRowInFlight(state.rows, state.owed) ||
-    sessionIsLive(state.sessionStage) ||
-    (state.pendingProbes ?? 0) > 0
-  );
-}
-
-/** Whether any row's owed-aware state is running or awaiting a human: THE in-flight
- *  set (activityScope.inFlightActivityIds) over the rows alone. */
 export function anyRowInFlight(rows: ConstructionRows | undefined, owed?: OwedMarks): boolean {
   return inFlightActivityIds({ rows, owed }).size > 0;
 }
@@ -363,7 +336,7 @@ export function beginHoldFor(
 
 /**
  * Whether the button reads "Construction running…" (disabled): a dispatch is
- * pending, the STATE shows construction in flight (constructionInFlight), or a
+ * pending, the STATE shows construction in flight (the in-flight set), or a
  * successful dispatch is still awaiting its pickup (awaitingPickup).
  *
  * It is decided the same way on every path: after a success, after an unknown

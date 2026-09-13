@@ -288,10 +288,10 @@ export function isInFlight(
 
 /**
  * The same rule over a bare row and its owed mark, for readers that hold rows
- * rather than tree nodes. The Begin control reads it
- * (beginControl.constructionInFlight), so the button and the "In flight" chip
- * agree on what is in flight. A `waiting` row (integration-pending) is neither
- * running nor awaiting a human: nothing runs it, so it is not in flight.
+ * rather than tree nodes: it is the row term of inFlightActivityIds (below), which
+ * Begin and the "In flight" chip both read, so they agree on what is in flight. A
+ * `waiting` row (integration-pending) is neither running nor awaiting a human:
+ * nothing runs it, so it is not in flight.
  */
 export function rowIsInFlight(row: ConstructionRow, owed?: OwedMark): boolean {
   const state = activityRowState(row, owed);

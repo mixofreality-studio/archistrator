@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import type { ConstructionRow } from '../../../contracts/types';
+import type { ConstructionRow, ConstructionStage } from '../../../contracts/types';
+import { inFlightActivityIds } from '../list/activityScope.ts';
 import {
   anyRowInFlight,
   awaitingPickup,
@@ -9,12 +10,12 @@ import {
   beginRunning,
   CASCADE_POLL_MS,
   consolePollMs,
-  constructionInFlight,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
   failureLeavesMemory,
   holdExpiredCopy,
   IN_FLIGHT_POLL_MS,
+  liveSessionIdsOf,
   newestLiveSession,
   NOTHING_TO_DISPATCH,
   notStartedActivities,
@@ -332,29 +333,38 @@ void test('a success awaits its pickup until a newer read shows it; no record, n
 // The label follows STATE, not timers (fix-F review, root-cause ruling).
 // ---------------------------------------------------------------------------
 
+/** Whether the STATE shows construction in flight: THE in-flight set is not empty
+ *  (activityScope.inFlightActivityIds, the one rule every reader takes). */
+function inFlight(input: Parameters<typeof inFlightActivityIds>[0]): boolean {
+  return inFlightActivityIds(input).size > 0;
+}
+
+/** One probed activity's session at `stage`, as the console hands it to the set. */
+function liveAt(stage: ConstructionStage): string[] {
+  return liveSessionIdsOf({ a: { stage } });
+}
+
 void test('in flight by state: a row running or awaiting a human, or a live session', () => {
   const at = (status: ConstructionRow['status']): ConstructionRow =>
     row({ hasBuildEvidence: true, recorded: true, ...(status !== undefined ? { status } : {}) });
-  const none = { sessionStage: undefined };
-  assert.equal(constructionInFlight({ rows: { a: at('in-construction') }, ...none }), true);
-  assert.equal(constructionInFlight({ rows: { a: at('in-review') }, ...none }), true, 'in review');
+  assert.equal(inFlight({ rows: { a: at('in-construction') } }), true);
+  assert.equal(inFlight({ rows: { a: at('in-review') } }), true, 'in review');
   for (const status of ['integrated', 'failed', undefined] as const) {
-    assert.equal(constructionInFlight({ rows: { a: at(status) }, ...none }), false, String(status));
+    assert.equal(inFlight({ rows: { a: at(status) } }), false, String(status));
   }
   assert.equal(
-    constructionInFlight({ rows: { a: row({ status: 'in-construction' }) }, ...none }),
+    inFlight({ rows: { a: row({ status: 'in-construction' }) } }),
     false,
     'no build evidence: not started, whatever the coarse status says'
   );
   assert.equal(
-    constructionInFlight({
+    inFlight({
       rows: { a: row({ classified: false, hasBuildEvidence: true, status: 'in-construction' }) },
-      ...none,
     }),
     false,
     'unclassified: unknown, not in flight'
   );
-  assert.equal(constructionInFlight({ rows: undefined, ...none }), false, 'no read');
+  assert.equal(inFlight({ rows: undefined }), false, 'no read');
   // One in-flight row among settled ones is enough.
   assert.equal(anyRowInFlight({ a: at('integrated'), b: at('in-construction'), c: row({}) }), true);
   // A live session counts on its own, with no row in flight: it is the pump.
@@ -365,23 +375,23 @@ void test('in flight by state: a row running or awaiting a human, or a live sess
     'awaitingTakeover',
     'awaitingApproval',
   ] as const) {
-    assert.equal(constructionInFlight({ rows: {}, sessionStage: stage }), true, stage);
+    assert.equal(inFlight({ rows: {}, liveSessionIds: liveAt(stage) }), true, stage);
   }
   for (const stage of ['exited', 'paused', 'unknown'] as const) {
-    assert.equal(constructionInFlight({ rows: {}, sessionStage: stage }), false, stage);
+    assert.equal(inFlight({ rows: {}, liveSessionIds: liveAt(stage) }), false, stage);
   }
 });
 
 // Tasks merge review I1: a probe candidate with no answer is not "nothing in flight".
 void test('a PENDING probe candidate is in flight; an answered one is not', () => {
-  const none = { rows: {}, sessionStage: undefined };
-  assert.equal(constructionInFlight({ ...none, pendingProbes: 1 }), true, 'one unanswered');
-  assert.equal(constructionInFlight({ ...none, pendingProbes: 3 }), true, 'several');
-  assert.equal(constructionInFlight({ ...none, pendingProbes: 0 }), false, 'all answered');
-  assert.equal(constructionInFlight(none), false, 'no candidates at all');
+  const none = { rows: {} };
+  assert.equal(inFlight({ ...none, pendingProbeIds: ['a'] }), true, 'one unanswered');
+  assert.equal(inFlight({ ...none, pendingProbeIds: ['a', 'b', 'c'] }), true, 'several');
+  assert.equal(inFlight({ ...none, pendingProbeIds: [] }), false, 'all answered');
+  assert.equal(inFlight(none), false, 'no candidates at all');
   // An answered probe that found no live session settles it: the stage decides.
   assert.equal(
-    constructionInFlight({ ...none, pendingProbes: 0, sessionStage: 'exited' }),
+    inFlight({ ...none, pendingProbeIds: [], liveSessionIds: liveAt('exited') }),
     false,
     'answered, and the session has ended'
   );
@@ -430,22 +440,21 @@ void test('in flight reads the OWED set: a live gate or a steer is in flight, a 
     recorded: true,
     status: 'in-construction',
   });
-  const none = { sessionStage: undefined };
   const owedAs = (reason: 'gate' | 'takeover' | 'failed'): Map<string, { reason: typeof reason }> =>
     new Map([['a', { reason }]]);
-  assert.equal(constructionInFlight({ rows: { a: inConstruction }, ...none }), true);
+  assert.equal(inFlight({ rows: { a: inConstruction } }), true);
   assert.equal(
-    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('gate'), ...none }),
+    inFlight({ rows: { a: inConstruction }, owed: owedAs('gate') }),
     true,
     'a live gate: awaiting a human is in flight'
   );
   assert.equal(
-    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('takeover'), ...none }),
+    inFlight({ rows: { a: inConstruction }, owed: owedAs('takeover') }),
     true,
     'a steer: awaiting a human is in flight'
   );
   assert.equal(
-    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('failed'), ...none }),
+    inFlight({ rows: { a: inConstruction }, owed: owedAs('failed') }),
     false,
     'the pump stopped on a recorded failure: Begin/Resume may be offered'
   );
@@ -456,10 +465,10 @@ void test('in flight reads the OWED set: a live gate or a steer is in flight, a 
   );
   // A live session is still the pump, whatever the owed set says.
   assert.equal(
-    constructionInFlight({
+    inFlight({
       rows: { a: inConstruction },
       owed: owedAs('failed'),
-      sessionStage: 'pipelineRunning',
+      liveSessionIds: liveAt('pipelineRunning'),
     }),
     true
   );

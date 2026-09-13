@@ -11,6 +11,7 @@ import { pendingChipLabel, pendingSentence, waitsOnText } from './pendingResume.
 import { activityChipLabel, activityRowState, chipFor } from './activityRowPresentation.ts';
 import {
   expandToCurrentPhaseControl,
+  inFlightActivityIds,
   isInFlight,
   rowIsInFlight,
   scopePredicate,
@@ -18,12 +19,7 @@ import {
 import { buildActivityTree } from './activityTree.ts';
 import { observedOnlyRow } from './observedOnly.ts';
 import { taskDetailStateFor } from '../detail/detailPaneState.ts';
-import {
-  anyRowInFlight,
-  beginControlFor,
-  constructionInFlight,
-  notStartedActivities,
-} from '../lens/beginControl.ts';
+import { anyRowInFlight, beginControlFor, notStartedActivities } from '../lens/beginControl.ts';
 import { owedWorkFor, probeCandidatesFor } from '../tasks/owedWork.ts';
 import { owedMarksFor } from '../tasks/owedChip.ts';
 import { laneChipFor } from '../graph/hoverCard.ts';
@@ -96,7 +92,7 @@ void test('a pending row is not in flight: the chip scope, Expand to current pha
   };
   assert.equal(rowIsInFlight(BILLING), false);
   assert.equal(anyRowInFlight(rows), false);
-  assert.equal(constructionInFlight({ rows, sessionStage: undefined }), false);
+  assert.equal(inFlightActivityIds({ rows }).size, 0);
   // Designer final pass, item 3: it read "Open the 2 activities in construction…".
   const tree = buildActivityTree(Object.values(rows));
   assert.equal(tree.filter((n) => isInFlight(n)).length, 0);
@@ -107,7 +103,7 @@ void test('a pending row is not in flight: the chip scope, Expand to current pha
     beginControlFor({
       constructionStarted: false,
       projectLoading: false,
-      running: constructionInFlight({ rows, sessionStage: undefined }),
+      running: inFlightActivityIds({ rows }).size > 0,
     }),
     { label: 'Begin construction', disabled: false, busy: false, verb: 'Begin' }
   );
