@@ -523,10 +523,19 @@ func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
 // statement of when that field means nothing.
 var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	reflect.TypeFor[mgr.ActivityConstructionStatus](): {
-		"BuildStatus": "The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.",
-		"Phase":       "The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true.",
-		"recorded":    "True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
-		"worstOrigin": "The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.",
+		"BuildStatus":   "The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.",
+		"Phase":         "The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true.",
+		"pendingResume": "Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.",
+		"recorded":      "True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
+		"worstOrigin":   "The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.",
+	},
+	reflect.TypeFor[mgr.PendingDependency](): {
+		"id":     "The dependency id as the network authors it: an activity id or a milestone id.",
+		"reason": "Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect).",
+	},
+	reflect.TypeFor[mgr.PendingResume](): {
+		"fromPhase": "The first lifecycle phase of the row's profile that its resolved phase set does not hold complete: the phase the pump would run first.",
+		"waitsOn":   "The row's direct network dependencies that are not satisfied, in authored order. Empty when every dependency is satisfied: the row is next in line.",
 	},
 	reflect.TypeFor[mgr.ProjectState](): {
 		"constructionStarted": "True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.",

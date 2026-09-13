@@ -26762,6 +26762,10 @@
             },
             "layerBand": {
               "type": "string"
+            },
+            "pendingResume": {
+              "$ref": "#/$defs/PendingResume",
+              "description": "Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done."
             }
           },
           "required": [
@@ -27688,6 +27692,47 @@
         },
         "OwnerScope": {
           "type": "string"
+        },
+        "PendingDependency": {
+          "type": "object",
+          "description": "One unsatisfied direct dependency of an integration-pending row.",
+          "properties": {
+            "id": {
+              "type": "string",
+              "description": "The dependency id as the network authors it: an activity id or a milestone id."
+            },
+            "reason": {
+              "type": "string",
+              "description": "Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect)."
+            }
+          },
+          "required": [
+            "id",
+            "reason"
+          ],
+          "additionalProperties": false
+        },
+        "PendingResume": {
+          "type": "object",
+          "description": "Where an integration-pending row resumes, and what it waits on first.",
+          "properties": {
+            "fromPhase": {
+              "$ref": "#/$defs/ActivityMethodPhase",
+              "description": "The first lifecycle phase of the row's profile that its resolved phase set does not hold complete: the phase the pump would run first."
+            },
+            "waitsOn": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PendingDependency"
+              },
+              "description": "The row's direct network dependencies that are not satisfied, in authored order. Empty when every dependency is satisfied: the row is next in line."
+            }
+          },
+          "required": [
+            "fromPhase",
+            "waitsOn"
+          ],
+          "additionalProperties": false
         },
         "Phase": {
           "type": "integer",

@@ -46,6 +46,7 @@ type ActivityConstructionStatus struct {
 	WorstOrigin      *string                   `json:"worstOrigin,omitempty"`
 	Layer            string                    `json:"layer"`
 	LayerBand        string                    `json:"layerBand"`
+	PendingResume    *PendingResume            `json:"pendingResume,omitempty"`
 }
 
 type ActivityGitStatus struct {
@@ -226,6 +227,16 @@ type GoField struct {
 type OperatingModel string
 
 type OwnerScope string
+
+type PendingDependency struct {
+	Id     string `json:"id"`
+	Reason string `json:"reason"`
+}
+
+type PendingResume struct {
+	FromPhase ActivityMethodPhase `json:"fromPhase"`
+	WaitsOn   []PendingDependency `json:"waitsOn"`
+}
 
 type Phase int
 

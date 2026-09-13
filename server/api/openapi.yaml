@@ -2831,6 +2831,9 @@ components:
                     type: string
                 layerBand:
                     type: string
+                pendingResume:
+                    $ref: '#/components/schemas/SystemDesignPendingResume'
+                    description: 'Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
                 recorded:
                     description: 'True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.'
                     type: boolean
@@ -3561,6 +3564,36 @@ components:
             type: string
         SystemDesignOwnerScope:
             type: string
+        SystemDesignPendingDependency:
+            additionalProperties: false
+            description: One unsatisfied direct dependency of an integration-pending row.
+            properties:
+                id:
+                    description: 'The dependency id as the network authors it: an activity id or a milestone id.'
+                    type: string
+                reason:
+                    description: 'Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect).'
+                    type: string
+            required:
+                - id
+                - reason
+            type: object
+        SystemDesignPendingResume:
+            additionalProperties: false
+            description: Where an integration-pending row resumes, and what it waits on first.
+            properties:
+                fromPhase:
+                    $ref: '#/components/schemas/SystemDesignActivityMethodPhase'
+                    description: 'The first lifecycle phase of the row''s profile that its resolved phase set does not hold complete: the phase the pump would run first.'
+                waitsOn:
+                    description: 'The row''s direct network dependencies that are not satisfied, in authored order. Empty when every dependency is satisfied: the row is next in line.'
+                    items:
+                        $ref: '#/components/schemas/SystemDesignPendingDependency'
+                    type: array
+            required:
+                - fromPhase
+                - waitsOn
+            type: object
         SystemDesignPhase:
             enum:
                 - 0
