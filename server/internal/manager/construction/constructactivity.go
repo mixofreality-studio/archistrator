@@ -1464,8 +1464,9 @@ func (wf *workflows) awaitPhaseDecision(
 // receivePhaseDecision blocks on the decision channel, draining and DISCARDING
 // decisions for other gate keys (stale/multiplexed), until one for THIS key
 // arrives. key is a phase's wire name (phase.String()) or the merge gate's
-// mergeGateKey — the signal payload's Phase field is a plain string pass-through
-// (SubmitPhaseDecision), so the merge gate rides the same machinery.
+// mergeGateKey — the signal payload's Phase field is a plain string that
+// SubmitPhaseDecision validates against exactly those keys, so the merge gate
+// rides the same machinery.
 func receivePhaseDecision(ctx workflow.Context, ch workflow.ReceiveChannel, key string) phaseDecisionSignal {
 	var sig phaseDecisionSignal
 	for {
@@ -1527,9 +1528,9 @@ func (wf *workflows) completePhase(
 // ---------------------------------------------------------------------------
 
 // mergeGateKey is the phaseDecision key the merge hold suspends on. It is NOT an
-// ActivityMethodPhase — SubmitPhaseDecision passes the key through as a plain
-// string, so the operator releases the merge with
-// SubmitPhaseDecision(projectID, activityID, "merge", Approve).
+// ActivityMethodPhase — SubmitPhaseDecision's validatePhaseDecision admits it
+// alongside the five phases (Approve only), so the operator releases the merge
+// with SubmitPhaseDecision(projectID, activityID, mergeGateKey, Approve).
 const mergeGateKey = "merge"
 
 // runLocalMergeStep runs the policy-gated local merge (see the section comment
@@ -1574,8 +1575,10 @@ func (wf *workflows) runLocalMergeStep(
 			if sig.Decision == PhaseApprove {
 				break
 			}
-			// SendBack has no redraft meaning for a merge — keep awaiting Approve
-			// (the operator steers the activity itself via operatorOverride).
+			// SendBack has no redraft meaning for a merge: the façade refuses it
+			// (validatePhaseDecision), so this arm is defense-in-depth for a
+			// signal that bypassed it — keep awaiting Approve (the operator steers
+			// the activity itself via operatorOverride).
 			workflow.GetLogger(ctx).Info("merge gate: ignoring non-approve decision; awaiting Approve",
 				"activityId", in.ActivityID, "decision", sig.Decision)
 		}

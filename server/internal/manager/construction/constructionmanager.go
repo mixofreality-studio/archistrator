@@ -563,6 +563,11 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 // phase-gated approve/send-back decision (and optional feedback) through the same
 // signal machinery as OverrideActivity. SYNC: returns once the signal is durably
 // enqueued. SendBack requires non-empty feedback notes.
+//
+// phase is one of the five ActivityMethodPhase wire names OR mergeGateKey
+// ("merge") — the local merge hold (runLocalMergeStep) suspends on the same
+// signal, and this op is the ONLY operator path that releases it. The merge gate
+// takes Approve only (see validatePhaseDecision).
 func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -571,7 +576,7 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	if activityID == "" {
 		return newError(fwm.ContractMisuse, "empty activityId")
 	}
-	if err := validateMethodPhase(phase); err != nil {
+	if err := validatePhaseDecision(phase, decision); err != nil {
 		return err
 	}
 	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
@@ -846,13 +851,24 @@ type constructionActivity struct {
 	Variant projectstate.TestingVariant
 }
 
-// validateMethodPhase rejects a phase that is empty or outside the closed
-// ActivityMethodPhase vocabulary. The wire type is a bare string, and JSON Schema
+// validatePhaseDecision rejects a gate key that is empty or outside the closed
+// vocabulary the child workflow actually waits on: the five ActivityMethodPhase
+// wire names plus mergeGateKey. The wire type is a bare string, and JSON Schema
 // `required` only proves the KEY was sent — so "" (and any typo) reached the child
-// workflow's phase gate as a signal that could never match a real phase, silently
+// workflow's phase gate as a signal that could never match a real gate, silently
 // doing nothing. Closed vocabularies are validated here for the same reason
 // SetReviewPolicy validates its preset and SetReviewCommentStatus its status.
-func validateMethodPhase(phase string) error {
+//
+// The merge gate accepts Approve ONLY: a merge has no draft to send back, and the
+// hold ignores any other decision, so a SendBack on it would be another silent
+// no-op presenting as success. It is refused here, where the operator sees it.
+func validatePhaseDecision(phase string, decision PhaseDecision) error {
+	if phase == mergeGateKey {
+		if decision != PhaseApprove {
+			return newError(fwm.ContractMisuse, fmt.Sprintf("the %q gate accepts Approve only — a merge has no draft to send back; steer the activity with OverrideActivity instead", mergeGateKey))
+		}
+		return nil
+	}
 	switch projectstate.ActivityMethodPhase(phase) {
 	case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
 		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
@@ -862,7 +878,7 @@ func validateMethodPhase(phase string) error {
 	if strings.TrimSpace(phase) == "" {
 		return newError(fwm.ContractMisuse, "empty phase")
 	}
-	return newError(fwm.ContractMisuse, fmt.Sprintf("unknown phase %q — expected one of requirements|detailed_design|test_plan|construction|integration", phase))
+	return newError(fwm.ContractMisuse, fmt.Sprintf("unknown phase %q — expected one of requirements|detailed_design|test_plan|construction|integration|%s", phase, mergeGateKey))
 }
 
 // activityTypeName returns the canonical activity-type wire name
