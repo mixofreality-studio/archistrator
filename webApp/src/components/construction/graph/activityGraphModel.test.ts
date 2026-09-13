@@ -175,14 +175,21 @@ void test('one component hosts 1..n lanes, ordered by activity id', () => {
 // Coverage
 // ---------------------------------------------------------------------------
 
-void test('a component with no activity is hollow — utilities included — and counted', () => {
+void test('a LAYERED component with no activity is hollow, and counted', () => {
   const m = model();
   const hollow = m.cards
     .filter((c) => c.hollow)
     .map((c) => c.id)
     .sort();
-  assert.deepEqual(hollow, ['b-engine', 'logging', 'mcp-client', 'y-manager']);
-  assert.equal(m.hollowCount, 4);
+  assert.deepEqual(hollow, ['b-engine', 'mcp-client', 'y-manager']);
+  assert.equal(m.hollowCount, 3);
+});
+
+void test('P1-5: a utility is never hollow, and never counted — no activity is its design', () => {
+  const logging = card(model(), 'logging');
+  assert.equal(logging.lanes.length, 0);
+  assert.equal(logging.hollow, false);
+  assert.equal(model().hollowCount, 3, 'the one utility is not in the count');
 });
 
 void test('a utility sits in the utility row (the side bar), never a layer row', () => {

@@ -154,6 +154,22 @@ export function tickPaint(t: Tokens, state: RowState): TickPaint {
 }
 
 // ---------------------------------------------------------------------------
+// Coverage words (designer P1-5 / Q3)
+// ---------------------------------------------------------------------------
+
+/** A utility's hover card — no activity is its design, not a gap. */
+export const UTILITY_HOVER_TEXT =
+  'Utility — shared infrastructure. The Method plans no activity for a utility.';
+
+/** A hollow (layered, unbuilt) component's hover card. */
+export const HOLLOW_HOVER_TEXT = 'No activity in the plan builds this component.';
+
+/** The key's coverage line — layered components only; utilities are never counted. */
+export function hollowKeyText(count: number): string {
+  return `${String(count)} ${count === 1 ? 'component' : 'components'} with no activity (dashed)`;
+}
+
+// ---------------------------------------------------------------------------
 // Segment codes (designer P1-3)
 // ---------------------------------------------------------------------------
 

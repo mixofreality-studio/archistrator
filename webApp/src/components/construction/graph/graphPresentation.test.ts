@@ -15,6 +15,8 @@ import type { Tokens } from '../../../utilities/theme/themes';
 import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
+  UTILITY_HOVER_TEXT,
+  hollowKeyText,
   layeringCheckText,
   segmentCodeFor,
   ribbonCountLabel,
@@ -113,6 +115,22 @@ void test('the sanctioned queued Manager→Manager calls are counted apart, citi
     layeringCheckText({ alarms: { up: 1, sideways: 0 }, sanctionedSideways: 2 }),
     'Up/sideways check: 1 upward · 0 sideways · 2 queued Manager→Manager (sanctioned, App C §3.4)'
   );
+});
+
+// ---------------------------------------------------------------------------
+// Coverage words (designer P1-5 / Q3)
+// ---------------------------------------------------------------------------
+
+void test('P1-5: a utility reads as shared infrastructure, never as a gap', () => {
+  assert.equal(
+    UTILITY_HOVER_TEXT,
+    'Utility — shared infrastructure. The Method plans no activity for a utility.'
+  );
+});
+
+void test('P1-5: the key counts only layered components with no activity', () => {
+  assert.equal(hollowKeyText(6), '6 components with no activity (dashed)');
+  assert.equal(hollowKeyText(1), '1 component with no activity (dashed)');
 });
 
 // ---------------------------------------------------------------------------

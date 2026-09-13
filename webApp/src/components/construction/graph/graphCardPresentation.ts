@@ -19,6 +19,8 @@ import type { GraphCard } from './activityGraphModel.ts';
 export interface CardFrame {
   /** A component no activity builds: transparent, dashed. */
   hollow: boolean;
+  /** A utility: solid and muted — no activity is its design, not a gap (P1-5). */
+  utility: boolean;
   borderStyle: 'solid' | 'dashed';
   /** The 3px top edge in the layer colour — only on a card that carries lanes. */
   layerEdge: boolean;
@@ -43,10 +45,13 @@ export function cardFrameFor(
 ): CardFrame {
   const unmatched = state.unmatched;
   const anyLaneMatches = card.lanes.some((l) => unmatched?.has(l.activityId) !== true);
+  const utility = card.row === 'utility';
   return {
     hollow: card.hollow,
+    utility,
     borderStyle: card.hollow ? 'dashed' : 'solid',
-    layerEdge: !card.hollow,
+    // The layer edge marks a card that carries lanes; a utility carries none.
+    layerEdge: !card.hollow && !utility,
     // Utilities are shared infrastructure — hover-focus never mutes the bar.
     muted: state.outsideFocus && card.row !== 'utility',
     filterDimmed: state.filterActive === true && !anyLaneMatches,

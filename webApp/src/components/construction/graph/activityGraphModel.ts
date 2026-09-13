@@ -29,9 +29,11 @@
  *
  * COVERAGE (spec §7.6, Decision D9)
  * ---------------------------------
- * A component no activity builds is HOLLOW. That includes utilities (they sit
- * in the side bar, and doctrine never derives an activity for one — see the
- * plan's Q3): the statement is factual either way.
+ * A LAYERED component no activity builds is HOLLOW — the coverage gap
+ * ACT-COMPONENT-COVERAGE exists to catch. A UTILITY is never hollow: doctrine
+ * never derives an activity for one, so drawing it hollow ("no activity")
+ * read as a defect the plan could fix (designer P1-5 / Q3, adopted by the
+ * orchestrator). Utilities render as solid, muted cards and are not counted.
  *
  * THE ALARM FOLLOWS APP C (spec R5, Decision D3)
  * ---------------------------------------------
@@ -222,7 +224,9 @@ export function buildActivityGraphModel<A extends GraphActivityLike>(
 
   let hollowCount = 0;
   for (const card of componentCards) {
-    card.hollow = card.lanes.length === 0;
+    // A utility is never hollow: doctrine plans no activity for one, so "no
+    // activity" there is the design, not a gap (designer P1-5 / Q3, adopted).
+    card.hollow = card.lanes.length === 0 && card.row !== 'utility';
     if (card.hollow) hollowCount += 1;
   }
 

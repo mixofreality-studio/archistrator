@@ -16,7 +16,8 @@ function card(
   laneIds: string[]
 ): Pick<GraphCard, 'hollow' | 'row' | 'lanes'> {
   return {
-    hollow: laneIds.length === 0 && row !== 'systemWide',
+    // The model's own rule: a layered component with no lane; never a utility.
+    hollow: laneIds.length === 0 && row !== 'systemWide' && row !== 'utility',
     row,
     lanes: laneIds.map((activityId) => ({ activityId, label: activityId })),
   };
@@ -70,6 +71,14 @@ void test('no filter active: an all-unmatched card is not filter-dimmed', () => 
 void test('hover-focus mutes a card outside the neighbourhood, but never a utility', () => {
   assert.equal(cardFrameFor(TWO_LANES, { outsideFocus: true }).muted, true);
   assert.equal(cardFrameFor(UTILITY, { outsideFocus: true }).muted, false);
+});
+
+void test('P1-5: a utility is solid and muted, with no layer edge — never dashed', () => {
+  const f = cardFrameFor(UTILITY, { outsideFocus: false });
+  assert.equal(f.utility, true);
+  assert.equal(f.hollow, false);
+  assert.equal(f.borderStyle, 'solid');
+  assert.equal(f.layerEdge, false);
 });
 
 void test('a hollow card is dashed and carries no layer edge', () => {

@@ -33,6 +33,7 @@ import { M0_STALE_LABEL, m0PresentationFor, type M0Facts } from './m0Gate';
 import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
+  hollowKeyText,
   layeringCheckText,
   ribbonCountLabel,
   segmentPaint,
@@ -382,10 +383,7 @@ function GraphKeyLegend({
         color: t.muted,
       }}
     >
-      <Box component="span">
-        {model.hollowCount} {model.hollowCount === 1 ? 'component' : 'components'} with no activity
-        (dashed)
-      </Box>
+      <Box component="span">{hollowKeyText(model.hollowCount)}</Box>
       <Box component="span" sx={{ display: 'inline-flex', flexWrap: 'wrap', gap: 1 }}>
         {SEGMENT_STATES.map((s) => {
           const p = segmentPaint(t, s);

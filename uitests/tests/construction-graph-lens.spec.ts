@@ -238,7 +238,8 @@ test('every component no activity builds is hollow and says so', async ({ page, 
       )
       .map((a) => a.componentId)
   );
-  const hollow = t.components.filter((c) => !built.has(c.id));
+  // Layered components only: a utility is never hollow (designer P1-5 / Q3).
+  const hollow = t.components.filter((c) => c.layer !== 'utility' && !built.has(c.id));
 
   expect((await cardFacts(page)).filter((c) => c.hollow === 'true')).toHaveLength(hollow.length);
   for (const c of hollow) {
@@ -246,6 +247,36 @@ test('every component no activity builds is hollow and says so', async ({ page, 
     await expect(card, c.id).toHaveAttribute('data-hollow', 'true');
     await expect(card, c.id).toContainText('no activity');
   }
+
+  // The key counts exactly those — "6 components with no activity (dashed)" today.
+  await page.getByTestId(TESTID.constructionGraphKeyButton).click();
+  await expect(page.getByTestId(TESTID.constructionGraphKey)).toContainText(
+    `${String(hollow.length)} ${hollow.length === 1 ? 'component' : 'components'} with no activity (dashed)`
+  );
+  await page.keyboard.press('Escape');
+});
+
+test('P1-5: a utility is a solid, muted card — no "no activity", and its hover says why', async ({
+  page,
+  request,
+}) => {
+  const t = await truth(request);
+  await openGraph(page);
+  const utilities = t.components.filter((c) => c.layer === 'utility');
+  expect(utilities.length).toBeGreaterThan(0);
+  for (const u of utilities) {
+    const card = page.getByTestId(TESTID.constructionGraphCard(u.id));
+    await expect(card, u.id).toHaveAttribute('data-hollow', 'false');
+    await expect(card, u.id).toHaveAttribute('data-utility', 'true');
+    await expect(card, u.id).not.toContainText('no activity');
+    const borderStyle = await card.evaluate((el) => getComputedStyle(el).borderLeftStyle);
+    expect(borderStyle, u.id).toBe('solid');
+  }
+  const first = utilities[0]?.id ?? '';
+  await page.getByTestId(TESTID.constructionGraphCard(first)).hover();
+  await expect(page.getByTestId(TESTID.constructionGraphHoverCard)).toContainText(
+    'Utility — shared infrastructure. The Method plans no activity for a utility.'
+  );
 });
 
 test('no edge touches a utility, and the utilities sit in the side bar', async ({

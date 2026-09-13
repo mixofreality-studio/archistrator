@@ -47,7 +47,14 @@ import type { GraphCard } from './activityGraphModel';
 import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
 import { lodFor, type Lod } from './graphViewport';
-import { SEGMENT_STATE_LABEL, segmentCodeFor, segmentPaint, tickPaint } from './graphPresentation';
+import {
+  HOLLOW_HOVER_TEXT,
+  SEGMENT_STATE_LABEL,
+  UTILITY_HOVER_TEXT,
+  segmentCodeFor,
+  segmentPaint,
+  tickPaint,
+} from './graphPresentation';
 import { cardDimmed, cardFrameFor } from './graphCardPresentation';
 import {
   effortText,
@@ -110,6 +117,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       data-lanes={card.lanes.length}
       data-row={card.row}
       data-testid={UI_IDENTIFIERS.Construction.graphCard(card.id)}
+      data-utility={String(frame.utility)}
       ref={setAnchor}
       sx={{
         width: CARD_W,
@@ -117,7 +125,8 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: frame.hollow ? 'transparent' : t.paper,
+        // A utility is solid and MUTED (P1-5): the alt paper, never dashed.
+        bgcolor: frame.hollow ? 'transparent' : frame.utility ? t.paperAlt : t.paper,
         border:
           frame.borderStyle === 'dashed'
             ? `1.5px dashed ${alpha(t.line, 0.8)}`
@@ -155,7 +164,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
             fontWeight: 700,
             fontSize: 11,
             lineHeight: 1.15,
-            color: card.hollow ? t.muted : t.ink,
+            color: frame.hollow || frame.utility ? t.muted : t.ink,
           }}
           title={card.title}
         >
@@ -605,9 +614,13 @@ function HoverCard({
           <ProvenanceGroupStamp reading={readProvenance({ phases: card.lanes })} t={t} />
         ) : null}
       </Box>
-      {card.hollow ? (
+      {card.row === 'utility' ? (
         <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.5 }}>
-          No activity in the plan builds this component.
+          {UTILITY_HOVER_TEXT}
+        </Typography>
+      ) : card.hollow ? (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.5 }}>
+          {HOLLOW_HOVER_TEXT}
         </Typography>
       ) : (
         card.lanes.map((lane) => {
