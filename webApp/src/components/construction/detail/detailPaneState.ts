@@ -26,7 +26,7 @@ import {
   GENERATED_TESTING_VARIANTS,
   type GeneratedPhase,
 } from '../lifecycleTemplates.gen.ts';
-import type { ProvenanceBearing } from '../provenanceAxis.ts';
+import type { ProvenanceBearing, ProvenanceOrigin } from '../provenanceAxis.ts';
 import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
 
 // ---------------------------------------------------------------------------
@@ -156,16 +156,40 @@ function latestMatchingAttempt(
  * never a guess:
  *
  *   - a TASK is selected: state comes from its latest attempt (by attempt
- *     NUMBER — see latestMatchingAttempt). No attempt recorded is `unknown`,
- *     the exact "no record" state Task 8's placeholder body teaches — never
- *     a fabricated `notStarted` for a task that may simply not have run yet.
+ *     NUMBER — see latestMatchingAttempt). With no attempt, noAttemptStateFor
+ *     (below) decides: `unknown` only where the history cannot say, else
+ *     `notStarted`.
  *   - only a PHASE/ACTIVITY is selected: state comes from the row's own
  *     coarse status. `hasBuildEvidence === false` IS `notStarted` — a row
  *     the server COULD classify but has nothing recorded for yet — distinct
  *     from `classified === false`, which stays `unknown` (the same
  *     distinction ConstructionRow's own doc comments already draw for
  *     BuildStatus's `not-started` vs `unclassified`).
+ *
+ * (That rule is documented on noAttemptStateFor, next.)
  */
+/**
+ * The state of a task that has NO attempt, from its activity's row — ONE rule for
+ * the pane, the list's task rows and the pane's provenance chip (designer final
+ * items, replacing re-check N3):
+ *
+ *   - `unknown` only where the surface genuinely cannot tell "never ran" from
+ *     "ran before anyone recorded it": the row is UNCLASSIFIED, or it has build
+ *     evidence but ZERO attempts — its history predates per-task capture.
+ *   - `notStarted` everywhere else: a classified row with no evidence (nothing
+ *     has happened), or a row with at least one attempt (its per-task history
+ *     is complete, so a task missing from it has not run).
+ */
+export type NoAttemptState = 'unknown' | 'notStarted';
+
+export function noAttemptStateFor(
+  row: Pick<ConstructionRow, 'classified' | 'hasBuildEvidence' | 'attempts'> | undefined
+): NoAttemptState {
+  if (row?.classified !== true) return 'unknown';
+  if (row.hasBuildEvidence && row.attempts.length === 0) return 'unknown';
+  return 'notStarted';
+}
+
 export function taskDetailStateFor(
   row: ConstructionRow | undefined,
   selection: LensSelection
@@ -174,11 +198,7 @@ export function taskDetailStateFor(
 
   if (selection.task !== undefined) {
     const attempt = latestMatchingAttempt(row.attempts, selection.task, selection.attempt);
-    // No attempt: under an activity that HAS evidence, the task may have run before
-    // per-task history existed, so it is `unknown`. Under a classified activity
-    // with none, it is `notStarted` like the activity itself — "UNKNOWN" beneath a
-    // row that reads "not started" contradicted it (designer re-check N3).
-    if (attempt === undefined) return row.hasBuildEvidence ? 'unknown' : 'notStarted';
+    if (attempt === undefined) return noAttemptStateFor(row);
     return stateForOutcome(attempt.outcome, row.status);
   }
 
@@ -485,6 +505,40 @@ export function runActionFor(
  */
 export function observedOnlyChipLabel(hiddenCount: number): string {
   return `OBSERVED ONLY · ${String(hiddenCount)} reconstructed hidden`;
+}
+
+/**
+ * Which provenance chips the pane's header draws — the GRADE chip and, beside it,
+ * the "Observed only" hidden-count chip (fix-C review; designer final items).
+ *
+ * The grade chip states what the row it was opened from states, so it stays —
+ * including on a MIXED row under "Observed only", where the observed attempts that
+ * remain still grade as RECORDED and the hidden-count chip sits beside it instead
+ * of replacing it. It is dropped only where the grade would be `unknown`
+ * (UNRECORDED) and that word would be false:
+ *
+ *   - the toggle hid this selection's whole record — it exists and was set aside
+ *     (re-check B1), so the hidden-count chip speaks alone;
+ *   - a selected task reads NOT STARTED — its row's history is complete (or
+ *     nothing has happened), so there is no record to grade: hollow ○, no chip.
+ */
+export interface HeaderProvenanceChips {
+  grade: boolean;
+  /** How many attempts "Observed only" hid in the selection; 0 draws no chip. */
+  hidden: number;
+}
+
+export function headerProvenanceChipsFor(input: {
+  origin: ProvenanceOrigin;
+  hiddenCount: number;
+  state: TaskDetailState;
+  taskSelected: boolean;
+}): HeaderProvenanceChips {
+  const hidden = Math.max(0, input.hiddenCount);
+  const nothingToGrade = input.origin === 'unknown';
+  const gradeWouldLie =
+    nothingToGrade && (hidden > 0 || (input.taskSelected && input.state === 'notStarted'));
+  return { grade: !gradeWouldLie, hidden };
 }
 
 export function detailActionsFor(state: TaskDetailState, run: DetailAction): DetailAction[] {

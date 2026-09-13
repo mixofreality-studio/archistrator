@@ -445,6 +445,8 @@ export const UI_IDENTIFIERS = {
     DETAIL_BREADCRUMB: 'construction-detail-breadcrumb',
     DETAIL_STATE_CHIP: 'construction-detail-state-chip',
     DETAIL_PROVENANCE_CHIP: 'construction-detail-provenance-chip',
+    /** "Observed only"'s hidden-count chip, BESIDE the grade chip (fix-C review). */
+    DETAIL_OBSERVED_ONLY_CHIP: 'construction-detail-observed-only-chip',
     DETAIL_ATTEMPT_SELECT: 'construction-detail-attempt-select',
     DETAIL_EXIT_CRITERION: 'construction-detail-exit-criterion',
     DETAIL_BODY: 'construction-detail-body',

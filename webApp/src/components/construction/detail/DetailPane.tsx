@@ -91,6 +91,7 @@ import {
   breadcrumbFor,
   detailActionsFor,
   evidencePointerFor,
+  headerProvenanceChipsFor,
   observedOnlyChipLabel,
   provenanceNodeFor,
   resolvePhaseTask,
@@ -341,6 +342,7 @@ export function DetailPane({
       summary={summary}
       t={t}
       taskAttempts={taskAttempts}
+      taskSelected={selection.task !== undefined}
       weight={meta.phaseWeight}
       width={width}
       onClose={onClose}
@@ -387,6 +389,7 @@ export function DetailPane({
           summary={summary}
           t={t}
           taskAttempts={taskAttempts}
+          taskSelected={selection.task !== undefined}
           weight={meta.phaseWeight}
           onClose={onClose}
           onSelectAttempt={onSelectAttempt}
@@ -422,6 +425,7 @@ function DetailPaneChrome({
   body,
   actions,
   hiddenCount,
+  taskSelected,
   onClose,
   onToggleCollapsed,
   onResizePointerDown,
@@ -435,6 +439,7 @@ function DetailPaneChrome({
   state: TaskDetailState;
   provenance: ProvenanceReading;
   hiddenCount: number;
+  taskSelected: boolean;
   summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
@@ -519,6 +524,7 @@ function DetailPaneChrome({
           summary={summary}
           t={t}
           taskAttempts={taskAttempts}
+          taskSelected={taskSelected}
           weight={weight}
           onClose={onClose}
           onCollapse={onToggleCollapsed}
@@ -554,12 +560,15 @@ function DetailHeader({
   onCollapse,
   onSelectAttempt,
   hiddenCount,
+  taskSelected,
 }: {
   breadcrumb: string;
   state: TaskDetailState;
   provenance: ProvenanceReading;
   /** Attempts "Observed only" hid in the selection (B1); 0 with the toggle off. */
   hiddenCount: number;
+  /** A single task is selected (its state decides whether a grade exists to show). */
+  taskSelected: boolean;
   /** "N attempts · M phases" when no single task is selected (selectionSummaryFor). */
   summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
@@ -648,7 +657,13 @@ function DetailHeader({
           {TASK_DETAIL_STATE_LABEL[state].toUpperCase()}
         </Box>
 
-        <ProvenanceChip hiddenCount={hiddenCount} provenance={provenance} t={t} />
+        <ProvenanceChips
+          hiddenCount={hiddenCount}
+          provenance={provenance}
+          state={state}
+          t={t}
+          taskSelected={taskSelected}
+        />
 
         {/* An activity or phase selection has no single task to pick an attempt
             of, so it says what it holds ("N attempts · M phases") instead of an
@@ -707,47 +722,69 @@ function DetailHeader({
  * The chip states the GRADE. The sub-grade and the basis live in the tooltip and,
  * in the open, in ProvenanceNote — density rule 2 from provenanceAxis.ts.
  */
-function ProvenanceChip({
+function ProvenanceChips({
   provenance,
   hiddenCount,
+  state,
+  taskSelected,
   t,
 }: {
   provenance: ProvenanceReading;
   hiddenCount: number;
+  state: TaskDetailState;
+  taskSelected: boolean;
   t: Tokens;
 }): ReactElement {
-  if (hiddenCount > 0) {
-    // "Observed only" set this selection's attempts aside (designer re-check B1).
-    // The record exists — calling it UNRECORDED would be false — so the chip
-    // names the toggle and what it hid. Solid border: this is a known record,
-    // not the dashed unknown.
-    return (
-      <Tooltip
-        title={`Observed only is on: ${String(hiddenCount)} reconstructed ${hiddenCount === 1 ? 'attempt is' : 'attempts are'} hidden from this view. Turn it off to see them.`}
+  const chips = headerProvenanceChipsFor({
+    origin: provenance.origin,
+    hiddenCount,
+    state,
+    taskSelected,
+  });
+  return (
+    <>
+      {chips.grade ? <GradeChip provenance={provenance} t={t} /> : null}
+      {chips.hidden > 0 ? <ObservedOnlyChip hiddenCount={chips.hidden} t={t} /> : null}
+    </>
+  );
+}
+
+/**
+ * "Observed only" set attempts in this selection aside (designer re-check B1). The
+ * record exists, so the chip names the toggle and what it hid. It sits BESIDE the
+ * grade chip on a mixed row (fix-C review) and carries no `data-provenance`: it is
+ * not a grade, and that attribute stays within the origin enum. Solid border — a
+ * known record, not the dashed unknown.
+ */
+function ObservedOnlyChip({ hiddenCount, t }: { hiddenCount: number; t: Tokens }): ReactElement {
+  return (
+    <Tooltip
+      title={`Observed only is on: ${String(hiddenCount)} reconstructed ${hiddenCount === 1 ? 'attempt is' : 'attempts are'} hidden from this view. Turn it off to see them.`}
+    >
+      <Box
+        data-testid={UI_IDENTIFIERS.Construction.DETAIL_OBSERVED_ONLY_CHIP}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          px: 0.75,
+          py: 0.2,
+          borderRadius: 99,
+          border: `1px solid ${t.line}`,
+          color: t.muted,
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          whiteSpace: 'nowrap',
+        }}
       >
-        <Box
-          data-provenance="observed-only"
-          data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP}
-          sx={{
-            display: 'inline-flex',
-            alignItems: 'center',
-            px: 0.75,
-            py: 0.2,
-            borderRadius: 99,
-            border: `1px solid ${t.line}`,
-            color: t.muted,
-            fontFamily: t.mono,
-            fontSize: 9.5,
-            fontWeight: 700,
-            letterSpacing: '0.06em',
-            whiteSpace: 'nowrap',
-          }}
-        >
-          {observedOnlyChipLabel(hiddenCount)}
-        </Box>
-      </Tooltip>
-    );
-  }
+        {observedOnlyChipLabel(hiddenCount)}
+      </Box>
+    </Tooltip>
+  );
+}
+
+function GradeChip({ provenance, t }: { provenance: ProvenanceReading; t: Tokens }): ReactElement {
   const grade = provenanceGradeOf(provenance.origin);
   const reconstructed = grade === 'reconstructed';
   return (

@@ -15,6 +15,8 @@ import {
   attemptsForTask,
   breadcrumbFor,
   detailActionsFor,
+  headerProvenanceChipsFor,
+  noAttemptStateFor,
   observedOnlyChipLabel,
   resolvePhaseTask,
   runActionFor,
@@ -126,19 +128,114 @@ void test('the Observed-only chip names the toggle and the count, never UNRECORD
 // taskDetailStateFor
 // ---------------------------------------------------------------------------
 
-void test('a selected task with no attempt at all is unknown, not notStarted', () => {
-  const r = row({ status: 'in-construction', attempts: [] });
+// Designer final items (replacing re-check N3): a task with no attempt reads UNKNOWN
+// only when its row is unclassified, or has build evidence but ZERO attempts (its
+// history predates per-task capture). Everywhere else it reads NOT STARTED.
+void test('a selected task with no attempt: unknown only where the history cannot say', () => {
   const selection: LensSelection = { activityId: 'C-x', task: 'codeReview' };
-  assert.equal(taskDetailStateFor(r, selection), 'unknown');
+  // Evidence, zero attempts: may have run before per-task history existed.
+  assert.equal(
+    taskDetailStateFor(row({ status: 'in-construction', attempts: [] }), selection),
+    'unknown'
+  );
+  // Unclassified, whatever the evidence says.
+  assert.equal(
+    taskDetailStateFor(row({ classified: false, hasBuildEvidence: false }), selection),
+    'unknown'
+  );
+  assert.equal(
+    taskDetailStateFor(row({ classified: false, attempts: [attempt({ task: 'srs' })] }), selection),
+    'unknown'
+  );
 });
 
-// Designer re-check N3: the pane agrees with the not-started activity above it.
-void test('a task under a classified, not-started activity reads notStarted, not unknown', () => {
-  const r = row({ hasBuildEvidence: false, recorded: false, attempts: [] });
-  const selection: LensSelection = { activityId: 'C-x', task: 'srs' };
-  assert.equal(taskDetailStateFor(r, selection), 'notStarted');
-  // Unclassified stays unknown whatever the evidence says.
-  assert.equal(taskDetailStateFor(row({ classified: false, hasBuildEvidence: false }), selection), 'unknown');
+void test('a selected task with no attempt is NOT STARTED under a no-evidence row, or a row with any attempt', () => {
+  const selection: LensSelection = { activityId: 'C-x', task: 'codeReview' };
+  // Classified, no evidence: nothing has happened.
+  assert.equal(
+    taskDetailStateFor(row({ hasBuildEvidence: false, recorded: false, attempts: [] }), selection),
+    'notStarted'
+  );
+  // At least one attempt — on another task — so the row's history is complete.
+  assert.equal(
+    taskDetailStateFor(
+      row({ status: 'in-construction', attempts: [attempt({ task: 'srs' })] }),
+      selection
+    ),
+    'notStarted'
+  );
+  // The rule itself, exported for the tree.
+  assert.equal(noAttemptStateFor(row({ attempts: [attempt()] })), 'notStarted');
+  assert.equal(noAttemptStateFor(row({ attempts: [] })), 'unknown');
+  assert.equal(noAttemptStateFor(undefined), 'unknown');
+});
+
+// ---------------------------------------------------------------------------
+// headerProvenanceChipsFor — the grade chip and the hidden-count chip beside it
+// ---------------------------------------------------------------------------
+
+void test('a not-started task draws no UNRECORDED chip; an unknown one still does', () => {
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'unknown',
+      hiddenCount: 0,
+      state: 'notStarted',
+      taskSelected: true,
+    }),
+    { grade: false, hidden: 0 }
+  );
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'unknown',
+      hiddenCount: 0,
+      state: 'unknown',
+      taskSelected: true,
+    }),
+    { grade: true, hidden: 0 }
+  );
+  // An ACTIVITY with no stored record keeps UNRECORDED — that is where it is true.
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'unknown',
+      hiddenCount: 0,
+      state: 'notStarted',
+      taskSelected: false,
+    }),
+    { grade: true, hidden: 0 }
+  );
+});
+
+void test('Observed only: a mixed row keeps its grade chip with the hidden count BESIDE it', () => {
+  // Observed attempts remain: RECORDED stays, and the count rides next to it.
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'observed',
+      hiddenCount: 3,
+      state: 'passed',
+      taskSelected: false,
+    }),
+    { grade: true, hidden: 3 }
+  );
+  // The whole record was set aside: the count speaks alone — never UNRECORDED (B1).
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'unknown',
+      hiddenCount: 10,
+      state: 'notStarted',
+      taskSelected: false,
+    }),
+    { grade: false, hidden: 10 }
+  );
+  // Toggle off: the grade chip alone.
+  assert.deepEqual(
+    headerProvenanceChipsFor({
+      origin: 'backfilled',
+      hiddenCount: 0,
+      state: 'passed',
+      taskSelected: false,
+    }),
+    { grade: true, hidden: 0 }
+  );
 });
 
 void test('picks the latest attempt by NUMBER, not array position', () => {

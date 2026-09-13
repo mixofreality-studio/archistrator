@@ -32,6 +32,7 @@ import type { ActivityNode, PhaseNode, TaskNode } from './activityTree.ts';
 import {
   taskDetailStateFor,
   TASK_DETAIL_STATE_LABEL,
+  type NoAttemptState,
   type TaskDetailState,
 } from '../detail/detailPaneState.ts';
 
@@ -279,15 +280,17 @@ export function activityRowState(row: ConstructionRow): RowState {
 export function taskRowState(
   task: TaskNode,
   rowStatus: ActivityBuildStatusRow | undefined,
-  activityState?: RowState
+  /** detailPaneState.noAttemptStateFor(the activity's row) — the ONE rule the pane
+   *  and its provenance chip read too. Omitted, a task with no attempt stays the
+   *  tree's own `unknown`. */
+  noAttempt?: NoAttemptState
 ): RowState {
   if (task.latestAttempt?.outcome === 'skipped') return 'skipped';
   if (task.state === 'running' && task.gate && rowStatus === 'in-review') return 'awaitingHuman';
-  // A task with no attempt under a classified, NOT-STARTED activity is not started
-  // (designer re-check N3): the row above it already says so, and "unknown" beneath
-  // a known zero reads as a contradiction. Where the activity has evidence, a task
-  // with none stays `unknown` — it may have run before per-task history existed.
-  if (task.latestAttempt === undefined && activityState === 'notStarted') return 'notStarted';
+  // A task with no attempt reads NOT STARTED unless the row is unclassified or its
+  // history predates per-task capture (evidence, zero attempts) — designer final
+  // items, replacing re-check N3. A row with any attempt has complete history.
+  if (task.latestAttempt === undefined && noAttempt !== undefined) return noAttempt;
   return task.state;
 }
 

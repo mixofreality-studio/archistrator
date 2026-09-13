@@ -114,7 +114,11 @@ import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
-import { PROVENANCE_LABEL, taskDetailStateFill } from '../detail/detailPaneState.ts';
+import {
+  noAttemptStateFor,
+  PROVENANCE_LABEL,
+  taskDetailStateFill,
+} from '../detail/detailPaneState.ts';
 import {
   GRADE_LABEL,
   ProvenanceGroupStamp,
@@ -1373,7 +1377,7 @@ function StageRuleRow({
 function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
   const { t, onInlineRetry, searchMatchedTaskIds } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
-  const state = taskRowState(task, node.status, activityRowState(node.row));
+  const state = taskRowState(task, node.status, noAttemptStateFor(node.row));
   const chip = chipFor(state);
   const bookKey = bookKeyFor(task.label, task.bookLabel, task.task);
   const loud = state === 'awaitingHuman';
@@ -1395,6 +1399,9 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
   return (
     <Box sx={{ flexGrow: 1, minWidth: 0 }}>
       <Box
+        // The row's state as a hook for specs: the glyph drawn beside the label
+        // (StateGlyph) is a pure function of it.
+        data-task-state={state}
         sx={{
           display: 'flex',
           alignItems: 'stretch',

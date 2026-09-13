@@ -14,6 +14,7 @@ import assert from 'node:assert/strict';
 
 import type { ConstructionRow, TaskAttemptRow } from '../../../contracts/types.ts';
 import { buildActivityTree, type ActivityNode, type TaskNode } from './activityTree.ts';
+import { noAttemptStateFor } from '../detail/detailPaneState.ts';
 import {
   activityRowState,
   attemptRowState,
@@ -249,19 +250,43 @@ void test('a task with no attempt is unknown — the majority case, chip-less', 
   assert.equal(chipFor(taskRowState(task, undefined)), undefined);
 });
 
-// Designer re-check N3: beneath an activity that reads "not started", a task with
-// no attempt is not started too — never UNKNOWN under a known zero.
-void test('a task with no attempt under a not-started activity is not started, not unknown', () => {
-  const planned = onlyNode(row({ kind: 'service', hasBuildEvidence: false, recorded: false }));
-  assert.equal(activityRowState(planned.row), 'notStarted');
-  const task = taskNamed(planned, 'srs');
-  assert.equal(taskRowState(task, planned.status, activityRowState(planned.row)), 'notStarted');
-  // An activity WITH evidence keeps a task it has no attempt for as unknown.
-  const started = onlyNode(
-    row({ kind: 'service', status: 'in-construction', attempts: [attempt()] })
+// Designer final items (replacing re-check N3): a task with no attempt reads UNKNOWN
+// only when its row is unclassified, or has evidence but zero attempts (history
+// predates per-task capture). Everywhere else it is NOT STARTED.
+void test('a task with no attempt: the one no-attempt rule, case by case, in the tree', () => {
+  const stateOf = (r: ConstructionRow): RowState => {
+    const node = onlyNode(r);
+    return taskRowState(taskNamed(node, 'srs'), node.status, noAttemptStateFor(node.row));
+  };
+  // Classified, no evidence: nothing has happened.
+  assert.equal(
+    stateOf(row({ kind: 'service', hasBuildEvidence: false, recorded: false })),
+    'notStarted'
   );
-  const bare = taskNamed(started, 'srs');
-  assert.equal(taskRowState(bare, started.status, activityRowState(started.row)), 'unknown');
+  // At least one attempt (on ANOTHER task): the row's history is complete.
+  assert.equal(
+    stateOf(
+      row({
+        kind: 'service',
+        status: 'in-construction',
+        attempts: [attempt({ task: 'construction', phase: 'construction' })],
+      })
+    ),
+    'notStarted'
+  );
+  // Evidence but ZERO attempts: it may have run before per-task history existed.
+  assert.equal(
+    stateOf(row({ kind: 'service', status: 'integrated', hasBuildEvidence: true, attempts: [] })),
+    'unknown'
+  );
+  // Omitted rule: the tree's own coarse answer.
+  const node = onlyNode(row({ kind: 'service', hasBuildEvidence: false }));
+  assert.equal(taskRowState(taskNamed(node, 'srs'), node.status), 'unknown');
+});
+
+void test('an unclassified row keeps a task unknown (the rule, directly)', () => {
+  assert.equal(noAttemptStateFor(row({ classified: false, hasBuildEvidence: false })), 'unknown');
+  assert.equal(noAttemptStateFor(row({ classified: false, attempts: [attempt()] })), 'unknown');
 });
 
 // Designer re-check N2: the book's key trails a renamed task, and never repeats

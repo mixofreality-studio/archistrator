@@ -265,6 +265,7 @@ export const TESTID = {
   /** The pane header's provenance chip — or, with "Observed only" hiding this
    *  selection's attempts, the "OBSERVED ONLY · N reconstructed hidden" chip (B1). */
   constructionDetailProvenanceChip: UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP,
+  constructionDetailObservedOnlyChip: UI_IDENTIFIERS.Construction.DETAIL_OBSERVED_ONLY_CHIP,
   constructionDetailActionBar: UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR,
   constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction('run'),
   // The four detail-pane bodies (Stage B Tasks 8-10) — which one fills the

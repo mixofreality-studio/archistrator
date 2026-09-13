@@ -76,13 +76,23 @@ test('B1: Observed only says how many reconstructed attempts it hid, and never c
 
   await openList(page, '&a=C-billing-engine');
   const chip = page.getByTestId(TESTID.constructionDetailProvenanceChip);
+  // The hidden count has its own chip, BESIDE the grade chip (fix-C review).
+  const hiddenChip = page.getByTestId(TESTID.constructionDetailObservedOnlyChip);
   const pane = page.getByTestId(TESTID.constructionDetailPane);
   // Toggle off: the record reads as what it is.
   await expect(chip).toHaveText(/≈\s*RECONSTRUCTED/);
+  await expect(hiddenChip).toHaveCount(0);
 
   await page.getByRole('switch', { name: 'Observed only' }).check();
-  await expect(chip).toHaveText(`OBSERVED ONLY · ${String(hidden)} reconstructed hidden`);
+  await expect(hiddenChip).toHaveText(`OBSERVED ONLY · ${String(hidden)} reconstructed hidden`);
+  // Nothing observed remains, so there is no grade to state — never UNRECORDED.
+  await expect(chip).toHaveCount(0);
   await expect(pane).not.toContainText('UNRECORDED');
+  // B2 under Observed only (designer ruling): the stripped row reads not started,
+  // so the run is a first run, ▶ — the hidden-count chip beside it says why.
+  await expect(page.getByTestId(TESTID.constructionDetailActionRun)).toHaveText(
+    '▶ Run this activity'
+  );
   const body = page.getByTestId(TESTID.constructionDetailBodyUnknown);
   await expect(body).toContainText(
     `Nothing observed. ${String(hidden)} reconstructed attempts are hidden by Observed only — turn it off to see them.`
@@ -94,13 +104,14 @@ test('B1: Observed only says how many reconstructed attempts it hid, and never c
   // load resets the toolbar store, so the toggle is set again.
   await openList(page, '&a=C-billing-engine&p=requirements');
   await page.getByRole('switch', { name: 'Observed only' }).check();
-  await expect(chip).toHaveText(
+  await expect(hiddenChip).toHaveText(
     `OBSERVED ONLY · ${String(hiddenInRequirements)} reconstructed hidden`
   );
 
   // A row with NO stored record is the one place UNRECORDED belongs.
   await page.getByTestId(TESTID.constructionListRow('C-billing-state-access')).click();
   await expect(chip).toHaveText('UNRECORDED');
+  await expect(hiddenChip).toHaveCount(0);
   await expect(pane).not.toContainText('OBSERVED ONLY');
 });
 
