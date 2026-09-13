@@ -16,6 +16,30 @@
 export const GUTTER_PX = 76;
 /** The label's on-screen size — the same at every zoom. */
 export const GUTTER_LABEL_PX = 10;
+/** The gutter's width once cards slide beneath it — a narrow rail. */
+export const GUTTER_RAIL_PX = 14;
+/**
+ * Where the full gutter's SOLID ground ends — the rest of its width fades out.
+ * A card under the fade reads through it; a card under the solid part does not.
+ */
+export const GUTTER_SOLID_PX = Math.round(GUTTER_PX * 0.75);
+
+/**
+ * The gutter's width for where the FIRST card column sits on screen
+ * (`transform x + zoom × 0` — the layout's first column is at flow x 0).
+ *
+ * The full gutter while that column sits clear of its solid ground (it may sit
+ * under the fade, as it does at fit); a narrow RAIL once a pan
+ * or zoom slides cards beneath (designer re-check 1: zoomed in, the gutter's
+ * 95% ground covered the first column and its labels overprinted card text).
+ * The rail still names each row — its label runs vertically — and covers at most
+ * GUTTER_RAIL_PX of any card.
+ */
+export function gutterWidthFor(firstColumnScreenX: number): number {
+  return Number.isFinite(firstColumnScreenX) && firstColumnScreenX >= GUTTER_SOLID_PX
+    ? GUTTER_PX
+    : GUTTER_RAIL_PX;
+}
 
 /**
  * How far the zoom controls sit from the canvas's left edge: just clear of the

@@ -115,3 +115,50 @@ for (const [w, h] of SIZES) {
     await expectLabelsTrackRows(page, 'zoomed');
   });
 }
+
+/** The gutter's box, its mode, and how far it covers each layered card. */
+async function gutterCover(
+  page: Page
+): Promise<{ mode: string; width: number; maxCover: number; labelsInside: boolean }> {
+  return page.getByTestId(TESTID.constructionGraphRowGutter).evaluate((g) => {
+    const gr = g.getBoundingClientRect();
+    const canvas = g.closest('[data-testid="construction-graph-canvas"]');
+    const cards = Array.from((canvas?.querySelectorAll('[data-testid^="construction-graph-card-"]') ?? []))
+      .filter((c) => c.getAttribute('data-row') !== 'utility')
+      .map((c) => c.getBoundingClientRect())
+      .filter((r) => r.bottom > gr.top && r.top < gr.bottom && r.right > gr.left);
+    const cover = cards.map((r) => Math.max(0, Math.min(gr.right, r.right) - Math.max(gr.left, r.left)));
+    const labels = Array.from(g.querySelectorAll('[data-testid^="construction-graph-row-label-"] span')).map((l) =>
+      l.getBoundingClientRect()
+    );
+    return {
+      mode: g.getAttribute('data-gutter-mode') ?? '',
+      width: gr.width,
+      maxCover: Math.max(0, ...cover),
+      labelsInside: labels.every((l) => l.left >= gr.left - 0.5 && l.right <= gr.right + 0.5),
+    };
+  });
+}
+
+test('zoomed in, the gutter shrinks to a rail: it covers at most 14px of any card, its labels inside it (designer re-check 1)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await gotoApp(page, GRAPH);
+  await expect(page.getByTestId(TESTID.constructionGraphRowGutter)).toBeVisible();
+  await expect(page.getByTestId(CARD_ID).first()).toBeVisible();
+  await page.waitForTimeout(400);
+  // At fit: the full gutter, and no card under its SOLID ground (57px).
+  const fit = await gutterCover(page);
+  expect(fit.mode).toBe('full');
+  expect(fit.maxCover, 'at fit, cards reach no further than the fade').toBeLessThanOrEqual(76 - 57 + 0.5);
+
+  for (let i = 0; i < 4; i += 1) await page.getByRole('button', { name: /zoom in/i }).click();
+  await page.waitForTimeout(700);
+  const zoomed = await gutterCover(page);
+  expect(zoomed.mode, 'the first column slid beneath: a rail').toBe('rail');
+  expect(zoomed.width).toBeLessThanOrEqual(14.5);
+  expect(zoomed.maxCover, 'no card loses more than the rail').toBeLessThanOrEqual(14.5);
+  expect(zoomed.labelsInside, 'every label sits on the rail, not over a card').toBe(true);
+  await expectLabelsTrackRows(page, 'rail');
+});

@@ -10,7 +10,10 @@ import {
   CONTROLS_OFFSET_PX,
   GUTTER_LABEL_PX,
   GUTTER_PX,
+  GUTTER_RAIL_PX,
+  GUTTER_SOLID_PX,
   gutterLabelFontPx,
+  gutterWidthFor,
   rowGutterLabels,
 } from './rowGutter.ts';
 
@@ -58,4 +61,18 @@ void test('a band wholly above or below the canvas is not shown; a partial one i
 
 void test('the zoom controls sit just clear of the gutter', () => {
   assert.equal(CONTROLS_OFFSET_PX, GUTTER_PX + 8);
+});
+
+void test('the full gutter stands while the first card column is clear of its solid ground', () => {
+  assert.equal(GUTTER_SOLID_PX, 57);
+  assert.equal(gutterWidthFor(GUTTER_SOLID_PX), GUTTER_PX);
+  assert.equal(gutterWidthFor(200), GUTTER_PX);
+});
+
+void test('once cards slide beneath its solid ground, the gutter is a 14px rail', () => {
+  assert.equal(GUTTER_RAIL_PX, 14);
+  assert.equal(gutterWidthFor(GUTTER_SOLID_PX - 1), GUTTER_RAIL_PX);
+  assert.equal(gutterWidthFor(0), GUTTER_RAIL_PX);
+  assert.equal(gutterWidthFor(-400), GUTTER_RAIL_PX);
+  assert.equal(gutterWidthFor(Number.NaN), GUTTER_RAIL_PX);
 });
