@@ -97,6 +97,27 @@ func fixtureProject() projectstate.Project {
 	p.TestingState = &projectstate.TestingState{SystemTestPlan: &projectstate.SystemTestPlan{
 		Scenarios: []projectstate.TestScenario{{ID: "STP-1"}, {ID: "STP-2"}, {ID: "STP-3"}},
 	}}
+	// The slot-10 network. By default every QUALIFYING activity depends only on qualifying,
+	// integrated activities (or on M0), so the qualifying set is fully Done; the
+	// integration tests below re-point edges at the non-qualifiers.
+	p.Network = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Revisions: 1, Model: &projectstate.Network{
+		Dependencies: []projectstate.NetworkDependency{
+			{Activity: "U-SPA-web-client", DependsOn: []string{"C-alpha-manager"}},
+			{Activity: "C-alpha-manager", DependsOn: []string{"C-gamma-access"}},
+			{Activity: "C-beta-engine", DependsOn: []string{"M0"}},
+			{Activity: "C-gamma-access", DependsOn: []string{"R-gamma-store"}},
+			{Activity: "C-delta-access", DependsOn: []string{"R-delta-gateway"}},
+			{Activity: "R-gamma-store", DependsOn: []string{"M0"}},
+			{Activity: "R-delta-gateway", DependsOn: []string{"M0"}},
+			{Activity: "R-orphan", DependsOn: []string{"M0"}},
+			{Activity: "N-STP", DependsOn: []string{"M0"}},
+			{Activity: "N-IT", DependsOn: []string{"N-STP", "U-SPA-web-client"}},
+		},
+		Milestones: []projectstate.NetworkMilestone{
+			{ID: "M0", Name: "SDP Review Approved", Public: true},
+			{ID: "M1", Name: "Infrastructure Provisioned", DependsOn: []string{"R-delta-gateway", "R-gamma-store"}},
+		},
+	}}
 	return p
 }
 
@@ -1181,5 +1202,275 @@ func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 	if row.Phase != held.Phase || !reflect.DeepEqual(row.Phases, held.Phases) || row.StartedAt != held.StartedAt {
 		t.Errorf("re-run changed pump-owned state: phase=%v phases=%v startedAt=%v, want %v %v %v",
 			row.Phase, row.Phases, row.StartedAt, held.Phase, held.Phases, held.StartedAt)
+	}
+}
+
+// ---- integration: gated on every dependency being fully Done ---------------------------
+
+// networkOfFixture is the fixture's slot-10 Network, for a test to edit in place.
+func networkOfFixture(t *testing.T, p *projectstate.Project) *projectstate.Network {
+	t.Helper()
+	n, ok := p.Network.Model.(*projectstate.Network)
+	if !ok {
+		t.Fatalf("fixture network is %T", p.Network.Model)
+	}
+	return n
+}
+
+// dependOn replaces activity's slot-10 dependencies with deps.
+func dependOn(t *testing.T, p *projectstate.Project, activity string, deps ...string) {
+	t.Helper()
+	n := networkOfFixture(t, p)
+	for i := range n.Dependencies {
+		if n.Dependencies[i].Activity == activity {
+			n.Dependencies[i].DependsOn = deps
+			return
+		}
+	}
+	n.Dependencies = append(n.Dependencies, projectstate.NetworkDependency{Activity: activity, DependsOn: deps})
+}
+
+// itemOf is the fixture plan's ActivityItem for id.
+func itemOf(t *testing.T, p projectstate.Project, id string) projectstate.ActivityItem {
+	t.Helper()
+	for _, a := range p.ActivityList.Model.(*projectstate.ActivityList).Activities {
+		if a.Name == id {
+			return a
+		}
+	}
+	t.Fatalf("fixture plan has no activity %q", id)
+	return projectstate.ActivityItem{}
+}
+
+// backfillWith evaluates and backfills a prepared fixture project.
+func backfillWith(t *testing.T, p projectstate.Project) (projectstate.Project, map[string]verdict) {
+	t.Helper()
+	root := fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if _, err := backfill(&p, vs, time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	byID := map[string]verdict{}
+	for _, v := range vs {
+		byID[v.ActivityID] = v
+	}
+	return p, byID
+}
+
+// tasksOf is a row's attempted tasks, in ledger order.
+func tasksOf(row projectstate.ActivityConstructionStatus) []projectstate.MethodTask {
+	var out []projectstate.MethodTask
+	for _, a := range row.Attempts {
+		out = append(out, a.Task)
+	}
+	return out
+}
+
+// withoutIntegration is a task list minus every Integration-phase task.
+func withoutIntegration(tasks []projectstate.MethodTask) []projectstate.MethodTask {
+	var out []projectstate.MethodTask
+	for _, task := range tasks {
+		if projectstate.PhaseForTask(task) != projectstate.MethodPhaseIntegration {
+			out = append(out, task)
+		}
+	}
+	return out
+}
+
+// assertIntegrationPending: every non-conditional task but Integration's is attempted, the
+// basis ends with the pending clause and the ruling, and the pump reads the row as
+// running-in-review — never NotStarted (fresh work), never Done (unblocking dependents).
+func assertIntegrationPending(t *testing.T, p projectstate.Project, vs map[string]verdict, id, clause string) {
+	t.Helper()
+	row := p.ActivityConstruction[id]
+	want := withoutIntegration(profileTasks(row.Type, row.Variant))
+	if got := tasksOf(row); !reflect.DeepEqual(got, want) {
+		t.Errorf("%s: tasks = %v, want every non-conditional task but Integration's %v", id, got, want)
+	}
+	if len(want) == len(profileTasks(row.Type, row.Variant)) {
+		t.Fatalf("%s: the profile has no Integration task; the test would pass vacuously", id)
+	}
+	suffix := " + " + clause + " + " + integrationRulingRef
+	for _, a := range row.Attempts {
+		if !strings.HasSuffix(a.Provenance.Basis, suffix) {
+			t.Errorf("%s: basis = %q\nwant it to end %q", a.AttemptID, a.Provenance.Basis, suffix)
+		}
+	}
+	if vs[id].IntegrationPending != clause || !strings.HasSuffix(vs[id].Reason, "; "+clause) {
+		t.Errorf("%s: pending = %q, reason = %q, want the clause %q", id, vs[id].IntegrationPending, vs[id].Reason, clause)
+	}
+	phase, build := projectstate.EffectiveConstructionPhase(row, itemOf(t, p, id))
+	if phase != projectstate.ActivityConstructionRunning || build != projectstate.BuildInReview {
+		t.Errorf("%s: effective = %v/%v, want running/in-review", id, phase, build)
+	}
+}
+
+// assertDone: every non-conditional task is attempted, the basis says nothing about
+// Integration being pending, and the pump reads the row as Done and integrated.
+func assertDone(t *testing.T, p projectstate.Project, vs map[string]verdict, id string) {
+	t.Helper()
+	row := p.ActivityConstruction[id]
+	if got, want := tasksOf(row), profileTasks(row.Type, row.Variant); !reflect.DeepEqual(got, want) {
+		t.Errorf("%s: tasks = %v, want the whole profile %v", id, got, want)
+	}
+	if vs[id].IntegrationPending != "" || strings.Contains(vs[id].Basis, "Integration pending") {
+		t.Errorf("%s: pending = %q, basis = %q, want it integrated", id, vs[id].IntegrationPending, vs[id].Basis)
+	}
+	phase, build := projectstate.EffectiveConstructionPhase(row, itemOf(t, p, id))
+	if phase != projectstate.ActivityConstructionDone || build != projectstate.BuildIntegrated {
+		t.Errorf("%s: effective = %v/%v, want done/integrated", id, phase, build)
+	}
+}
+
+// A dependency that does not qualify leaves its dependent integration pending. Both
+// failing dependencies are named, in id order (given here out of order), each with why.
+func TestIntegration_ADependencyThatIsNotBuiltLeavesTheDependentPending(t *testing.T) {
+	p := fixtureProject()
+	dependOn(t, &p, "C-alpha-manager", "R-orphan", "C-delta-access", "C-gamma-access")
+	p, vs := backfillWith(t, p)
+
+	assertIntegrationPending(t, p, vs, "C-alpha-manager",
+		"Integration pending: dependency C-delta-access is not built; dependency R-orphan is not built.")
+	for _, id := range []string{"C-gamma-access", "R-gamma-store", "N-STP"} {
+		assertDone(t, p, vs, id)
+	}
+}
+
+// Transitively: N-STP depends on C-alpha-manager, which qualifies but is itself pending,
+// so N-STP is pending too — and it says its dependency is built but not integrated.
+func TestIntegration_PendingPropagatesToEveryDependent(t *testing.T) {
+	p := fixtureProject()
+	dependOn(t, &p, "C-alpha-manager", "C-delta-access")
+	dependOn(t, &p, "N-STP", "C-alpha-manager")
+	p, vs := backfillWith(t, p)
+
+	assertIntegrationPending(t, p, vs, "C-alpha-manager", "Integration pending: dependency C-delta-access is not built.")
+	assertIntegrationPending(t, p, vs, "N-STP", "Integration pending: dependency C-alpha-manager is built but not integrated.")
+	assertDone(t, p, vs, "C-gamma-access")
+}
+
+// Every dependency fully Done means Done, even when the dependent comes FIRST in plan
+// order: the gate is computed in topological order, never in plan order. N-STP is moved to
+// the front and depends on C-alpha-manager <- C-gamma-access <- R-gamma-store <- M0.
+func TestIntegration_AllDependenciesDoneMeansDoneWhateverThePlanOrder(t *testing.T) {
+	p := fixtureProject()
+	list := p.ActivityList.Model.(*projectstate.ActivityList)
+	for i, a := range list.Activities {
+		if a.Name == "N-STP" {
+			list.Activities = append([]projectstate.ActivityItem{a}, append(list.Activities[:i:i], list.Activities[i+1:]...)...)
+			break
+		}
+	}
+	if list.Activities[0].Name != "N-STP" {
+		t.Fatal("fixture reorder did not apply")
+	}
+	dependOn(t, &p, "N-STP", "C-alpha-manager")
+	p, vs := backfillWith(t, p)
+
+	for _, id := range []string{"N-STP", "C-alpha-manager", "C-gamma-access", "R-gamma-store"} {
+		assertDone(t, p, vs, id)
+	}
+}
+
+// A milestone stands for what it depends on, as it does for the pump: M1 fans in
+// R-delta-gateway (not built) and R-gamma-store, so a dependent of M1 is pending on the
+// former; M0 depends on nothing and holds nothing back.
+func TestIntegration_AMilestoneStandsForTheActivitiesItDependsOn(t *testing.T) {
+	p := fixtureProject()
+	dependOn(t, &p, "C-alpha-manager", "M1")
+	p, vs := backfillWith(t, p)
+	assertIntegrationPending(t, p, vs, "C-alpha-manager", "Integration pending: dependency R-delta-gateway is not built.")
+
+	p = fixtureProject()
+	dependOn(t, &p, "C-alpha-manager", "M0")
+	p, vs = backfillWith(t, p)
+	assertDone(t, p, vs, "C-alpha-manager")
+}
+
+// The graph must be whole for the verdict to be one: every defect is refused, by name.
+func TestIntegration_RefusesADependencyGraphThatIsNotWhole(t *testing.T) {
+	cases := []struct {
+		name   string
+		mutate func(t *testing.T, p *projectstate.Project)
+		want   string
+	}{
+		{"no network", func(_ *testing.T, p *projectstate.Project) { p.Network = projectstate.ArtifactSlot{} },
+			"slot network holds <nil>, not a Network"},
+		{"a dangling dependency id", func(t *testing.T, p *projectstate.Project) { dependOn(t, p, "C-alpha-manager", "C-nowhere") },
+			`slot 10, C-alpha-manager: dependency "C-nowhere" names neither an activity of the committed plan nor a slot-10 milestone`},
+		{"dependencies for an unplanned activity", func(t *testing.T, p *projectstate.Project) { dependOn(t, p, "C-ghost", "M0") },
+			`slot 10 lists dependencies for "C-ghost", which is not an activity of the committed plan`},
+		{"a milestone cycle", func(t *testing.T, p *projectstate.Project) {
+			n := networkOfFixture(t, p)
+			n.Milestones = append(n.Milestones, projectstate.NetworkMilestone{ID: "M2", DependsOn: []string{"M3"}}, projectstate.NetworkMilestone{ID: "M3", DependsOn: []string{"M2"}})
+			dependOn(t, p, "C-alpha-manager", "M2")
+		}, `milestone "M2" depends, directly or transitively, on itself`},
+		{"an activity cycle", func(t *testing.T, p *projectstate.Project) { dependOn(t, p, "C-gamma-access", "C-alpha-manager") },
+			"slot 10 has a dependency cycle; these activities cannot be ordered: C-alpha-manager, C-gamma-access, N-IT, U-SPA-web-client"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			p := fixtureProject()
+			c.mutate(t, &p)
+			_, err := evaluate(inputs{Project: p, ServerRoot: fixtureServer(t), Head: fixtureHead})
+			if err == nil || !strings.Contains(err.Error(), c.want) {
+				t.Fatalf("err = %v, want it to contain %q", err, c.want)
+			}
+		})
+	}
+}
+
+// Re-runs stay byte-identical with an integration-pending row in the document; and when a
+// dependency edge moves, only the activity it gates is re-derived — every other row keeps
+// its exact attempts.
+func TestIntegration_ReRunsAreIdempotentAndOnlyTheGatedRowMoves(t *testing.T) {
+	const laterHead = "fedcba9876543210fedcba9876543210fedcba98"
+	first, later := time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC), time.Date(2026, 9, 13, 8, 30, 0, 0, time.UTC)
+	root := fixtureServer(t)
+	full := rewriteAt(t, stateDocument(t, fixtureProject()), root, fixtureHead, first)
+
+	p, err := decodeDocument(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dependOn(t, &p, "C-alpha-manager", "C-delta-access", "C-gamma-access")
+	pending := rewriteAt(t, stateDocument(t, p), root, laterHead, later)
+	if again := rewriteAt(t, pending, root, laterHead, later.Add(time.Hour)); !bytes.Equal(again, pending) {
+		t.Fatalf("a re-run over an integration-pending document rewrote it (%d bytes -> %d bytes)", len(pending), len(again))
+	}
+
+	was, err := decodeDocument(full)
+	if err != nil {
+		t.Fatal(err)
+	}
+	now, err := decodeDocument(pending)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, row := range was.ActivityConstruction {
+		if id == "C-alpha-manager" {
+			continue
+		}
+		if !reflect.DeepEqual(now.ActivityConstruction[id], row) {
+			t.Errorf("%s moved although no dependency of it changed", id)
+		}
+	}
+	alpha := now.ActivityConstruction["C-alpha-manager"]
+	if got, want := tasksOf(alpha), withoutIntegration(tasksOf(was.ActivityConstruction["C-alpha-manager"])); !reflect.DeepEqual(got, want) {
+		t.Errorf("C-alpha-manager: tasks = %v, want its earlier backfill minus Integration %v", got, want)
+	}
+}
+
+// The narrowing ruling is the founder's words, verbatim.
+func TestIntegrationRuling_IsQuotedVerbatim(t *testing.T) {
+	const said = "they should have all sublifecycle steps done except integration then. that said, is that really possible? how can they be done in code if their deps aren't?"
+	if integrationRuling != said {
+		t.Errorf("integrationRuling = %q\nthe founder said %q", integrationRuling, said)
+	}
+	if want := "founderRuling[2026-09-13]=" + said; integrationRulingRef != want {
+		t.Errorf("integrationRulingRef = %q, want %q", integrationRulingRef, want)
 	}
 }

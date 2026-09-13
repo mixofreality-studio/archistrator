@@ -28,6 +28,13 @@
 //   - SIGN-OFF. A founder sign-off recorded verbatim against a committed artifact (see
 //     founderSignOffs). It qualifies an activity only while that artifact exists.
 //
+// A qualifying activity is not necessarily Done. The founder ruled (2026-09-13,
+// integrationRuling) that an activity whose slot-10 dependencies are not all built has
+// every lifecycle phase done EXCEPT Integration; applied transitively in topological
+// order, an activity is integrated only once every dependency is fully Done (see
+// gateIntegration). Such an activity's Integration tasks stay unattempted, and its basis
+// names the dependencies that hold it back.
+//
 // Usage (from server/):
 //
 //	GOWORK=off go run ./cmd/backfill-attempts -repo .. [-dry-run]
@@ -76,6 +83,17 @@ const founderRuling = "assume any component that is fully implemented is done an
 
 // founderRulingRef is how that ruling is cited inside a basis string.
 const founderRulingRef = "founderRuling[2026-09-09]=" + founderRuling
+
+// integrationRuling narrows founderRuling for a component whose dependencies are not all
+// built, quoted verbatim. Its reading, recorded with the ruling: a component's code can
+// be written and unit-tested against a dependency's CONTRACT using fakes, but it cannot
+// be INTEGRATED until the dependency itself exists. So such an activity is backfilled
+// with every lifecycle phase EXCEPT Integration, and reads "in construction, integration
+// pending" rather than Done — see gateIntegration.
+const integrationRuling = "they should have all sublifecycle steps done except integration then. that said, is that really possible? how can they be done in code if their deps aren't?"
+
+// integrationRulingRef is how integrationRuling is cited inside a basis string.
+const integrationRulingRef = "founderRuling[2026-09-13]=" + integrationRuling
 
 // founderSignOff is a founder decision, recorded verbatim, that an activity's committed
 // artifact is accepted. It is DATA — an entry here is a decision someone made, with the
@@ -151,6 +169,10 @@ type verdict struct {
 	// Files are the repo-relative files a code verdict read; the run refuses to cite
 	// HEAD for them unless they are unmodified there.
 	Files []string
+	// IntegrationPending is set on a qualifying verdict when some slot-10 dependency is
+	// not fully Done ("Integration pending: dependency X is not built."); its attempts
+	// then stop short of the Integration phase. Empty means the activity is integrated.
+	IntegrationPending string
 }
 
 // inputs is everything the evaluation reads: the decoded committed state, where the
@@ -220,10 +242,196 @@ func evaluate(in inputs) ([]verdict, error) {
 	for _, a := range resources {
 		byID[a.Name] = inferredFromAccess(a.Name, components[a.ComponentID], sys, activityFor, byID)
 	}
+	if err := integrationGates(in.Project, list, byID); err != nil {
+		return nil, err
+	}
 	for _, a := range list.Activities {
 		out = append(out, byID[a.Name])
 	}
 	return out, nil
+}
+
+// ---- integration: an activity is integrated only once everything it depends on is ----
+//
+// The founder ruled (2026-09-13, integrationRuling) that a component whose dependencies
+// are not built has every lifecycle phase done EXCEPT Integration. Applied transitively:
+// an activity's Integration is done only if every slot-10 dependency is FULLY Done —
+// qualifying AND itself integrated. That is computed in topological order over the whole
+// slot-10 graph, so a dependent is never decided before what it depends on.
+//
+// For a Resource, "the inferred RA" is NOT an edge here. The slot-10 edge already runs the
+// other way (C-source-control-access depends on R-github), so adding RA -> Resource as a
+// dependency would make every inferred Resource a cycle. The RA's part is its
+// QUALIFICATION, and inferredFromAccess already refuses a Resource any of whose
+// ResourceAccess components does not qualify.
+
+// networkOf returns the committed slot-10 Network, refusing when it is missing: without it
+// there is no dependency to decide Integration by.
+func networkOf(p projectstate.Project) (projectstate.Network, error) {
+	n, ok := p.Network.Model.(*projectstate.Network)
+	if !ok || n == nil {
+		return projectstate.Network{}, fmt.Errorf("slot network holds %T, not a Network", p.Network.Model)
+	}
+	return *n, nil
+}
+
+// integrationGates resolves slot 10, orders the plan topologically, and gates every
+// qualifying verdict's Integration on its dependencies (see gateIntegration).
+func integrationGates(p projectstate.Project, list projectstate.ActivityList, byID map[string]verdict) error {
+	network, err := networkOf(p)
+	if err != nil {
+		return err
+	}
+	deps, err := activityDependencies(network, list)
+	if err != nil {
+		return err
+	}
+	order, err := topologicalOrder(list, deps)
+	if err != nil {
+		return err
+	}
+	gateIntegration(byID, order, deps)
+	return nil
+}
+
+// activityDependencies resolves slot 10 into each planned activity's direct ACTIVITY
+// dependencies, sorted and de-duplicated. A milestone is expanded into the activities it
+// depends on, recursively — the pump's own reading (resolveDependencySatisfied), under
+// which a milestone with no DependsOn (M0, the project-start gate) is satisfied. An id that
+// names neither a planned activity nor a milestone, a milestone cycle, and a dependency row
+// for an activity the plan does not hold are all refused: the graph must be whole for the
+// verdict to be one.
+func activityDependencies(network projectstate.Network, list projectstate.ActivityList) (map[string][]string, error) {
+	planned := make(map[string]bool, len(list.Activities))
+	for _, a := range list.Activities {
+		planned[a.Name] = true
+	}
+	milestones := make(map[string]projectstate.NetworkMilestone, len(network.Milestones))
+	for _, m := range network.Milestones {
+		milestones[m.ID] = m
+	}
+	sets := map[string]map[string]bool{}
+	for _, d := range network.Dependencies {
+		if !planned[d.Activity] {
+			return nil, fmt.Errorf("slot 10 lists dependencies for %q, which is not an activity of the committed plan", d.Activity)
+		}
+		if sets[d.Activity] == nil {
+			sets[d.Activity] = map[string]bool{}
+		}
+		for _, id := range d.DependsOn {
+			if err := expandDependency(id, planned, milestones, map[string]bool{}, sets[d.Activity]); err != nil {
+				return nil, fmt.Errorf("slot 10, %s: %w", d.Activity, err)
+			}
+		}
+	}
+	out := make(map[string][]string, len(sets))
+	for activity, set := range sets {
+		ids := make([]string, 0, len(set))
+		for id := range set {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		out[activity] = ids
+	}
+	return out, nil
+}
+
+// expandDependency adds the activities id stands for to into: id itself when it is a
+// planned activity, or — when it is a milestone, which is checked first, as the pump
+// does — every activity the milestone depends on. visiting is the milestones on the
+// current expansion path.
+func expandDependency(id string, planned map[string]bool, milestones map[string]projectstate.NetworkMilestone, visiting, into map[string]bool) error {
+	m, isMilestone := milestones[id]
+	if !isMilestone {
+		if !planned[id] {
+			return fmt.Errorf("dependency %q names neither an activity of the committed plan nor a slot-10 milestone", id)
+		}
+		into[id] = true
+		return nil
+	}
+	if visiting[id] {
+		return fmt.Errorf("milestone %q depends, directly or transitively, on itself", id)
+	}
+	visiting[id] = true
+	defer delete(visiting, id)
+	for _, sub := range m.DependsOn {
+		if err := expandDependency(sub, planned, milestones, visiting, into); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// topologicalOrder returns every planned activity after everything it depends on (Kahn's
+// algorithm, ties broken by plan order so the result is deterministic). A dependency cycle
+// among activities is refused, naming every activity on or behind it.
+func topologicalOrder(list projectstate.ActivityList, deps map[string][]string) ([]string, error) {
+	unmet := make(map[string]int, len(list.Activities))
+	dependents := map[string][]string{}
+	for _, a := range list.Activities {
+		unmet[a.Name] = len(deps[a.Name])
+		for _, d := range deps[a.Name] {
+			dependents[d] = append(dependents[d], a.Name)
+		}
+	}
+	order := make([]string, 0, len(list.Activities))
+	placed := make(map[string]bool, len(list.Activities))
+	for len(order) < len(list.Activities) {
+		progressed := false
+		for _, a := range list.Activities {
+			if placed[a.Name] || unmet[a.Name] > 0 {
+				continue
+			}
+			placed[a.Name], progressed = true, true
+			order = append(order, a.Name)
+			for _, dependent := range dependents[a.Name] {
+				unmet[dependent]--
+			}
+		}
+		if !progressed {
+			var stuck []string
+			for _, a := range list.Activities {
+				if !placed[a.Name] {
+					stuck = append(stuck, a.Name)
+				}
+			}
+			sort.Strings(stuck)
+			return nil, fmt.Errorf("slot 10 has a dependency cycle; these activities cannot be ordered: %s", strings.Join(stuck, ", "))
+		}
+	}
+	return order, nil
+}
+
+// gateIntegration walks the plan in topological order and marks every qualifying verdict
+// with a dependency that is not fully Done as integration pending: its Reason and its
+// Basis gain the clause naming each such dependency — "not built" when it does not
+// qualify, "built but not integrated" when it qualifies but is itself pending — and the
+// Basis cites integrationRuling. An activity is integrated only when it qualifies and
+// nothing blocks it, so pending propagates to every dependent.
+func gateIntegration(byID map[string]verdict, order []string, deps map[string][]string) {
+	integrated := make(map[string]bool, len(order))
+	for _, id := range order {
+		var blockers []string
+		for _, d := range deps[id] {
+			switch {
+			case !byID[d].Qualifies:
+				blockers = append(blockers, "dependency "+d+" is not built")
+			case !integrated[d]:
+				blockers = append(blockers, "dependency "+d+" is built but not integrated")
+			}
+		}
+		// integrated is read only for a dependency that QUALIFIES — the not-built case
+		// above is decided first — so a non-qualifier's entry here is never consulted.
+		integrated[id] = len(blockers) == 0
+		v := byID[id]
+		if !v.Qualifies || len(blockers) == 0 {
+			continue
+		}
+		v.IntegrationPending = "Integration pending: " + strings.Join(blockers, "; ") + "."
+		v.Reason += "; " + v.IntegrationPending
+		v.Basis += " + " + v.IntegrationPending + " + " + integrationRulingRef
+		byID[id] = v
+	}
 }
 
 // signedOff is the sign-off evidence path for a componentless activity.
@@ -637,10 +845,17 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 // — and inventing one would assert a pre-design spike or a test client that may never
 // have existed. The ruling says the work is done, reviewed and integrated; it does not
 // say how it got there, and this tool must not fill that in.
+//
+// An integration-pending verdict (see gateIntegration) gets no attempt at any task of the
+// Integration phase: its dependencies are not all built, so it cannot have been
+// integrated, and those tasks stay unattempted — real work for the pump to record.
 func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.TestingVariant, now time.Time) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
 	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, variant)) {
 		if projectstate.IsConditionalTask(task) {
+			continue
+		}
+		if v.IntegrationPending != "" && projectstate.PhaseForTask(task) == projectstate.MethodPhaseIntegration {
 			continue
 		}
 		stamp := now
@@ -1253,10 +1468,13 @@ func printReport(verdicts []verdict, total int, head string, dryRun bool) {
 		mode = "dry-run"
 	}
 	fmt.Printf("backfill-attempts (%s) @ %s\n\nQUALIFIES\n", mode, head)
-	qualifying := 0
+	qualifying, pending := 0, 0
 	for _, v := range verdicts {
 		if v.Qualifies {
 			qualifying++
+			if v.IntegrationPending != "" {
+				pending++
+			}
 			fmt.Printf("  %-32s %s\n", v.ActivityID, v.Reason)
 		}
 	}
@@ -1266,7 +1484,7 @@ func printReport(verdicts []verdict, total int, head string, dryRun bool) {
 			fmt.Printf("  %-32s %s\n", v.ActivityID, v.Reason)
 		}
 	}
-	fmt.Printf("\n  %d of %d activities qualify, %d attempts total\n", qualifying, len(verdicts), total)
+	fmt.Printf("\n  %d of %d activities qualify (%d of them integration pending), %d attempts total\n", qualifying, len(verdicts), pending, total)
 }
 
 func main() {
