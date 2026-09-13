@@ -44,7 +44,6 @@
  * every row and strips the untrusted evidence instead (observedOnly.ts), so a
  * backfilled activity reads not started rather than disappearing (designer P1-11).
  */
-import type { ActivityBuildStatusRow } from '../../../contracts/types';
 import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../provenanceAxis.ts';
 import type { ScopeId, SortId, ToolbarState } from '../lens/useLensSelection.ts';
 import { activityRowState, currentStageMarker } from './activityRowPresentation.ts';
@@ -71,7 +70,7 @@ export function scopePredicate(scope: ScopeId, node: ActivityNode): boolean {
     case 'awaitingMe':
       return activityRowState(node.row) === 'awaitingHuman';
     case 'inFlight':
-      return activityRowState(node.row) === 'running';
+      return isInFlight(node);
     case 'hasRetries':
       return node.retryCount > 0;
     case 'reconstructed':
@@ -240,23 +239,36 @@ export function applyToolbarToActivities(
 // "Expand to current phase"
 // ---------------------------------------------------------------------------
 
-/** In-construction (actively running) or in-review (blocked on a human gate
- *  decision) — both are "the current phase is happening right now", which is
- *  the whole point of the button. An activity with no evidence, or one that
- *  already integrated, has no "current phase" left to jump to. */
-export function isActivelyInFlight(status: ActivityBuildStatusRow | undefined): boolean {
-  return status === 'in-construction' || status === 'in-review';
+/**
+ * IN FLIGHT — the ONE definition, read by the "In flight" scope chip AND by
+ * "Expand to current phase" (both its enabled state and what it opens), so the
+ * chip never lists an activity the button would not open, or the reverse.
+ *
+ * An activity is in flight when its row state is `running` (in construction) or
+ * `awaitingHuman` (in review, blocked on a human gate decision): either way its
+ * current phase is happening right now. Read from the ROW STATE rather than the
+ * bare status, so it follows everything the row state follows — an unclassified
+ * row, or one whose status "Observed only" set aside with its reconstructed
+ * evidence, is not in flight. An activity with no evidence, or one already
+ * integrated, has no current phase left to jump to.
+ *
+ * It overlaps "Awaiting me" on purpose: a review is still work in flight, and
+ * scope chips are views, not a partition.
+ */
+export function isInFlight(node: ActivityNode): boolean {
+  const state = activityRowState(node.row);
+  return state === 'running' || state === 'awaitingHuman';
 }
 
 /**
  * The tree-item ids "Expand to current phase" opens — deliberately just the
  * in-flight ACTIVITIES' own ids (revealing their phase rows), never every
  * activity: that is the "expand all" trap the whole feature exists to avoid.
- * Today's live project has 1-3 activities in flight at once, so clicking the
- * button opens 1-3 rows' worth of phase children, not 528.
+ * A live project has a handful of activities in flight at once, so clicking the
+ * button opens a few rows' worth of phase children, not 528.
  */
 export function currentPhaseExpansionIds(nodes: readonly ActivityNode[]): string[] {
-  return nodes.filter((n) => isActivelyInFlight(n.row.status)).map((n) => n.nodeId);
+  return nodes.filter(isInFlight).map((n) => n.nodeId);
 }
 
 /** The "Expand to current phase" button's state (fix round B, adopted P2). */

@@ -17,7 +17,7 @@ import {
   applyToolbarToActivities,
   currentPhaseExpansionIds,
   expandToCurrentPhaseControl,
-  isActivelyInFlight,
+  isInFlight,
   matchesKind,
   matchesLayer,
   matchingTaskIds,
@@ -25,6 +25,7 @@ import {
   scopePredicate,
   sortActivities,
 } from './activityScope.ts';
+import { observedOnlyRow } from './observedOnly.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the same shape activityTree.test.ts and activityRowPresentation
@@ -139,12 +140,12 @@ void test('scope "awaitingMe" is the awaitingHuman row state (in-review)', () =>
   assert.equal(scopePredicate('awaitingMe', unclassified), false);
 });
 
-void test('scope "inFlight" is the running row state (in-construction)', () => {
+void test('scope "inFlight" is in construction OR in review (the one isInFlight)', () => {
   assert.equal(scopePredicate('inFlight', retried), true);
   assert.equal(
     scopePredicate('inFlight', awaitingMe),
-    false,
-    'in-review is awaitingMe, not inFlight'
+    true,
+    'a review is still in flight (it overlaps awaitingMe on purpose)'
   );
   assert.equal(scopePredicate('inFlight', recorded), false, 'integrated is not in flight');
 });
@@ -284,12 +285,63 @@ void test('applyToolbarToActivities combines every filter with AND, then sorts',
 // "Expand to current phase"
 // ---------------------------------------------------------------------------
 
-void test('isActivelyInFlight is true for in-construction and in-review only', () => {
-  assert.equal(isActivelyInFlight('in-construction'), true);
-  assert.equal(isActivelyInFlight('in-review'), true);
-  assert.equal(isActivelyInFlight('integrated'), false);
-  assert.equal(isActivelyInFlight('failed'), false);
-  assert.equal(isActivelyInFlight(undefined), false);
+void test('isInFlight is true for in-construction and in-review only', () => {
+  const at = (status: ConstructionRow['status']): ActivityNode =>
+    nodeFor(row({ activityId: 'C-s', kind: 'service', ...(status ? { status } : {}) }));
+  assert.equal(isInFlight(at('in-construction')), true);
+  assert.equal(isInFlight(at('in-review')), true);
+  assert.equal(isInFlight(at('integrated')), false);
+  assert.equal(isInFlight(at('failed')), false);
+  assert.equal(isInFlight(at(undefined)), false);
+  // It reads the ROW STATE, so an unclassified in-construction row is not in flight.
+  assert.equal(isInFlight(nodeFor(row({ classified: false, status: 'in-construction' }))), false);
+});
+
+// Final web review: the scope chip used to read `running` only while the button
+// read in-construction OR in-review — "In flight" meant two things on one toolbar.
+void test('the "In flight" scope and "Expand to current phase" share ONE definition', () => {
+  const stripped = nodeFor(
+    observedOnlyRow(
+      row({
+        activityId: 'C-stripped',
+        kind: 'service',
+        status: 'in-construction',
+        attempts: [attempt({ provenance: { origin: 'backfilled' } })],
+      })
+    )
+  );
+  // An unclassified row CAN carry an in-construction status; with no profile it
+  // has no current phase to open, and the chip must not list it either.
+  const unclassifiedRunning = nodeFor(
+    row({ activityId: 'C-unclassified-running', classified: false, status: 'in-construction' })
+  );
+  const all = [
+    unclassified,
+    unclassifiedRunning,
+    reconstructed,
+    retried,
+    awaitingMe,
+    recorded,
+    critical,
+    near,
+    stripped,
+  ];
+  const expanded = new Set(currentPhaseExpansionIds(all));
+  for (const n of all) {
+    assert.equal(
+      scopePredicate('inFlight', n),
+      expanded.has(n.nodeId),
+      `${n.activityId}: the chip and the button disagree`
+    );
+  }
+  assert.deepEqual([...expanded], ['C-retried', 'C-awaiting']);
+  // What the chip shows is exactly what enables the button.
+  const shown = all.filter((n) => scopePredicate('inFlight', n));
+  assert.equal(expandToCurrentPhaseControl(shown).enabled, true);
+  assert.equal(
+    expandToCurrentPhaseControl(all.filter((n) => !scopePredicate('inFlight', n))).enabled,
+    false
+  );
 });
 
 void test('currentPhaseExpansionIds opens ONLY the in-flight activities', () => {

@@ -53,12 +53,14 @@ test('P0-4: at 1280px with the pane open, no activity id is truncated and each i
   await openList(page, '&a=U-SPA-web-client');
   await expect(page.getByTestId(TESTID.constructionDetailPane)).toBeVisible();
 
-  const cells = await page.evaluate(() =>
-    Array.from(document.querySelectorAll('[data-testid^="construction-list-id-"]')).map((el) => ({
-      id: el.textContent,
-      title: el.getAttribute('title'),
-      truncated: el.scrollWidth > el.clientWidth + 0.5,
-    }))
+  const cells = await page.evaluate(
+    (idPrefix) =>
+      Array.from(document.querySelectorAll(`[data-testid^="${idPrefix}"]`)).map((el) => ({
+        id: el.textContent,
+        title: el.getAttribute('title'),
+        truncated: el.scrollWidth > el.clientWidth + 0.5,
+      })),
+    TESTID.constructionListIdCell('')
   );
   expect(cells.length).toBeGreaterThan(20);
   for (const c of cells) {
@@ -80,6 +82,11 @@ test('P1-5 + P1-6: an activity’s pane has one run action, is headed "This acti
   const body = page.getByTestId(TESTID.constructionDetailBodyUnknown);
   await expect(body).toContainText(/this activity/i);
   await expect(body).not.toContainText(/this task/i);
+  // A NOT-STARTED activity (classified, nothing recorded) states the one cause
+  // left. "…or it ran before per-task history was captured" is for UNKNOWN only
+  // (fix-D concern 1).
+  await expect(body).toContainText('Not started. Nothing has run for this yet.');
+  await expect(body).not.toContainText('per-task history');
   await expect(page.getByTestId(TESTID.constructionDetailSelectionSummary)).toHaveText(
     /^0 attempts · \d+ phases$/
   );

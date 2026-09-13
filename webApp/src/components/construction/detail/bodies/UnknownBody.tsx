@@ -13,10 +13,12 @@
  *    does not appear in this file.
  *  - no spinner. Nothing is loading; there is simply no record, and a spinner
  *    would promise one is on the way.
- *  - no "something went wrong" / "no data" shrug. The two REAL causes are
- *    stated (never run, or ran before per-task history existed) and neither is
- *    guessed between — the surface genuinely cannot tell them apart, and
- *    picking one would be a fabrication in a very quiet voice.
+ *  - no "something went wrong" / "no data" shrug. Where the selection is
+ *    UNKNOWN, the two REAL causes are stated (never run, or ran before per-task
+ *    history existed) and neither is guessed between — the surface genuinely
+ *    cannot tell them apart, and picking one would be a fabrication in a very
+ *    quiet voice. Where it is NOT STARTED the history is complete, so it says
+ *    plainly that nothing has run (unknownStatementFor).
  *
  * Every word of the briefing is COMPOSED from the generated profile (its per-
  * profile labels and exit criteria) — see taskBriefing.ts, which holds the whole rule and
@@ -43,6 +45,7 @@ import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
 import type { LensSelection } from '../../lens/useLensSelection';
+import type { TaskDetailState } from '../detailPaneState.ts';
 import {
   briefingFor,
   noBriefingNoteFor,
@@ -54,18 +57,11 @@ import {
 /** The label column's width — fixed so the four rows read as a table, not prose. */
 const LABEL_COLUMN = 86;
 
-export interface UnknownBodyProps {
+interface UnknownBodyCommonProps {
   row: ConstructionRow | undefined;
   selection: LensSelection;
   /** Overrides the default title when a caller has a better name for the thing. */
   title?: string | undefined;
-  /**
-   * Replaces the default "no record" sentence. Used by the artifact body when it
-   * falls back here for a cut classification: the reason is different (this
-   * stage ships no renderer for it) and saying "no record" instead would be
-   * false.
-   */
-  statement?: string | undefined;
   /**
    * How many reconstructed attempts "Observed only" hid in this selection
    * (designer re-check B1). Above zero, "No record. This has not run" would be
@@ -74,20 +70,36 @@ export interface UnknownBodyProps {
   hiddenCount?: number | undefined;
 }
 
-export function UnknownBody({
-  row,
-  selection,
-  title,
-  statement,
-  hiddenCount = 0,
-}: UnknownBodyProps): ReactElement {
+/**
+ * The lead sentence comes from exactly one of two places, and the type says which:
+ *
+ *  - `statement` replaces it outright. Used by the artifact body when it falls
+ *    back here for a cut classification: the reason is different (this stage
+ *    ships no renderer for it) and saying "no record" instead would be false.
+ *  - otherwise `state` — the pane's state for this selection — is REQUIRED, because
+ *    NOT STARTED and UNKNOWN say different things (unknownStatementFor), and a
+ *    caller that forgot it would silently fall back to the wrong one.
+ */
+export type UnknownBodyProps = UnknownBodyCommonProps &
+  ({ statement: string; state?: undefined } | { statement?: undefined; state: TaskDetailState });
+
+/** The card's lead sentence: the caller's own `statement`, else the one the pane's
+ *  `state` calls for. Past the early return the union has narrowed, so `state` is
+ *  the required member — no fallback state is ever invented here. */
+function leadStatementFor(props: UnknownBodyProps, scope: Briefing['scope'] | undefined): string {
+  if (props.statement !== undefined) return props.statement;
+  return unknownStatementFor(scope, props.hiddenCount ?? 0, props.state);
+}
+
+export function UnknownBody(props: UnknownBodyProps): ReactElement {
+  const { row, selection, title, hiddenCount = 0 } = props;
   const t = useTokens();
   const briefing = briefingFor(row, selection);
   return (
     <UnknownCard
       briefing={briefing}
       noBriefingNote={noBriefingNoteFor(row, hiddenCount)}
-      statement={statement ?? unknownStatementFor(briefing?.scope, hiddenCount)}
+      statement={leadStatementFor(props, briefing?.scope)}
       t={t}
       title={title ?? unknownTitleFor(briefing, selection)}
     />

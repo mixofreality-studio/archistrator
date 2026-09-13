@@ -71,7 +71,7 @@ import {
   applyToolbarToActivities,
   expandToCurrentPhaseControl,
 } from '../components/construction/list/activityScope';
-import { evidenceViewFor } from '../components/construction/list/observedOnly';
+import { evidenceViewFor, tasksOwedIn } from '../components/construction/list/observedOnly';
 import {
   DEFAULT_TOOLBAR,
   useLensSelection,
@@ -359,15 +359,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return [...layers].sort((a, b) => a.localeCompare(b)).map((l) => ({ value: l, label: l }));
   }, [project]);
 
-  // The TASKS badge — the only lens that asserts something is owed. Counted from
-  // the real head-state: an in-review activity has reached the human code-review
-  // gate. Nothing is inferred for rows with no evidence.
-  const tasksOwed = useMemo(
-    () =>
-      Object.values(project?.constructionRows ?? {}).filter((r) => r.status === 'in-review').length,
-    [project]
-  );
-
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
@@ -458,6 +449,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     [project, toolbar.observedOnly]
   );
   const viewRows = evidenceView.rows;
+
+  // The TASKS badge — the only lens that asserts something is owed: an in-review
+  // activity has reached the human code-review gate. Counted from the SAME evidence
+  // view as the list, so "Observed only" governs the badge too (tasksOwedIn).
+  const tasksOwed = useMemo(() => tasksOwedIn(evidenceView), [evidenceView]);
+
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
     [viewRows, activityMeta]
@@ -487,8 +484,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         activityTitle={titleForId(selectedActivityId)}
         // The pane is in the pure `components` layer and may not reach into
         // hooks, so the EPISODE body's queries are handed down from here as a
-        // containers-layer render prop (the same reason ActivityLifecyclePanel
-        // took an `episodesSlot`).
+        // containers-layer render prop.
         episodeSlot={({ activityId, attemptId }) => (
           <ConstructionEpisodeBodyContainer
             activityId={activityId}

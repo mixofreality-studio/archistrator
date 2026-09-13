@@ -5,8 +5,7 @@
  * `EpisodeTimeline` (components layer) may touch directly.
  *
  * Mount points: `SystemDesignContainer.tsx` (via `episodesSlot`, Phase 1),
- * `ProjectDesignExperience.tsx` (Phase 2), and `ConstructionConsole.tsx` (via
- * `ActivityLifecyclePanel`'s `episodesSlot`) — see each file's own comment for
+ * `ProjectDesignExperience.tsx` (Phase 2) — see each file's own comment for
  * why the mount is threaded as a prop rather than mounted from inside a
  * components-layer file.
  *

@@ -18,6 +18,7 @@ import {
   headerProvenanceChipsFor,
   noAttemptStateFor,
   observedOnlyChipLabel,
+  outcomeStateOf,
   resolvePhaseTask,
   runActionFor,
   taskDetailStateFor,
@@ -256,6 +257,15 @@ void test('a pending gate task on an in-review row is awaitingHuman, not running
   });
   const selection: LensSelection = { activityId: 'C-x', task: 'codeReview' };
   assert.equal(taskDetailStateFor(r, selection), 'awaitingHuman');
+});
+
+// Final web review: the pane used to fold `skipped` onto `passed` while the list
+// kept it `skipped` — the same attempt, two answers. One mapping now serves both.
+void test('a skipped task reads SKIPPED in the pane, never PASSED', () => {
+  const r = row({ status: 'integrated', attempts: [attempt({ outcome: 'skipped' })] });
+  const selection: LensSelection = { activityId: 'C-x', task: 'codeReview' };
+  assert.equal(taskDetailStateFor(r, selection), 'skipped');
+  assert.equal(outcomeStateOf('skipped'), 'skipped');
 });
 
 void test('a pending task on an in-construction row is running', () => {

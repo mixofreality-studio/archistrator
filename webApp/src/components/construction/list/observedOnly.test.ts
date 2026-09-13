@@ -15,7 +15,26 @@ import {
   hiddenInScope,
   observedOnlyRow,
   rowsForEvidenceView,
+  tasksOwedIn,
 } from './observedOnly.ts';
+
+// Final web review: the TASKS badge counted the raw rows, so "Observed only" hid a
+// reconstructed in-review row from the list while the badge still counted it.
+void test('the TASKS badge counts from the evidence view, so Observed only governs it', () => {
+  const rows = {
+    'C-backfilled': row({ activityId: 'C-backfilled', status: 'in-review' }),
+    'C-observed': row({
+      activityId: 'C-observed',
+      status: 'in-review',
+      worstOrigin: 'observed',
+      attempts: [attempt('observed')],
+    }),
+    'C-done': row({ activityId: 'C-done' }),
+  };
+  assert.equal(tasksOwedIn(evidenceViewFor(rows, false)), 2);
+  assert.equal(tasksOwedIn(evidenceViewFor(rows, true)), 1);
+  assert.equal(tasksOwedIn(evidenceViewFor(undefined, true)), 0);
+});
 
 function attempt(
   origin: TaskAttemptRow['provenance']['origin'],

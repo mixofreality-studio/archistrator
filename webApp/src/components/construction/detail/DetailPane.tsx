@@ -3,9 +3,9 @@
    already use for their token-driven helpers. */
 /**
  * The shared detail pane — ONE header/body/action-bar surface behind every
- * lens (Stage B Task 4). Replaces ActivityLifecyclePanel's 480px overlay
- * Drawer, which covered the very thing you clicked from and, while open, its
- * modal backdrop also occluded the lens toolbar's right end.
+ * lens (Stage B Task 4). Replaces the old ActivityLifecyclePanel's 480px
+ * overlay Drawer (since deleted), which covered the very thing you clicked from
+ * and, while open, its modal backdrop also occluded the lens toolbar's right end.
  *
  * >= 1200px: laid out BESIDE the content — default 520px, resizable by
  * dragging the left edge, collapsible to a thin rail. Width is remembered in
@@ -13,10 +13,9 @@
  * it throws outright in a private window or with site data blocked, and the
  * pane must still render correctly with no stored value).
  *
- * < 1200px: degrades to the existing overlay Drawer (kept, not deleted —
- * ActivityLifecyclePanel.tsx still carries the original implementation for
- * reference; this is the SAME Drawer mechanism, now driven by the shared
- * header/body/action-bar rather than its own bespoke one).
+ * < 1200px: degrades to an overlay Drawer (spec §7.4: kept, not deleted). It
+ * lives HERE, in this file — the same Drawer mechanism the old panel used, now
+ * driven by the shared header/body/action-bar rather than a bespoke one.
  *
  * The two invariants that make this surface trustworthy (see
  * detailPaneState.ts for the pure half of both):
@@ -960,11 +959,13 @@ function DetailBody({
       return absence !== undefined ? (
         <AbsentBody absence={absence} />
       ) : (
-        <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} />
+        <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} state={state} />
       );
     }
     case 'unknown':
-      return <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} />;
+      return (
+        <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} state={state} />
+      );
     case 'episode': {
       const activityId = selection.activityId;
       const slot =

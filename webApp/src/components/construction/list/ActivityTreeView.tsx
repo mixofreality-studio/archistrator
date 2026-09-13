@@ -51,9 +51,8 @@
  * component owns roving-tabindex keyboard traversal, `role="tree"`/`treeitem`
  * semantics and aria-expanded, none of which a hand-rolled `<div>` list gets for
  * free. `slots.item` then hands the whole row body back to us, so MUI owns the
- * accessibility and this file owns every pixel. The `apiRef` is wired now
- * because Task 11's search-reveal and expand-to-current-phase drive it; nothing
- * here calls it yet.
+ * accessibility and this file owns every pixel. The `apiRef` is how this file
+ * focuses a search match or a deep-linked row (see NAVIGABILITY below).
  *
  * `expansionTrigger: 'iconContainer'` is deliberate — clicking a ROW selects it
  * (and fills the detail pane); only the chevron expands. Sharing one gesture
@@ -108,7 +107,6 @@ import { useTreeItem } from '@mui/x-tree-view/useTreeItem';
 import { TreeItemProvider } from '@mui/x-tree-view/TreeItemProvider';
 import type { TreeItemProps } from '@mui/x-tree-view/TreeItem';
 
-import type { TaskAttemptRow } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
@@ -117,9 +115,10 @@ import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
 import {
   noAttemptStateFor,
-  PROVENANCE_LABEL,
+  outcomeStateOf,
   taskDetailStateFill,
 } from '../detail/detailPaneState.ts';
+import { provenanceSubGradeLabel } from '../provenanceAxis.ts';
 import { centeredScrollFor } from '../lens/lensGeometry.ts';
 import {
   GRADE_LABEL,
@@ -177,7 +176,6 @@ import {
 // tests, which cannot load a `.tsx` module at all) reaches them either way.
 export {
   chipFor,
-  emphasisRank,
   floatPresentation,
   inlineActionsFor,
   type RowState,
@@ -254,8 +252,9 @@ type TreeTier = 'activity' | 'stage' | 'task';
  * One tree item. `children` is what RichTreeView traverses; every other field is
  * ours, read back inside the row with `useTreeItemModel`.
  *
- * `label` exists because the tree needs a searchable string per item (type-ahead
- * today, Task 11's search-reveal next) — it is never what the row renders.
+ * `label` exists because the tree needs a string per item for its keyboard
+ * type-ahead — it is never what the row renders. The toolbar's search does not
+ * read it: that matches the node fields activityScope.ts names.
  */
 interface TreeRow {
   id: string;
@@ -1667,7 +1666,7 @@ function AttemptLedger({ task }: { task: TaskNode }): ReactElement {
   return (
     <Box sx={{ pl: `${String(TIER_INDENT.task + 22)}px`, pr: 1.25, pb: 0.5 }}>
       {newestFirst.map((attempt: TaskAttemptNode) => {
-        const state = attemptRowState(attempt.superseded, outcomeState(attempt.outcome));
+        const state = attemptRowState(attempt.superseded, outcomeStateOf(attempt.outcome));
         return (
           <Box
             key={attempt.attemptId}
@@ -1689,31 +1688,13 @@ function AttemptLedger({ task }: { task: TaskNode }): ReactElement {
               {ROW_STATE_LABEL[state]}
             </Typography>
             <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
-              {`${PROVENANCE_LABEL[attempt.provenance.origin].toLowerCase()} · ${attempt.actor ?? '—'}`}
+              {`${provenanceSubGradeLabel(attempt.provenance.origin)} · ${attempt.actor ?? '—'}`}
             </Typography>
           </Box>
         );
       })}
     </Box>
   );
-}
-
-/** One attempt's own outcome, read exactly as the tree reads it — with the
- *  `skipped` refinement this surface has a channel for. */
-function outcomeState(outcome: TaskAttemptRow['outcome']): RowState {
-  switch (outcome) {
-    case 'passed':
-      return 'passed';
-    case 'skipped':
-      return 'skipped';
-    case 'rejected':
-    case 'failed':
-      return 'failed';
-    case '':
-      return 'running';
-    default:
-      return 'unknown';
-  }
 }
 
 // ---------------------------------------------------------------------------

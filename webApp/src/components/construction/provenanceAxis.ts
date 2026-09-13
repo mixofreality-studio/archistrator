@@ -7,11 +7,12 @@
  *
  * The two must never be collapsed. On 2026-09-09 the founder ruled "assume any
  * component that is fully implemented is done and reviewed and integrated", and
- * a backfill wrote 218 task attempts onto 25 activities from that ruling — 21 of
- * which now render 100% with every lifecycle phase complete. Six of the ten
- * tasks on each of those (srs, srsReview, stp, stpReview, integration, testing)
- * have no artifact behind them at all; their entire evidence is the ruling,
- * recorded in the attempt's `provenance.basis`. Rendered on the state channel
+ * a backfill wrote 214 task attempts onto 23 activities from that ruling, and
+ * all 23 now render 100% with every lifecycle phase complete. On the 19
+ * ten-task activities among them, six of the tasks (srs, srsReview, stp,
+ * stpReview, integration, testing) have, bar a handful, no artifact behind them
+ * at all; their entire evidence is the ruling, recorded in the attempt's
+ * `provenance.basis`. Rendered on the state channel
  * alone they are indistinguishable from work someone watched happen. That is
  * laundering, and this module is what stands between the two.
  *
@@ -80,7 +81,7 @@ export type ProvenanceGrade = 'recorded' | 'reconstructed' | 'unknown';
  * Worst-first ordering over the origins that can actually appear in a ledger.
  * `unknown` is deliberately absent: it is not a rank, it is the answer when
  * there is nothing to rank. Ranking it would make every activity with one
- * un-attempted task read as `unknown` and bury the 21 reconstructed ones.
+ * un-attempted task read as `unknown` and bury the 23 reconstructed ones.
  */
 const ORIGIN_RANK: Record<RecordOriginRow, number> = {
   observed: 0,
@@ -99,6 +100,10 @@ const GRADE_OF: Record<ProvenanceOrigin, ProvenanceGrade> = {
  * The SUB-grade names. `synthesized` reads as "inferred" to a human — the wire
  * word is a generator's word — and the two reconstructed sub-grades are told
  * apart HERE, in prose, never by a second visual channel.
+ *
+ * The ONE set of words for an origin on this surface: the tooltip below and the
+ * list's expanded attempt ledger both read it, so a ledger line can never name
+ * an attempt differently from the tooltip on the same row.
  */
 const SUB_GRADE_LABEL: Record<ProvenanceOrigin, string> = {
   observed: 'observed',
@@ -106,6 +111,11 @@ const SUB_GRADE_LABEL: Record<ProvenanceOrigin, string> = {
   synthesized: 'inferred',
   unknown: 'unrecorded',
 };
+
+/** The sub-grade word for one origin, lower-case — as the tooltip states it. */
+export function provenanceSubGradeLabel(origin: ProvenanceOrigin): string {
+  return SUB_GRADE_LABEL[origin];
+}
 
 /** The one word the badge shows. Grade, never sub-grade — see density rule 2. */
 export const GRADE_LABEL: Record<ProvenanceGrade, string> = {

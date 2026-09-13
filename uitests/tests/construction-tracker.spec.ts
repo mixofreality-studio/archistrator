@@ -89,6 +89,13 @@ test('the Tracker renders the activity tree and an activity row opens its shared
   const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
   await expect(runAction).toBeVisible();
   await expect(runAction).toBeEnabled();
+  // …and it lives IN the invariant action bar, the one bar every body shares —
+  // not in a body, where a body swap could take it away.
+  await expect(
+    page
+      .getByTestId(TESTID.constructionDetailActionBar)
+      .getByTestId(TESTID.constructionDetailActionRun)
+  ).toBeVisible();
 });
 
 /**

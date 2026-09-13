@@ -96,7 +96,8 @@ export type TaskDetailState =
   | 'running'
   | 'awaitingHuman'
   | 'passed'
-  | 'failed';
+  | 'failed'
+  | 'skipped';
 
 export const TASK_DETAIL_STATE_LABEL: Record<TaskDetailState, string> = {
   unknown: 'Unknown',
@@ -105,6 +106,7 @@ export const TASK_DETAIL_STATE_LABEL: Record<TaskDetailState, string> = {
   awaitingHuman: 'Awaiting you',
   passed: 'Passed',
   failed: 'Failed',
+  skipped: 'Skipped',
 };
 
 /** Token-driven fill for the state chip — no hardcoded colour, every theme recolors it. */
@@ -116,6 +118,8 @@ export function taskDetailStateFill(
     case 'unknown':
       return { fg: t.muted, bg: 'transparent', border: t.line };
     case 'notStarted':
+    case 'skipped':
+      // Skipped did not run: it earns no fill, and above all not the success one.
       return { fg: t.muted, bg: 'transparent', border: t.line };
     case 'running':
       return { fg: t.chatArchitectFg, bg: t.chatArchitectBg, border: t.chatArchitectFg };
@@ -206,18 +210,27 @@ export function taskDetailStateFor(
   return stateForRowStatus(row.status);
 }
 
-/** The state of one task attempt's outcome, given the row's coarse status —
- *  a pending ('') gate task on an `in-review` row IS `awaitingHuman`; the
- *  same pending outcome elsewhere is plain `running`. Each function below is
- *  a single exhaustive switch AS the entire function body (the established
- *  idiom this codebase already uses — see buildStatusForStage), so a real,
- *  unreachable `default` closes the TS control-flow proof without hiding a
- *  genuinely-missing case: `switch-exhaustiveness-check` still fails the
- *  build the moment a member goes unhandled above it. */
-function stateForOutcome(
-  outcome: TaskAttemptRow['outcome'],
-  rowStatus: ActivityBuildStatusRow | undefined
-): TaskDetailState {
+/**
+ * What ONE attempt's outcome says on its own, with no row context.
+ *
+ * This is the ONE outcome mapping on the construction surface: the pane
+ * (stateForOutcome, below), the list's tier-3 task state (activityTree.ts) and
+ * the list's expanded attempt ledger all read it, so the three cannot disagree
+ * about the same attempt.
+ *
+ * `skipped` stays `skipped`. A skipped task did not run, and the success mark
+ * is not lent to work that never happened (activityRowPresentation.ts,
+ * skippedIsNotPassed, records the full reasoning).
+ *
+ * A single exhaustive switch as the whole function body — the idiom this
+ * codebase already uses (see buildStatusForStage). The unreachable `default`
+ * closes the TS control-flow proof without hiding a missing case, because
+ * `switch-exhaustiveness-check` still fails the build the moment a member goes
+ * unhandled above it. A junk wire value is "we do not know", never a guess.
+ */
+export type OutcomeState = 'unknown' | 'running' | 'passed' | 'failed' | 'skipped';
+
+export function outcomeStateOf(outcome: TaskAttemptRow['outcome']): OutcomeState {
   switch (outcome) {
     case 'passed':
       return 'passed';
@@ -225,15 +238,24 @@ function stateForOutcome(
     case 'failed':
       return 'failed';
     case 'skipped':
-      // A skipped (conditional-not-needed) task is a benign terminal
-      // outcome, not a verdict of its own — grouped with `passed` rather
-      // than inventing a seventh state for one non-blocking case.
-      return 'passed';
+      return 'skipped';
     case '':
-      return rowStatus === 'in-review' ? 'awaitingHuman' : 'running';
+      return 'running';
     default:
       return 'unknown';
   }
+}
+
+/** The state of one task attempt's outcome, given the row's coarse status —
+ *  a pending ('') gate task on an `in-review` row IS `awaitingHuman`; the
+ *  same pending outcome elsewhere is plain `running`. Every other outcome
+ *  reads exactly as outcomeStateOf says. */
+function stateForOutcome(
+  outcome: TaskAttemptRow['outcome'],
+  rowStatus: ActivityBuildStatusRow | undefined
+): TaskDetailState {
+  const state = outcomeStateOf(outcome);
+  return state === 'running' && rowStatus === 'in-review' ? 'awaitingHuman' : state;
 }
 
 function stateForRowStatus(status: ActivityBuildStatusRow | undefined): TaskDetailState {
@@ -268,12 +290,6 @@ export function attemptProvenance(
   return row.worstOrigin;
 }
 
-export const PROVENANCE_LABEL: Record<RecordOriginRow, string> = {
-  observed: 'Recorded',
-  backfilled: 'Reconstructed',
-  synthesized: 'Synthesized',
-};
-
 /** The one attempt the pane is currently showing, or none. */
 export function selectedAttemptOf(
   row: ConstructionRow | undefined,
@@ -291,10 +307,10 @@ export function selectedAttemptOf(
  *
  * THIS IS THE LAUNDERING FIX. On 2026-09-09 the founder ruled that any fully
  * implemented component is done, reviewed and integrated, and a backfill wrote
- * 218 attempts onto 25 activities from that ruling — 21 of which now render 100%
- * with every phase complete. Six of the ten tasks on each of those (srs,
- * srsReview, stp, stpReview, integration, testing) have NO artifact behind them
- * at all; their entire evidence is the ruling, recorded in
+ * 214 attempts onto 23 activities from that ruling, and all 23 now render 100%
+ * with every phase complete. On the 19 ten-task activities among them, six of
+ * the tasks (srs, srsReview, stp, stpReview, integration, testing) have, bar a
+ * handful, NO artifact behind them at all; their entire evidence is the ruling, recorded in
  * `provenance.basis`. The list stamps them `≈ RECONSTRUCTED`. Until this
  * function existed the pane — the surface a reader opens precisely to CHECK a
  * row — showed `PASSED` with no mark at all, which is the same laundering one
@@ -375,10 +391,10 @@ function profileFor(row: ConstructionRow): readonly GeneratedPhase[] | undefined
 }
 
 /**
- * Resolve the selected phase/task's display metadata. Falls back to the
- * row's own `currentLifecyclePhase` when nothing is explicitly selected (the
- * only reachable case today — task-granular selection lands in Task 6), so
- * the header is not blank the moment an activity node is clicked.
+ * Resolve the selected phase/task's display metadata: the selected phase
+ * (and, with a task selected, that task's label). With only an activity
+ * selected it falls back to the row's own `currentLifecyclePhase`, so the
+ * header is not blank the moment an activity node is clicked.
  */
 export function resolvePhaseTask(
   row: ConstructionRow | undefined,

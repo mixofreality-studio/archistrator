@@ -84,6 +84,20 @@ export function evidenceViewFor(
   return { rows: out, hidden };
 }
 
+/**
+ * The TASKS lens badge: how many activities sit at the human code-review gate
+ * (`in-review`), counted from the EVIDENCE VIEW so the badge says what the list
+ * says. With "Observed only" on, a row whose status came from reconstructed
+ * evidence has lost that status (observedOnlyRow), so it no longer counts as
+ * owed.
+ *
+ * It takes the view rather than bare rows on purpose: the caller cannot hand it
+ * the raw rows by accident and have the badge ignore the toggle again.
+ */
+export function tasksOwedIn(view: EvidenceView): number {
+  return Object.values(view.rows ?? {}).filter((r) => r.status === 'in-review').length;
+}
+
 /** How many of an activity's hidden attempts fall in the selection: the selected
  *  task's, else the selected phase's, else the whole activity's. */
 export function hiddenInScope(
