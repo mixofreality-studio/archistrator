@@ -405,6 +405,8 @@ export const UI_IDENTIFIERS = {
     GRAPH_M0_OPEN_SDP: 'construction-graph-m0-open-sdp',
     /** M0's copy as a popover — the chip is a button, so the link is keyboard-reachable. */
     GRAPH_M0_POPOVER: 'construction-graph-m0-popover',
+    /** The key's drawn swatches: hatch, spine, float, critical (designer re-check 8). */
+    graphKeySwatch: (kind: string) => `construction-graph-key-swatch-${kind}`,
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,

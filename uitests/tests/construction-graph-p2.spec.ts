@@ -307,3 +307,20 @@ test('edges are not Tab stops: the first lane is a few Tabs past the Key button 
   }
   expect(presses, 'Tabs from the Key button to the first lane').toBeLessThanOrEqual(3);
 });
+
+test('the key draws its swatches and never reads "= =" (designer re-check 8)', async ({ page }) => {
+  await openGraph(page);
+  await page.getByTestId(TESTID.constructionGraphKeyButton).click();
+  const key = page.getByTestId(TESTID.constructionGraphKey);
+  await expect(key).toBeVisible();
+  expect((await key.textContent()) ?? '', 'no "=" in the key').not.toContain('=');
+  const paint = async (kind: string, prop: string): Promise<string> =>
+    page
+      .getByTestId(TESTID.constructionGraphKeySwatch(kind))
+      .evaluate((el, p) => getComputedStyle(el).getPropertyValue(p), prop);
+  expect(await paint('hatch', 'background-image'), 'the hatch is drawn').not.toBe('none');
+  expect(await paint('critical', 'border-left-width'), 'the critical edge is drawn').toBe('3px');
+  await expect(page.getByTestId(TESTID.constructionGraphKeySwatch('spine'))).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionGraphKeySwatch('float'))).toContainText(/\d/);
+  await expect(key).toContainText('RECONSTRUCTED');
+});

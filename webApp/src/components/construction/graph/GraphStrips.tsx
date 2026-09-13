@@ -12,7 +12,7 @@
  *    "Key" popover button beside it — how many components no activity builds,
  *    the spine's state key, the provenance hatch and the schedule channels.
  */
-import { useState, type ReactElement } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import ButtonBase from '@mui/material/ButtonBase';
@@ -21,12 +21,14 @@ import Popover from '@mui/material/Popover';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
+import { alpha } from '@mui/material/styles';
 
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ActivityNode } from '../list/activityTree';
-import { ProvenanceGroupStamp, ProvenanceRailMark } from '../provenance';
-import { provenanceBasesOf, provenanceTooltipFor } from '../provenanceAxis';
+import { ProvenanceGroupStamp, ProvenanceRailMark, ReconstructedBadge } from '../provenance';
+import { provenanceBasesOf, provenanceRailFor, provenanceTooltipFor } from '../provenanceAxis';
+import { bandTokens } from '../../project/bandTokens';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
 import { SCHEDULE_CAPTION } from './laneSchedule';
@@ -459,6 +461,19 @@ export function GraphKeyBar({
   );
 }
 
+/** The reconstructed grade's rail — the key draws the very texture a lane does. */
+const HATCH_RAIL = provenanceRailFor('backfilled');
+
+/** One key row: a drawn swatch, then its words. */
+function KeyRow({ swatch, children }: { swatch: ReactElement; children: ReactNode }): ReactElement {
+  return (
+    <Box component="span" sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+      {swatch}
+      <Box component="span">{children}</Box>
+    </Box>
+  );
+}
+
 /** The legend the Key button opens. */
 function GraphKeyLegend({
   model,
@@ -517,11 +532,78 @@ function GraphKeyLegend({
           );
         })}
       </Box>
-      <Box component="span">hatched rail = ≈ RECONSTRUCTED</Box>
-      <Box component="span">
-        spine length = effort · rail + numeral = total float (days) · heavy left edge = critical
-        path
-      </Box>
+      {/* Drawn swatches, one channel a row (designer re-check 8): the copy used
+          to read "hatched rail = ≈ RECONSTRUCTED", which said "= =". */}
+      <KeyRow
+        swatch={
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.graphKeySwatch('hatch')}
+            sx={{
+              width: 4,
+              height: 14,
+              flexShrink: 0,
+              color: alpha(t.ink, 0.75),
+              backgroundImage: HATCH_RAIL.texture,
+              backgroundSize: `${String(HATCH_RAIL.widthPx)}px 100%`,
+              backgroundRepeat: 'repeat-y',
+            }}
+          />
+        }
+      >
+        hatched rail — reconstructed evidence; its card carries{' '}
+        <Box component="span" sx={{ display: 'inline-flex', pointerEvents: 'none' }}>
+          <ReconstructedBadge label="RECONSTRUCTED" t={t} title="" />
+        </Box>
+      </KeyRow>
+      <KeyRow
+        swatch={
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.graphKeySwatch('spine')}
+            sx={{ width: 28, height: 6, flexShrink: 0, bgcolor: t.line, borderRadius: '2px' }}
+          />
+        }
+      >
+        spine length — effort
+      </KeyRow>
+      <KeyRow
+        swatch={
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.graphKeySwatch('float')}
+            sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}
+          >
+            <Box
+              component="span"
+              sx={{ width: 3, height: 10, bgcolor: bandTokens(t, 'red').fg, borderRadius: '1px' }}
+            />
+            <Box
+              component="span"
+              sx={{ fontFamily: t.mono, fontSize: 9, fontWeight: 700, color: t.ink }}
+            >
+              5
+            </Box>
+          </Box>
+        }
+      >
+        rail and numeral — total float, in days
+      </KeyRow>
+      <KeyRow
+        swatch={
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.graphKeySwatch('critical')}
+            sx={{
+              width: 14,
+              height: 12,
+              flexShrink: 0,
+              boxSizing: 'border-box',
+              bgcolor: t.paper,
+              border: `1px solid ${alpha(t.line, 0.6)}`,
+              borderLeft: `3px solid ${t.ink}`,
+            }}
+          />
+        }
+      >
+        heavy left edge — on the critical path
+      </KeyRow>
       <Box
         component="span"
         data-testid={UI_IDENTIFIERS.Construction.GRAPH_SCHEDULE_CAPTION}

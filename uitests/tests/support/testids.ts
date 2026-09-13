@@ -243,6 +243,7 @@ export const TESTID = {
   constructionGraphM0Hover: UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER,
   constructionGraphM0OpenSdp: UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP,
   constructionGraphM0Popover: UI_IDENTIFIERS.Construction.GRAPH_M0_POPOVER,
+  constructionGraphKeySwatch: UI_IDENTIFIERS.Construction.graphKeySwatch,
   /** The ▤ LIST │ ⬡ GRAPH │ ⚑ TASKS segmented control's buttons. */
   constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
   constructionLensSort: UI_IDENTIFIERS.Construction.LENS_SORT,
