@@ -67,6 +67,9 @@ const ROWS: ConstructionRows = {
   'C-done': doneRow('C-done'),
   'C-fresh': pickedUp('C-fresh'),
   'C-orphan': pickedUp('C-orphan'),
+  // Picked up, and its probe ANSWERED with a live session: the row still reads not
+  // started, so only the session says a pump runs it.
+  'C-session': pickedUp('C-session'),
 };
 
 const SESSIONS: SessionsByActivity = {
@@ -75,6 +78,7 @@ const SESSIONS: SessionsByActivity = {
   'C-running': { stage: 'pipelineRunning', view: {} } as unknown as ConstructionSessionState,
   // Asked and answered: no session. Not in flight.
   'C-orphan': null,
+  'C-session': { stage: 'pipelineRunning', view: {} } as unknown as ConstructionSessionState,
   // 'C-fresh': not answered yet — pending, so in flight.
 };
 
@@ -145,7 +149,7 @@ function readers(observedOnly: boolean): {
 
 void test('the in-flight set: running, a live gate, a live session and a pending probe — never waiting', () => {
   const r = readers(false);
-  assert.deepEqual(r.set, ['C-fresh', 'C-gate', 'C-running']);
+  assert.deepEqual(r.set, ['C-fresh', 'C-gate', 'C-running', 'C-session']);
   assert.ok(!r.set.includes('C-pending'), 'an integration-pending row is not in flight');
   assert.ok(!r.set.includes('C-orphan'), 'a probe that answered "no session" is not');
   assert.ok(!r.set.includes('C-done'));

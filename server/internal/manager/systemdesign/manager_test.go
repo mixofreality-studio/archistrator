@@ -11208,7 +11208,7 @@ func TestConstructionRowsToContract_PendingResume(t *testing.T) {
 	all := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
 	fourOfFive := all[:len(all)-1]
 	ids := []string{"C-billing-manager", "C-billing-engine", "C-billing-state-access", "C-merchant-gateway-access",
-		"C-operations-manager", "C-next", "C-live", "C-both", "C-done", "C-planned"}
+		"C-operations-manager", "C-next", "C-live", "C-live-phases", "C-both", "C-done", "C-planned"}
 	meta := map[string]projectstate.ActivityItem{}
 	for _, id := range ids {
 		meta[id] = svc(id)
@@ -11221,6 +11221,14 @@ func TestConstructionRowsToContract_PendingResume(t *testing.T) {
 		"C-next":               {ActivityID: "C-next", Attempts: pendingLedger("C-next", fourOfFive...)},
 		// Pump-written: a stored Running with its start stamp — in flight, not pending.
 		"C-live": {ActivityID: "C-live", Phase: projectstate.ActivityConstructionRunning, StartedAt: &started},
+		// Pump-written mid-lifecycle, the shape RecordPhaseStarted leaves: a stored
+		// Running over a stored phase set with some phases complete. Its phases resolve
+		// incomplete, so only the !PumpWroteRow clause keeps it from reading pending.
+		"C-live-phases": {ActivityID: "C-live-phases", Phase: projectstate.ActivityConstructionRunning, StartedAt: &started,
+			Phases: []projectstate.PhaseCompletion{
+				{Phase: projectstate.MethodPhaseRequirements, Completed: true},
+				{Phase: projectstate.MethodPhaseDetailedDesign},
+			}},
 		// Stored Phases plus a partial ledger: the pump wrote it, so it is not pending.
 		"C-both": {ActivityID: "C-both", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseRequirements}},
 			Attempts: pendingLedger("C-both", fourOfFive...)},
@@ -11270,7 +11278,7 @@ func TestConstructionRowsToContract_PendingResume(t *testing.T) {
 		t.Errorf("next in line must serialize an empty waitsOn array, got %s", raw)
 	}
 
-	for _, id := range []string{"C-live", "C-both", "C-done", "C-planned", "C-billing-engine"} {
+	for _, id := range []string{"C-live", "C-live-phases", "C-both", "C-done", "C-planned", "C-billing-engine"} {
 		if got[id].PendingResume != nil {
 			t.Errorf("%s: pendingResume = %+v, want omitted (not started, pump-written, or done)", id, got[id].PendingResume)
 		}
