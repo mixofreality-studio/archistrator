@@ -57,11 +57,14 @@ import {
 } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
-  awaitingRefreshAfter,
   beginControlFor,
+  beginHoldFor,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
+  holdExpiredCopy,
   notStartedActivities,
+  pumpEvidencedSince,
+  UNKNOWN_OUTCOME_HOLD_MS,
   type DispatchOutcome,
 } from '../components/construction/lens/beginControl';
 import { ApiError } from '../contracts/errors';
@@ -161,15 +164,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       lastProgressAtRef.current = Date.now();
     }
   }, [integratedCount]);
-  useEffect(() => {
-    if (!cascading) return undefined;
-    const id = setInterval(() => {
-      if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
-    }, 1500);
-    return (): void => {
-      clearInterval(id);
-    };
-  }, [cascading]);
+  // The watchdog that ends the poll sits below the Begin state, because it must
+  // never end it while a dispatch is pending or Begin is held for the pump.
 
   const begin = useBeginConstruction(projectId);
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
@@ -273,14 +269,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // and HONEST about what it knows (fix-C review). The server starts the pump before
   // it answers and can still answer 5xx after that, or the response can be dropped,
   // so only a 4xx means nothing started (dispatchOutcomeFor). On an unknown outcome
-  // the console keeps polling, as it does after a success, and Begin stays off until
-  // a project read newer than the failure has answered (awaitingRefreshAfter) — a
-  // stale "Begin" there was a second pump one click away. `at` is when the console
-  // learned of the failure; `dismissed` hides the alert without lifting that gate.
+  // the console keeps polling, as it does after a success, and Begin stays held
+  // until the pump is EVIDENCED or a bounded hold expires (beginHoldFor, fix-D
+  // review I3). A newer read alone does not lift it: the first read after a 5xx can
+  // land before the pump has stored its StartedAt, and a "Begin" there was a second
+  // pump one click away. `at` is when the console learned of the failure;
+  // `dismissed` hides the alert without lifting the hold; `holdExpired` is set by
+  // the hold's timer below.
   const [beginFailure, setBeginFailure] = useState<{
     outcome: DispatchOutcome;
     at: number;
     dismissed: boolean;
+    holdExpired: boolean;
   } | null>(null);
   const onBegin = (tickId: string): void => {
     if (beginInFlightRef.current) return;
@@ -303,7 +303,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           // started. The progress window restarts from here.
           lastProgressAtRef.current = at;
         }
-        setBeginFailure({ outcome, at, dismissed: false });
+        setBeginFailure({ outcome, at, dismissed: false, holdExpired: false });
       },
       onSettled: () => {
         beginInFlightRef.current = false;
@@ -313,10 +313,58 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // Running only on the strength of a dispatch that SUCCEEDED: a failed one may
   // still be polled, but the button's state is then the refreshed project's.
   const beginActive = begin.isPending || (cascading && beginFailure === null);
-  const awaitingRefresh = awaitingRefreshAfter(beginFailure, projectReadAt);
+  // Pump evidence counts only from reads NEWER than the failure: the project says
+  // construction started, or the probed session is live (pumpEvidencedSince).
+  const pumpEvidenced =
+    beginFailure !== null &&
+    pumpEvidencedSince(beginFailure.at, {
+      projectReadAt,
+      constructionStarted: project?.constructionStarted,
+      sessionReadAt: phaseGateSessionQuery.dataUpdatedAt,
+      sessionStage: phaseGateSession?.stage,
+    });
+  const beginHold = beginHoldFor(beginFailure, pumpEvidenced);
+  // The bounded hold. It runs from the failure, and evidence clears it. When it
+  // expires with no evidence, Begin comes back and the alert, shown again even if
+  // it was dismissed, says there was no sign of the pump. The setState runs in the
+  // timer's callback, never in the effect body.
+  const heldSince = beginHold === 'held' && beginFailure !== null ? beginFailure.at : undefined;
+  useEffect(() => {
+    if (heldSince === undefined) return undefined;
+    const id = setTimeout(
+      () => {
+        setBeginFailure((f) =>
+          f !== null && f.at === heldSince ? { ...f, holdExpired: true, dismissed: false } : f
+        );
+      },
+      Math.max(0, heldSince + UNKNOWN_OUTCOME_HOLD_MS - Date.now())
+    );
+    return (): void => {
+      clearTimeout(id);
+    };
+  }, [heldSince]);
+
+  // The poll's watchdog: it falls quiet ~30s after progress stops. It never runs
+  // while a dispatch is still PENDING, because a 5xx that arrives after 30s would
+  // otherwise find the poll already stopped (fix-D review I1). It also never runs
+  // while Begin is held for the pump: only a read can bring the evidence that
+  // lifts the hold.
+  const keepPolling = begin.isPending || beginHold === 'held';
+  useEffect(() => {
+    if (!cascading || keepPolling) return undefined;
+    const id = setInterval(() => {
+      if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
+    }, 1500);
+    return (): void => {
+      clearInterval(id);
+    };
+  }, [cascading, keepPolling]);
+
   const beginFailureCopy =
     beginFailure !== null && !beginFailure.dismissed
-      ? dispatchOutcomeCopy(beginFailure.outcome)
+      ? beginHold === 'expired'
+        ? holdExpiredCopy(beginFailure.outcome)
+        : dispatchOutcomeCopy(beginFailure.outcome)
       : undefined;
 
   // --- Lens state (Stage B) -------------------------------------------------
@@ -394,7 +442,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     constructionStarted: project?.constructionStarted,
     projectLoading,
     running: beginActive,
-    awaitingRefresh,
+    awaitingPump: beginHold === 'held',
   });
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
@@ -597,6 +645,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
           {beginFailure !== null && beginFailureCopy !== undefined ? (
             <Alert
+              data-hold={beginHold}
               data-outcome={beginFailure.outcome.kind}
               data-testid={UI_IDENTIFIERS.Construction.BEGIN_ERROR}
               severity="error"

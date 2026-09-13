@@ -18,7 +18,7 @@
  *     the activities with no stored record, read from the rows the server sent,
  *     never a hardcoded list.
  */
-import type { ConstructionRows } from '../../../contracts/types';
+import type { ConstructionRows, ConstructionStage } from '../../../contracts/types';
 
 export interface BeginControl {
   label: string;
@@ -42,16 +42,17 @@ export function beginControlFor(input: {
   projectLoading: boolean;
   running: boolean;
   /**
-   * A dispatch ended with an UNKNOWN outcome (a 5xx or a dropped response) and no
-   * project read has answered since. The pump may have started, so the button
-   * cannot say Begin until the refreshed project decides it (fix-C review).
+   * A dispatch ended with an UNKNOWN outcome (a 5xx or a dropped response), and
+   * Begin is held: there is no pump evidence yet, and the bounded hold has not
+   * expired (beginHoldFor). The pump may have started, so the button cannot say
+   * Begin.
    */
-  awaitingRefresh?: boolean;
+  awaitingPump?: boolean;
 }): BeginControl {
   if (input.running) {
     return { label: 'Construction running…', disabled: true, busy: true, verb: 'Resume' };
   }
-  if (input.projectLoading || input.awaitingRefresh === true) return CHECKING;
+  if (input.projectLoading || input.awaitingPump === true) return CHECKING;
   if (input.constructionStarted === undefined) {
     // Loaded, but no project read to answer from: neither word can be claimed, and
     // nothing can sensibly be dispatched.
@@ -106,21 +107,81 @@ export function dispatchOutcomeCopy(outcome: DispatchOutcome): {
     case 'unknown':
       return {
         headline: 'Outcome unknown — the pump may have started; the list will show it if it did.',
-        detail: `The dispatch got no clean answer (${outcome.message}). Begin stays off until the refreshed project says whether construction started.`,
+        detail: `The dispatch got no clean answer (${outcome.message}). Begin stays off until the pump shows itself, or ${String(UNKNOWN_OUTCOME_HOLD_MS / 1000)}s pass with no sign of it.`,
       };
   }
 }
 
+// ---------------------------------------------------------------------------
+// After an UNKNOWN outcome: hold Begin until the pump is evidenced (orchestrator
+// ruling on the fix-D review, I3).
+//
+// A newer project read ALONE used to lift the gate. But the first read after a
+// 5xx can land before the pump has stored its StartedAt, so it still says "not
+// started", and a second Begin there started a second pump. Begin now stays off
+// until one of two things happens:
+//   - evidence: a read NEWER than the failure says `constructionStarted`, or a
+//     session probe newer than the failure shows a live session;
+//   - the bounded hold expires with no evidence. Begin then comes back, and the
+//     alert says so (holdExpiredCopy).
+// ---------------------------------------------------------------------------
+
+/** How long Begin stays held after an unknown outcome with no sign of the pump. */
+export const UNKNOWN_OUTCOME_HOLD_MS = 60_000;
+
+/** The session stages at which no pump is running for the session. */
+const NO_PUMP_STAGES: ReadonlySet<ConstructionStage> = new Set(['exited', 'paused', 'unknown']);
+
 /**
- * Whether Begin must still wait: an unknown outcome, and no project read has
- * completed since the console learned of it. `projectReadAt` is the query's
- * `dataUpdatedAt` (0 before any read). A 4xx never waits — nothing started.
+ * Whether the reads since `at` show the pump: the project says construction
+ * started, or a session is live. Only reads NEWER than the failure count, so a
+ * read that was already on screen before the dispatch failed is never taken as
+ * an answer to it.
  */
-export function awaitingRefreshAfter(
-  failure: { outcome: DispatchOutcome; at: number } | null,
-  projectReadAt: number
+export function pumpEvidencedSince(
+  at: number,
+  reads: {
+    /** The project query's `dataUpdatedAt` (0 before any read), and what it said. */
+    projectReadAt: number;
+    constructionStarted: boolean | undefined;
+    /** The session probe's `dataUpdatedAt`, and its stage. Stage is `undefined`
+     *  when there is no probe, or the probe established that no session exists. */
+    sessionReadAt: number;
+    sessionStage: ConstructionStage | undefined;
+  }
 ): boolean {
-  return failure !== null && failure.outcome.kind === 'unknown' && projectReadAt <= failure.at;
+  const started = reads.projectReadAt > at && reads.constructionStarted === true;
+  const live =
+    reads.sessionReadAt > at &&
+    reads.sessionStage !== undefined &&
+    !NO_PUMP_STAGES.has(reads.sessionStage);
+  return started || live;
+}
+
+/**
+ * Where Begin stands after a failed dispatch:
+ *   - `none`      — no failure, or a rejection (a 4xx means nothing started);
+ *   - `held`      — an unknown outcome, with no evidence and the hold still running;
+ *   - `evidenced` — the pump showed itself, so the project read decides the label;
+ *   - `expired`   — the hold ran out with no evidence, so Begin is offered again.
+ */
+export type BeginHold = 'none' | 'held' | 'evidenced' | 'expired';
+
+export function beginHoldFor(
+  failure: { outcome: DispatchOutcome; holdExpired: boolean } | null,
+  evidenced: boolean
+): BeginHold {
+  if (failure?.outcome.kind !== 'unknown') return 'none';
+  if (evidenced) return 'evidenced';
+  return failure.holdExpired ? 'expired' : 'held';
+}
+
+/** The alert's words once the hold has expired. The headline is the ruling verbatim. */
+export function holdExpiredCopy(outcome: DispatchOutcome): { headline: string; detail: string } {
+  return {
+    headline: 'No sign the pump started. Begin again?',
+    detail: `The dispatch got no clean answer (${outcome.message}), and for ${String(UNKNOWN_OUTCOME_HOLD_MS / 1000)}s since, no project read showed construction started and no session was live.`,
+  };
 }
 
 export interface DispatchCandidate {

@@ -234,19 +234,35 @@ test('three clicks in one task send exactly ONE request', async ({ page }) => {
 const UNKNOWN_HEADLINE =
   'Outcome unknown — the pump may have started; the list will show it if it did.';
 
+interface WireRow {
+  ActivityID: string;
+  classified: boolean;
+  hasBuildEvidence: boolean;
+  BuildStatus: number;
+}
+interface WireProject {
+  constructionStarted?: boolean;
+  ActivityConstruction?: Record<string, WireRow>;
+}
+
 interface Harness {
   trapped: string[];
   /** Timestamps of every project read the page made. */
   reads: number[];
+  /** Timestamps of every project read answered with the project (not held). */
+  served: number[];
   /** While true, project reads are answered 503 in the browser. */
   holdReads: { on: boolean };
+  /** When set, the real project read is served with this edit applied, in the
+   *  browser. The read itself still goes to the server; nothing is written. */
+  edit: { fn: ((wire: WireProject) => void) | null };
 }
 
 async function harness(
   page: Page,
   answer: (route: import('@playwright/test').Route) => Promise<void>
 ): Promise<Harness> {
-  const h: Harness = { trapped: [], reads: [], holdReads: { on: false } };
+  const h: Harness = { trapped: [], reads: [], served: [], holdReads: { on: false }, edit: { fn: null } };
   await page.route('**/execute-next-activity/**', async (route) => {
     h.trapped.push(route.request().url());
     await answer(route);
@@ -255,11 +271,33 @@ async function harness(
     h.reads.push(Date.now());
     if (h.holdReads.on) {
       await route.fulfill({ status: 503, contentType: 'application/json', body: '{}' });
-    } else {
-      await route.continue();
+      return;
     }
+    const edit = h.edit.fn;
+    if (edit === null) {
+      await route.continue();
+    } else {
+      const response = await route.fetch();
+      const wire = (await response.json()) as WireProject;
+      edit(wire);
+      await route.fulfill({ response, json: wire });
+    }
+    h.served.push(Date.now());
   });
   return h;
+}
+
+/** Edit one row of the read to what a pump pick-up looks like: classified, with
+ *  build evidence, and BuildStatus 0 (BuildInConstruction), so the console
+ *  probes its session. */
+function inConstruction(activityId: string): (wire: WireProject) => void {
+  return (wire) => {
+    const row = wire.ActivityConstruction?.[activityId];
+    if (row === undefined) throw new Error(`no row ${activityId} in the read`);
+    row.classified = true;
+    row.hasBuildEvidence = true;
+    row.BuildStatus = 0;
+  };
 }
 
 async function dispatchOnce(page: Page): Promise<number> {
@@ -284,7 +322,7 @@ async function expectBeginHeldOff(page: Page, ms: number): Promise<void> {
   }
 }
 
-test('a 500 says the outcome is unknown, and Begin waits for a refreshed project', async ({
+test('a 500 says the outcome is unknown, and a newer read ALONE does not lift Begin’s hold', async ({
   page,
 }) => {
   const h = await harness(page, (route) =>
@@ -313,11 +351,15 @@ test('a 500 says the outcome is unknown, and Begin waits for a refreshed project
   await expectBeginHeldOff(page, 1_000);
   expect(h.reads.filter((t) => t > sentAt).length, 'the project is re-read').toBeGreaterThan(1);
 
-  // The refreshed project answers — and Begin says what IT says.
+  // The refreshed project answers. That is NOT enough (fix-D review I3): it says
+  // "not started", but the pump may not have stored its StartedAt yet. Newer reads
+  // arrive, and Begin stays held. The evidence and the expiry are pinned below.
   h.holdReads.on = false;
-  const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
-  await expect(begin).toBeEnabled();
+  const servedBefore = h.served.length;
+  await expect
+    .poll(() => h.served.length, { timeout: 10_000, message: 'newer reads answered' })
+    .toBeGreaterThan(servedBefore + 1);
+  await expectBeginHeldOff(page, 2_500);
   expect(h.trapped).toHaveLength(1);
 });
 
@@ -334,8 +376,12 @@ test('a dropped response (network error) is an unknown outcome too', async ({ pa
   await expectBeginHeldOff(page, 1_500);
   expect(h.reads.filter((t) => t > sentAt).length, 'the project is re-read').toBeGreaterThan(0);
 
+  // A newer read alone does not lift the hold (fix-D review I3).
   h.holdReads.on = false;
-  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled({ timeout: 10_000 });
+  const servedBefore = h.served.length;
+  await expect.poll(() => h.served.length, { timeout: 10_000 }).toBeGreaterThan(servedBefore);
+  await expectBeginHeldOff(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
   expect(h.trapped).toHaveLength(1);
 });
 
@@ -385,8 +431,15 @@ test('a 400 is a rejection: the server’s message, Begin back at once, and no p
 // browser.
 // ---------------------------------------------------------------------------
 
+const SERVER_500 = {
+  status: 500,
+  contentType: 'application/json',
+  body: JSON.stringify({ code: 'internal', error: 'decode pump decision' }),
+};
 /** A bare status, the way a proxy's 502/503/504 arrives: Content-Length 0. */
 const EMPTY_BODY = { headers: { 'content-length': '0' }, body: '' };
+/** A classified row with build evidence, to be "picked up" in the read. */
+const PICKED = 'C-billing-engine';
 
 test('I2: an EMPTY-body 400 is a rejection, not a success', async ({ page }) => {
   // openapi-fetch returns `error: undefined` for an empty body. The status decides.
@@ -412,7 +465,132 @@ test('I2: an EMPTY-body 500 (a proxy’s bare 5xx) is an unknown outcome, not a 
   const alert = page.getByTestId(TESTID.constructionBeginError);
   await expect(alert).toBeVisible({ timeout: 10_000 });
   await expect(alert).toHaveAttribute('data-outcome', 'unknown');
+  await expect(alert).toHaveAttribute('data-hold', 'held');
   await expect(alert).toContainText(UNKNOWN_HEADLINE);
   await expect(alert).toContainText('request failed with status 500');
+  await expectBeginHeldOff(page, 1_000);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I1: a 500 answered after 33s finds the poll still running, and newer reads keep arriving', async ({
+  page,
+}) => {
+  // The browser clock is faked, so 33s pass at once while the dispatch is held
+  // unanswered. The 30s progress watchdog used to stop the poll right here, and
+  // the unknown outcome never turned it back on: Begin sat on "Checking…" forever.
+  await page.clock.install();
+  const pending: { answer?: () => Promise<void> } = {};
+  const h = await harness(
+    page,
+    (route) =>
+      new Promise<void>((resolve) => {
+        pending.answer = async () => {
+          await route.fulfill(SERVER_500);
+          resolve();
+        };
+      })
+  );
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+
+  await page.clock.fastForward(33_000);
+  const whilePending = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads while the dispatch is pending' })
+    .toBeGreaterThan(whilePending + 1);
+
+  if (pending.answer === undefined) throw new Error('the dispatch was never held');
+  await pending.answer();
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-outcome', 'unknown', { timeout: 10_000 });
+
+  // Another 31s: past the progress window again, but inside the 60s hold. Only a
+  // read can bring the evidence that lifts the hold, so the poll must go on.
+  await page.clock.fastForward(31_000);
+  const whileHeld = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads while Begin is held' })
+    .toBeGreaterThan(whileHeld + 1);
+  await expectBeginHeldOff(page, 1_000);
+});
+
+test('I3: the hold expiring with no sign of the pump brings Begin back, asking "Begin again?"', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+  // Dismissed during the hold. The expiry is news, so the alert comes back for it.
+  await alert.getByRole('button', { name: 'Close' }).click();
+  await expect(alert).toBeHidden();
+
+  // 50s in: reads have kept answering "not started", and Begin is still held.
+  await page.clock.fastForward(50_000);
+  await expectBeginHeldOff(page, 1_000);
+  expect(h.served.length, 'newer reads answered during the hold').toBeGreaterThan(1);
+
+  // Past 60s with no evidence.
+  await page.clock.fastForward(12_000);
+  await expect(alert).toBeVisible();
+  await expect(alert).toHaveAttribute('data-hold', 'expired');
+  await expect(alert).toContainText('No sign the pump started. Begin again?');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/);
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I3: evidence lifts the hold before it expires: a read says construction started', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+  await expectBeginHeldOff(page, 1_500);
+
+  // The pump stores its StartedAt, and the next read says so.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced');
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I3: evidence lifts the hold before it expires: a session goes live on the row the pump picked up', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  const live = { on: false };
+  const probes: string[] = [];
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
+    probes.push(route.request().url());
+    await route.fulfill(
+      live.on
+        ? { status: 200, json: { projectId: 'archistrator', activityId: PICKED, stage: 2 } }
+        : { status: 404, json: { code: 'not_found', error: 'no session' } }
+    );
+  });
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // The pump picks up PICKED: the read shows it in construction, and its session
+  // is live (pipelineRunning). constructionStarted stays false, so the session is
+  // the only evidence.
+  live.on = true;
+  h.edit.fn = inConstruction(PICKED);
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled();
+  expect(probes.length, 'the session was probed').toBeGreaterThan(0);
   expect(h.trapped).toHaveLength(1);
 });

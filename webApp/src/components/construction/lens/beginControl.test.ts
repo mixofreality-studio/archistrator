@@ -2,11 +2,14 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConstructionRow } from '../../../contracts/types';
 import {
-  awaitingRefreshAfter,
   beginControlFor,
+  beginHoldFor,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
+  holdExpiredCopy,
   notStartedActivities,
+  pumpEvidencedSince,
+  UNKNOWN_OUTCOME_HOLD_MS,
 } from './beginControl.ts';
 
 const COMMITTED_WORDS = /Begin construction|Resume construction/;
@@ -116,26 +119,104 @@ void test('the unknown copy is the ruling verbatim and never invites a retry; th
   assert.match(rejected.detail, /nothing was started/);
 });
 
-void test('after an unknown outcome Begin waits for a project read newer than the failure; a rejection never waits', () => {
-  const unknown = { outcome: dispatchOutcomeFor(503, 'x'), at: 1000 };
-  assert.equal(awaitingRefreshAfter(unknown, 0), true, 'no read yet');
+// ---------------------------------------------------------------------------
+// After an unknown outcome, Begin is held until the pump is EVIDENCED, or a
+// bounded hold expires (orchestrator ruling on the fix-D review, I3). A newer
+// read alone no longer lifts it.
+// ---------------------------------------------------------------------------
+
+const NO_READS = {
+  projectReadAt: 0,
+  constructionStarted: undefined,
+  sessionReadAt: 0,
+  sessionStage: undefined,
+} as const;
+
+void test('a newer read that says "not started", with no live session, is NOT pump evidence', () => {
+  assert.equal(pumpEvidencedSince(1000, NO_READS), false, 'no read yet');
   assert.equal(
-    awaitingRefreshAfter(unknown, 1000),
-    true,
-    'a read from the same instant is not newer'
+    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 5000, constructionStarted: false }),
+    false
   );
-  assert.equal(awaitingRefreshAfter(unknown, 1001), false, 'the refreshed project answered');
-  assert.equal(awaitingRefreshAfter({ outcome: dispatchOutcomeFor(400, 'x'), at: 1000 }, 0), false);
-  assert.equal(awaitingRefreshAfter(null, 0), false);
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 5000, sessionStage: undefined }),
+    false,
+    'a probe that established no session exists'
+  );
 });
 
-void test('while awaiting the refresh the button is disabled and names neither Begin nor Resume', () => {
+void test('pump evidence: a newer read says constructionStarted, or a newer probe shows a live session', () => {
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 1001, constructionStarted: true }),
+    true
+  );
+  for (const stage of [
+    'dispatching',
+    'pipelineRunning',
+    'reviewing',
+    'awaitingTakeover',
+    'awaitingApproval',
+  ] as const) {
+    assert.equal(
+      pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1001, sessionStage: stage }),
+      true,
+      stage
+    );
+  }
+  for (const stage of ['exited', 'paused', 'unknown'] as const) {
+    assert.equal(
+      pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1001, sessionStage: stage }),
+      false,
+      `${stage} is not a running pump`
+    );
+  }
+});
+
+void test('only reads NEWER than the failure count as evidence', () => {
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 1000, constructionStarted: true }),
+    false,
+    'a read from the same instant is not newer'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 999, sessionStage: 'pipelineRunning' }),
+    false,
+    'a session seen before the failure'
+  );
+});
+
+void test('the hold: an unknown outcome is held until evidence or expiry; a rejection is never held', () => {
+  const unknown = { outcome: dispatchOutcomeFor(503, 'x'), holdExpired: false };
+  assert.equal(beginHoldFor(null, false), 'none');
+  assert.equal(
+    beginHoldFor({ outcome: dispatchOutcomeFor(400, 'x'), holdExpired: false }, false),
+    'none'
+  );
+  assert.equal(beginHoldFor(unknown, false), 'held');
+  assert.equal(beginHoldFor(unknown, true), 'evidenced');
+  assert.equal(beginHoldFor({ ...unknown, holdExpired: true }, false), 'expired');
+  assert.equal(
+    beginHoldFor({ ...unknown, holdExpired: true }, true),
+    'evidenced',
+    'evidence after expiry still decides'
+  );
+  assert.equal(UNKNOWN_OUTCOME_HOLD_MS, 60_000);
+});
+
+void test('once the hold expires the alert asks the ruling’s question verbatim', () => {
+  const copy = holdExpiredCopy(dispatchOutcomeFor(500, 'request failed with status 500'));
+  assert.equal(copy.headline, 'No sign the pump started. Begin again?');
+  assert.match(copy.detail, /request failed with status 500/);
+  assert.match(copy.detail, /60s/);
+});
+
+void test('while held for the pump the button is disabled and names neither Begin nor Resume', () => {
   for (const constructionStarted of [true, false]) {
     const c = beginControlFor({
       constructionStarted,
       projectLoading: false,
       running: false,
-      awaitingRefresh: true,
+      awaitingPump: true,
     });
     assert.equal(c.disabled, true);
     assert.doesNotMatch(c.label, COMMITTED_WORDS);
