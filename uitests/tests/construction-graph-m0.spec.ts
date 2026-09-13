@@ -153,3 +153,36 @@ test('"Open the SDP review →" navigates to the SDP review, and does nothing el
   await page.getByTestId(TESTID.constructionGraphM0OpenSdp).click();
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/\/design\/project\/sdp-review$/);
 });
+
+test('keyboard: the M0 chip is a button — Enter opens its copy, Tab reaches "Open the SDP review →", Escape returns focus', async ({
+  page,
+  request,
+}) => {
+  const t = await m0Truth(request);
+  await openGraph(page);
+  const c = chip(page);
+  await expect(c).toHaveRole('button');
+  await page.keyboard.press('Shift');
+  await c.focus();
+  await page.keyboard.press('Enter');
+  const pop = page.getByTestId(TESTID.constructionGraphM0Popover);
+  await expect(pop).toBeVisible();
+  await expect(pop).toContainText('M0 — SDP review');
+  // One surface at a time: the hover tooltip is not also on screen.
+  await expect(page.getByTestId(TESTID.constructionGraphM0Hover)).toHaveCount(0);
+  test.skip(!(t.state === 'passed' && t.stale), 'the link appears only on a stale approval');
+
+  const link = page.getByTestId(TESTID.constructionGraphM0OpenSdp);
+  await page.keyboard.press('Tab');
+  await expect(link).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(pop).toHaveCount(0);
+  await expect(c).toBeFocused();
+
+  await page.keyboard.press('Enter');
+  await expect(pop).toBeVisible();
+  await page.keyboard.press('Tab');
+  await expect(link).toBeFocused();
+  await page.keyboard.press('Enter');
+  await expect.poll(() => new URL(page.url()).pathname).toMatch(/\/design\/project\/sdp-review$/);
+});

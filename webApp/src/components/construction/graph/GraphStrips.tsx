@@ -15,6 +15,7 @@
 import { useState, type ReactElement } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
+import ButtonBase from '@mui/material/ButtonBase';
 import Link from '@mui/material/Link';
 import Popover from '@mui/material/Popover';
 import Tooltip from '@mui/material/Tooltip';
@@ -29,7 +30,7 @@ import { provenanceBasesOf, provenanceTooltipFor } from '../provenanceAxis';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
 import { SCHEDULE_CAPTION } from './laneSchedule';
-import { M0_STALE_LABEL, m0PresentationFor, type M0Facts } from './m0Gate';
+import { M0_STALE_LABEL, m0PresentationFor, type M0Facts, type M0Presentation } from './m0Gate';
 import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
@@ -59,9 +60,52 @@ function countTooltip(m: RibbonMilestone): string {
 }
 
 /**
+ * M0's copy — title, body, and on a stale approval the way back to the SDP
+ * review. The mouse's hover tooltip and the chip's popover (keyboard, click)
+ * show the same words.
+ */
+function M0Details({
+  p,
+  t,
+  testId,
+  onOpenSdpReview,
+}: {
+  p: M0Presentation;
+  t: Tokens;
+  testId: string;
+  onOpenSdpReview: (() => void) | undefined;
+}): ReactElement {
+  return (
+    <Box data-testid={testId} sx={{ p: 0.5 }}>
+      <Typography sx={{ fontWeight: 700, fontSize: 12.5, color: t.ink }}>{p.title}</Typography>
+      <Typography sx={{ fontSize: 12, lineHeight: 1.45, color: t.ink, mt: 0.5 }}>
+        {p.body}
+      </Typography>
+      {p.link !== undefined && onOpenSdpReview !== undefined ? (
+        <Link
+          component="button"
+          data-testid={UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP}
+          sx={{ mt: 0.75, fontSize: 12, color: t.accent }}
+          onClick={onOpenSdpReview}
+        >
+          {p.link}
+        </Link>
+      ) : null}
+    </Box>
+  );
+}
+
+/**
  * M0 — the SDP review gate (PM Q4 ruling). Its state is the project's phase
  * and its amber flag the SDP review slot's staleness (m0Gate.ts); the chip and
  * hover copy are the ruling's, verbatim. No date, option, cost or duration.
+ *
+ * The chip is a BUTTON (graph re-review): a tooltip's link cannot be reached by
+ * keyboard — Tab leaves the chip for the next control, never into a portal. So
+ * Enter (or a click) opens the same copy as a popover with focus inside it,
+ * where "Open the SDP review →" is the first Tab stop; Escape closes it and
+ * focus returns to the chip. The mouse keeps its hover tooltip, held shut while
+ * the popover is open so the copy is on screen once.
  */
 function M0Chip({
   m,
@@ -77,91 +121,118 @@ function M0Chip({
   onOpenSdpReview: (() => void) | undefined;
 }): ReactElement {
   const p = m0PresentationFor(m0, m.gates.length);
+  const [hovering, setHovering] = useState(false);
+  const [popoverAnchor, setPopoverAnchor] = useState<HTMLElement | null>(null);
   return (
-    <Tooltip
-      slotProps={{
-        tooltip: {
-          sx: {
-            bgcolor: t.paper,
-            color: t.ink,
-            border: `1.5px solid ${t.line}`,
-            boxShadow: 3,
-            maxWidth: 380,
+    <>
+      <Tooltip
+        disableFocusListener
+        open={popoverAnchor === null ? hovering : false}
+        slotProps={{
+          tooltip: {
+            sx: {
+              bgcolor: t.paper,
+              color: t.ink,
+              border: `1.5px solid ${t.line}`,
+              boxShadow: 3,
+              maxWidth: 380,
+            },
           },
-        },
-      }}
-      title={
-        <Box data-testid={UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER} sx={{ p: 0.5 }}>
-          <Typography sx={{ fontWeight: 700, fontSize: 12.5, color: t.ink }}>{p.title}</Typography>
-          <Typography sx={{ fontSize: 12, lineHeight: 1.45, color: t.ink, mt: 0.5 }}>
-            {p.body}
-          </Typography>
-          {p.link !== undefined && onOpenSdpReview !== undefined ? (
-            <Link
-              component="button"
-              data-testid={UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP}
-              sx={{ mt: 0.75, fontSize: 12, color: t.accent }}
-              onClick={onOpenSdpReview}
-            >
-              {p.link}
-            </Link>
-          ) : null}
-        </Box>
-      }
-    >
-      <Box
-        data-m0-state={p.state}
-        data-stale={String(p.stale)}
-        data-testid={UI_IDENTIFIERS.Construction.graphMilestone(m.id)}
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          flexShrink: 0,
-          px: 1,
-          py: 0.4,
-          bgcolor: t.paper,
-          border: `1.5px solid ${t.line}`,
-          borderRadius: `${String(Math.min(t.radius, 8))}px`,
-          fontFamily: t.mono,
-          fontSize: 11,
-          color: t.ink,
-          whiteSpace: 'nowrap',
-          '&:focus-visible': { outline: `2px solid ${t.accent}` },
         }}
-        tabIndex={0}
-        onBlur={() => {
-          onHover(null);
+        title={
+          <M0Details
+            p={p}
+            t={t}
+            testId={UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER}
+            onOpenSdpReview={onOpenSdpReview}
+          />
+        }
+        onClose={() => {
+          setHovering(false);
         }}
-        onFocus={() => {
-          onHover(m.id);
-        }}
-        onMouseEnter={() => {
-          onHover(m.id);
-        }}
-        onMouseLeave={() => {
-          onHover(null);
+        onOpen={() => {
+          setHovering(true);
         }}
       >
-        {p.chipParts.map((part, i) => (
-          <Box component="span" key={part} sx={{ display: 'inline-flex', alignItems: 'center' }}>
-            {i > 0 ? ' · ' : ''}
-            {part === M0_STALE_LABEL ? (
-              <Box
-                component="span"
-                sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.3, fontWeight: 700 }}
-              >
-                <WarningAmberIcon aria-hidden sx={{ fontSize: 13, color: t.bandYellow }} />
-                {part}
-              </Box>
-            ) : (
-              <Box component="span" sx={{ fontWeight: i === 0 ? 800 : 400 }}>
-                {part}
-              </Box>
-            )}
-          </Box>
-        ))}
-      </Box>
-    </Tooltip>
+        <ButtonBase
+          disableRipple
+          aria-expanded={popoverAnchor !== null}
+          aria-haspopup="dialog"
+          data-m0-state={p.state}
+          data-stale={String(p.stale)}
+          data-testid={UI_IDENTIFIERS.Construction.graphMilestone(m.id)}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            flexShrink: 0,
+            px: 1,
+            py: 0.4,
+            bgcolor: t.paper,
+            border: `1.5px solid ${t.line}`,
+            borderRadius: `${String(Math.min(t.radius, 8))}px`,
+            fontFamily: t.mono,
+            fontSize: 11,
+            color: t.ink,
+            whiteSpace: 'nowrap',
+            '&:focus-visible': { outline: `2px solid ${t.accent}` },
+          }}
+          onBlur={() => {
+            onHover(null);
+          }}
+          onClick={(e) => {
+            setPopoverAnchor(e.currentTarget);
+          }}
+          onFocus={() => {
+            onHover(m.id);
+          }}
+          onMouseEnter={() => {
+            onHover(m.id);
+          }}
+          onMouseLeave={() => {
+            onHover(null);
+          }}
+        >
+          {p.chipParts.map((part, i) => (
+            <Box component="span" key={part} sx={{ display: 'inline-flex', alignItems: 'center' }}>
+              {i > 0 ? ' · ' : ''}
+              {part === M0_STALE_LABEL ? (
+                <Box
+                  component="span"
+                  sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.3, fontWeight: 700 }}
+                >
+                  <WarningAmberIcon aria-hidden sx={{ fontSize: 13, color: t.bandYellow }} />
+                  {part}
+                </Box>
+              ) : (
+                <Box component="span" sx={{ fontWeight: i === 0 ? 800 : 400 }}>
+                  {part}
+                </Box>
+              )}
+            </Box>
+          ))}
+        </ButtonBase>
+      </Tooltip>
+      <Popover
+        anchorEl={popoverAnchor}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'left' }}
+        open={popoverAnchor !== null}
+        slotProps={{
+          paper: {
+            sx: { maxWidth: 380, p: 1, bgcolor: t.paper, border: `1.5px solid ${t.line}` },
+          },
+        }}
+        onClose={() => {
+          setPopoverAnchor(null);
+        }}
+      >
+        <M0Details
+          p={p}
+          t={t}
+          testId={UI_IDENTIFIERS.Construction.GRAPH_M0_POPOVER}
+          onOpenSdpReview={onOpenSdpReview}
+        />
+      </Popover>
+    </>
   );
 }
 

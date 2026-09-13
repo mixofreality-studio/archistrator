@@ -403,6 +403,8 @@ export const UI_IDENTIFIERS = {
     /** M0's hover (PM Q4 copy) and its navigation-only link to the SDP review. */
     GRAPH_M0_HOVER: 'construction-graph-m0-hover',
     GRAPH_M0_OPEN_SDP: 'construction-graph-m0-open-sdp',
+    /** M0's copy as a popover — the chip is a button, so the link is keyboard-reachable. */
+    GRAPH_M0_POPOVER: 'construction-graph-m0-popover',
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,
