@@ -159,6 +159,26 @@ void test('the unknown statement carries no error tone and names both real cause
 // ABSENT is not UNKNOWN — the whole point of the sibling body
 // ---------------------------------------------------------------------------
 
+// Designer re-check B1: with "Observed only" on, a recorded row whose evidence was
+// set aside must not be told it "has not run" — a record exists and is hidden.
+void test('a selection whose attempts Observed only hid says so, never "No record"', () => {
+  assert.equal(
+    unknownStatementFor('task', 10),
+    'Nothing observed. 10 reconstructed attempts are hidden by Observed only — turn it off to see them.'
+  );
+  assert.equal(
+    unknownStatementFor(undefined, 1),
+    'Nothing observed. 1 reconstructed attempt is hidden by Observed only — turn it off to see it.'
+  );
+  assert.equal(unknownStatementFor('task', 0), UNKNOWN_STATEMENT);
+  const classified = row({ kind: 'service', hasBuildEvidence: false });
+  assert.equal(noBriefingNoteFor(classified, 0), NO_CURRENT_PHASE_NOTE);
+  assert.doesNotMatch(noBriefingNoteFor(classified, 3), /Nothing is recorded/);
+  assert.match(noBriefingNoteFor(classified, 3), /Nothing observed/);
+  // An unclassified row has no profile to brief whatever was hidden.
+  assert.equal(noBriefingNoteFor(row({ classified: false }), 3), NO_PROFILE_NOTE);
+});
+
 void test('a phase the profile does not carry is absent BY DESIGN, not missing data', () => {
   const absence = absenceFor(row({ kind: 'deployment' }), { lifecyclePhase: 'test_plan' });
   assert.ok(absence !== undefined);

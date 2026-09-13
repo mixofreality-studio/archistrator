@@ -629,6 +629,10 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    `worstOrigin != observed` — not a badged number, not a footnote.
 3. **Retry is never absent.** `↻ Run this task` is present and enabled in every state, in every
    lens's detail pane.
+
+   (Amended 2026-09-12, designer re-check B2: the action's presence and enablement are unchanged,
+   but its label names the selection — "Run this activity", "Run this phase", "Run this task" —
+   and carries ↻ only where the selection holds at least one attempt; a first run reads ▶.)
 4. **Unclassified is visible.** Activities whose type cannot be resolved render as Unclassified with
    **zero** lifecycle sub-rows.
 5. **The join key holds.** Every `TaskAttempt` and every newly written `EpisodeRecord.TargetRef`

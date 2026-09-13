@@ -65,7 +65,7 @@ import {
   applyToolbarToActivities,
   expandToCurrentPhaseControl,
 } from '../components/construction/list/activityScope';
-import { rowsForEvidenceView } from '../components/construction/list/observedOnly';
+import { evidenceViewFor } from '../components/construction/list/observedOnly';
 import {
   DEFAULT_TOOLBAR,
   useLensSelection,
@@ -403,10 +403,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // "Observed only" on, reconstructed evidence set aside so an activity known only
   // from it reads as not started (observedOnly.ts, designer P1-11). The tree and
   // the pane read the same rows, so they never disagree about one activity.
-  const viewRows = useMemo(
-    () => rowsForEvidenceView(project?.constructionRows, toolbar.observedOnly),
+  // The view also carries the attempts it set aside, so the pane can say a row's
+  // record was hidden rather than call it unrecorded (designer re-check B1).
+  const evidenceView = useMemo(
+    () => evidenceViewFor(project?.constructionRows, toolbar.observedOnly),
     [project, toolbar.observedOnly]
   );
+  const viewRows = evidenceView.rows;
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
     [viewRows, activityMeta]
@@ -445,6 +448,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             projectId={projectId}
           />
         )}
+        hiddenAttempts={evidenceView.hidden[selectedActivityId]}
         project={project}
         // ONLY when the selected activity IS the one at a phase gate. Another
         // activity's reviewer set rendered under this one's review body would be

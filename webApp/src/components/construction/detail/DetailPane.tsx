@@ -25,10 +25,12 @@
  *     provenance chip, attempt selector, exit criterion + Table A-1 weight.
  *     A reader must never have to work out which body layout they are
  *     looking at to find out what they have selected.
- *   - The ACTION BAR never changes shape either, and `↻ Run this task` is
+ *   - The ACTION BAR never changes shape either, and its run action is
  *     present and ENABLED in every state — including `passed` (re-run it)
  *     and `unknown` (run it for the first time). Failure is never terminal,
- *     made structural rather than conditional: see detailActionsFor.
+ *     made structural rather than conditional: see detailActionsFor. Its LABEL
+ *     names the selection ("Run this activity / phase / task") and reads ↻
+ *     only where an attempt exists, ▶ otherwise (runActionFor, re-check B2).
  *
  * The body slot is filled by ONE of four bodies (Tasks 8–10), chosen by the pure
  * `detailBodyFor` in bodies/bodyDispatch.ts — plus AbsentBody, the by-design
@@ -71,6 +73,7 @@ import type {
   ConstructionReviewSet,
   ConstructionRow,
   ProjectStateWithGit,
+  TaskAttemptRow,
 } from '../../../contracts/types';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
@@ -88,8 +91,10 @@ import {
   breadcrumbFor,
   detailActionsFor,
   evidencePointerFor,
+  observedOnlyChipLabel,
   provenanceNodeFor,
   resolvePhaseTask,
+  runActionFor,
   selectedAttemptOf,
   selectionSummaryFor,
   taskDetailStateFill,
@@ -106,6 +111,7 @@ import { ArtifactBody } from './bodies/ArtifactBody';
 import { ProvenanceNote } from './bodies/ProvenanceNote';
 import { ReviewBody } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
+import { hiddenInScope } from '../list/observedOnly';
 
 // Re-exported alongside the component per the brief: a caller (and this
 // file's own test) can reach the pure invariant without rendering anything.
@@ -181,6 +187,13 @@ export interface DetailPaneProps {
    * be the most direct mis-attribution on this surface.
    */
   reviewSet?: ConstructionReviewSet | undefined;
+  /**
+   * The selected activity's attempts "Observed only" set aside (observedOnly.ts's
+   * evidence view), or undefined with the toggle off. `row` is already stripped of
+   * them; this is how the pane tells a stripped record from an absent one
+   * (designer re-check B1).
+   */
+  hiddenAttempts?: readonly TaskAttemptRow[] | undefined;
   onClose: () => void;
 }
 
@@ -192,6 +205,7 @@ export function DetailPane({
   project,
   systemEnvelope,
   reviewSet,
+  hiddenAttempts,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -252,7 +266,16 @@ export function DetailPane({
   }, []);
 
   const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
-  const actions = useMemo(() => detailActionsFor(state), [state]);
+  const actions = useMemo(
+    () => detailActionsFor(state, runActionFor(row, selection)),
+    [state, row, selection]
+  );
+  // Attempts "Observed only" set aside in whatever is selected — above zero, the
+  // chip and the unknown card say so rather than calling the record absent (B1).
+  const hiddenCount = useMemo(
+    () => hiddenInScope(hiddenAttempts, selection),
+    [hiddenAttempts, selection]
+  );
   const meta = useMemo(() => resolvePhaseTask(row, selection), [row, selection]);
   // "N attempts · M phases" (or "· M tasks" for a phase) when no single task is
   // selected — in place of an attempt selector that has nothing to select.
@@ -293,6 +316,7 @@ export function DetailPane({
       <DetailBody
         activityTitle={activityTitle}
         episodeSlot={episodeSlot}
+        hiddenCount={hiddenCount}
         project={project}
         reviewSet={reviewSet}
         row={row}
@@ -311,6 +335,7 @@ export function DetailPane({
       breadcrumb={breadcrumb}
       collapsed={collapsed}
       exitCriterion={meta.exitCriterion}
+      hiddenCount={hiddenCount}
       provenance={provenance}
       state={state}
       summary={summary}
@@ -356,6 +381,7 @@ export function DetailPane({
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={meta.exitCriterion}
+          hiddenCount={hiddenCount}
           provenance={provenance}
           state={state}
           summary={summary}
@@ -395,6 +421,7 @@ function DetailPaneChrome({
   weight,
   body,
   actions,
+  hiddenCount,
   onClose,
   onToggleCollapsed,
   onResizePointerDown,
@@ -407,6 +434,7 @@ function DetailPaneChrome({
   breadcrumb: string;
   state: TaskDetailState;
   provenance: ProvenanceReading;
+  hiddenCount: number;
   summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
   exitCriterion: string | undefined;
@@ -485,6 +513,7 @@ function DetailPaneChrome({
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={exitCriterion}
+          hiddenCount={hiddenCount}
           provenance={provenance}
           state={state}
           summary={summary}
@@ -524,10 +553,13 @@ function DetailHeader({
   onClose,
   onCollapse,
   onSelectAttempt,
+  hiddenCount,
 }: {
   breadcrumb: string;
   state: TaskDetailState;
   provenance: ProvenanceReading;
+  /** Attempts "Observed only" hid in the selection (B1); 0 with the toggle off. */
+  hiddenCount: number;
   /** "N attempts · M phases" when no single task is selected (selectionSummaryFor). */
   summary: string | undefined;
   taskAttempts: ReturnType<typeof attemptsForTask>;
@@ -616,7 +648,7 @@ function DetailHeader({
           {TASK_DETAIL_STATE_LABEL[state].toUpperCase()}
         </Box>
 
-        <ProvenanceChip provenance={provenance} t={t} />
+        <ProvenanceChip hiddenCount={hiddenCount} provenance={provenance} t={t} />
 
         {/* An activity or phase selection has no single task to pick an attempt
             of, so it says what it holds ("N attempts · M phases") instead of an
@@ -677,11 +709,45 @@ function DetailHeader({
  */
 function ProvenanceChip({
   provenance,
+  hiddenCount,
   t,
 }: {
   provenance: ProvenanceReading;
+  hiddenCount: number;
   t: Tokens;
 }): ReactElement {
+  if (hiddenCount > 0) {
+    // "Observed only" set this selection's attempts aside (designer re-check B1).
+    // The record exists — calling it UNRECORDED would be false — so the chip
+    // names the toggle and what it hid. Solid border: this is a known record,
+    // not the dashed unknown.
+    return (
+      <Tooltip
+        title={`Observed only is on: ${String(hiddenCount)} reconstructed ${hiddenCount === 1 ? 'attempt is' : 'attempts are'} hidden from this view. Turn it off to see them.`}
+      >
+        <Box
+          data-provenance="observed-only"
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP}
+          sx={{
+            display: 'inline-flex',
+            alignItems: 'center',
+            px: 0.75,
+            py: 0.2,
+            borderRadius: 99,
+            border: `1px solid ${t.line}`,
+            color: t.muted,
+            fontFamily: t.mono,
+            fontSize: 9.5,
+            fontWeight: 700,
+            letterSpacing: '0.06em',
+            whiteSpace: 'nowrap',
+          }}
+        >
+          {observedOnlyChipLabel(hiddenCount)}
+        </Box>
+      </Tooltip>
+    );
+  }
   const grade = provenanceGradeOf(provenance.origin);
   const reconstructed = grade === 'reconstructed';
   return (
@@ -835,6 +901,7 @@ function DetailBody({
   project,
   systemEnvelope,
   reviewSet,
+  hiddenCount,
 }: {
   row: ConstructionRow | undefined;
   selection: LensSelection;
@@ -845,6 +912,7 @@ function DetailBody({
   project: ProjectStateWithGit | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   reviewSet: ConstructionReviewSet | undefined;
+  hiddenCount: number;
 }): ReactElement {
   const kind = detailBodyFor(row, selection, state, project);
   switch (kind) {
@@ -855,11 +923,11 @@ function DetailBody({
       return absence !== undefined ? (
         <AbsentBody absence={absence} />
       ) : (
-        <UnknownBody row={row} selection={selection} />
+        <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} />
       );
     }
     case 'unknown':
-      return <UnknownBody row={row} selection={selection} />;
+      return <UnknownBody hiddenCount={hiddenCount} row={row} selection={selection} />;
     case 'episode': {
       const activityId = selection.activityId;
       const slot =

@@ -23,7 +23,7 @@
  *
  * Pure — no React, no DOM — so node:test pins it (observedOnly.test.ts).
  */
-import type { ConstructionRow, ConstructionRows } from '../../../contracts/types';
+import type { ConstructionRow, ConstructionRows, TaskAttemptRow } from '../../../contracts/types';
 
 /** The row as it reads when only observed attempts count. */
 export function observedOnlyRow(row: ConstructionRow): ConstructionRow {
@@ -48,8 +48,52 @@ export function rowsForEvidenceView(
   rows: ConstructionRows | undefined,
   observedOnly: boolean
 ): ConstructionRows | undefined {
-  if (rows === undefined || !observedOnly) return rows;
+  return evidenceViewFor(rows, observedOnly).rows;
+}
+
+/**
+ * The evidence view AND what it set aside (designer re-check B1).
+ *
+ * A stripped row is not an unrecorded one: its record exists, the toggle just
+ * declines to count it. Without the attempts it hid, the pane could only say what
+ * the stripped row says — no attempts, so "unrecorded", "no record, has not run" —
+ * which is false about a row the server holds 10 attempts for. So the view carries
+ * the hidden attempts per activity, and the pane states how many of them fall in
+ * whatever is selected (hiddenInScope).
+ *
+ * `hidden` holds an entry only for an activity that lost at least one attempt, and
+ * is empty whenever the toggle is off.
+ */
+export interface EvidenceView {
+  rows: ConstructionRows | undefined;
+  hidden: Readonly<Record<string, readonly TaskAttemptRow[]>>;
+}
+
+export function evidenceViewFor(
+  rows: ConstructionRows | undefined,
+  observedOnly: boolean
+): EvidenceView {
+  if (rows === undefined || !observedOnly) return { rows, hidden: {} };
   const out: ConstructionRows = {};
-  for (const [id, row] of Object.entries(rows)) out[id] = observedOnlyRow(row);
-  return out;
+  const hidden: Record<string, readonly TaskAttemptRow[]> = {};
+  for (const [id, row] of Object.entries(rows)) {
+    out[id] = observedOnlyRow(row);
+    const set = row.attempts.filter((a) => a.provenance.origin !== 'observed');
+    if (set.length > 0) hidden[id] = set;
+  }
+  return { rows: out, hidden };
+}
+
+/** How many of an activity's hidden attempts fall in the selection: the selected
+ *  task's, else the selected phase's, else the whole activity's. */
+export function hiddenInScope(
+  hidden: readonly TaskAttemptRow[] | undefined,
+  selection: { lifecyclePhase?: string | undefined; task?: string | undefined }
+): number {
+  if (hidden === undefined) return 0;
+  if (selection.task !== undefined) return hidden.filter((a) => a.task === selection.task).length;
+  if (selection.lifecyclePhase !== undefined) {
+    return hidden.filter((a) => a.phase === selection.lifecyclePhase).length;
+  }
+  return hidden.length;
 }

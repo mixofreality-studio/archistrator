@@ -15,7 +15,9 @@ import {
   attemptsForTask,
   breadcrumbFor,
   detailActionsFor,
+  observedOnlyChipLabel,
   resolvePhaseTask,
+  runActionFor,
   taskDetailStateFor,
   WIDE_PANE_SX,
 } from './detailPaneState.ts';
@@ -53,6 +55,8 @@ function attempt(overrides: Partial<TaskAttemptRow> = {}): TaskAttemptRow {
 // The two invariants (brief steps, verbatim)
 // ---------------------------------------------------------------------------
 
+const RUN = runActionFor(undefined, {});
+
 void test('enables the retry action in every task state', () => {
   for (const state of [
     'unknown',
@@ -62,7 +66,8 @@ void test('enables the retry action in every task state', () => {
     'passed',
     'failed',
   ] as const) {
-    const actions = detailActionsFor(state);
+    // Even a run action handed in disabled comes out enabled: nothing may gate it.
+    const actions = detailActionsFor(state, { ...RUN, disabled: true });
     const retry = actions.find((a) => a.id === 'run');
     assert.ok(retry !== undefined, `no retry action for ${state}`);
     assert.equal(retry.disabled, false, `retry disabled for ${state}`);
@@ -71,16 +76,50 @@ void test('enables the retry action in every task state', () => {
 
 void test('offers approve and send-back only where a human decision is owed', () => {
   assert.ok(
-    detailActionsFor('awaitingHuman')
+    detailActionsFor('awaitingHuman', RUN)
       .map((a) => a.id)
       .includes('approve')
   );
   assert.equal(
-    detailActionsFor('passed')
+    detailActionsFor('passed', RUN)
       .map((a) => a.id)
       .includes('approve'),
     false
   );
+});
+
+// Designer re-check B2: the run action names what is selected, and reads ↻ (run
+// AGAIN) only where the selection holds an attempt — ▶ for a first run.
+void test('the run action names its selection, and marks a re-run only where an attempt exists', () => {
+  const r = row({
+    attempts: [attempt({ task: 'codeReview', phase: 'construction' })],
+  });
+  assert.equal(runActionFor(r, { activityId: 'C-x' }).label, '↻ Run this activity');
+  assert.equal(
+    runActionFor(r, { activityId: 'C-x', lifecyclePhase: 'construction' }).label,
+    '↻ Run this phase'
+  );
+  assert.equal(
+    runActionFor(r, { activityId: 'C-x', lifecyclePhase: 'requirements' }).label,
+    '▶ Run this phase'
+  );
+  assert.equal(
+    runActionFor(r, { activityId: 'C-x', lifecyclePhase: 'construction', task: 'codeReview' })
+      .label,
+    '↻ Run this task'
+  );
+  assert.equal(
+    runActionFor(r, { activityId: 'C-x', lifecyclePhase: 'construction', task: 'construction' })
+      .label,
+    '▶ Run this task'
+  );
+  assert.equal(runActionFor(row(), { activityId: 'C-x' }).label, '▶ Run this activity');
+  assert.equal(runActionFor(undefined, {}).label, '▶ Run this activity');
+});
+
+void test('the Observed-only chip names the toggle and the count, never UNRECORDED', () => {
+  assert.equal(observedOnlyChipLabel(10), 'OBSERVED ONLY · 10 reconstructed hidden');
+  assert.doesNotMatch(observedOnlyChipLabel(1), /UNRECORDED/);
 });
 
 // ---------------------------------------------------------------------------

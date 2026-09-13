@@ -22,9 +22,10 @@
  * profile labels and exit criteria) — see taskBriefing.ts, which holds the whole rule and
  * is tested without a renderer. Nothing here is authored per task.
  *
- * The ONE action this state offers is the invariant action bar's `↻ Run this
- * task` (Task 4's standing ruling: failure is never terminal, so `run` is present
- * and enabled in every state). The card used to repeat it as a second, inert
+ * The ONE action this state offers is the invariant action bar's run action —
+ * "▶ Run this task" here, where nothing has been attempted (runActionFor) — per
+ * Task 4's standing ruling: failure is never terminal, so `run` is present and
+ * enabled in every state. The card used to repeat it as a second, inert
  * button — two "Run this task" buttons on one pane, one of which did nothing
  * (designer P1-5). It is not repeated.
  *
@@ -65,16 +66,28 @@ export interface UnknownBodyProps {
    * false.
    */
   statement?: string | undefined;
+  /**
+   * How many reconstructed attempts "Observed only" hid in this selection
+   * (designer re-check B1). Above zero, "No record. This has not run" would be
+   * false — a record exists and is set aside — so the card says that instead.
+   */
+  hiddenCount?: number | undefined;
 }
 
-export function UnknownBody({ row, selection, title, statement }: UnknownBodyProps): ReactElement {
+export function UnknownBody({
+  row,
+  selection,
+  title,
+  statement,
+  hiddenCount = 0,
+}: UnknownBodyProps): ReactElement {
   const t = useTokens();
   const briefing = briefingFor(row, selection);
   return (
     <UnknownCard
       briefing={briefing}
-      noBriefingNote={noBriefingNoteFor(row)}
-      statement={statement ?? unknownStatementFor(briefing?.scope)}
+      noBriefingNote={noBriefingNoteFor(row, hiddenCount)}
+      statement={statement ?? unknownStatementFor(briefing?.scope, hiddenCount)}
       t={t}
       title={title ?? unknownTitleFor(briefing, selection)}
     />

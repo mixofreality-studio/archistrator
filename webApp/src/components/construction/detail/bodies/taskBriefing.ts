@@ -296,9 +296,30 @@ export const UNKNOWN_STATEMENT =
 export const UNKNOWN_STATEMENT_UNSCOPED =
   'No record. This has not run, or it ran before per-task history was captured.';
 
-export function unknownStatementFor(scope: Briefing['scope'] | undefined): string {
+export function unknownStatementFor(
+  scope: Briefing['scope'] | undefined,
+  hiddenCount = 0
+): string {
+  if (hiddenCount > 0) return observedOnlyStatement(hiddenCount);
   return scope === 'task' ? UNKNOWN_STATEMENT : UNKNOWN_STATEMENT_UNSCOPED;
 }
+
+/**
+ * What the unknown card says when "Observed only" set this selection's attempts
+ * aside (designer re-check B1). "No record. This has not run" would be false: a
+ * record exists, it was reconstructed, and the toggle is hiding it.
+ */
+export function observedOnlyStatement(hiddenCount: number): string {
+  const n = String(hiddenCount);
+  return hiddenCount === 1
+    ? `Nothing observed. ${n} reconstructed attempt is hidden by Observed only — turn it off to see it.`
+    : `Nothing observed. ${n} reconstructed attempts are hidden by Observed only — turn it off to see them.`;
+}
+
+/** The briefing-less note for an activity whose evidence Observed only set aside. */
+export const OBSERVED_ONLY_NO_PHASE_NOTE =
+  'Nothing observed against this activity, so it has no current phase to brief. Its ' +
+  'lifecycle is drawn in the list — select a phase or task there for its exit criterion and weight.';
 
 /** No profile at all — the server could not classify the activity. */
 export const NO_PROFILE_NOTE =
@@ -319,8 +340,9 @@ export const NO_CURRENT_PHASE_NOTE =
  * profile the list is drawing right beside this card. Telling the second one
  * "the server could not classify it" would be false.
  */
-export function noBriefingNoteFor(row: ConstructionRow | undefined): string {
-  return profileFor(row) === undefined ? NO_PROFILE_NOTE : NO_CURRENT_PHASE_NOTE;
+export function noBriefingNoteFor(row: ConstructionRow | undefined, hiddenCount = 0): string {
+  if (profileFor(row) === undefined) return NO_PROFILE_NOTE;
+  return hiddenCount > 0 ? OBSERVED_ONLY_NO_PHASE_NOTE : NO_CURRENT_PHASE_NOTE;
 }
 
 /**

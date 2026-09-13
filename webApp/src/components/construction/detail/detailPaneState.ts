@@ -443,13 +443,50 @@ export interface DetailAction {
   disabled: boolean;
 }
 
-const RUN_ACTION: DetailAction = { id: 'run', label: '↻ Run this task', disabled: false };
+/**
+ * The run action, named for what is selected (designer re-check B2). It used to be
+ * the constant "↻ Run this task" on an activity, on a phase, and on work nothing
+ * had ever run — a retry mark on a first run. It now says what it runs ("this
+ * activity" / "this phase" / "this task"), and carries ↻ (run AGAIN) only where
+ * the selection holds at least one attempt, ▶ otherwise.
+ *
+ * Presence and `disabled` do not depend on any of that: `run` is enabled in every
+ * state (detailActionsFor), whatever its label says.
+ */
+export function runActionFor(
+  row: ConstructionRow | undefined,
+  selection: LensSelection
+): DetailAction {
+  const attempts = row?.attempts ?? [];
+  let scope: 'activity' | 'phase' | 'task';
+  let attempted: boolean;
+  if (selection.task !== undefined) {
+    scope = 'task';
+    attempted = attempts.some((a) => a.task === selection.task);
+  } else if (selection.lifecyclePhase !== undefined) {
+    scope = 'phase';
+    attempted = attempts.some((a) => a.phase === selection.lifecyclePhase);
+  } else {
+    scope = 'activity';
+    attempted = attempts.length > 0;
+  }
+  return { id: 'run', label: `${attempted ? '↻' : '▶'} Run this ${scope}`, disabled: false };
+}
 
-export function detailActionsFor(state: TaskDetailState): DetailAction[] {
+/**
+ * The provenance chip's words when "Observed only" hid attempts in the selection
+ * (designer re-check B1): the record exists and was set aside, which is not the
+ * same fact as UNRECORDED — so the chip names the toggle and the count instead.
+ */
+export function observedOnlyChipLabel(hiddenCount: number): string {
+  return `OBSERVED ONLY · ${String(hiddenCount)} reconstructed hidden`;
+}
+
+export function detailActionsFor(state: TaskDetailState, run: DetailAction): DetailAction[] {
   // `state` is intentionally unused in the condition below beyond the single
   // `awaitingHuman` check — this is the whole point: no other branch may
   // touch `run`'s presence or `disabled` flag.
-  const actions: DetailAction[] = [RUN_ACTION];
+  const actions: DetailAction[] = [{ ...run, disabled: false }];
   if (state === 'awaitingHuman') {
     actions.push({ id: 'approve', label: 'Approve', disabled: false });
     actions.push({ id: 'sendBack', label: 'Send back', disabled: false });

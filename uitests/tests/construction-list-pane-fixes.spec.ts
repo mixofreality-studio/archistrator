@@ -67,14 +67,16 @@ test('P0-4: at 1280px with the pane open, no activity id is truncated and each i
   }
 });
 
-test('P1-5 + P1-6: an activity’s pane has one "Run this task", is headed "This activity", counts what it holds, and draws no empty exit line', async ({
+test('P1-5 + P1-6: an activity’s pane has one run action, is headed "This activity", counts what it holds, and draws no empty exit line', async ({
   page,
 }) => {
   await openList(page, '&a=U-SPA-web-client');
   const pane = page.getByTestId(TESTID.constructionDetailPane);
   await expect(pane).toBeVisible();
 
-  await expect(pane.getByRole('button', { name: /Run this task/ })).toHaveCount(1);
+  // One run action, named for the activity it runs (designer re-check B2).
+  await expect(pane.getByRole('button', { name: /Run this/ })).toHaveCount(1);
+  await expect(pane.getByRole('button', { name: /Run this/ })).toHaveText('▶ Run this activity');
   const body = page.getByTestId(TESTID.constructionDetailBodyUnknown);
   await expect(body).toContainText(/this activity/i);
   await expect(body).not.toContainText(/this task/i);
