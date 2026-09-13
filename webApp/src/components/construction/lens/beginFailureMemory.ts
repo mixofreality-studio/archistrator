@@ -25,6 +25,13 @@ export interface BeginFailure {
   dismissed: boolean;
   /** The bounded hold ran out with no pump evidence. */
   holdExpired: boolean;
+  /**
+   * What the project read on screen said about constructionStarted when the
+   * dispatch failed (`undefined` if there was none). Only a change from `false`
+   * counts as pump evidence: on a project already started it was true before the
+   * dispatch, and proves nothing about it (fix-G review I1).
+   */
+  startedAtFailure: boolean | undefined;
 }
 
 const failures = new Map<string, BeginFailure>();

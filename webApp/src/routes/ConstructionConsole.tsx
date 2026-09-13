@@ -199,12 +199,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // The failure is recorded from the mutation's OWN onError, into module memory, so
   // an answer that lands while the console is away is still kept (fix-E review I2).
   const begin = useBeginConstruction(projectId, {
-    onError: (err) => {
+    onError: (err, atFailure) => {
       writeBeginFailure(projectId, {
         outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
         at: Date.now(),
         dismissed: false,
         holdExpired: false,
+        // Only a change from "not started" can be evidence (fix-G review I1).
+        startedAtFailure: atFailure.constructionStarted,
       });
     },
   });
@@ -355,13 +357,15 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     sessionStage: phaseGateSession?.stage,
   });
   // Pump evidence counts only from reads REQUESTED after the failure, never by when
-  // they arrived: the project says construction started or shows work in flight,
-  // or the probed session is live (pumpEvidencedSince, hooks/readRequestTimes).
+  // they arrived, and only what CHANGED after it: the project shows work in flight
+  // or newly says construction started, or the probed session is live
+  // (pumpEvidencedSince, hooks/readRequestTimes; fix-G review I1).
   const pumpEvidenced =
     beginFailure !== null &&
     pumpEvidencedSince(beginFailure.at, {
       projectRequestedAt,
       constructionStarted: project?.constructionStarted,
+      startedAtFailure: beginFailure.startedAtFailure,
       rowsInFlight: anyRowInFlight(project?.constructionRows),
       sessionRequestedAt,
       sessionStage: phaseGateSession?.stage,

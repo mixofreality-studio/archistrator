@@ -20,6 +20,7 @@ const unknown = (at: number): BeginFailure => ({
   at,
   dismissed: false,
   holdExpired: false,
+  startedAtFailure: false,
 });
 
 void test('one failure per project: another project neither sees nor clears it', () => {

@@ -19,7 +19,12 @@ import { apiClient } from '../api/client';
 // with `error: undefined` (throwUnlessOk, fix-D review I2).
 import { throwUnlessOk } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
-import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
+import type {
+  OverrideKind,
+  PhaseDecision,
+  ProjectStateWithGit,
+  ReviewPreset,
+} from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
 import { projectKey } from './useProject';
@@ -52,9 +57,11 @@ export function useBeginConstruction(
     /**
      * Runs at the MUTATION level, so it still runs when the answer lands after the
      * console unmounted (a callback passed to `mutate` would not). The console
-     * records the failure in module memory from here (fix-E review I2).
+     * records the failure in module memory from here (fix-E review I2), with what
+     * the project read on screen said at that moment (fix-G review I1): only a
+     * change from "not started" can count as pump evidence.
      */
-    onError?: (error: Error) => void;
+    onError?: (error: Error, atFailure: { constructionStarted: boolean | undefined }) => void;
   }
 ): UseMutationResult<undefined, Error, string> {
   const onFailure = options?.onError;
@@ -85,7 +92,8 @@ export function useBeginConstruction(
     // that, or the response can be dropped on the way. Only a fresh read can say
     // whether construction started, so the console never guesses from the error.
     onError: async (error) => {
-      onFailure?.(error);
+      const shown = client.getQueryData<ProjectStateWithGit>(projectKey(projectId));
+      onFailure?.(error, { constructionStarted: shown?.constructionStarted });
       await refresh();
     },
   });

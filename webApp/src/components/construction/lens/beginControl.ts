@@ -161,13 +161,19 @@ export function anyRowInFlight(rows: ConstructionRows | undefined): boolean {
 }
 
 /**
- * Whether the reads since `at` show the pump: the project says construction
- * started or shows an activity in flight, or a session is live. Only reads
+ * Whether the reads since `at` show the pump: the project shows an activity in
+ * flight, or NEWLY says construction started, or a session is live. Only reads
  * REQUESTED after the failure count — by when they were asked for, not when they
  * arrived (hooks/readRequestTimes). A read already on screen before the dispatch
  * failed is never taken as an answer to it, and neither is one that was already
  * on its way: it describes the project from before the failure, however late it
  * lands. A read with no known request time (0) never counts.
+ *
+ * Evidence must be something that CHANGED after the dispatch (fix-G review I1).
+ * constructionStarted counts only when it was false at the failure: on a project
+ * already started it was true before the dispatch, so a Resume answered 5xx was
+ * "evidenced" by the very next read, its alert wiped and Resume offered again,
+ * 4.4s after the 500, beside a pump that may be running.
  */
 export function pumpEvidencedSince(
   at: number,
@@ -175,6 +181,8 @@ export function pumpEvidencedSince(
     /** When the shown project read was REQUESTED (0 where unknown), and what it said. */
     projectRequestedAt: number;
     constructionStarted: boolean | undefined;
+    /** What the read on screen at the failure said (BeginFailure.startedAtFailure). */
+    startedAtFailure: boolean | undefined;
     /** Whether that read shows any activity in flight (rowIsInFlight). */
     rowsInFlight: boolean;
     /** When the shown session read was REQUESTED, and its stage. Stage is
@@ -185,7 +193,8 @@ export function pumpEvidencedSince(
   }
 ): boolean {
   const read = reads.projectRequestedAt > at;
-  const started = read && (reads.constructionStarted === true || reads.rowsInFlight);
+  const newlyStarted = reads.startedAtFailure === false && reads.constructionStarted === true;
+  const started = read && (newlyStarted || reads.rowsInFlight);
   const live = reads.sessionRequestedAt > at && sessionIsLive(reads.sessionStage);
   return started || live;
 }

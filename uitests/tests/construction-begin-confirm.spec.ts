@@ -1065,3 +1065,83 @@ test('with no dispatch at all, an activity in review reads as running, past 30s,
   await expect(begin).toBeEnabled();
   expect(h.trapped).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// Fix-G review I1: evidence must be something that CHANGED after the dispatch. On
+// a project already started, constructionStarted was true before a Resume, so a
+// read saying so proves nothing about it. A Resume answered 500 used to be
+// "evidenced" by the next read: its alert wiped, and Resume offered again 4.4s
+// after the 500, beside a pump that may be running.
+//
+// SAFETY: as above. The dispatch is answered 500 in the browser; reads go to the
+// server as GETs, edited in the browser to read as a project already started.
+// ---------------------------------------------------------------------------
+
+/** Every read says construction has started: a project already run. */
+function alreadyStarted(wire: WireProject): void {
+  wire.constructionStarted = true;
+}
+
+async function openStartedConsole(page: Page): Promise<void> {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+}
+
+test('I1: on a project already started, a Resume answered 500 stays held, with its alert, until work shows in flight', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  h.edit.fn = alreadyStarted;
+  await openStartedConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // Reads keep arriving, and every one says constructionStarted. None is evidence:
+  // sampled well past the 4.4s the review measured.
+  const before = h.served.length;
+  await expectBeginHeldOff(page, 6_000);
+  expect(h.served.length, 'reads after the failure').toBeGreaterThan(before + 1);
+  await expect(alert).toBeVisible();
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await page.clock.fastForward(40_000);
+  await expectBeginHeldOff(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+
+  // Work shows in flight: that changed after the dispatch.
+  h.edit.fn = (wire) => {
+    alreadyStarted(wire);
+    inConstruction(PICKED)(wire);
+  };
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 1_500);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I1: on a project already started, with nothing changing, a Resume 500 holds for 60s, then asks again', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  h.edit.fn = alreadyStarted;
+  await openStartedConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // The clock keeps real time between jumps: 50s here is short of 60s, 12s more past it.
+  await page.clock.fastForward(50_000);
+  await expectBeginHeldOff(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await page.clock.fastForward(12_000);
+  await expect(alert).toHaveAttribute('data-hold', 'expired', { timeout: 10_000 });
+  await expect(alert).toContainText('No sign the pump started. Begin again?');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
