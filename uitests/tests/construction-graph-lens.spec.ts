@@ -565,3 +565,23 @@ test('Sort and "Expand to current phase" are list-only', async ({ page }) => {
   await page.getByTestId(TESTID.constructionLensButton('list')).click();
   await expect(sort).not.toHaveAttribute('aria-disabled', 'true');
 });
+
+test('hovering a milestone chip\'s stamp opens ONE tooltip, carrying the count and the provenance (designer re-check 10)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await gotoApp(page, GRAPH);
+  await expect(page.getByTestId(TESTID.constructionGraphRibbon)).toBeVisible();
+  const ribbon = page.getByTestId(TESTID.constructionGraphRibbon);
+  const stamped = ribbon.getByTestId(TESTID.constructionProvenanceBadge).first();
+  test.skip((await stamped.count()) === 0, 'no milestone carries reconstructed evidence');
+  // The stamp takes no pointer events (the fix), so Playwright's actionability
+  // check would refuse it; a real pointer simply rests over it.
+  const box = await stamped.boundingBox();
+  expect(box).not.toBeNull();
+  await page.mouse.move((box?.x ?? 0) + (box?.width ?? 0) / 2, (box?.y ?? 0) + (box?.height ?? 0) / 2);
+  const tips = page.getByRole('tooltip');
+  await expect(tips).toHaveCount(1);
+  await expect(tips.first()).toContainText(/feeder|Gates/);
+  await expect(tips.first()).toContainText(/reconstruct/i);
+});

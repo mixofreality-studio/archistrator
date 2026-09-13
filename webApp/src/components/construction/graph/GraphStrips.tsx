@@ -45,6 +45,12 @@ import {
 // The ribbon
 // ---------------------------------------------------------------------------
 
+/** A milestone chip's one tooltip: its count sentence, then — when its feeders
+ *  carry reconstructed evidence — the provenance prose its stamp would have said. */
+function milestoneTooltipText(count: string, provenance: string, origin: string): string {
+  return origin === 'recorded' || origin === 'unknown' ? count : `${count}\n\n${provenance}`;
+}
+
 function countTooltip(m: RibbonMilestone): string {
   if (m.feeders.length === 0) {
     return `Gates ${String(m.gates.length)} activities. It has no feeders of its own, so it asserts no completion state.`;
@@ -303,7 +309,17 @@ export function GateRibbon({
           tooltip: provenanceTooltipFor(m.provenance, bases),
         };
         return (
-          <Tooltip key={m.id} title={countTooltip(m)}>
+          // ONE tooltip per chip (designer re-check 10): the chip's carries the
+          // count sentence AND the provenance prose, and the stamp inside it
+          // takes no pointer events, so its own tooltip never opens as well.
+          <Tooltip
+            key={m.id}
+            title={
+              <span style={{ whiteSpace: 'pre-line' }}>
+                {milestoneTooltipText(countTooltip(m), reading.tooltip, m.provenance)}
+              </span>
+            }
+          >
             <Box
               data-provenance={m.provenance}
               data-testid={UI_IDENTIFIERS.Construction.graphMilestone(m.id)}
@@ -350,7 +366,9 @@ export function GateRibbon({
                   {m.feeders.length > 0 ? `${String(m.feeders.length)} feeders · ` : ''}
                   {ribbonCountLabel(m)}
                 </Typography>
-                <ProvenanceGroupStamp reading={reading} t={t} />
+                <Box component="span" sx={{ display: 'inline-flex', pointerEvents: 'none' }}>
+                  <ProvenanceGroupStamp reading={reading} t={t} />
+                </Box>
               </Box>
             </Box>
           </Tooltip>
