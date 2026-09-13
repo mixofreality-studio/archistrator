@@ -416,10 +416,6 @@ export function sdpOptionAnchor(optionKind: string): string {
 export function activityConstructionAnchor(activityId: string): string {
   return `$.activityConstruction[id=${activityId}]`;
 }
-/** An intervention/gate decision by ActivityID → `$.interventions[activity=…]`. */
-export function interventionAnchor(activityId: string): string {
-  return `$.interventions[activity=${activityId}]`;
-}
 /** A service-contract operation by component + signature. */
 export function contractOpAnchor(component: string, signature: string): string {
   return `$.serviceContracts[component=${component}].ops[signature="${q(signature)}"]`;

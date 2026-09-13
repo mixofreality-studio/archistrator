@@ -39,6 +39,6 @@ void test('every apiClient call in a hook is checked by its status', () => {
     assert.equal(checked, calls, `${file}: ${String(calls)} calls, ${String(checked)} checked`);
     total += calls;
   }
-  // The sites the fix-E review listed, plus construction's six, plus the GETs.
-  assert.ok(total >= 25, `found ${String(total)} apiClient calls`);
+  // The sites the fix-E review listed, plus construction's five, plus the GETs.
+  assert.ok(total >= 24, `found ${String(total)} apiClient calls`);
 });

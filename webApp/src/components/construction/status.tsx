@@ -7,12 +7,11 @@
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import Typography from '@mui/material/Typography';
 import type { Tokens } from '../../utilities/theme/themes';
 import { BUILD_STATUS_META, type BuildStatus } from '../../contracts/constructionAdapters';
 import { STATUS_TOKEN } from './statusRamp';
 
-/** One token-driven status colour, used by the tracker node + the status legend.
+/** One token-driven status colour (the chip's dot, the network node's fill).
  *  Which token is statusRamp.ts's STATUS_TOKEN (designer palette ruling). */
 export function statusColor(t: Tokens, s: BuildStatus): string {
   return t[STATUS_TOKEN[s]];
@@ -75,46 +74,6 @@ export function StatusChip({
     >
       <Box sx={{ width: 7, height: 7, borderRadius: '50%', bgcolor: dot, flexShrink: 0 }} />
       {BUILD_STATUS_META[status][size === 'xs' ? 'short' : 'label'].toUpperCase()}
-    </Box>
-  );
-}
-
-/** the shared status legend, used at the top of the Tracker. */
-export function StatusLegend({ t }: { t: Tokens }): ReactNode {
-  const order: BuildStatus[] = [
-    'integrated',
-    'in-review',
-    'in-construction',
-    'in-detailed-design',
-    'eligible',
-    'blocked',
-    'not-started',
-    'failed',
-    'unclassified',
-  ];
-  return (
-    <Box sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 1.25 }}>
-      <Typography
-        sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, letterSpacing: '0.08em' }}
-      >
-        BUILD STATUS
-      </Typography>
-      {order.map((s) => (
-        <Box key={s} sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-          <Box
-            sx={{
-              width: 9,
-              height: 9,
-              borderRadius: '50%',
-              bgcolor: statusColor(t, s),
-              border: `1px solid ${t.line}`,
-            }}
-          />
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.ink }}>
-            {BUILD_STATUS_META[s].label}
-          </Typography>
-        </Box>
-      ))}
     </Box>
   );
 }

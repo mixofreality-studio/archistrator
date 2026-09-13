@@ -73,18 +73,6 @@ export const FAILURE_REASON_LABEL: Record<FailureReason, string> = {
   activityUnclassifiable: 'Activity unclassifiable',
 };
 
-/** Human-readable label for the technical construction stage. */
-export const STAGE_LABEL: Record<ConstructionStage, string> = {
-  dispatching: 'Dispatching',
-  pipelineRunning: 'Pipeline running',
-  reviewing: 'Reviewing',
-  awaitingTakeover: 'Awaiting takeover',
-  awaitingApproval: 'Awaiting approval',
-  paused: 'Paused',
-  exited: 'Exited',
-  unknown: 'Unknown',
-};
-
 /**
  * Maps the live ConstructionStage of the session's active activity onto the
  * tracker build-status lens. Only the ONE active activity gets a live status; the
@@ -130,13 +118,6 @@ export function sessionIsLive(session: ConstructionSessionState | undefined): bo
     v.variance !== undefined ||
     (session.stage !== 'dispatching' && session.stage !== 'unknown')
   );
-}
-
-/** The active activity id the session is supervising, if any. */
-export function activeActivityId(
-  session: ConstructionSessionState | undefined
-): string | undefined {
-  return session?.view.activityId ?? session?.activityId;
 }
 
 /**

@@ -121,6 +121,14 @@ export function useBeginConstruction(
   });
 }
 
+/**
+ * Pause the project's construction (pause-project). NO CALLER TODAY, KEPT ON
+ * PURPOSE: the Interventions tab that pressed it was retired (Task 13), and its
+ * rebuild is B1's (plan-B1-B2.md; plan-B1-B2-amendment.md §B: "if we have pause
+ * we should have resume"). This is the natural client for that control, and B1's
+ * resume-project hook belongs beside it. Delete it only if B1 lands without a
+ * pause control.
+ */
 export function usePauseConstruction(
   projectId: string
 ): UseMutationResult<undefined, Error, string> {
@@ -146,6 +154,14 @@ export interface OverrideActivityVars {
   comments?: components['schemas']['ConstructionAnchoredComment'][];
 }
 
+/**
+ * Steer one activity (override-activity). NO CALLER TODAY, KEPT ON PURPOSE:
+ * InterventionDrawer, its old caller, is deleted, and B1's awaitingTakeover row
+ * rebuilds the steer as `OverrideActivity(Retry|Skip, notes)` (plan-B1-B2.md §UI)
+ * on this same endpoint. This hook is that row's natural client; B1 extends it
+ * (the optional `awaitingSince` token, B-plan open question 4) rather than
+ * re-adding it.
+ */
 export function useOverrideActivity(
   projectId: string
 ): UseMutationResult<undefined, Error, OverrideActivityVars> {
@@ -249,9 +265,9 @@ export function useSubmitPhaseDecision(
 
 /**
  * Set the project's review-policy PRESET (the sophistication dial: vibes /
- * checkpoints / full) via the construction SetReviewPolicy op. Distinct from
- * useUpdateReviewPolicy below, which replaces the explicit per-type gate map —
- * the two ops own disjoint halves of the same server-side ReviewPolicy.
+ * checkpoints / full) via the construction SetReviewPolicy op. The other half of
+ * the same server-side ReviewPolicy, the explicit per-type gate map
+ * (update-review-policy), has no client since PolicyPanel was deleted.
  * Invalidates the project read so the home page's control reflects the
  * committed value (reviewPolicy.preset), never a local echo.
  */
@@ -264,30 +280,6 @@ export function useSetReviewPolicy(
       const { error, response } = await apiClient.POST(
         '/api/v1/construction/set-review-policy/{projectID}',
         { params: { path: { projectID: projectId } }, body: { preset } }
-      );
-      throwUnlessOk(response, error);
-      return undefined;
-    },
-    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
-  });
-}
-
-export interface UpdateReviewPolicyVars {
-  gatedPhasesByType: Record<string, string[]>;
-}
-
-export function useUpdateReviewPolicy(
-  projectId: string
-): UseMutationResult<undefined, Error, UpdateReviewPolicyVars> {
-  const client = useQueryClient();
-  return useMutation<undefined, Error, UpdateReviewPolicyVars>({
-    mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/update-review-policy/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: { policy: { gatedPhasesByType: vars.gatedPhasesByType } },
-        }
       );
       throwUnlessOk(response, error);
       return undefined;
