@@ -179,6 +179,18 @@ export interface FloatPresentation {
  * float is rendered as absent — a fabricated `0` would read as "on the critical
  * path", the loudest possible lie on this surface.
  */
+const FLOAT_BANDS: readonly FloatBand[] = ['critical', 'red', 'yellow', 'green'];
+
+/**
+ * The four bands the server's policy emits. `ActivityMeta.band` is a plain
+ * string (passed through untouched from the network's compute block), so it is
+ * NARROWED here rather than asserted: an unrecognised band is no band at all,
+ * the honest reading of a value we cannot place. One narrowing for both lenses.
+ */
+export function floatBandOf(value: string | undefined): FloatBand | undefined {
+  return FLOAT_BANDS.find((b) => b === value);
+}
+
 export function floatPresentation(float?: number, band?: FloatBand): FloatPresentation {
   if (float === undefined) return { numeral: '—', known: false };
   return {

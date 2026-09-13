@@ -68,7 +68,8 @@ import { ApiError } from '../contracts/errors';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { ActivityGraphLens } from '../components/construction/graph/ActivityGraphLens';
 import { GRAPH_LIST_ONLY_REASON } from '../components/construction/graph/graphPresentation';
-import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
+import { buildActivityTree } from '../components/construction/list/activityTree';
+import { activityMetaFor } from '../components/construction/list/activityMeta';
 import {
   applyToolbarToActivities,
   expandToCurrentPhaseControl,
@@ -426,28 +427,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // Every row joins today: the server emits one row per activity in the
   // committed list (a planned-no-record row where nothing is recorded yet), and
   // the construction head-state is keyed by the same derived ids.
+  //
+  // ONE join for both lenses (architect Q2 ruling) — list/activityMeta.ts. The
+  // LIST's rails and the GRAPH's lanes read the same node fields it fills.
   const networkModel = useMemo(() => narrowProject(networkEnvelope, 'network'), [networkEnvelope]);
-  const activityMeta = useMemo((): Record<string, ActivityMeta> => {
-    const computed = networkModel?.computed ?? {};
-    const byId: Record<string, ActivityMeta> = {};
-    for (const a of activityListModel?.activities ?? []) {
-      const cpm = computed[a.name];
-      byId[a.name] = {
-        ...(a.title !== undefined && a.title.length > 0 ? { label: a.title } : {}),
-        effortDays: a.effortDays,
-        ...(cpm !== undefined
-          ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
-          : {}),
-        // Task 11's search matches activity id / title / componentId — joined
-        // the same way as `label`; a project-wide activity (N-STP, N-IT, …)
-        // builds no single component, so it carries none.
-        ...(a.componentId !== undefined && a.componentId.length > 0
-          ? { componentId: a.componentId }
-          : {}),
-      };
-    }
-    return byId;
-  }, [activityListModel, networkModel]);
+  const activityMeta = useMemo(
+    () => activityMetaFor(activityListModel?.activities, networkModel?.computed),
+    [activityListModel, networkModel]
+  );
 
   // The rows as the EVIDENCE VIEW reads them: every activity always, and with
   // "Observed only" on, reconstructed evidence set aside so an activity known only

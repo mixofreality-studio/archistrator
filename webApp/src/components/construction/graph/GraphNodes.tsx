@@ -44,18 +44,29 @@ import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
 import { lodFor, type Lod } from './graphViewport';
 import { SEGMENT_STATE_LABEL, segmentPaint, tickPaint } from './graphPresentation';
+import { cardFrameFor } from './graphCardPresentation';
+import {
+  effortText,
+  floatTooltip,
+  scheduleLine,
+  type LaneFloat,
+  type LaneSchedule,
+} from './laneSchedule';
+import { bandTokens } from '../../project/bandTokens';
 
 /** What the lens hands each card node through `data`. */
 export interface GraphCardData {
   card: GraphCard<ActivityNode>;
   /** The spine per lane, keyed by activity id — computed once by the lens. */
   spines: Readonly<Record<string, LaneSpine>>;
+  /** The schedule channels per lane (effort, float, critical path) — laneSchedule.ts. */
+  schedules: Readonly<Record<string, LaneSchedule>>;
   height: number;
   layerColor: string;
   /** The activity the URL selects, when it rides on this card. */
   selectedActivityId?: string;
-  /** Hover-focus mute: this card is outside the hovered neighbourhood. */
-  muted: boolean;
+  /** Hover-focus: this card is outside the lit neighbourhood (cardFrameFor decides the mute). */
+  outsideFocus: boolean;
   /** This card is the hovered one — LOD-1 and the hover card. */
   hovered: boolean;
   /** The card's top lies in the canvas's first row band, so its hover card
@@ -74,6 +85,8 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
   const lod = lodFor(zoom, d.hovered);
   const { card } = d;
   const cardReading = readProvenance({ phases: card.lanes });
+  // The card's frame reads the card alone — never a lane's schedule (Q2 ruling).
+  const frame = cardFrameFor(card, { outsideFocus: d.outsideFocus });
 
   return (
     <Box
@@ -88,11 +101,14 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
         boxSizing: 'border-box',
         display: 'flex',
         flexDirection: 'column',
-        bgcolor: card.hollow ? 'transparent' : t.paper,
-        border: card.hollow ? `1.5px dashed ${alpha(t.line, 0.8)}` : `1.5px solid ${t.line}`,
-        borderTop: card.hollow ? undefined : `3px solid ${d.layerColor}`,
+        bgcolor: frame.hollow ? 'transparent' : t.paper,
+        border:
+          frame.borderStyle === 'dashed'
+            ? `1.5px dashed ${alpha(t.line, 0.8)}`
+            : `1.5px solid ${t.line}`,
+        borderTop: frame.layerEdge ? `3px solid ${d.layerColor}` : undefined,
         borderRadius: `${String(Math.min(t.radius, 8))}px`,
-        opacity: d.muted ? MUTED_OPACITY : 1,
+        opacity: frame.muted ? MUTED_OPACITY : 1,
         transition: 'opacity 120ms ease-out',
         overflow: 'hidden',
       }}
@@ -163,6 +179,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
               key={lane.activityId}
               lane={lane}
               lod={lod}
+              schedule={d.schedules[lane.activityId]}
               selected={d.selectedActivityId === lane.activityId}
               spine={spine}
               t={t}
@@ -175,7 +192,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       <Handle id="b" position={Position.Bottom} style={{ opacity: 0 }} type="source" />
 
       <NodeToolbar isVisible={d.hovered} position={d.topRow ? Position.Bottom : Position.Top}>
-        <HoverCard card={card} spines={d.spines} t={t} />
+        <HoverCard card={card} schedules={d.schedules} spines={d.spines} t={t} />
       </NodeToolbar>
     </Box>
   );
@@ -188,6 +205,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
 function Lane({
   lane,
   spine,
+  schedule,
   lod,
   selected,
   dim,
@@ -196,12 +214,14 @@ function Lane({
 }: {
   lane: ActivityNode;
   spine: LaneSpine;
+  schedule: LaneSchedule | undefined;
   lod: Lod;
   selected: boolean;
   dim: boolean;
   t: Tokens;
   onSelect: (activityId: string, lifecyclePhase?: string) => void;
 }): ReactElement {
+  const critical = schedule?.critical === true;
   const reading = readProvenance(lane);
   const state = activityRowState(lane.row);
   const chip = chipFor(state);
@@ -220,6 +240,8 @@ function Lane({
       aria-label={`${lane.activityId} — ${lane.label}`}
       aria-pressed={selected}
       className="nodrag nopan"
+      data-critical={String(critical)}
+      data-effort={schedule?.effortDays ?? ''}
       data-provenance={reading.origin}
       data-selected={String(selected)}
       data-state={state}
@@ -232,6 +254,13 @@ function Lane({
         alignItems: 'stretch',
         gap: 0.5,
         px: 0.5,
+        boxSizing: 'border-box',
+        // The critical path is the LANE's left edge, full-bleed: 3px in full ink
+        // on the path, a receding 2px off it (laneSchedule, the list's
+        // criticalBorderPx). Never on the card, never on an edge.
+        borderLeft: `${String(schedule?.borderPx ?? 2)}px solid ${
+          critical ? t.ink : alpha(t.line, 0.3)
+        }`,
         cursor: 'pointer',
         opacity: dim ? MUTED_OPACITY : 1,
         outline: selected ? `2px solid ${t.accent}` : 'none',
@@ -257,6 +286,9 @@ function Lane({
           >
             {lane.activityId}
           </Typography>
+          {schedule?.float !== undefined ? (
+            <FloatMark activityId={lane.activityId} float={schedule.float} t={t} />
+          ) : null}
           {chip !== undefined ? (
             <Box
               component="span"
@@ -284,16 +316,60 @@ function Lane({
             Unclassified — no lifecycle
           </Typography>
         ) : (
-          <SpineBar
-            activityId={lane.activityId}
-            lod={lod}
-            spine={spine}
-            t={t}
-            onSegment={(phase) => {
-              onSelect(lane.activityId, phase);
-            }}
-          />
+          // Effort sets the spine's LENGTH; the segments inside keep their
+          // Table A-1 proportions. No effort on record: the full track, titled so.
+          <Box
+            data-spine-fraction={schedule?.spineFraction ?? ''}
+            sx={{ width: `${String((schedule?.spineFraction ?? 1) * 100)}%` }}
+            title={schedule !== undefined ? effortText(schedule) : undefined}
+          >
+            <SpineBar
+              activityId={lane.activityId}
+              lod={lod}
+              spine={spine}
+              t={t}
+              onSegment={(phase) => {
+                onSelect(lane.activityId, phase);
+              }}
+            />
+          </Box>
         )}
+      </Box>
+    </Box>
+  );
+}
+
+/** Float: a rail PLUS its numeral — never colour alone (WCAG 1.4.1). Rendered
+ *  only when the network has a computed entry; absence draws nothing. */
+function FloatMark({
+  activityId,
+  float,
+  t,
+}: {
+  activityId: string;
+  float: LaneFloat;
+  t: Tokens;
+}): ReactElement {
+  const colour = float.band !== undefined ? bandTokens(t, float.band).fg : t.line;
+  return (
+    <Box
+      aria-label={floatTooltip(float)}
+      component="span"
+      data-band={float.band ?? ''}
+      data-float={float.numeral}
+      data-testid={UI_IDENTIFIERS.Construction.graphLaneFloat(activityId)}
+      sx={{ display: 'inline-flex', alignItems: 'center', gap: '2px', flexShrink: 0 }}
+      title={floatTooltip(float)}
+    >
+      <Box
+        component="span"
+        sx={{ width: 3, height: 10, bgcolor: colour, borderRadius: '1px', flexShrink: 0 }}
+      />
+      <Box
+        component="span"
+        sx={{ fontFamily: t.mono, fontSize: 9, fontWeight: 700, lineHeight: '11px', color: t.ink }}
+      >
+        {float.numeral}
       </Box>
     </Box>
   );
@@ -454,10 +530,12 @@ function Segment({
 function HoverCard({
   card,
   spines,
+  schedules,
   t,
 }: {
   card: GraphCard<ActivityNode>;
   spines: Readonly<Record<string, LaneSpine>>;
+  schedules: Readonly<Record<string, LaneSchedule>>;
   t: Tokens;
 }): ReactElement {
   return (
@@ -483,12 +561,18 @@ function HoverCard({
       ) : (
         card.lanes.map((lane) => {
           const spine = spines[lane.activityId];
+          const schedule = schedules[lane.activityId];
           return (
             <Box key={lane.activityId} sx={{ mt: 0.75 }}>
               <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
                 {lane.activityId}
                 {lane.label !== lane.activityId ? ` — ${lane.label}` : ''}
               </Typography>
+              {schedule !== undefined ? (
+                <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, pl: 1 }}>
+                  {scheduleLine(schedule)}
+                </Typography>
+              ) : null}
               {spine === undefined || spine.unclassified ? (
                 <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
                   Unclassified — no lifecycle

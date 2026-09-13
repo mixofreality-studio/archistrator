@@ -385,6 +385,11 @@ export const UI_IDENTIFIERS = {
     graphSegment: (activityId: string, phase: string) =>
       `construction-graph-segment-${activityId}-${phase}`,
     GRAPH_HOVER_CARD: 'construction-graph-hover-card',
+    /** A lane's float rail + numeral — rendered ONLY when the network has a computed entry. */
+    // Not under the `construction-graph-lane-` prefix: specs select the lane
+    // family by that prefix, and a float mark must never count as a lane.
+    graphLaneFloat: (activityId: string) => `construction-graph-float-${activityId}`,
+    GRAPH_SCHEDULE_CAPTION: 'construction-graph-schedule-caption',
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,

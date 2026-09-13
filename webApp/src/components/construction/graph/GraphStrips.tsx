@@ -23,6 +23,7 @@ import { ProvenanceGroupStamp, ProvenanceRailMark } from '../provenance';
 import { provenanceBasesOf, provenanceTooltipFor } from '../provenanceAxis';
 import type { ActivityGraphModel } from './activityGraphModel';
 import type { RibbonMilestone } from './gateRibbon';
+import { SCHEDULE_CAPTION } from './laneSchedule';
 import {
   SEGMENT_STATES,
   SEGMENT_STATE_LABEL,
@@ -209,6 +210,17 @@ export function GraphKey({
         })}
       </Box>
       <Box component="span">hatched rail = ≈ RECONSTRUCTED</Box>
+      <Box component="span">
+        spine length = effort · rail + numeral = total float (days) · heavy left edge = critical
+        path
+      </Box>
+      <Box
+        component="span"
+        data-testid={UI_IDENTIFIERS.Construction.GRAPH_SCHEDULE_CAPTION}
+        sx={{ fontStyle: 'italic' }}
+      >
+        {SCHEDULE_CAPTION}
+      </Box>
     </Box>
   );
 }

@@ -66,6 +66,7 @@ import {
 import { cardSetFocusFor, edgePresentationFor, hoverFocusFor, type GraphFocus } from './graphEdges';
 import { CARD_W, UTIL_PAD, layoutActivityGraph, type GraphLayout } from './activityGraphLayout';
 import { laneSpineFor, type LaneSpine } from './laneSpine';
+import { laneScheduleFor, maxEffortOf, type LaneSchedule } from './laneSchedule';
 import { gateRibbonFor } from './gateRibbon';
 import {
   CANVAS_MIN_PX,
@@ -125,6 +126,13 @@ export function ActivityGraphLens({
       Object.fromEntries(activities.map((a) => [a.activityId, laneSpineFor(a)])),
     [activities]
   );
+  // Effort, float and critical path — from the ONE join both lenses read (the
+  // tree's node fields). The spine scale is the widest effort in the WHOLE plan,
+  // never the filtered set: filters dim, they never resize anything.
+  const schedules = useMemo((): Record<string, LaneSchedule> => {
+    const max = maxEffortOf(activities);
+    return Object.fromEntries(activities.map((a) => [a.activityId, laneScheduleFor(a, max)]));
+  }, [activities]);
   const ribbon = useMemo(
     () => gateRibbonFor(network?.milestones ?? [], network?.dependencies ?? [], activities),
     [network, activities]
@@ -178,6 +186,7 @@ export function ActivityGraphLens({
         layout={layout}
         model={model}
         ribbonFocus={ribbonFocus}
+        schedules={schedules}
         selectedActivityId={selection.activityId}
         signature={signature}
         spines={spines}
@@ -198,6 +207,7 @@ function GraphCanvas({
   model,
   layout,
   spines,
+  schedules,
   unmatched,
   selectedActivityId,
   ribbonFocus,
@@ -208,6 +218,7 @@ function GraphCanvas({
   model: ActivityGraphModel<ActivityNode>;
   layout: GraphLayout;
   spines: Readonly<Record<string, LaneSpine>>;
+  schedules: Readonly<Record<string, LaneSchedule>>;
   unmatched: ReadonlySet<string>;
   selectedActivityId: string | undefined;
   ribbonFocus: ReadonlySet<string> | null;
@@ -268,6 +279,7 @@ function GraphCanvas({
         model,
         layout,
         spines,
+        schedules,
         unmatched,
         selectedActivityId,
         focus,
@@ -275,7 +287,18 @@ function GraphCanvas({
         t,
         onSelectLane,
       }),
-    [model, layout, spines, unmatched, selectedActivityId, focus, hoveredId, t, onSelectLane]
+    [
+      model,
+      layout,
+      spines,
+      schedules,
+      unmatched,
+      selectedActivityId,
+      focus,
+      hoveredId,
+      t,
+      onSelectLane,
+    ]
   );
   const edges = useMemo(() => buildEdges(model, focus, t), [model, focus, t]);
 
@@ -358,6 +381,7 @@ function buildNodes(args: {
   model: ActivityGraphModel<ActivityNode>;
   layout: GraphLayout;
   spines: Readonly<Record<string, LaneSpine>>;
+  schedules: Readonly<Record<string, LaneSchedule>>;
   unmatched: ReadonlySet<string>;
   selectedActivityId: string | undefined;
   focus: GraphFocus | null;
@@ -365,7 +389,8 @@ function buildNodes(args: {
   t: Tokens;
   onSelectLane: (activityId: string, lifecyclePhase?: string) => void;
 }): Node[] {
-  const { model, layout, spines, unmatched, selectedActivityId, focus, hoveredId, t } = args;
+  const { model, layout, spines, schedules, unmatched, selectedActivityId, focus, hoveredId, t } =
+    args;
   const rowIndex = new Map<GraphRow, number>(layout.rows.map((r, i) => [r.row, i]));
 
   // The visual reading order — rows top→down, then left→right, the utility bar
@@ -386,11 +411,11 @@ function buildNodes(args: {
     const data: GraphCardData = {
       card,
       spines,
+      schedules,
       height: layout.size.get(card.id)?.h ?? 0,
       layerColor: colourOf(t, card.row),
       ...(holdsSelection ? { selectedActivityId } : {}),
-      // Utilities are shared infrastructure — the bar never dims.
-      muted: focus !== null && !focus.cards.has(card.id) && card.row !== 'utility',
+      outsideFocus: focus !== null && !focus.cards.has(card.id),
       hovered: hoveredId === card.id,
       topRow: (layout.pos.get(card.id)?.y ?? 0) < (layout.rows[0]?.height ?? 0),
       unmatched,

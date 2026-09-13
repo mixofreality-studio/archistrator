@@ -248,12 +248,28 @@ of an activity is not the layer of its component.**
 **Remaining role for AI in the graph: none.** No LLM output may determine a node's existence,
 position, layer, edge, or lifecycle state.
 
-**`activityListOverrides` gap: confirmed OUT, with a tripwire.** An override may only replace
-`effortDays`/`riskBucket` on an already-derived activity, so the 25 overrides cannot add or remove
-a node — the rendered activity set is byte-identical with or without them. **Tripwire:** this must
-be fixed before any view surfaces effort, cost, float, or critical path from a re-materialization,
-i.e. before the graph gets a CPM overlay. Ship the layer render without numbers and the gap stays
-inert.
+**`activityListOverrides` gap: still OUT; the tripwire is met because the override set is empty.**
+An override may only replace `effortDays`/`riskBucket` on an already-derived activity, so it can
+never add or remove a node. The overrides were deleted (F3) and slot 10 is materialized and
+drift-gated with exact equality, so today the rendered figures are the derived network's own.
+
+- **Channels allowed now, on both lenses, through ONE shared join** (the list's `activityMeta`,
+  lifted to `list/activityMeta.ts`): effort from slot 9 `effortDays` (the graph: the lane spine's
+  length, segments keeping their Table A-1 proportions, positions still deterministic); float, band
+  and critical path from `network.computed` (a float rail plus an always-visible numeral; critical
+  path as the lane's 2→3px full-bleed edge). **No computed entry means no channel** — no rail, never
+  0. Float and critical path belong to the **lane**, never to a card or an edge. The list lens's
+  existing float/critical rails are ratified retroactively.
+- These are **unstaffed derived-network figures**, captioned as such ("Float and critical path of
+  the derived network, unstaffed.").
+- **Stays OFF** until slots 11–16 are re-derived and the EV ruling lands: milestone event times,
+  total duration, dates and weeks, cost, option risk, EV, SPI, project %, and the TotalWeeks figure.
+- **The tripwire moves to reintroducing an override.** That requires the codec to carry the
+  `activityListOverrides` sidecar and `materializePhase2Draft` to apply the deltas — a contract
+  change.
+
+*(Amended 2026-09-12, architect Q2 ruling — composed from the ruling summary in
+`arch-graph-q1q2-ruling.md`; the architect's full reply is recorded in the orchestrator ledger.)*
 
 ### R6 — Minimum honest defect set
 
@@ -669,7 +685,9 @@ coverage strip, the always-enabled retry.
 - `phase` (and ideally `task`) on `EpisodeRecord`; durable, non-gitignored episode storage.
 - `.activityConstruction` re-keying, then **deletion of the 60 legacy records** once the 40 derived
   activities are in good shape (founder D8).
-- `activityListOverrides` unreachable — **tripwire: fix before any CPM overlay on the graph.**
+- `activityListOverrides` unreachable — inert with an empty override set (architect Q2: tripwire
+  met). **New tripwire: fix before any override is reintroduced** — the codec must carry the
+  sidecar and `materializePhase2Draft` must apply the deltas (a contract change).
 - Slot 10 not materialized (`list, _, _, err :=`).
 - M0 gates nothing.
 - `ProducedArtifact` PascalCase keys.
