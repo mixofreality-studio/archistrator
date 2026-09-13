@@ -96,37 +96,47 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
     >
       <Handle id="t" position={Position.Top} style={{ opacity: 0 }} type="target" />
 
+      {/* The head is TWO lines: the title alone on the first, so the stamp can
+          never cut a component's name down to ten characters, then the surface
+          subtitle and the spelled-out stamp on the second. Fixed height (see
+          CARD_HEAD_H) — never provenance-dependent, so nothing moves when
+          "Observed only" is toggled. */}
       <Box
         sx={{
           height: CARD_HEAD_H - 3,
           flexShrink: 0,
           display: 'flex',
-          alignItems: 'center',
-          gap: 0.5,
+          flexDirection: 'column',
+          justifyContent: 'center',
+          gap: 0.25,
           px: 0.75,
+          minWidth: 0,
         }}
       >
-        <Box sx={{ minWidth: 0, flexGrow: 1 }}>
-          <Typography
-            noWrap
-            sx={{
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 11,
-              lineHeight: 1.15,
-              color: card.hollow ? t.muted : t.ink,
-            }}
-            title={card.title}
-          >
-            {card.title}
-          </Typography>
+        <Typography
+          noWrap
+          sx={{
+            fontFamily: t.mono,
+            fontWeight: 700,
+            fontSize: 11,
+            lineHeight: 1.15,
+            color: card.hollow ? t.muted : t.ink,
+          }}
+          title={card.title}
+        >
+          {card.title}
+        </Typography>
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, minWidth: 0, minHeight: 14 }}>
           {card.buildsComponent !== undefined ? (
-            <Typography noWrap sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted }}>
+            <Typography
+              noWrap
+              sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, minWidth: 0 }}
+            >
               builds {card.buildsComponent}
             </Typography>
           ) : null}
+          <ProvenanceGroupStamp reading={cardReading} t={t} />
         </Box>
-        <ProvenanceGroupStamp reading={cardReading} t={t} />
       </Box>
 
       {card.hollow ? (

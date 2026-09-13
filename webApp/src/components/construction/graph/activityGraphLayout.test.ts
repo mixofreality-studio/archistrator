@@ -124,31 +124,31 @@ void test('GOLDEN: the fixture lays out at exactly these coordinates', () => {
     // The barycenter sweep puts y-manager (called by web-client at x 0) left of
     // x-manager (no caller), then b-engine under y-manager, a-engine under
     // x-manager. The 2-lane y-manager card makes the Managers row taller.
-    'a-engine': [220, 322],
-    'activity:N-STP': [0, 754],
-    'b-engine': [0, 322],
-    db: [0, 610],
+    'a-engine': [220, 350],
+    'activity:N-STP': [0, 824],
+    'b-engine': [0, 350],
+    db: [0, 666],
     logging: [512, 34],
-    's-access': [0, 466],
-    security: [512, 122],
+    's-access': [0, 508],
+    security: [512, 136],
     'web-client': [0, 0],
-    'x-manager': [220, 144],
-    'y-manager': [0, 144],
+    'x-manager': [220, 158],
+    'y-manager': [0, 158],
   });
   assert.deepEqual(
     layout.rows.map((r) => [r.row, r.y, r.height]),
     [
-      ['client', 0, 72],
-      ['manager', 144, 106],
-      ['engine', 322, 72],
-      ['resourceAccess', 466, 72],
-      ['resource', 610, 72],
-      ['systemWide', 754, 72],
+      ['client', 0, 86],
+      ['manager', 158, 120],
+      ['engine', 350, 86],
+      ['resourceAccess', 508, 86],
+      ['resource', 666, 86],
+      ['systemWide', 824, 86],
     ]
   );
-  assert.deepEqual(layout.bar, { x: 512, top: 0, bottom: 210 });
+  assert.deepEqual(layout.bar, { x: 512, top: 0, bottom: 238 });
   assert.equal(layout.width, 512 + CARD_W);
-  assert.equal(layout.height, 826);
+  assert.equal(layout.height, 910);
 });
 
 // ---------------------------------------------------------------------------

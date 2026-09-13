@@ -84,3 +84,56 @@ export type Lod = 0 | 1;
 export function lodFor(zoom: number, hovered: boolean): Lod {
   return hovered || zoom >= LOD1_MIN_ZOOM ? 1 : 0;
 }
+
+// ---------------------------------------------------------------------------
+// What a canvas reads once when it mounts on a signature
+// ---------------------------------------------------------------------------
+
+export interface GraphMount {
+  signature: string;
+  /** The viewport left on this signature; undefined means "fit the view". */
+  stored: GraphViewport | undefined;
+  /**
+   * The card to frame once — only for a deep-linked selection on a signature
+   * with no remembered viewport. A remembered viewport always wins: it is
+   * exactly where the operator left the canvas.
+   */
+  initialFocus: string | undefined;
+}
+
+export function graphMountFor(
+  signature: string,
+  selectedActivityId: string | undefined,
+  cardOfActivity: Readonly<Record<string, string>>
+): GraphMount {
+  const stored = loadGraphViewport(signature);
+  const initialFocus =
+    stored === undefined && selectedActivityId !== undefined
+      ? cardOfActivity[selectedActivityId]
+      : undefined;
+  return { signature, stored, initialFocus };
+}
+
+// ---------------------------------------------------------------------------
+// The canvas's height — measured, never a guessed constant
+// ---------------------------------------------------------------------------
+
+/** Below this the canvas stops shrinking and the page scrolls instead. */
+export const CANVAS_MIN_PX = 420;
+/** Breathing room between the canvas and the bottom of the scroller. */
+export const CANVAS_BOTTOM_PAD_PX = 16;
+
+/**
+ * The canvas fills the scroller from where it sits AT REST down to the
+ * scroller's bottom edge. What sits above it — the page header, the toolbar,
+ * the milestone ribbon, the key — wraps to a different height at every width
+ * (at 1280 with the pane open the ribbon and key take four lines), so a fixed
+ * `calc(100vh - N)` either clips the canvas below the fold or wastes the room.
+ * Measured, the same lesson the detail pane's geometry already paid for
+ * (lensGeometry.ts). `canvasTopAtRest` is the canvas's top with the scroller
+ * scrolled to 0, so scrolling never changes the answer.
+ */
+export function canvasHeightPx(scrollerBottom: number, canvasTopAtRest: number): number {
+  const available = Math.round(scrollerBottom - canvasTopAtRest - CANVAS_BOTTOM_PAD_PX);
+  return Number.isFinite(available) ? Math.max(CANVAS_MIN_PX, available) : CANVAS_MIN_PX;
+}

@@ -7,7 +7,11 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  CANVAS_BOTTOM_PAD_PX,
+  CANVAS_MIN_PX,
   LOD1_MIN_ZOOM,
+  canvasHeightPx,
+  graphMountFor,
   graphSignatureOf,
   loadGraphViewport,
   lodFor,
@@ -91,4 +95,42 @@ void test('LOD-1 at and above the 0.8 threshold', () => {
 
 void test('LOD-1 under hover at any zoom', () => {
   assert.equal(lodFor(0.3, true), 1);
+});
+
+// ---------------------------------------------------------------------------
+// The mount read
+// ---------------------------------------------------------------------------
+
+void test('a deep link with no remembered viewport frames its card once', () => {
+  const m = graphMountFor('mount-a', 'C-x', { 'C-x': 'x-card' });
+  assert.equal(m.stored, undefined);
+  assert.equal(m.initialFocus, 'x-card');
+});
+
+void test('a remembered viewport wins over a deep link — no framing', () => {
+  saveGraphViewport('mount-b', { x: 5, y: 6, zoom: 0.7 });
+  const m = graphMountFor('mount-b', 'C-x', { 'C-x': 'x-card' });
+  assert.deepEqual(m.stored, { x: 5, y: 6, zoom: 0.7 });
+  assert.equal(m.initialFocus, undefined);
+});
+
+void test('nothing is framed without a selection, or for an activity with no card', () => {
+  assert.equal(graphMountFor('mount-c', undefined, { 'C-x': 'x-card' }).initialFocus, undefined);
+  assert.equal(graphMountFor('mount-d', 'C-gone', { 'C-x': 'x-card' }).initialFocus, undefined);
+});
+
+// ---------------------------------------------------------------------------
+// The canvas height
+// ---------------------------------------------------------------------------
+
+void test('the canvas fills from its resting top to the scroller bottom, less the pad', () => {
+  assert.equal(canvasHeightPx(1000, 380), 1000 - 380 - CANVAS_BOTTOM_PAD_PX);
+});
+
+void test('the canvas never shrinks below its minimum — the page scrolls instead', () => {
+  assert.equal(canvasHeightPx(600, 400), CANVAS_MIN_PX);
+});
+
+void test('a non-finite measurement falls back to the minimum, never NaN', () => {
+  assert.equal(canvasHeightPx(Number.NaN, 0), CANVAS_MIN_PX);
 });

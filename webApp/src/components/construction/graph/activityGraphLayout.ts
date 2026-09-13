@@ -52,8 +52,11 @@ export const CARD_W = 196;
 export const COL_GAP = 24;
 /** One column: a card plus its gap. */
 export const COL = CARD_W + COL_GAP;
-/** The card's title strip. */
-export const CARD_HEAD_H = 30;
+/** The card's head: the title on its own line (never cut by the stamp), then
+ *  the provenance stamp / surface subtitle on a second. Fixed, never
+ *  provenance-dependent — a height that followed provenance would move cards
+ *  when "Observed only" is toggled. */
+export const CARD_HEAD_H = 44;
 /** One activity lane: its id line and its lifecycle spine. */
 export const LANE_H = 34;
 /** Padding under the last lane. */
