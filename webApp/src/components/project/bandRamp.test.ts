@@ -224,10 +224,12 @@ function withoutSelectionBranch(line: string): string {
   return line.replace(/\b(?:isSelected|selected)\s*\?\s*(?:`[^`]*`|t\.accent\b)/g, '');
 }
 
-void test('source pin: no NetworkNode/NetworkView line paints a critical mark with the accent', () => {
+void test('source pin: no NetworkNode/NetworkView/NetworkSummaryStrip line paints a critical mark with the accent', () => {
   const ACCENT = /\bt\.accent\b/;
-  const CRITICAL = /\b(?:crit|onCp|onCriticalPath)\b/;
-  for (const file of ['NetworkNode.tsx', 'NetworkView.tsx']) {
+  // `critical` names the summary strip's CRITICAL PATH figure (designer final pass,
+  // item 4: it was drawn in the accent).
+  const CRITICAL = /\b(?:crit|critical|onCp|onCriticalPath)\b/;
+  for (const file of ['NetworkNode.tsx', 'NetworkView.tsx', 'NetworkSummaryStrip.tsx']) {
     const src = readFileSync(new URL(`./${file}`, import.meta.url), 'utf8');
     src.split('\n').forEach((line, i) => {
       const rest = withoutSelectionBranch(line);

@@ -19,13 +19,15 @@ function Metric({
   value,
   unit,
   label,
-  accent,
+  critical,
 }: {
   t: Tokens;
   value: string;
   unit: string;
   label: string;
-  accent?: boolean;
+  /** The critical-path figure: the ONE critical colour (criticalFg), never the
+   *  accent, which means selection (palette ruling; bandRamp.test.ts source pin). */
+  critical?: boolean;
 }): ReactNode {
   return (
     <Box>
@@ -44,7 +46,7 @@ function Metric({
             fontWeight: 800,
             fontSize: 28,
             lineHeight: 1.1,
-            color: accent === true ? t.accent : t.ink,
+            color: critical === true ? t.criticalFg : t.ink,
           }}
         >
           {value}
@@ -69,7 +71,7 @@ export function NetworkSummaryStrip({ view }: { view: NetworkView }): ReactNode 
     >
       <Metric label="TOTAL DURATION" t={t} unit="days" value={String(view.totalDurationDays)} />
       <Metric
-        accent
+        critical
         label="CRITICAL PATH"
         t={t}
         unit="activities"
