@@ -341,11 +341,22 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 	}
 }
 
-// pollPumpDispatch runs one queryPumpDispatch against the pinned run. queryErr means the
-// run could not SERVE the Query right now (the caller retries); fatal is a decode failure
-// of an answer it did serve.
+// pumpRPCTimeout bounds EACH Query / Describe RPC the dispatch-decision poll makes — the
+// same move terminalPumpResult makes for we.Get. Without it a single hung RPC would block
+// past every wall-clock budget (pumpDispatchWaitBudget, pumpQueryFailureBudget), since
+// those are only checked between RPCs. A timed-out Query reads as a failing Query
+// (retried, then the bounded fallback); a timed-out Describe as "not known closed". A var
+// only so tests can shorten it.
+var pumpRPCTimeout = 5 * time.Second
+
+// pollPumpDispatch runs one queryPumpDispatch against the pinned run, bounded by
+// pumpRPCTimeout. queryErr means the run could not SERVE the Query right now (the caller
+// retries); fatal is a decode failure of an answer it did serve — surfaced at once, never
+// polled as "not decided".
 func (m *constructionManager) pollPumpDispatch(ctx context.Context, wfID, runID string) (d pumpDispatch, queryErr, fatal error) {
-	enc, err := m.client.QueryWorkflow(ctx, wfID, runID, queryPumpDispatch)
+	qctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	enc, err := m.client.QueryWorkflow(qctx, wfID, runID, queryPumpDispatch)
 	if err != nil {
 		return pumpDispatch{}, err, nil
 	}
@@ -356,10 +367,13 @@ func (m *constructionManager) pollPumpDispatch(ctx context.Context, wfID, runID 
 }
 
 // pumpRunClosed reports whether the pinned pump run has CLOSED (any status but
-// Running). A Describe failure, or an empty answer, reads as "not known closed" — the
-// poll carries on.
+// Running — Failed, Canceled, Terminated, TimedOut, or Completed without having decided).
+// Bounded by pumpRPCTimeout. A Describe failure, or an empty answer, reads as "not known
+// closed" — the poll carries on.
 func (m *constructionManager) pumpRunClosed(ctx context.Context, wfID, runID string) bool {
-	resp, err := m.client.DescribeWorkflowExecution(ctx, wfID, runID)
+	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, wfID, runID)
 	if err != nil {
 		return false
 	}

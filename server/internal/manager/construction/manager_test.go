@@ -315,6 +315,128 @@ func Test_ExecuteNextActivity_QueryFailure_DoesNotWaitOnCascade(t *testing.T) {
 	}
 }
 
+// completedPumpRun is a WorkflowRun that COMPLETED (without having decided) with result.
+type completedPumpRun struct {
+	client.WorkflowRun
+	result PumpResult
+}
+
+func (completedPumpRun) GetID() string    { return "completed" }
+func (completedPumpRun) GetRunID() string { return "run-1" }
+func (r completedPumpRun) Get(_ context.Context, valuePtr any) error {
+	if p, ok := valuePtr.(*PumpResult); ok {
+		*p = r.result
+	}
+	return nil
+}
+
+// undecodableAnswer is a Query answer whose payload fails to decode.
+type undecodableAnswer struct{ err error }
+
+func (undecodableAnswer) HasValue() bool  { return true }
+func (u undecodableAnswer) Get(any) error { return u.err }
+
+// withPumpRPCTimeout shortens the per-RPC bound for one test.
+func withPumpRPCTimeout(t *testing.T, d time.Duration) {
+	t.Helper()
+	prev := pumpRPCTimeout
+	pumpRPCTimeout = d
+	t.Cleanup(func() { pumpRPCTimeout = prev })
+}
+
+// FIX ROUND 4, item 1. pumpRunClosed must treat EVERY non-running status as closed, not
+// just FAILED: a run that was Canceled / Terminated / TimedOut surfaces its own error
+// promptly, and one that COMPLETED without deciding returns its terminal result promptly.
+// Each row keeps answering "not decided" (closed runs are queried by replay), so a check
+// narrowed to `== FAILED` would poll the other rows out to the 5s budget and trip the 2s
+// guard.
+func Test_ExecuteNextActivity_EveryClosedStatus_EndsThePollPromptly(t *testing.T) {
+	cases := []struct {
+		name    string
+		status  enumspb.WorkflowExecutionStatus
+		run     client.WorkflowRun
+		wantErr string // "" ⇒ want the run's terminal result, no error
+	}{
+		{"failed", enumspb.WORKFLOW_EXECUTION_STATUS_FAILED, failedPumpRun{err: errors.New("run failed: store unreachable")}, "store unreachable"},
+		{"canceled", enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED, failedPumpRun{err: errors.New("run canceled by operator")}, "canceled by operator"},
+		{"terminated", enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED, failedPumpRun{err: errors.New("run terminated: drain")}, "terminated: drain"},
+		{"timed out", enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT, failedPumpRun{err: errors.New("run timed out")}, "timed out"},
+		{"completed without deciding", enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED, completedPumpRun{result: PumpResult{Dispatched: false}}, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+			pid := ProjectID(uuid.NewString())
+			wfID := string(pid) + ":nextActivity"
+
+			mc := &temporalmocks.Client{}
+			mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(tc.run, nil)
+			mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+				Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: false}}, nil)
+			mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").Return(describeStatus(tc.status), nil)
+
+			res, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second)
+			if tc.wantErr == "" {
+				if err != nil || res.Dispatched {
+					t.Fatalf("a run that completed without deciding must return its terminal result, got %+v err %v", res, err)
+				}
+				return
+			}
+			if ce := asConstructionError(t, err); !strings.Contains(ce.Error(), tc.wantErr) {
+				t.Fatalf("want the %s run's own error (%q), got %v", tc.name, tc.wantErr, err)
+			}
+		})
+	}
+}
+
+// FIX ROUND 4, item 2. A Query the run DID serve but whose answer fails to decode is a
+// real error: it surfaces at once, with its message, and is never polled as "not
+// decided" (which would run out to the budget and return the still-deciding outcome).
+func Test_ExecuteNextActivity_UndecodableAnswer_SurfacesTheDecodeErrorPromptly(t *testing.T) {
+	withPumpPollBudgets(t, 5*time.Second, 2*time.Second, 20*time.Millisecond, 10*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Return(undecodableAnswer{err: errors.New("payload decode: unknown field \"decidedd\"")}, nil)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 2*time.Second)
+	ce := asConstructionError(t, err)
+	if !strings.Contains(ce.Error(), "payload decode") || strings.Contains(ce.Error(), pumpStillDecidingDetail) {
+		t.Fatalf("want the real decode error surfaced at once, got %v", err)
+	}
+}
+
+// FIX ROUND 4, item 3. Every Query / Describe RPC carries its own pumpRPCTimeout, so a
+// single HUNG RPC cannot defeat the wall-clock budgets (they are only checked between
+// RPCs). Both RPCs here block until their context is done — with the caller's context
+// never cancelled, an unbounded RPC would hang forever. The Query times out into the
+// failing-query path, the Describe into "not known closed", and the call ends with the
+// bounded fallback's Infrastructure error well inside the guard.
+func Test_ExecuteNextActivity_HungRPCs_AreBoundedPerCall(t *testing.T) {
+	withPumpPollBudgets(t, 30*time.Second, 100*time.Millisecond, 20*time.Millisecond, 10*time.Millisecond)
+	withPumpRPCTimeout(t, 20*time.Millisecond)
+	pid := ProjectID(uuid.NewString())
+	wfID := string(pid) + ":nextActivity"
+	blockUntilDone := func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }
+
+	mc := &temporalmocks.Client{}
+	mc.On("ExecuteWorkflow", mock.Anything, mock.Anything, executionKindPump, mock.Anything).Return(blockingPumpRun{}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wfID, "run-1", queryPumpDispatch).
+		Run(blockUntilDone).Return(nil, context.DeadlineExceeded)
+	mc.On("DescribeWorkflowExecution", mock.Anything, wfID, "run-1").
+		Run(blockUntilDone).Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), context.DeadlineExceeded)
+
+	_, err := executeWithin(t, newTestConstructionManager(mc), pid, 3*time.Second)
+	if ce := asConstructionError(t, err); ce.Kind != fwmanager.Infrastructure {
+		t.Fatalf("want the bounded fallback's Infrastructure error, got %s: %v", ce.Kind, err)
+	}
+}
+
 // FIX ROUND 3, Minor 1 — the budget-exhausted outcome. The Query keeps answering "not
 // decided" and the run is still RUNNING when the poll budget expires: the façade returns
 // PROMPTLY with the distinguishable still-deciding Detail, instead of waiting out the
