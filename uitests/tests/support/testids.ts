@@ -210,7 +210,6 @@ export const TESTID = {
   // artifact is read from the detail pane (constructionDetailBodyArtifact).
   constructionSystemTestView: UI_IDENTIFIERS.Construction.SYSTEM_TEST_VIEW,
   constructionTestPlanView: UI_IDENTIFIERS.Construction.TEST_PLAN_VIEW,
-  constructionScenarioPicker: UI_IDENTIFIERS.Construction.SCENARIO_PICKER,
   // Begin/Resume and the confirm step in front of it, which names what a Begin
   // would dispatch before anything is (fix round A, designer P0-3).
   constructionBegin: UI_IDENTIFIERS.Construction.BEGIN_BUTTON,
@@ -247,7 +246,6 @@ export const TESTID = {
   constructionGraphM0OpenSdp: UI_IDENTIFIERS.Construction.GRAPH_M0_OPEN_SDP,
   constructionGraphM0Popover: UI_IDENTIFIERS.Construction.GRAPH_M0_POPOVER,
   constructionGraphKeySwatch: UI_IDENTIFIERS.Construction.graphKeySwatch,
-  activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
@@ -314,11 +312,9 @@ export const TESTID = {
   // degraded-policy banner, the empty state, and the pane's decision controls.
   constructionTasksLens: UI_IDENTIFIERS.Construction.TASKS_LENS,
   constructionTasksHeadline: UI_IDENTIFIERS.Construction.TASKS_HEADLINE,
-  constructionTasksSlots: UI_IDENTIFIERS.Construction.TASKS_SLOTS,
   constructionTasksPolicyBanner: UI_IDENTIFIERS.Construction.TASKS_POLICY_BANNER,
   constructionTasksPolicySummary: UI_IDENTIFIERS.Construction.TASKS_POLICY_SUMMARY,
   constructionTasksPolicyLink: UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK,
-  constructionTasksTable: UI_IDENTIFIERS.Construction.TASKS_TABLE,
   constructionTasksEmpty: UI_IDENTIFIERS.Construction.TASKS_EMPTY,
   constructionTasksEmptyCounts: UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS,
   constructionTasksResume: UI_IDENTIFIERS.Construction.TASKS_RESUME,
@@ -341,8 +337,6 @@ export const TESTID = {
   constructionDetailOwedReason: UI_IDENTIFIERS.Construction.DETAIL_OWED_REASON,
   constructionDetailReviewOnlyNote: UI_IDENTIFIERS.Construction.DETAIL_REVIEW_ONLY_NOTE,
   constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
-  // The retired list-lens phase-gate panel — asserted ABSENT (the pane decides now).
-  constructionPhaseGatePanel: UI_IDENTIFIERS.Construction.PHASE_GATE_PANEL,
 
   // Operations console (route `/operations/$operatedAppId`).
   operationsRoot: UI_IDENTIFIERS.Operations.ROOT,

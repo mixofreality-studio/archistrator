@@ -1118,8 +1118,8 @@ export type ProjectStateWithGit = ProjectState & {
    * the full-project-detail-view counterpart of ProjectSummary.constructionComplete,
    * computed the SAME way (contracts/operating.ts's deriveOperating) off the raw
    * per-activity construction head-state at the wire.ts boundary (mapProjectState),
-   * so every full-detail render site (HomeBase, ConstructionTracker,
-   * ConstructionConsole) shares one precomputed answer. Absent (never false).
+   * so every full-detail render site (HomeBase, ConstructionConsole) shares one
+   * precomputed answer. Absent (never false).
    */
   operating?: boolean;
   /**

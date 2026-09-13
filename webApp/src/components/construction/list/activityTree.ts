@@ -8,8 +8,8 @@
  * `.ts` sibling for the same reason detailPaneState.ts is: Node's native
  * type-stripping test runner cannot load a `.tsx` module at all
  * (`ERR_UNKNOWN_FILE_EXTENSION` — proven empirically). Relative VALUE imports
- * therefore carry an explicit `.ts` extension (the wire.ts /
- * lifecycleTemplates.ts convention); type-only imports are erased before Node
+ * therefore carry an explicit `.ts` extension (the wire.ts convention);
+ * type-only imports are erased before Node
  * ever sees them and need none.
  *
  * The inversion this module exists to perform

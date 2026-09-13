@@ -334,15 +334,12 @@ export const UI_IDENTIFIERS = {
     // TAB_TRACKER/TAB_INTERVENTIONS/TAB_ARTIFACTS and the tab bodies' own root
     // testids (TRACKER/INTERVENTIONS/ARTIFACTS/artifactRow) retired with the tab
     // shell (Task 13) — the lens shell (LENS_TOOLBAR etc. below) is the console
-    // now. PAUSE_BUTTON/PAUSE_REASON/PAUSE_CONFIRM lived in the deleted
-    // InterventionsTab's own JSX (not a kept component file) and retired with
-    // it; Stage C's Tasks lens mints its own testids when it rebuilds the pause
-    // control, the same way Task 3 minted LENS_* rather than reviving stale ids.
-    SUMMARY_STRIP: 'construction-summary-strip',
+    // now. The retired components' ids (the summary strip, the tracker nodes, the
+    // lifecycle panel, the policy and phase-gate panels, the intervention queue,
+    // drawer and override controls) went with them (cleanup round); B1 mints its
+    // own ids when it rebuilds pause, resume and override, the same way Task 3
+    // minted LENS_* rather than reviving stale ones.
     AWAITING: 'construction-awaiting',
-    COMPLETE: 'construction-complete',
-    ACTIVE_DETAIL: 'construction-active-detail',
-    ROLE_LINE: 'construction-role-line',
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
     FRONTEND_VIEW: 'construction-frontend-view',
@@ -380,11 +377,6 @@ export const UI_IDENTIFIERS = {
     DETAIL_PENDING_RESUME: 'construction-detail-pending-resume',
     /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */
     listTaskBookKey: (nodeId: string) => `construction-list-task-book-key-${nodeId}`,
-    OVERRIDE_BUTTON: 'construction-override',
-    overrideKind: (kind: string) => `construction-override-${kind}`,
-    OVERRIDE_NOTES: 'construction-override-notes',
-    OVERRIDE_CONFIRM: 'construction-override-confirm',
-    trackerNode: (id: string) => `construction-track-node-${id}`,
     // Stage D — the GRAPH lens: the architecture layer by layer, each component
     // card carrying its activity's lifecycle spine (components/construction/graph).
     GRAPH_CANVAS: 'construction-graph-canvas',
@@ -419,21 +411,6 @@ export const UI_IDENTIFIERS = {
     GRAPH_M0_POPOVER: 'construction-graph-m0-popover',
     /** The key's drawn swatches: hatch, spine, float, critical (designer re-check 8). */
     graphKeySwatch: (kind: string) => `construction-graph-key-swatch-${kind}`,
-    ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
-    POLICY_PANEL: 'construction-policy-panel',
-    policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,
-    PHASE_GATE_PANEL: 'construction-phase-gate-panel',
-    PHASE_GATE_APPROVE: 'construction-phase-gate-approve',
-    PHASE_GATE_SENDBACK: 'construction-phase-gate-sendback',
-    // Intervention queue + drawer test IDs (U-SPA-INTERVENTION)
-    INTERVENTION_QUEUE_COUNT: 'construction-intervention-queue-count',
-    interventionQueueCard: (activityId: string) => `construction-intervention-card-${activityId}`,
-    interventionReviewButton: (activityId: string) =>
-      `construction-intervention-review-${activityId}`,
-    INTERVENTION_DRAWER: 'construction-intervention-drawer',
-    INTERVENTION_DRAWER_CLOSE: 'construction-intervention-drawer-close',
-    INTERVENTION_OPERATOR_BAR: 'construction-intervention-operator-bar',
-    interventionSteerButton: (kind: string) => `construction-intervention-steer-${kind}`,
     // The TASKS lens (Stage C) — one row per decision the pipeline is stopped on
     // (tasks/owedWork.ts), keyed by the item's own key
     // (`<activityId>:<gateTask>:<round>` or `<activityId>:<reason>`).
@@ -666,7 +643,7 @@ export const UI_IDENTIFIERS = {
   // The SP1 capture-seam episodes panel (Task 10) — mounted per design-artifact
   // page (Phase 1 + Phase 2) and per construction activity. Base ids match the
   // task brief exactly; per-row/per-episode ids append the id, following the
-  // repo's row-testid convention (artifactRow / trackerNode / roleCard, ...).
+  // repo's row-testid convention (listRow / graphLane / roleCard, ...).
   Episodes: {
     PANEL: 'episodes-panel',
     episodeRow: (episodeId: string) => `episodes-row-${episodeId}`,

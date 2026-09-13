@@ -58,10 +58,10 @@ const NO_OWED: OwedMarks = new Map();
 // ---------------------------------------------------------------------------
 
 /**
- * One scope chip's predicate over a tier-1 activity. `critical`/`near` reuse
- * the existing tracker filter bar's own vocabulary (NearCriticalFloat.tsx:
- * on the critical path, or float <= 5 and NOT on it) rather than inventing a
- * second near-critical threshold for the same project.
+ * One scope chip's predicate over a tier-1 activity. `critical`/`near` keep the
+ * retired tracker filter bar's vocabulary (on the critical path, or float <= 5
+ * and NOT on it) rather than inventing a second near-critical threshold for the
+ * same project.
  */
 export function scopePredicate(
   scope: ScopeId,

@@ -9,7 +9,7 @@
  *
  * This module is reachable from DetailPane.test.ts under `node --test`, so
  * every RELATIVE VALUE import below carries an explicit `.ts` extension (the
- * convention wire.ts/lifecycleTemplates.ts already establish); type-only
+ * convention wire.ts already establishes); type-only
  * imports are erased before Node ever sees them and need no extension.
  */
 import type {

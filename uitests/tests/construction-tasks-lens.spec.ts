@@ -673,18 +673,6 @@ test('the TASKS toolbar names its own order and disables the list-only controls 
   await expect(observedToggle).toHaveCSS('opacity', '1');
 });
 
-test('the list no longer mounts a phase-gate panel; the decision lives in the pane', async ({
-  page,
-}) => {
-  await serveOwed(page, initialStages());
-  await page.setViewportSize({ width: 1600, height: 950 });
-  await gotoApp(page, '/project/archistrator/construction?lens=list');
-  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({
-    timeout: 15_000,
-  });
-  await expect(page.getByTestId(TESTID.constructionPhaseGatePanel)).toHaveCount(0);
-});
-
 test('[Review] opens the pane on the gate task, awaiting you; send back needs a note and carries it', async ({
   page,
 }) => {

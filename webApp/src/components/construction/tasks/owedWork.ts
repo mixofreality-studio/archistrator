@@ -55,7 +55,7 @@ export type OwedReason = 'gate' | 'takeover' | 'failed';
  *  cannot say — an unclassified row, or a phase its profile does not carry. */
 export interface OwedGate {
   /** The lifecycle-phase wire name the decision is sent against (the row's
-   *  currentLifecyclePhase — what PhaseGatePanel has always used). Absent when the
+   *  currentLifecyclePhase, the key submit-phase-decision takes). Absent when the
    *  row reports no current phase: then no decision can be addressed at all, and
    *  the lens says so instead of sending one against a guessed key. */
   lifecyclePhase?: string;

@@ -15,11 +15,11 @@
  * It binds to the REAL backend:
  *   - the committed Phase-2 head-state (network × activityList slots, via useProject)
  *     drives the LIST lens's activity tree (CPM facts joined per activity);
- *   - the live construction session (GetSessionState, polled) drives the active-
- *     activity detail and the phase-gate panel;
- *   - the begin + phase-decision controls call the real POST endpoints. The
- *     pause/override controls move with Stage C's Tasks lens, which is where
- *     InterventionQueue/PolicyPanel/InterventionDrawer are rewired in.
+ *   - the live construction sessions (GetSessionState, polled per in-flight
+ *     activity) drive the TASKS lens's owed work and the detail pane's decision;
+ *   - the begin + phase-decision controls call the real POST endpoints. There is
+ *     no pause or override control today: B1 rebuilds them on the TASKS lens and
+ *     the pane (usePauseConstruction/useOverrideActivity are kept for it).
  *
  * The construction pump that fills sessions is gated on a build cluster (R-CPR) not
  * provisioned here, so the session is usually quiet — every surface degrades to an
@@ -88,14 +88,6 @@ import {
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
-// ConstructionTracker (the CPM graph under a build lens, the EV curves, the
-// head-state rollup and the near-critical float table) is no longer the LIST
-// lens's body — the lens is defined as "every activity, its lifecycle phases and
-// its tasks", and the tree below IS that. The component is kept, not deleted
-// (zero importers today, same as EvTrackingChart/HeadStateRollup/NearCritical-
-// Float underneath it): it is the Stage D GRAPH lens's reference implementation
-// (founder ruling, Stage B progress log) — Stage D rebuilds the GRAPH lens body
-// from these pieces rather than reusing this exact composition wholesale.
 import { ConstructionShell } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
@@ -430,9 +422,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
   // The committed Phase-1 `system` slot — ServiceContractView's Dynamic tab
-  // needs its dynamicViews to draw real call chains. Same lookup the Artifacts
-  // tab already does; hoisted here because the detail pane's artifact body now
-  // renders the same view.
+  // needs its dynamicViews to draw real call chains, and the detail pane's
+  // artifact body renders that view.
   const paneSystemEnvelope = useMemo(
     () => (project?.slots ?? []).find((s) => s.kind === 'system')?.model ?? undefined,
     [project]
@@ -972,8 +963,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         activityTitle={titleForId(selectedActivityId)}
         // The pane is in the pure `components` layer and may not reach into
         // hooks, so the EPISODE body's queries are handed down from here as a
-        // containers-layer render prop (the same reason ActivityLifecyclePanel
-        // took an `episodesSlot`).
+        // containers-layer render prop.
         decision={paneDecision}
         episodeSlot={({ activityId, attemptId }) => (
           <ConstructionEpisodeBodyContainer

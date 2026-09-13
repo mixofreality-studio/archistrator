@@ -7,7 +7,7 @@
  * that teaches the Method while it waits — and this module is the half of it
  * that can be tested without a renderer (Node's type-stripping test runner
  * cannot load a `.tsx` module at all, so relative VALUE imports below carry an
- * explicit `.ts` extension, the wire.ts / lifecycleTemplates.ts convention).
+ * explicit `.ts` extension, the wire.ts convention).
  *
  * THE RULE THIS MODULE EXISTS TO ENFORCE
  * --------------------------------------

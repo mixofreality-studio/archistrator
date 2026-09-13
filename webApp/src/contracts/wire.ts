@@ -488,10 +488,9 @@ export function mapConstructionRow(
   // present field naming a phase called nothing. Its four siblings (kind,
   // status, worstOrigin, layer/layerBand) all drop at their zero value; this one
   // now does too, so "the server said nothing" is ABSENT here rather than being
-  // re-detected by every consumer (PhaseGatePanel would submit a decision
-  // against an empty phase; InterventionQueue/the old ArtifactActivityDetail
-  // (retired Task 13, superseded by the detail pane's ArtifactBody) rendered a
-  // dangling `phase · `; activityTree.ts had to normalize it back out).
+  // re-detected by every consumer (a decision would be submitted against an
+  // empty phase, a `phase · ` label would dangle, and activityTree.ts had to
+  // normalize it back out).
   const currentLifecyclePhase =
     classified && w.CurrentPhase.length > 0 ? w.CurrentPhase : undefined;
   // FailureReason/FailureDetail are only meaningful on a terminal-fail row: every
