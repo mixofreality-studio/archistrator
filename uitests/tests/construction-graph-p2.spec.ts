@@ -224,11 +224,25 @@ test('at 1100 an open hover card never paints over the drawer (graph re-review)'
   expect(h).not.toBeNull();
   const hr = h ?? { x: 0, y: 0, width: 0, height: 0 };
   expect(hr.x + hr.width, 'the hover card reaches under the drawer').toBeGreaterThan(drawerLeft + 4);
-  // Where they overlap, the DRAWER is on top.
+  // Where they overlap, the DRAWER is on top. The hover card is
+  // pointer-events:none, and elementFromPoint skips such elements whatever
+  // their z-order — so every element takes hits for the probe's instant, or
+  // the probe could never see the hover card at all (the first cut could not).
   const x = (Math.max(hr.x, drawerLeft) + hr.x + hr.width) / 2;
   const y = hr.y + hr.height / 2;
   const onTop = await page.evaluate(
-    ([px, py]) => document.elementFromPoint(px ?? 0, py ?? 0)?.closest('[role="dialog"]') !== null,
+    ([px, py]) => {
+      const probe = document.createElement('style');
+      probe.textContent = '* { pointer-events: auto !important; }';
+      document.head.append(probe);
+      try {
+        const hit = document.elementFromPoint(px ?? 0, py ?? 0);
+        if (hit?.closest('[data-testid="construction-graph-hover-card"]') != null) return false;
+        return hit?.closest('[role="dialog"]') != null;
+      } finally {
+        probe.remove();
+      }
+    },
     [x, y]
   );
   expect(onTop, 'the drawer paints over the hover card').toBe(true);
