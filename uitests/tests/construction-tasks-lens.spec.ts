@@ -1071,6 +1071,195 @@ test('a decision on the wire in one project never holds the same gate in another
   expect(posts[1]).toContain(`/submit-phase-decision/${OTHER}/`);
 });
 
+// ---------------------------------------------------------------------------
+// Tasks merge review M2: pins for the survivors of the review's mutation run.
+// ---------------------------------------------------------------------------
+
+/** The tree task row's state, read from the row's own `data-task-state` hook. */
+async function taskStateOf(page: Page, nodeId: string): Promise<string | null> {
+  return page.evaluate(
+    (rowId) =>
+      document
+        .querySelector(`[data-testid="${rowId}"] [data-task-state]`)
+        ?.getAttribute('data-task-state') ?? null,
+    TESTID.constructionListRow(nodeId)
+  );
+}
+
+// MP3: with a gate owed, the list's Expand has something to open. TASKS still
+// disables it, as a list-only control, not because nothing is current.
+test('M2/MP3: with a gate owed, Expand is enabled on the list and stays disabled in TASKS', async ({
+  page,
+}) => {
+  await serveOwed(page, initialStages());
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toBeVisible();
+  const expand = page.getByTestId(TESTID.constructionLensExpandToPhase);
+  await page.getByTestId(TESTID.constructionLensButton('list')).click();
+  await expect(expand).toBeEnabled({ timeout: 10_000 });
+  await page.getByTestId(TESTID.constructionLensButton('tasks')).click();
+  await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible();
+  await expect(expand).toBeDisabled();
+  for (let i = 0; i < 8; i++) {
+    expect(await expand.isDisabled(), 'Expand enabled in TASKS').toBe(true);
+    await page.waitForTimeout(150);
+  }
+});
+
+// MP8: the list's task row reads the owed mark. Its own open attempt says the gate
+// task is running; only the owed gate makes it AWAITING YOU.
+test('M2/MP8: the list task row reads the owed mark: the gate task awaits you', async ({
+  page,
+}) => {
+  await serveOwed(page, initialStages(), undefined, (wire) => {
+    const r = wire.ActivityConstruction?.[GATE];
+    if (r === undefined) throw new Error(`no row ${GATE} in the read`);
+    // An open (outcome '') observed attempt on the gate task: the task is running.
+    r['attempts'] = [
+      {
+        attemptId: `${GATE}:designReview:1`,
+        task: 'designReview',
+        phase: 'detailed_design',
+        attempt: 1,
+        actor: 'agent',
+        outcome: '',
+        evidence: { kind: '', ref: '' },
+        provenance: { origin: 'observed' },
+      },
+    ];
+  });
+  await page.setViewportSize({ width: 1600, height: 950 });
+  const node = `${GATE}::detailed_design::designReview`;
+  await gotoApp(
+    page,
+    `/project/archistrator/construction?lens=list&a=${GATE}&p=detailed_design&k=designReview`
+  );
+  await expect(page.getByTestId(TESTID.constructionListRow(node))).toBeVisible({
+    timeout: 15_000,
+  });
+  await expect.poll(() => taskStateOf(page, node), { timeout: 10_000 }).toBe('awaitingHuman');
+});
+
+// MP1: pump evidence reads the owed set. After a Begin answered 500, a row head-state
+// still calls in construction, but whose pump stopped on a recorded failure, is not
+// the pump: the hold stands.
+test('M2/MP1: after a 500, a failure-stopped row is no evidence of the pump: Begin stays held', async ({
+  page,
+}) => {
+  await serveOwed(page, {}, [FAILED], (wire) => {
+    const r = wire.ActivityConstruction?.[FAILED];
+    if (r !== undefined) r['BuildStatus'] = BUILD.inConstruction;
+  });
+  const dispatched: string[] = [];
+  await page.route('**/execute-next-activity/**', async (route) => {
+    dispatched.push(route.request().url());
+    await route.fulfill({ status: 500, json: { error: 'boom' } });
+  });
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toBeEnabled({ timeout: 15_000 });
+  await begin.click();
+  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).click();
+  await expect.poll(() => dispatched.length).toBe(1);
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toBeVisible({ timeout: 10_000 });
+  // Several fast polls land after the 500. None of them is evidence.
+  for (const end = Date.now() + 8_000; Date.now() < end; ) {
+    expect(await begin.isEnabled(), 'Begin enabled beside a failure-stopped row').toBe(false);
+    await page.waitForTimeout(150);
+  }
+});
+
+// MP7: "Observed only" is an evidence VIEW, and never decides whether the pump runs.
+// C-billing-engine's record is entirely backfilled; edited to sit in review, its raw
+// row is work in flight. The view strips it to NOT STARTED, and Begin must not
+// follow the view.
+test('M2/MP7: Observed only cannot enable Begin: the label reads the raw rows', async ({
+  page,
+}) => {
+  const RECONSTRUCTED = 'C-billing-engine';
+  await serveOwed(page, {}, [], (wire) => {
+    const r = wire.ActivityConstruction?.[RECONSTRUCTED];
+    if (r === undefined) throw new Error(`no row ${RECONSTRUCTED} in the read`);
+    r['BuildStatus'] = BUILD.inReview;
+  });
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Construction running…/, { timeout: 15_000 });
+  await page.getByRole('switch', { name: 'Observed only' }).check();
+  await expect(page.getByRole('switch', { name: 'Observed only' })).toBeChecked();
+  for (const end = Date.now() + 3_000; Date.now() < end; ) {
+    const s = await begin.evaluate((el) => ({
+      label: (el as HTMLElement).innerText.trim(),
+      enabled: !(el as HTMLButtonElement).disabled,
+    }));
+    expect(s.enabled, `Begin enabled under Observed only ("${s.label}")`).toBe(false);
+    expect(s.label).toMatch(/Construction running…/);
+    await page.waitForTimeout(150);
+  }
+});
+
+// MP6: "now in <phase>" counts a project read from its REQUEST. A read asked for
+// before the gate left still names the gate's own phase, however late it lands.
+test('M2/MP6: a project read asked for before the gate left never says "now in" its phase', async ({
+  page,
+}) => {
+  test.setTimeout(90_000);
+  const stages = initialStages();
+  const phase = { current: 'detailed_design', served: 0 };
+  await serveOwed(page, stages, undefined, (wire) => {
+    const r = wire.ActivityConstruction?.[GATE];
+    if (r !== undefined) r['CurrentPhase'] = phase.current;
+    phase.served += 1;
+  });
+  // Registered after serveOwed, so it sees each project read first. `stall` holds one
+  // read until released; `delay` holds each later one 2s, so the stalled read is
+  // alone on screen for a while.
+  let release: () => void = () => undefined;
+  const gate = new Promise<void>((r) => {
+    release = r;
+  });
+  const project = { stall: false, stalled: 0, delayMs: 0 };
+  await page.route('**/system-design/get-project/archistrator**', async (route) => {
+    if (project.stall) {
+      project.stall = false;
+      project.stalled += 1;
+      await gate;
+    } else if (project.delayMs > 0) {
+      await new Promise((r) => {
+        setTimeout(r, project.delayMs);
+      });
+    }
+    await route.fallback().catch(() => undefined);
+  });
+  await answerDecisions(page, () => ({ status: 200 }), []);
+  await openTasks(page);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
+  const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
+  await expect(flow).toContainText('waiting for the agent to resume');
+  // A project read is asked for now, before the gate leaves, and held.
+  project.stall = true;
+  await expect.poll(() => project.stalled, { timeout: 20_000 }).toBe(1);
+  // The gate leaves.
+  stages[GATE] = STAGE.pipelineRunning;
+  await expect(flow).toContainText('Resumed', { timeout: 15_000 });
+  // The held read lands now, after the gate left, still naming the gate's phase.
+  project.delayMs = 2_000;
+  const servedBefore = phase.served;
+  release();
+  await expect.poll(() => phase.served, { timeout: 10_000 }).toBeGreaterThan(servedBefore);
+  phase.current = 'construction';
+  for (const end = Date.now() + 1_800; Date.now() < end; ) {
+    expect(await flow.textContent()).not.toMatch(/now in/i);
+    await page.waitForTimeout(100);
+  }
+  // A read asked for after the gate left says where the activity is now.
+  project.delayMs = 0;
+  await expect(flow).toContainText(/now in construction/i, { timeout: 20_000 });
+});
+
 // Tasks-lens merge round: the Begin label reads the owed set for "awaiting" (Q4).
 // Head-state still says in construction; the pump's own failure record says it
 // stopped there. Nothing else is in flight, so Begin is offered, not "running".

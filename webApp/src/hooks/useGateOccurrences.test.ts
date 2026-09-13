@@ -126,3 +126,24 @@ void test("an occurrence store made after a read takes that read's request time 
   assert.equal(store.snapshot.get(occurrenceKey('p', 'E'))?.requestedAt, requested);
   client.clear();
 });
+
+// Tasks merge review M2 (MN3): the QueryClient, and so this store, outlives a project
+// switch, and activity ids repeat across projects. A key without the project would
+// hand one project's gate to the other's console.
+void test('occurrences are keyed by PROJECT: two projects sharing an activity id never share a gate', async () => {
+  const client = new QueryClient();
+  const store = gateOccurrenceStoreFor(client);
+  await client.fetchQuery({
+    queryKey: ['constructionSession', 'p1', 'A'],
+    queryFn: () => session('A', 'awaitingApproval'),
+  });
+  await client.fetchQuery({
+    queryKey: ['constructionSession', 'p2', 'A'],
+    queryFn: () => session('A', 'pipelineRunning'),
+  });
+  assert.notEqual(occurrenceKey('p1', 'A'), occurrenceKey('p2', 'A'));
+  assert.equal(store.snapshot.size, 2, 'one occurrence per project');
+  assert.equal(store.snapshot.get(occurrenceKey('p1', 'A'))?.stage, 'awaitingApproval');
+  assert.equal(store.snapshot.get(occurrenceKey('p2', 'A'))?.stage, 'pipelineRunning');
+  client.clear();
+});
