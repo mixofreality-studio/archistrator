@@ -21,7 +21,8 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError } from '../contracts/errors.ts';
+import { ApiError, bodyUnlessError } from '../contracts/errors.ts';
+import { restOpsClient } from '../api/ops.gen.ts';
 import {
   DEGRADED_POLL_INTERVAL_MS,
   GATE_POLL_INTERVAL_MS,
@@ -30,7 +31,49 @@ import {
   isNoSessionError,
   isSessionAbsent,
   sessionPollIntervalMs,
+  sessionProbeQueryFn,
 } from './sessionPolling.ts';
+
+// fix-F review: an EMPTY-body 404 (Content-Length 0, openapi-fetch's
+// `error: undefined`) must still read as "no session". Both probe paths are
+// pinned through isNoSessionError, the one rule the probes and the poll read:
+// the construction probe (apiClient + bodyUnlessError) and the design probe
+// (the REST OpsClient).
+const emptyResponse = (status: number): Response =>
+  new Response(null, { status, headers: { 'content-length': '0' } });
+
+async function rejectionOf(p: Promise<unknown>): Promise<unknown> {
+  try {
+    await p;
+  } catch (err) {
+    return err;
+  }
+  throw new Error('expected a rejection');
+}
+
+void test('an EMPTY-body 404 is "no session" on the construction probe path (bodyUnlessError)', async () => {
+  // As in the real probe's fetch, bodyUnlessError's throw surfaces as the promise's
+  // rejection. An empty body carries neither `data` nor `error`.
+  const fetch = (): Promise<unknown> =>
+    Promise.resolve().then(() => bodyUnlessError<unknown>({ response: emptyResponse(404) }));
+  assert.equal(isNoSessionError(await rejectionOf(fetch())), true);
+  // So the probe resolves it to the absence value, never to an error.
+  assert.equal(await sessionProbeQueryFn({ fetch, getCached: () => undefined })(), null);
+  // And an empty-body 502 on the same path is NOT absence: it stays an error.
+  const bad = (): Promise<unknown> =>
+    Promise.resolve().then(() => bodyUnlessError<unknown>({ response: emptyResponse(502) }));
+  assert.equal(isNoSessionError(await rejectionOf(bad())), false);
+});
+
+void test('an EMPTY-body 404 is "no session" on the design probe path (REST OpsClient)', async () => {
+  const answer = (): Promise<{ data: undefined; error: undefined; response: Response }> =>
+    Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(404) });
+  const ops = restOpsClient({ GET: answer, POST: answer } as never);
+  const fetch = (): Promise<unknown> =>
+    ops.call('systemDesignGetSessionState', { path: { projectID: 'p1' }, query: { kind: 1 } });
+  assert.equal(isNoSessionError(await rejectionOf(fetch())), true);
+  assert.equal(await sessionProbeQueryFn({ fetch, getCached: () => undefined })(), null);
+});
 
 void test('live stages keep the 2s poll', () => {
   for (const stage of ['drafting', 'redrafting'] as const) {

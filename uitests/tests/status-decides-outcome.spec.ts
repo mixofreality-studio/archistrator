@@ -76,6 +76,40 @@ for (const model of ['selfOperated', 'archistratorOperated'] as const) {
   });
 }
 
+test('set-operating-model: create succeeds, then an EMPTY-body 500 on the model is an error, and nothing navigates', async ({
+  page,
+  request,
+}) => {
+  // fix-F review: the second write of the create flow. Create answers with a
+  // canned id (in the browser), then set-operating-model answers a bare 500. That
+  // used to pass as success and navigate to the new project's home.
+  await skipUnlessServer(request, BASE);
+  const creates: string[] = [];
+  const models: string[] = [];
+  await page.route('**/api/v1/system-design/create-project', async (route) => {
+    creates.push(route.request().url());
+    await route.fulfill({ status: 200, json: 'fix-g-canned-project' });
+  });
+  await page.route('**/api/v1/system-design/set-operating-model/**', async (route) => {
+    models.push(route.request().url());
+    await route.fulfill(EMPTY_500);
+  });
+  await openCreateDialog(page);
+  await page.getByTestId('operating-model-archistratorOperated').check();
+  await page.getByTestId(TESTID.createProjectSubmit).click();
+
+  const dialog = page.getByTestId(TESTID.createProjectDialog);
+  const alert = dialog.getByTestId(TESTID.errorAlert);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toContainText('request failed with status 500');
+  await expect(dialog).toBeVisible();
+  await expect(page).toHaveURL(/\/$|\/#?$/);
+  expect(creates).toHaveLength(1);
+  // The model was set against the id create returned, not "undefined".
+  expect(models).toHaveLength(1);
+  expect(models[0]).toContain('/set-operating-model/fix-g-canned-project');
+});
+
 test('an ops.call mutation: an EMPTY-body 500 on a review decision surfaces as an error', async ({
   page,
 }) => {
