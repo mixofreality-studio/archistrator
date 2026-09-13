@@ -385,6 +385,8 @@ export const UI_IDENTIFIERS = {
     graphSegment: (activityId: string, phase: string) =>
       `construction-graph-segment-${activityId}-${phase}`,
     GRAPH_HOVER_CARD: 'construction-graph-hover-card',
+    /** One lane's line inside the hover card (carries data-provenance). */
+    graphHoverLane: (activityId: string) => `construction-graph-hover-lane-${activityId}`,
     /** A lane's float rail + numeral — rendered ONLY when the network has a computed entry. */
     // Not under the `construction-graph-lane-` prefix: specs select the lane
     // family by that prefix, and a float mark must never count as a lane.

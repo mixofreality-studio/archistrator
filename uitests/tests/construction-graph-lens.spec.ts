@@ -395,6 +395,47 @@ test('the ribbon shows every milestone and no count over unobserved evidence', a
   }
 });
 
+test('P0-1: the hover card never launders a reconstructed lane — stamp + chip per line, unknown unmarked', async ({
+  page,
+}) => {
+  await openGraph(page);
+  // Every card that carries lanes, read from the canvas itself.
+  const cards = await page.getByTestId(CARD_ID).evaluateAll((els) =>
+    els
+      .filter((e) => Number(e.getAttribute('data-lanes') ?? '0') > 0)
+      .map((e) => ({
+        id: (e.getAttribute('data-testid') ?? '').replace('construction-graph-card-', ''),
+        lanes: [...e.querySelectorAll('[data-testid^="construction-graph-lane-"]')].map((l) => ({
+          id: (l.getAttribute('data-testid') ?? '').replace('construction-graph-lane-', ''),
+          origin: l.getAttribute('data-provenance'),
+        })),
+      }))
+  );
+  const reconstructed = (o: string | null): boolean => o === 'backfilled' || o === 'synthesized';
+  const withRecon = cards.find((c) => c.lanes.some((l) => reconstructed(l.origin)));
+  const unknownOnly = cards.find((c) => c.lanes.every((l) => l.origin === 'unknown'));
+
+  for (const c of [withRecon, unknownOnly]) {
+    if (c === undefined) continue;
+    await page.getByTestId(TESTID.constructionGraphCard(c.id)).hover();
+    const hover = page.getByTestId(TESTID.constructionGraphHoverCard);
+    await expect(hover, c.id).toBeVisible();
+    const anyRecon = c.lanes.some((l) => reconstructed(l.origin));
+    // One stamp in the header when any lane is reconstructed, plus one per reconstructed line.
+    const expected = (anyRecon ? 1 : 0) + c.lanes.filter((l) => reconstructed(l.origin)).length;
+    await expect(hover.getByTestId(TESTID.constructionProvenanceBadge), c.id).toHaveCount(expected);
+    for (const l of c.lanes) {
+      const line = hover.getByTestId(TESTID.constructionGraphHoverLane(l.id));
+      await expect(line, l.id).toHaveAttribute('data-provenance', l.origin ?? '');
+      await expect(line.getByTestId(TESTID.constructionProvenanceBadge), l.id).toHaveCount(
+        reconstructed(l.origin) ? 1 : 0
+      );
+    }
+    await page.mouse.move(2, 2);
+  }
+  expect(withRecon, 'a card with a reconstructed lane exists').toBeDefined();
+});
+
 test('Sort and "Expand to current phase" are list-only', async ({ page }) => {
   await openGraph(page);
   await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();

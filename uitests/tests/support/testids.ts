@@ -232,6 +232,7 @@ export const TESTID = {
   constructionGraphLane: UI_IDENTIFIERS.Construction.graphLane,
   constructionGraphSegment: UI_IDENTIFIERS.Construction.graphSegment,
   constructionGraphHoverCard: UI_IDENTIFIERS.Construction.GRAPH_HOVER_CARD,
+  constructionGraphHoverLane: UI_IDENTIFIERS.Construction.graphHoverLane,
   constructionGraphLaneFloat: UI_IDENTIFIERS.Construction.graphLaneFloat,
   constructionGraphScheduleCaption: UI_IDENTIFIERS.Construction.GRAPH_SCHEDULE_CAPTION,
   constructionGraphM0Hover: UI_IDENTIFIERS.Construction.GRAPH_M0_HOVER,

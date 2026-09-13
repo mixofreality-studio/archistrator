@@ -36,7 +36,8 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { prefersReducedMotion } from '../../../utilities/reducedMotion';
 import { MUTED_OPACITY } from '../../flow/flowLayout';
 import type { ActivityNode } from '../list/activityTree';
-import { activityRowState, chipFor } from '../list/activityRowPresentation';
+import { activityRowState, chipFor, type RowChip } from '../list/activityRowPresentation';
+import { hoverCardStampFor, hoverLaneMarksFor } from './hoverCard';
 import { taskDetailStateFill } from '../detail/detailPaneState';
 import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../provenance';
 import type { GraphCard } from './activityGraphModel';
@@ -289,27 +290,7 @@ function Lane({
           {schedule?.float !== undefined ? (
             <FloatMark activityId={lane.activityId} float={schedule.float} t={t} />
           ) : null}
-          {chip !== undefined ? (
-            <Box
-              component="span"
-              sx={{
-                flexShrink: 0,
-                px: 0.4,
-                fontFamily: t.mono,
-                fontSize: 7.5,
-                fontWeight: 800,
-                letterSpacing: '0.04em',
-                textTransform: 'uppercase',
-                lineHeight: '11px',
-                color: taskDetailStateFill(t, chip.state).fg,
-                bgcolor: taskDetailStateFill(t, chip.state).bg,
-                border: `1px solid ${taskDetailStateFill(t, chip.state).border}`,
-                borderRadius: 0.5,
-              }}
-            >
-              {chip.label}
-            </Box>
-          ) : null}
+          {chip !== undefined ? <StateChip chip={chip} size={7.5} t={t} /> : null}
         </Box>
         {spine.unclassified ? (
           <Typography sx={{ fontFamily: t.mono, fontSize: 8.5, color: t.muted, mt: 0.25 }}>
@@ -335,6 +316,33 @@ function Lane({
           </Box>
         )}
       </Box>
+    </Box>
+  );
+}
+
+/** A lane's one state chip (chipFor) — the lane and the hover card share it. */
+function StateChip({ chip, size, t }: { chip: RowChip; size: number; t: Tokens }): ReactElement {
+  const fill = taskDetailStateFill(t, chip.state);
+  return (
+    <Box
+      component="span"
+      data-chip-state={chip.state}
+      sx={{
+        flexShrink: 0,
+        px: 0.4,
+        fontFamily: t.mono,
+        fontSize: size,
+        fontWeight: 800,
+        letterSpacing: '0.04em',
+        textTransform: 'uppercase',
+        lineHeight: `${String(Math.round(size * 1.45))}px`,
+        color: fill.fg,
+        bgcolor: fill.bg,
+        border: `1px solid ${fill.border}`,
+        borderRadius: 0.5,
+      }}
+    >
+      {chip.label}
     </Box>
   );
 }
@@ -551,9 +559,16 @@ function HoverCard({
         pointerEvents: 'none',
       }}
     >
-      <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, fontWeight: 700, color: t.ink }}>
-        {card.title}
-      </Typography>
+      {/* The header carries the card-level reading — the same stamp the card's
+          own head shows — so the hover card never reads cleaner than the card. */}
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+        <Typography sx={{ fontFamily: t.mono, fontSize: 11.5, fontWeight: 700, color: t.ink }}>
+          {card.title}
+        </Typography>
+        {hoverCardStampFor(card.lanes) ? (
+          <ProvenanceGroupStamp reading={readProvenance({ phases: card.lanes })} t={t} />
+        ) : null}
+      </Box>
       {card.hollow ? (
         <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.5 }}>
           No activity in the plan builds this component.
@@ -562,12 +577,25 @@ function HoverCard({
         card.lanes.map((lane) => {
           const spine = spines[lane.activityId];
           const schedule = schedules[lane.activityId];
+          const marks = hoverLaneMarksFor(lane);
           return (
-            <Box key={lane.activityId} sx={{ mt: 0.75 }}>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
-                {lane.activityId}
-                {lane.label !== lane.activityId ? ` — ${lane.label}` : ''}
-              </Typography>
+            <Box
+              data-provenance={readProvenance(lane).origin}
+              data-testid={UI_IDENTIFIERS.Construction.graphHoverLane(lane.activityId)}
+              key={lane.activityId}
+              sx={{ mt: 0.75 }}
+            >
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexWrap: 'wrap' }}>
+                <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.ink }}>
+                  {lane.activityId}
+                  {lane.label !== lane.activityId ? ` — ${lane.label}` : ''}
+                </Typography>
+                {/* A reconstructed line: its stamp AND its state chip, so the
+                    phases below never read "passed" unqualified (P0-1). An
+                    unknown lane stays unmarked. */}
+                {marks.stamp ? <ProvenanceGroupStamp reading={readProvenance(lane)} t={t} /> : null}
+                {marks.chip !== undefined ? <StateChip chip={marks.chip} size={8.5} t={t} /> : null}
+              </Box>
               {schedule !== undefined ? (
                 <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, pl: 1 }}>
                   {scheduleLine(schedule)}
