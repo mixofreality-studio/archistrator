@@ -357,10 +357,12 @@ test('owed rows come from the live stage, risk floor first; a running in-review 
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'why'))).toContainText(
     'Risk floor'
   );
-  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'cant-turn-off'))).toHaveText(
-    'Can’t be turned off'
+  await expect(
+    page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'cant-turn-off'))
+  ).toHaveText('Can’t be turned off');
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking'))).toHaveCount(
+    0
   );
-  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking'))).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'who'))).toContainText(
     'system-architect'
   );
@@ -492,7 +494,9 @@ test('a gate a policy rule opened offers "stop asking"; the summary replaces the
   });
   await openTasks(page);
   await expect(page.getByTestId(TESTID.constructionTasksPolicyBanner)).toHaveCount(0);
-  await expect(page.getByTestId(TESTID.constructionTasksPolicySummary)).toContainText('checkpoints');
+  await expect(page.getByTestId(TESTID.constructionTasksPolicySummary)).toContainText(
+    'checkpoints'
+  );
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'why'))).toContainText(
     'Preset'
   );
@@ -706,20 +710,16 @@ for (const decision of ['sendBack', 'approve'] as const) {
     const stages = initialStages();
     await serveOwed(page, stages);
     let answeredAt = 0;
-    await answerDecisions(
-      page,
-      () => {
-        answeredAt = Date.now();
-        // Leave the gate (the redraft, or the next phase's work)…
-        stages[GATE] = STAGE.pipelineRunning;
-        // …and reach the gate again: round 2, or the next phase's gate.
-        setTimeout(() => {
-          stages[GATE] = STAGE.awaitingApproval;
-        }, 6_000);
-        return { status: 200 };
-      },
-      []
-    );
+    await answerDecisions(page, () => {
+      answeredAt = Date.now();
+      // Leave the gate (the redraft, or the next phase's work)…
+      stages[GATE] = STAGE.pipelineRunning;
+      // …and reach the gate again: round 2, or the next phase's gate.
+      setTimeout(() => {
+        stages[GATE] = STAGE.awaitingApproval;
+      }, 6_000);
+      return { status: 200 };
+    }, []);
     await openTasks(page);
     await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
     if (decision === 'approve') {
