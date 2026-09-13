@@ -5,7 +5,9 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
@@ -9079,5 +9081,167 @@ func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) 
 				t.Errorf("ResolveConstructionRow = (%v, %v, classified=%v), want (%v, %v, true)", typ, variant, classified, tc.wantType, tc.wantVariant)
 			}
 		})
+	}
+}
+
+// With several mismatched rows, the error names the FIRST key in sorted order, so
+// the same bad document always reports the same row (fix-E review minor). Map
+// iteration order is random per range, so an unsorted walk fails this within a
+// few of the 64 decodes.
+func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_NamesTheFirstSortedKey(t *testing.T) {
+	id := ProjectID("11111111-1111-1111-1111-111111111111")
+	raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: map[string]ActivityConstructionStatus{
+		"C-z": {ActivityID: "X-z"},
+		"C-m": {ActivityID: "C-m"},
+		"C-a": {ActivityID: "X-a"},
+	}})
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	for i := range 64 {
+		_, _, err := DecodeProjectJSON(raw, id)
+		if err == nil {
+			t.Fatal("two mismatched rows must FAIL decode")
+		}
+		if !strings.Contains(err.Error(), `activityConstruction["C-a"]`) || strings.Contains(err.Error(), "C-z") {
+			t.Fatalf("decode %d: the error must name the first sorted key (C-a) and only it; got: %v", i, err)
+		}
+	}
+}
+
+// fixedCatalog yields exactly the refs it is given, so a test can list a repo with
+// no parseable id, a repo with no project.json, and a repo with malformed state.
+type fixedCatalog struct{ refs []ProjectCatalogRef }
+
+func (c fixedCatalog) ListProjectRepos(context.Context, OwnerScope, RepoCredential) ([]ProjectCatalogRef, error) {
+	return c.refs, nil
+}
+
+// captureSlog routes the default logger into a buffer for the test's duration.
+// The package's tests do not run in parallel, so swapping the default is safe.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// commitRawProjectJSON commits raw bytes as the repo's project.json, bypassing the
+// store's writers: the only way malformed committed state gets there is by hand.
+func commitRawProjectJSON(t *testing.T, repo gh.LocalGitRepo, raw []byte) {
+	t.Helper()
+	work := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = work
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("clone", repo.Dir, ".")
+	git("config", "user.email", "test@aiarch.local")
+	git("config", "user.name", "test")
+	path := filepath.Join(work, statePathPrefix, projectFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "hand-written project.json")
+	git("push", "origin", "HEAD")
+}
+
+// TestGitStore_ListProjects_SaysWhatItSkips (fix-E review): list-projects must never
+// drop or thin a project silently. A repo with no parseable id is skipped and the
+// skip is logged; a repo whose project.json is not there yet is listed without its
+// head-state, and that is logged with its id and the reason.
+func TestGitStore_ListProjects_SaysWhatItSkips(t *testing.T) {
+	readable, ghost := ProjectID(uuid.NewString()), ProjectID("ghost-"+uuid.NewString())
+	repos := map[ProjectID]*fwgithub.GitStore{}
+	for _, id := range []ProjectID{readable, ghost} {
+		r := gh.StartLocalGitRepo(t, "main")
+		gs, err := fwgithub.NewGitStore(r.URL, "main")
+		if err != nil {
+			t.Fatalf("NewGitStore(%s): %v", id, err)
+		}
+		repos[id] = gs
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, true /* local */)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	cred, ctx := LocalRepoCredential(), context.Background()
+	if _, err := store.CreateProject(ctx, readable, "alice", "Real", cred, "wf:real"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: readable, Title: "Real"},
+		{ProjectID: ghost, Title: "Ghost"},
+		{ProjectID: "", Title: "Nameless"},
+	}})
+	logs := captureSlog(t)
+
+	summaries, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("ListProjects = %d rows, want 2 (the real one and the ghost): %+v", len(summaries), summaries)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"skipping a catalog repo with no project id", "title=Nameless",
+		"listing a project without its head-state", "projectID=" + string(ghost), "no state for project",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log must say %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "projectID="+string(readable)) {
+		t.Errorf("a project that read cleanly must not be logged; got:\n%s", out)
+	}
+}
+
+// TestGitStore_ListProjects_UnreadableProjectIsNamed: a project whose committed
+// state will not decode fails the list (as before), and the log names WHICH
+// project and why — the decode error alone does not carry the project id.
+func TestGitStore_ListProjects_UnreadableProjectIsNamed(t *testing.T) {
+	bad := ProjectID("bad-" + uuid.NewString())
+	r := gh.StartLocalGitRepo(t, "main")
+	gs, err := fwgithub.NewGitStore(r.URL, "main")
+	if err != nil {
+		t.Fatalf("NewGitStore: %v", err)
+	}
+	raw, err := EncodeProjectJSON(Project{ID: bad, Name: "Bad", ActivityConstruction: map[string]ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-b"}, // stored under another activity's key
+	}})
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	commitRawProjectJSON(t, r, raw)
+	store, err := NewGitStore(multiRepoLocator{repos: map[ProjectID]*fwgithub.GitStore{bad: gs}}, true)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{{ProjectID: bad, Title: "Bad"}}})
+	logs := captureSlog(t)
+
+	_, err = store.ListProjects(context.Background(), "alice", LocalRepoCredential())
+	if err == nil {
+		t.Fatal("a project whose state will not decode must fail the list")
+	}
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("error kind = %v, want ContractMisuse", k)
+	}
+	out := logs.String()
+	for _, want := range []string{"could not be read; failing the list", "projectID=" + string(bad), `activityConstruction[\"C-a\"]`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log must say %q; got:\n%s", want, out)
+		}
 	}
 }

@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"regexp"
 	"slices"
@@ -655,7 +656,11 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 	out := make([]ProjectSummary, 0, len(refs))
 	for _, ref := range refs {
 		if ref.ProjectID == "" {
-			continue // a repo whose name carried no parseable project id — skip defensively
+			// A repo whose name carried no parseable project id is skipped, and says so
+			// (fix-E review): a project must never vanish from the catalog silently.
+			slog.WarnContext(ctx, "projectstate.ListProjects: skipping a catalog repo with no project id",
+				"owner", string(owner), "title", ref.Title)
+			continue
 		}
 		summary := ProjectSummary{
 			ProjectID:  ref.ProjectID,
@@ -704,10 +709,18 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				summary.ConstructionComplete = &complete
 			}
 		} else if !isNotFound(perr) {
-			// A real read fault (auth/transient/infra) on a discovered repo is surfaced;
-			// a NotFound (repo provisioned, project.json not yet committed) is tolerated —
-			// the catalog row stands on the repo's existence + title.
+			// A real read fault (auth/transient/infra, or malformed committed state) on
+			// a discovered repo fails the list. The log names WHICH project, since the
+			// fault itself may not (fix-E review).
+			slog.WarnContext(ctx, "projectstate.ListProjects: a project could not be read; failing the list",
+				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 			return nil, perr
+		} else {
+			// A NotFound (repo provisioned, project.json not yet committed) is tolerated:
+			// the catalog row stands on the repo's existence + title, with no progress.
+			// Said, not silent (fix-E review).
+			slog.InfoContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
+				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 		}
 		out = append(out, summary)
 	}
