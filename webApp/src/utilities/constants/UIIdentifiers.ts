@@ -471,9 +471,6 @@ export const UI_IDENTIFIERS = {
     LENS_EXPAND_TO_PHASE: 'construction-lens-expand-to-phase',
     /** The "Observed only" evidence toggle (was "Hide synthesized", designer P1-11). */
     LENS_OBSERVED_ONLY: 'construction-lens-observed-only',
-    /** The "Observed only" switch with its label — the box that reads visibly off
-     *  where the toggle does not apply (tasks round 2, designer). */
-    LENS_OBSERVED_ONLY_TOGGLE: 'construction-lens-observed-only-toggle',
     /** Expand + Observed only: ONE no-wrap group, so they wrap together (designer). */
     LENS_TOOLBAR_TOGGLES: 'construction-lens-toolbar-toggles',
     // The provenance mark carried on a SEARCH-MATCHED task row itself (in

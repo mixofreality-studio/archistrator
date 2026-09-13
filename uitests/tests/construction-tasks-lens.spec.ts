@@ -663,14 +663,25 @@ test('the TASKS toolbar names its own order and disables the list-only controls 
   await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();
   await expect(page.getByLabel('Observed only')).toBeDisabled();
   // …and LOOKS off: the same half-opacity mark as Expand (tasks round 2, designer).
-  const observedToggle = page.getByTestId(TESTID.constructionLensObservedOnlyToggle);
-  await expect(observedToggle).toHaveCSS('opacity', '0.5');
+  // The mark is laid on the box that holds the switch and its label; what the
+  // operator sees is the SWITCH drawn at half opacity, so that is what is read: the
+  // product of every opacity from the switch (its one test id) up to the page.
+  const observedSwitch = page.getByTestId(TESTID.constructionLensObservedOnly);
+  const renderedOpacity = (): Promise<number> =>
+    observedSwitch.evaluate((el) => {
+      let opacity = 1;
+      for (let e: Element | null = el; e !== null; e = e.parentElement) {
+        opacity *= Number(getComputedStyle(e).opacity);
+      }
+      return opacity;
+    });
+  await expect.poll(renderedOpacity).toBe(0.5);
   // Back on the list, both come back and the Sort menu returns.
   await page.getByTestId(TESTID.constructionLensButton('list')).click();
   await expect(page.getByTestId(TESTID.constructionLensSort)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionLensSortRanked)).toHaveCount(0);
   await expect(page.getByLabel('Observed only')).toBeEnabled();
-  await expect(observedToggle).toHaveCSS('opacity', '1');
+  await expect.poll(renderedOpacity).toBe(1);
 });
 
 test('[Review] opens the pane on the gate task, awaiting you; send back needs a note and carries it', async ({

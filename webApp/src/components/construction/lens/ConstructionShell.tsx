@@ -462,7 +462,6 @@ export function ConstructionShell({
                 half-opacity "not available" mark as Expand above — MUI's disabled
                 switch alone still read as a live toggle. */}
             <Box
-              data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY_TOGGLE}
               sx={{
                 display: 'flex',
                 alignItems: 'center',
