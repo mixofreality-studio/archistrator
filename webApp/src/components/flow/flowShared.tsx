@@ -17,6 +17,8 @@ import {
   type NodeTypes,
   type NodeMouseHandler,
   type EdgeMouseHandler,
+  type OnMove,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
@@ -103,6 +105,9 @@ export function FlowCanvas({
   onNodeMouseLeave,
   onNodeClick,
   onEdgeClick,
+  defaultViewport,
+  onMoveEnd,
+  minZoom = 0.3,
   children,
 }: {
   nodes: Node[];
@@ -121,6 +126,14 @@ export function FlowCanvas({
    *  so click callbacks, not `selected` state, drive the comment affordances. */
   onNodeClick?: NodeMouseHandler;
   onEdgeClick?: EdgeMouseHandler;
+  /** A viewport to open at INSTEAD of fitting the view — how a canvas that
+   *  remounts (a lens switch, a poll) restores where the reader left it. Absent
+   *  (every historical caller) keeps the fit-on-mount behaviour unchanged. */
+  defaultViewport?: Viewport;
+  /** Fired when a pan/zoom settles — pairs with `defaultViewport` to remember it. */
+  onMoveEnd?: OnMove;
+  /** The furthest zoom-out. Defaults to the historical 0.3. */
+  minZoom?: number;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -135,12 +148,16 @@ export function FlowCanvas({
     >
       <ReactFlow
         elementsSelectable
-        fitView
         edgeTypes={edgeTypes}
         edges={edges}
+        // Fit on mount ONLY when no viewport is being restored — a restored one
+        // is exactly the reader's own pan/zoom, which a fit would throw away.
+        fitView={defaultViewport === undefined}
         fitViewOptions={{ padding: 0.15 }}
         maxZoom={1.4}
-        minZoom={0.3}
+        minZoom={minZoom}
+        {...(defaultViewport !== undefined ? { defaultViewport } : {})}
+        {...(onMoveEnd !== undefined ? { onMoveEnd } : {})}
         nodeTypes={nodeTypesOverride ?? nodeTypes}
         nodes={nodes}
         nodesConnectable={false}
