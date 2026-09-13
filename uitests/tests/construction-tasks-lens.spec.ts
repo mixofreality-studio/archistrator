@@ -14,11 +14,13 @@
  *    the session leaves the gate, says "did not land" when it does not, and tells a
  *    4xx rejection from a 5xx unknown outcome.
  *
- * SAFETY: every write route — execute-next-activity, submit-phase-decision,
- * override-activity, pause-project, update/set-review-policy — is TRAPPED before the
- * page opens: aborted, or answered here. Nothing reaches the server but GET reads.
+ * SAFETY: every non-GET the browser CONTEXT makes is aborted before the page opens
+ * (guardContext) — a context route, so a page's teardown `unrouteAll` cannot remove
+ * it — unless a test answers that write itself. A request a test holds open is
+ * released as an ABORT in teardown, before anything is unrouted (review I2). Nothing
+ * reaches the server but GET reads.
  */
-import { test, expect, type Page, type Route } from '@playwright/test';
+import { test, expect, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -46,24 +48,64 @@ interface Wire {
   reviewPolicy?: unknown;
 }
 
-/** Trap every write before the page can issue one: EVERY non-GET is aborted (the
- *  catch-all, registered first so a test's own answering route still wins), and
- *  each known write route is named on top of it. */
-async function trapWrites(page: Page): Promise<void> {
-  await page.route('**', (r) => {
-    const m = r.request().method();
-    return m === 'GET' || m === 'HEAD' ? r.fallback() : r.abort();
+/** Every non-GET the context guard aborted in the current test, as "METHOD url". */
+let blocked: string[] = [];
+
+/**
+ * Abort every non-GET/HEAD the browser context makes (review I2). A CONTEXT route,
+ * not a page one: the page catch-all this replaces was removed by the teardown's
+ * `unrouteAll`, and a request a page handler still held then went out. A test that
+ * answers a write registers its own page route, which takes precedence; anything
+ * it does not answer falls through to here. The merge round swaps this for
+ * rewrite's shared `dispatchGuard` fixture (support/dispatchGuard.ts).
+ */
+async function guardContext(context: BrowserContext): Promise<void> {
+  await context.route('**/*', async (route) => {
+    const req = route.request();
+    if (req.method() === 'GET' || req.method() === 'HEAD') {
+      await route.fallback();
+      return;
+    }
+    blocked.push(`${req.method()} ${req.url()}`);
+    await route.abort('blockedbyclient');
   });
-  for (const pat of [
-    '**/execute-next-activity/**',
-    '**/override-activity/**',
-    '**/pause-project/**',
-    '**/update-review-policy/**',
-    '**/set-review-policy/**',
-    '**/submit-phase-decision/**',
-  ]) {
-    await page.route(pat, (r) => r.abort());
-  }
+}
+
+/** Teardown's release for every hold the current test opened: each ABORTS. */
+let holds: (() => Promise<void>)[] = [];
+
+/**
+ * Hold requests open until the test releases them (review I2). `handle` answers
+ * a held route with `answer` once released; if the test ends first (a failure, a
+ * timeout), teardown aborts it instead, and waits until it has, BEFORE any route
+ * is removed. A held write can never outlive its test.
+ */
+function newHold(): {
+  release: () => void;
+  handle: (route: Route, answer: () => Promise<void>) => Promise<void>;
+} {
+  let settle: (answer: boolean) => void = () => undefined;
+  const released = new Promise<boolean>((r) => {
+    settle = r;
+  });
+  const handled: Promise<void>[] = [];
+  holds.push(async () => {
+    settle(false);
+    await Promise.all(handled);
+  });
+  return {
+    release: () => {
+      settle(true);
+    },
+    handle: (route, answer) => {
+      const done = released.then(async (go) => {
+        if (go) await answer();
+        else await route.abort('blockedbyclient').catch(() => undefined);
+      });
+      handled.push(done);
+      return done;
+    },
+  };
 }
 
 /** Mutable session stages per activity, served for the session route. */
@@ -190,16 +232,41 @@ async function answerDecisions(
   });
 }
 
-test.beforeEach(async ({ page, request }) => {
+test.beforeEach(async ({ context, request }) => {
+  blocked = [];
+  holds = [];
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
-  await trapWrites(page);
+  await guardContext(context);
 });
 
-// The console re-reads the project every 10s (review I3), so a route handler can be
-// mid-fetch when a test ends; that is teardown, not a failure.
 test.afterEach(async ({ page }) => {
+  // Held requests die as aborts FIRST, while every route is still in place (I2).
+  for (const abortHeld of holds) await abortHeld();
+  holds = [];
+  // The console re-reads the project every 10s (review I3), so a route handler can
+  // be mid-fetch when a test ends; that is teardown, not a failure. The context
+  // guard outlives this.
   await page.unrouteAll({ behavior: 'ignoreErrors' });
+});
+
+test('a write is aborted by the context guard, even once every page route is gone (review I2)', async ({
+  page,
+}) => {
+  await openTasks(page);
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  // SAFETY: the probe path does not exist on the server, so a failed guard could
+  // only ever reach a 404 (and the GET-only proxy in front of it).
+  const probe = '/api/v1/__tasks-lens-guard-probe';
+  const outcome = await page.evaluate(async (url) => {
+    try {
+      return `status ${String((await fetch(url, { method: 'POST', body: '{}' })).status)}`;
+    } catch {
+      return 'aborted';
+    }
+  }, probe);
+  expect(outcome).toBe('aborted');
+  expect(blocked.filter((b) => b.endsWith(probe))).toEqual([`POST ${BASE}${probe}`]);
 });
 
 test('live: nothing is owed, and the lens says so without probing a session', async ({ page }) => {
@@ -256,23 +323,19 @@ test('a probe that fails is not an all-clear: no "Nothing needs you", and Retry 
 
 test('a probe still in flight reads "Checking…", never the all-clear', async ({ page }) => {
   await serveOwed(page, {}, [RUNNING]);
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((r) => {
-    release = r;
-  });
-  await page.route('**/get-session-state/archistrator/**', async (route) => {
-    await held;
-    await route.fulfill({ status: 404, json: { error: 'no construction session' } }).catch(() => {
-      // the page may already be closed when the test releases the hold
-    });
-  });
+  const hold = newHold();
+  await page.route('**/get-session-state/archistrator/**', (route) =>
+    hold.handle(route, async () => {
+      await route.fulfill({ status: 404, json: { error: 'no construction session' } });
+    })
+  );
   await openTasks(page);
   await expect(page.getByTestId(TESTID.constructionTasksUnchecked)).toContainText(
     'Checking 1 in-flight activity…'
   );
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
   // Once the probe answers (a dormant-pump 404 — an established absence), it is clear.
-  release();
+  hold.release();
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText(
     'Nothing needs you.',
     { timeout: 10_000 }
@@ -667,16 +730,15 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   const stages = initialStages();
   await serveOwed(page, stages);
   const posts: string[] = [];
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((r) => {
-    release = r;
-  });
-  // Hold the 200 while the console is navigated away and back.
-  await page.route('**/submit-phase-decision/**', async (route) => {
+  // Hold the 200 while the console is navigated away and back. If the test fails
+  // first, teardown aborts it — it never goes out (review I2).
+  const hold = newHold();
+  await page.route('**/submit-phase-decision/**', (route) => {
     posts.push(route.request().url());
-    await held;
-    stages[GATE] = STAGE.pipelineRunning;
-    await route.fulfill({ status: 200, json: {} }).catch(() => undefined);
+    return hold.handle(route, async () => {
+      stages[GATE] = STAGE.pipelineRunning;
+      await route.fulfill({ status: 200, json: {} });
+    });
   });
   await openTasks(page);
   await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
@@ -695,7 +757,7 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   await approve.evaluate((el) => {
     (el as HTMLButtonElement).click();
   });
-  release();
+  hold.release();
   await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText('Resumed', {
     timeout: 15_000,
   });
@@ -709,15 +771,13 @@ test('a POST still on the wire keeps the re-opened gate busy, and says why (roun
   const stages = initialStages();
   await serveOwed(page, stages);
   const posts: string[] = [];
-  let release: () => void = () => undefined;
-  const held = new Promise<void>((r) => {
-    release = r;
-  });
   // The reviewer's repro: hold the approval on the wire…
-  await page.route('**/submit-phase-decision/**', async (route) => {
+  const hold = newHold();
+  await page.route('**/submit-phase-decision/**', (route) => {
     posts.push(route.request().url());
-    await held;
-    await route.fulfill({ status: 200, json: {} }).catch(() => undefined);
+    return hold.handle(route, async () => {
+      await route.fulfill({ status: 200, json: {} });
+    });
   });
   await openTasks(page);
   await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
@@ -744,7 +804,7 @@ test('a POST still on the wire keeps the re-opened gate busy, and says why (roun
     (el as HTMLButtonElement).click();
   });
   // Once it settles, the re-opened gate is a fresh decision.
-  release();
+  hold.release();
   await expect(approve).toBeEnabled({ timeout: 10_000 });
   await expect(flow).toHaveCount(0);
   expect(posts).toHaveLength(1);
