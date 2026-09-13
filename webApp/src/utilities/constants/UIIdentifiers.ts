@@ -423,6 +423,8 @@ export const UI_IDENTIFIERS = {
     /** The column header above the tier-1 rows (float … state). */
     LIST_HEADER: 'construction-list-header',
     LIST_EMPTY: 'construction-list-empty',
+    /** The blank room a deep link adds below the list to centre its row (designer N1). */
+    LIST_RUNWAY: 'construction-list-runway',
     listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
     listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
     // The provenance axis (Stage B Task 7) — orthogonal to state. The rail rides

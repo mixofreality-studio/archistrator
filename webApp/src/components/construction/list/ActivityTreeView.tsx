@@ -693,7 +693,12 @@ export function ActivityTreeView({
       {/* The deep-link runway: blank room below the list, sized only when a linked
           row near the list's end needs it to reach the centre (see above). The
           negative margin cancels this column's gap, so at 0 it takes no space. */}
-      <Box aria-hidden ref={runwayRef} sx={{ height: 0, mt: -1.25, flexShrink: 0 }} />
+      <Box
+        aria-hidden
+        data-testid={UI_IDENTIFIERS.Construction.LIST_RUNWAY}
+        ref={runwayRef}
+        sx={{ height: 0, mt: -1.25, flexShrink: 0 }}
+      />
     </Box>
   );
 }

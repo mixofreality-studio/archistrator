@@ -226,6 +226,7 @@ export const TESTID = {
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
   constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
+  constructionListRunway: UI_IDENTIFIERS.Construction.LIST_RUNWAY,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
   constructionLensScope: UI_IDENTIFIERS.Construction.LENS_SCOPE,
   // Navigability (Stage B Task 11) — search box and the per-row provenance

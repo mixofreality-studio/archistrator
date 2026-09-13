@@ -216,13 +216,31 @@ for (const width of [1280, 1366, 1600]) {
       await expect(page.getByTestId(TESTID.constructionListRow(nodeId))).toBeVisible({
         timeout: 15_000,
       });
-      // Measured before this fix: 0.62 and 0.81 at 1280/1366 — the list's end.
+      // Measured before this fix: 0.62 and 0.81 at 1280/1366 — the list's end. The
+      // centre is the band BELOW the stuck toolbar: a band from the scroller's top
+      // would put the row at ~0.44, outside this window.
       await expect
         .poll(() => bandFraction(page, nodeId), { timeout: 5_000, message: nodeId })
-        .toBeGreaterThan(0.4);
+        .toBeGreaterThan(0.45);
       await expect
         .poll(() => bandFraction(page, nodeId), { timeout: 5_000, message: nodeId })
-        .toBeLessThan(0.6);
+        .toBeLessThan(0.55);
+      // The runway is exactly what centring needed — sized once the rows had
+      // finished expanding, not against a half-grown list: when there is one, the
+      // scroller sits at its maximum, with no surplus blank space below.
+      const fit = await page.evaluate((runwayId) => {
+        const runway = document.querySelector<HTMLElement>(`[data-testid="${runwayId}"]`);
+        let sc: HTMLElement | null = runway?.parentElement ?? null;
+        while (sc !== null && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) {
+          sc = sc.parentElement;
+        }
+        if (runway === null || sc === null) return null;
+        return { runway: runway.offsetHeight, slack: sc.scrollHeight - sc.clientHeight - sc.scrollTop };
+      }, TESTID.constructionListRunway);
+      expect(fit, nodeId).not.toBeNull();
+      if (fit !== null && fit.runway > 0) {
+        expect(Math.abs(fit.slack), `${nodeId}: surplus runway`).toBeLessThanOrEqual(2);
+      }
     }
   });
 }
