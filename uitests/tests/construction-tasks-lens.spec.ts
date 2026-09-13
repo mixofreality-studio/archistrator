@@ -349,7 +349,11 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   await answerDecisions(
     page,
     () => {
-      stages[GATE] = STAGE.pipelineRunning;
+      // The workflow takes a while to leave the gate after the 200 (review I5): the
+      // decision must stay busy through that window, not only until the answer.
+      setTimeout(() => {
+        stages[GATE] = STAGE.pipelineRunning;
+      }, 5_000);
       return { status: 200 };
     },
     sent
@@ -361,9 +365,14 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   await approve.evaluate((el) => {
     for (let i = 0; i < 3; i += 1) (el as HTMLButtonElement).click();
   });
-  await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText('Resumed', {
-    timeout: 10_000,
+  const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
+  await expect(flow).toContainText('waiting for the agent to resume');
+  // Answered 200, gate not yet left: still busy, and another click sends nothing.
+  await expect(approve).toBeDisabled();
+  await approve.evaluate((el) => {
+    (el as HTMLButtonElement).click();
   });
+  await expect(flow).toContainText('Resumed', { timeout: 15_000 });
   expect(sent).toHaveLength(1);
   // Resumed is no longer owed: the row says so in place, the header stops counting
   // it, and the pane keeps the evidence line with no decision to make.
@@ -381,6 +390,96 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   // The badge drops the moment the gate clears; the row lingers with its evidence.
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('2');
 });
+
+test('a decision on the wire survives a remount: Approve stays off, exactly one POST (review C1)', async ({
+  page,
+}) => {
+  test.setTimeout(45_000);
+  const stages = initialStages();
+  await serveOwed(page, stages);
+  const posts: string[] = [];
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  // Hold the 200 while the console is navigated away and back.
+  await page.route('**/submit-phase-decision/**', async (route) => {
+    posts.push(route.request().url());
+    await held;
+    stages[GATE] = STAGE.pipelineRunning;
+    await route.fulfill({ status: 200, json: {} }).catch(() => undefined);
+  });
+  await openTasks(page);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
+  await expect.poll(() => posts.length).toBe(1);
+  // Home and back, in-app: the console unmounts and remounts; the QueryClient stays.
+  await page.getByTestId(TESTID.designClose).click();
+  await expect(page).toHaveURL(/\/home/);
+  await page.goBack();
+  await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible({ timeout: 15_000 });
+  const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
+  await expect(approve).toBeDisabled();
+  await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText(
+    'Sending your approval'
+  );
+  await approve.evaluate((el) => {
+    (el as HTMLButtonElement).click();
+  });
+  release();
+  await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText('Resumed', {
+    timeout: 15_000,
+  });
+  expect(posts).toHaveLength(1);
+});
+
+for (const decision of ['sendBack', 'approve'] as const) {
+  test(`${decision} → the gate opens again: a new decision, never a stale "did not land" (review C2)`, async ({
+    page,
+  }) => {
+    test.setTimeout(60_000);
+    const stages = initialStages();
+    await serveOwed(page, stages);
+    let answeredAt = 0;
+    await answerDecisions(
+      page,
+      () => {
+        answeredAt = Date.now();
+        // Leave the gate (the redraft, or the next phase's work)…
+        stages[GATE] = STAGE.pipelineRunning;
+        // …and reach the gate again: round 2, or the next phase's gate.
+        setTimeout(() => {
+          stages[GATE] = STAGE.awaitingApproval;
+        }, 6_000);
+        return { status: 200 };
+      },
+      []
+    );
+    await openTasks(page);
+    await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+    if (decision === 'approve') {
+      await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
+    } else {
+      await page.getByTestId(TESTID.constructionDetailAction('sendBack')).click();
+      await page.getByTestId(TESTID.constructionDetailDecisionNote).fill('Tighten the ops list.');
+      await page.getByTestId(TESTID.constructionDetailDecisionSendBack).click();
+    }
+    const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
+    await expect(flow).toContainText(decision === 'approve' ? 'Resumed' : 'Sent back', {
+      timeout: 10_000,
+    });
+    // The new occurrence retires the old record: the row is a fresh decision.
+    await expect(flow).toHaveCount(0, { timeout: 15_000 });
+    // Past the old decision's resume timeout, it still must not claim "did not land".
+    await page.waitForTimeout(Math.max(0, answeredAt + 13_000 - Date.now()));
+    await expect(flow).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toHaveAttribute(
+      'data-lingering',
+      'false'
+    );
+    await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toBeEnabled();
+  });
+}
 
 test('an approval the gate never takes reads "did not land", loudly', async ({ page }) => {
   test.setTimeout(45_000);

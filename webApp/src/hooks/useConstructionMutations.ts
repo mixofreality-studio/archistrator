@@ -10,7 +10,7 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { ApiError, toApiError } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
 import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
@@ -115,27 +115,66 @@ export interface SubmitPhaseDecisionVars {
   phase: string;
   decision: PhaseDecision;
   feedback?: components['schemas']['ConstructionReviewFeedback'];
+  /** Client bookkeeping, never sent: which gate occurrence this decision answers
+   *  and what the console needs to show for it after a remount. The console reads
+   *  it back from the mutation cache (tasks/decisionRecords.ts). */
+  occurrence?: { key: string; epoch: number; snapshot?: unknown };
+}
+
+/**
+ * Every phase decision of one project shares this mutation key, so the console
+ * reads what is in flight — and what each one answered — from the QueryClient's
+ * mutation cache (useMutationState) rather than from component state. A pending
+ * decision therefore survives a remount of the console (navigating home and back),
+ * and so does its evidence (tasks-lens review C1).
+ */
+export function phaseDecisionMutationKey(projectId: string): readonly unknown[] {
+  return ['submitPhaseDecision', projectId];
+}
+
+/** When the server answered a decision that came back clean. */
+export interface PhaseDecisionAnswer {
+  answeredAt: number;
+}
+
+/** A decision that did not come back clean: the HTTP status where there was one
+ *  (absent for a network failure), and when the console learned of it. */
+export class PhaseDecisionFailure extends Error {
+  readonly status: number | undefined;
+  readonly answeredAt: number;
+
+  constructor(cause: unknown, answeredAt: number) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = 'PhaseDecisionFailure';
+    this.status = cause instanceof ApiError ? cause.status : undefined;
+    this.answeredAt = answeredAt;
+  }
 }
 
 export function useSubmitPhaseDecision(
   projectId: string
-): UseMutationResult<undefined, Error, SubmitPhaseDecisionVars> {
+): UseMutationResult<PhaseDecisionAnswer, PhaseDecisionFailure, SubmitPhaseDecisionVars> {
   const client = useQueryClient();
-  return useMutation<undefined, Error, SubmitPhaseDecisionVars>({
+  return useMutation<PhaseDecisionAnswer, PhaseDecisionFailure, SubmitPhaseDecisionVars>({
+    mutationKey: phaseDecisionMutationKey(projectId),
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
-        {
-          params: { path: { projectID: projectId, activityID: vars.activityId } },
-          body: {
-            phase: vars.phase,
-            decision: phaseDecisionToOrdinal(vars.decision),
-            ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
-          },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
-      return undefined;
+      try {
+        const { error, response } = await apiClient.POST(
+          '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
+          {
+            params: { path: { projectID: projectId, activityID: vars.activityId } },
+            body: {
+              phase: vars.phase,
+              decision: phaseDecisionToOrdinal(vars.decision),
+              ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
+            },
+          }
+        );
+        if (error !== undefined) throw toApiError(response.status, error);
+        return { answeredAt: Date.now() };
+      } catch (e) {
+        throw new PhaseDecisionFailure(e, Date.now());
+      }
     },
     onSuccess: (_data, vars) =>
       client.invalidateQueries({

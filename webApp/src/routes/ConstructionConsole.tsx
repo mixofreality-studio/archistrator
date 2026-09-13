@@ -39,17 +39,25 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { useConstructionSessions } from '../hooks/useConstructionSessions';
+import { useMutationState, useQueryClient } from '@tanstack/react-query';
+import { useGateOccurrences } from '../hooks/useGateOccurrences';
+import { occurrenceKey } from '../hooks/gateOccurrences';
 import {
   decisionBusy,
   decisionNoteFor,
   decisionViewFor,
-  type DecisionRecord,
+  observedGateFor,
   type DecisionView,
   type FlowNote,
   type GateDecision,
   type ObservedGate,
   type PaneDecision,
 } from '../components/construction/tasks/decisionFlow';
+import {
+  decisionEntriesFrom,
+  decisionKeyOf,
+  type DecisionMutationState,
+} from '../components/construction/tasks/decisionRecords';
 import { owedWorkFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
 import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
 import { emptyStateCounts, shapeFor } from '../components/construction/tasks/tasksLensCopy';
@@ -57,7 +65,11 @@ import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { computeActivityStatuses } from '../contracts/constructionAdapters';
 import { contractForActivity } from '../contracts/serviceContracts';
 import { gitFor } from '../contracts/types';
-import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
+import {
+  phaseDecisionMutationKey,
+  useBeginConstruction,
+  useSubmitPhaseDecision,
+} from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
@@ -194,18 +206,28 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // --- Gate decisions (Stage C) ----------------------------------------------
   // The single `.find()` of "the" in-construction activity is gone (spec §1: it
   // could only ever return one); decisions are made from the shared pane, for any
-  // owed gate. What happened on the wire is recorded HERE, per owed-item key, in
-  // event handlers only; what it means — sending, resumed, did not land — is
-  // derived at render against the live session (tasks/decisionFlow.ts), so no
-  // effect ever sets state to follow the workflow.
-  const [decisions, setDecisions] = useState<
-    Record<string, { record: DecisionRecord; item: RankedOwed }>
-  >({});
+  // owed gate. What happened on the wire lives in the QueryClient's MUTATION CACHE
+  // (every decision of this project shares one mutation key), never in component
+  // state: a decision on the wire is still on the wire after the console remounts
+  // — navigating home and back — so Approve cannot come back on under it (review
+  // C1). What it means — sending, resumed, did not land — is derived at render
+  // against the gate OCCURRENCE it answered (tasks/decisionFlow.ts; the occurrence
+  // store folds every session read the cache takes, review C2), so no effect ever
+  // sets state to follow the workflow.
+  const queryClient = useQueryClient();
+  const occurrences = useGateOccurrences();
+  const decisionStates = useMutationState({
+    filters: { mutationKey: phaseDecisionMutationKey(projectId) },
+    select: (m): DecisionMutationState => ({
+      status: m.state.status,
+      variables: m.state.variables,
+      data: m.state.data,
+      error: m.state.error,
+      submittedAt: m.state.submittedAt,
+    }),
+  });
   // The clock the derivation reads: ticks once a second while a decision is live.
   const [decisionNow, setDecisionNow] = useState(0);
-  // One click, one signal: clicks delivered in one task all land before a re-render
-  // could report the first as in flight (the same reason onBegin keeps a ref).
-  const decidingRef = useRef(new Set<string>());
 
   // Begin is a real dispatch, so the button only opens a confirm step that names
   // what would be started (BeginConfirmDialog). Each opening mints ONE tickID, which
@@ -412,9 +434,30 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // count is the same either way; what the view may strip is a mixed-ledger row's
   // current phase, which the lens then reports as unreported rather than guessed.
   const probeIds = useMemo(() => probeCandidatesFor(viewRows), [viewRows]);
-  // An activity a decision was just sent for stays probed until its record is
-  // done, so its resume can be OBSERVED even once the pump marks it finished.
-  const decidedIdsKey = [...new Set(Object.values(decisions).map((d) => d.record.activityId))]
+  // Each decision sent, read back from the mutation cache, and judged against the
+  // gate occurrence it answered and the clock. The observation comes from the
+  // occurrence store — not from this render's probe set — so what is probed can
+  // depend on it without a cycle.
+  const decisionEntries = useMemo(() => decisionEntriesFrom(decisionStates), [decisionStates]);
+  const observedFor = (activityId: string): ObservedGate =>
+    observedGateFor(occurrences.get(occurrenceKey(projectId, activityId)), {
+      at: projectReadAt,
+      lifecyclePhase: project?.constructionRows?.[activityId]?.currentLifecyclePhase,
+    });
+  const decisionViews: Record<string, DecisionView> = {};
+  for (const [key, e] of Object.entries(decisionEntries)) {
+    decisionViews[key] = decisionViewFor(e.record, observedFor(e.record.activityId), decisionNow);
+  }
+  // An activity with a LIVE decision stays probed, so its resume can be observed
+  // even once the pump marks it finished. A retired record (lingered out, or its
+  // gate superseded by a later occurrence) is no reason to keep asking.
+  const decidedIdsKey = [
+    ...new Set(
+      Object.entries(decisionEntries)
+        .filter(([key]) => decisionViews[key]?.kind !== 'done')
+        .map(([, e]) => e.record.activityId)
+    ),
+  ]
     .sort((a, b) => a.localeCompare(b))
     .join(' ');
   const sessionIds = useMemo(
@@ -493,23 +536,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         : new Map<string, never>();
     return emptyStateCounts(statuses, probeIds.length);
   }, [networkModel, project, viewRows, probeIds]);
-  // Each recorded decision, read against the live session and the clock.
-  const observedGateFor = (activityId: string): ObservedGate => {
-    const s = sessionsByActivity[activityId];
-    return {
-      stage: s === undefined ? undefined : s === null ? null : s.stage,
-      // The pump's own current phase (raw head-state), for "now in <phase>".
-      lifecyclePhase: project?.constructionRows?.[activityId]?.currentLifecyclePhase,
-    };
-  };
-  const decisionViews: Record<string, DecisionView> = {};
-  for (const [key, d] of Object.entries(decisions)) {
-    decisionViews[key] = decisionViewFor(
-      d.record,
-      observedGateFor(d.record.activityId),
-      decisionNow
-    );
-  }
   const anyDecisionLive = Object.values(decisionViews).some((v) => v.kind !== 'done');
   useEffect(() => {
     if (!anyDecisionLive) return undefined;
@@ -524,18 +550,19 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     };
   }, [anyDecisionLive]);
   const noteForKey = (key: string): FlowNote | undefined => {
-    const d = decisions[key];
+    const e = decisionEntries[key];
     const view = decisionViews[key];
-    return d !== undefined && view !== undefined
-      ? decisionNoteFor(view, d.record.decision)
+    return e !== undefined && view !== undefined
+      ? decisionNoteFor(view, e.record.decision)
       : undefined;
   };
-  // A resumed row lingers in place (spec §6) after the owed set has dropped it.
-  const lingering = Object.entries(decisions)
+  // A resumed row lingers in place (spec §6) after the owed set has dropped it —
+  // across a remount too: the item it shows rode the decision into the cache.
+  const lingering = Object.entries(decisionEntries)
     .filter(
       ([key]) => decisionViews[key]?.kind !== 'done' && !rankedOwed.some((i) => i.key === key)
     )
-    .map(([, d]) => d.item);
+    .flatMap(([, e]) => (e.item !== undefined ? [e.item] : []));
   const lingeringKeys = new Set(lingering.map((i) => i.key));
 
   const decideGate = (item: RankedOwed, decision: GateDecision, note = ''): void => {
@@ -543,12 +570,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     // Never address a decision to a guessed key: no reported phase, no signal.
     if (lifecyclePhase === undefined) return;
     const key = item.key;
-    if (decidingRef.current.has(key) || decisionBusy(decisionViews[key])) return;
-    decidingRef.current.add(key);
-    setDecisions((prev) => ({
-      ...prev,
-      [key]: { record: { key, activityId: item.activityId, decision }, item },
-    }));
+    // One click, one signal — asked of the mutation cache itself, synchronously:
+    // clicks delivered in one task all land before any re-render, and a remount
+    // keeps a pending decision pending (review C1).
+    const onTheWire = queryClient.isMutating({
+      mutationKey: phaseDecisionMutationKey(projectId),
+      predicate: (m) => decisionKeyOf(m.state.variables) === key,
+    });
+    if (onTheWire > 0 || decisionBusy(decisionViews[key])) return;
+    // The occurrence this decision answers: a later one retires it (review C2).
+    const epoch = occurrences.get(occurrenceKey(projectId, item.activityId))?.epoch ?? 0;
     // Send back carries the human's words: the pane's note, any free-form notes and
     // the anchored comments from the co-author rail (ConstructionReviewFeedback).
     const wireComments = decision === 'sendBack' ? toWire() : [];
@@ -557,23 +588,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         ? [note.trim(), freeformNotes()].filter((s) => s.length > 0).join('\n') ||
           wireComments.map((c) => c.text).join('\n')
         : '';
-    const answered = (error?: { status?: number | undefined; message: string }): void => {
-      setDecisions((prev) => {
-        const cur = prev[key];
-        if (cur === undefined) return prev;
-        return {
-          ...prev,
-          [key]: {
-            ...cur,
-            record: {
-              ...cur.record,
-              sentAt: Date.now(),
-              ...(error !== undefined ? { error } : {}),
-            },
-          },
-        };
-      });
-    };
     submitPhaseDecision.mutate(
       {
         activityId: item.activityId,
@@ -587,22 +601,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               },
             }
           : {}),
+        // Never sent: read back from the mutation cache (decisionRecords.ts).
+        occurrence: { key, epoch, snapshot: item },
       },
       {
         onSuccess: () => {
           // The anchored comments rode this decision; they must not bleed into the
           // next gate's.
           reset();
-          answered();
-        },
-        onError: (err) => {
-          answered({
-            status: err instanceof ApiError ? err.status : undefined,
-            message: err.message,
-          });
-        },
-        onSettled: () => {
-          decidingRef.current.delete(key);
         },
       }
     );

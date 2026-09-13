@@ -187,6 +187,17 @@ void test('a recorded failure is owed with no session at all', () => {
   assert.equal(item.key, 'C-f:failed');
 });
 
+void test('a live session never outranks a recorded failure (review I5)', () => {
+  const [item] = owedItemsFor({
+    rows: rowsOf(row({ activityId: 'C-f', status: 'failed', failureReason: 'pipelineFailed' })),
+    // A lingering session still reports a gate; the pump's own failure record wins.
+    sessions: { 'C-f': session('C-f', 'awaitingApproval') },
+  });
+  assert.ok(item);
+  assert.equal(item.reason, 'failed');
+  assert.equal(item.key, 'C-f:failed');
+});
+
 void test('owed items come back in activity-id order (ranking is Task 2)', () => {
   const rows = rowsOf(row({ activityId: 'C-b' }), row({ activityId: 'C-a' }));
   const items = owedItemsFor({
