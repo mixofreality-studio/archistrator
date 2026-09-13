@@ -85,12 +85,13 @@ const founderRuling = "assume any component that is fully implemented is done an
 const founderRulingRef = "founderRuling[2026-09-09]=" + founderRuling
 
 // integrationRuling narrows founderRuling for a component whose dependencies are not all
-// built, quoted verbatim. Its reading, recorded with the ruling: a component's code can
-// be written and unit-tested against a dependency's CONTRACT using fakes, but it cannot
-// be INTEGRATED until the dependency itself exists. So such an activity is backfilled
-// with every lifecycle phase EXCEPT Integration, and reads "in construction, integration
-// pending" rather than Done — see gateIntegration.
-const integrationRuling = "they should have all sublifecycle steps done except integration then. that said, is that really possible? how can they be done in code if their deps aren't?"
+// built, stated plainly: a component's code can be written and unit-tested against a
+// dependency's CONTRACT using fakes, but it cannot be INTEGRATED until the dependency
+// itself exists. So such an activity is backfilled with every lifecycle phase EXCEPT
+// Integration, and reads "in construction, integration pending" rather than Done — see
+// gateIntegration. (The founder's words, with the question they carried, are recorded
+// in the SDD ledger, not in the committed basis a reader of the state finds.)
+const integrationRuling = "Built against its dependencies' contracts; integration waits until every dependency is Done."
 
 // integrationRulingRef is how integrationRuling is cited inside a basis string.
 const integrationRulingRef = "founderRuling[2026-09-13]=" + integrationRuling

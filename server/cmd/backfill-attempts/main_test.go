@@ -1464,13 +1464,21 @@ func TestIntegration_ReRunsAreIdempotentAndOnlyTheGatedRowMoves(t *testing.T) {
 	}
 }
 
-// The narrowing ruling is the founder's words, verbatim.
-func TestIntegrationRuling_IsQuotedVerbatim(t *testing.T) {
-	const said = "they should have all sublifecycle steps done except integration then. that said, is that really possible? how can they be done in code if their deps aren't?"
-	if integrationRuling != said {
-		t.Errorf("integrationRuling = %q\nthe founder said %q", integrationRuling, said)
+// The narrowing ruling is cited stated plainly (designer final pass, item 5): the
+// founder's verbatim words carried a question ("…is that really possible? how can they
+// be done in code…"), which read as doubt inside every committed basis. The quote lives
+// in the SDD ledger; the basis states the ruling.
+func TestIntegrationRuling_IsStatedPlainly(t *testing.T) {
+	const ruling = "Built against its dependencies' contracts; integration waits until every dependency is Done."
+	if integrationRuling != ruling {
+		t.Errorf("integrationRuling = %q\nwant %q", integrationRuling, ruling)
 	}
-	if want := "founderRuling[2026-09-13]=" + said; integrationRulingRef != want {
+	if want := "founderRuling[2026-09-13]=" + ruling; integrationRulingRef != want {
 		t.Errorf("integrationRulingRef = %q, want %q", integrationRulingRef, want)
+	}
+	for _, doubt := range []string{"?", "really possible", "how can they"} {
+		if strings.Contains(integrationRulingRef, doubt) {
+			t.Errorf("the cited ruling carries %q: %q", doubt, integrationRulingRef)
+		}
 	}
 }
