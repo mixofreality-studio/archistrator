@@ -52,9 +52,13 @@ import { test as base, expect, type Page, type Route } from '@playwright/test';
  * The Phase-1 co-author loop's writes: start the phase, answer its research
  * precondition, request a draft, decide the gate, and the review-rail writes around
  * it. Only the live-drafting specs (opt-in, UITESTS_LIVE_DRAFTING) allow these.
+ *
+ * Not advance-phase (fix I): no client code sends it (useAdvancePhase has no caller;
+ * approving a gate advances the spine on the server, through submit-review-decision),
+ * so no live-drafting spec needs it. Pinned by meta/project-creation-guard.spec.
  */
 export const LIVE_DRAFTING_WRITES: readonly RegExp[] = [
-  /^\/api\/v1\/system-design\/(start-system-design|set-research-input|request-artifact-draft|submit-review-decision|ask-questions|acknowledge-stale-basis|set-review-comment-status|advance-phase)\/[^/]+$/,
+  /^\/api\/v1\/system-design\/(start-system-design|set-research-input|request-artifact-draft|submit-review-decision|ask-questions|acknowledge-stale-basis|set-review-comment-status)\/[^/]+$/,
 ];
 
 /** Never let through, whatever a spec allows: creating a project (and naming its

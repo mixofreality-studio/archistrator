@@ -49,6 +49,11 @@ test('the guard: reads pass, unnamed writes do not, and creates never do', () =>
       true
     );
   }
+  // ...but not advance-phase (fix I): no client code sends it, so the live
+  // drafting specs have no need to let it through.
+  expect(
+    guardLetsThrough('POST', `${API}/system-design/advance-phase/p1`, LIVE_DRAFTING_WRITES)
+  ).toBe(false);
   // ...and never a create, a create's operating model, or any construction write,
   // even under an allowance that names everything.
   const everything = [/.*/];
