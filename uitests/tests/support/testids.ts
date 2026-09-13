@@ -225,6 +225,7 @@ export const TESTID = {
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
+  constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
   constructionLensScope: UI_IDENTIFIERS.Construction.LENS_SCOPE,
   // Navigability (Stage B Task 11) — search box and the per-row provenance

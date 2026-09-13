@@ -88,6 +88,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -119,6 +120,7 @@ import {
   PROVENANCE_LABEL,
   taskDetailStateFill,
 } from '../detail/detailPaneState.ts';
+import { centeredScrollFor } from '../lens/lensGeometry.ts';
 import {
   GRADE_LABEL,
   ProvenanceGroupStamp,
@@ -135,7 +137,10 @@ import {
 import { emptyListCopyFor } from './listEmptyState.ts';
 import {
   applyOperatorExpansion,
+  deepLinkKey,
   deepLinkReveal,
+  linkAlreadyShown,
+  rememberShownLink,
   NO_EXPANSION,
   openByOperator,
   revealForQuery,
@@ -223,9 +228,21 @@ const LIST_SLOT_SX = {
   },
 } as const;
 
-/** How long a deep link waits for its ancestors' Collapse to finish before the
- *  second centring pass. MUI's auto duration for a group this size is < 350ms. */
-const DEEP_LINK_SETTLE_MS = 450;
+/** A deep link centres once its row has held still this many frames — i.e. its
+ *  ancestors' Collapse has finished growing (designer final N1) … */
+const DEEP_LINK_STABLE_FRAMES = 4;
+/** … or after this long, whichever comes first. */
+const DEEP_LINK_SETTLE_CAP_MS = 1500;
+
+/** The nearest scrolling ancestor — the console's scroller, found the way the
+ *  lens shell finds it. */
+function scrollParentOf(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement;
+  while (node !== null && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) {
+    node = node.parentElement;
+  }
+  return node;
+}
 
 // ---------------------------------------------------------------------------
 // The item model
@@ -471,28 +488,89 @@ export function ActivityTreeView({
   // describing it. Same render-time-adjustment shape as the reveals above; the
   // rows it opens are the operator's (a later search clear leaves them open).
   // `undefined` = not yet applied; `null` = applied, nothing to scroll to.
+  //
+  // Only for a selection no tree has shown yet (fix-C review N1): a lens switch
+  // unmounts this tree, and re-running the reveal on the way back re-opened rows
+  // the operator had since collapsed. searchExpansion.linkAlreadyShown remembers
+  // the last selection shown, across remounts; it is written below, from an
+  // effect, once this render has decided.
+  const linkKey = deepLinkKey(selection);
   const [linkTarget, setLinkTarget] = useState<string | null | undefined>(undefined);
   if (linkTarget === undefined && nodes.length > 0) {
-    const link = deepLinkReveal(selection);
+    const link = linkAlreadyShown(linkKey)
+      ? { expand: [], target: null }
+      : deepLinkReveal(selection);
     setLinkTarget(link.target);
     if (link.expand.length > 0) setExpansion((prev) => openByOperator(prev, link.expand));
   }
   useEffect(() => {
+    if (linkTarget !== undefined) rememberShownLink(linkKey);
+  }, [linkKey, linkTarget]);
+
+  // Centre the linked row in the band below the sticky toolbar, once its
+  // ancestors have finished expanding (designer final N1): wait until the row and
+  // the scroll extent hold still for a few frames, then scroll. Where the list ends
+  // too soon to centre it, the runway below the list makes the room
+  // (lensGeometry.centeredScrollFor) — measured, the row used to land at 62-81% of
+  // the band at 1280/1366 because the scroller was already at its maximum.
+  // Imperative DOM only; no React state is set here.
+  const runwayRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
     if (linkTarget === null || linkTarget === undefined) return undefined;
     const target = linkTarget;
-    // Centred, so the sticky lens toolbar can never cover it. Once on the next
-    // frame and once after the group's Collapse has finished growing, because the
-    // row moves while its ancestors' heights animate.
-    const center = (): void => {
-      apiRef.current?.getItemDOMElement(target)?.scrollIntoView({ block: 'center' });
+    const rowOf = (): HTMLElement | null =>
+      document.querySelector<HTMLElement>(
+        `[data-testid="${UI_IDENTIFIERS.Construction.listRow(target)}"]`
+      );
+    const center = (row: HTMLElement, scroller: HTMLElement): void => {
+      const runway = runwayRef.current;
+      const toolbar = scroller.querySelector<HTMLElement>(
+        `[data-testid="${UI_IDENTIFIERS.Construction.LENS_TOOLBAR}"]`
+      );
+      const box = scroller.getBoundingClientRect();
+      const rect = row.getBoundingClientRect();
+      const plan = centeredScrollFor({
+        rowTop: rect.top - box.top + scroller.scrollTop,
+        rowHeight: rect.height,
+        bandTop: toolbar?.offsetHeight ?? 0,
+        bandBottom: Math.min(box.bottom, window.innerHeight) - box.top,
+        contentHeight: scroller.scrollHeight - (runway?.offsetHeight ?? 0),
+        clientHeight: scroller.clientHeight,
+      });
+      if (runway !== null) runway.style.height = `${String(plan.runwayPx)}px`;
+      scroller.scrollTop = plan.scrollTop;
     };
-    const frame = requestAnimationFrame(center);
-    const settled = window.setTimeout(center, DEEP_LINK_SETTLE_MS);
+    const started = performance.now();
+    let last = '';
+    let still = 0;
+    let frame = 0;
+    const tick = (): void => {
+      const row = rowOf();
+      const scroller = row === null ? null : scrollParentOf(row);
+      if (row !== null && scroller === null) {
+        row.scrollIntoView({ block: 'center' });
+        return;
+      }
+      const where =
+        row === null || scroller === null
+          ? ''
+          : `${String(Math.round(row.getBoundingClientRect().top + scroller.scrollTop))}:${String(scroller.scrollHeight)}`;
+      still = where !== '' && where === last ? still + 1 : 0;
+      last = where;
+      const settled =
+        still >= DEEP_LINK_STABLE_FRAMES || performance.now() - started > DEEP_LINK_SETTLE_CAP_MS;
+      if (settled && row !== null && scroller !== null) {
+        center(row, scroller);
+        return;
+      }
+      if (performance.now() - started > DEEP_LINK_SETTLE_CAP_MS) return;
+      frame = requestAnimationFrame(tick);
+    };
+    frame = requestAnimationFrame(tick);
     return (): void => {
       cancelAnimationFrame(frame);
-      window.clearTimeout(settled);
     };
-  }, [linkTarget, apiRef]);
+  }, [linkTarget]);
 
   // The one genuine SIDE EFFECT here (an imperative DOM/library call, not a
   // state update): once a reveal names a focus target, `focusItem` also
@@ -612,6 +690,10 @@ export function ActivityTreeView({
           </Box>
         </RowContext.Provider>
       )}
+      {/* The deep-link runway: blank room below the list, sized only when a linked
+          row near the list's end needs it to reach the centre (see above). The
+          negative margin cancels this column's gap, so at 0 it takes no space. */}
+      <Box aria-hidden ref={runwayRef} sx={{ height: 0, mt: -1.25, flexShrink: 0 }} />
     </Box>
   );
 }

@@ -75,6 +75,43 @@ export function deepLinkReveal(selection: {
   return { expand: [activityId, phaseId], target: `${phaseId}::${task}` };
 }
 
+/** One URL selection as a key: a deep link is identified by its a/p/k alone. */
+export function deepLinkKey(selection: {
+  activityId?: string | undefined;
+  lifecyclePhase?: string | undefined;
+  task?: string | undefined;
+}): string {
+  return [selection.activityId ?? '', selection.lifecyclePhase ?? '', selection.task ?? ''].join(
+    '|'
+  );
+}
+
+/**
+ * The last URL selection a mounted LIST tree has already shown (fix-C review N1).
+ *
+ * A lens switch UNMOUNTS the tree, so its own state cannot remember that a link
+ * was revealed: coming back re-opened the link's ancestors every time, undoing
+ * whatever the operator had collapsed since. The reveal now runs only for a
+ * selection no tree has shown yet — i.e. only when the URL selection changed.
+ * Module memory, the same pattern the design-experience diagram views use to
+ * survive their remounts. Written from an effect once the reveal is decided, so
+ * StrictMode's double render and double effect are both idempotent.
+ */
+const shownLink: { key: string | undefined } = { key: undefined };
+
+export function linkAlreadyShown(key: string): boolean {
+  return shownLink.key === key;
+}
+
+export function rememberShownLink(key: string): void {
+  shownLink.key = key;
+}
+
+/** Tests only: a fresh console. */
+export function forgetShownLink(): void {
+  shownLink.key = undefined;
+}
+
 /** An explicit operator action opened `ids` ("Expand to current phase"): they are
  *  the operator's now, including any a search had opened. */
 export function openByOperator(state: TreeExpansion, ids: readonly string[]): TreeExpansion {

@@ -162,3 +162,67 @@ test('Observed only on a MIXED row: the grade chip stays, the hidden count sits 
   expect(values.length).toBeGreaterThan(0);
   for (const v of values) expect(ORIGINS).toContain(v);
 });
+
+// ---------------------------------------------------------------------------
+// N1 (fix-C review; designer final items)
+// ---------------------------------------------------------------------------
+
+test('N1: coming back from another lens does not re-open the deep link’s rows', async ({
+  page,
+}) => {
+  await openList(page, '&a=N-STP&p=construction&k=codeReview');
+  const taskRow = page.getByTestId(TESTID.constructionListRow('N-STP::construction::codeReview'));
+  await expect(taskRow).toBeVisible();
+  // A lens switch unmounts the tree; the way back remounts it. The selection is
+  // the same, so the link has already been shown — nothing may re-open.
+  await page.getByTestId(TESTID.constructionLensButton('graph')).click();
+  await expect(taskRow).toHaveCount(0);
+  await page.getByTestId(TESTID.constructionLensButton('list')).click();
+  await expect(page.getByTestId(TESTID.constructionListRow('N-STP'))).toBeVisible();
+  await page.waitForTimeout(600);
+  await expect(taskRow).toBeHidden();
+  // …while the selection itself is kept.
+  expect(page.url()).toContain('k=codeReview');
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toBeVisible();
+});
+
+/** Where the row's midpoint sits in the band below the toolbar: 0 top, 1 bottom. */
+async function bandFraction(page: Page, nodeId: string): Promise<number> {
+  return page.evaluate((rowId) => {
+    const row = document.querySelector(`[data-testid="${rowId}"]`);
+    const bar = document.querySelector('[data-testid="construction-lens-toolbar"]');
+    if (row === null || bar === null) return -1;
+    let sc: HTMLElement | null = bar.parentElement;
+    while (sc !== null && !/(auto|scroll)/.test(getComputedStyle(sc).overflowY)) {
+      sc = sc.parentElement;
+    }
+    const r = row.getBoundingClientRect();
+    const top = bar.getBoundingClientRect().bottom;
+    const bottom = Math.min(sc?.getBoundingClientRect().bottom ?? innerHeight, innerHeight);
+    return ((r.top + r.bottom) / 2 - top) / (bottom - top);
+  }, TESTID.constructionListRow(nodeId));
+}
+
+for (const width of [1280, 1366, 1600]) {
+  test(`N1: at ${String(width)} a deep-linked row lands CENTRED, even near the list’s end`, async ({
+    page,
+  }) => {
+    for (const [suffix, nodeId] of [
+      ['&a=N-STP&p=construction&k=codeReview', 'N-STP::construction::codeReview'],
+      ['&a=U-SPA-web-client&p=requirements&k=srs', 'U-SPA-web-client::requirements::srs'],
+    ] as const) {
+      await page.setViewportSize({ width, height: 900 });
+      await gotoApp(page, `/project/archistrator/construction?lens=list${suffix}`);
+      await expect(page.getByTestId(TESTID.constructionListRow(nodeId))).toBeVisible({
+        timeout: 15_000,
+      });
+      // Measured before this fix: 0.62 and 0.81 at 1280/1366 — the list's end.
+      await expect
+        .poll(() => bandFraction(page, nodeId), { timeout: 5_000, message: nodeId })
+        .toBeGreaterThan(0.4);
+      await expect
+        .poll(() => bandFraction(page, nodeId), { timeout: 5_000, message: nodeId })
+        .toBeLessThan(0.6);
+    }
+  });
+}

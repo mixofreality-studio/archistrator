@@ -2,19 +2,26 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   applyOperatorExpansion,
+  deepLinkKey,
   deepLinkReveal,
+  forgetShownLink,
+  linkAlreadyShown,
   NO_EXPANSION,
   openByOperator,
+  rememberShownLink,
   revealForQuery,
 } from './searchExpansion.ts';
 
 // Designer re-check N1: a link to a task opens its activity and phase and targets
 // the task row; a link to a phase opens its activity; an activity link opens nothing.
 void test('a deep link opens exactly its ancestors and targets the selected row', () => {
-  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }), {
-    expand: ['N-STP', 'N-STP::construction'],
-    target: 'N-STP::construction::codeReview',
-  });
+  assert.deepEqual(
+    deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }),
+    {
+      expand: ['N-STP', 'N-STP::construction'],
+      target: 'N-STP::construction::codeReview',
+    }
+  );
   assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction' }), {
     expand: ['N-STP'],
     target: 'N-STP::construction',
@@ -59,4 +66,23 @@ void test('"Expand to current phase" claims rows for the operator, so a clear ke
   const claimed = openByOperator(searched, ['C-b', 'C-c']);
   assert.deepEqual(claimed.searchOpened, ['C-a']);
   assert.deepEqual(revealForQuery(claimed, []).expanded, ['C-b', 'C-c']);
+});
+
+// Fix-C review N1: the reveal runs only when the URL selection changed — a lens
+// switch remounts the tree and must not re-open what the operator collapsed.
+void test('a deep link is shown once per selection, however often the tree remounts', () => {
+  forgetShownLink();
+  const link = deepLinkKey({
+    activityId: 'N-STP',
+    lifecyclePhase: 'construction',
+    task: 'codeReview',
+  });
+  assert.equal(link, 'N-STP|construction|codeReview');
+  assert.equal(deepLinkKey({ activityId: 'N-STP' }), 'N-STP||');
+  assert.equal(linkAlreadyShown(link), false, 'a fresh console reveals it');
+  rememberShownLink(link);
+  assert.equal(linkAlreadyShown(link), true, 'a remount with the same selection does not');
+  const other = deepLinkKey({ activityId: 'N-STP', lifecyclePhase: 'construction' });
+  assert.equal(linkAlreadyShown(other), false, 'a changed selection does');
+  forgetShownLink();
 });
