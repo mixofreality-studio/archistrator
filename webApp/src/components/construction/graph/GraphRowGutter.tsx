@@ -82,8 +82,12 @@ export function GraphRowGutter({ rows }: { rows: readonly GraphLayoutRow[] }): R
   );
 }
 
+/** The spacer node's width — the lens hands it to xyflow too, so the node is
+ *  never unmeasured. */
+export const ROW_SPACER_W = GUTTER_W - 22;
+
 /** Where a row label node used to be: nothing drawn, but fitView still counts
  *  it, so the fitted canvas keeps the gutter's room clear of cards. */
 export function RowSpacerNode(): ReactElement {
-  return <Box sx={{ width: GUTTER_W - 22, height: NODE_H, visibility: 'hidden' }} />;
+  return <Box sx={{ width: ROW_SPACER_W, height: NODE_H, visibility: 'hidden' }} />;
 }

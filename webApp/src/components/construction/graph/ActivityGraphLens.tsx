@@ -81,7 +81,7 @@ import {
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
-import { GraphRowGutter } from './GraphRowGutter';
+import { GraphRowGutter, ROW_SPACER_W } from './GraphRowGutter';
 import { CONTROLS_OFFSET_PX } from './rowGutter';
 
 /** Far enough out to fit the widest real row (ten ResourceAccess cards) at 1280. */
@@ -530,6 +530,14 @@ function buildNodes(args: {
       id: card.id,
       type: 'graphCard',
       position: layout.pos.get(card.id) ?? { x: 0, y: 0 },
+      // The node's size is KNOWN (the layout drew it), so it is never
+      // unmeasured: every hover rebuilds these objects, and a controlled xyflow
+      // node arriving without dimensions is drawn `visibility: hidden` until
+      // re-measured — for that frame a resting pointer sat over the bare pane,
+      // the browser reported a mouseleave, and the hover card flickered shut
+      // (graph round 2, construction-graph-hover-hold).
+      width: CARD_W,
+      height: data.height,
       data,
       draggable: false,
       selectable: false,
@@ -545,6 +553,8 @@ function buildNodes(args: {
       // (GraphRowGutter, designer P1-6); this keeps their room at fit.
       type: 'rowSpacer',
       position: { x: -GUTTER_W, y: r.y + (r.height - NODE_H) / 2 },
+      width: ROW_SPACER_W,
+      height: NODE_H,
       data: { text: r.label },
       draggable: false,
       selectable: false,
@@ -556,6 +566,8 @@ function buildNodes(args: {
       id: '__utility-frame',
       type: 'utilityFrame',
       position: { x: layout.bar.x - UTIL_PAD, y: layout.bar.top },
+      width: CARD_W + UTIL_PAD * 2,
+      height: layout.bar.bottom - layout.bar.top,
       data: { width: CARD_W + UTIL_PAD * 2, height: layout.bar.bottom - layout.bar.top },
       draggable: false,
       selectable: false,
