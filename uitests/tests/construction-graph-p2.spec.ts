@@ -195,3 +195,41 @@ test('the zoom controls stay reachable: clear of the gutter, never under the nar
   expect((control?.x ?? 0) + (control?.width ?? 0)).toBeLessThanOrEqual(drawer?.x ?? 0);
   expect(control?.x ?? 0).toBeGreaterThanOrEqual((gutter?.x ?? 0) + (gutter?.width ?? 0));
 });
+
+test('at 1100 an open hover card never paints over the drawer (graph re-review)', async ({
+  page,
+}) => {
+  await openGraph(page, 1100, 800);
+  await page.getByTestId(LANE_ID).first().click();
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  const d = await drawer.boundingBox();
+  expect(d).not.toBeNull();
+  const drawerLeft = d?.x ?? 0;
+  // A card clear of the drawer whose right-placed hover card (320px) must reach
+  // under it — the case the z-order decides.
+  const id = await page.getByTestId(CARD_ID).evaluateAll((els, left) => {
+    const near = els
+      .map((e) => ({ id: e.getAttribute('data-testid') ?? '', r: e.getBoundingClientRect() }))
+      .filter((c) => c.r.width > 0 && c.r.right < left - 10 && c.r.right > left - 280)
+      .sort((a, b) => b.r.right - a.r.right);
+    return near[0]?.id ?? '';
+  }, drawerLeft);
+  expect(id, 'a card just left of the drawer').not.toBe('');
+  await page.getByTestId(id).hover();
+  const hover = page.getByTestId(TESTID.constructionGraphHoverCard);
+  await expect(hover).toBeVisible();
+  await page.waitForTimeout(150);
+  const h = await hover.boundingBox();
+  expect(h).not.toBeNull();
+  const hr = h ?? { x: 0, y: 0, width: 0, height: 0 };
+  expect(hr.x + hr.width, 'the hover card reaches under the drawer').toBeGreaterThan(drawerLeft + 4);
+  // Where they overlap, the DRAWER is on top.
+  const x = (Math.max(hr.x, drawerLeft) + hr.x + hr.width) / 2;
+  const y = hr.y + hr.height / 2;
+  const onTop = await page.evaluate(
+    ([px, py]) => document.elementFromPoint(px ?? 0, py ?? 0)?.closest('[role="dialog"]') !== null,
+    [x, y]
+  );
+  expect(onTop, 'the drawer paints over the hover card').toBe(true);
+});

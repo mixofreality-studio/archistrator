@@ -231,13 +231,16 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       <Handle id="b" position={Position.Bottom} style={{ opacity: 0 }} type="source" />
 
       {/* A portal, anchored to the card, right then left, kept inside the
-          canvas (hoverCardPlacement.ts — designer P1-1). */}
+          canvas (hoverCardPlacement.ts — designer P1-1). It stacks ONE level
+          under the drawer: below 1200px the non-modal detail drawer overlays
+          the canvas, and a hover card must never paint over it (graph
+          re-review) — the drawer covers what reaches beneath it. */}
       <Popper
         anchorEl={anchor?.card}
         modifiers={modifiers}
         open={hoverOpen}
         placement={HOVER_CARD_PLACEMENT}
-        sx={{ zIndex: 1300, pointerEvents: 'none' }}
+        sx={{ zIndex: (theme) => theme.zIndex.drawer - 1, pointerEvents: 'none' }}
       >
         <HoverCard card={card} schedules={d.schedules} spines={d.spines} t={t} />
       </Popper>
