@@ -194,7 +194,14 @@ function M0Chip({
         >
           {p.chipParts.map((part, i) => (
             <Box component="span" key={part} sx={{ display: 'inline-flex', alignItems: 'center' }}>
-              {i > 0 ? ' · ' : ''}
+              {/* Its own span, spaces preserved: bare text inside an inline-flex
+                  item loses its edge whitespace, so "M0·SDP review" ran
+                  together (designer re-check 5). */}
+              {i > 0 ? (
+                <Box component="span" data-m0-separator="" sx={{ whiteSpace: 'pre' }}>
+                  {' · '}
+                </Box>
+              ) : null}
               {part === M0_STALE_LABEL ? (
                 <Box
                   component="span"

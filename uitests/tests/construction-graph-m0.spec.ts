@@ -186,3 +186,24 @@ test('keyboard: the M0 chip is a button — Enter opens its copy, Tab reaches "O
   await page.keyboard.press('Enter');
   await expect.poll(() => new URL(page.url()).pathname).toMatch(/\/design\/project\/sdp-review$/);
 });
+
+test('the M0 chip keeps the spaces around its " · " separators (designer re-check 5)', async ({
+  page,
+}) => {
+  await openGraph(page);
+  const widths = await chip(page).evaluate((el) =>
+    [...el.querySelectorAll('[data-m0-separator]')].map((sep) => {
+      const probe = document.createElement('span');
+      probe.style.font = getComputedStyle(sep).font;
+      probe.style.whiteSpace = 'pre';
+      probe.textContent = '·';
+      document.body.append(probe);
+      const dot = probe.getBoundingClientRect().width;
+      probe.remove();
+      return { sep: sep.getBoundingClientRect().width, dot };
+    })
+  );
+  expect(widths.length, 'the chip has separators').toBeGreaterThanOrEqual(3);
+  // Each separator draws its two spaces: clearly wider than the bare dot.
+  for (const w of widths) expect(w.sep).toBeGreaterThan(w.dot * 2);
+});
