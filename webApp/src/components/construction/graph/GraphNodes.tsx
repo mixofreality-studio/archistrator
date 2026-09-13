@@ -58,6 +58,9 @@ export interface GraphCardData {
   muted: boolean;
   /** This card is the hovered one — LOD-1 and the hover card. */
   hovered: boolean;
+  /** The card's top lies in the canvas's first row band, so its hover card
+   *  opens BELOW it — opened above, the canvas edge clipped it. */
+  topRow: boolean;
   /** Activities the toolbar's filters do NOT match (dimmed, never removed — D4). */
   unmatched: ReadonlySet<string>;
   onSelect: (activityId: string, lifecyclePhase?: string) => void;
@@ -171,7 +174,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
 
       <Handle id="b" position={Position.Bottom} style={{ opacity: 0 }} type="source" />
 
-      <NodeToolbar isVisible={d.hovered} position={Position.Top}>
+      <NodeToolbar isVisible={d.hovered} position={d.topRow ? Position.Bottom : Position.Top}>
         <HoverCard card={card} spines={d.spines} t={t} />
       </NodeToolbar>
     </Box>

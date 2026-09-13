@@ -412,6 +412,7 @@ function buildNodes(args: {
       // Utilities are shared infrastructure — the bar never dims.
       muted: focus !== null && !focus.cards.has(card.id) && card.row !== 'utility',
       hovered: hoveredId === card.id,
+      topRow: (layout.pos.get(card.id)?.y ?? 0) < (layout.rows[0]?.height ?? 0),
       unmatched,
       onSelect: args.onSelectLane,
     };
