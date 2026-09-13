@@ -157,10 +157,11 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// Pace the cascade with a short durable wait (workflow.Sleep — replay-safe; NOT
 	// time.Sleep), then ContinueAsNew to pick the next eligible activity. ContinueAsNew
 	// carries ONLY pumpInput (no accumulated state ⇒ unbounded history is avoided and
-	// determinism is trivial). The conflict/quiet-tick semantics keep the prod 30s
-	// schedule compatible: a schedule re-fire onto a cascading pump uses the existing
-	// USE_EXISTING conflict policy (constructionmanager.go) and the cascade's own
-	// drain-to-quiet ends it.
+	// determinism is trivial). ContinueAsNew keeps the SAME workflow id — the project's
+	// one pump id, pumpWorkflowID — so a re-fire onto a cascading pump never forks a
+	// second one: ExecuteNextActivity joins it (USE_EXISTING, constructionmanager.go)
+	// and the 30s sweep's child start collapses on "already started" (pumpsweep.go).
+	// The cascade's own drain-to-quiet ends it.
 	if err := workflow.Sleep(ctx, pumpPaceInterval); err != nil {
 		return PumpResult{}, err
 	}

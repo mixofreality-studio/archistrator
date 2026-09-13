@@ -47,7 +47,7 @@ var mcpOpDocs = map[string]map[string]string{
 		"SubmitSDPDecision":       "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.",
 	},
 	"ConstructionManager": {
-		"ExecuteNextActivity":     "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID idempotently identifies this pump step.",
+		"ExecuteNextActivity":     "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it.",
 		"GetEpisodeTimeline":      "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.",
 		"GetSessionState":         "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.",
 		"ListEpisodesForActivity": "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.",

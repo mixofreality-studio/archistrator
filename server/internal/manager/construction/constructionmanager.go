@@ -23,10 +23,11 @@
 // so it cannot itself vary pumpInput.ProjectID per tick the way ExecuteNextActivity's
 // client-driven call does. PumpSweepWorkflow is the thin, platform-wide fan-out this
 // forces: it enumerates every construction-phase project (projectStateAccess.
-// listProjects) and starts (or, if a prior tick is still cascading, leaves alone)
-// that project's own PumpNextActivityWorkflow — which keeps every one of its
+// listProjects) and starts (or, if that project's pump is already cascading, leaves
+// alone) that project's own PumpNextActivityWorkflow — which keeps every one of its
 // existing single-project semantics (self-cascade, pause gate, dispatch query)
-// unchanged.
+// unchanged. The sweep and ExecuteNextActivity share ONE pump id per project
+// (pumpWorkflowID), so whichever entry started the pump, the other joins or skips it.
 //
 // The FIVE frozen public ops (constructionManager.md §2):
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump; per-activity child)
@@ -58,6 +59,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -191,20 +193,34 @@ func newConstructionManager(
 	}
 }
 
-// ExecuteNextActivity — op 2.1. Temporal Workflow (entry; scheduler-triggered).
-// Starts the per-tick PumpNextActivityWorkflow on the construction queue, id
-// {projectId}:nextActivity:{tickId}. The pump reads head-state, and on an eligible
-// activity executes a per-activity child workflow {projectId}:{activityId}. No
-// eligible activity ⇒ PumpResult{Dispatched:false} (a normal quiet tick).
+// ExecuteNextActivity — op 2.1. Temporal Workflow (entry; client/MCP-driven).
+// Starts — or JOINS — the project's ONE PumpNextActivityWorkflow on the construction
+// queue, id {projectId}:nextActivity (pumpWorkflowID). The pump reads head-state, and
+// on an eligible activity executes a per-activity child workflow
+// {projectId}:{activityId}. No eligible activity ⇒ PumpResult{Dispatched:false} (a
+// normal quiet tick).
 //
-// tickID is the scheduler firing id (Temporal-native firing idempotency: schedule
-// firing id = workflow id). SYNC from the scheduler's POV: returns THIS tick's
-// dispatch outcome (PumpResult{Dispatched:true, ActivityID} for the activity dispatched
-// this tick, or {Dispatched:false} when quiescent) as soon as the pump has decided —
-// it does NOT block until the per-activity child (or the pump's background self-cascade
-// over the dependency frontier) drains. The dispatch decision is read off the pump via
-// the queryPumpDispatch Query so a scheduler-style caller gets a prompt, per-tick answer
-// while the cascade continues durably in the background.
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12). The pump is the single
+// writer walking the project's dependency frontier; two pumps racing the same frontier
+// double-dispatch. Every entry — this façade (Begin / MCP) AND PumpSweepWorkflow's
+// Schedule fan-out — derives the SAME id from pumpWorkflowID, so:
+//   - WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING: a call while the pump runs (its
+//     self-cascade chains ContinueAsNew under the same id) JOINS that run instead of
+//     starting a second pump.
+//   - WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE: once the previous pump CLOSED (drained
+//     quiet, paused, or failed), the next call starts a fresh one. NOT
+//     ALLOW_DUPLICATE_FAILED_ONLY — a quiet-completed pump must be restartable, or the
+//     project could never be pumped again after its first drain.
+//
+// tickID is a CORRELATION id only (logged here); it no longer shapes the workflow id,
+// so it cannot fork a second pump. It stays a required, non-empty input (the contract
+// shape is unchanged). SYNC: returns the pump's dispatch decision
+// (PumpResult{Dispatched:true, ActivityID}, or {Dispatched:false} when quiescent) as
+// soon as the pump run has decided — it does NOT block until the per-activity child (or
+// the background self-cascade over the dependency frontier) drains. A caller that
+// joined a running pump reads THAT run's decision. The decision is read off the pump
+// via the queryPumpDispatch Query while the cascade continues durably in the
+// background.
 func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
@@ -214,11 +230,14 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 		return PumpResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
 
-	wfID := pumpWorkflowID(projectID, tickID)
+	wfID := pumpWorkflowID(projectID)
+	slog.Default().InfoContext(ctx, "construction pump: start-or-join",
+		"projectId", string(projectID), "workflowId", wfID, "tickId", tickID)
 	opts := client.StartWorkflowOptions{
 		ID:                       wfID,
 		TaskQueue:                TaskQueue,
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
 	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID})
 	if err != nil {
@@ -521,9 +540,14 @@ func (m *constructionManager) UpdateReviewPolicy(rc fwm.Context, projectID Proje
 
 // --- workflow id derivation (continuity tokens; constructionManager.md §6.1) ---
 
-// pumpWorkflowID derives {projectId}:nextActivity:{tickId}.
-func pumpWorkflowID(projectID ProjectID, tickID string) string {
-	return fmt.Sprintf("%s:nextActivity:%s", projectID, tickID)
+// pumpWorkflowID derives the project's ONE pump workflow id, {projectId}:nextActivity.
+// It is the single derivation every pump entry uses — ExecuteNextActivity (Begin /
+// MCP) and PumpSweepWorkflow (the 30s Schedule fan-out) — so no two entries can start
+// competing pumps over the same dependency frontier (architect pump ruling,
+// 2026-09-12). Deliberately tick-invariant: a tick/firing id in the id would give each
+// caller its own pump.
+func pumpWorkflowID(projectID ProjectID) string {
+	return fmt.Sprintf("%s:nextActivity", projectID)
 }
 
 // replanSweepWorkflowID derives {projectId}:replanSweep:{tickId} or, for the

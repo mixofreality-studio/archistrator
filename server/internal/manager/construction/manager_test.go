@@ -13,10 +13,13 @@ import (
 	"time"
 
 	"github.com/google/uuid"
+	"github.com/stretchr/testify/mock"
+	enumspb "go.temporal.io/api/enums/v1"
 	"go.temporal.io/api/serviceerror"
 	"go.temporal.io/sdk/activity"
 	"go.temporal.io/sdk/client"
 	"go.temporal.io/sdk/converter"
+	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/workflow"
 
@@ -97,6 +100,75 @@ func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
+}
+
+// fakePumpRun satisfies client.WorkflowRun for the mocked ExecuteWorkflow result —
+// only the ids the façade reads (GetRunID pins the dispatch-decision Query).
+type fakePumpRun struct {
+	client.WorkflowRun
+	id, runID string
+}
+
+func (r fakePumpRun) GetID() string    { return r.id }
+func (r fakePumpRun) GetRunID() string { return r.runID }
+
+// fakeEncodedPumpDispatch satisfies converter.EncodedValue for the mocked
+// queryPumpDispatch answer.
+type fakeEncodedPumpDispatch struct{ d pumpDispatch }
+
+func (f fakeEncodedPumpDispatch) HasValue() bool { return true }
+func (f fakeEncodedPumpDispatch) Get(valuePtr any) error {
+	p, ok := valuePtr.(*pumpDispatch)
+	if !ok {
+		return errors.New("fakeEncodedPumpDispatch: want *pumpDispatch")
+	}
+	*p = f.d
+	return nil
+}
+
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12). Two client-driven calls
+// for the same project with DIFFERENT tickIDs (two Begin clicks, a page remount, an
+// MCP retry) must address the SAME pump workflow id — {projectId}:nextActivity — so
+// the second JOINS the first (USE_EXISTING) instead of forking a second pump racing
+// the same dependency frontier; ALLOW_DUPLICATE lets the next call restart a pump
+// that already closed (drained quiet / paused). The mock only answers ExecuteWorkflow
+// for exactly that id + policy pair: a per-tick id ({p}:nextActivity:{tick}) or a
+// stricter reuse policy matches no expectation and the mock panics the test.
+func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	wantID := string(pid) + ":nextActivity"
+	dispatched := ActivityID("C-1")
+
+	mc := &temporalmocks.Client{}
+	var startedIDs []string
+	mc.On("ExecuteWorkflow", mock.Anything,
+		mock.MatchedBy(func(o client.StartWorkflowOptions) bool {
+			return o.ID == wantID &&
+				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING &&
+				o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+		}),
+		executionKindPump, pumpInput{ProjectID: pid}).
+		Run(func(args mock.Arguments) {
+			startedIDs = append(startedIDs, args.Get(1).(client.StartWorkflowOptions).ID)
+		}).
+		Return(fakePumpRun{id: wantID, runID: "run-1"}, nil)
+	mc.On("QueryWorkflow", mock.Anything, wantID, "run-1", queryPumpDispatch).
+		Return(fakeEncodedPumpDispatch{d: pumpDispatch{Decided: true, Dispatched: true, ActivityID: &dispatched}}, nil)
+
+	m := newTestConstructionManager(mc)
+	for _, tick := range []string{"t1", "t2"} {
+		res, err := m.ExecuteNextActivity(testCtx(), pid, tick)
+		if err != nil {
+			t.Fatalf("ExecuteNextActivity(tick %q): %v", tick, err)
+		}
+		if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != dispatched {
+			t.Fatalf("tick %q: want the pump's decided dispatch of %s, got %+v", tick, dispatched, res)
+		}
+	}
+	if len(startedIDs) != 2 || startedIDs[0] != wantID || startedIDs[1] != startedIDs[0] {
+		t.Fatalf("both ticks must address the one project pump %q, got %v", wantID, startedIDs)
+	}
+	mc.AssertExpectations(t)
 }
 
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
@@ -186,7 +258,7 @@ func Test_GetSessionState_EmptyActivityID(t *testing.T) {
 func Test_WorkflowIDDerivation(t *testing.T) {
 	pid := ProjectID("11111111-1111-1111-1111-111111111111")
 
-	if got := pumpWorkflowID(pid, "t1"); got != string(pid)+":nextActivity:t1" {
+	if got := pumpWorkflowID(pid); got != string(pid)+":nextActivity" {
 		t.Fatalf("pump id: %q", got)
 	}
 	if got := constructActivityWorkflowID(pid, "C-9"); got != string(pid)+":C-9" {
@@ -3516,16 +3588,45 @@ func Test_PumpSweep_ConstructionPhaseProject_StartsChildPump(t *testing.T) {
 	}
 }
 
-// pumpSweepChildWorkflowID must be a DIFFERENT shape from pumpWorkflowID's
-// client-driven id (which always carries a non-empty tickId segment) — the two id
-// spaces must never collide.
-func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *testing.T) {
-	pid := ProjectID(uuid.NewString())
-	sweepID := pumpSweepChildWorkflowID(pid)
-	for _, tick := range []string{"t1", "2026-08-01T00:00:00Z"} {
-		if clientID := pumpWorkflowID(pid, tick); clientID == sweepID {
-			t.Fatalf("pumpSweepChildWorkflowID(%q) == pumpWorkflowID(%q, %q) — id spaces must never collide", pid, pid, tick)
-		}
+// ONE PUMP PER PROJECT (architect pump ruling, 2026-09-12) — the inverse of the
+// retired Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID, which
+// ENFORCED that the sweep's pump id and the client-driven per-tick id differed and so
+// guaranteed two pumps racing one frontier whenever the Schedule ran. The sweep must
+// start its per-project child under EXACTLY the id ExecuteNextActivity starts or
+// joins. Driven through the real PumpSweepWorkflow (not just the derivation helper):
+// the child pump the sweep starts is observed by its workflow id.
+func Test_PumpSweep_ChildPumpID_IsTheClientDrivenPumpWorkflowID(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := projectstate.ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: pid, Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries:            []projectstate.ProjectSummary{{ProjectID: pid, Phase: projectstate.PhaseConstruction}},
+	}
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	var startedChildIDs []string
+	var mu sync.Mutex
+	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, _ converter.EncodedValues) {
+		mu.Lock()
+		defer mu.Unlock()
+		startedChildIDs = append(startedChildIDs, info.WorkflowExecution.ID)
+	})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	want := pumpWorkflowID(ProjectID(pid))
+	if want != string(pid)+":nextActivity" {
+		t.Fatalf("pumpWorkflowID = %q, want the tick-invariant %q", want, string(pid)+":nextActivity")
+	}
+	if len(startedChildIDs) != 1 || startedChildIDs[0] != want {
+		t.Fatalf("the sweep must start its child pump under the client-driven pump id %q, got %v", want, startedChildIDs)
 	}
 }
 
@@ -3539,7 +3640,7 @@ func Test_PumpSweepChildWorkflowID_DiffersFromClientDrivenPumpWorkflowID(t *test
 // §10d of the earlier report was WRONG to call this untestable — the cheap
 // trigger is simply two ProjectSummary entries sharing one ProjectID in the
 // SAME tick: the first starts the child; by the time the loop reaches the
-// second (same stable pumpSweepChildWorkflowID, since it depends only on
+// second (same stable pumpWorkflowID, since it depends only on
 // ProjectID), that child has not yet completed, so the second start collides
 // for real and the collapse branch runs.
 func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *testing.T) {
