@@ -4,6 +4,7 @@ import type { ConstructionRow } from '../../../contracts/types';
 import {
   beginControlFor,
   beginHoldFor,
+  beginRunning,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
   holdExpiredCopy,
@@ -183,6 +184,32 @@ void test('only reads NEWER than the failure count as evidence', () => {
     false,
     'a session seen before the failure'
   );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1000, sessionStage: 'pipelineRunning' }),
+    false,
+    'a session probe from the same instant is not newer'
+  );
+});
+
+void test('running: a pending dispatch, a success, or an unknown outcome once the pump is evidenced (fix-E review I1)', () => {
+  const run = (
+    pending: boolean,
+    cascading: boolean,
+    failed: boolean,
+    hold: Parameters<typeof beginRunning>[0]['hold']
+  ): boolean => beginRunning({ pending, cascading, failed, hold });
+  assert.equal(run(true, false, false, 'none'), true, 'pending, before any poll');
+  assert.equal(run(true, true, true, 'held'), true, 'pending wins over a stale failure');
+  assert.equal(run(false, true, false, 'none'), true, 'a dispatch that succeeded');
+  assert.equal(run(false, true, true, 'evidenced'), true, 'evidence reads as running');
+  assert.equal(run(false, true, true, 'held'), false, 'held: "Checking…", not running');
+  assert.equal(run(false, true, true, 'expired'), false, 'expired: Begin is offered again');
+  assert.equal(run(false, false, true, 'evidenced'), false, 'the poll is over');
+  assert.equal(run(false, false, false, 'none'), false, 'idle');
+  // A running control is disabled and never claims Begin or Resume.
+  const c = beginControlFor({ constructionStarted: false, projectLoading: false, running: true });
+  assert.equal(c.label, 'Construction running…');
+  assert.equal(c.disabled, true);
 });
 
 void test('the hold: an unknown outcome is held until evidence or expiry; a rejection is never held', () => {

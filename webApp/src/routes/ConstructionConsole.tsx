@@ -39,7 +39,11 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { useProject } from '../hooks/useProject';
 import { useConstructionSession } from '../hooks/useConstructionSession';
-import { useBeginConstruction, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
+import {
+  useBeginConstruction,
+  useBeginConstructionPending,
+  useSubmitPhaseDecision,
+} from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { ChatRail } from '../components/design/ChatRail';
@@ -59,15 +63,21 @@ import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirm
 import {
   beginControlFor,
   beginHoldFor,
+  beginRunning,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
   holdExpiredCopy,
   notStartedActivities,
   pumpEvidencedSince,
   UNKNOWN_OUTCOME_HOLD_MS,
-  type DispatchOutcome,
 } from '../components/construction/lens/beginControl';
 import { ApiError } from '../contracts/errors';
+import {
+  failureAwaitsPump,
+  readBeginFailure,
+  useBeginFailure,
+  writeBeginFailure,
+} from '../components/construction/lens/beginFailureMemory';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import {
@@ -142,7 +152,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // key off `phase === 'running'` because the corpus-seeded in-review activities are
   // permanently `running` (they are not live pump work); progress (the done count) is the
   // honest signal that the pump is actively completing activities.
-  const [cascading, setCascading] = useState(false);
+  //
+  // A remount must not stop the poll a held Begin depends on (fix-E review I2). The
+  // console comes back polling when a dispatch is still in flight, or when module
+  // memory holds an unknown outcome whose hold has not run out.
+  const beginPending = useBeginConstructionPending(projectId);
+  const [cascading, setCascading] = useState(
+    () => beginPending || failureAwaitsPump(readBeginFailure(projectId))
+  );
   const {
     data: project,
     isLoading: projectLoading,
@@ -167,7 +184,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // The watchdog that ends the poll sits below the Begin state, because it must
   // never end it while a dispatch is pending or Begin is held for the pump.
 
-  const begin = useBeginConstruction(projectId);
+  // The failure is recorded from the mutation's OWN onError, into module memory, so
+  // an answer that lands while the console is away is still kept (fix-E review I2).
+  const begin = useBeginConstruction(projectId, {
+    onError: (err) => {
+      writeBeginFailure(projectId, {
+        outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
+        at: Date.now(),
+        dismissed: false,
+        holdExpired: false,
+      });
+    },
+  });
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
 
   // Phase-gate detection: find the currently in-construction activity and poll its
@@ -261,7 +289,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // (architect I1 ruling). The client guards here and in the dialog are UX
   // debouncing, so one press sends one request. `null` is "closed".
   const [beginTick, setBeginTick] = useState<string | null>(null);
-  // A ref, not only begin.isPending: clicks delivered in one task all land before a
+  // A ref, not only the pending flag: clicks delivered in one task all land before a
   // re-render could report the first as pending (pinned by the same-task triple
   // click in construction-begin-confirm.spec).
   const beginInFlightRef = useRef(false);
@@ -273,46 +301,29 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // until the pump is EVIDENCED or a bounded hold expires (beginHoldFor, fix-D
   // review I3). A newer read alone does not lift it: the first read after a 5xx can
   // land before the pump has stored its StartedAt, and a "Begin" there was a second
-  // pump one click away. `at` is when the console learned of the failure;
-  // `dismissed` hides the alert without lifting the hold; `holdExpired` is set by
-  // the hold's timer below.
-  const [beginFailure, setBeginFailure] = useState<{
-    outcome: DispatchOutcome;
-    at: number;
-    dismissed: boolean;
-    holdExpired: boolean;
-  } | null>(null);
+  // pump one click away. The failure (its `at`, the alert's `dismissed`, the
+  // hold's `holdExpired`) lives in module memory keyed by project, so a remount
+  // keeps it (beginFailureMemory, fix-E review I2).
+  const beginFailure = useBeginFailure(projectId);
   const onBegin = (tickId: string): void => {
-    if (beginInFlightRef.current) return;
+    if (beginInFlightRef.current || beginPending) return;
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
-    setBeginFailure(null);
+    writeBeginFailure(projectId, null);
     setCascading(true);
     begin.mutate(tickId, {
-      onError: (err) => {
-        const outcome = dispatchOutcomeFor(
-          err instanceof ApiError ? err.status : undefined,
-          err.message
-        );
-        const at = Date.now();
-        if (outcome.kind === 'rejected') {
-          // Refused: nothing started, so there is nothing to wait on.
-          setCascading(false);
-        } else {
-          // Keep polling, exactly as after a success: the list shows the pump if it
-          // started. The progress window restarts from here.
-          lastProgressAtRef.current = at;
-        }
-        setBeginFailure({ outcome, at, dismissed: false, holdExpired: false });
+      onError: () => {
+        // The mutation's own onError has recorded the failure. A refusal started
+        // nothing, so there is nothing to wait on. Anything else keeps polling,
+        // exactly as after a success, with the progress window restarted from the
+        // failure (the watchdog reads its `at`).
+        if (readBeginFailure(projectId)?.outcome.kind === 'rejected') setCascading(false);
       },
       onSettled: () => {
         beginInFlightRef.current = false;
       },
     });
   };
-  // Running only on the strength of a dispatch that SUCCEEDED: a failed one may
-  // still be polled, but the button's state is then the refreshed project's.
-  const beginActive = begin.isPending || (cascading && beginFailure === null);
   // Pump evidence counts only from reads NEWER than the failure: the project says
   // construction started, or the probed session is live (pumpEvidencedSince).
   const pumpEvidenced =
@@ -324,6 +335,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       sessionStage: phaseGateSession?.stage,
     });
   const beginHold = beginHoldFor(beginFailure, pumpEvidenced);
+  // "Construction running…", disabled: a dispatch in flight, one that succeeded,
+  // or an unknown outcome once the pump is evidenced (beginRunning, fix-E review
+  // I1). Evidence used to hand the label back to the read, which offered an
+  // enabled "Begin construction" beside a live session.
+  const beginActive = beginRunning({
+    pending: beginPending,
+    cascading,
+    failed: beginFailure !== null,
+    hold: beginHold,
+  });
   // The bounded hold. It runs from the failure, and evidence clears it. When it
   // expires with no evidence, Begin comes back and the alert, shown again even if
   // it was dismissed, says there was no sign of the pump. The setState runs in the
@@ -333,7 +354,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     if (heldSince === undefined) return undefined;
     const id = setTimeout(
       () => {
-        setBeginFailure((f) =>
+        writeBeginFailure(projectId, (f) =>
           f !== null && f.at === heldSince ? { ...f, holdExpired: true, dismissed: false } : f
         );
       },
@@ -342,23 +363,26 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return (): void => {
       clearTimeout(id);
     };
-  }, [heldSince]);
+  }, [heldSince, projectId]);
 
   // The poll's watchdog: it falls quiet ~30s after progress stops. It never runs
   // while a dispatch is still PENDING, because a 5xx that arrives after 30s would
   // otherwise find the poll already stopped (fix-D review I1). It also never runs
   // while Begin is held for the pump: only a read can bring the evidence that
   // lifts the hold.
-  const keepPolling = begin.isPending || beginHold === 'held';
+  const keepPolling = beginPending || beginHold === 'held';
   useEffect(() => {
     if (!cascading || keepPolling) return undefined;
     const id = setInterval(() => {
-      if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
+      // Progress, or the failure the poll resumed after (a remounted console has
+      // no progress of its own to go on).
+      const since = Math.max(lastProgressAtRef.current, readBeginFailure(projectId)?.at ?? 0);
+      if (Date.now() - since > 30000) setCascading(false);
     }, 1500);
     return (): void => {
       clearInterval(id);
     };
-  }, [cascading, keepPolling]);
+  }, [cascading, keepPolling, projectId]);
 
   const beginFailureCopy =
     beginFailure !== null && !beginFailure.dismissed
@@ -651,7 +675,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               severity="error"
               sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
               onClose={() => {
-                setBeginFailure({ ...beginFailure, dismissed: true });
+                writeBeginFailure(projectId, { ...beginFailure, dismissed: true });
               }}
             >
               <Box component="span" sx={{ display: 'block', fontWeight: 700 }}>

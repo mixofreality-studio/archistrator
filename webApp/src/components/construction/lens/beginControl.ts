@@ -176,6 +176,27 @@ export function beginHoldFor(
   return failure.holdExpired ? 'expired' : 'held';
 }
 
+/**
+ * Whether the button reads "Construction running…" (disabled): a dispatch is
+ * pending, or the poll is on for a run the console believes in.
+ *
+ * A dispatch that SUCCEEDED counts. So does an unknown outcome once the pump is
+ * EVIDENCED (fix-E review I1). The pump showed itself, so the button must not
+ * fall back to the read's label: a live session while `constructionStarted` is
+ * still false read "Begin construction", enabled, with a pump running. A held or
+ * expired unknown outcome does not count, and neither does a rejection.
+ */
+export function beginRunning(input: {
+  pending: boolean;
+  cascading: boolean;
+  failed: boolean;
+  hold: BeginHold;
+}): boolean {
+  if (input.pending) return true;
+  if (!input.cascading) return false;
+  return !input.failed || input.hold === 'evidenced';
+}
+
 /** The alert's words once the hold has expired. The headline is the ruling verbatim. */
 export function holdExpiredCopy(outcome: DispatchOutcome): { headline: string; detail: string } {
   return {

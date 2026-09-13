@@ -277,10 +277,17 @@ async function harness(
     if (edit === null) {
       await route.continue();
     } else {
-      const response = await route.fetch();
-      const wire = (await response.json()) as WireProject;
-      edit(wire);
-      await route.fulfill({ response, json: wire });
+      // A poll read can still be in flight when the test ends. Only "the page has
+      // closed" is ignored here; any other failure still fails the test.
+      try {
+        const response = await route.fetch();
+        const wire = (await response.json()) as WireProject;
+        edit(wire);
+        await route.fulfill({ response, json: wire });
+      } catch (err) {
+        if (page.isClosed() || /has been closed/.test(String(err))) return;
+        throw err;
+      }
     }
     h.served.push(Date.now());
   });
@@ -305,6 +312,23 @@ async function dispatchOnce(page: Page): Promise<number> {
   const at = Date.now();
   await page.getByTestId(TESTID.constructionBeginConfirmDispatch).click();
   return at;
+}
+
+/** Sample the button for `ms`: it must read "Construction running…" and be disabled
+ *  throughout (fix-E review I1: evidence reads as running, not as clickable). */
+async function expectRunning(page: Page, ms: number): Promise<void> {
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Construction running…/, { timeout: 10_000 });
+  const until = Date.now() + ms;
+  while (Date.now() < until) {
+    const s = await begin.evaluate((el) => ({
+      label: (el as HTMLElement).innerText.trim(),
+      enabled: !(el as HTMLButtonElement).disabled,
+    }));
+    expect(s.enabled, `Begin enabled while the pump is evidenced ("${s.label}")`).toBe(false);
+    expect(s.label).toMatch(/Construction running…/);
+    await page.waitForTimeout(150);
+  }
 }
 
 /** Sample the button for `ms`: it must never be enabled, nor claim Begin/Resume. */
@@ -544,7 +568,7 @@ test('I3: the hold expiring with no sign of the pump brings Begin back, asking "
   expect(h.trapped).toHaveLength(1);
 });
 
-test('I3: evidence lifts the hold before it expires: a read says construction started', async ({
+test('I3: evidence lifts the hold before it expires: a read says construction started, and Begin reads as running', async ({
   page,
 }) => {
   const h = await harness(page, (route) => route.fulfill(SERVER_500));
@@ -554,18 +578,18 @@ test('I3: evidence lifts the hold before it expires: a read says construction st
   await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
   await expectBeginHeldOff(page, 1_500);
 
-  // The pump stores its StartedAt, and the next read says so.
+  // The pump stores its StartedAt, and the next read says so. Evidence means a pump
+  // is running, so the button says so and stays off (fix-E review I1). It used to
+  // fall back to the read's label: an enabled "Resume construction".
   h.edit.fn = (wire) => {
     wire.constructionStarted = true;
   };
-  const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 10_000 });
-  await expect(begin).toBeEnabled();
-  await expect(alert).toHaveAttribute('data-hold', 'evidenced');
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 2_000);
   expect(h.trapped).toHaveLength(1);
 });
 
-test('I3: evidence lifts the hold before it expires: a session goes live on the row the pump picked up', async ({
+test('I3: evidence lifts the hold before it expires: a session goes live while constructionStarted is false, and Begin reads as running', async ({
   page,
 }) => {
   const h = await harness(page, (route) => route.fulfill(SERVER_500));
@@ -590,7 +614,9 @@ test('I3: evidence lifts the hold before it expires: a session goes live on the 
   live.on = true;
   h.edit.fn = inConstruction(PICKED);
   await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
-  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled();
+  // The read still says constructionStarted: false. The label must not fall back
+  // to it: that was an ENABLED "Begin construction" beside a live session.
+  await expectRunning(page, 2_000);
   expect(probes.length, 'the session was probed').toBeGreaterThan(0);
   expect(h.trapped).toHaveLength(1);
 });
@@ -628,5 +654,176 @@ test('M4: a failed dispatch re-reads the session probes too, not only the projec
   await expect
     .poll(() => probes.length, { timeout: 5_000, message: 'the session probe re-read' })
     .toBeGreaterThan(settled);
+  expect(h.trapped).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Fix round F: a remount must not drop the hold (fix-E review I2).
+//
+// The console is left IN-APP (the router follows a history change, the document
+// stays), so module memory survives exactly as it does for a real operator who
+// clicks away to the design pages and back. SAFETY: as above; the dispatch is
+// answered in the browser, and the design page's reads are GETs.
+// ---------------------------------------------------------------------------
+
+const DESIGN_PATH = '/project/archistrator/design/system';
+
+async function markDocument(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    (window as unknown as { __sameDocument?: boolean }).__sameDocument = true;
+  });
+}
+
+async function expectSameDocument(page: Page): Promise<void> {
+  expect(
+    await page.evaluate(
+      () => (window as unknown as { __sameDocument?: boolean }).__sameDocument === true
+    ),
+    'no reload: the trip happened in-app'
+  ).toBe(true);
+}
+
+/** Leave the console for the design page, in-app, and wait until it is unmounted. */
+async function awayToDesign(page: Page): Promise<void> {
+  await page.evaluate((to) => {
+    window.history.pushState(null, '', to);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  }, DESIGN_PATH);
+  await expect(page.getByTestId(TESTID.designExperience)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId(TESTID.constructionBegin)).toHaveCount(0);
+}
+
+/** Come back to the console with the browser's Back (a popstate, in-app). */
+async function backToConsole(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    window.history.back();
+  });
+  await expect(page).toHaveURL(/\/project\/archistrator\/construction/);
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
+}
+
+test('I2: after a 500, a trip to /design and back keeps Begin held and the alert shown, and the 60s expiry still runs', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  await markDocument(page);
+  await awayToDesign(page);
+  await page.clock.fastForward(5_000);
+  await backToConsole(page);
+  await expectSameDocument(page);
+
+  // Still held, still said.
+  await expect(alert).toBeVisible();
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await expectBeginHeldOff(page, 1_500);
+  // The remounted console polls again: only a read can bring the evidence.
+  const readsBack = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads after the remount' })
+    .toBeGreaterThan(readsBack + 1);
+
+  // The hold runs from the FAILURE, not from the remount: 5s away + 57s here.
+  await page.clock.fastForward(57_000);
+  await expect(alert).toHaveAttribute('data-hold', 'expired', { timeout: 10_000 });
+  await expect(alert).toContainText('No sign the pump started. Begin again?');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/);
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I2: a hold that runs out while the console is away has expired when it comes back', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+  // Dismissed before leaving. The expiry is news, so it comes back for it.
+  await alert.getByRole('button', { name: 'Close' }).click();
+  await expect(alert).toBeHidden();
+
+  await awayToDesign(page);
+  await page.clock.fastForward(62_000);
+  await backToConsole(page);
+
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-hold', 'expired');
+  await expect(alert).toContainText('No sign the pump started. Begin again?');
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I2: a 500 that lands while the console is away is still recorded, and a pending dispatch reads as running after a remount', async ({
+  page,
+}) => {
+  const pending: { answer?: () => Promise<void> } = {};
+  const h = await harness(
+    page,
+    (route) =>
+      new Promise<void>((resolve) => {
+        pending.answer = async () => {
+          await route.fulfill(SERVER_500);
+          resolve();
+        };
+      })
+  );
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+
+  // Away and back while the dispatch is unanswered: the new console must not offer
+  // Begin, because the first dispatch is still in flight.
+  await awayToDesign(page);
+  await backToConsole(page);
+  await expectRunning(page, 1_000);
+
+  // Away again, and the 500 lands while the console is unmounted.
+  await awayToDesign(page);
+  if (pending.answer === undefined) throw new Error('the dispatch was never held');
+  await pending.answer();
+  await page.waitForTimeout(500);
+  await backToConsole(page);
+
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'unknown');
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await expectBeginHeldOff(page, 1_500);
+  const readsBack = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads after the remount' })
+    .toBeGreaterThan(readsBack + 1);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I2 + I1: after a remount, evidence still reads as running', async ({ page }) => {
+  // A remounted console has no progress of its own to time the poll from. It
+  // times it from the failure, so evidence arriving after the trip reads as a
+  // running pump, not as the read's clickable label.
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  await awayToDesign(page);
+  await backToConsole(page);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 3_000);
   expect(h.trapped).toHaveLength(1);
 });

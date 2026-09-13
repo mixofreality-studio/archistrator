@@ -8,7 +8,12 @@
  * dispatches the next eligible activity. The supplied tickID correlates the request;
  * the server itself runs one pump workflow per project (architect I1 ruling).
  */
-import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
+import {
+  useIsMutating,
+  useMutation,
+  useQueryClient,
+  type UseMutationResult,
+} from '@tanstack/react-query';
 import { apiClient } from '../api/client';
 // The status decides success, never the parsed body: an empty-body 5xx comes back
 // with `error: undefined` (throwUnlessOk, fix-D review I2).
@@ -19,6 +24,21 @@ import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
 import { projectKey } from './useProject';
 
+/** The mutation-cache key of one project's Begin dispatches. */
+export function beginConstructionKey(projectId: string): readonly unknown[] {
+  return ['beginConstruction', projectId];
+}
+
+/**
+ * Whether a Begin dispatch for this project is in flight, from ANY mount of the
+ * console (fix-E review I2). A remount builds a new mutation observer whose own
+ * `isPending` is false while the first dispatch is still unanswered, so the
+ * remounted console would offer Begin again. The mutation cache knows better.
+ */
+export function useBeginConstructionPending(projectId: string): boolean {
+  return useIsMutating({ mutationKey: beginConstructionKey(projectId) }) > 0;
+}
+
 /**
  * Dispatch the next activity. The caller supplies the tickID, minted ONCE per
  * confirm-dialog opening (fix-A review I1). It is a correlation id, not the guard
@@ -27,8 +47,17 @@ import { projectKey } from './useProject';
  * the client's UX debouncing.
  */
 export function useBeginConstruction(
-  projectId: string
+  projectId: string,
+  options?: {
+    /**
+     * Runs at the MUTATION level, so it still runs when the answer lands after the
+     * console unmounted (a callback passed to `mutate` would not). The console
+     * records the failure in module memory from here (fix-E review I2).
+     */
+    onError?: (error: Error) => void;
+  }
 ): UseMutationResult<undefined, Error, string> {
+  const onFailure = options?.onError;
   const client = useQueryClient();
   // Refresh the project read so the just-dispatched activity (flipping to
   // in-construction) shows up; the console's cascade poll keeps it fresh. The
@@ -41,6 +70,7 @@ export function useBeginConstruction(
     ]);
   };
   return useMutation<undefined, Error, string>({
+    mutationKey: beginConstructionKey(projectId),
     mutationFn: async (tickID) => {
       const { error, response } = await apiClient.POST(
         '/api/v1/construction/execute-next-activity/{projectID}',
@@ -54,7 +84,10 @@ export function useBeginConstruction(
     // the server starts the pump before it answers and can still answer 5xx after
     // that, or the response can be dropped on the way. Only a fresh read can say
     // whether construction started, so the console never guesses from the error.
-    onError: refresh,
+    onError: async (error) => {
+      onFailure?.(error);
+      await refresh();
+    },
   });
 }
 
