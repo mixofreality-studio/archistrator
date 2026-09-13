@@ -369,6 +369,20 @@ export const OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH =
   'lifecycle is drawn on its card — click a segment of its lifecycle bar for its exit criterion and weight.';
 
 /**
+ * The TASKS lens's words for the same two notes (integration review minor, fix I).
+ * The tasks lens lists owed work and draws no lifecycle at all, so "drawn in the
+ * list — select a phase or task there" pointed at a list that is not on screen. It
+ * names the two lenses that do draw it.
+ */
+export const NO_CURRENT_PHASE_NOTE_TASKS =
+  'Nothing is recorded against this activity yet, so it has no current phase to brief. ' +
+  'Open it in the List or Graph lens to see its lifecycle, and select a phase or task there for its exit criterion and weight.';
+
+export const OBSERVED_ONLY_NO_PHASE_NOTE_TASKS =
+  'Nothing observed against this activity, so it has no current phase to brief. ' +
+  'Open it in the List or Graph lens to see its lifecycle, and select a phase or task there for its exit criterion and weight.';
+
+/**
  * The line the unknown card shows in place of the briefing table when
  * `briefingFor` resolves nothing. Two different reasons, never conflated: an
  * activity with NO profile (unclassified — inventing one is the fabrication
@@ -380,14 +394,20 @@ export const OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH =
 export function noBriefingNoteFor(
   row: ConstructionRow | undefined,
   hiddenCount = 0,
-  /** Which lens the pane sits beside — the graph points at the card, not the list. */
+  /** Which lens the pane sits beside: the list points at its rows, the graph at the
+   *  card, and the tasks lens — which draws no lifecycle — at the other two. */
   lens: 'list' | 'graph' | 'tasks' = 'list'
 ): string {
   if (profileFor(row) === undefined) return NO_PROFILE_NOTE;
-  const graph = lens === 'graph';
-  if (hiddenCount > 0)
-    return graph ? OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH : OBSERVED_ONLY_NO_PHASE_NOTE;
-  return graph ? NO_CURRENT_PHASE_NOTE_GRAPH : NO_CURRENT_PHASE_NOTE;
+  const observedOnly = hiddenCount > 0;
+  switch (lens) {
+    case 'list':
+      return observedOnly ? OBSERVED_ONLY_NO_PHASE_NOTE : NO_CURRENT_PHASE_NOTE;
+    case 'graph':
+      return observedOnly ? OBSERVED_ONLY_NO_PHASE_NOTE_GRAPH : NO_CURRENT_PHASE_NOTE_GRAPH;
+    case 'tasks':
+      return observedOnly ? OBSERVED_ONLY_NO_PHASE_NOTE_TASKS : NO_CURRENT_PHASE_NOTE_TASKS;
+  }
 }
 
 /**

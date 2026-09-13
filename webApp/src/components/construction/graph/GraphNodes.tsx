@@ -13,7 +13,8 @@
  *  - the layer: a 3px top edge in the layer colour (layerColors, shared with
  *    every architecture diagram);
  *  - lifecycle progress: segment WIDTH (Table A-1 weight) and FILL (state);
- *  - state: at most ONE chip per lane (chipFor — nothing for unknown/notStarted);
+ *  - state: at most ONE chip per lane (laneChipFor — the list row's own rule and
+ *    words, from the owed mark; nothing for unknown/notStarted);
  *  - provenance: TEXTURE only — the hatched rail on a reconstructed lane
  *    (ProvenanceRailMark) and ONE spelled-out `≈ RECONSTRUCTED` on the card,
  *    the group (ProvenanceGroupStamp) — never a colour, never per lane;

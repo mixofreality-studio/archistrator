@@ -4,16 +4,19 @@
  * palette ruling, fix I). Weight is contrast against the ground; hue is LCh; distance
  * is CIEDE2000 (utilities/theme/colorScience.ts, pinned here to Sharma 2005).
  *
- * themes.ts cannot be imported under node:test (it imports a sibling without an
- * extension), so its literal hex values are read from the source: each theme's
- * `key: '<theme>'` block, token by token. The band colours checked are the ones
- * bandTokens() renders from those values, so the ramp and its wiring are pinned
- * together.
+ * The token VALUES are read from themes.ts's source, as the ruling asks (its literal
+ * parser): each theme's `key: '<theme>'` block, token by token. themes.ts also
+ * imports under node:test now (its sibling import carries its extension), so the
+ * parsed values are held to TOKENS — the parser cannot drift from the real theme —
+ * and the themes measured are THEME_ORDER's, so a theme added tomorrow is measured
+ * the day it lands (integration review minor, fix I). The band colours checked are
+ * the ones bandTokens() renders from those values, so the ramp and its wiring are
+ * pinned together.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
-import type { Tokens } from '../../utilities/theme/themes';
+import { THEME_ORDER, TOKENS, type Tokens } from '../../utilities/theme/themes.ts';
 import { contrast, deltaE2000, lab, lch, type Lab } from '../../utilities/theme/colorScience.ts';
 import { BAND_TOKEN, CRITICAL_PATH_TOKEN, FLOAT_BANDS_BY_FLOAT } from './bandRamp.ts';
 import { bandTokens } from './bandTokens.ts';
@@ -30,7 +33,8 @@ const THEMES_SRC = readFileSync(
   new URL('../../utilities/theme/themes.ts', import.meta.url),
   'utf8'
 );
-const THEME_KEYS = ['retro', 'mor', 'retroMor', 'blueprint', 'blueprintMor'] as const;
+/** Every theme, from themes.ts itself: never a hand-kept list. */
+const THEME_KEYS: readonly string[] = THEME_ORDER;
 
 /** One theme's literal hex tokens, read from its block in themes.ts. */
 function themeTokens(key: string): Record<string, string> {
@@ -65,6 +69,30 @@ function weight(t: Record<string, string>, key: string, colour: string): number 
     contrast(colour, hexOf(t, key, 'paperAlt'))
   );
 }
+
+// 0 ---------------------------------------------------------------------------
+void test('the themes measured are every theme, and the parsed literals are the TOKENS values', () => {
+  assert.deepEqual(
+    [...THEME_ORDER].sort(),
+    Object.keys(TOKENS).sort(),
+    'THEME_ORDER is every theme'
+  );
+  const measured = [
+    'paper',
+    'paperAlt',
+    'criticalFg',
+    'criticalText',
+    ...Object.values(BAND_TOKEN),
+    ...STATUS_HUED,
+  ];
+  for (const key of THEME_ORDER) {
+    const t = themeTokens(key);
+    const real = TOKENS[key] as unknown as Record<string, unknown>;
+    for (const token of measured) {
+      assert.equal(hexOf(t, key, token), real[token], `${key}.${token}: parsed vs TOKENS`);
+    }
+  }
+});
 
 // 1 ---------------------------------------------------------------------------
 void test('CIEDE2000 matches the Sharma, Wu & Dalal (2005) reference pairs within 1e-4', () => {
