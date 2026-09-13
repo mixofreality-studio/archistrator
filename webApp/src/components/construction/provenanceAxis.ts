@@ -250,6 +250,47 @@ const RAIL_WIDTH_PX = 3;
  */
 const HATCH = scanlines('currentColor');
 
+/**
+ * The ink a drawn hatch takes, as a fraction of the theme's `ink`: the rail, the
+ * graph key's swatch and the pane's note all draw at this weight. The pane's
+ * header chip draws in its own text ink instead (provenanceHatchFill()).
+ */
+export const HATCH_INK_ALPHA = 0.75;
+
+/** The CSS a box needs to BE the hatch — a description, spread into its `sx`. */
+export interface HatchFill {
+  /** The ink `currentColor` resolves to. Absent: the box inherits its parent's. */
+  color?: string;
+  backgroundImage: string;
+  backgroundSize: string;
+  backgroundRepeat: 'repeat-y';
+  backgroundPosition: 'left top';
+}
+
+/**
+ * The hatch laid into a box: the scanline texture one rail width across, repeated
+ * down the box's whole height from its top-left corner.
+ *
+ * The ONE definition every hatch on the construction surface is drawn from — the
+ * LIST and GRAPH rail (ProvenanceRailMark), the graph key's swatch, the pane's
+ * ProvenanceNote and its header chip. The ≈ RECONSTRUCTED material is load-bearing
+ * (it is what stands between a backfilled record and a watched one), so the four
+ * marks must stay visibly one material; they used to each restate this geometry.
+ * The box's own width and height stay the caller's.
+ *
+ * @param ink the colour the texture is drawn in. Omit it to inherit the parent's
+ *   (the header chip, whose text is already the ink).
+ */
+export function provenanceHatchFill(ink?: string): HatchFill {
+  return {
+    ...(ink !== undefined ? { color: ink } : {}),
+    backgroundImage: HATCH,
+    backgroundSize: `${String(RAIL_WIDTH_PX)}px 100%`,
+    backgroundRepeat: 'repeat-y',
+    backgroundPosition: 'left top',
+  };
+}
+
 export function provenanceRailFor(origin: ProvenanceOrigin): ProvenanceRail {
   switch (provenanceGradeOf(origin)) {
     case 'recorded':

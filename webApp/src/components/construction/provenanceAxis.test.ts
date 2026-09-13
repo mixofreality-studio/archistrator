@@ -9,11 +9,14 @@
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join, relative } from 'node:path';
 
 import type { RecordOriginRow } from '../../contracts/types.ts';
 import {
   provenanceBasesOf,
   provenanceGradeOf,
+  provenanceHatchFill,
   provenanceRailFor,
   provenanceRailTooltipFor,
   provenanceSubGradeLabel,
@@ -114,6 +117,47 @@ void test('only the reconstructed grade draws a rail at all', () => {
 void test('the two reconstructed sub-grades are visually identical', () => {
   // Density rule 2: the hatch does not fork. Only the tooltip tells them apart.
   assert.deepEqual(provenanceRailFor('backfilled'), provenanceRailFor('synthesized'));
+});
+
+// ---------------------------------------------------------------------------
+// The one hatch (cleanup round): four marks used to restate this geometry.
+// ---------------------------------------------------------------------------
+
+void test('the hatch fill is the reconstructed rail, laid down the box from its top-left', () => {
+  const rail = provenanceRailFor('backfilled');
+  assert.deepEqual(provenanceHatchFill('INK'), {
+    color: 'INK',
+    backgroundImage: rail.texture,
+    backgroundSize: `${String(rail.widthPx)}px 100%`,
+    backgroundRepeat: 'repeat-y',
+    backgroundPosition: 'left top',
+  });
+  // The texture draws in currentColor, so `color` IS the ink; it is the one place
+  // a caller picks one, and it is the same for every grade (never a status colour).
+  assert.match(rail.texture ?? '', /currentColor/);
+});
+
+void test('without an ink the fill sets no colour, so the box inherits its parent’s', () => {
+  const fill = provenanceHatchFill();
+  assert.equal('color' in fill, false);
+  assert.equal(fill.backgroundImage, provenanceHatchFill('x').backgroundImage);
+});
+
+void test('no construction component lays a hatch except through provenanceHatchFill', () => {
+  // A source scan, because the regression is a fifth hand-copied geometry that
+  // still looks right today: `scanlines(` builds the texture and `repeat-y` lays it.
+  const root = import.meta.dirname;
+  const sources = (dir: string): string[] =>
+    readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
+      const p = join(dir, e.name);
+      if (e.isDirectory()) return sources(p);
+      return /\.tsx?$/.test(e.name) && !e.name.endsWith('.test.ts') ? [p] : [];
+    });
+  const offenders = sources(root)
+    .filter((p) => !p.endsWith('provenanceAxis.ts'))
+    .filter((p) => /scanlines\(|repeat-y/.test(readFileSync(p, 'utf8')))
+    .map((p) => relative(root, p));
+  assert.deepEqual(offenders, []);
 });
 
 // ---------------------------------------------------------------------------

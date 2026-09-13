@@ -38,7 +38,9 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { ReconstructedBadge } from '../project/computed';
 import {
+  HATCH_INK_ALPHA,
   provenanceBasesOf,
+  provenanceHatchFill,
   provenanceRailFor,
   provenanceRailTooltipFor,
   provenanceTooltipFor,
@@ -49,7 +51,10 @@ import {
 
 export {
   GRADE_LABEL,
+  HATCH_INK_ALPHA,
   provenanceBasesOf,
+  provenanceHatchFill,
+  provenanceSubGradeLabel,
   provenanceGradeOf,
   provenanceRailFor,
   provenanceTooltipFor,
@@ -123,11 +128,7 @@ export function ProvenanceRailMark({
           flexShrink: 0,
           // ONE ink, set from the theme and never from the grade. The texture is
           // the whole channel.
-          color: alpha(t.ink, 0.75),
-          backgroundImage: rail.texture,
-          backgroundSize: `${String(rail.widthPx)}px 100%`,
-          backgroundRepeat: 'repeat-y',
-          backgroundPosition: 'left top',
+          ...provenanceHatchFill(alpha(t.ink, HATCH_INK_ALPHA)),
         }}
       />
     </Tooltip>

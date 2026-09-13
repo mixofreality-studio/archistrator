@@ -90,7 +90,7 @@ import type {
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
-import { scanlines } from '../../../utilities/theme/textures.ts';
+import { provenanceHatchFill } from '../provenanceAxis.ts';
 import { useLensSelection, type LensSelection } from '../lens/useLensSelection';
 import {
   GRADE_LABEL,
@@ -1101,18 +1101,9 @@ function GradeChip({ provenance, t }: { provenance: ProvenanceReading; t: Tokens
         }}
       >
         {reconstructed ? (
-          // The hatch, in the chip's own ink — the same 3px scanline geometry the
-          // list draws its rail with, so the two marks read as one material.
-          <Box
-            sx={{
-              width: 6,
-              alignSelf: 'stretch',
-              flexShrink: 0,
-              backgroundImage: scanlines('currentColor'),
-              backgroundSize: '3px 100%',
-              backgroundRepeat: 'repeat-y',
-            }}
-          />
+          // The hatch, in the chip's own ink — the very fill the list draws its
+          // rail with, so the two marks read as one material.
+          <Box sx={{ width: 6, alignSelf: 'stretch', flexShrink: 0, ...provenanceHatchFill() }} />
         ) : null}
         {reconstructed ? '≈ ' : ''}
         {GRADE_LABEL[grade]}

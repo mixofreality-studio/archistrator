@@ -28,9 +28,11 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ActivityNode } from '../list/activityTree';
 import { ProvenanceGroupStamp, ProvenanceRailMark, ReconstructedBadge } from '../provenance';
 import {
+  GRADE_LABEL,
+  HATCH_INK_ALPHA,
   provenanceBasesOf,
   provenanceGradeOf,
-  provenanceRailFor,
+  provenanceHatchFill,
   provenanceTooltipFor,
   reconstructedHintFor,
   type ProvenanceOrigin,
@@ -483,9 +485,6 @@ export function GraphKeyBar({
   );
 }
 
-/** The reconstructed grade's rail — the key draws the very texture a lane does. */
-const HATCH_RAIL = provenanceRailFor('backfilled');
-
 /** One key row: a drawn swatch, then its words. */
 function KeyRow({ swatch, children }: { swatch: ReactElement; children: ReactNode }): ReactElement {
   return (
@@ -565,17 +564,15 @@ function GraphKeyLegend({
               width: 4,
               height: 14,
               flexShrink: 0,
-              color: alpha(t.ink, 0.75),
-              backgroundImage: HATCH_RAIL.texture,
-              backgroundSize: `${String(HATCH_RAIL.widthPx)}px 100%`,
-              backgroundRepeat: 'repeat-y',
+              // The key draws the very hatch a lane's rail does.
+              ...provenanceHatchFill(alpha(t.ink, HATCH_INK_ALPHA)),
             }}
           />
         }
       >
         hatched rail — reconstructed evidence; its card carries{' '}
         <Box component="span" sx={{ display: 'inline-flex', pointerEvents: 'none' }}>
-          <ReconstructedBadge label="RECONSTRUCTED" t={t} title="" />
+          <ReconstructedBadge label={GRADE_LABEL.reconstructed} t={t} title="" />
         </Box>
       </KeyRow>
       <KeyRow

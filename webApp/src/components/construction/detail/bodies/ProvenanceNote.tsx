@@ -32,8 +32,8 @@
  * never change whether you are told how the record came to exist.
  *
  * Colour is never the channel here either (see provenanceAxis.ts's header) — the
- * hatch is the house `scanlines` texture drawn in `currentColor`, exactly as the
- * list's rail draws it.
+ * hatch is provenanceHatchFill, the one definition the list's rail draws from too,
+ * and the badge's words are provenanceAxis's own (GRADE_LABEL, the sub-grade label).
  */
 import type { ReactElement } from 'react';
 import Box from '@mui/material/Box';
@@ -43,11 +43,14 @@ import { alpha } from '@mui/material/styles';
 import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
-import { scanlines } from '../../../../utilities/theme/textures.ts';
 import type { EvidencePointer } from '../detailPaneState.ts';
-import type { ProvenanceReading } from '../../provenance';
-
-const HATCH = scanlines('currentColor');
+import {
+  GRADE_LABEL,
+  HATCH_INK_ALPHA,
+  provenanceHatchFill,
+  provenanceSubGradeLabel,
+  type ProvenanceReading,
+} from '../../provenance';
 
 export interface ProvenanceNoteProps {
   reading: ProvenanceReading;
@@ -88,11 +91,7 @@ export function ProvenanceNote({ reading, evidence }: ProvenanceNoteProps): Reac
           width: 4,
           flexShrink: 0,
           alignSelf: 'stretch',
-          color: alpha(t.ink, 0.75),
-          backgroundImage: HATCH,
-          backgroundSize: '3px 100%',
-          backgroundRepeat: 'repeat-y',
-          backgroundPosition: 'left top',
+          ...provenanceHatchFill(alpha(t.ink, HATCH_INK_ALPHA)),
         }}
       />
       <Box sx={{ minWidth: 0, display: 'flex', flexDirection: 'column', gap: 0.6 }}>
@@ -105,7 +104,11 @@ export function ProvenanceNote({ reading, evidence }: ProvenanceNoteProps): Reac
             color: t.ink,
           }}
         >
-          ≈ RECONSTRUCTED · {reading.origin === 'backfilled' ? 'BACKFILLED' : 'INFERRED'}
+          {/* Two text runs, grade then sub-grade, exactly as the hand-typed label
+              was split: the badge's letter-spacing is shaped per run, and a
+              finer split moves glyphs (measured, cleanup round). */}
+          {`≈ ${GRADE_LABEL.reconstructed} · `}
+          {provenanceSubGradeLabel(reading.origin).toUpperCase()}
         </Typography>
         <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}>
           This record was WRITTEN FROM the basis below, not observed. Its outcome is an assertion
