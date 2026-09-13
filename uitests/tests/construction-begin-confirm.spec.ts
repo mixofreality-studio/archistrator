@@ -746,6 +746,44 @@ test('M4 (fix G): a row in construction holds Begin off on its own, with its ses
   expect(h.trapped).toEqual([]);
 });
 
+// Final review minor, pinned end to end (inflight-residual round, mutant T5): the
+// confirm dialog was opened against an ENABLED Begin, and work shows up in flight
+// while it is open. The dialog's own dispatch button knows nothing of that, so the
+// console re-checks Begin at confirm time (onBegin → beginConfirmAllowed). Without
+// the re-check this press would be a second pump one click away; with it, nothing
+// is sent. Every dispatch is trapped here, and aborted, so none can leave the page.
+test('T5: work goes in flight while the confirm is open, so confirming sends nothing', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
+    await route.fulfill(NO_SESSION);
+  });
+  await openConsole(page);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await openDialog(page);
+
+  // The state flips while the dialog is open: the next read shows a row in
+  // construction. Nothing is in flight before it, so the read refreshes on the 10s
+  // freshness cadence; the clock is moved past it.
+  const edit = inConstruction(PICKED);
+  h.edit.fn = edit;
+  await page.clock.fastForward(11_000);
+  await expect.poll(() => h.servedEdits.includes(edit), { timeout: 10_000 }).toBe(true);
+  // The control behind the dialog is off now; the dialog is still open, and its
+  // dispatch button is still enabled.
+  await expect(begin).toHaveText(/Construction running…/, { timeout: 10_000 });
+  await expect(begin).toBeDisabled();
+  const dispatch = page.getByTestId(TESTID.constructionBeginConfirmDispatch);
+  await expect(dispatch).toBeEnabled();
+
+  await dispatch.click();
+  await page.waitForTimeout(800);
+  expect(h.trapped, `trapped: ${JSON.stringify(h.trapped)}`).toEqual([]);
+  await expect(begin).toHaveText(/Construction running…/);
+});
+
 // Tasks-lens merge round: the session term is reachable again. The console probes
 // every activity the pump started and has not finished (the owed set's probes). One
 // picked up a moment ago has its stored record and StartedAt but no build evidence
