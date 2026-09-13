@@ -66,6 +66,8 @@ import {
 } from '../components/construction/lens/beginControl';
 import { ApiError } from '../contracts/errors';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
+import { ActivityGraphLens } from '../components/construction/graph/ActivityGraphLens';
+import { GRAPH_LIST_ONLY_REASON } from '../components/construction/graph/graphPresentation';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import {
   applyToolbarToActivities,
@@ -652,14 +654,32 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                       />
                     )}
                   </Box>
+                ) : lens === 'graph' ? (
+                  // Stage D: the architecture, layer by layer, each component
+                  // carrying its lifecycle — over the SAME evidence-view and
+                  // toolbar-filtered trees the list reads, so the two lenses and
+                  // the pane never disagree about one activity.
+                  <ActivityGraphLens
+                    activities={activityTree}
+                    network={networkModel}
+                    projectId={projectId}
+                    selection={selection}
+                    systemEnvelope={paneSystemEnvelope}
+                    visible={visibleActivityTree}
+                    onSelect={select}
+                  />
                 ) : (
-                  // Honest placeholder — NOT sample rows. GRAPH is the Stage-D
-                  // layer-stack projection; TASKS is the Stage-C owed-work lens.
-                  <LensComingLater lens={lens} stage={lens === 'graph' ? 'Stage D' : 'Stage C'} />
+                  // Honest placeholder — NOT sample rows. TASKS is the Stage-C
+                  // owed-work lens.
+                  <LensComingLater lens={lens} stage="Stage C" />
                 )
               }
               detail={detailPane}
-              expandToCurrentPhase={expandToCurrentPhaseControl(visibleActivityTree)}
+              expandToCurrentPhase={
+                lens === 'graph'
+                  ? { enabled: false, tooltip: GRAPH_LIST_ONLY_REASON }
+                  : expandToCurrentPhaseControl(visibleActivityTree)
+              }
               kindOptions={kindOptions}
               layerOptions={layerOptions}
               lens={lens}
@@ -670,6 +690,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               }}
               onLens={setLens}
               onToolbar={setToolbar}
+              {...(lens === 'graph' ? { sortDisabledReason: GRAPH_LIST_ONLY_REASON } : {})}
             />
           )}
         </Box>
@@ -684,7 +705,7 @@ function lensSubtitle(lens: LensId): string {
     case 'list':
       return 'Every activity, its lifecycle phases and its tasks · App-A tracking';
     case 'graph':
-      return 'The committed project network under a build lens';
+      return 'The architecture, layer by layer — each component carrying its lifecycle';
     case 'tasks':
       return 'Only the tasks that owe someone a decision';
   }

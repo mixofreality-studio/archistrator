@@ -153,6 +153,14 @@ export function tickPaint(t: Tokens, state: RowState): TickPaint {
   }
 }
 
+/**
+ * Why Sort and "Expand to current phase" are off in the GRAPH lens (Decision
+ * D4): a card's position is the architecture's, never a sort key, and every
+ * lane already shows its whole lifecycle — there is nothing to expand.
+ */
+export const GRAPH_LIST_ONLY_REASON =
+  "The graph's positions are the architecture's own and every lane already shows its whole lifecycle — sort and expand apply to the list lens.";
+
 // ---------------------------------------------------------------------------
 // The ribbon's count (spec §9.2, Decision D8)
 // ---------------------------------------------------------------------------
