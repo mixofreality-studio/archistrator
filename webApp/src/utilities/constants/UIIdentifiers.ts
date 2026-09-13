@@ -350,6 +350,8 @@ export const UI_IDENTIFIERS = {
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     BEGIN_BUTTON: 'construction-begin',
+    /** The alert a failed Begin dispatch raises — failures are loud (spec §6). */
+    BEGIN_ERROR: 'construction-begin-error',
     // The confirm step in front of Begin/Resume: it names what would be
     // dispatched before anything is (BeginConfirmDialog).
     BEGIN_CONFIRM_DIALOG: 'construction-begin-confirm',

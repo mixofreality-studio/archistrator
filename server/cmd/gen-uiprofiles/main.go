@@ -42,6 +42,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 )
@@ -220,9 +221,13 @@ const prettierPrintWidth = 100
 // writeProp writes `<indent><key>: <literal>,` — or, when that line would exceed
 // prettier's print width, the key alone with the literal on the next line indented
 // two further spaces, which is exactly how prettier breaks an over-long property.
+//
+// Width is measured in CHARACTERS, as prettier measures it, not bytes: the copy
+// carries "—" and "…", three bytes each, and len() would break a line prettier
+// keeps whole (fix-B review M5).
 func writeProp(b *strings.Builder, indent, key, literal string) {
 	line := indent + key + ": " + literal + ","
-	if len(line) <= prettierPrintWidth {
+	if utf8.RuneCountInString(line) <= prettierPrintWidth {
 		b.WriteString(line + "\n")
 		return
 	}

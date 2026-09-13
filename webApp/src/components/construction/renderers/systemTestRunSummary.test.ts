@@ -84,6 +84,20 @@ void test('never attempted: "not run · N scenarios planned", and no green/total
   );
 });
 
+// Fix-B review M4: a reconstructed attempt is not a run. It must not turn a never-
+// run system test into "attempted" and bring back the red green/total tile.
+void test('a reconstructed attempt alone is not a run: still "not run", still no tile', () => {
+  const r = row(2);
+  const reconstructed: ConstructionRow = {
+    ...r,
+    attempts: r.attempts.map((a) => ({ ...a, provenance: { origin: 'backfilled' as const } })),
+  };
+  const s = systemTestRunSummaryFor([scenario('S1', [[undefined]])], reconstructed);
+  assert.equal(s.attempted, false);
+  assert.equal(s.tile, undefined);
+  assert.equal(s.headline, 'not run · 1 scenario planned');
+});
+
 void test('once anything was attempted, the tile reports green/total', () => {
   const scenarios = [scenario('S1', [['green']]), scenario('S2', [[undefined]])];
   const s = systemTestRunSummaryFor(scenarios, undefined);

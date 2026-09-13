@@ -7,11 +7,13 @@
  * Cancelling is always safe: nothing is sent until the dispatch button is pressed.
  *
  * One press per opening (fix-A review I1): a double-click used to send two
- * execute-next-activity POSTs, each with its own tickID, and start two pump
- * workflows. The opening's tickID (the server's idempotency key) is minted by the
- * caller when it opens the dialog and handed back on confirm; the dispatch button
- * disables itself on the first press. The caller also refuses a second confirm
- * while one is in flight, so no single layer is load-bearing alone.
+ * execute-next-activity POSTs, each with its own tickID. The SERVER is what keeps
+ * that from starting two pumps — it runs one pump workflow per project (architect
+ * I1 ruling) — and the opening's tickID only correlates the request. What this
+ * dialog and its caller add is UX debouncing: the tickID is minted when the dialog
+ * opens and handed back on confirm, the dispatch button disables itself on the
+ * first press, and the caller refuses a second confirm while one is in flight, so
+ * one press sends one request.
  */
 import { useState, type ReactElement } from 'react';
 import Box from '@mui/material/Box';

@@ -51,7 +51,8 @@ export function scenarioChipFor(status: ScenarioRunStatus): ScenarioChip {
 }
 
 export interface SystemTestRunSummary {
-  /** Whether ANY run was attempted: an attempt on the row, or a step status. */
+  /** Whether ANY run was attempted: an OBSERVED attempt on the row, or a recorded
+   *  step status. A reconstructed attempt is not a run anyone watched. */
   attempted: boolean;
   headline: string;
   /** The green/total tile — only once something has been attempted. */
@@ -63,7 +64,12 @@ export function systemTestRunSummaryFor(
   row: ConstructionRow | undefined
 ): SystemTestRunSummary {
   const statuses = scenarios.map(scenarioRunStatus);
-  const attempted = (row?.attempts.length ?? 0) > 0 || statuses.some((s) => s !== 'notRun');
+  // Only an OBSERVED attempt counts (fix-B review M4): the backfill writes
+  // reconstructed attempts no pump ever ran, and one of those must not bring back
+  // the red "0/5 green" tile over a system test nobody has run.
+  const attempted =
+    (row?.attempts ?? []).some((a) => a.provenance.origin === 'observed') ||
+    statuses.some((s) => s !== 'notRun');
   if (!attempted) {
     const n = scenarios.length;
     return {

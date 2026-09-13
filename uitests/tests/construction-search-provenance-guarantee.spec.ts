@@ -170,7 +170,15 @@ test('a search-matched reconstructed task row carries its own provenance mark; a
     for (const header of [id, `${id}::requirements`]) {
       const row = page.getByTestId(TESTID.constructionListRow(header));
       await expect(row).toBeVisible();
-      await expect(row.getByTestId(TESTID.constructionProvenanceBadge)).toBeVisible();
+      const badge = row.getByTestId(TESTID.constructionProvenanceBadge);
+      await expect(badge).toBeVisible();
+      // Spelled out, on tier 1 AND tier 2 (fix-B review M2): a badge abbreviated to
+      // a bare "≈" is still visible, and would pass a visibility check alone. The
+      // word is authored lower-case and set in capitals by CSS, so the DOM text is
+      // pinned case-insensitively and what the reader SEES (innerText, which
+      // applies text-transform) is pinned in capitals.
+      await expect(badge).toHaveText(/^≈\s*reconstructed$/i);
+      expect((await badge.innerText()).replace(/\s+/g, ' ').trim()).toMatch(/^≈ ?RECONSTRUCTED$/);
     }
   }
   for (const id of PINNED_NOT_RECONSTRUCTED) {

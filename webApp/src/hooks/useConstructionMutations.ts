@@ -5,7 +5,8 @@
  * so the console re-reads fresh server state (never setQueryData).
  *
  * "Begin construction" now maps onto construction/execute-next-activity: the pump
- * dispatches the next eligible activity for the supplied tickID (idempotency key).
+ * dispatches the next eligible activity. The supplied tickID correlates the request;
+ * the server itself runs one pump workflow per project (architect I1 ruling).
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
@@ -17,9 +18,11 @@ import { constructionSessionKey, constructionSessionsKey } from './useConstructi
 import { projectKey } from './useProject';
 
 /**
- * Dispatch the next activity. The caller supplies the tickID — the server's
- * idempotency key — minted ONCE per confirm-dialog opening (fix-A review I1): a
- * fresh UUID per request let a double-click start two pump workflows.
+ * Dispatch the next activity. The caller supplies the tickID, minted ONCE per
+ * confirm-dialog opening (fix-A review I1). It is a correlation id, not the guard
+ * against a second pump — the server runs one pump workflow per project (architect
+ * I1 ruling); the confirm dialog's press-once and the console's in-flight ref are
+ * the client's UX debouncing.
  */
 export function useBeginConstruction(
   projectId: string

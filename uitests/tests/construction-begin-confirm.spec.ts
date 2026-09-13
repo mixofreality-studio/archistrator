@@ -192,3 +192,54 @@ test('a double-click on dispatch sends exactly ONE request, carrying the opening
   expect(trapped, `trapped: ${JSON.stringify(trapped)}`).toHaveLength(1);
   expect(trapped[0]?.tickID).toBe(tick);
 });
+
+// Fix-B review M1. A dblclick is two separate input tasks, so React re-renders
+// between them and the dispatch button's own disabled state stops the second —
+// which left the console's in-flight ref unpinned (a mutant removing it passed).
+// Three clicks inside ONE task land before React flushes anything: every one sees
+// the dialog still open and un-pressed, so only the ref stands between them and
+// three POSTs. (The server's one-pump-per-project rule is the correctness guarantee;
+// this pins the client's UX debounce.)
+test('three clicks in one task send exactly ONE request', async ({ page }) => {
+  const trapped = await trapDispatches(page);
+  await openConsole(page);
+
+  const tick = await openDialog(page);
+  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).evaluate((el) => {
+    const button = el as HTMLButtonElement;
+    button.click();
+    button.click();
+    button.click();
+  });
+  await page.waitForTimeout(800);
+
+  expect(trapped, `trapped: ${JSON.stringify(trapped)}`).toHaveLength(1);
+  expect(trapped[0]?.tickID).toBe(tick);
+});
+
+// Fix-B review M3. A failed dispatch used to leave the button on "Construction
+// running…" for ~30s with nothing said. Failures must be loud (spec §6): the error
+// shows at once and the console stops waiting. The route is FULFILLED with a 500 in
+// the browser — the request never reaches the server.
+test('a failed dispatch is loud, and the console stops waiting at once', async ({ page }) => {
+  const trapped: string[] = [];
+  await page.route('**/execute-next-activity/**', async (route) => {
+    trapped.push(route.request().url());
+    await route.fulfill({
+      status: 500,
+      contentType: 'application/json',
+      body: JSON.stringify({ message: 'pump unavailable' }),
+    });
+  });
+  await openConsole(page);
+  await openDialog(page);
+  await page.getByTestId(TESTID.constructionBeginConfirmDispatch).click();
+
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 5_000 });
+  await expect(alert).toContainText('dispatch failed');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 5_000 });
+  await expect(begin).toBeEnabled();
+  expect(trapped).toHaveLength(1);
+});

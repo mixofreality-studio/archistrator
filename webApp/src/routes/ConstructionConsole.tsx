@@ -26,6 +26,7 @@
  * honest awaiting state rather than an error.
  */
 import { useState, useMemo, useEffect, useRef, type ReactNode } from 'react';
+import Alert from '@mui/material/Alert';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
@@ -252,19 +253,31 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   };
 
   // Begin is a real dispatch, so the button only opens a confirm step that names
-  // what would be started (BeginConfirmDialog). Each opening mints ONE tickID — the
-  // server's idempotency key — so a repeated confirm can never start a second pump
-  // under a fresh key (fix-A review I1). `null` is "closed".
+  // what would be started (BeginConfirmDialog). Each opening mints ONE tickID, which
+  // CORRELATES the request (logs, traces, the trapped specs) — it is not what keeps
+  // a second pump from starting: the server runs one pump workflow per project
+  // (architect I1 ruling). The client guards here and in the dialog are UX
+  // debouncing, so one press sends one request. `null` is "closed".
   const [beginTick, setBeginTick] = useState<string | null>(null);
-  // A ref, not only begin.isPending: a double-click delivers its second click
-  // before a re-render could report the first as pending.
+  // A ref, not only begin.isPending: clicks delivered in one task all land before a
+  // re-render could report the first as pending (pinned by the same-task triple
+  // click in construction-begin-confirm.spec).
   const beginInFlightRef = useRef(false);
+  // A failed dispatch is LOUD (spec §6 "Failures must be loud", fix-B review M3). It
+  // used to leave `cascading` armed, so the button read "Construction running…" for
+  // ~30s and nothing said why.
+  const [beginError, setBeginError] = useState<string | null>(null);
   const onBegin = (tickId: string): void => {
     if (beginInFlightRef.current) return;
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
+    setBeginError(null);
     setCascading(true);
     begin.mutate(tickId, {
+      onError: (err) => {
+        setCascading(false);
+        setBeginError(err.message.length > 0 ? err.message : 'no reason given');
+      },
       onSettled: () => {
         beginInFlightRef.current = false;
       },
@@ -550,6 +563,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             t={t}
             title="Construction"
           />
+
+          {beginError !== null ? (
+            <Alert
+              data-testid={UI_IDENTIFIERS.Construction.BEGIN_ERROR}
+              severity="error"
+              sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
+              onClose={() => {
+                setBeginError(null);
+              }}
+            >
+              Construction dispatch failed: {beginError}. The console has stopped waiting on it;
+              the list shows only what the server recorded. Begin again to retry.
+            </Alert>
+          ) : null}
 
           {projectLoading ? (
             <Box sx={{ display: 'flex', justifyContent: 'center', py: 8 }}>
