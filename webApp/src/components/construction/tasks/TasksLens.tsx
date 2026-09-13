@@ -462,7 +462,9 @@ function OwedRow({
               fontFamily: t.mono,
               fontSize: 11,
               fontWeight: item.why.riskFloor ? 800 : 500,
-              color: item.why.riskFloor ? t.dangerFg : t.ink,
+              // The risk floor always ASKS a human: the awaiting tone. dangerFg is
+              // failed/error only (palette ruling, rule 2; bandRamp.test.ts pin).
+              color: item.why.riskFloor ? t.awaitingFg : t.ink,
             }}
           >
             {item.why.riskFloor ? '⚑ ' : ''}

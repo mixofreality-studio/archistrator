@@ -240,3 +240,19 @@ void test('source pin: no NetworkNode/NetworkView/NetworkSummaryStrip line paint
     });
   }
 });
+
+// 9 ---------------------------------------------------------------------------
+/** dangerFg means failed/error only (palette ruling, rule 2). The TASKS lens
+ *  painted the risk-floor rule in it (final review minor); a line naming the risk
+ *  floor must never use it. */
+void test('source pin: no TasksLens line paints the risk floor with dangerFg', () => {
+  const src = readFileSync(new URL('../construction/tasks/TasksLens.tsx', import.meta.url), 'utf8');
+  src.split('\n').forEach((line, i) => {
+    assert.ok(
+      !(/\bt\.dangerFg\b/.test(line) && /\briskFloor\b/.test(line)),
+      `TasksLens.tsx:${String(i + 1)} paints the risk floor with dangerFg: ${line.trim()}`
+    );
+  });
+  // …and it does paint it, in the awaiting tone.
+  assert.match(src, /riskFloor \? t\.awaitingFg : t\.ink/);
+});
