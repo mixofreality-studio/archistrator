@@ -215,33 +215,86 @@ export function allClearHeadlineFor(unchecked: UncheckedCounts, rest = false): s
 // The empty state (spec §7.7: "Nothing needs you." is not a dead end)
 // ---------------------------------------------------------------------------
 
+/**
+ * Every activity in exactly one bucket, so the line sums to the activity count
+ * (designer final pass: it read 27 of 29, dropping the two integration-pending
+ * rows, next to "Construction running…").
+ */
 export interface EmptyStateCounts {
   eligible: number;
+  /** Integration-pending activities still waiting on a dependency (pendingResume). */
+  waiting: number;
   inFlight: number;
   blocked: number;
   /** Integrated — the work already behind you (designer P2). */
   done: number;
+  /** A recorded terminal failure (the TASKS rows above already list each one). */
+  failed: number;
+  /** An activity the server could not classify. */
+  unclassified: number;
 }
 
-/** Eligible and blocked from the network-derived statuses; in flight is what the
- *  pump started and has not finished (owedWork.probeCandidatesFor). */
+/**
+ * The partition, one bucket per activity in `statuses` (computeActivityStatuses):
+ *   - `waiting` first: an integration-pending row still waiting on a dependency.
+ *     Its status reads blocked; the line names it for what it is.
+ *   - `inFlight`: what the pump started and has not finished (the probe
+ *     candidates, owedWork.probeCandidatesFor) — a fresh pickup with no evidence
+ *     yet reads eligible by status — plus any status that is work under way.
+ *   - then eligible / blocked / done / failed / unclassified by status.
+ */
 export function emptyStateCounts(
   statuses: ReadonlyMap<string, BuildStatus>,
-  inFlight: number
+  sets: { inFlight: ReadonlySet<string>; waiting: ReadonlySet<string> }
 ): EmptyStateCounts {
-  let eligible = 0;
-  let blocked = 0;
-  let done = 0;
-  for (const s of statuses.values()) {
-    if (s === 'eligible') eligible += 1;
-    else if (s === 'blocked') blocked += 1;
-    else if (s === 'integrated') done += 1;
+  const c: EmptyStateCounts = {
+    eligible: 0,
+    waiting: 0,
+    inFlight: 0,
+    blocked: 0,
+    done: 0,
+    failed: 0,
+    unclassified: 0,
+  };
+  for (const [id, s] of statuses) c[bucketFor(id, s, sets)] += 1;
+  return c;
+}
+
+function bucketFor(
+  id: string,
+  s: BuildStatus,
+  sets: { inFlight: ReadonlySet<string>; waiting: ReadonlySet<string> }
+): keyof EmptyStateCounts {
+  if (sets.waiting.has(id)) return 'waiting';
+  if (sets.inFlight.has(id)) return 'inFlight';
+  switch (s) {
+    case 'eligible':
+      return 'eligible';
+    case 'blocked':
+      return 'blocked';
+    case 'integrated':
+      return 'done';
+    case 'failed':
+      return 'failed';
+    case 'unclassified':
+      return 'unclassified';
+    case 'in-review':
+    case 'in-construction':
+    case 'in-detailed-design':
+    case 'not-started':
+      // Under way by status (the live override's `not-started` included): in flight.
+      return 'inFlight';
   }
-  return { eligible, inFlight, blocked, done };
 }
 
 export function emptyStateLine(c: EmptyStateCounts): string {
-  return `${String(c.eligible)} eligible · ${String(c.inFlight)} in flight · ${String(c.blocked)} blocked · ${String(c.done)} done`;
+  const parts = [`${String(c.eligible)} eligible`];
+  if (c.waiting > 0) parts.push(`${String(c.waiting)} waiting on dependencies`);
+  parts.push(`${String(c.inFlight)} in flight`, `${String(c.blocked)} blocked`);
+  parts.push(`${String(c.done)} done`);
+  if (c.failed > 0) parts.push(`${String(c.failed)} failed`);
+  if (c.unclassified > 0) parts.push(`${String(c.unclassified)} unclassified`);
+  return parts.join(' · ');
 }
 
 /** The empty card's Begin, as a link that says what it would start with (designer

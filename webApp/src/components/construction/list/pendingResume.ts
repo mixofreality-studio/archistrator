@@ -70,3 +70,17 @@ export function pendingPhaseLine(row: ConstructionRow, phase: string): string | 
   if (pr?.fromPhase !== phase) return undefined;
   return waitsOnText(pr, false);
 }
+
+/**
+ * The activities waiting on a dependency: pending rows whose waitsOn is non-empty.
+ * A pending row that is next in line waits on nothing; it counts as eligible.
+ */
+export function waitingActivityIds(
+  rows: Readonly<Record<string, ConstructionRow>> | undefined
+): ReadonlySet<string> {
+  return new Set(
+    Object.values(rows ?? {})
+      .filter((r) => (r.pendingResume?.waitsOn.length ?? 0) > 0)
+      .map((r) => r.activityId)
+  );
+}

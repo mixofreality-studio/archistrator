@@ -254,3 +254,23 @@ test('graph: the Integration segment and the hover card say what it waits on', a
     'waits on C-billing-state-access, C-merchant-gateway-access'
   );
 });
+
+// ---------------------------------------------------------------------------
+// The TASKS counts — a partition
+// ---------------------------------------------------------------------------
+
+test('tasks: the counts sum to every activity and name the waiting rows', async ({
+  page,
+  request,
+}) => {
+  const total = (await readWire(request)).length;
+  await page.setViewportSize({ width: 1366, height: 900 });
+  await gotoApp(page, '/project/archistrator/construction?lens=tasks');
+  const counts = page.getByTestId(TESTID.constructionTasksEmptyCounts);
+  const waiting = PENDING.filter((p) => p.waitsOn.length > 0).length;
+  await expect(counts).toContainText(`${String(waiting)} waiting on dependencies`);
+  const text = (await counts.textContent()) ?? '';
+  const sum = [...text.matchAll(/(\d+) /g)].reduce((acc, m) => acc + Number(m[1]), 0);
+  expect(sum).toBe(total);
+  await expect(counts).toContainText('0 in flight');
+});

@@ -261,8 +261,10 @@ test('live: nothing is owed, and the lens says so without probing a session', as
   });
   await openTasks(page);
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText('Nothing needs you.');
+  // Every activity in one bucket (designer final pass, item 1): the waiting,
+  // failed and unclassified clauses appear only when above zero.
   await expect(page.getByTestId(TESTID.constructionTasksEmptyCounts)).toHaveText(
-    /^\d+ eligible · \d+ in flight · \d+ blocked · \d+ done$/
+    /^\d+ eligible(?: · \d+ waiting on dependencies)? · \d+ in flight · \d+ blocked · \d+ done(?: · \d+ failed)?(?: · \d+ unclassified)?$/
   );
   // The in-card Begin is a link that says what it would start with (designer P2).
   await expect(page.getByTestId(TESTID.constructionTasksResume)).toHaveText(

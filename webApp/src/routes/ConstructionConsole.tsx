@@ -74,6 +74,7 @@ import {
   shapeFor,
 } from '../components/construction/tasks/tasksLensCopy';
 import { owedMarksFor } from '../components/construction/tasks/owedChip';
+import { waitingActivityIds } from '../components/construction/list/pendingResume';
 import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { computeActivityStatuses } from '../contracts/constructionAdapters';
 import { contractForActivity } from '../contracts/serviceContracts';
@@ -756,7 +757,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             (id) => viewRows?.[id]
           )
         : new Map<string, never>();
-    return emptyStateCounts(statuses, probeIds.length);
+    return emptyStateCounts(statuses, {
+      inFlight: new Set(probeIds),
+      waiting: waitingActivityIds(viewRows),
+    });
   }, [networkModel, project, viewRows, probeIds]);
   const anyDecisionLive = Object.values(decisionViews).some((v) => v.kind !== 'done');
   useEffect(() => {

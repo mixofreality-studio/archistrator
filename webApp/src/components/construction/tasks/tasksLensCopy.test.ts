@@ -10,6 +10,8 @@ import assert from 'node:assert/strict';
 import type { BuildStatus } from '../../../contracts/constructionAdapters.ts';
 import type { FailureReason } from '../../../contracts/enums.gen';
 import type { RankedOwed } from './owedRanking.ts';
+import { waitingActivityIds } from '../list/pendingResume.ts';
+import { BILLING, doneRow, pendingRow } from '../list/pendingResumeFixtures.ts';
 import {
   allClearHeadlineFor,
   askFor,
@@ -188,25 +190,106 @@ void test('the unchecked lines say how many, and nothing when none', () => {
 
 // --- the empty state -------------------------------------------------------------
 
+const NONE: { inFlight: ReadonlySet<string>; waiting: ReadonlySet<string> } = {
+  inFlight: new Set(),
+  waiting: new Set(),
+};
+
+/** Every bucket, named: the deepEqual assertions pin that there are no others. */
+function sum(c: ReturnType<typeof emptyStateCounts>): number {
+  return c.eligible + c.waiting + c.inFlight + c.blocked + c.done + c.failed + c.unclassified;
+}
+
 void test('the empty state counts come from the statuses it is handed', () => {
   const statuses = new Map<string, BuildStatus>([
     ['A', 'eligible'],
     ['B', 'eligible'],
     ['C', 'blocked'],
     ['D', 'integrated'],
+    ['E', 'eligible'],
   ]);
-  const counts = emptyStateCounts(statuses, 1);
-  assert.deepEqual(counts, { eligible: 2, inFlight: 1, blocked: 1, done: 1 });
-  // "· N done": the work already behind you (designer P2).
+  // E is a probe candidate: picked up, no evidence yet, so it reads eligible by status.
+  const counts = emptyStateCounts(statuses, { inFlight: new Set(['E']), waiting: new Set() });
+  assert.deepEqual(counts, {
+    eligible: 2,
+    waiting: 0,
+    inFlight: 1,
+    blocked: 1,
+    done: 1,
+    failed: 0,
+    unclassified: 0,
+  });
+  // "· N done": the work already behind you (designer P2). No waiting clause at 0.
   assert.equal(emptyStateLine(counts), '2 eligible · 1 in flight · 1 blocked · 1 done');
   // A different split moves the numbers — nothing is hardcoded.
-  assert.deepEqual(emptyStateCounts(new Map([['A', 'blocked']]), 0), {
-    eligible: 0,
-    inFlight: 0,
-    blocked: 1,
-    done: 0,
-  });
+  assert.equal(emptyStateCounts(new Map([['A', 'blocked']]), NONE).blocked, 1);
   assert.equal(beginLinkLabel('Begin construction', 4), 'Begin construction — 4 eligible');
+});
+
+// Designer final pass, item 1: the line read "3 eligible · 0 in flight · 3 blocked ·
+// 21 done" — 27 of 29 — because the two integration-pending rows (head-state
+// in-review) fell through every bucket.
+void test('the empty state counts are a partition: every activity in exactly one bucket', () => {
+  const statuses = new Map<string, BuildStatus>([
+    ['elig', 'eligible'],
+    ['block', 'blocked'],
+    ['wait', 'blocked'],
+    ['done', 'integrated'],
+    ['review', 'in-review'],
+    ['build', 'in-construction'],
+    ['dd', 'in-detailed-design'],
+    ['live', 'not-started'],
+    ['fail', 'failed'],
+    ['unk', 'unclassified'],
+    ['probe', 'eligible'],
+  ]);
+  const counts = emptyStateCounts(statuses, {
+    inFlight: new Set(['probe']),
+    waiting: new Set(['wait']),
+  });
+  assert.equal(sum(counts), statuses.size);
+  assert.deepEqual(counts, {
+    eligible: 1,
+    waiting: 1,
+    inFlight: 5,
+    blocked: 1,
+    done: 1,
+    failed: 1,
+    unclassified: 1,
+  });
+  assert.equal(
+    emptyStateLine(counts),
+    '1 eligible · 1 waiting on dependencies · 5 in flight · 1 blocked · 1 done · 1 failed · 1 unclassified'
+  );
+});
+
+void test('the committed 62efcafe shape: 29 activities, two waiting on dependencies', () => {
+  const statuses = new Map<string, BuildStatus>();
+  for (let i = 0; i < 21; i += 1) statuses.set(`done-${String(i)}`, 'integrated');
+  for (let i = 0; i < 3; i += 1) statuses.set(`elig-${String(i)}`, 'eligible');
+  for (let i = 0; i < 3; i += 1) statuses.set(`block-${String(i)}`, 'blocked');
+  // computeActivityStatuses reads a pending row with a non-empty waitsOn as blocked.
+  statuses.set('C-billing-manager', 'blocked');
+  statuses.set('C-system-design-manager', 'blocked');
+  const counts = emptyStateCounts(statuses, {
+    inFlight: new Set(),
+    waiting: new Set(['C-billing-manager', 'C-system-design-manager']),
+  });
+  assert.equal(sum(counts), 29);
+  assert.equal(
+    emptyStateLine(counts),
+    '3 eligible · 2 waiting on dependencies · 0 in flight · 3 blocked · 21 done'
+  );
+});
+
+void test('the waiting set is the pending rows that wait on something — not the next in line', () => {
+  const rows = {
+    'C-billing-manager': BILLING,
+    'C-next': pendingRow('C-next', []),
+    'C-billing-engine': doneRow('C-billing-engine'),
+  };
+  assert.deepEqual([...waitingActivityIds(rows)], ['C-billing-manager']);
+  assert.equal(waitingActivityIds(undefined).size, 0);
 });
 
 // --- the row's triage fields -----------------------------------------------------
