@@ -10,7 +10,9 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+// The status decides success, never the parsed body: an empty-body 5xx comes back
+// with `error: undefined` (throwUnlessOk, fix-D review I2).
+import { throwUnlessOk } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
 import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
@@ -44,7 +46,7 @@ export function useBeginConstruction(
         '/api/v1/construction/execute-next-activity/{projectID}',
         { params: { path: { projectID: projectId } }, body: { tickID } }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: refresh,
@@ -66,7 +68,7 @@ export function usePauseConstruction(
         '/api/v1/construction/pause-project/{projectID}',
         { params: { path: { projectID: projectId } }, body: { reason } }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ['constructionSession', projectId] }),
@@ -100,7 +102,7 @@ export function useOverrideActivity(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: (_data, vars) =>
@@ -134,7 +136,7 @@ export function useSubmitPhaseDecision(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: (_data, vars) =>
@@ -162,7 +164,7 @@ export function useSetReviewPolicy(
         '/api/v1/construction/set-review-policy/{projectID}',
         { params: { path: { projectID: projectId } }, body: { preset } }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
@@ -186,7 +188,7 @@ export function useUpdateReviewPolicy(
           body: { policy: { gatedPhasesByType: vars.gatedPhasesByType } },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),

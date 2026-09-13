@@ -375,3 +375,44 @@ test('a 400 is a rejection: the server’s message, Begin back at once, and no p
   await expect(alert).toBeHidden();
   expect(h.trapped).toHaveLength(1);
 });
+
+// ---------------------------------------------------------------------------
+// Fix round E: dispatch outcomes that cannot lie (the fix-D review).
+//
+// SAFETY: the same as above. Dispatches are answered in the browser (a 500, a
+// 400, or held and then answered). Session probes for one activity are answered
+// in the browser. Reads go to the server as GETs, and are at most edited in the
+// browser.
+// ---------------------------------------------------------------------------
+
+/** A bare status, the way a proxy's 502/503/504 arrives: Content-Length 0. */
+const EMPTY_BODY = { headers: { 'content-length': '0' }, body: '' };
+
+test('I2: an EMPTY-body 400 is a rejection, not a success', async ({ page }) => {
+  // openapi-fetch returns `error: undefined` for an empty body. The status decides.
+  const h = await harness(page, (route) => route.fulfill({ status: 400, ...EMPTY_BODY }));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'rejected');
+  await expect(alert).toContainText(
+    'Construction dispatch rejected: request failed with status 400.'
+  );
+  await expect(page.getByTestId(TESTID.constructionBegin)).toHaveText(/Begin construction/);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I2: an EMPTY-body 500 (a proxy’s bare 5xx) is an unknown outcome, not a success', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) => route.fulfill({ status: 500, ...EMPTY_BODY }));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toBeVisible({ timeout: 10_000 });
+  await expect(alert).toHaveAttribute('data-outcome', 'unknown');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await expect(alert).toContainText('request failed with status 500');
+  expect(h.trapped).toHaveLength(1);
+});

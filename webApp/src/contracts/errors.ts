@@ -35,3 +35,15 @@ export function toApiError(status: number, error: WireError | undefined): ApiErr
   const detail = error?.error ?? `request failed with status ${String(status)}`;
   return new ApiError(status, code, detail);
 }
+
+/**
+ * Throws the ApiError for any non-2xx response, and does nothing for a 2xx.
+ *
+ * The STATUS decides, never the parsed body (fix-D review I2). openapi-fetch
+ * 0.14.1 sets `error` only when it parsed an error body. For an empty one
+ * (Content-Length 0) it returns `error: undefined`, and that is what a proxy's
+ * 502/503/504 looks like. Testing `error !== undefined` counted those as success.
+ */
+export function throwUnlessOk(response: Response, error: WireError | undefined): void {
+  if (!response.ok) throw toApiError(response.status, error);
+}

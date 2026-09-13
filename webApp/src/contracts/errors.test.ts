@@ -1,0 +1,47 @@
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import { ApiError, throwUnlessOk } from './errors.ts';
+
+function empty(status: number): Response {
+  return new Response(null, { status, headers: { 'content-length': '0' } });
+}
+
+void test('an EMPTY-body error is still an error: the status decides, not the parsed body (fix-D review I2)', () => {
+  // openapi-fetch hands back `error: undefined` for these, which a proxy's 502/503/504 look like.
+  for (const status of [400, 404, 500, 502, 503, 504]) {
+    assert.throws(
+      () => {
+        throwUnlessOk(empty(status), undefined);
+      },
+      (e: unknown) =>
+        e instanceof ApiError &&
+        e.status === status &&
+        e.message === `request failed with status ${String(status)}`,
+      String(status)
+    );
+  }
+});
+
+void test('an error body carries its code and message through', () => {
+  assert.throws(
+    () => {
+      throwUnlessOk(new Response('{}', { status: 400 }), {
+        code: 'contract_misuse',
+        error: 'empty tickId',
+      });
+    },
+    (e: unknown) =>
+      e instanceof ApiError &&
+      e.status === 400 &&
+      e.code === 'contract_misuse' &&
+      e.message === 'empty tickId'
+  );
+});
+
+void test('a 2xx is success, with or without a body', () => {
+  for (const status of [200, 202, 204]) {
+    assert.doesNotThrow(() => {
+      throwUnlessOk(empty(status), undefined);
+    }, String(status));
+  }
+});
