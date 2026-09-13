@@ -12,7 +12,10 @@
  *
  * Sampled every 25ms for a second, on a utility (the case that flickered) and on
  * a Manager card: the hover card never closes, and the node under the pointer is
- * never hidden.
+ * never hidden. The flicker needs a mouseleave to land in a one-frame gap, so the
+ * sampling alone is probabilistic (the mutation round showed it); the CAUSE is
+ * not — so a MutationObserver on the node layer, installed before the hover,
+ * also requires that no node is ever written `visibility: hidden`.
  *
  * DISPATCH SAFETY: every non-GET request is aborted before any navigation.
  */
@@ -37,6 +40,9 @@ interface Sample {
   hidden: boolean;
 }
 
+/** Counts every node style write that hides a node (old or new value). */
+type HoldWindow = Window & { hiddenNodeWrites?: number };
+
 for (const row of ['utility', 'manager']) {
   test(`1600: a resting pointer holds a ${row} card's hover card open — no flicker, no hidden node`, async ({
     page,
@@ -54,6 +60,26 @@ for (const row of ['utility', 'manager']) {
       );
     expect(id, `a ${row} card`).not.toBe('');
     const card = page.getByTestId(id);
+    await card.evaluate((el) => {
+      const layer = el.closest('.react-flow__nodes');
+      if (layer === null) throw new Error('the card is not inside the node layer');
+      const w = window as HoldWindow;
+      w.hiddenNodeWrites = 0;
+      new MutationObserver((records) => {
+        for (const r of records) {
+          const node = r.target as HTMLElement;
+          if (!node.classList.contains('react-flow__node')) continue;
+          if (node.style.visibility === 'hidden' || (r.oldValue ?? '').includes('visibility: hidden')) {
+            w.hiddenNodeWrites = (w.hiddenNodeWrites ?? 0) + 1;
+          }
+        }
+      }).observe(layer, {
+        attributes: true,
+        attributeFilter: ['style'],
+        attributeOldValue: true,
+        subtree: true,
+      });
+    });
     await card.hover();
     const hover = page.getByTestId(TESTID.constructionGraphHoverCard);
     await expect(hover).toBeVisible();
@@ -72,5 +98,13 @@ for (const row of ['utility', 'manager']) {
     });
     expect(samples.filter((s) => s.hidden), 'the hovered node is never hidden').toHaveLength(0);
     expect(samples.filter((s) => !s.open), 'the hover card never closes').toHaveLength(0);
+    // Leaving rebuilds every node again: still none is ever hidden.
+    await page.mouse.move(1, 1);
+    await expect(hover).toHaveCount(0);
+    await page.waitForTimeout(200);
+    expect(
+      await page.evaluate(() => (window as HoldWindow).hiddenNodeWrites),
+      'no node is ever written visibility:hidden across hover changes'
+    ).toBe(0);
   });
 }
