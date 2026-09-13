@@ -66,9 +66,22 @@ export default defineConfig({
     navigationTimeout: 30_000,
   },
   projects: [
+    // THE SEED STEP (fix-G review ruling): the one place in this suite that may
+    // create a real project. Every spec depends on it, so it runs first and by
+    // name, never as some spec's side effect. It runs only with
+    // UITESTS_LIVE_DRAFTING on (only the live-drafting specs need a real project;
+    // every other spec fakes its project in the browser, under the dispatch
+    // guard), and it SKIPS otherwise, CI's default run included. A skipped seed
+    // holds no spec back. See tests/seed/shared-project.setup.ts.
+    {
+      name: 'seed-shared-project',
+      testMatch: /seed\/shared-project\.setup\.ts$/,
+      use: { ...devices['Desktop Chrome'] },
+    },
     {
       name: 'chromium',
       use: { ...devices['Desktop Chrome'] },
+      dependencies: ['seed-shared-project'],
     },
   ],
   ...(manageSpa

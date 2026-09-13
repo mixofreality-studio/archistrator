@@ -17,13 +17,15 @@
  * SAFETY (fix-F review): the structure cases run under the shared dispatch guard
  * (support/dispatchGuard), which aborts every non-GET, over a FRESH project stubbed
  * in the browser (stubCreatedProject). They create nothing. The live-drafting
- * block is the one deliberate exception: its whole purpose is to drive real
- * drafting writes against a real project, so it keeps the unguarded test. It is
- * opt-in (UITESTS_LIVE_DRAFTING=1) and self-skips otherwise, CI included
+ * block drives real drafting writes against a real project, so the guard lets
+ * through the co-author loop's writes there, and ONLY those (LIVE_DRAFTING_WRITES,
+ * fix-G review ruling): it cannot create a project or dispatch construction. The
+ * real project comes from the seed step (tests/seed/shared-project.setup.ts). It
+ * is opt-in (UITESTS_LIVE_DRAFTING=1) and self-skips otherwise, CI included
  * (uitests.yml runs with UITESTS_LIVE_DRAFTING=off).
  */
-import { test as liveTest, type Page } from '@playwright/test';
-import { test, expect } from './support/dispatchGuard.js';
+import type { Page } from '@playwright/test';
+import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting, gotoApp } from './support/gating.js';
 import { openSharedProject, enterDesignExperience } from './support/flows.js';
@@ -95,13 +97,14 @@ test.describe('structure (pure UI — server reachable)', () => {
   });
 });
 
-liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
+test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
   // Real drafting on a live worker can take a few minutes; the per-test timeout
   // must exceed the 180s artifact-render waits below (the default 60s would kill
   // the test mid-draft before the model ever reaches the gate).
-  liveTest.describe.configure({ timeout: 300_000 });
+  test.describe.configure({ timeout: 300_000 });
+  test.use({ dispatchGuardAllows: LIVE_DRAFTING_WRITES });
 
-  liveTest.beforeEach(async ({ request }) => {
+  test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
     await skipUnlessServer(request, BASE);
     // This whole block drives the real dispatch → observe → gate → approve/
@@ -110,7 +113,7 @@ liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)
     tagUseCase('drive-system-design');
   });
 
-  liveTest('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {
+  test('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -126,7 +129,7 @@ liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)
     await expect(page.getByTestId(TESTID.generatingScene)).toHaveCount(0);
   });
 
-  liveTest('the gate panel appears and Approve advances the spine', async ({ page }) => {
+  test('the gate panel appears and Approve advances the spine', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -150,7 +153,7 @@ liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)
     await expect(gate).toHaveCount(0, { timeout: 30_000 });
   });
 
-  liveTest('Send-back enables after entering free-form feedback', async ({ page }) => {
+  test('Send-back enables after entering free-form feedback', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -179,7 +182,7 @@ liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)
     await expect(page.getByTestId(TESTID.gateSendback)).toBeEnabled();
   });
 
-  liveTest('Send back with feedback regenerates the artifact', async ({ page }) => {
+  test('Send back with feedback regenerates the artifact', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 

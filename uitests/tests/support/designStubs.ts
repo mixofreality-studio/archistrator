@@ -67,6 +67,18 @@ function committedSlot(kind: string, model?: unknown): Slot {
   return { kind, stage: STAGE_COMMITTED, revisions: 1, model: { kind, model } };
 }
 
+/** ArtifactStage ordinal for a slot nothing has been drafted into yet. */
+const STAGE_EMPTY = 0;
+
+/** The Phase-1 slots a freshly created project reads back with: every one listed,
+ *  every one empty. get-project lists every slot kind, empty ones included, and the
+ *  home base's table of contents is built from that list. */
+const FRESH_PHASE1_KINDS = ['mission', 'glossary', 'volatilities', 'coreUseCases', 'system'];
+
+function emptySlot(kind: string): Slot {
+  return { kind, stage: STAGE_EMPTY, revisions: 0, model: { kind } };
+}
+
 /**
  * stubSessionGate fulfils `/api/userinfo` with a dev principal so the SPA's session
  * gate mounts the router without any real backend. Call before `page.goto`.
@@ -608,7 +620,11 @@ export async function stubCreatedProject(
       body: JSON.stringify(projectId),
     });
   });
-  await stubGetProject(page, projectId, projectState(projectId, name, []));
+  await stubGetProject(
+    page,
+    projectId,
+    projectState(projectId, name, FRESH_PHASE1_KINDS.map(emptySlot)),
+  );
   await stubNoSession(page);
   await page.route('**/api/v1/system-design/list-projects**', async (route) => {
     // A catalog read can still be in flight when the test ends. Only "the page has
