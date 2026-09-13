@@ -370,6 +370,21 @@ void test('in flight by state: a row running or awaiting a human, or a live sess
   }
 });
 
+// Tasks merge review I1: a probe candidate with no answer is not "nothing in flight".
+void test('an unchecked probe candidate (pending or errored) is in flight; an answered one is not', () => {
+  const none = { rows: {}, sessionStage: undefined };
+  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 1 }), true, 'one unanswered');
+  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 3 }), true, 'several');
+  assert.equal(constructionInFlight({ ...none, uncheckedProbes: 0 }), false, 'all answered');
+  assert.equal(constructionInFlight(none), false, 'no candidates at all');
+  // An answered probe that found no live session settles it: the stage decides.
+  assert.equal(
+    constructionInFlight({ ...none, uncheckedProbes: 0, sessionStage: 'exited' }),
+    false,
+    'answered, and the session has ended'
+  );
+});
+
 // Tasks-lens merge round: "awaiting" comes from the live owed set (Q4), never
 // head-state, and the Begin label reads it.
 void test('in flight reads the OWED set: a live gate or a steer is in flight, a recorded failure is not', () => {

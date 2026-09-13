@@ -150,6 +150,13 @@ function sessionIsLive(stage: ConstructionStage | undefined): boolean {
  * both are in flight. A recorded failure reads failed, which is not: the pump has
  * stopped on it.
  *
+ * A probe CANDIDATE whose probe has not answered (still pending, or failed without
+ * answering) is in flight too (tasks merge review I1). A candidate is an activity
+ * the pump started and has not finished; picked up a moment ago, it has no build
+ * evidence yet, so its row reads not started and only its session can say the pump
+ * runs. Until that probe answers nobody knows, and an enabled Begin beside a fresh
+ * pickup was a second pump one click away. An answer of "no session" settles it.
+ *
  * This, not a timer, is what says a pump is running. The 30s no-progress
  * watchdog used to decide it: 30s after the last integration it handed the label
  * back to the read, and an ENABLED Begin or Resume stood beside a live session.
@@ -160,8 +167,15 @@ export function constructionInFlight(state: {
   owed?: OwedMarks | undefined;
   /** A live probed session's stage, if any (newestLiveSession). */
   sessionStage: ConstructionStage | undefined;
+  /** How many probe candidates have no answer yet, pending or errored
+   *  (owedWorkFor's `unchecked`). Omitted, none. */
+  uncheckedProbes?: number | undefined;
 }): boolean {
-  return anyRowInFlight(state.rows, state.owed) || sessionIsLive(state.sessionStage);
+  return (
+    anyRowInFlight(state.rows, state.owed) ||
+    sessionIsLive(state.sessionStage) ||
+    (state.uncheckedProbes ?? 0) > 0
+  );
 }
 
 /** Whether any row's owed-aware state is running or awaiting a human (rowIsInFlight). */

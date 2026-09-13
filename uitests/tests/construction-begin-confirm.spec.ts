@@ -789,6 +789,77 @@ test('a fresh pickup with no build evidence yet: its live session alone holds Be
   expect(h.trapped).toEqual([]);
 });
 
+// Tasks merge review I1: until a fresh pickup's probe ANSWERS, nobody knows whether
+// its pump runs. A probe still pending, or one that failed without answering, is
+// in flight; only an answer ("no session") gives Begin back.
+function freshPickup(wire: WireProject): void {
+  const row = wire.ActivityConstruction?.[PICKED];
+  if (row === undefined) throw new Error(`no row ${PICKED} in the read`);
+  row.classified = true;
+  row.recorded = true;
+  row.startedAt = PICKUP_AT;
+  row.hasBuildEvidence = false;
+}
+
+const NO_SESSION = { status: 404, json: { code: 'not_found', error: 'no session' } };
+
+test('I1 (tasks merge review): a fresh pickup whose probe is still PENDING holds Begin off until it answers', async ({
+  page,
+  dispatchGuard,
+}) => {
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = freshPickup;
+  const hold = dispatchGuard.hold();
+  const probes: number[] = [];
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, (route) => {
+    probes.push(Date.now());
+    return hold.handle(route, () => route.fulfill(NO_SESSION));
+  });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  // The probe is on the wire and says nothing yet: running, never an enabled Begin.
+  await expectRunning(page, 3_000);
+  // It answers: no session. Nothing is in flight, so Begin is offered.
+  hold.release();
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toEqual([]);
+});
+
+test('I1 (tasks merge review): a fresh pickup whose probe answers 500 holds Begin off through the re-asks, until one answers', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = freshPickup;
+  const answer = { failing: true };
+  const probes: number[] = [];
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
+    probes.push(Date.now());
+    await route.fulfill(
+      answer.failing ? { status: 500, json: { error: 'session store unavailable' } } : NO_SESSION
+    );
+  });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expectRunning(page, 1_500);
+  // Through the errored probe's backoff and its re-ask, still running.
+  const asked = probes.length;
+  await page.clock.fastForward(12_000);
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(asked);
+  await expectRunning(page, 1_500);
+  // A re-ask answers: no session. Begin comes back.
+  answer.failing = false;
+  await page.clock.fastForward(25_000);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toEqual([]);
+});
+
 // ---------------------------------------------------------------------------
 // Fix round F: a remount must not drop the hold (fix-E review I2).
 //

@@ -559,10 +559,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       return { stage: o?.stage, requestedAt: o?.requestedAt ?? 0 };
     })
   );
+  // A probe candidate whose probe has not answered, pending or errored, is in
+  // flight too (tasks merge review I1): a fresh pickup reads not started until its
+  // session says otherwise, so an unanswered probe is not "nothing running".
   const inFlight = constructionInFlight({
     rows: project?.constructionRows,
     owed: owedMarks,
     sessionStage: liveSession?.stage,
+    uncheckedProbes: owedWork.unchecked.pending.length + owedWork.unchecked.errored.length,
   });
   // Pump evidence counts only from reads REQUESTED after the failure, never by when
   // they arrived, and only what CHANGED after it: the project shows work in flight
