@@ -10,6 +10,7 @@ import {
   CANVAS_BOTTOM_PAD_PX,
   CANVAS_MIN_PX,
   LOD1_MIN_ZOOM,
+  VIEWPORT_STORE_LIMIT,
   canvasHeightPx,
   graphMountFor,
   graphSignatureOf,
@@ -72,6 +73,24 @@ void test('the store hands back a copy, so a caller cannot rewrite it by mutatio
   assert.ok(got !== undefined);
   got.zoom = 9;
   assert.deepEqual(loadGraphViewport('sig-c'), { x: 0, y: 0, zoom: 1 });
+});
+
+void test('the store is bounded: past the limit the least recently saved signature is dropped', () => {
+  const sig = (i: number): string => `bound-${String(i)}`;
+  for (let i = 0; i < VIEWPORT_STORE_LIMIT; i += 1)
+    saveGraphViewport(sig(i), { x: i, y: 0, zoom: 1 });
+  // Re-saving bound-0 makes it the most recent; bound-1 is now the oldest.
+  saveGraphViewport(sig(0), { x: 0, y: 1, zoom: 1 });
+  saveGraphViewport(sig(VIEWPORT_STORE_LIMIT), { x: 99, y: 0, zoom: 1 });
+  assert.equal(loadGraphViewport(sig(1)), undefined, 'the oldest is evicted');
+  assert.deepEqual(loadGraphViewport(sig(0)), { x: 0, y: 1, zoom: 1 }, 'a re-save refreshes');
+  assert.deepEqual(loadGraphViewport(sig(VIEWPORT_STORE_LIMIT)), { x: 99, y: 0, zoom: 1 });
+  assert.deepEqual(loadGraphViewport(sig(2)), { x: 2, y: 0, zoom: 1 });
+});
+
+void test('the signature sorts by code unit, never by locale', () => {
+  // localeCompare puts "a" before "B"; code-unit order puts "B" (0x42) first.
+  assert.equal(graphSignatureOf('p', ['a', 'B'], []), 'p|c2:B,a|a0:');
 });
 
 void test('a non-finite viewport is refused rather than restored as NaN', () => {

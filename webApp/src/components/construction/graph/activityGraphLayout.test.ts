@@ -80,7 +80,11 @@ const ACTIVITIES: Activity[] = [
   act('C-y-manager-2', 'manager', 'y-manager'),
   act('C-a-engine', 'engine', 'a-engine'),
   act('R-db', 'resource', 'db'),
+  // Two project-wide cards, deliberately OUT of id order: the System-wide row
+  // takes model order, so this pins the model's own id sort — without it N-STP
+  // would lay out first (code review).
   act('N-STP', undefined),
+  act('N-IT', undefined),
 ];
 
 function modelOf(activities: Activity[] = ACTIVITIES): ActivityGraphModel<Activity> {
@@ -125,7 +129,8 @@ void test('GOLDEN: the fixture lays out at exactly these coordinates', () => {
     // x-manager (no caller), then b-engine under y-manager, a-engine under
     // x-manager. The 2-lane y-manager card makes the Managers row taller.
     'a-engine': [220, 350],
-    'activity:N-STP': [0, 824],
+    'activity:N-IT': [0, 824],
+    'activity:N-STP': [220, 824],
     'b-engine': [0, 350],
     db: [0, 666],
     logging: [512, 34],

@@ -182,14 +182,20 @@ export function ribbonCountLabel(m: {
 }
 
 // ---------------------------------------------------------------------------
-// The layering check (spec R5, App C §3.4, Decision D3)
+// The up/sideways check (spec R5, App C §3.4, Decision D3)
 // ---------------------------------------------------------------------------
 
+/**
+ * Named for what it checks — edge DIRECTION only (upward, and sideways other
+ * than the one sanctioned case). It is not the whole App C layering standard:
+ * Client-entry, queued-target and Don't 6b are Design Health's, not this
+ * view's, so the label does not claim them (code review, graph lens).
+ */
 export function layeringCheckText(m: {
   alarms: { up: number; sideways: number };
   sanctionedSideways: number;
 }): string {
-  const base = `Layering check: ${String(m.alarms.up)} upward · ${String(m.alarms.sideways)} sideways`;
+  const base = `Up/sideways check: ${String(m.alarms.up)} upward · ${String(m.alarms.sideways)} sideways`;
   return m.sanctionedSideways > 0
     ? `${base} · ${String(m.sanctionedSideways)} queued Manager→Manager (sanctioned, App C §3.4)`
     : base;

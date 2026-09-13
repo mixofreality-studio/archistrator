@@ -35,8 +35,10 @@ export function graphSignatureOf(
   componentIds: readonly string[],
   activityIds: readonly string[]
 ): string {
+  // Code-unit order, the same as the model and layout (`localeCompare` is
+  // locale-dependent — a signature must be the same string everywhere).
   const sorted = (ids: readonly string[]): string =>
-    [...ids].sort((a, b) => a.localeCompare(b)).join(',');
+    [...ids].sort((a, b) => (a < b ? -1 : a > b ? 1 : 0)).join(',');
   // The two sets are length-prefixed and kept in separate fields so an id can
   // never slide from one set into the other and collide.
   return [
@@ -45,6 +47,14 @@ export function graphSignatureOf(
     `a${String(activityIds.length)}:${sorted(activityIds)}`,
   ].join('|');
 }
+
+/**
+ * How many signatures the store remembers. A signature changes whenever the
+ * architecture or the plan does, so an unbounded map would grow for the life of
+ * the tab; the least recently saved is dropped first (a Map iterates in
+ * insertion order, and a save re-inserts).
+ */
+export const VIEWPORT_STORE_LIMIT = 16;
 
 const viewportStore = new Map<string, GraphViewport>();
 
@@ -64,7 +74,13 @@ export function saveGraphViewport(signature: string, viewport: GraphViewport): v
     viewportStore.delete(signature);
     return;
   }
+  viewportStore.delete(signature);
   viewportStore.set(signature, { x: viewport.x, y: viewport.y, zoom: viewport.zoom });
+  while (viewportStore.size > VIEWPORT_STORE_LIMIT) {
+    const oldest = viewportStore.keys().next().value;
+    if (oldest === undefined) break;
+    viewportStore.delete(oldest);
+  }
 }
 
 // ---------------------------------------------------------------------------

@@ -4,9 +4,19 @@
  * THE ONE PROPERTY
  * ----------------
  * The same state gives the same positions, and "state" means the ARCHITECTURE
- * (which components, which calls) and the ACTIVITY SET (which card carries how
- * many lanes). Nothing else is an input: not a status, not an attempt, not the
- * order rows arrived in from the wire, not a toolbar filter. The console polls
+ * (which components, in the committed `system` slot's component order, and
+ * which calls) and the ACTIVITY SET (which card carries how many lanes).
+ *
+ * The component ARRAY ORDER is a layout input, on purpose: component cards enter
+ * the barycenter sweep in that order and its ties break by it, and the Utilities
+ * bar stacks in it. It is committed data, stable across reads, so it is state —
+ * but reordering the system slot's components can reorder a row. (The viewport
+ * signature sorts ids, so such a reorder keeps the remembered viewport.)
+ *
+ * Nothing else is an input: not a status, not an attempt, not the order
+ * ACTIVITY rows arrived in from the wire (the model sorts them by id), not a
+ * schedule figure (float, effort, criticality — lane channels, never geometry),
+ * not a toolbar filter. The console polls
  * every 1.5s while the pump cascades; a card that moved when an activity
  * completed would throw the operator's eye off on every tick. Pinned by
  * activityGraphLayout.test.ts, including a golden layout with every coordinate

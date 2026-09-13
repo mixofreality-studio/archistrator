@@ -40,7 +40,11 @@ function countTooltip(m: RibbonMilestone): string {
     return `Gates ${String(m.gates.length)} activities. It has no feeders of its own, so it asserts no completion state.`;
   }
   if (m.complete === undefined) {
-    return 'No completion count: some of its feeders carry reconstructed or unrecorded evidence, and a count over it would present work nobody watched happen as fact (spec §9.2).';
+    const n = m.unobserved > 0 ? m.unobserved : m.unreported;
+    const feeders = n === 1 ? '1 feeder has' : `${String(n)} feeders have`;
+    return m.unobserved > 0
+      ? `No completion count: ${feeders} no observed record.`
+      : `No completion count: ${feeders} a phase not yet reported.`;
   }
   return `${String(m.complete)} of ${String(m.feeders.length)} feeders have passed every lifecycle gate, all of it observed.`;
 }

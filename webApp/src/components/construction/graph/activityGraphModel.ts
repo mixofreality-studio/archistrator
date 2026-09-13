@@ -38,11 +38,18 @@
  * In a layer-positioned render an edge's direction is geometry: down is normal,
  * up is a closed-architecture violation, and sideways within a layer is one too
  * — EXCEPT the one sideways call App C §3.4 sanctions: a QUEUED Manager →
- * Manager call (the-method-layers; enforced server-side by the Design-Health
- * rule at designhealthengine.go:2520, "same-layer calls are permitted only when
- * queued"). The view exists to be a live App C layering check, so it must agree
- * with App C: the sanctioned case is counted, drawn as the queued call it is,
- * and NOT alarmed. Every other upward or sideways edge alarms.
+ * Manager call (the-method-layers). The view exists to be a live App C check,
+ * so it must agree with App C exactly — never stricter, never looser (the
+ * architect's Q1 ruling, spec R5): the exemption needs BOTH endpoints to be
+ * Managers AND `mode = queued`, and both sit in one row by construction. The
+ * sanctioned case is counted, drawn as the queued call it is, and NOT alarmed.
+ * A sync or `eventPubSub` Manager→Manager edge alarms, and so does a queued
+ * sideways edge between non-Managers.
+ *
+ * This is deliberately STRICTER than the server: the Design-Health rule at
+ * designhealthengine.go:2522 (`RuleGraphSidewaysSync`) exempts ANY queued
+ * same-layer call. The ruling keeps the graph on App C and earmarks the server
+ * rule for a design-health wave (spec §11); zero live edges are affected.
  *
  * NO LINES TO THE UTILITIES
  * -------------------------

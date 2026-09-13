@@ -41,7 +41,11 @@ const CARD_ID = /^construction-graph-card-/;
 const LANE_ID = /^construction-graph-lane-/;
 
 test.beforeEach(async ({ page, request }) => {
-  await page.route('**/execute-next-activity/**', (route) => route.abort());
+  // DISPATCH SAFETY: every non-GET request is aborted before any navigation, so
+  // nothing this spec does can write, begin, run or decide anything.
+  await page.route('**/*', (route) =>
+    route.request().method() === 'GET' ? route.fallback() : route.abort()
+  );
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });

@@ -8,6 +8,7 @@
  * rule lives in a pinned `.ts` sibling:
  *
  *   activityGraphModel  which cards and lanes exist, hollow coverage, edge alarms
+ *   graphEdges          hover-focus, and how each edge is drawn (alarms never hide)
  *   activityGraphLayout where every card goes — the same state, the same place
  *   laneSpine           what each lane's lifecycle says
  *   gateRibbon          what each milestone may and may not claim
@@ -60,9 +61,9 @@ import {
   buildActivityGraphModel,
   type ActivityGraphModel,
   type GraphCard,
-  type GraphEdge,
   type GraphRow,
 } from './activityGraphModel';
+import { cardSetFocusFor, edgePresentationFor, hoverFocusFor, type GraphFocus } from './graphEdges';
 import { CARD_W, UTIL_PAD, layoutActivityGraph, type GraphLayout } from './activityGraphLayout';
 import { laneSpineFor, type LaneSpine } from './laneSpine';
 import { gateRibbonFor } from './gateRibbon';
@@ -192,22 +193,6 @@ export function ActivityGraphLens({
 // The canvas
 // ---------------------------------------------------------------------------
 
-interface Focus {
-  /** Cards lit; every other non-utility card mutes. */
-  cards: ReadonlySet<string>;
-  /** Edges lit; every other NON-ALARM edge hides. */
-  incident: (e: GraphEdge) => boolean;
-}
-
-function hoverFocus(hoveredId: string, model: ActivityGraphModel<ActivityNode>): Focus {
-  const cards = new Set<string>([hoveredId]);
-  for (const e of model.edges) {
-    if (e.from === hoveredId) cards.add(e.to);
-    if (e.to === hoveredId) cards.add(e.from);
-  }
-  return { cards, incident: (e) => e.from === hoveredId || e.to === hoveredId };
-}
-
 function GraphCanvas({
   signature,
   model,
@@ -271,14 +256,9 @@ function GraphCanvas({
   }, []);
   useEffect(() => cancelPendingLeave, []);
 
-  const focus = useMemo((): Focus | null => {
-    if (hoveredId !== null) return hoverFocus(hoveredId, model);
-    if (ribbonFocus !== null) {
-      return {
-        cards: ribbonFocus,
-        incident: (e) => ribbonFocus.has(e.from) && ribbonFocus.has(e.to),
-      };
-    }
+  const focus = useMemo((): GraphFocus | null => {
+    if (hoveredId !== null) return hoverFocusFor(hoveredId, model.edges);
+    if (ribbonFocus !== null) return cardSetFocusFor(ribbonFocus);
     return null;
   }, [hoveredId, ribbonFocus, model]);
 
@@ -380,7 +360,7 @@ function buildNodes(args: {
   spines: Readonly<Record<string, LaneSpine>>;
   unmatched: ReadonlySet<string>;
   selectedActivityId: string | undefined;
-  focus: Focus | null;
+  focus: GraphFocus | null;
   hoveredId: string | null;
   t: Tokens;
   onSelectLane: (activityId: string, lifecyclePhase?: string) => void;
@@ -454,25 +434,20 @@ function buildNodes(args: {
   return nodes;
 }
 
+/** Tokens onto the pure edge presentation (graphEdges.ts decides every rule). */
 function buildEdges(
   model: ActivityGraphModel<ActivityNode>,
-  focus: Focus | null,
+  focus: GraphFocus | null,
   t: Tokens
 ): Edge[] {
   return model.edges.map((e) => {
-    const alarm = e.alarm ? { stroke: t.dangerFg, strokeWidth: ALARM_STROKE_WIDTH } : {};
-    // Queued calls are dashed, as in every architecture view.
-    const base = { dashed: e.mode !== 'sync', ...alarm };
-    const incident = focus?.incident(e) ?? false;
-    const edge =
-      focus === null
-        ? flowEdge(e.id, e.from, e.to, '', t, base)
-        : flowEdge(e.id, e.from, e.to, '', t, {
-            ...base,
-            // An alarm edge is never hidden — R5: "never hide it or route around it".
-            hidden: !incident && !e.alarm,
-            variant: incident ? 'focus' : 'normal',
-          });
-    return { ...edge, className: `graph-edge graph-edge-${e.direction}` };
+    const p = edgePresentationFor(e, focus);
+    const alarm = p.alarm ? { stroke: t.dangerFg, strokeWidth: ALARM_STROKE_WIDTH } : {};
+    const edge = flowEdge(p.id, p.from, p.to, '', t, {
+      dashed: p.dashed,
+      ...alarm,
+      ...(focus !== null ? { hidden: p.hidden, variant: p.variant } : {}),
+    });
+    return { ...edge, className: p.className };
   });
 }

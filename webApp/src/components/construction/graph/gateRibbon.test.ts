@@ -193,6 +193,36 @@ void test('a feeder missing from the tree is neither complete nor observed, and 
   assert.equal(m1.provenance, 'unknown');
 });
 
+void test('an OBSERVED feeder with an unreported phase makes the count absent — never a false 0/n', () => {
+  // R-b is observed but reports only four of its five phases, so its
+  // percentage is unknown; counting it as "not complete" would read 1/2.
+  const partial = recorded('R-b', true, 'observed');
+  partial.phases = partial.phases.slice(0, 4);
+  const tree = nodes([recorded('R-a', true, 'observed'), partial]);
+  assert.equal(
+    tree.find((n) => n.activityId === 'R-b')?.percentComplete,
+    undefined,
+    'fixture: R-b has an unknown percentage'
+  );
+  const m1 = only(gateRibbonFor(MILESTONES, DEPENDENCIES, tree), 'M1');
+  assert.equal(m1.provenance, 'observed', 'fixture: every feeder is observed');
+  assert.equal(m1.complete, undefined);
+  assert.equal(m1.unreported, 1);
+  assert.equal(m1.unobserved, 0);
+});
+
+void test('the ribbon counts the feeders with no observed record', () => {
+  const m1 = only(
+    gateRibbonFor(
+      MILESTONES,
+      DEPENDENCIES,
+      nodes([recorded('R-a', true, 'backfilled'), unrecorded('R-b')])
+    ),
+    'M1'
+  );
+  assert.equal(m1.unobserved, 2);
+});
+
 void test('a milestone with no feeders is unknown, never observed', () => {
   assert.equal(only(gateRibbonFor(MILESTONES, DEPENDENCIES, []), 'M0').provenance, 'unknown');
 });

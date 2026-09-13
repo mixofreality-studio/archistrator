@@ -42,10 +42,15 @@ export interface RibbonMilestone {
   feeders: string[];
   /** The activities that wait on this milestone, by id. */
   gates: string[];
-  /** Feeders at 100% — PRESENT ONLY when every feeder's evidence is observed (§9.2). */
+  /** Feeders at 100% — PRESENT ONLY when every feeder's evidence is observed AND
+   *  every feeder's percentage is known (§9.2). */
   complete?: number;
   /** The worst origin among the feeders; `unknown` when any is unrecorded or missing. */
   provenance: ProvenanceOrigin;
+  /** Feeders whose evidence is not observed (reconstructed, unrecorded or missing). */
+  unobserved: number;
+  /** Feeders whose completion percentage is unknown (a phase unreported, or missing). */
+  unreported: number;
 }
 
 /** Worst-first: a reconstructed feeder outranks an unrecorded one, which outranks observed. */
@@ -85,10 +90,17 @@ export function gateRibbonFor(
       feeders.length === 0 ? 'unknown' : 'observed'
     );
 
-    const everyFeederObserved = feeders.length > 0 && origins.every((o) => o === 'observed');
-    const complete = everyFeederObserved
-      ? feeders.filter((id) => nodeById.get(id)?.percentComplete === 100).length
-      : undefined;
+    // A count needs BOTH facts for every feeder: observed evidence, and a known
+    // percentage. An observed feeder with an unreported phase has an unknown
+    // percentage (App A: an unknown denominator is not a zero numerator), so
+    // counting it as "not complete" would read a false "0/n" (code review).
+    const unobserved = origins.filter((o) => o !== 'observed').length;
+    const percents = feeders.map((id) => nodeById.get(id)?.percentComplete);
+    const unreported = percents.filter((p) => p === undefined).length;
+    const complete =
+      feeders.length > 0 && unobserved === 0 && unreported === 0
+        ? percents.filter((p) => p === 100).length
+        : undefined;
 
     return {
       id: m.id,
@@ -97,6 +109,8 @@ export function gateRibbonFor(
       gates,
       ...(complete !== undefined ? { complete } : {}),
       provenance,
+      unobserved,
+      unreported,
     };
   });
 }

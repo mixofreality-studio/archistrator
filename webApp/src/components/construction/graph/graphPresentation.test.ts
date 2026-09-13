@@ -103,14 +103,14 @@ void test('a milestone with no feeders says what it gates instead', () => {
 void test('the layering check states both alarm counts, zero included', () => {
   assert.equal(
     layeringCheckText({ alarms: { up: 0, sideways: 0 }, sanctionedSideways: 0 }),
-    'Layering check: 0 upward · 0 sideways'
+    'Up/sideways check: 0 upward · 0 sideways'
   );
 });
 
 void test('the sanctioned queued Manager→Manager calls are counted apart, citing App C', () => {
   assert.equal(
     layeringCheckText({ alarms: { up: 1, sideways: 0 }, sanctionedSideways: 2 }),
-    'Layering check: 1 upward · 0 sideways · 2 queued Manager→Manager (sanctioned, App C §3.4)'
+    'Up/sideways check: 1 upward · 0 sideways · 2 queued Manager→Manager (sanctioned, App C §3.4)'
   );
 });
 
