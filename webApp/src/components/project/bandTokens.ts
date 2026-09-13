@@ -4,10 +4,15 @@
  * in its own module (no component export) so React Fast Refresh stays happy and so
  * the node-colouring and edge-colouring can never drift apart. All colours come
  * from theme tokens — never hardcoded.
+ *
+ * Which token carries each band is bandRamp.ts's BAND_TOKEN: monotonic, the lower
+ * the float the stronger the alarm (designer re-check #12). Critical (float 0) is
+ * the danger colour; it used to be the accent, weaker than the ≤5d band's red.
  */
 import { alpha } from '@mui/material/styles';
 import type { Tokens } from '../../utilities/theme/themes';
 import type { FloatBand } from '../../contracts/projectAdapters';
+import { BAND_TOKEN } from './bandRamp.ts';
 
 export interface BandTokens {
   /** The strong band colour (left-border, chip text/border, minimap fill). */
@@ -17,16 +22,8 @@ export interface BandTokens {
 }
 
 export function bandTokens(t: Tokens, band: FloatBand): BandTokens {
-  switch (band) {
-    case 'critical':
-      return { fg: t.accent, soft: t.accent };
-    case 'red':
-      return { fg: t.dangerFg, soft: alpha(t.dangerFg, 0.16) };
-    case 'yellow':
-      return { fg: t.bandYellow, soft: alpha(t.bandYellow, 0.16) };
-    case 'green':
-      return { fg: t.bandGreen, soft: alpha(t.bandGreen, 0.16) };
-  }
+  const fg = t[BAND_TOKEN[band]];
+  return { fg, soft: alpha(fg, 0.16) };
 }
 
 export const BAND_LABEL: Record<FloatBand, string> = {
