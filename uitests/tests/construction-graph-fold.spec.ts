@@ -126,3 +126,43 @@ test('the ribbon is one line that scrolls sideways, and the key is a popover but
   await expect(page.getByTestId(TESTID.constructionGraphKey)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionGraphKey)).toContainText('RECONSTRUCTED');
 });
+
+for (const [w, h] of [
+  [1280, 800],
+  [1366, 768],
+] as const) {
+  test(`${String(w)}×${String(h)} with a pane at its FULL height: no scroller above it and not the document scrolls (designer re-check 2)`, async ({
+    page,
+  }) => {
+    await page.setViewportSize({ width: w, height: h });
+    // N-IT's pane is long enough to reach its height cap — the case where the
+    // cap, not the content, decides the pane's bottom edge.
+    await gotoApp(page, `${GRAPH}&a=N-IT`);
+    const pane = page.getByTestId(TESTID.constructionDetailPane);
+    await expect(pane).toBeVisible();
+    await expect(page.getByTestId(LANE_ID).first()).toBeVisible();
+    await page.waitForTimeout(600);
+    const probe = await pane.evaluate((el) => {
+      const canvas = document.querySelector('[data-testid="construction-graph-canvas"]');
+      const overflows: string[] = [];
+      const seen = new Set<Element>();
+      for (const start of [el.parentElement, canvas?.parentElement ?? null]) {
+        for (let s: HTMLElement | null = start; s !== null; s = s.parentElement) {
+          if (seen.has(s) || !/(auto|scroll)/.test(getComputedStyle(s).overflowY)) continue;
+          seen.add(s);
+          const over = s.scrollHeight - s.clientHeight;
+          if (over > 1) overflows.push(`${s.tagName}.${s.className.slice(0, 40)} +${String(over)}px`);
+        }
+      }
+      const doc = document.scrollingElement ?? document.documentElement;
+      return {
+        atCap: el.getBoundingClientRect().height >= Number.parseFloat(getComputedStyle(el).maxHeight) - 1,
+        overflows,
+        documentOverflow: doc.scrollHeight - doc.clientHeight,
+      };
+    });
+    expect(probe.atCap, 'the pane reached its height cap (else this test proves nothing)').toBe(true);
+    expect(probe.overflows, 'no scroller above the pane or the canvas scrolls').toEqual([]);
+    expect(probe.documentOverflow, 'the document does not scroll').toBeLessThanOrEqual(1);
+  });
+}

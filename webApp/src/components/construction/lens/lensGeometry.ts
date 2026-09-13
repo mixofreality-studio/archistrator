@@ -58,12 +58,19 @@ export const PANE_BOTTOM_GAP_PX = 16;
 export function lensGeometryVars(
   toolbarHeightPx: number,
   scrollHeightPx: number,
-  rowTopPx: number
+  rowTopPx: number,
+  /**
+   * The scroller's own bottom padding. Content ends ABOVE it — the canvas
+   * subtracts it too (graphViewport.canvasHeightPx) — so a pane capped against
+   * the full client height overflowed the scroller by (padding − the 16px gap):
+   * 7px at 1280 and 1366 (designer re-check 2). Absent: no padding.
+   */
+  scrollPadBottomPx = 0
 ): Record<string, string> {
   const toolbarPx = Math.ceil(toolbarHeightPx);
   return {
     [LENS_TOOLBAR_H_VAR]: `${String(toolbarPx)}px`,
-    [LENS_SCROLL_H_VAR]: `${String(Math.floor(scrollHeightPx))}px`,
+    [LENS_SCROLL_H_VAR]: `${String(Math.floor(scrollHeightPx - scrollPadBottomPx))}px`,
     [LENS_ROW_TOP_VAR]: `${String(Math.max(Math.ceil(rowTopPx), toolbarPx + PANE_TOOLBAR_GAP_PX))}px`,
   };
 }

@@ -219,7 +219,8 @@ export function ConstructionShell({
       const vars = lensGeometryVars(
         toolbarRect.height,
         scroller?.clientHeight ?? window.innerHeight,
-        row.getBoundingClientRect().top - scrollerTop
+        row.getBoundingClientRect().top - scrollerTop,
+        scroller !== null ? Number.parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0
       );
       for (const [name, value] of varsToWrite(written, vars)) {
         target.style.setProperty(name, value);
