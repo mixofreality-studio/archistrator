@@ -442,8 +442,8 @@ export const UI_IDENTIFIERS = {
       `construction-list-action-${action}-${nodeId}`,
     // The shared detail pane (Stage B Task 4) — one header/body/action-bar
     // surface behind all three lenses. Laid out BESIDE the content at
-    // >=1200px; below that it degrades to DETAIL_DRAWER, an overlay Drawer
-    // rendered by DetailPane.tsx itself.
+    // >=1200px; below that it degrades to DETAIL_DRAWER, a non-modal (persistent)
+    // Drawer over the right edge, rendered by DetailPane.tsx itself.
     DETAIL_PANE: 'construction-detail-pane',
     DETAIL_DRAWER: 'construction-detail-drawer',
     DETAIL_COLLAPSE_TOGGLE: 'construction-detail-collapse-toggle',

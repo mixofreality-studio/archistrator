@@ -13,9 +13,14 @@
  * it throws outright in a private window or with site data blocked, and the
  * pane must still render correctly with no stored value).
  *
- * < 1200px: degrades to an overlay Drawer (spec §7.4: kept, not deleted). It
- * lives HERE, in this file — the same Drawer mechanism the old panel used, now
- * driven by the shared header/body/action-bar rather than a bespoke one.
+ * < 1200px: degrades to a Drawer over the right edge (spec §7.4), driven by the
+ * shared header/body/action-bar. It is NON-modal, MUI's `persistent` variant, as
+ * the graph lens's is (designer re-check #11): no backdrop, no focus trap, and
+ * nothing else marked aria-hidden, so the lens toggle and the list stay reachable
+ * while it is open. It was a temporary (modal) Drawer, whose backdrop and focus
+ * trap put the lens toggle out of reach. Its a11y is kept by hand: focus moves in
+ * when it opens, Escape inside it closes it, and on close focus goes back to
+ * where it was outside it (the row that opened it, usually).
  *
  * The two invariants that make this surface trustworthy (see
  * detailPaneState.ts for the pure half of both):
@@ -265,6 +270,30 @@ export function DetailPane({
     }
   }, []);
 
+  // Below 1200px the pane is a NON-modal drawer (see its render below), so the
+  // focus handling a modal would do is done here: focus moves into the drawer when
+  // it opens, and when it closes focus goes back to whatever OUTSIDE it last had
+  // focus (the row that opened it, or the one the operator moved to since).
+  const narrowOpen = open && !isWide;
+  const drawerBodyRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    if (!narrowOpen) return undefined;
+    const inDrawer = (node: EventTarget | null): boolean =>
+      node instanceof Node && drawerBodyRef.current?.contains(node) === true;
+    const active = document.activeElement;
+    let returnTo: HTMLElement | null =
+      active instanceof HTMLElement && active !== document.body ? active : null;
+    const onFocusIn = (e: FocusEvent): void => {
+      if (e.target instanceof HTMLElement && !inDrawer(e.target)) returnTo = e.target;
+    };
+    document.addEventListener('focusin', onFocusIn);
+    drawerBodyRef.current?.focus();
+    return (): void => {
+      document.removeEventListener('focusin', onFocusIn);
+      if (returnTo?.isConnected === true) returnTo.focus();
+    };
+  }, [narrowOpen]);
+
   const state = useMemo(() => taskDetailStateFor(row, selection), [row, selection]);
   const actions = useMemo(
     () => detailActionsFor(state, runActionFor(row, selection)),
@@ -362,23 +391,50 @@ export function DetailPane({
     );
   }
 
-  // Below 1200px: the existing overlay Drawer (kept, not deleted) — the pane
-  // cannot sit beside content that no longer has room for it.
+  // Below 1200px the pane cannot sit beside content that no longer has room for it,
+  // so it is a Drawer over the right edge: a PERSISTENT one, which renders no Modal
+  // at all. A temporary Drawer is a Modal even with no backdrop and no focus trap:
+  // MUI's ModalManager marks every sibling of its container aria-hidden while it is
+  // open (found on the graph branch). The persistent variant ignores onClose, so
+  // Escape is handled on the body below.
   return (
     <Drawer
       anchor="right"
+      data-modal="false"
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_DRAWER}
       open={open}
       slotProps={{
         paper: {
           'aria-labelledby': 'construction-detail-pane-title',
+          'aria-modal': false,
           role: 'dialog',
           sx: { width: { xs: '100%', sm: 480 }, bgcolor: t.paper, backgroundImage: 'none' },
         },
       }}
-      onClose={onClose}
+      variant="persistent"
     >
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box
+        ref={drawerBodyRef}
+        sx={{
+          display: 'flex',
+          flexDirection: 'column',
+          height: '100%',
+          // Focus lands here programmatically (it is the dialog's content, not a
+          // control): no ring round the whole pane; the first Tab reaches its controls.
+          outline: 0,
+          '&:focus-visible': { boxShadow: 'none' },
+        }}
+        tabIndex={-1}
+        onKeyDown={(e) => {
+          // Escape inside the drawer closes it. Only a key pressed in the drawer's
+          // own DOM: React bubbles portal events (a Select's open menu) through here
+          // too, and that Escape belongs to the menu.
+          if (e.key !== 'Escape' || e.defaultPrevented) return;
+          if (!(e.target instanceof Node) || !e.currentTarget.contains(e.target)) return;
+          e.stopPropagation();
+          onClose();
+        }}
+      >
         <DetailHeader
           breadcrumb={breadcrumb}
           exitCriterion={meta.exitCriterion}
