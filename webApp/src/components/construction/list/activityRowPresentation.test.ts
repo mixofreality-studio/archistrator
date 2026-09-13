@@ -429,7 +429,7 @@ void test('every tier-1 row and the header share one grid with fixed slots', () 
   assert.equal(template.match(/fr\b/g)?.length, 1);
   assert.match(
     template,
-    /^4px 18px var\(--list-float-w\) var\(--list-effort-w\) minmax\(0, 1fr\) var\(--list-kind-w\) 108px var\(--list-progress-w\) 100px$/
+    /^4px 18px var\(--list-float-w\) var\(--list-effort-w\) minmax\(0, 1fr\) var\(--list-kind-w\) var\(--list-provenance-w\) var\(--list-progress-w\) 100px$/
   );
   // The compact mode narrows kind and the tracks — never below an icon's width.
   assert.ok(

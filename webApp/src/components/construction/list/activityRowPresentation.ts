@@ -417,6 +417,14 @@ export function stageRule(stage: PhaseNode, maxWeight: number): StageRulePresent
 export const LIST_COMPACT_BELOW_PX = 1000;
 
 /**
+ * Below this LIST width the kind and provenance columns are dropped from the grid
+ * (activityGridColumns 'narrow'), so the id and title keep the room: at 500px they
+ * were crushed to "C-…" and "B…" (designer final pass, item 6). The kind stays in
+ * the pane; the provenance stays on the row's rail.
+ */
+export const LIST_NARROW_BELOW_PX = 600;
+
+/**
  * The title never gets less than this beside the id. Below it the title WRAPS
  * under the id instead of shrinking — and because every row shares the id
  * column's width and this basis, every row wraps or none does. Before this the
@@ -436,14 +444,15 @@ export interface ListSlotWidths {
   float: number;
   effort: number;
   kind: number;
+  provenance: number;
   progressTrack: number;
 }
 
 /** Fixed slot widths, px. The progress slot is its track plus a 32px numeral and a
  *  4px gap; the provenance and state slots do not vary. */
 export const LIST_SLOT_WIDTHS: Readonly<Record<'wide' | 'compact', ListSlotWidths>> = {
-  wide: { float: 34, effort: 44, kind: 92, progressTrack: 56 },
-  compact: { float: 30, effort: 36, kind: 24, progressTrack: 28 },
+  wide: { float: 34, effort: 44, kind: 92, provenance: PROVENANCE_SLOT_PX, progressTrack: 56 },
+  compact: { float: 30, effort: 36, kind: 24, provenance: PROVENANCE_SLOT_PX, progressTrack: 28 },
 };
 
 /** The CSS custom properties one width mode sets; the grid below reads them. */
@@ -453,6 +462,7 @@ export function listSlotVars(mode: 'wide' | 'compact'): Record<string, string> {
     '--list-float-w': `${String(w.float)}px`,
     '--list-effort-w': `${String(w.effort)}px`,
     '--list-kind-w': `${String(w.kind)}px`,
+    '--list-provenance-w': `${String(w.provenance)}px`,
     '--list-progress-track': `${String(w.progressTrack)}px`,
     '--list-progress-w': `${String(w.progressTrack + 36)}px`,
   };
@@ -462,16 +472,21 @@ export function listSlotVars(mode: 'wide' | 'compact'): Record<string, string> {
  * ONE grid template for every tier-1 row AND the column header, so each column
  * lines up down the list: rail · chevron · float · effort · id+title · kind ·
  * provenance · progress · state. Only the id+title cell flexes.
+ *
+ * `narrow` (below LIST_NARROW_BELOW_PX) is the same template WITHOUT the kind and
+ * provenance tracks. Dropping the tracks, not zeroing them, is the point: a 0px
+ * track still carries a gap on each side, 12px the id needed at 500px. The view
+ * takes those two cells out of the grid (`display: none`) at the same width, so
+ * auto-placement keeps every later cell in its own column.
  */
-export function activityGridColumns(railPx: number): string {
+export function activityGridColumns(railPx: number, mode: 'full' | 'narrow' = 'full'): string {
   return [
     `${String(railPx)}px`,
     '18px',
     'var(--list-float-w)',
     'var(--list-effort-w)',
     'minmax(0, 1fr)',
-    'var(--list-kind-w)',
-    `${String(PROVENANCE_SLOT_PX)}px`,
+    ...(mode === 'full' ? ['var(--list-kind-w)', 'var(--list-provenance-w)'] : []),
     'var(--list-progress-w)',
     `${String(STATE_SLOT_PX)}px`,
   ].join(' ');

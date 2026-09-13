@@ -162,6 +162,7 @@ import {
   floatPresentation,
   isCurrentStage,
   LIST_COMPACT_BELOW_PX,
+  LIST_NARROW_BELOW_PX,
   listSlotVars,
   progressPresentationFor,
   retryCounterLabel,
@@ -196,6 +197,8 @@ const STAGE_WEIGHT_TRACK_PX = 48;
 
 /** The tier-1 grid, shared by every activity row and the column header. */
 const ACTIVITY_GRID_COLUMNS = activityGridColumns(PROVENANCE_RAIL_PX);
+/** The same grid without the kind and provenance tracks, below LIST_NARROW_BELOW_PX. */
+const ACTIVITY_GRID_COLUMNS_NARROW = activityGridColumns(PROVENANCE_RAIL_PX, 'narrow');
 
 /**
  * The list's slot widths, as custom properties the grid reads, switched by a
@@ -207,6 +210,7 @@ const ACTIVITY_GRID_COLUMNS = activityGridColumns(PROVENANCE_RAIL_PX);
 const LIST_CONTAINER = 'constructionlist';
 const LIST_SLOT_SX = {
   ...listSlotVars('wide'),
+  '--list-grid': ACTIVITY_GRID_COLUMNS,
   '& [data-kind-icon]': { display: 'none' },
   [`@container ${LIST_CONTAINER} (max-width: ${String(LIST_COMPACT_BELOW_PX - 1)}px)`]: {
     ...listSlotVars('compact'),
@@ -223,6 +227,14 @@ const LIST_SLOT_SX = {
       fontSize: 9,
       letterSpacing: 0,
     },
+  },
+  // Narrow (designer final pass, item 6): at 500px the id and title were crushed to
+  // "C-…" and "B…". The template drops the kind and provenance TRACKS (not just their
+  // width: a 0px track still carries a gap on each side), and their cells leave the
+  // grid, so auto-placement keeps every later cell in its own column.
+  [`@container ${LIST_CONTAINER} (max-width: ${String(LIST_NARROW_BELOW_PX - 1)}px)`]: {
+    '--list-grid': ACTIVITY_GRID_COLUMNS_NARROW,
+    '& [data-slot="kind"], & [data-slot="provenance"]': { display: 'none' },
   },
 } as const;
 
@@ -871,7 +883,7 @@ function ActivityRow({
         // ONE template for every row and the header (activityGridColumns): fixed
         // kind / provenance / progress / state slots, so a no-record row's empty
         // slots hold their place and every column lines up (designer P1-8).
-        gridTemplateColumns: ACTIVITY_GRID_COLUMNS,
+        gridTemplateColumns: 'var(--list-grid)',
         alignItems: 'center',
         columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
         pl: `${String(TIER_INDENT.activity)}px`,
@@ -1131,7 +1143,7 @@ function ActivityListHeader(): ReactElement {
       data-testid={UI_IDENTIFIERS.Construction.LIST_HEADER}
       sx={{
         display: 'grid',
-        gridTemplateColumns: ACTIVITY_GRID_COLUMNS,
+        gridTemplateColumns: 'var(--list-grid)',
         alignItems: 'end',
         columnGap: `${String(ACTIVITY_GRID_GAP_PX)}px`,
         pr: 1.25,

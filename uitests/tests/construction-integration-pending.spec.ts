@@ -274,3 +274,27 @@ test('tasks: the counts sum to every activity and name the waiting rows', async 
   expect(sum).toBe(total);
   await expect(counts).toContainText('0 in flight');
 });
+
+// ---------------------------------------------------------------------------
+// 500px — the kind and provenance columns step aside
+// ---------------------------------------------------------------------------
+
+test('500px: the kind and provenance columns step aside, and the pending ids read in full', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 500, height: 900 });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const row = page.getByTestId(TESTID.constructionListRow(SYSTEM_DESIGN));
+  await expect(row).toBeVisible();
+  const hidden = await row.evaluate((el) =>
+    ['kind', 'provenance'].map(
+      (s) => getComputedStyle(el.querySelector(`[data-slot="${s}"]`) ?? el).display
+    )
+  );
+  expect(hidden).toEqual(['none', 'none']);
+  for (const id of [BILLING, SYSTEM_DESIGN]) {
+    const cell = page.getByTestId(TESTID.constructionListIdCell(id));
+    await expect(cell).toHaveText(id);
+    expect(await cell.evaluate((el) => el.scrollWidth > el.clientWidth)).toBe(false);
+  }
+});
