@@ -36,6 +36,16 @@
  *     A held write can never outlive its test, whether the test passes, fails or
  *     times out (pinned by construction-dispatch-guard.spec).
  *
+ *  3. THE API CONTEXTS. The `request` fixture, `page.request` and `context.request`
+ *     never pass through a route, so neither layer above sees what they send (the
+ *     cleanup round found `request` unguarded). The guarded `test` overrides the
+ *     `request` fixture, and the dispatchGuard fixture replaces `page.request` and
+ *     `context.request`, with a wrapper that applies the same rule
+ *     (guardLetsThrough) before anything is sent: GET and HEAD go out, and every
+ *     other method REJECTS with REQUEST_GUARD_REFUSAL unless this spec allowlisted
+ *     it. A relative URL is resolved against baseURL first, as Playwright would.
+ *     Pinned by meta/suite-rules.spec.
+ *
  * `dispatchGuard.blocked` lists what the context route aborted ("POST /api/…"), for
  * specs that want to assert on it.
  *
@@ -46,7 +56,14 @@
  * aborted (guardLetsThrough): the one place a project may be created is the seed
  * step (tests/seed/shared-project.setup.ts), which does not use this guard.
  */
-import { test as base, expect, type Page, type Route } from '@playwright/test';
+import {
+  test as base,
+  expect,
+  type APIRequestContext,
+  type Page,
+  type Request,
+  type Route,
+} from '@playwright/test';
 
 /**
  * The Phase-1 co-author loop's writes: start the phase, answer its research
@@ -79,6 +96,65 @@ export function guardLetsThrough(
   return allowed.some((re) => re.test(path));
 }
 
+/** What a guarded API context rejects a write with (see layer 3 above). */
+export const REQUEST_GUARD_REFUSAL = 'dispatch guard refused an API-context write';
+
+/** The HTTP method each APIRequestContext verb sends; `fetch` names its own. */
+const VERB_METHOD: Readonly<Partial<Record<string, string>>> = {
+  get: 'GET',
+  head: 'HEAD',
+  post: 'POST',
+  put: 'PUT',
+  patch: 'PATCH',
+  delete: 'DELETE',
+};
+
+/**
+ * `request` with guardLetsThrough applied before each call is sent (layer 3). Every
+ * member other than the six verbs and `fetch` (dispose, storageState) passes
+ * through untouched.
+ */
+export function guardRequestContext(
+  request: APIRequestContext,
+  baseURL: string | undefined,
+  allowed: readonly RegExp[]
+): APIRequestContext {
+  const check = (method: string, url: string): void => {
+    const absolute = new URL(url, baseURL).toString();
+    if (!guardLetsThrough(method, absolute, allowed)) {
+      throw new Error(
+        `${REQUEST_GUARD_REFUSAL}: ${method} ${absolute}. Specs never write to the ` +
+          'server; fake the answer with page.route, or allowlist a live-drafting write ' +
+          'with test.use({ dispatchGuardAllows }).'
+      );
+    }
+  };
+  return new Proxy(request, {
+    get(target, prop): unknown {
+      const member: unknown = Reflect.get(target, prop);
+      if (typeof member !== 'function') return member;
+      const call = member as (this: APIRequestContext, ...args: unknown[]) => unknown;
+      if (prop === 'fetch') {
+        return async (urlOrRequest: string | Request, options?: { method?: string }) => {
+          const isUrl = typeof urlOrRequest === 'string';
+          const url = isUrl ? urlOrRequest : urlOrRequest.url();
+          const method = options?.method ?? (isUrl ? 'GET' : urlOrRequest.method());
+          check(method.toUpperCase(), url);
+          return call.call(target, urlOrRequest, options);
+        };
+      }
+      const method = typeof prop === 'string' ? VERB_METHOD[prop] : undefined;
+      if (method !== undefined) {
+        return async (url: string, options?: unknown) => {
+          check(method, url);
+          return call.call(target, url, options);
+        };
+      }
+      return call.bind(target);
+    },
+  });
+}
+
 /** One held request's release (see `DispatchGuard.hold`). */
 export interface Hold {
   /** Let every request this hold handles be answered with its `answer`. */
@@ -104,10 +180,20 @@ export const test = base.extend<{
   dispatchGuardAllows: readonly RegExp[];
 }>({
   dispatchGuardAllows: [[], { option: true }],
+  // Layer 3: the `request` fixture never passes through a route.
+  request: async ({ request, baseURL, dispatchGuardAllows }, use) => {
+    await use(guardRequestContext(request, baseURL, dispatchGuardAllows));
+  },
   dispatchGuard: [
-    async ({ context, page, dispatchGuardAllows }, use) => {
+    async ({ context, page, baseURL, dispatchGuardAllows }, use) => {
       const blocked: string[] = [];
       let holds: (() => Promise<void>)[] = [];
+
+      // Layer 3 again: page.request and context.request share the context's
+      // cookies but not its routes. (Playwright serves one object for both.)
+      const api = guardRequestContext(context.request, baseURL, dispatchGuardAllows);
+      Object.defineProperty(context, 'request', { value: api, configurable: true });
+      Object.defineProperty(page, 'request', { value: api, configurable: true });
 
       await context.route('**/*', async (route) => {
         const req = route.request();

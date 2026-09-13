@@ -9,8 +9,17 @@
  *   (b) A probe that gets NO answer FAILS the test, never skips it: a skip reads as
  *       green and can hide a regression (fix-H report, concern 1). Driven against
  *       a port nothing listens on.
+ *   (c) The API contexts are guarded too (cleanup round): the `request` fixture,
+ *       page.request and context.request pass through no route, so the guard wraps
+ *       them — a write REJECTS before it is sent unless the spec allowlisted it,
+ *       and no file takes the unguarded `request` factory from '@playwright/test'.
  */
-import guardedDefault, { test, expect } from '../support/dispatchGuard.js';
+import guardedDefault, {
+  LIVE_DRAFTING_WRITES,
+  REQUEST_GUARD_REFUSAL,
+  test,
+  expect,
+} from '../support/dispatchGuard.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
 import {
@@ -20,6 +29,10 @@ import {
 } from '../support/gating.js';
 
 const TESTS = join(import.meta.dirname, '..');
+
+/** The unguarded values: `test` itself, a default or namespace import (either
+ *  reaches it), and the `request` factory (an APIRequestContext no guard wraps). */
+const UNGUARDED_VALUES = ['test', 'default', 'namespace', 'request'];
 
 /** Files that may import '@playwright/test''s own `test`, and why. */
 const UNGUARDED_ALLOWED = new Set([
@@ -73,7 +86,7 @@ test('no file imports the unguarded test from @playwright/test', () => {
     .filter((f) => !UNGUARDED_ALLOWED.has(f))
     .flatMap((f) =>
       playwrightValueImports(readFileSync(join(TESTS, f), 'utf8'))
-        .filter((name) => name === 'test' || name === 'default' || name === 'namespace')
+        .filter((name) => UNGUARDED_VALUES.includes(name))
         .map((name) => `${f}: ${name}`)
     );
   expect(offenders, 'import test from ./support/dispatchGuard.js instead').toEqual([]);
@@ -81,8 +94,10 @@ test('no file imports the unguarded test from @playwright/test', () => {
 
 test('the import scan sees every way to take the unguarded test', () => {
   const scan = (src: string): string[] =>
-    playwrightValueImports(src).filter((n) => ['test', 'default', 'namespace'].includes(n));
+    playwrightValueImports(src).filter((n) => UNGUARDED_VALUES.includes(n));
   expect(scan("import { test, expect } from '@playwright/test';")).toEqual(['test']);
+  expect(scan("import { request, expect } from '@playwright/test';")).toEqual(['request']);
+  expect(scan("import type { APIRequestContext } from '@playwright/test';")).toEqual([]);
   expect(scan("import { expect, test as it } from '@playwright/test';")).toEqual(['test']);
   expect(scan("import {\n  test,\n  type Page,\n} from '@playwright/test';")).toEqual(['test']);
   expect(scan("import pw from '@playwright/test';")).toEqual(['default']);
@@ -134,6 +149,51 @@ test('the construction-artifacts probe FAILS when nothing answers; it never skip
   await expect(skipUnlessConstructionArtifacts(request, NOWHERE)).rejects.toThrow(/did not answer/);
   expect(test.info().expectedStatus).toBe('passed');
   expect(test.info().annotations.filter((a) => a.type === 'skip')).toEqual([]);
+});
+
+// (c) Against the same dead port: an UNGUARDED write would reject too, but with the
+// connection error, so each assertion names which of the two happened.
+const WRITE = `${NOWHERE}/api/v1/construction/execute-next-activity/p`;
+const DRAFT = `${NOWHERE}/api/v1/system-design/request-artifact-draft/p`;
+const REFUSED = new RegExp(REQUEST_GUARD_REFUSAL);
+const SENT = /ECONNREFUSED/;
+
+test('the request fixture refuses every write verb before sending it', async ({ request }) => {
+  await expect(request.post(WRITE)).rejects.toThrow(REFUSED);
+  await expect(request.put(WRITE)).rejects.toThrow(REFUSED);
+  await expect(request.patch(WRITE)).rejects.toThrow(REFUSED);
+  await expect(request.delete(WRITE)).rejects.toThrow(REFUSED);
+  await expect(request.fetch(WRITE, { method: 'POST' })).rejects.toThrow(REFUSED);
+  await expect(request.fetch(WRITE, { method: 'delete' })).rejects.toThrow(REFUSED);
+  // Relative, the way a spec writes it: resolved against baseURL, still refused.
+  await expect(request.post('/api/v1/construction/execute-next-activity/p')).rejects.toThrow(
+    REFUSED
+  );
+});
+
+test('the request fixture lets GET and HEAD through', async ({ request }) => {
+  await expect(request.get(`${NOWHERE}/x`)).rejects.toThrow(SENT);
+  await expect(request.head(`${NOWHERE}/x`)).rejects.toThrow(SENT);
+  await expect(request.fetch(`${NOWHERE}/x`)).rejects.toThrow(SENT);
+});
+
+test('page.request and context.request are guarded the same way', async ({ page, context }) => {
+  await expect(page.request.post(WRITE)).rejects.toThrow(REFUSED);
+  await expect(context.request.delete(WRITE)).rejects.toThrow(REFUSED);
+  await expect(page.request.get(`${NOWHERE}/x`)).rejects.toThrow(SENT);
+});
+
+test.describe('with the live-drafting writes allowed', () => {
+  test.use({ dispatchGuardAllows: LIVE_DRAFTING_WRITES });
+
+  test('an allowlisted write is sent; a construction write still is not', async ({
+    request,
+    page,
+  }) => {
+    await expect(request.post(DRAFT)).rejects.toThrow(SENT);
+    await expect(page.request.post(DRAFT)).rejects.toThrow(SENT);
+    await expect(request.post(WRITE)).rejects.toThrow(REFUSED);
+  });
 });
 
 // The seeded CI job (uitests-construction) sets REQUIRE_CONSTRUCTION_ARTIFACTS=1:
