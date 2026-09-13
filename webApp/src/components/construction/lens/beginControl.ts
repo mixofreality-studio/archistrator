@@ -19,7 +19,7 @@
  *     never a hardcoded list.
  */
 import type { ConstructionRows, ConstructionStage } from '../../../contracts/types';
-import { rowIsInFlight } from '../list/activityScope.ts';
+import { inFlightActivityIds } from '../list/activityScope.ts';
 import type { OwedMarks } from '../tasks/owedChip.ts';
 
 export interface BeginControl {
@@ -191,9 +191,31 @@ export function constructionInFlight(state: {
   );
 }
 
-/** Whether any row's owed-aware state is running or awaiting a human (rowIsInFlight). */
+/** Whether any row's owed-aware state is running or awaiting a human: THE in-flight
+ *  set (activityScope.inFlightActivityIds) over the rows alone. */
 export function anyRowInFlight(rows: ConstructionRows | undefined, owed?: OwedMarks): boolean {
-  return Object.values(rows ?? {}).some((r) => rowIsInFlight(r, owed?.get(r.activityId)));
+  return inFlightActivityIds({ rows, owed }).size > 0;
+}
+
+/** The activities whose probed session is live — a pump runs them now. `null` (the
+ *  probe established there is none) and `undefined` (no answer yet) are not. */
+export function liveSessionIdsOf(
+  sessions: Readonly<Record<string, { stage: ConstructionStage } | null | undefined>>
+): string[] {
+  return Object.entries(sessions)
+    .filter(([, s]) => s !== null && s !== undefined && sessionIsLive(s.stage))
+    .map(([id]) => id)
+    .sort((a, b) => a.localeCompare(b));
+}
+
+/**
+ * Whether a confirmed Begin may still dispatch (final review minor): the control
+ * the operator confirmed against can have gone off while the dialog was open —
+ * work showed up in flight, the project began loading, a hold started — and a POST
+ * sent then would be a second pump one click away. Re-checked at confirm time.
+ */
+export function beginConfirmAllowed(control: BeginControl, pending: boolean): boolean {
+  return !control.disabled && !pending;
 }
 
 /** One probed session read: its stage (`null` where no session exists, `undefined`

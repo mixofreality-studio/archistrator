@@ -101,19 +101,21 @@ import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirm
 import {
   anyRowInFlight,
   awaitingPickup,
+  beginConfirmAllowed,
+  type BeginControl,
   beginControlFor,
-  NOTHING_TO_DISPATCH,
-  pumpDispatched,
   beginHoldFor,
   beginRunning,
-  constructionInFlight,
   consolePollMs,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
   failureLeavesMemory,
   holdExpiredCopy,
+  liveSessionIdsOf,
   newestLiveSession,
+  NOTHING_TO_DISPATCH,
   notStartedActivities,
+  pumpDispatched,
   pumpEvidencedSince,
   UNKNOWN_OUTCOME_HOLD_MS,
 } from '../components/construction/lens/beginControl';
@@ -137,6 +139,7 @@ import { activityMetaFor } from '../components/construction/list/activityMeta';
 import {
   applyToolbarToActivities,
   expandToCurrentPhaseControl,
+  inFlightActivityIds,
 } from '../components/construction/list/activityScope';
 import { evidenceViewFor } from '../components/construction/list/observedOnly';
 import {
@@ -207,10 +210,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // `cascading` is armed by Begin and stays on while the pump is making PROGRESS — we
   // track the integrated (done) count and fall quiet ~30s after it stops rising (the
   // window must exceed the per-activity lifecycle latency — each activity is several git
-  // commits over the project repo, ~10-12s — or it would trip between activities). We CANNOT
-  // key off `phase === 'running'` because the corpus-seeded in-review activities are
-  // permanently `running` (they are not live pump work); progress (the done count) is the
-  // honest signal that the pump is actively completing activities.
+  // commits over the project repo, ~10-12s — or it would trip between activities). It does
+  // not key off a row's coarse phase: head-state `in-review` says "some phases complete,
+  // not all", which a row can hold with no pump anywhere (the integration-pending rows
+  // read WAITING for exactly that reason, list/pendingResume.ts); progress (the done
+  // count) is the honest signal that the pump is actively completing activities.
   //
   //
   // `cascading` governs only the poll's CADENCE (consolePollMs), never the label
@@ -328,6 +332,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // re-render could report the first as pending (pinned by the same-task triple
   // click in construction-begin-confirm.spec).
   const beginInFlightRef = useRef(false);
+  // The Begin control as last rendered, for onBegin's confirm-time re-check (synced
+  // in an effect below, where beginControl is computed).
+  const beginControlRef = useRef<BeginControl | undefined>(undefined);
   // A failed dispatch is LOUD (spec §6 "Failures must be loud", fix-B review M3) —
   // and HONEST about what it knows (fix-C review). The server starts the pump before
   // it answers and can still answer 5xx after that, or the response can be dropped,
@@ -341,6 +348,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // keeps it (beginFailureMemory, fix-E review I2).
   const onBegin = (tickId: string): void => {
     if (beginInFlightRef.current || beginPending) return;
+    // Re-checked at CONFIRM time (final review minor): the control can have gone
+    // off while the dialog was open — work in flight, a hold, a reload — and a POST
+    // sent then would be a second pump one click away.
+    const control = beginControlRef.current;
+    if (control !== undefined && !beginConfirmAllowed(control, beginPending)) return;
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
     writeBeginFailure(projectId, null);
@@ -555,7 +567,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   //
   // What the STATE says is in flight: any activity whose owed-aware row state is
   // running or awaiting a human — "awaiting" from the owed set, never head-state
-  // (Q4) — or a live session among the probed ones (constructionInFlight). It alone
+  // (Q4) — or a live session among the probed ones (inFlightActivityIds). It alone
   // decides "Construction running…". The probes are the owed set's: every activity
   // the pump started and has not finished, each read's stage and request time taken
   // from the gate occurrences, which the one request-time store feeds.
@@ -570,12 +582,22 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // so an unanswered probe is not "nothing running". One that keeps FAILING is not
   // evidence either way: the button reads "Checking construction…" for it, disabled
   // (probesFailing below; tasks merge-2 ruling (a), fix I).
-  const inFlight = constructionInFlight({
-    rows: project?.constructionRows,
-    owed: owedMarks,
-    sessionStage: liveSession?.stage,
-    pendingProbes: owedWork.unchecked.pending.length,
-  });
+  //
+  // THE in-flight set (activityScope.inFlightActivityIds, final review I1): the ONE
+  // definition Begin, the "In flight" chip, "Expand to current phase" and the TASKS
+  // count all read. It reads the RAW read, so "Observed only" cannot move it; an
+  // integration-pending (waiting) row is never in it.
+  const inFlightIds = useMemo(
+    () =>
+      inFlightActivityIds({
+        rows: project?.constructionRows,
+        owed: owedMarks,
+        liveSessionIds: liveSessionIdsOf(sessionsByActivity),
+        pendingProbeIds: owedWork.unchecked.pending,
+      }),
+    [project, owedMarks, sessionsByActivity, owedWork]
+  );
+  const inFlight = inFlightIds.size > 0;
   const probesFailing = owedWork.unchecked.errored.length > 0;
   // Pump evidence counts only from reads REQUESTED after the failure, never by when
   // they arrived, and only what CHANGED after it: the project shows work in flight
@@ -704,6 +726,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     awaitingPump: beginHold === 'held',
     probesFailing,
   });
+  useEffect(() => {
+    beginControlRef.current = beginControl;
+  }, [beginControl]);
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
     [project, titleForId]
@@ -718,8 +743,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // pipeline (see activityScope.ts) so ActivityTreeView renders exactly what
   // the toolbar says and nothing this file has to keep in sync by hand.
   const visibleActivityTree = useMemo(
-    () => applyToolbarToActivities(activityTree, toolbar, owedMarks),
-    [activityTree, toolbar, owedMarks]
+    () => applyToolbarToActivities(activityTree, toolbar, owedMarks, inFlightIds),
+    [activityTree, toolbar, owedMarks, inFlightIds]
   );
 
   // --- The TASKS lens (Stage C) ------------------------------------------------
@@ -758,10 +783,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           )
         : new Map<string, never>();
     return emptyStateCounts(statuses, {
-      inFlight: new Set(probeIds),
+      inFlight: inFlightIds,
       waiting: waitingActivityIds(viewRows),
     });
-  }, [networkModel, project, viewRows, probeIds]);
+  }, [networkModel, project, viewRows, inFlightIds]);
   const anyDecisionLive = Object.values(decisionViews).some((v) => v.kind !== 'done');
   useEffect(() => {
     if (!anyDecisionLive) return undefined;
@@ -1156,6 +1181,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                   <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                     <ActivityTreeView
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
+                      inFlight={inFlightIds}
                       nodes={visibleActivityTree}
                       owed={owedMarks}
                       projectId={projectId}
@@ -1212,7 +1238,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               expandToCurrentPhase={
                 lens === 'graph'
                   ? { enabled: false, tooltip: GRAPH_LIST_ONLY_REASON }
-                  : expandToCurrentPhaseControl(visibleActivityTree, owedMarks)
+                  : expandToCurrentPhaseControl(visibleActivityTree, owedMarks, inFlightIds)
               }
               kindOptions={kindOptions}
               layerOptions={layerOptions}

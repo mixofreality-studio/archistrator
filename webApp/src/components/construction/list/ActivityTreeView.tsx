@@ -404,6 +404,9 @@ export interface ActivityTreeViewProps {
   onClearFilters: () => void;
   /** The live owed set, keyed by activity id (tasks/owedChip.ts). */
   owed?: OwedMarks;
+  /** THE in-flight set (activityScope.inFlightActivityIds): what "Expand to current
+   *  phase" opens — the same set the chip, TASKS and Begin read (final review I1). */
+  inFlight?: ReadonlySet<string>;
 }
 
 export function ActivityTreeView({
@@ -416,6 +419,7 @@ export function ActivityTreeView({
   totalActivityCount,
   onClearFilters,
   owed = NO_OWED,
+  inFlight,
 }: ActivityTreeViewProps): ReactElement {
   const t = useTokens();
   const apiRef = useRichTreeViewApiRef();
@@ -492,7 +496,7 @@ export function ActivityTreeView({
   if (appliedExpandSignal !== expandToCurrentPhaseSignal) {
     setAppliedExpandSignal(expandToCurrentPhaseSignal);
     if (expandToCurrentPhaseSignal !== 0) {
-      const ids = currentPhaseExpansionIds(nodes, owed);
+      const ids = currentPhaseExpansionIds(nodes, owed, inFlight);
       if (ids.length > 0) {
         // An explicit operator action: these rows are theirs, so clearing a
         // search never closes them.

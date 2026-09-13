@@ -67,7 +67,9 @@ export function scopePredicate(
   scope: ScopeId,
   node: ActivityNode,
   /** The live owed set (tasks/owedChip.ts) — the ONE source of "Awaiting me". */
-  owed: OwedMarks = NO_OWED
+  owed: OwedMarks = NO_OWED,
+  /** THE in-flight set (inFlightActivityIds), where the caller has one. */
+  inFlight?: ReadonlySet<string>
 ): boolean {
   switch (scope) {
     case 'all':
@@ -81,7 +83,7 @@ export function scopePredicate(
       // a recorded failure, exactly the rows the TASKS lens shows.
       return owed.has(node.activityId);
     case 'inFlight':
-      return isInFlight(node, owed);
+      return isInFlight(node, owed, inFlight);
     case 'hasRetries':
       return node.retryCount > 0;
     case 'reconstructed':
@@ -235,11 +237,13 @@ export type ToolbarFilters = Pick<ToolbarState, 'scope' | 'kind' | 'layer' | 'se
 export function applyToolbarToActivities(
   nodes: readonly ActivityNode[],
   toolbar: ToolbarFilters,
-  owed: OwedMarks = NO_OWED
+  owed: OwedMarks = NO_OWED,
+  /** THE in-flight set (inFlightActivityIds), where the caller has one. */
+  inFlight?: ReadonlySet<string>
 ): ActivityNode[] {
   const filtered = nodes.filter(
     (n) =>
-      scopePredicate(toolbar.scope, n, owed) &&
+      scopePredicate(toolbar.scope, n, owed, inFlight) &&
       matchesKind(n, toolbar.kind) &&
       matchesLayer(n, toolbar.layer) &&
       activityPassesSearch(n, toolbar.search)
@@ -270,7 +274,15 @@ export function applyToolbarToActivities(
  * It overlaps "Awaiting me" on purpose (orchestrator ruling at the tasks review):
  * a live gate is still work in flight, and scope chips are views, not a partition.
  */
-export function isInFlight(node: ActivityNode, owed: OwedMarks = NO_OWED): boolean {
+export function isInFlight(
+  node: ActivityNode,
+  owed: OwedMarks = NO_OWED,
+  /** THE in-flight set (inFlightActivityIds). Given, membership decides — the
+   *  console always passes it, so the chip, Expand, TASKS and Begin cannot
+   *  disagree; omitted, the row rule below decides over the node's own row. */
+  inFlight?: ReadonlySet<string>
+): boolean {
+  if (inFlight !== undefined) return inFlight.has(node.activityId);
   return rowIsInFlight(node.row, owed.get(node.activityId));
 }
 
@@ -278,11 +290,50 @@ export function isInFlight(node: ActivityNode, owed: OwedMarks = NO_OWED): boole
  * The same rule over a bare row and its owed mark, for readers that hold rows
  * rather than tree nodes. The Begin control reads it
  * (beginControl.constructionInFlight), so the button and the "In flight" chip
- * agree on what is in flight.
+ * agree on what is in flight. A `waiting` row (integration-pending) is neither
+ * running nor awaiting a human: nothing runs it, so it is not in flight.
  */
 export function rowIsInFlight(row: ConstructionRow, owed?: OwedMark): boolean {
   const state = activityRowState(row, owed);
   return state === 'running' || state === 'awaitingHuman';
+}
+
+/**
+ * THE in-flight set — the ONE definition the console's every in-flight reader
+ * takes (final review I1): the "In flight" scope chip, "Expand to current phase",
+ * the TASKS empty-state count, and Begin. There used to be three: Begin read the
+ * raw rows, the chip and Expand read the evidence view, and the TASKS count read
+ * the probe candidates.
+ *
+ * An activity is in flight when any of these holds:
+ *   - its row is (rowIsInFlight, with its owed mark): running, or awaiting a human;
+ *   - its probed session is live (a pump runs it now, whatever the row says yet);
+ *   - it is a probe candidate whose probe has not answered — a fresh pickup reads
+ *     not started until its session says otherwise (tasks merge review I1). One
+ *     whose probe answered "no session" is not; one whose probe keeps failing is
+ *     "unchecked", not in flight (Begin reads "Checking construction…" for it).
+ * An integration-pending (`waiting`) row is none of these.
+ *
+ * It reads the RAW project read, never the "Observed only" evidence view: that
+ * toggle changes what is SHOWN about an activity, never whether a pump is working
+ * on it, so every reader agrees with the toggle on or off.
+ */
+export function inFlightActivityIds(input: {
+  rows: Readonly<Record<string, ConstructionRow>> | undefined;
+  owed?: OwedMarks | undefined;
+  /** Activities whose probed session is live (beginControl.liveSessionIdsOf). */
+  liveSessionIds?: Iterable<string> | undefined;
+  /** Probe candidates still waiting on their first answer (owedWork `unchecked.pending`). */
+  pendingProbeIds?: Iterable<string> | undefined;
+}): ReadonlySet<string> {
+  const owed = input.owed ?? NO_OWED;
+  const out = new Set<string>();
+  for (const r of Object.values(input.rows ?? {})) {
+    if (rowIsInFlight(r, owed.get(r.activityId))) out.add(r.activityId);
+  }
+  for (const id of input.liveSessionIds ?? []) out.add(id);
+  for (const id of input.pendingProbeIds ?? []) out.add(id);
+  return out;
 }
 
 /**
@@ -294,9 +345,11 @@ export function rowIsInFlight(row: ConstructionRow, owed?: OwedMark): boolean {
  */
 export function currentPhaseExpansionIds(
   nodes: readonly ActivityNode[],
-  owed: OwedMarks = NO_OWED
+  owed: OwedMarks = NO_OWED,
+  /** THE in-flight set (inFlightActivityIds), where the caller has one. */
+  inFlight?: ReadonlySet<string>
 ): string[] {
-  return nodes.filter((n) => isInFlight(n, owed)).map((n) => n.nodeId);
+  return nodes.filter((n) => isInFlight(n, owed, inFlight)).map((n) => n.nodeId);
 }
 
 /** The "Expand to current phase" button's state (fix round B, adopted P2). */
@@ -312,9 +365,11 @@ export interface ExpandToCurrentPhaseControl {
  */
 export function expandToCurrentPhaseControl(
   nodes: readonly ActivityNode[],
-  owed: OwedMarks = NO_OWED
+  owed: OwedMarks = NO_OWED,
+  /** THE in-flight set (inFlightActivityIds), where the caller has one. */
+  inFlight?: ReadonlySet<string>
 ): ExpandToCurrentPhaseControl {
-  const n = currentPhaseExpansionIds(nodes, owed).length;
+  const n = currentPhaseExpansionIds(nodes, owed, inFlight).length;
   if (n === 0) {
     return {
       enabled: false,
