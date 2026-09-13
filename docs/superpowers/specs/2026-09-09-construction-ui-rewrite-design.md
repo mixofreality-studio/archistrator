@@ -442,7 +442,8 @@ row, at the tier that owns it.
 **Failure is never terminal.** The detail action bar carries `↻ Run this task` in **every** state —
 including `passed` (re-run) and `unknown` (run it for the first time) — enabled when the console can
 start that work, otherwise disabled with its reason (§7.8, amended in the tasks-lens merge round). A
-failed row carries no inline action of its own: until follow-up B1 it is review-only. `failed` is amber-backed with a red foreground: "needs you", not "dead".
+failed row carries no inline action of its own: until follow-up B1 it is review-only. `failed` is
+amber-backed with a red foreground: "needs you", not "dead".
 
 ### 7.3 Provenance is an orthogonal axis
 
