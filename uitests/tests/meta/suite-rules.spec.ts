@@ -85,6 +85,20 @@ test('the import scan sees every way to take the unguarded test', () => {
   expect(scan("import * as pw from '@playwright/test';")).toEqual(['namespace']);
   expect(scan("import type { Page } from '@playwright/test';")).toEqual([]);
   expect(scan("import { type Page, expect } from '@playwright/test';")).toEqual([]);
+  // A real file: the offending import is on any line, never only the first.
+  expect(
+    scan(
+      "/** header */\nimport { expect } from './support/x.js';\nimport { test } from '@playwright/test';\n"
+    )
+  ).toEqual(['test']);
+  // One statement at a time: a guarded import followed by a type-only one is clean.
+  expect(
+    scan(
+      "import { test, expect } from './support/dispatchGuard.js';\nimport type { Page, Route } from '@playwright/test';\n"
+    )
+  ).toEqual([]);
+  // Import text inside a string is not an import.
+  expect(scan('const s = "import { test } from \'@playwright/test\'";\n')).toEqual([]);
 });
 
 test('every spec takes its test from the dispatch guard', () => {
