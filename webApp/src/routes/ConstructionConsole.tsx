@@ -37,8 +37,9 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
-import { useProject } from '../hooks/useProject';
-import { useConstructionSession } from '../hooks/useConstructionSession';
+import { projectKey, useProject } from '../hooks/useProject';
+import { constructionSessionKey, useConstructionSession } from '../hooks/useConstructionSession';
+import { useReadRequestedAt } from '../hooks/readRequestTimes';
 import {
   useBeginConstruction,
   useBeginConstructionPending,
@@ -168,11 +169,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const beginFailure = useBeginFailure(projectId);
   const [cascading, setCascading] = useState(false);
   const failureAwaitsPumpNow = failureAwaitsPump(beginFailure);
-  const {
-    data: project,
-    isLoading: projectLoading,
-    dataUpdatedAt: projectReadAt,
-  } = useProject(projectId, (read) =>
+  const { data: project, isLoading: projectLoading } = useProject(projectId, (read) =>
     consolePollMs({
       pending: beginPending,
       awaitsPump: failureAwaitsPumpNow,
@@ -225,6 +222,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   const phaseGateSessionQuery = useConstructionSession(projectId, activeInConstructionId);
   const phaseGateSession = phaseGateSessionQuery.data;
+  // When the shown project and session reads were REQUESTED: the Begin hold's
+  // evidence counts a read from its request, not its arrival (readRequestTimes).
+  const projectRequestedAt = useReadRequestedAt(projectKey(projectId));
+  const sessionRequestedAt = useReadRequestedAt(
+    constructionSessionKey(projectId, activeInConstructionId)
+  );
   const isAwaitingApproval = phaseGateSession?.stage === 'awaitingApproval';
 
   // The construction row for the gated activity — provides phase + kind for the panel.
@@ -351,16 +354,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     rows: project?.constructionRows,
     sessionStage: phaseGateSession?.stage,
   });
-  // Pump evidence counts only from reads NEWER than the failure: the project says
-  // construction started or shows work in flight, or the probed session is live
-  // (pumpEvidencedSince).
+  // Pump evidence counts only from reads REQUESTED after the failure, never by when
+  // they arrived: the project says construction started or shows work in flight,
+  // or the probed session is live (pumpEvidencedSince, hooks/readRequestTimes).
   const pumpEvidenced =
     beginFailure !== null &&
     pumpEvidencedSince(beginFailure.at, {
-      projectReadAt,
+      projectRequestedAt,
       constructionStarted: project?.constructionStarted,
       rowsInFlight: anyRowInFlight(project?.constructionRows),
-      sessionReadAt: phaseGateSessionQuery.dataUpdatedAt,
+      sessionRequestedAt,
       sessionStage: phaseGateSession?.stage,
     });
   const beginHold = beginHoldFor(beginFailure, pumpEvidenced);

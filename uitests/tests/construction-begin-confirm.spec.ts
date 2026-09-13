@@ -530,22 +530,16 @@ test('I2: an EMPTY-body 500 (a proxy’s bare 5xx) is an unknown outcome, not a 
 
 test('I1: a 500 answered after 33s finds the poll still running, and newer reads keep arriving', async ({
   page,
+  dispatchGuard,
 }) => {
   // The browser clock is faked, so 33s pass at once while the dispatch is held
   // unanswered. The 30s progress watchdog used to stop the poll right here, and
   // the unknown outcome never turned it back on: Begin sat on "Checking…" forever.
+  // The dispatch is held through the guard, so a failure here aborts it (never
+  // lets it out) in teardown.
   await page.clock.install();
-  const pending: { answer?: () => Promise<void> } = {};
-  const h = await harness(
-    page,
-    (route) =>
-      new Promise<void>((resolve) => {
-        pending.answer = async () => {
-          await route.fulfill(SERVER_500);
-          resolve();
-        };
-      })
-  );
+  const hold = dispatchGuard.hold();
+  const h = await harness(page, (route) => hold.handle(route, () => route.fulfill(SERVER_500)));
   await openConsole(page);
   await dispatchOnce(page);
   await expect.poll(() => h.trapped.length).toBe(1);
@@ -556,8 +550,7 @@ test('I1: a 500 answered after 33s finds the poll still running, and newer reads
     .poll(() => h.reads.length, { timeout: 8_000, message: 'reads while the dispatch is pending' })
     .toBeGreaterThan(whilePending + 1);
 
-  if (pending.answer === undefined) throw new Error('the dispatch was never held');
-  await pending.answer();
+  hold.release();
   const alert = page.getByTestId(TESTID.constructionBeginError);
   await expect(alert).toHaveAttribute('data-outcome', 'unknown', { timeout: 10_000 });
 
@@ -814,18 +807,10 @@ test('I2: a hold that runs out while the console is away has expired when it com
 
 test('I2: a 500 that lands while the console is away is still recorded, and a pending dispatch reads as running after a remount', async ({
   page,
+  dispatchGuard,
 }) => {
-  const pending: { answer?: () => Promise<void> } = {};
-  const h = await harness(
-    page,
-    (route) =>
-      new Promise<void>((resolve) => {
-        pending.answer = async () => {
-          await route.fulfill(SERVER_500);
-          resolve();
-        };
-      })
-  );
+  const hold = dispatchGuard.hold();
+  const h = await harness(page, (route) => hold.handle(route, () => route.fulfill(SERVER_500)));
   await openConsole(page);
   await dispatchOnce(page);
   await expect.poll(() => h.trapped.length).toBe(1);
@@ -838,8 +823,7 @@ test('I2: a 500 that lands while the console is away is still recorded, and a pe
 
   // Away again, and the 500 lands while the console is unmounted.
   await awayToDesign(page);
-  if (pending.answer === undefined) throw new Error('the dispatch was never held');
-  await pending.answer();
+  hold.release();
   await page.waitForTimeout(500);
   await backToConsole(page);
 
@@ -949,29 +933,22 @@ test('a success with an activity running reads as running at 45s; with nothing i
   expect(h.trapped).toHaveLength(1);
 });
 
-test('a success answered after 33s pending still polls fast for the pickup', async ({ page }) => {
+test('a success answered after 33s pending still polls fast for the pickup', async ({
+  page,
+  dispatchGuard,
+}) => {
   // The watchdog never runs while a dispatch is pending, but it times from Begin. A
   // success answered past its 30s window used to leave the fast poll to stop at
   // once, and with nothing yet in flight there was no slow poll either: the pickup
   // in a later read was never seen. The answer re-arms the window.
   await page.clock.install();
-  const pending: { answer?: () => Promise<void> } = {};
-  const h = await harness(
-    page,
-    (route) =>
-      new Promise<void>((resolve) => {
-        pending.answer = async () => {
-          await route.fulfill(SUCCESS);
-          resolve();
-        };
-      })
-  );
+  const hold = dispatchGuard.hold();
+  const h = await harness(page, (route) => hold.handle(route, () => route.fulfill(SUCCESS)));
   await openConsole(page);
   await dispatchOnce(page);
   await expect.poll(() => h.trapped.length).toBe(1);
   await page.clock.fastForward(33_000);
-  if (pending.answer === undefined) throw new Error('the dispatch was never held');
-  await pending.answer();
+  hold.release();
   // The answer's refresh reads "nothing in flight". Wait past several watchdog
   // ticks (1.5s each): without the re-arm the first tick ends the fast poll, and
   // with nothing in flight nothing polls at all. With it, reads keep coming.

@@ -133,10 +133,10 @@ void test('the unknown copy is the ruling verbatim and never invites a retry; th
 // ---------------------------------------------------------------------------
 
 const NO_READS = {
-  projectReadAt: 0,
+  projectRequestedAt: 0,
   constructionStarted: undefined,
   rowsInFlight: false,
-  sessionReadAt: 0,
+  sessionRequestedAt: 0,
   sessionStage: undefined,
 } as const;
 
@@ -144,14 +144,14 @@ void test('pump evidence: a newer read that shows an activity in flight, even wi
   assert.equal(
     pumpEvidencedSince(1000, {
       ...NO_READS,
-      projectReadAt: 1001,
+      projectRequestedAt: 1001,
       constructionStarted: false,
       rowsInFlight: true,
     }),
     true
   );
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 1000, rowsInFlight: true }),
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1000, rowsInFlight: true }),
     false,
     'a read from the same instant is not newer'
   );
@@ -160,11 +160,11 @@ void test('pump evidence: a newer read that shows an activity in flight, even wi
 void test('a newer read that says "not started", with no live session, is NOT pump evidence', () => {
   assert.equal(pumpEvidencedSince(1000, NO_READS), false, 'no read yet');
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 5000, constructionStarted: false }),
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 5000, constructionStarted: false }),
     false
   );
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 5000, sessionStage: undefined }),
+    pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 5000, sessionStage: undefined }),
     false,
     'a probe that established no session exists'
   );
@@ -172,7 +172,7 @@ void test('a newer read that says "not started", with no live session, is NOT pu
 
 void test('pump evidence: a newer read says constructionStarted, or a newer probe shows a live session', () => {
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 1001, constructionStarted: true }),
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1001, constructionStarted: true }),
     true
   );
   for (const stage of [
@@ -183,14 +183,14 @@ void test('pump evidence: a newer read says constructionStarted, or a newer prob
     'awaitingApproval',
   ] as const) {
     assert.equal(
-      pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1001, sessionStage: stage }),
+      pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 1001, sessionStage: stage }),
       true,
       stage
     );
   }
   for (const stage of ['exited', 'paused', 'unknown'] as const) {
     assert.equal(
-      pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1001, sessionStage: stage }),
+      pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 1001, sessionStage: stage }),
       false,
       `${stage} is not a running pump`
     );
@@ -199,17 +199,25 @@ void test('pump evidence: a newer read says constructionStarted, or a newer prob
 
 void test('only reads NEWER than the failure count as evidence', () => {
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, projectReadAt: 1000, constructionStarted: true }),
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1000, constructionStarted: true }),
     false,
     'a read from the same instant is not newer'
   );
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 999, sessionStage: 'pipelineRunning' }),
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 999,
+      sessionStage: 'pipelineRunning',
+    }),
     false,
     'a session seen before the failure'
   );
   assert.equal(
-    pumpEvidencedSince(1000, { ...NO_READS, sessionReadAt: 1000, sessionStage: 'pipelineRunning' }),
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 1000,
+      sessionStage: 'pipelineRunning',
+    }),
     false,
     'a session probe from the same instant is not newer'
   );

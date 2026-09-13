@@ -162,27 +162,31 @@ export function anyRowInFlight(rows: ConstructionRows | undefined): boolean {
 
 /**
  * Whether the reads since `at` show the pump: the project says construction
- * started or shows an activity in flight, or a session is live. Only reads NEWER
- * than the failure count, so a read that was already on screen before the
- * dispatch failed is never taken as an answer to it.
+ * started or shows an activity in flight, or a session is live. Only reads
+ * REQUESTED after the failure count — by when they were asked for, not when they
+ * arrived (hooks/readRequestTimes). A read already on screen before the dispatch
+ * failed is never taken as an answer to it, and neither is one that was already
+ * on its way: it describes the project from before the failure, however late it
+ * lands. A read with no known request time (0) never counts.
  */
 export function pumpEvidencedSince(
   at: number,
   reads: {
-    /** The project query's `dataUpdatedAt` (0 before any read), and what it said. */
-    projectReadAt: number;
+    /** When the shown project read was REQUESTED (0 where unknown), and what it said. */
+    projectRequestedAt: number;
     constructionStarted: boolean | undefined;
     /** Whether that read shows any activity in flight (rowIsInFlight). */
     rowsInFlight: boolean;
-    /** The session probe's `dataUpdatedAt`, and its stage. Stage is `undefined`
-     *  when there is no probe, or the probe established that no session exists. */
-    sessionReadAt: number;
+    /** When the shown session read was REQUESTED, and its stage. Stage is
+     *  `undefined` when there is no probe, or the probe established that no
+     *  session exists. */
+    sessionRequestedAt: number;
     sessionStage: ConstructionStage | undefined;
   }
 ): boolean {
-  const read = reads.projectReadAt > at;
+  const read = reads.projectRequestedAt > at;
   const started = read && (reads.constructionStarted === true || reads.rowsInFlight);
-  const live = reads.sessionReadAt > at && sessionIsLive(reads.sessionStage);
+  const live = reads.sessionRequestedAt > at && sessionIsLive(reads.sessionStage);
   return started || live;
 }
 
