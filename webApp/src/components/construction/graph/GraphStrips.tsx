@@ -8,12 +8,15 @@
  *    A feeder carrying reconstructed evidence puts the hatch and the
  *    spelled-out `≈ RECONSTRUCTED` stamp on the chip. Hovering a chip
  *    hover-focuses its feeders on the canvas (or, for M0, what it gates).
- *  - GraphKey: how to read the canvas — the live App C layering check (R5),
- *    how many components no activity builds, and the spine's state key.
+ *  - GraphKeyBar: the live up/sideways check (R5), always visible, and ONE
+ *    "Key" popover button beside it — how many components no activity builds,
+ *    the spine's state key, the provenance hatch and the schedule channels.
  */
-import type { ReactElement } from 'react';
+import { useState, type ReactElement } from 'react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
+import Popover from '@mui/material/Popover';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import WarningAmberIcon from '@mui/icons-material/WarningAmber';
@@ -184,7 +187,18 @@ export function GateRibbon({
     <Box
       aria-label="Milestones"
       data-testid={UI_IDENTIFIERS.Construction.GRAPH_RIBBON}
-      sx={{ display: 'flex', flexWrap: 'wrap', alignItems: 'stretch', gap: 0.75 }}
+      // ONE line that scrolls sideways (designer P1-2): a wrapping ribbon took
+      // two lines at 1366 and pushed the canvas below the fold.
+      sx={{
+        display: 'flex',
+        flexWrap: 'nowrap',
+        alignItems: 'stretch',
+        gap: 0.75,
+        overflowX: 'auto',
+        overflowY: 'hidden',
+        scrollbarWidth: 'thin',
+        pb: 0.25,
+      }}
     >
       {ribbon.map((m) => {
         if (m.id === 'M0') {
@@ -216,6 +230,8 @@ export function GateRibbon({
               sx={{
                 display: 'flex',
                 alignItems: 'stretch',
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
                 gap: 0.6,
                 pr: 1,
                 bgcolor: t.paper,
@@ -268,7 +284,13 @@ export function GateRibbon({
 // The key
 // ---------------------------------------------------------------------------
 
-export function GraphKey({
+/**
+ * The check row: the live up/sideways check, always visible, and ONE "Key"
+ * button beside it that opens the legend as a popover (designer P1-2) — the
+ * inline key took up to four lines with the pane open and pushed the canvas
+ * below the fold.
+ */
+export function GraphKeyBar({
   model,
   t,
 }: {
@@ -276,29 +298,90 @@ export function GraphKey({
   t: Tokens;
 }): ReactElement {
   const alarmed = model.alarms.up + model.alarms.sideways > 0;
+  const [anchor, setAnchor] = useState<HTMLElement | null>(null);
+  return (
+    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+      <Box
+        component="span"
+        data-alarms={String(model.alarms.up + model.alarms.sideways)}
+        data-testid={UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK}
+        sx={{
+          flex: '1 1 auto',
+          minWidth: 0,
+          overflowX: 'auto',
+          whiteSpace: 'nowrap',
+          scrollbarWidth: 'thin',
+          fontFamily: t.mono,
+          fontSize: 10.5,
+          color: alarmed ? t.dangerFg : t.ink,
+          fontWeight: 700,
+        }}
+        title="Every edge is an architecture call. In this layered drawing an upward call, or a sideways one other than the queued Manager→Manager call App C sanctions, is a layering violation and is drawn in red."
+      >
+        {layeringCheckText(model)}
+      </Box>
+      <Button
+        aria-expanded={anchor !== null}
+        aria-haspopup="dialog"
+        data-testid={UI_IDENTIFIERS.Construction.GRAPH_KEY_BUTTON}
+        size="small"
+        sx={{
+          flexShrink: 0,
+          minWidth: 0,
+          py: 0,
+          px: 1,
+          fontFamily: t.mono,
+          fontSize: 10.5,
+          fontWeight: 700,
+          textTransform: 'none',
+          color: t.ink,
+          borderColor: t.line,
+        }}
+        variant="outlined"
+        onClick={(e) => {
+          setAnchor(e.currentTarget);
+        }}
+      >
+        Key
+      </Button>
+      <Popover
+        anchorEl={anchor}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'right' }}
+        open={anchor !== null}
+        transformOrigin={{ vertical: 'top', horizontal: 'right' }}
+        onClose={() => {
+          setAnchor(null);
+        }}
+      >
+        <GraphKeyLegend model={model} t={t} />
+      </Popover>
+    </Box>
+  );
+}
+
+/** The legend the Key button opens. */
+function GraphKeyLegend({
+  model,
+  t,
+}: {
+  model: Pick<ActivityGraphModel, 'hollowCount'>;
+  t: Tokens;
+}): ReactElement {
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.GRAPH_KEY}
       sx={{
         display: 'flex',
-        flexWrap: 'wrap',
-        alignItems: 'center',
-        columnGap: 1.5,
-        rowGap: 0.5,
+        flexDirection: 'column',
+        gap: 0.75,
+        p: 1.5,
+        maxWidth: 440,
+        bgcolor: t.paper,
         fontFamily: t.mono,
         fontSize: 10.5,
         color: t.muted,
       }}
     >
-      <Box
-        component="span"
-        data-alarms={String(model.alarms.up + model.alarms.sideways)}
-        data-testid={UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK}
-        sx={{ color: alarmed ? t.dangerFg : t.ink, fontWeight: 700 }}
-        title="Every edge is an architecture call. In this layered drawing an upward call, or a sideways one other than the queued Manager→Manager call App C sanctions, is a layering violation and is drawn in red."
-      >
-        {layeringCheckText(model)}
-      </Box>
       <Box component="span">
         {model.hollowCount} {model.hollowCount === 1 ? 'component' : 'components'} with no activity
         (dashed)

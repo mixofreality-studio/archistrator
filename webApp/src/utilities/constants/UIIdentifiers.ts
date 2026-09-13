@@ -378,7 +378,9 @@ export const UI_IDENTIFIERS = {
     GRAPH_CANVAS: 'construction-graph-canvas',
     GRAPH_RIBBON: 'construction-graph-ribbon',
     graphMilestone: (id: string) => `construction-graph-milestone-${id}`,
+    /** The key's popover content; GRAPH_KEY_BUTTON opens it (designer P1-2). */
     GRAPH_KEY: 'construction-graph-key',
+    GRAPH_KEY_BUTTON: 'construction-graph-key-button',
     GRAPH_LAYER_CHECK: 'construction-graph-layer-check',
     graphCard: (cardId: string) => `construction-graph-card-${cardId}`,
     graphLane: (activityId: string) => `construction-graph-lane-${activityId}`,

@@ -146,6 +146,17 @@ void test('the canvas fills from its resting top to the scroller bottom, less th
   assert.equal(canvasHeightPx(1000, 380), 1000 - 380 - CANVAS_BOTTOM_PAD_PX);
 });
 
+void test("the scroller's own bottom padding is room the canvas cannot take", () => {
+  assert.equal(canvasHeightPx(1000, 380, 24), 1000 - 24 - 380 - CANVAS_BOTTOM_PAD_PX);
+});
+
+void test('P1-2: the floor is about 280px, so the canvas fits above the fold at 1366×768', () => {
+  assert.equal(CANVAS_MIN_PX, 280);
+  // 768 tall, canvas resting at ~350 under a one-line ribbon and check row:
+  // the measured height, not the floor, decides.
+  assert.equal(canvasHeightPx(768, 350, 24), 768 - 24 - 350 - CANVAS_BOTTOM_PAD_PX);
+});
+
 void test('the canvas never shrinks below its minimum — the page scrolls instead', () => {
   assert.equal(canvasHeightPx(600, 400), CANVAS_MIN_PX);
 });

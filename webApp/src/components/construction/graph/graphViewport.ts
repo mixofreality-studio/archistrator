@@ -134,8 +134,13 @@ export function graphMountFor(
 // The canvas's height — measured, never a guessed constant
 // ---------------------------------------------------------------------------
 
-/** Below this the canvas stops shrinking and the page scrolls instead. */
-export const CANVAS_MIN_PX = 420;
+/**
+ * Below this the canvas stops shrinking and the page scrolls instead. About
+ * 280 (designer P1-2): at 1366×768 the page header, the toolbar, the one-line
+ * ribbon and the check row leave ~390px, and the old 420 floor pushed the
+ * canvas below the fold.
+ */
+export const CANVAS_MIN_PX = 280;
 /** Breathing room between the canvas and the bottom of the scroller. */
 export const CANVAS_BOTTOM_PAD_PX = 16;
 
@@ -149,7 +154,14 @@ export const CANVAS_BOTTOM_PAD_PX = 16;
  * (lensGeometry.ts). `canvasTopAtRest` is the canvas's top with the scroller
  * scrolled to 0, so scrolling never changes the answer.
  */
-export function canvasHeightPx(scrollerBottom: number, canvasTopAtRest: number): number {
-  const available = Math.round(scrollerBottom - canvasTopAtRest - CANVAS_BOTTOM_PAD_PX);
+export function canvasHeightPx(
+  scrollerBottom: number,
+  canvasTopAtRest: number,
+  /** The scroller's own bottom padding — content ends above it, or the page scrolls. */
+  scrollerPadBottom = 0
+): number {
+  const available = Math.round(
+    scrollerBottom - scrollerPadBottom - canvasTopAtRest - CANVAS_BOTTOM_PAD_PX
+  );
   return Number.isFinite(available) ? Math.max(CANVAS_MIN_PX, available) : CANVAS_MIN_PX;
 }

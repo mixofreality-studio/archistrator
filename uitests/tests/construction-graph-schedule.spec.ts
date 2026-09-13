@@ -154,9 +154,13 @@ for (const [w, h] of SIZES) {
   }) => {
     const t = await truth(request);
     await openGraph(page, w, h);
+    // The key is one popover button beside the check (designer P1-2).
+    await page.getByTestId(TESTID.constructionGraphKeyButton).click();
     await expect(page.getByTestId(TESTID.constructionGraphScheduleCaption)).toHaveText(
       'Float and critical path of the derived network, unstaffed.'
     );
+    await page.keyboard.press('Escape');
+    await expect(page.getByTestId(TESTID.constructionGraphKey)).toHaveCount(0);
     const max = Math.max(...Object.values(t.effort));
     for (const id of t.activityIds.slice(0, 6)) {
       const e = t.effort[id];

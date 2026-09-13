@@ -78,7 +78,7 @@ import {
 } from './graphViewport';
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
-import { GateRibbon, GraphKey } from './GraphStrips';
+import { GateRibbon, GraphKeyBar } from './GraphStrips';
 
 /** Far enough out to fit the widest real row (ten ResourceAccess cards) at 1280. */
 const MIN_ZOOM = 0.15;
@@ -192,7 +192,7 @@ export function ActivityGraphLens({
         onHover={setRibbonHover}
         {...(onOpenSdpReview !== undefined ? { onOpenSdpReview } : {})}
       />
-      <GraphKey model={model} t={t} />
+      <GraphKeyBar model={model} t={t} />
       <GraphCanvas
         // A genuinely different architecture or plan starts from its own
         // remembered viewport (or a fit); the same one keeps where it was left.
@@ -335,7 +335,10 @@ function GraphCanvas({
     const measure = (): void => {
       const bottom = scroller?.getBoundingClientRect().bottom ?? window.innerHeight;
       const topAtRest = box.getBoundingClientRect().top + (scroller?.scrollTop ?? window.scrollY);
-      const next = `${String(canvasHeightPx(bottom, topAtRest))}px`;
+      // The scroller's bottom padding is inside its box but not room for content.
+      const padBottom =
+        scroller !== null ? Number.parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0;
+      const next = `${String(canvasHeightPx(bottom, topAtRest, padBottom))}px`;
       if (next !== written) {
         box.style.height = next;
         written = next;

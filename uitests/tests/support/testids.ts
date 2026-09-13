@@ -227,6 +227,7 @@ export const TESTID = {
   constructionGraphRibbon: UI_IDENTIFIERS.Construction.GRAPH_RIBBON,
   constructionGraphMilestone: UI_IDENTIFIERS.Construction.graphMilestone,
   constructionGraphKey: UI_IDENTIFIERS.Construction.GRAPH_KEY,
+  constructionGraphKeyButton: UI_IDENTIFIERS.Construction.GRAPH_KEY_BUTTON,
   constructionGraphLayerCheck: UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK,
   constructionGraphCard: UI_IDENTIFIERS.Construction.graphCard,
   constructionGraphLane: UI_IDENTIFIERS.Construction.graphLane,
