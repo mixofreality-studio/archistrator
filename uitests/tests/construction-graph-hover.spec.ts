@@ -56,9 +56,13 @@ for (const [w, h] of SIZES) {
     await page.waitForTimeout(400);
     const canvas = await rectOf(page, TESTID.constructionGraphCanvas);
 
+    // The Client row too: it sits at the canvas's top edge, where a hover card
+    // centred on its card would ride up over the ribbon unless it is bounded to
+    // the CANVAS (popper.js's own defaults bound only to the viewport — the
+    // mutation round showed Managers and utilities alone cannot tell them apart).
     const ids = await page.getByTestId(CARD_ID).evaluateAll((els) =>
       els
-        .filter((e) => ['manager', 'utility'].includes(e.getAttribute('data-row') ?? ''))
+        .filter((e) => ['client', 'manager', 'utility'].includes(e.getAttribute('data-row') ?? ''))
         .map((e) => e.getAttribute('data-testid') ?? '')
     );
     expect(ids.length).toBeGreaterThan(0);
