@@ -291,12 +291,24 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 	}
 }
 
+// pumpTerminalWaitBudget bounds terminalPumpResult's wait. A var (not a const) only so
+// a test can shorten it.
+var pumpTerminalWaitBudget = 10 * time.Second
+
 // terminalPumpResult is the safety-net fallback: it awaits the pump's terminal result
 // (used only when the dispatch decision never surfaced — a failed run or a run that
 // finished before it could be polled).
+//
+// BOUNDED (fix round, M7): WorkflowRun.Get FOLLOWS the ContinueAsNew chain, so for a
+// caller that joined a RUNNING pump (one pump per project) and then hit a query failure,
+// an unbounded Get would block until the whole self-cascade drains — hours of
+// construction. A failed run returns well inside the budget, so its error still
+// surfaces; past the budget the caller gets an Infrastructure error instead of a hang.
 func (m *constructionManager) terminalPumpResult(ctx context.Context, we client.WorkflowRun) (PumpResult, error) {
+	wctx, cancel := context.WithTimeout(ctx, pumpTerminalWaitBudget)
+	defer cancel()
 	var result PumpResult
-	if err := we.Get(ctx, &result); err != nil {
+	if err := we.Get(wctx, &result); err != nil {
 		return PumpResult{}, newError(fwm.Infrastructure, err.Error())
 	}
 	return result, nil
@@ -1526,7 +1538,9 @@ const (
 
 // ExecutionKinds — the registered workflow names (constructionManager.md §6.2).
 const (
-	// executionKindPump is the per-tick PumpNextActivityWorkflow (the 30s pump).
+	// executionKindPump is PumpNextActivityWorkflow — the project's ONE pump,
+	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
+	// 30s pump sweep (not one execution per tick).
 	executionKindPump = "constructionPumpNextActivity"
 	// executionKindConstructActivity is the per-activity child workflow.
 	executionKindConstructActivity = "constructionConstructActivity"

@@ -139,7 +139,7 @@ func pumpPausePayload(projectID ProjectID, reason string) (messagebus.ExecutionP
 	if err != nil {
 		return messagebus.ExecutionPayload{}, err
 	}
-	return messagebus.ExecutionPayload{Bytes: b, ContentType: "application/json"}, nil
+	return messagebus.ExecutionPayload{Bytes: b}, nil
 }
 
 // isSignalTargetNotFound reports whether a messageBus.deliverSignal Activity failed

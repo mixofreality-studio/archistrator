@@ -11,7 +11,10 @@ import (
 )
 
 // ===========================================================================
-// PumpNextActivityWorkflow — op 2.1 entry (scheduler-triggered, 30s).
+// PumpNextActivityWorkflow — op 2.1's execution: the project's ONE pump,
+// {projectId}:nextActivity (pumpWorkflowID). Started — or joined — by
+// ExecuteNextActivity (Begin / MCP) and by PumpSweepWorkflow's 30s Schedule fan-out;
+// it self-cascades via ContinueAsNew under the same id until the frontier drains.
 // ===========================================================================
 
 // pumpInput is the start payload for PumpNextActivityWorkflow.
@@ -19,12 +22,14 @@ type pumpInput struct {
 	ProjectID ProjectID
 }
 
-// pumpDispatch is THIS pump run's synchronous dispatch decision, surfaced to the
-// façade via the queryPumpDispatch Query so ExecuteNextActivity can return this tick's
+// pumpDispatch is THIS pump RUN's synchronous dispatch decision, surfaced to the
+// façade via the queryPumpDispatch Query so ExecuteNextActivity can return the run's
 // outcome (dispatched X, or quiescent) WITHOUT blocking on the background self-cascade
-// drain. Decided flips true the moment this run reaches its decision point — quiescent
-// (pause / no-project / nothing eligible) or an eligible dispatch — which is BEFORE the
-// blocking child.Get self-cascade below; until then the façade keeps polling.
+// drain. A caller that joined an already-running pump reads that run's decision, not a
+// fresh one of its own. Decided flips true the moment this run reaches its decision
+// point — quiescent (pause / no-project / nothing eligible) or an eligible dispatch —
+// which is BEFORE the blocking child.Get self-cascade below; until then the façade
+// keeps polling.
 type pumpDispatch struct {
 	Decided    bool        `json:"decided"`
 	Dispatched bool        `json:"dispatched"`
@@ -57,17 +62,21 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// projectsupervision.go), which relays the pause onto this pump's id — the one
 	// per-project pumpWorkflowID — via messageBus.deliverSignal, on the SAME
 	// operatorPauseRequested signal name. The channel is checked non-blocking
-	// (ReceiveAsync — emits no command, replay-deterministic) at TWO points: here,
-	// before this run dispatches anything, so a pause never races a half-dispatched
-	// activity; and again just before the self-cascade's ContinueAsNew (below). The
-	// second check is load-bearing: a signal still buffered on a run that ends in
-	// ContinueAsNew is NOT carried into the next run, so a pause landing while this run
-	// is parked in child.Get or the pace Sleep would otherwise be lost. A paused pump
-	// goes quiet WITHOUT ContinueAsNew; the resume path — a fresh ExecuteNextActivity
-	// (Begin), the deliberately ungated manual path (see pumpsweep.go) — starts a new
-	// pump under the same id.
+	// (ReceiveAsync — emits no command, replay-deterministic) at THREE points, one per
+	// place this run can block and let a signal in:
+	//   1. here, at run start;
+	//   2. immediately before ExecuteChildWorkflow — readProject is an Activity, so a
+	//      pause can land after (1) and before the dispatch; with no blocking call
+	//      between (2) and the child start, both commit in the same workflow task;
+	//   3. just before the self-cascade's ContinueAsNew — a signal still buffered on a
+	//      run that ends in ContinueAsNew is NOT carried into the next run, so a pause
+	//      landing while this run is parked in child.Get or the pace Sleep would
+	//      otherwise be lost.
+	// A paused pump goes quiet WITHOUT ContinueAsNew; the resume path — a fresh
+	// ExecuteNextActivity (Begin), the deliberately ungated manual path (see
+	// pumpsweep.go) — starts a new pump under the same id.
 	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
-	if reason, paused := pumpPauseRequested(pauseCh); paused {
+	if reason, paused := pumpPausedAtRunStart(ctx, pauseCh); paused {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", reason)
 		dispatch = pumpDispatch{Decided: true, Dispatched: false}
@@ -130,6 +139,19 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	}
 	activity := sel.Activity
 
+	// PRE-DISPATCH RE-CHECK (pause check 2 above). A pause that landed while readProject
+	// ran must not dispatch a NEW activity: nothing would cancel it — the pause plan's
+	// PipelinesToCancel is empty because InFlightPipelines is never populated. GetVersion
+	// pins pre-change executions to the old sequence (straight to the child start).
+	if workflow.GetVersion(ctx, "pump-pause-before-dispatch", workflow.DefaultVersion, 1) >= 1 {
+		if reason, paused := pumpPauseRequested(pauseCh); paused {
+			logger.Info("pump cascade paused by operator signal before dispatch — going quiet without continue-as-new",
+				"projectId", string(in.ProjectID), "activityId", activity.ActivityID, "reason", reason)
+			dispatch = pumpDispatch{Decided: true, Dispatched: false}
+			return PumpResult{Dispatched: false}, nil
+		}
+	}
+
 	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
 	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
 	// the construction activity is its own durable execution, independent of this
@@ -188,6 +210,23 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
 }
 
+// pumpPausedAtRunStart is pause check 1, with the decode change version-gated. The
+// pre-change body received into an operatorPauseSignal struct, which silently drops a
+// relayed (binary/plain) pause; pumpPauseRequested counts it. Replaying a pre-change
+// history that buffered such a pause through the new decode would take the quiet-return
+// branch where the history recorded a dispatch — a non-determinism error — so
+// pre-change executions keep the old struct decode.
+func pumpPausedAtRunStart(ctx workflow.Context, ch workflow.ReceiveChannel) (reason string, paused bool) {
+	if workflow.GetVersion(ctx, "pump-pause-decode-any", workflow.DefaultVersion, 1) >= 1 {
+		return pumpPauseRequested(ch)
+	}
+	var sig operatorPauseSignal
+	if ch.ReceiveAsync(&sig) {
+		return sig.Reason, true
+	}
+	return "", false
+}
+
 // pumpPauseRequested drains one pending operatorPauseRequested signal, non-blocking,
 // and reports whether a pause was pending (plus its best-effort reason, for the log).
 //
@@ -195,8 +234,14 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 // payload cannot decode into the target (the SDK logs "Corrupted signal" and moves
 // on), and the pump's pause arrives as messageBus.deliverSignal's raw bytes
 // (binary/plain — see relayPauseToPump) while a directly-sent operatorPauseSignal
-// arrives as JSON. A struct target would drop the former; `any` accepts both. A pause
-// is a pause whatever its encoding — only the reason is lost to an undecodable body.
+// arrives as JSON. A struct target would drop the former; `any` accepts both.
+//
+// AN UNDECODABLE PAUSE STILL COUNTS AS A PAUSE (decided, pinned by
+// Test_Pump_UndecodablePauseSignal_StillPauses). The channel NAME carries the
+// operator's intent; the body only carries a reason for the log. Dropping a pause over
+// a malformed body fails OPEN — the cascade keeps dispatching through an operator halt,
+// the exact defect this gate exists to prevent — while counting it fails SAFE: the pump
+// goes quiet, nothing is lost, and the next Begin resumes. Only the reason is lost.
 func pumpPauseRequested(ch workflow.ReceiveChannel) (reason string, paused bool) {
 	var raw any
 	if !ch.ReceiveAsync(&raw) {
