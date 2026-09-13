@@ -32,6 +32,7 @@ import {
   provenanceGradeOf,
   provenanceRailFor,
   provenanceTooltipFor,
+  reconstructedHintFor,
   type ProvenanceOrigin,
 } from '../provenanceAxis';
 import { bandTokens } from '../../project/bandTokens';
@@ -55,21 +56,22 @@ import {
 // ---------------------------------------------------------------------------
 
 /**
- * The one line a reconstructed chip's tooltip adds below its count sentence.
+ * Where a reconstructed chip's basis is read: a feeder. The line before it is the
+ * one fixed hint every reconstructed mark gives (provenanceAxis.reconstructedHintFor,
+ * shared with the provenance rail since fix I).
  *
  * Never a feeder's own basis prose: that ran 948-1752 characters across a
  * milestone's several feeders, truncated mid-word, and overran the viewport at
  * 1366×768 (round 3 — the tooltip used to fold provenanceTooltipFor's full,
  * per-basis text in here). A reader who wants a basis opens the feeder itself.
  */
-const RECONSTRUCTED_HINT =
-  'Reconstructed (backfilled): written from a basis, not observed. Select a feeder for its basis.';
+const FEEDER_POINTER = 'Select a feeder for its basis.';
 
 /** A milestone chip's one tooltip: its count sentence, then — only when its
- *  feeders' worst provenance is reconstructed — the fixed hint above. */
+ *  feeders' worst provenance is reconstructed — the fixed hint and the pointer. */
 function milestoneTooltipText(count: string, origin: ProvenanceOrigin): string {
   return provenanceGradeOf(origin) === 'reconstructed'
-    ? `${count}\n\n${RECONSTRUCTED_HINT}`
+    ? `${count}\n\n${reconstructedHintFor(origin)} ${FEEDER_POINTER}`
     : count;
 }
 

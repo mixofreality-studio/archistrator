@@ -15,8 +15,10 @@ import {
   provenanceBasesOf,
   provenanceGradeOf,
   provenanceRailFor,
+  provenanceRailTooltipFor,
   provenanceSubGradeLabel,
   provenanceTooltipFor,
+  reconstructedHintFor,
   worstOriginOf,
   type ProvenanceBearing,
 } from './provenanceAxis.ts';
@@ -194,4 +196,24 @@ void test('the unknown tooltip refuses to say the work did not happen', () => {
   const tip = provenanceTooltipFor('unknown', []);
   assert.match(tip, /unknown, not observed/);
   assert.doesNotMatch(tip, /not started/i);
+});
+
+// Fix I: the rail's nested tooltip is ONE fixed hint, the ribbon's own line, and
+// never a basis — however long the basis behind it.
+void test("the rail's tooltip is the fixed hint, never a basis, for both reconstructed sub-grades", () => {
+  const wall = `The founder's ruling of 2026-09-09 ${'widened the backfill '.repeat(80)}`;
+  assert.equal(
+    reconstructedHintFor('backfilled'),
+    'Reconstructed (backfilled): written from a basis, not observed.'
+  );
+  for (const origin of ['backfilled', 'synthesized'] as const) {
+    const tip = provenanceRailTooltipFor(origin);
+    assert.equal(tip, `${reconstructedHintFor(origin)} Select it for its basis.`);
+    assert.ok(tip.length < 120, `${origin}: ${String(tip.length)} characters`);
+    assert.doesNotMatch(tip, /Basis:|founder/);
+    // The full tooltip, by contrast, reads the basis out — which is why the rail
+    // must not use it.
+    assert.match(provenanceTooltipFor(origin, [wall]), /Basis:/);
+  }
+  assert.match(provenanceRailTooltipFor('synthesized'), /\(inferred\)/);
 });

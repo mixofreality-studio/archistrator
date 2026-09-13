@@ -305,6 +305,31 @@ export function provenanceTooltipFor(origin: ProvenanceOrigin, bases: readonly s
   }
 }
 
+/**
+ * The ONE fixed line a reconstructed mark's tooltip gives (fix I): the grade, its
+ * sub-grade and what that means — never a basis. A basis ran to hundreds of
+ * characters (a milestone's several feeders: 948-1752), so a tooltip that folded
+ * one in became a wall of text, truncated mid-word, off the viewport. The ribbon's
+ * milestone chip and the provenance rail both carry this line; each adds only
+ * where the basis is to be read.
+ */
+export function reconstructedHintFor(origin: ProvenanceOrigin): string {
+  return `Reconstructed (${SUB_GRADE_LABEL[origin]}): written from a basis, not observed.`;
+}
+
+/**
+ * The provenance rail's tooltip (ProvenanceRailMark). The rail is drawn only for
+ * the reconstructed grade, and there it says the fixed hint and where the basis
+ * is — select the row or lane, and the detail pane's ProvenanceNote reads it out.
+ * It sits nested inside a row or a lane that has its own surfaces, so it must stay
+ * short. The other grades draw no rail; their words are already one short line.
+ */
+export function provenanceRailTooltipFor(origin: ProvenanceOrigin): string {
+  return provenanceGradeOf(origin) === 'reconstructed'
+    ? `${reconstructedHintFor(origin)} Select it for its basis.`
+    : provenanceTooltipFor(origin, []);
+}
+
 function elide(s: string): string {
   return s.length <= BASIS_BUDGET ? s : `${s.slice(0, BASIS_BUDGET - 1)}…`;
 }

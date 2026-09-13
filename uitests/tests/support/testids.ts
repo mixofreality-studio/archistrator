@@ -293,6 +293,8 @@ export const TESTID = {
   constructionLensDetail: UI_IDENTIFIERS.Construction.LENS_DETAIL,
   constructionDetailDrawer: UI_IDENTIFIERS.Construction.DETAIL_DRAWER,
   constructionDetailClose: UI_IDENTIFIERS.Construction.DETAIL_CLOSE,
+  /** The provenance rail (drawn only for a reconstructed row, phase, task or lane). */
+  constructionProvenanceRail: UI_IDENTIFIERS.Construction.PROVENANCE_RAIL,
   constructionDetailBreadcrumb: UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB,
   constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
   /** The pane header's provenance chip — or, with "Observed only" hiding this

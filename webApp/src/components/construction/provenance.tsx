@@ -40,6 +40,7 @@ import { ReconstructedBadge } from '../project/computed';
 import {
   provenanceBasesOf,
   provenanceRailFor,
+  provenanceRailTooltipFor,
   provenanceTooltipFor,
   worstOriginOf,
   type ProvenanceBearing,
@@ -109,8 +110,10 @@ export function ProvenanceRailMark({
     return <Box sx={{ width: RAIL_COLUMN_PX, alignSelf: 'stretch', flexShrink: 0 }} />;
   }
 
+  // The fixed hint, never the basis (fix I): the rail sits nested in a row or a
+  // lane, and a basis-long tooltip here was a wall of text over it.
   return (
-    <Tooltip title={<span style={{ whiteSpace: 'pre-line' }}>{reading.tooltip}</span>}>
+    <Tooltip title={provenanceRailTooltipFor(reading.origin)}>
       <Box
         data-provenance={reading.origin}
         data-testid={UI_IDENTIFIERS.Construction.PROVENANCE_RAIL}
