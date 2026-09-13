@@ -582,4 +582,62 @@ export async function stubCommittedArchitecture(
   return projectId;
 }
 
+/**
+ * stubCreatedProject stands in for a project create-project "just made", without
+ * creating anything (fix-F review: landing.spec and design-experience.spec used to
+ * POST real creates). In the browser:
+ *   • create-project answers `projectId` (the server-minted id the SPA navigates to);
+ *   • the project reads as a fresh one: Phase 0, no slots;
+ *   • every design-session probe 404s (no session yet), so the first step offers
+ *     "Request draft";
+ *   • the REAL catalog read comes back with this project's row added.
+ * Pair it with the shared dispatch guard, which aborts any other write. Returns the
+ * number of creates it answered, so a spec can assert the create was faked.
+ */
+export async function stubCreatedProject(
+  page: Page,
+  projectId: string,
+  name: string,
+): Promise<{ creates: number }> {
+  const answered = { creates: 0 };
+  await page.route('**/api/v1/system-design/create-project', (route) => {
+    answered.creates += 1;
+    return route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify(projectId),
+    });
+  });
+  await stubGetProject(page, projectId, projectState(projectId, name, []));
+  await stubNoSession(page);
+  await page.route('**/api/v1/system-design/list-projects**', async (route) => {
+    // A catalog read can still be in flight when the test ends. Only "the page has
+    // closed" is ignored here; any other failure still fails the test.
+    try {
+      const response = await route.fetch();
+      const rows = (await response.json()) as unknown[];
+      await route.fulfill({
+        response,
+        json: [
+          {
+            ProjectID: projectId,
+            Name: name,
+            Owner: 'dev-architect',
+            Phase: 0,
+            PhaseName: 'systemDesign',
+            CommittedCount: 0,
+            TotalCount: 5,
+            UpdatedAt: new Date().toISOString(),
+          },
+          ...rows,
+        ],
+      });
+    } catch (err) {
+      if (page.isClosed() || /has been closed/.test(String(err))) return;
+      throw err;
+    }
+  });
+  return answered;
+}
+
 export const DESIGN_STUB_KIND_ORDINAL = KIND_ORDINAL;
