@@ -185,3 +185,29 @@ Qualifying activities get a passed attempt for every non-conditional task in the
 - `U-SPA-web-client` is capped at 35 days by `legalEffort`, which understates a five-manager SPA. Löwy's remedy is the compression-only client-design split, not per-manager activities.
 - The pump's M0 resolver could later require "slot 16 committed" rather than treating an empty-`dependsOn` milestone as satisfied.
 - `C-design-health-engine` has code but no contract; writing one is a detailed-design task.
+
+## Founder decision on the NOT-FOR-MERGE state commits (recorded 2026-09-13)
+
+This is the explicit decision that the state commits' `NOT FOR MERGE TO MAIN without an explicit founder decision recorded here.` line asks for.
+
+> Founder: keep the backfilled done-records (23 activities done from code evidence, with C-billing-manager and C-system-design-manager done except integration, and N-STP done by sign-off).
+
+The founder answered "yes" on 2026-09-13.
+
+It covers the following state commits:
+
+| Commit | What it does |
+|---|---|
+| 09874bce | Earlier backfill; superseded, a no-op at HEAD |
+| fa489c16 | 21-activity backfill; wiped by f20b7226, so a no-op at HEAD |
+| fd9b0cec | 23-of-29 backfill |
+| d110e0e5 | Resource-access re-stamp |
+| 62efcafe | Integration pending for C-billing-manager and C-system-design-manager |
+| cf9c9981 | Basis text states the ruling |
+
+The founder also acknowledged two further commits:
+
+- a0a7e623: the derived slots 9/10 and the deletion of the overrides.
+- f20b7226: the construction-state reset.
+
+Merge by merge commit or fast-forward only, never squash or rebase, so that the commits the backfill bases cite stay reachable.
