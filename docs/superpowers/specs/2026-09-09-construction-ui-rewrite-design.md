@@ -120,8 +120,7 @@ Emission is one rule, not a per-type table:
 2. Nine of the twelve are invariant — present whenever their phase is.
 3. `someConstruction` and `testClient` are **conditional-emit**: rendered only when an attempt
    record exists. Emitting a row for work that never happened is the "renders a lie" failure.
-4. Task labels inherit the profile's per-phase `Label`, so `testing` reads "Doc Review" for
-   Documentation and "Convergence Verification" for Deployment. No per-type task tables.
+4. **Words are profile data; the task set is not.** The twelve task keys, which of them a profile emits (rule 1), each phase's gate, the weights and every attempt id are profile-invariant and are never tabulated per type. What a profile *calls* each phase's work task and gate task, and that phase's binary exit criterion, are per-profile display copy. They sit on the same row as the phase's `Label` and `Weight`, in the one table `ProfileFor` projects from, and never in a second switch that restates the phase subset. Service reads Figure A-1 verbatim. Every other profile obeys one vocabulary rule: **the phase `Label` is the name of one of its own tasks** — the work task, the gate task, or `<work> & <gate>` — so a phase and its tasks never carry near-synonyms. Hence `testing` reads "Doc Review" for Documentation and "Convergence Verification" for Deployment, exactly as the phase does. The two conditional tasks keep the book's name on every profile. Where a profile's label differs from the book's, the book's name renders beside it as secondary text and stays searchable. An exit criterion is the gate's success stated in the profile's own terms; no exit criterion is authored in the SPA.
 
 Resulting counts: service 12 · frontend 12 · deployment 8 · documentation 8 · uiDesign 5 ·
 integration 2 · testing 5 profile-dependent variants.
@@ -130,6 +129,8 @@ integration 2 · testing 5 profile-dependent variants.
 carry three phases — DetailedDesign 3 + Construction 3 + Integration 2. Corrected against
 `ProfileFor`/`TasksForPhase`, and pinned by `TestTasksForProfile_PerTypeTaskSets`, which now
 asserts the whole task SET rather than a count a wrong set would also satisfy.)
+
+(Rule 4 amended 2026-09-12. As published it said task labels "inherit" the phase `Label`, which does not say which of a phase's two or three tasks inherits it, and it was silent on exits. That silence left the SPA with five generic exit sentences that were false for ten of eleven profiles — N-STP "code-complete", N-IT's Smoke Pass "requirement captured". "No per-type task tables" meant the task *set*; it never forbade per-profile words. Implemented in 8beec0c; consolidated into `ProfileFor`'s own table, and conformed to the phase `Label`s, by the follow-up.)
 
 **Two `gen-uiprofiles` defects are in scope**, because that generator is the seam carrying this
 vocabulary to TS: its header and the generated file cite
@@ -608,9 +609,22 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
 
 ## 9. Acceptance criteria
 
-1. **The synthesized toggle.** With "hide synthesized" **on**, all three lenses render without
-   crashing and show approximately **one** activity with lifecycle data. If not, something is
+1. **The evidence toggle ("Observed only").** With "Observed only" **on**, all three lenses render
+   without crashing and keep **every** activity: slot 9 decides what exists (R6), so the toggle
+   never removes a row. It strips every attempt whose origin is not `observed`, together with the
+   phase completions, status and current phase the server derived from them, so an activity known
+   only from reconstructed evidence reads as not started, with no hatch and no badge. Stripped is
+   not unrecorded: where the toggle hid a recorded row's evidence, the surface says how many
+   reconstructed attempts it hid, and "unrecorded" appears only where nothing is recorded at all.
+   Any lifecycle progress that remains with the toggle on was observed. If not, something is
    fabricating.
+
+   (Amended 2026-09-12. As published this criterion called the control "hide synthesized" and
+   expected "approximately one activity with lifecycle data", which read as a row filter. The
+   designer UX pass (P1-11) found that filter dropped 23 of 29 real activities; the ruling kept
+   every row, stripped the untrusted evidence instead, and renamed the control "Observed only"
+   (0ef0c9b). The designer re-check (B1) then found the pane calling a stripped row
+   "unrecorded"; the hidden-attempt count and the recorded/unrecorded split are from that pass.)
 2. **No laundered aggregate.** The project EV/progress header shows **"—"** whenever
    `worstOrigin != observed` — not a badged number, not a footnote.
 3. **Retry is never absent.** `↻ Run this task` is present and enabled in every state, in every
