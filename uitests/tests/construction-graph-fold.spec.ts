@@ -8,9 +8,11 @@
  *   - the milestone ribbon is ONE line that scrolls sideways, never wraps;
  *   - the key is one "Key" popover button beside the up/sideways check.
  *
- * DISPATCH SAFETY: every non-GET request is aborted before any navigation.
+ * DISPATCH SAFETY: every non-GET request is aborted before any navigation, by the
+ * context-level guard (support/graphDispatchGuard), never a per-page route.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/graphDispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -18,10 +20,9 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 const GRAPH = '/project/archistrator/construction?lens=graph';
 const LANE_ID = /^construction-graph-lane-/;
 
-test.beforeEach(async ({ page, request }) => {
-  await page.route('**/*', (route) =>
-    route.request().method() === 'GET' ? route.fallback() : route.abort()
-  );
+test.beforeEach(async ({ request }) => {
+  // DISPATCH SAFETY: support/graphDispatchGuard's context route aborts every
+  // non-GET before any navigation (and any request a test still holds, at teardown).
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });

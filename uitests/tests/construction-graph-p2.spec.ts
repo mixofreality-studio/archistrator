@@ -11,9 +11,11 @@
  *   - below 1200px the graph's detail drawer is non-modal: no backdrop, and
  *     the canvas beside it keeps taking clicks.
  *
- * DISPATCH SAFETY: every non-GET request is aborted before any navigation.
+ * DISPATCH SAFETY: every non-GET request is aborted before any navigation, by the
+ * context-level guard (support/graphDispatchGuard), never a per-page route.
  */
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+import { test, expect } from './support/graphDispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -22,10 +24,9 @@ const GRAPH = '/project/archistrator/construction?lens=graph';
 const CARD_ID = /^construction-graph-card-/;
 const LANE_ID = /^construction-graph-lane-/;
 
-test.beforeEach(async ({ page, request }) => {
-  await page.route('**/*', (route) =>
-    route.request().method() === 'GET' ? route.fallback() : route.abort()
-  );
+test.beforeEach(async ({ request }) => {
+  // DISPATCH SAFETY: support/graphDispatchGuard's context route aborts every
+  // non-GET before any navigation (and any request a test still holds, at teardown).
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });

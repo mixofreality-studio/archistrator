@@ -24,13 +24,15 @@
  * transforms, edges, the viewport — is read inside one evaluate on the canvas
  * testid, because that structure has no testid or role of its own.
  *
- * DISPATCH SAFETY: nothing here may dispatch. Every test aborts
- * execute-next-activity before it navigates, and no test clicks Begin or Run.
+ * DISPATCH SAFETY: nothing here may dispatch. The context-level guard
+ * (support/graphDispatchGuard) aborts every non-GET before any navigation, and no
+ * test clicks Begin or Run.
  *
  * Gated like the other construction specs: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect, type APIRequestContext, type Locator, type Page } from '@playwright/test';
+import type { APIRequestContext, Locator, Page } from '@playwright/test';
+import { test, expect } from './support/graphDispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -40,12 +42,9 @@ const GRAPH = '/project/archistrator/construction?lens=graph';
 const CARD_ID = /^construction-graph-card-/;
 const LANE_ID = /^construction-graph-lane-/;
 
-test.beforeEach(async ({ page, request }) => {
-  // DISPATCH SAFETY: every non-GET request is aborted before any navigation, so
-  // nothing this spec does can write, begin, run or decide anything.
-  await page.route('**/*', (route) =>
-    route.request().method() === 'GET' ? route.fallback() : route.abort()
-  );
+test.beforeEach(async ({ request }) => {
+  // DISPATCH SAFETY: support/graphDispatchGuard's context route aborts every
+  // non-GET before any navigation (and any request a test still holds, at teardown).
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });

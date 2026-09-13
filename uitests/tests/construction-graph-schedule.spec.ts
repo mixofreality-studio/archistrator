@@ -13,9 +13,11 @@
  *   - the "Critical path" and "Near-critical" scope chips DIM (never move) the
  *     lanes they do not match, with the list's own predicates.
  *
- * DISPATCH SAFETY: every non-GET request is aborted before any navigation.
+ * DISPATCH SAFETY: every non-GET request is aborted before any navigation, by the
+ * context-level guard (support/graphDispatchGuard), never a per-page route.
  */
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+import { test, expect } from './support/graphDispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -27,10 +29,9 @@ const SIZES: [number, number][] = [
   [1600, 900],
 ];
 
-test.beforeEach(async ({ page, request }) => {
-  await page.route('**/*', (route) =>
-    route.request().method() === 'GET' ? route.fallback() : route.abort()
-  );
+test.beforeEach(async ({ request }) => {
+  // DISPATCH SAFETY: support/graphDispatchGuard's context route aborts every
+  // non-GET before any navigation (and any request a test still holds, at teardown).
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });

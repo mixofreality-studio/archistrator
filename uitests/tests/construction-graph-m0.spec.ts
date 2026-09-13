@@ -10,9 +10,11 @@
  *   - no date, option, cost or duration;
  *   - "Open the SDP review →" is navigation only.
  *
- * DISPATCH SAFETY: every non-GET request is aborted before any navigation.
+ * DISPATCH SAFETY: every non-GET request is aborted before any navigation, by the
+ * context-level guard (support/graphDispatchGuard), never a per-page route.
  */
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+import { test, expect } from './support/graphDispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -30,10 +32,9 @@ const PROJECT_DESIGN_KINDS = new Set([
   'sdpReview',
 ]);
 
-test.beforeEach(async ({ page, request }) => {
-  await page.route('**/*', (route) =>
-    route.request().method() === 'GET' ? route.fallback() : route.abort()
-  );
+test.beforeEach(async ({ request }) => {
+  // DISPATCH SAFETY: support/graphDispatchGuard's context route aborts every
+  // non-GET before any navigation (and any request a test still holds, at teardown).
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
 });
