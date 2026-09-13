@@ -11291,3 +11291,82 @@ func TestConstructionRowsToContract_PendingResume(t *testing.T) {
 		t.Errorf("a row with no pendingResume must omit the key, got %s", raw)
 	}
 }
+
+// TestConstructionRowsToContract_PendingResumeNeedsARunningLedger pins isPendingResume's
+// predicate: a row no pump wrote is integration-pending only when its ledger makes it
+// effectively RUNNING (some phase complete, not all). "Not Done" is a weaker rule that
+// the committed rows cannot tell apart from it, since every ledger there is 4/5 or 5/5
+// passed. These fixtures can: a row no pump wrote whose ledger completes NO phase is
+// effectively NotStarted, and must read neither pending nor "built but not integrated"
+// to a dependent.
+//   - C-failed-ledger: the Requirements tasks ran once, and the gate FAILED.
+//   - C-rejected-gate: a PARTIAL ledger (Requirements only) whose gate passed on its
+//     first round and was REJECTED on its second, the latest, so no phase is complete.
+func TestConstructionRowsToContract_PendingResumeNeedsARunningLedger(t *testing.T) {
+	svc := func(name string) projectstate.ActivityItem {
+		return projectstate.ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
+	}
+	all := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+	gate := projectstate.GateTaskFor(projectstate.MethodPhaseRequirements)
+	if gate == "" {
+		t.Fatal("Requirements has no gate task; the fixtures below need one")
+	}
+	withGate := func(id string, outcomes ...projectstate.TaskOutcome) []projectstate.TaskAttempt {
+		ledger := pendingLedger(id, projectstate.MethodPhaseRequirements)
+		var out []projectstate.TaskAttempt
+		for _, a := range ledger {
+			if a.Task != gate {
+				out = append(out, a)
+			}
+		}
+		for i, o := range outcomes {
+			n := i + 1
+			out = append(out, projectstate.TaskAttempt{
+				AttemptID:  projectstate.AttemptID(id, gate, n),
+				Task:       gate,
+				Phase:      projectstate.MethodPhaseRequirements,
+				Attempt:    n,
+				Outcome:    o,
+				Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "test fixture"},
+			})
+		}
+		return out
+	}
+	ids := []string{"C-failed-ledger", "C-rejected-gate", "C-waiter"}
+	meta := map[string]projectstate.ActivityItem{}
+	for _, id := range ids {
+		meta[id] = svc(id)
+	}
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-failed-ledger": {ActivityID: "C-failed-ledger", Attempts: withGate("C-failed-ledger", projectstate.OutcomeFailed)},
+		"C-rejected-gate": {ActivityID: "C-rejected-gate",
+			Attempts: withGate("C-rejected-gate", projectstate.OutcomePassed, projectstate.OutcomeRejected)},
+		// Integration-pending, waiting on both: they are not built, and neither is
+		// "built but not integrated" (which is what an integration-pending row is).
+		"C-waiter": {ActivityID: "C-waiter", Attempts: pendingLedger("C-waiter", all[:len(all)-1]...)},
+	}
+	for _, id := range []string{"C-failed-ledger", "C-rejected-gate"} {
+		if effective, _ := projectstate.EffectiveConstructionPhase(rows[id], meta[id]); effective != projectstate.ActivityConstructionNotStarted {
+			t.Fatalf("%s: the fixture must be effectively NotStarted, got %v", id, effective)
+		}
+	}
+	plan := constructionPlan{depsByActivity: map[string][]string{"C-waiter": {"C-failed-ledger", "C-rejected-gate"}}}
+	got := constructionRowsToContract(rows, meta, nil, plan)
+
+	for _, id := range []string{"C-failed-ledger", "C-rejected-gate"} {
+		if got[id].PendingResume != nil {
+			t.Errorf("%s: pendingResume = %+v, want omitted: its ledger completes no phase, so it is not started, not pending", id, got[id].PendingResume)
+		}
+	}
+	pr := got["C-waiter"].PendingResume
+	if pr == nil {
+		t.Fatal("C-waiter: pendingResume = nil, want integration-pending")
+	}
+	want := []PendingDependency{
+		{Id: "C-failed-ledger", Reason: "notBuilt"},
+		{Id: "C-rejected-gate", Reason: "notBuilt"},
+	}
+	if !slices.Equal(pr.WaitsOn, want) {
+		t.Errorf("C-waiter WaitsOn = %+v\nwant           %+v", pr.WaitsOn, want)
+	}
+}
