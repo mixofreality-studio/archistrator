@@ -585,3 +585,49 @@ test('hovering a milestone chip\'s stamp opens ONE tooltip, carrying the count a
   await expect(tips.first()).toContainText(/feeder|Gates/);
   await expect(tips.first()).toContainText(/reconstruct/i);
 });
+
+test('segment codes: shown only where they FIT — none wider than its segment, no "…", rows never jump (designer re-check blocker)', async ({
+  page,
+}) => {
+  await openGraph(page);
+  // LOD-1 everywhere: zoom in with the controls until the viewport's scale is
+  // clearly past 0.8 (four clicks land at ~0.81, on the threshold, mid-animation).
+  const scale = async (): Promise<number> =>
+    canvas(page).evaluate((root) => {
+      const m = /scale\(([\d.]+)\)/.exec(
+        root.querySelector('.react-flow__viewport')?.getAttribute('style') ?? ''
+      );
+      return m === null ? 0 : Number(m[1]);
+    });
+  for (let i = 0; i < 8 && (await scale()) < 0.85; i += 1) {
+    await page.getByRole('button', { name: /zoom in/i }).click();
+    await page.waitForTimeout(350);
+  }
+  await page.waitForTimeout(500);
+  expect(await scale(), 'zoomed past the LOD-1 threshold').toBeGreaterThanOrEqual(0.8);
+  const facts = await canvas(page).evaluate((root) => {
+    const rows = Array.from(root.querySelectorAll('[data-segment-code-fits]'));
+    return {
+      rows: rows.length,
+      shown: rows.filter((r) => r.getAttribute('data-segment-code-fits') === 'true').length,
+      heights: [...new Set(rows.map((r) => Math.round((r as HTMLElement).offsetHeight)))],
+      tooWide: rows.flatMap((r) => {
+        const code = r.querySelector('[data-segment-code]');
+        if (code === null) return [];
+        const codeW = (code as HTMLElement).offsetWidth;
+        const segW = (r as HTMLElement).clientWidth;
+        return codeW > segW + 0.5 ? [`${code.textContent ?? ''} ${String(codeW)}>${String(segW)}`] : [];
+      }),
+      letterSpacings: [...new Set(rows.map((r) => getComputedStyle(r).letterSpacing))],
+      ellipsized: rows.filter((r) => getComputedStyle(r).textOverflow === 'ellipsis').length,
+      text: root.textContent ?? '',
+    };
+  });
+  expect(facts.rows, 'code rows exist at LOD-1').toBeGreaterThan(0);
+  expect(facts.shown, 'some codes fit and show').toBeGreaterThan(0);
+  expect(facts.tooWide, 'no rendered code is wider than its segment').toEqual([]);
+  expect(facts.text, 'no ellipsis anywhere on the canvas').not.toContain('…');
+  expect(facts.ellipsized, 'no code row truncates with an ellipsis').toBe(0);
+  expect(facts.letterSpacings.every((l) => l === '0px' || l === 'normal')).toBe(true);
+  expect(facts.heights, 'every code row keeps one height, shown or not').toEqual([7]);
+});

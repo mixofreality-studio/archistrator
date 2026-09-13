@@ -25,7 +25,14 @@
  * canvas — hoverCardPlacement.ts) naming each lane's phases, because at fit
  * zoom nothing on the canvas is legible.
  */
-import { useCallback, useState, type KeyboardEvent, type ReactElement } from 'react';
+import {
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type KeyboardEvent,
+  type ReactElement,
+} from 'react';
 import { Handle, Position, useStore, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Popper from '@mui/material/Popper';
@@ -64,6 +71,7 @@ import {
   type LaneSchedule,
 } from './laneSchedule';
 import { bandTokens } from '../../project/bandTokens';
+import { SEGMENT_CODE_LETTER_SPACING, segmentCodeFits } from './segmentCode';
 
 /** What the lens hands each card node through `data`. */
 export interface GraphCardData {
@@ -590,23 +598,64 @@ function Segment({
       </Box>
       {/* A short code, never a truncated name (designer P1-3); the full name
           rides in the title and aria-label above. */}
-      {lod === 1 && code !== undefined ? (
-        <Typography
-          aria-hidden
-          noWrap
-          data-segment-code={code}
-          sx={{
-            fontFamily: t.mono,
-            fontSize: 6.5,
-            fontWeight: 700,
-            letterSpacing: '0.04em',
-            lineHeight: '7px',
-            color: t.muted,
-            mt: '1px',
-          }}
-        >
+      {lod === 1 && code !== undefined ? <SegmentCode code={code} t={t} /> : null}
+    </Box>
+  );
+}
+
+/** One canvas context, reused, for measuring code text (never during render). */
+let measureContext: CanvasRenderingContext2D | null | undefined;
+
+function textWidthPx(text: string, font: string): number {
+  measureContext ??= document.createElement('canvas').getContext('2d');
+  if (measureContext === null) return Number.NaN;
+  measureContext.font = font;
+  return measureContext.measureText(text).width;
+}
+
+/**
+ * A segment's short code, shown ONLY when it fits (segmentCode.ts, the designer
+ * re-check's P1 blocker): the code's rendered text width is measured against the
+ * segment's, in a ResizeObserver callback — never during render. A code that
+ * does not fit renders no text: never an ellipsis, never "R…". The row keeps its
+ * 7px either way, so the lane never jumps.
+ */
+function SegmentCode({ code, t }: { code: string; t: Tokens }): ReactElement {
+  const rowRef = useRef<HTMLDivElement>(null);
+  const [fits, setFits] = useState(false);
+  useLayoutEffect(() => {
+    const row = rowRef.current;
+    if (row === null) return undefined;
+    const observer = new ResizeObserver(() => {
+      setFits(segmentCodeFits(textWidthPx(code, getComputedStyle(row).font), row.clientWidth));
+    });
+    observer.observe(row);
+    return (): void => {
+      observer.disconnect();
+    };
+  }, [code]);
+  return (
+    <Box
+      aria-hidden
+      data-segment-code-fits={String(fits)}
+      ref={rowRef}
+      sx={{
+        height: 7,
+        mt: '1px',
+        overflow: 'hidden',
+        whiteSpace: 'nowrap',
+        fontFamily: t.mono,
+        fontSize: 6.5,
+        fontWeight: 700,
+        letterSpacing: SEGMENT_CODE_LETTER_SPACING,
+        lineHeight: '7px',
+        color: t.muted,
+      }}
+    >
+      {fits ? (
+        <Box component="span" data-segment-code={code}>
           {code}
-        </Typography>
+        </Box>
       ) : null}
     </Box>
   );
