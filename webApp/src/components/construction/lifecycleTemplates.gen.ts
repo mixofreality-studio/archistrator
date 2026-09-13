@@ -215,7 +215,7 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
       },
       {
         task: 'detailedDesign',
-        label: 'UI Design',
+        label: 'Design',
         bookLabel: 'Detailed Design',
         gate: false,
         conditional: false,
@@ -238,7 +238,7 @@ export const FRONTEND_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'stp',
-        label: 'Flow Plan',
+        label: 'Flows',
         bookLabel: 'STP',
         gate: false,
         conditional: false,
@@ -342,7 +342,7 @@ export const TESTING_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'construction',
-        label: 'Scenario Authoring',
+        label: 'Plan Authoring',
         bookLabel: 'Construction',
         gate: false,
         conditional: false,
@@ -428,7 +428,7 @@ export const DEPLOYMENT_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'construction',
-        label: 'Provisioning',
+        label: 'Construction',
         bookLabel: 'Construction',
         gate: false,
         conditional: false,
@@ -465,7 +465,7 @@ export const DEPLOYMENT_PHASES: readonly GeneratedPhase[] = [
       },
       {
         task: 'testing',
-        label: 'Convergence Check',
+        label: 'Convergence Verification',
         bookLabel: 'Testing',
         gate: true,
         conditional: false,
@@ -686,7 +686,7 @@ export const TESTING_PLAN_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'construction',
-        label: 'Scenario Authoring',
+        label: 'Plan Authoring',
         bookLabel: 'Construction',
         gate: false,
         conditional: false,
@@ -915,14 +915,14 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'srs',
-        label: 'Smoke Run',
+        label: 'Smoke Pass',
         bookLabel: 'SRS',
         gate: false,
         conditional: false,
       },
       {
         task: 'srsReview',
-        label: 'Smoke Check',
+        label: 'Testability Check',
         bookLabel: 'SRS Review',
         gate: true,
         conditional: false,
@@ -934,12 +934,11 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     phase: 'construction',
     name: 'Use-Case Execution',
     weight: 45,
-    exitCriterion:
-      'Every system-test scenario has run against the real build and its results are reviewed',
+    exitCriterion: 'Every use case has run against the real build and its results are reviewed',
     tasks: [
       {
         task: 'construction',
-        label: 'Scenario Execution',
+        label: 'Use-Case Execution',
         bookLabel: 'Construction',
         gate: false,
         conditional: false,
@@ -969,7 +968,7 @@ export const TESTING_SYSTEM_TEST_PHASES: readonly GeneratedPhase[] = [
     tasks: [
       {
         task: 'integration',
-        label: 'Regression Run',
+        label: 'Regression',
         bookLabel: 'Integration',
         gate: false,
         conditional: false,

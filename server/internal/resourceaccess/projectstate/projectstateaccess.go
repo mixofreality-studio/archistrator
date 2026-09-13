@@ -7600,104 +7600,144 @@ func (pr Profile) toPhaseCompletions() []PhaseCompletion {
 	return out
 }
 
+// profileRow is ONE phase of ONE profile, in full: the canonical phase id, its weight and
+// display Label (what ProfileFor projects), and the profile's own words for that phase's
+// AI-work task (AgentTaskFor), its gate task (GateTaskFor) and its binary exit criterion.
+//
+// One row per phase, one table per profile, so the phase subset is stated exactly once:
+// the words sit beside the Label and Weight they describe and cannot drift into a second
+// switch that restates which phases a profile carries (architect R1.4 ruling, fix C).
+//
+// Only the words vary per profile. The Figure A-1 task KEYS, which of them a profile
+// emits, each phase's gate, the weights and every AttemptID are profile-invariant — they
+// come from phaseTasks / gateTasks and are never tabulated here.
+//
+// Vocabulary rule (pinned by TestProfileVocabulary_PhaseLabelNamesOneOfItsTasks): outside
+// Service, a phase's label IS the name of one of its own tasks — the work task, the gate
+// task, or "<work> & <gate>" — so a phase and its tasks never carry near-synonyms. Service
+// reads Figure A-1 verbatim. The two conditional tasks (someConstruction, testClient) are
+// not tabulated at all: they keep the book's name on every profile, since they render only
+// when a real attempt exists and the book's word is the honest name for unscheduled work.
+type profileRow struct {
+	phase  ActivityMethodPhase
+	weight int
+	label  string
+	work   string
+	gate   string
+	exit   string
+}
+
 // ProfileFor returns the canonical-phase profile for an activity type (and testing
 // variant, meaningful only when t == ActivityTypeTesting). All ids are canonical;
-// bespoke phase ids are gone. Weights sum to 100 within each profile.
+// bespoke phase ids are gone. Weights sum to 100 within each profile. It is a
+// projection of profileRows — the one table that also carries each phase's words.
 func ProfileFor(t ActivityType, v TestingVariant) Profile {
+	rows := profileRows(t, v)
+	phases := make([]ProfilePhase, len(rows))
+	for i, r := range rows {
+		phases[i] = ProfilePhase{Phase: r.phase, Weight: r.weight, Label: r.label}
+	}
+	return Profile{Phases: phases}
+}
+
+// profileRows is THE per-profile table: every phase a profile carries, in dispatch order,
+// with its weight, Label, work/gate task words and exit criterion.
+func profileRows(t ActivityType, v TestingVariant) []profileRow {
 	switch t {
 	case ActivityTypeFrontend:
 		// Code-as-design: design-heavy, construction is data-wiring.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 15, "UX Requirements"},
-			{MethodPhaseDetailedDesign, 25, "Design"},
-			{MethodPhaseTestPlan, 10, "Flows"},
-			{MethodPhaseConstruction, 35, "Construction"},
-			{MethodPhaseIntegration, 15, "Integration"},
-		}}
+		return []profileRow{
+			{MethodPhaseRequirements, 15, "UX Requirements", "UX Requirements", "UX Requirements Review", "The UX requirements for this surface are written and pass review"},
+			{MethodPhaseDetailedDesign, 25, "Design", "Design", "Design Review", "The UI design for this surface is drawn and passes design review"},
+			{MethodPhaseTestPlan, 10, "Flows", "Flows", "Flow Review", "The user flows this surface must support are written as tests and pass review"},
+			{MethodPhaseConstruction, 35, "Construction", "Construction", "Code Review", "The surface is built and passes code review, not merely checked in"},
+			{MethodPhaseIntegration, 15, "Integration", "Integration", "Flow Testing", "The surface is wired to its managers and its flows pass against the integrated system"},
+		}
 	case ActivityTypeTesting:
-		return profileForTestingVariant(v)
+		return profileRowsForTestingVariant(v)
 	case ActivityTypeDeployment:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseDetailedDesign, 25, "Provisioning Spec"},
-			{MethodPhaseConstruction, 50, "Construction"},
-			{MethodPhaseIntegration, 25, "Convergence Verification"},
-		}}
+		return []profileRow{
+			{MethodPhaseDetailedDesign, 25, "Provisioning Spec", "Provisioning Spec", "Spec Review", "The provisioning spec is written and passes review"},
+			{MethodPhaseConstruction, 50, "Construction", "Construction", "Change Review", "The infrastructure change is built and passes review"},
+			{MethodPhaseIntegration, 25, "Convergence Verification", "Rollout", "Convergence Verification", "The rollout converges on the desired state and is verified"},
+		}
 	case ActivityTypeDocumentation:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseDetailedDesign, 20, "Outline"},
-			{MethodPhaseConstruction, 60, "Authoring"},
-			{MethodPhaseIntegration, 20, "Doc Review"},
-		}}
+		return []profileRow{
+			{MethodPhaseDetailedDesign, 20, "Outline", "Outline", "Outline Review", "The outline is written and passes review"},
+			{MethodPhaseConstruction, 60, "Authoring", "Authoring", "Editorial Review", "The document is written and passes editorial review"},
+			{MethodPhaseIntegration, 20, "Doc Review", "Publishing", "Doc Review", "The document is published beside the system it describes and signed off"},
+		}
 	case ActivityTypeUIDesign:
 		// A UI-design activity produces a CONCEPT, not code: it stops at the design
 		// artifact, and the SPA surfaces that realize it are separate Frontend
 		// activities. Hence no test-plan/construction/integration phases at all.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 40, "UX Requirements"},
-			{MethodPhaseDetailedDesign, 60, "Design Concept"},
-		}}
+		return []profileRow{
+			{MethodPhaseRequirements, 40, "UX Requirements", "UX Requirements", "UX Requirements Review", "The UX requirements are written and pass review"},
+			{MethodPhaseDetailedDesign, 60, "Design Concept", "Design Concept", "Concept Review", "The UI design concept is produced and passes concept review"},
+		}
 	case ActivityTypeIntegration:
 		// An I-* activity IS the integration of already-constructed components: it has
 		// no requirements/design/construction of its own, only the integration pass.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseIntegration, 100, "Integration"},
-		}}
+		return []profileRow{
+			{MethodPhaseIntegration, 100, "Integration", "Integration", "Integration Testing", "The components are integrated and their integration tests pass"},
+		}
 	case ActivityTypeService: // the zero value — the canonical five, same as default.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 15, "Requirements"},
-			{MethodPhaseDetailedDesign, 20, "Detailed Design"},
-			{MethodPhaseTestPlan, 10, "Test Plan"},
-			{MethodPhaseConstruction, 40, "Construction"},
-			{MethodPhaseIntegration, 15, "Integration"},
-		}}
+		return serviceRows()
 	default: // ActivityTypeService — the canonical five.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 15, "Requirements"},
-			{MethodPhaseDetailedDesign, 20, "Detailed Design"},
-			{MethodPhaseTestPlan, 10, "Test Plan"},
-			{MethodPhaseConstruction, 40, "Construction"},
-			{MethodPhaseIntegration, 15, "Integration"},
-		}}
+		return serviceRows()
 	}
 }
 
-func profileForTestingVariant(v TestingVariant) Profile {
+// serviceRows is the canonical five in the book's own words — a Service activity IS the
+// case Figure A-1 describes, so its task words are exactly LabelForTask's.
+func serviceRows() []profileRow {
+	return []profileRow{
+		{MethodPhaseRequirements, 15, "Requirements", "SRS", "SRS Review", "The SRS is written and passes SRS review"},
+		{MethodPhaseDetailedDesign, 20, "Detailed Design", "Detailed Design", "Design Review", "The service contract is designed and passes design review"},
+		{MethodPhaseTestPlan, 10, "Test Plan", "STP", "STP Review", "This component's test plan is written and passes STP review"},
+		{MethodPhaseConstruction, 40, "Construction", "Construction", "Code Review", "The code is written and passes code review, not merely checked in"},
+		{MethodPhaseIntegration, 15, "Integration", "Integration", "Testing", "The component is integrated and its tests pass"},
+	}
+}
+
+func profileRowsForTestingVariant(v TestingVariant) []profileRow {
 	switch v {
 	case TestVariantHarness:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseDetailedDesign, 15, "Harness Design"},
-			{MethodPhaseConstruction, 70, "Harness Construction"},
-			{MethodPhaseIntegration, 15, "Harness Review"},
-		}}
+		return []profileRow{
+			{MethodPhaseDetailedDesign, 15, "Harness Design", "Harness Design", "Design Review", "The harness design is drawn and passes design review"},
+			{MethodPhaseConstruction, 70, "Harness Construction", "Harness Construction", "Code Review", "The harness is built and passes code review"},
+			{MethodPhaseIntegration, 15, "Harness Review", "Harness Integration", "Harness Review", "The harness drives the plan's scenarios against the integrated system and passes review"},
+		}
 	case TestVariantPerf:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseDetailedDesign, 25, "Perf Scenario Design"},
-			{MethodPhaseConstruction, 50, "Rig Construction"},
-			{MethodPhaseIntegration, 25, "Rig Review"},
-		}}
+		return []profileRow{
+			{MethodPhaseDetailedDesign, 25, "Perf Scenario Design", "Perf Scenario Design", "Scenario Review", "The performance scenarios and their targets are designed and pass review"},
+			{MethodPhaseConstruction, 50, "Rig Construction", "Rig Construction", "Code Review", "The performance rig is built and passes code review"},
+			{MethodPhaseIntegration, 25, "Rig Review", "Rig Integration", "Rig Review", "The rig runs against the integrated system and its results pass review"},
+		}
 	case TestVariantSystemTest:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 10, "Smoke Pass"},
-			{MethodPhaseConstruction, 45, "Use-Case Execution"},
-			{MethodPhaseIntegration, 45, "Regression & Sign-off"},
-		}}
+		return []profileRow{
+			{MethodPhaseRequirements, 10, "Smoke Pass", "Smoke Pass", "Testability Check", "A smoke pass runs over the integrated build and shows it is testable"},
+			{MethodPhaseConstruction, 45, "Use-Case Execution", "Use-Case Execution", "Results Review", "Every use case has run against the real build and its results are reviewed"},
+			{MethodPhaseIntegration, 45, "Regression & Sign-off", "Regression", "Sign-off", "The regression run is green and the system test is signed off"},
+		}
 	case TestVariantQAProcess:
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseDetailedDesign, 40, "Gate Definition"},
-			{MethodPhaseConstruction, 60, "Process Audit"},
-		}}
+		return []profileRow{
+			{MethodPhaseDetailedDesign, 40, "Gate Definition", "Gate Definition", "Gate Review", "The quality gates are defined and pass review"},
+			{MethodPhaseConstruction, 60, "Process Audit", "Process Audit", "Audit Review", "The process audit is done and its findings pass review"},
+		}
 	case TestVariantPlan: // the zero value (N-STP) — same as default.
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 20, "Use-Case Trace"},
-			{MethodPhaseConstruction, 45, "Plan Authoring"},
-			{MethodPhaseIntegration, 35, "Plan Review"},
-		}}
+		return testPlanRows()
 	default: // TestVariantPlan (N-STP)
-		return Profile{Phases: []ProfilePhase{
-			{MethodPhaseRequirements, 20, "Use-Case Trace"},
-			{MethodPhaseConstruction, 45, "Plan Authoring"},
-			{MethodPhaseIntegration, 35, "Plan Review"},
-		}}
+		return testPlanRows()
+	}
+}
+
+// testPlanRows is N-STP's: it writes the black-box scenarios, it does not write code.
+func testPlanRows() []profileRow {
+	return []profileRow{
+		{MethodPhaseRequirements, 20, "Use-Case Trace", "Use-Case Trace", "Trace Review", "Every core use case is traced to the scenarios that will exercise it, and the trace passes review"},
+		{MethodPhaseConstruction, 45, "Plan Authoring", "Plan Authoring", "Scenario Review", "The black-box scenarios are written and pass scenario review"},
+		{MethodPhaseIntegration, 35, "Plan Review", "Plan Assembly", "Plan Review", "The assembled system test plan passes review and is signed off"},
 	}
 }
 
@@ -8420,165 +8460,41 @@ var taskLabels = map[MethodTask]string{
 // LabelForTask returns the human-readable display label for a Figure A-1 task.
 func LabelForTask(t MethodTask) string { return taskLabels[t] }
 
-// phaseCopy is one profile phase's DISPLAY copy: what that profile calls the phase's
-// AI-work task (AgentTaskFor) and its gate task (GateTaskFor), and the phase's binary
-// exit criterion as that profile states it.
-//
-// The Figure A-1 task KEYS are invariant across profiles — they are the ledger's join
-// key (AttemptID) and must never vary — but what the work IS does vary. A test plan's
-// construction phase is not "code-complete" and is not closed by a "Code Review"; a
-// system test's first phase does not "capture a requirement". Rendering the book's
-// Service vocabulary on every profile told the reader something false about ten of the
-// eleven profiles (designer P1-7). Only the words vary here: the task set, the gate,
-// the weights and the keys all still come from phaseTasks / gateTasks / ProfileFor.
-//
-// The two conditional tasks (someConstruction, testClient) keep the book's name on
-// every profile: they render only when a real attempt exists, and the book's word is
-// the honest name for work nobody scheduled under a profile-specific one.
-//
-// A slice of entries rather than a map keyed by phase: a profile carries a SUBSET of the
-// five phases by design, which `exhaustive` (check: map) rightly rejects for an
-// enum-keyed map literal. Order follows ProfileFor's own phase order.
-type phaseCopy struct {
-	phase ActivityMethodPhase
-	work  string
-	gate  string
-	exit  string
-}
-
-// profileCopy returns every phase's display copy for one profile, one entry per phase
-// ProfileFor(t, v) carries — no more and no fewer (pinned by
-// TestProfileCopy_TotalOverExactlyTheProfilesPhases). The switch mirrors ProfileFor's
-// own shape, including its default arms, so the two cannot disagree about which
-// profile a (type, variant) cell resolves to.
-func profileCopy(t ActivityType, v TestingVariant) []phaseCopy {
-	switch t {
-	case ActivityTypeFrontend:
-		return []phaseCopy{
-			{MethodPhaseRequirements, "UX Requirements", "UX Requirements Review", "The UX requirements for this surface are written and pass review"},
-			{MethodPhaseDetailedDesign, "UI Design", "Design Review", "The UI design for this surface is drawn and passes design review"},
-			{MethodPhaseTestPlan, "Flow Plan", "Flow Review", "The user flows this surface must support are written as tests and pass review"},
-			{MethodPhaseConstruction, "Construction", "Code Review", "The surface is built and passes code review, not merely checked in"},
-			{MethodPhaseIntegration, "Integration", "Flow Testing", "The surface is wired to its managers and its flows pass against the integrated system"},
-		}
-	case ActivityTypeTesting:
-		return profileCopyForTestingVariant(v)
-	case ActivityTypeDeployment:
-		return []phaseCopy{
-			{MethodPhaseDetailedDesign, "Provisioning Spec", "Spec Review", "The provisioning spec is written and passes review"},
-			{MethodPhaseConstruction, "Provisioning", "Change Review", "The infrastructure change is built and passes review"},
-			{MethodPhaseIntegration, "Rollout", "Convergence Check", "The rollout converges on the desired state and is verified"},
-		}
-	case ActivityTypeDocumentation:
-		return []phaseCopy{
-			{MethodPhaseDetailedDesign, "Outline", "Outline Review", "The outline is written and passes review"},
-			{MethodPhaseConstruction, "Authoring", "Editorial Review", "The document is written and passes editorial review"},
-			{MethodPhaseIntegration, "Publishing", "Doc Review", "The document is published beside the system it describes and signed off"},
-		}
-	case ActivityTypeUIDesign:
-		return []phaseCopy{
-			{MethodPhaseRequirements, "UX Requirements", "UX Requirements Review", "The UX requirements are written and pass review"},
-			{MethodPhaseDetailedDesign, "Design Concept", "Concept Review", "The UI design concept is produced and passes concept review"},
-		}
-	case ActivityTypeIntegration:
-		return []phaseCopy{
-			{MethodPhaseIntegration, "Integration", "Integration Testing", "The components are integrated and their integration tests pass"},
-		}
-	case ActivityTypeService: // the zero value — the book's own vocabulary, same as default.
-		return serviceCopy()
-	default:
-		return serviceCopy()
-	}
-}
-
-// serviceCopy is the canonical five in the book's own words — a Service activity IS
-// the case Figure A-1 describes, so its labels are exactly LabelForTask's.
-func serviceCopy() []phaseCopy {
-	return []phaseCopy{
-		{MethodPhaseRequirements, "SRS", "SRS Review", "The SRS is written and passes SRS review"},
-		{MethodPhaseDetailedDesign, "Detailed Design", "Design Review", "The service contract is designed and passes design review"},
-		{MethodPhaseTestPlan, "STP", "STP Review", "This component's test plan is written and passes STP review"},
-		{MethodPhaseConstruction, "Construction", "Code Review", "The code is written and passes code review, not merely checked in"},
-		{MethodPhaseIntegration, "Integration", "Testing", "The component is integrated and its tests pass"},
-	}
-}
-
-func profileCopyForTestingVariant(v TestingVariant) []phaseCopy {
-	switch v {
-	case TestVariantHarness:
-		return []phaseCopy{
-			{MethodPhaseDetailedDesign, "Harness Design", "Design Review", "The harness design is drawn and passes design review"},
-			{MethodPhaseConstruction, "Harness Construction", "Code Review", "The harness is built and passes code review"},
-			{MethodPhaseIntegration, "Harness Integration", "Harness Review", "The harness drives the plan's scenarios against the integrated system and passes review"},
-		}
-	case TestVariantPerf:
-		return []phaseCopy{
-			{MethodPhaseDetailedDesign, "Perf Scenario Design", "Scenario Review", "The performance scenarios and their targets are designed and pass review"},
-			{MethodPhaseConstruction, "Rig Construction", "Code Review", "The performance rig is built and passes code review"},
-			{MethodPhaseIntegration, "Rig Integration", "Rig Review", "The rig runs against the integrated system and its results pass review"},
-		}
-	case TestVariantSystemTest:
-		return []phaseCopy{
-			{MethodPhaseRequirements, "Smoke Run", "Smoke Check", "A smoke pass runs over the integrated build and shows it is testable"},
-			{MethodPhaseConstruction, "Scenario Execution", "Results Review", "Every system-test scenario has run against the real build and its results are reviewed"},
-			{MethodPhaseIntegration, "Regression Run", "Sign-off", "The regression run is green and the system test is signed off"},
-		}
-	case TestVariantQAProcess:
-		return []phaseCopy{
-			{MethodPhaseDetailedDesign, "Gate Definition", "Gate Review", "The quality gates are defined and pass review"},
-			{MethodPhaseConstruction, "Process Audit", "Audit Review", "The process audit is done and its findings pass review"},
-		}
-	case TestVariantPlan: // the zero value (N-STP) — same as default.
-		return testPlanCopy()
-	default:
-		return testPlanCopy()
-	}
-}
-
-// testPlanCopy is N-STP's: it writes the black-box scenarios, it does not write code.
-func testPlanCopy() []phaseCopy {
-	return []phaseCopy{
-		{MethodPhaseRequirements, "Use-Case Trace", "Trace Review", "Every core use case is traced to the scenarios that will exercise it, and the trace passes review"},
-		{MethodPhaseConstruction, "Scenario Authoring", "Scenario Review", "The black-box scenarios are written and pass scenario review"},
-		{MethodPhaseIntegration, "Plan Assembly", "Plan Review", "The assembled system test plan passes review and is signed off"},
-	}
-}
-
 // TaskLabelFor returns the display label of a Figure A-1 task as ONE profile names it:
-// the profile's own word for the phase's work and gate tasks, and the book's name
-// (LabelForTask) for the two conditional tasks and for a task in a phase the profile
+// the profile's own word for the phase's work and gate tasks (profileRows), and the book's
+// name (LabelForTask) for the two conditional tasks and for a task in a phase the profile
 // does not carry. The task KEY never varies — only this label does.
 func TaskLabelFor(t ActivityType, v TestingVariant, task MethodTask) string {
 	p := PhaseForTask(task)
-	c, ok := phaseCopyFor(t, v, p)
+	r, ok := profileRowFor(t, v, p)
 	if !ok {
 		return LabelForTask(task)
 	}
 	if task == AgentTaskFor(p) {
-		return c.work
+		return r.work
 	}
 	if task == GateTaskFor(p) {
-		return c.gate
+		return r.gate
 	}
 	return LabelForTask(task)
 }
 
-// phaseCopyFor looks up one phase's display copy within a profile; false for a phase
-// the profile does not carry.
-func phaseCopyFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) (phaseCopy, bool) {
-	for _, c := range profileCopy(t, v) {
-		if c.phase == p {
-			return c, true
+// profileRowFor looks up one phase's row within a profile; false for a phase the profile
+// does not carry.
+func profileRowFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) (profileRow, bool) {
+	for _, r := range profileRows(t, v) {
+		if r.phase == p {
+			return r, true
 		}
 	}
-	return phaseCopy{}, false
+	return profileRow{}, false
 }
 
 // ExitCriterionFor returns a lifecycle phase's binary exit criterion as ONE profile
 // states it, or "" for a phase that profile does not carry.
 func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
-	c, _ := phaseCopyFor(t, v, p)
-	return c.exit
+	r, _ := profileRowFor(t, v, p)
+	return r.exit
 }
 
 // PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when

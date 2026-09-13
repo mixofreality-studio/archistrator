@@ -8661,39 +8661,68 @@ var allProfiles = []struct {
 	{"testing-qa", ActivityTypeTesting, TestVariantQAProcess},
 }
 
-// The copy table must describe exactly the phases ProfileFor carries: every carried
-// phase gets a work label, a gate label and an exit criterion; a phase the profile does
-// not carry gets no exit criterion (the SPA's `absent` body names it instead).
-func TestProfileCopy_TotalOverExactlyTheProfilesPhases(t *testing.T) {
+// Every row of the one profile table is whole — a label, a work word, a gate word and an
+// exit — and a phase the profile does not carry has no exit criterion (the SPA's `absent`
+// body names it instead). The phase subset itself is ProfileFor's, because ProfileFor IS
+// a projection of these rows.
+func TestProfileRows_TotalOverExactlyTheProfilesPhases(t *testing.T) {
 	canonical := []ActivityMethodPhase{
 		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
 		MethodPhaseConstruction, MethodPhaseIntegration,
 	}
 	for _, pr := range allProfiles {
 		carried := map[ActivityMethodPhase]bool{}
-		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
-			carried[ph.Phase] = true
+		for _, r := range profileRows(pr.typ, pr.variant) {
+			carried[r.phase] = true
+			if r.label == "" || r.work == "" || r.gate == "" || r.exit == "" {
+				t.Errorf("%s: phase %q row %+v has an empty field", pr.name, r.phase, r)
+			}
+			if r.work == r.gate {
+				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, r.phase, r.work)
+			}
+			if got := ExitCriterionFor(pr.typ, pr.variant, r.phase); got != r.exit {
+				t.Errorf("%s: ExitCriterionFor(%q) = %q, want the row's %q", pr.name, r.phase, got, r.exit)
+			}
 		}
 		for _, p := range canonical {
-			exit := ExitCriterionFor(pr.typ, pr.variant, p)
-			if !carried[p] {
-				if exit != "" {
-					t.Errorf("%s: phase %q is not in the profile but has exit %q", pr.name, p, exit)
-				}
+			if carried[p] {
 				continue
 			}
-			if exit == "" {
-				t.Errorf("%s: phase %q has no exit criterion", pr.name, p)
-			}
-			work := TaskLabelFor(pr.typ, pr.variant, AgentTaskFor(p))
-			gate := TaskLabelFor(pr.typ, pr.variant, GateTaskFor(p))
-			if work == "" || gate == "" {
-				t.Errorf("%s: phase %q work=%q gate=%q, want both non-empty", pr.name, p, work, gate)
-			}
-			if work == gate {
-				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, p, work)
+			if exit := ExitCriterionFor(pr.typ, pr.variant, p); exit != "" {
+				t.Errorf("%s: phase %q is not in the profile but has exit %q", pr.name, p, exit)
 			}
 		}
+	}
+}
+
+// The vocabulary rule (spec R1.4 rule 4, amended 2026-09-12): outside Service, a phase's
+// Label IS the name of one of its own tasks — the work task, the gate task, or
+// "<work> & <gate>" — so a phase and its tasks never carry near-synonyms. Asserted through
+// the exported surface the SPA's generator reads (ProfileFor + TaskLabelFor), not the
+// private table, so a label that drifts in either place fails here.
+func TestProfileVocabulary_PhaseLabelNamesOneOfItsTasks(t *testing.T) {
+	for _, pr := range allProfiles {
+		if pr.typ == ActivityTypeService {
+			continue // Service reads Figure A-1 verbatim (TestTaskLabelFor_ServiceReadsTheBook).
+		}
+		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
+			work := TaskLabelFor(pr.typ, pr.variant, AgentTaskFor(ph.Phase))
+			gate := TaskLabelFor(pr.typ, pr.variant, GateTaskFor(ph.Phase))
+			if ph.Label != work && ph.Label != gate && ph.Label != work+" & "+gate {
+				t.Errorf("%s: phase %q is labelled %q, which names none of its tasks (work %q, gate %q)",
+					pr.name, ph.Phase, ph.Label, work, gate)
+			}
+		}
+	}
+}
+
+// Rule 4's own worked example: `testing` reads exactly as the phase does.
+func TestTaskLabelFor_TestingReadsItsPhaseLabel(t *testing.T) {
+	if got := TaskLabelFor(ActivityTypeDeployment, TestVariantPlan, TaskTesting); got != "Convergence Verification" {
+		t.Errorf("deployment testing = %q, want \"Convergence Verification\"", got)
+	}
+	if got := TaskLabelFor(ActivityTypeDocumentation, TestVariantPlan, TaskTesting); got != "Doc Review" {
+		t.Errorf("documentation testing = %q, want \"Doc Review\"", got)
 	}
 }
 
