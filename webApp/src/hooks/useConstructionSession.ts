@@ -18,6 +18,7 @@ import { toApiError } from '../contracts/errors';
 import { mapConstructionSession } from '../contracts/wire';
 import type { ConstructionSessionState } from '../contracts/types';
 import { sessionProbeQueryFn } from './sessionPolling';
+import { erroredProbeBackoffMs } from './constructionSessions';
 
 const POLL_INTERVAL_MS = 3000;
 
@@ -67,6 +68,11 @@ export function sessionQueryOptions(
     // retry only ever sees real faults: one retry, no storms.
     retry: (count) => count < 1,
     refetchInterval: (query): number | false => {
+      // A probe that has only ever failed backs off (designer re-check B1): the 3s
+      // live cadence kept a failing endpoint busy and the TASKS lens blinking.
+      if (query.state.data === undefined && query.state.errorUpdateCount > 0) {
+        return erroredProbeBackoffMs(query.state.errorUpdateCount);
+      }
       // Dormant pump (absence established as null): stop polling so the console
       // does not spam a 3s 404 storm. The project-read cascade poll drives the
       // tracker meanwhile; a Begin mutation invalidates this query.

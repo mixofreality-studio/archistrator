@@ -163,6 +163,12 @@ export function uncheckedErroredLine(n: number): string | undefined {
   return n > 0 ? `Couldn't check ${inFlight(n)}` : undefined;
 }
 
+/** The Retry beside it: "Retrying…" while a failed probe is being asked again
+ *  (designer re-check B1), so a click is seen to do something. */
+export function retryLabel(retrying: boolean): string {
+  return retrying ? 'Retrying…' : 'Retry';
+}
+
 /**
  * "Nothing needs you." is a claim about EVERY in-flight activity, so it is made
  * only once every probe has answered; otherwise there is no all-clear headline at

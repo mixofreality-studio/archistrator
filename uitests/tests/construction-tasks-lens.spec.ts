@@ -298,26 +298,51 @@ test('live: nothing is owed, and the lens says so without probing a session', as
   expect(sessionGets).toEqual([]);
 });
 
-test('a probe that fails is not an all-clear: no "Nothing needs you", and Retry asks again', async ({
+test('a probe that fails is not an all-clear; "Couldn\'t check" holds through re-asks, and Retry asks at once (designer B1)', async ({
   page,
 }) => {
+  test.setTimeout(60_000);
   // Only the RUNNING row is started, and its session route answers 500 every time.
   await serveOwed(page, {}, [RUNNING]);
-  const sessionGets: string[] = [];
+  const sessionGets: number[] = [];
   await page.route('**/get-session-state/archistrator/**', async (route) => {
-    sessionGets.push(route.request().url());
+    sessionGets.push(Date.now());
     await route.fulfill({ status: 500, json: { error: 'session store unavailable' } });
   });
   await openTasks(page);
   const unchecked = page.getByTestId(TESTID.constructionTasksUnchecked);
-  await expect(unchecked).toContainText("Couldn't check 1 in-flight activity", {
-    timeout: 15_000,
-  });
+  const retry = page.getByTestId(TESTID.constructionTasksUncheckedRetry);
+  const couldnt = "Couldn't check 1 in-flight activity";
+  await expect(unchecked).toContainText(couldnt, { timeout: 15_000 });
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).not.toContainText('Nothing needs');
+
+  // It HOLDS for 12s, through the probe's own re-ask: never "Checking…", never a
+  // Retry that vanishes (designer re-check B1, which saw it blink every ~4s).
+  const windowStart = sessionGets.length;
+  for (const end = Date.now() + 12_000; Date.now() < end; ) {
+    expect(await unchecked.textContent()).toContain(couldnt);
+    expect(await retry.count()).toBe(1);
+    await page.waitForTimeout(200);
+  }
+  // …and it backs off: one re-ask (a fetch and its one retry) in the window, not
+  // the 3s live cadence.
+  const reasks = sessionGets.length - windowStart;
+  expect(reasks).toBeGreaterThanOrEqual(1);
+  expect(reasks).toBeLessThanOrEqual(2);
+
+  // Retry asks at once — within 1s, far inside the backoff — and says so meanwhile.
+  await expect(retry).toHaveText('Retry');
   const before = sessionGets.length;
-  await page.getByTestId(TESTID.constructionTasksUncheckedRetry).click();
-  await expect.poll(() => sessionGets.length).toBeGreaterThan(before);
+  const clickedAt = Date.now();
+  await retry.click();
+  await expect.poll(() => sessionGets.length, { timeout: 1_000 }).toBeGreaterThan(before);
+  expect((sessionGets[before] ?? Infinity) - clickedAt).toBeLessThan(1_000);
+  await expect(retry).toHaveText('Retrying…');
+  await expect(retry).toBeDisabled();
+  // Failed again: still "Couldn't check", and Retry is back.
+  await expect(retry).toHaveText('Retry', { timeout: 10_000 });
+  await expect(unchecked).toContainText(couldnt);
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
 });
 

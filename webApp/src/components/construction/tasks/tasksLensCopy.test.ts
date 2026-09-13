@@ -29,6 +29,7 @@ import {
   SET_POLICY_LABEL,
   shapeFor,
   slotsLineFor,
+  retryLabel,
   whyAffordanceFor,
 } from './tasksLensCopy.ts';
 
@@ -100,6 +101,11 @@ void test('"stop asking" only where a policy rule opened the gate; the risk floo
   assert.equal(whyAffordanceFor(floorGate), 'cantTurnOff');
   assert.equal(whyAffordanceFor(ranked('S', [], { reason: 'takeover' })), undefined);
   assert.equal(whyAffordanceFor(ranked('F', [], { reason: 'failed' })), undefined);
+});
+
+void test('Retry says it is retrying while a failed probe is asked again (designer re-check B1)', () => {
+  assert.equal(retryLabel(false), 'Retry');
+  assert.equal(retryLabel(true), 'Retrying…');
 });
 
 void test('the policy summary names what is gated, and always the floor', () => {

@@ -26,24 +26,64 @@ export function sessionsByActivity(
   return out;
 }
 
+/** The fields of one probe's query result read here (UseQueryResult, structurally). */
+export interface ProbeResult {
+  data?: unknown;
+  /** How many of its fetches have ended in error. TanStack keeps it through a refetch. */
+  errorUpdateCount?: number;
+  fetchStatus?: 'fetching' | 'paused' | 'idle';
+}
+
 /**
  * The probes that FAILED without ever answering: no view, no established absence,
- * and the query is in error (its retry spent). A probe still in its first fetch is
- * not here — it is pending, which the TASKS lens says differently. A probe that
- * answered once and errored since keeps its answer (above) and is not here either.
+ * and at least one fetch that ended in error (its retry spent). A probe in its first
+ * fetch has never erred — it is pending, which the TASKS lens says differently. A
+ * probe that answered once and errored since keeps its answer (above) and is not
+ * here either.
+ *
+ * NOT `status === 'error'` (designer re-check B1): TanStack resets a data-less query
+ * to `pending` the moment it refetches, so on every re-ask "Couldn't check N" became
+ * "Checking N…" and its Retry vanished, every ~4s. The error COUNT survives the
+ * refetch, so a probe that has failed stays failed until it answers.
  */
 export function erroredProbesFor(
   ids: readonly string[],
-  results: readonly { data?: unknown; status?: 'pending' | 'error' | 'success' }[]
+  results: readonly ProbeResult[]
 ): string[] {
   return ids.filter((_, i) => {
     const r = results[i];
-    return r !== undefined && r.data === undefined && r.status === 'error';
+    return r !== undefined && r.data === undefined && (r.errorUpdateCount ?? 0) > 0;
   });
 }
 
-/** What the fan-out hands the route: the answers, and which probes failed. */
+/** The failed probes being asked again right now — the lens says "Retrying…". */
+export function retryingProbesFor(
+  ids: readonly string[],
+  results: readonly ProbeResult[]
+): string[] {
+  const errored = new Set(erroredProbesFor(ids, results));
+  return ids.filter((id, i) => errored.has(id) && results[i]?.fetchStatus === 'fetching');
+}
+
+/** The first re-ask after a probe has only ever failed, and the most it backs off to. */
+export const ERRORED_PROBE_BACKOFF_MS = 10_000;
+export const ERRORED_PROBE_BACKOFF_MAX_MS = 60_000;
+
+/**
+ * How long a probe that has only ever failed waits before asking again (designer
+ * re-check B1): 10s, doubling per failed fetch, at most 60s — not the 3s live
+ * cadence, which kept a failing endpoint busy and the lens blinking. Retry asks at
+ * once, whatever the backoff.
+ */
+export function erroredProbeBackoffMs(errorUpdateCount: number): number {
+  const doublings = Math.max(0, errorUpdateCount - 1);
+  return Math.min(ERRORED_PROBE_BACKOFF_MS * 2 ** doublings, ERRORED_PROBE_BACKOFF_MAX_MS);
+}
+
+/** What the fan-out hands the route: the answers, which probes failed, and which of
+ *  those are being asked again. */
 export interface SessionProbes {
   sessions: SessionsById;
   errored: readonly string[];
+  retrying: readonly string[];
 }

@@ -490,6 +490,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const {
     sessions: sessionsByActivity,
     errored: erroredProbes,
+    retrying: retryingProbes,
     retryErrored,
   } = useConstructionSessions(projectId, sessionIds);
   // A probe that has not answered is not an answer: `unchecked` counts them, and
@@ -807,6 +808,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       unchecked={{
         pending: owedWork.unchecked.pending.length,
         errored: owedWork.unchecked.errored.length,
+        retrying: retryingProbes.filter((id) => owedWork.unchecked.errored.includes(id)).length,
         onRetry: retryErrored,
       }}
       onClearFilters={() => {

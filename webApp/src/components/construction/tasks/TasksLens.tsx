@@ -58,6 +58,7 @@ import {
   headlineFor,
   policyBannerFor,
   policySummaryFor,
+  retryLabel,
   roundLabel,
   slotsLineFor,
   CANT_TURN_OFF_LABEL,
@@ -108,8 +109,9 @@ export interface TasksLensProps {
     resume?: { label: string; disabled: boolean; onClick: () => void };
   };
   /** Probes with no answer yet (owedWork's `unchecked`) and a retry for the failed
-   *  ones. Above zero, the lens makes no all-clear claim. */
-  unchecked: UncheckedCounts & { onRetry: () => void };
+   *  ones; `retrying` counts the failed ones being asked again right now. Above
+   *  zero, the lens makes no all-clear claim. */
+  unchecked: UncheckedCounts & { retrying: number; onRetry: () => void };
   onReview: (item: RankedOwed) => void;
   onClearFilters: () => void;
   /** Rows a decision was just made on, lingering with their evidence line (spec
@@ -717,14 +719,17 @@ function UncheckedNotice({
       {errored !== undefined ? (
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
           <Typography sx={{ ...text, color: t.dangerFg }}>{errored}</Typography>
+          {/* Stays in place while the failed probes are asked again, saying so —
+              never a Retry that vanishes mid-click (designer re-check B1). */}
           <Button
             data-testid={UI_IDENTIFIERS.Construction.TASKS_UNCHECKED_RETRY}
+            disabled={unchecked.retrying > 0}
             size="small"
             sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, textTransform: 'none' }}
             variant="outlined"
             onClick={unchecked.onRetry}
           >
-            Retry
+            {retryLabel(unchecked.retrying > 0)}
           </Button>
         </Box>
       ) : null}

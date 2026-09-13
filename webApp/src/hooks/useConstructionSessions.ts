@@ -15,7 +15,12 @@ import { useCallback } from 'react';
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type { ConstructionSessionState } from '../contracts/types';
 import { constructionSessionKey, sessionQueryOptions } from './useConstructionSession';
-import { erroredProbesFor, sessionsByActivity, type SessionProbes } from './constructionSessions';
+import {
+  erroredProbesFor,
+  retryingProbesFor,
+  sessionsByActivity,
+  type SessionProbes,
+} from './constructionSessions';
 
 export type { SessionsById, SessionProbes } from './constructionSessions';
 
@@ -44,6 +49,7 @@ export function useConstructionSessions(
       return {
         sessions: sessionsByActivity(ids, results),
         errored: erroredProbesFor(ids, results),
+        retrying: retryingProbesFor(ids, results),
       };
     },
     [idsKey]
