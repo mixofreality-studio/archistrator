@@ -26,6 +26,8 @@ interface Activity extends GraphActivityLike {
   /** Status-like payload the layout must never read. */
   status?: string;
   attempts?: number;
+  /** Slot 9 effort — a LANE channel (the spine's length), never geometry. */
+  effortDays?: number;
 }
 
 function comp(id: string, layer: GraphComponentLike['layer']): GraphComponentLike {
@@ -74,17 +76,20 @@ const RELATIONSHIPS: GraphRelationshipLike[] = [
   rel('x-manager', 'logging'),
 ];
 
+// Every activity carries an effort, as the real tree's nodes do — so the golden
+// coordinates below are pinned WITH effort in the input, and the test further
+// down varies it.
 const ACTIVITIES: Activity[] = [
-  act('C-x-manager', 'manager', 'x-manager'),
-  act('C-y-manager', 'manager', 'y-manager'),
-  act('C-y-manager-2', 'manager', 'y-manager'),
-  act('C-a-engine', 'engine', 'a-engine'),
-  act('R-db', 'resource', 'db'),
+  act('C-x-manager', 'manager', 'x-manager', { effortDays: 30 }),
+  act('C-y-manager', 'manager', 'y-manager', { effortDays: 10 }),
+  act('C-y-manager-2', 'manager', 'y-manager', { effortDays: 5 }),
+  act('C-a-engine', 'engine', 'a-engine', { effortDays: 20 }),
+  act('R-db', 'resource', 'db', { effortDays: 15 }),
   // Two project-wide cards, deliberately OUT of id order: the System-wide row
   // takes model order, so this pins the model's own id sort — without it N-STP
   // would lay out first (code review).
-  act('N-STP', undefined),
-  act('N-IT', undefined),
+  act('N-STP', undefined, undefined, { effortDays: 25 }),
+  act('N-IT', undefined, undefined, { effortDays: 40 }),
 ];
 
 function modelOf(activities: Activity[] = ACTIVITIES): ActivityGraphModel<Activity> {
@@ -171,6 +176,42 @@ void test('STATUS IS NOT AN INPUT: changing every activity status moves nothing'
   const before = positions(layoutActivityGraph(modelOf()));
   const changed = ACTIVITIES.map((a) => ({ ...a, status: 'integrated', attempts: 12 }));
   assert.deepEqual(positions(layoutActivityGraph(modelOf(changed))), before);
+});
+
+/** Everything the layout decides, as plain values — positions, sizes, rows, bar, extent. */
+function geometry(layout: GraphLayout): unknown {
+  const sizes: Record<string, [number, number]> = {};
+  for (const id of [...layout.size.keys()].sort()) {
+    const s = layout.size.get(id);
+    assert.ok(s !== undefined);
+    sizes[id] = [s.w, s.h];
+  }
+  return {
+    pos: positions(layout),
+    sizes,
+    rows: layout.rows,
+    bar: layout.bar,
+    width: layout.width,
+    height: layout.height,
+  };
+}
+
+void test('EFFORT IS NOT AN INPUT: varying every effort moves and resizes nothing', () => {
+  // Effort sets a lane's spine LENGTH (laneSchedule.ts) — never a card's place
+  // or size: a re-estimate must not throw the operator's eye off the canvas.
+  const before = geometry(layoutActivityGraph(modelOf()));
+  const variants: ((a: Activity, i: number) => Activity)[] = [
+    (a): Activity => ({ ...a, effortDays: (a.effortDays ?? 1) * 10 }),
+    (a, i): Activity => ({ ...a, effortDays: i % 2 === 0 ? 1 : 120 }),
+    (a): Activity => {
+      const { effortDays: _dropped, ...rest } = a;
+      void _dropped;
+      return rest;
+    },
+  ];
+  for (const vary of variants) {
+    assert.deepEqual(geometry(layoutActivityGraph(modelOf(ACTIVITIES.map(vary)))), before);
+  }
 });
 
 void test('ARRIVAL ORDER IS NOT AN INPUT: reversed activities lay out identically', () => {

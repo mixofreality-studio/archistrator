@@ -139,6 +139,35 @@ for (const [w, h] of SIZES) {
     );
     expect(holders).toHaveLength(critical.length);
     for (const tid of holders) expect(tid).toMatch(/^construction-graph-lane-/);
+    // And in PAINT, not just in attributes (graph re-review): no card's computed
+    // left, right or bottom border, nor its outline, carries the critical lane's
+    // treatment (3px in the critical ink). The top edge is the layer colour, and
+    // the System-wide row's layer colour is that same ink, so it is not a
+    // critical mark and is not inspected.
+    const ink = await page
+      .getByTestId(TESTID.constructionGraphLane(critical[0] ?? ''))
+      .evaluate((el) => getComputedStyle(el).borderLeftColor);
+    const cards = await page.getByTestId(/^construction-graph-card-/).evaluateAll((els) =>
+      els.map((e) => {
+        const cs = getComputedStyle(e);
+        return {
+          id: e.getAttribute('data-testid') ?? '',
+          sides: [
+            [cs.borderLeftWidth, cs.borderLeftColor],
+            [cs.borderRightWidth, cs.borderRightColor],
+            [cs.borderBottomWidth, cs.borderBottomColor],
+            [cs.outlineStyle === 'none' ? '0px' : cs.outlineWidth, cs.outlineColor],
+          ],
+        };
+      })
+    );
+    expect(cards.length).toBeGreaterThan(0);
+    for (const c of cards) {
+      for (const [width, colour] of c.sides) {
+        const heavy = Number.parseFloat(width ?? '0') >= 3;
+        expect(heavy && colour === ink, `${c.id} carries the critical border`).toBe(false);
+      }
+    }
     // No edge is drawn in a critical way: every edge's class names only its direction.
     const classes = await page
       .getByTestId(TESTID.constructionGraphCanvas)
