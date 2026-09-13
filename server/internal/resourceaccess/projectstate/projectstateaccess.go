@@ -7194,7 +7194,7 @@ type TaskAttempt struct {
 	// Outcome is the terminal state; the zero value is OutcomePending.
 	Outcome TaskOutcome `json:"outcome,omitempty"`
 	// Evidence points at what this attempt produced or reviewed.
-	Evidence EvidenceRef `json:"evidence,omitempty"`
+	Evidence EvidenceRef `json:"evidence"`
 	// Provenance is REQUIRED and never omitempty — see AttemptProvenance.
 	Provenance AttemptProvenance `json:"provenance"`
 }
@@ -7382,7 +7382,9 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // An EMPTY slice returns BuildInConstruction — a named, plausible value derived from no
 // evidence at all. Callers must not reach here with an empty slice for a row they intend
 // to render a status chip for; the read path suppresses the whole claim instead (see
-// ActivityConstructionStatus.Classified and resolvedPhaseCompletions' honest-empty).
+// ActivityConstructionStatus.Classified, and HasBuildEvidence on the wire: a row with
+// neither stored phases nor a ledger resolves to no completions, and its coarse status is
+// marked meaningless rather than shown).
 //
 // The second parameter is retained for signature compatibility and is unused: coarse
 // status is derived solely from phase completion.
@@ -7856,10 +7858,10 @@ func DeriveType(activityID string) ActivityType {
 	}
 }
 
-// DeriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
+// deriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
 // only when DeriveType == ActivityTypeTesting; unknown N- ids fall back to Plan.
 // Order matters: N-STH / N-STP share the "N-ST" stem, so match the longer first.
-func DeriveVariant(activityID string) TestingVariant {
+func deriveVariant(activityID string) TestingVariant {
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "N-STH"):
@@ -7895,7 +7897,7 @@ func DeriveVariant(activityID string) TestingVariant {
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
-//     variant read off the id (DeriveVariant)
+//     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
 //  3. id prefix U-SPA                 → Frontend
 //  4. id prefix I-                    → Integration
@@ -7910,7 +7912,7 @@ func DeriveVariant(activityID string) TestingVariant {
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
-		return ActivityTypeTesting, DeriveVariant(id), nil
+		return ActivityTypeTesting, deriveVariant(id), nil
 	case "ui-designer":
 		if coding {
 			return ActivityTypeFrontend, TestVariantPlan, nil
@@ -7993,16 +7995,26 @@ func rowHasServiceContract(r ActivityConstructionStatus) bool {
 // not in the committed list). classified == false means ClassifyType refused to type
 // the row: typ and variant are then meaningless and resolved is nil, so the caller
 // asserts nothing about the row.
+//
+// The row is classified by meta.Name, the id the committed plan knows the activity by,
+// and by r.ActivityID only when the activity is not in the committed list (meta is then
+// the zero value). The plan's item is the authority on what the activity is; the row's
+// ActivityID is a copy of its map key, and the workerClass and coding flag the rule also
+// reads come from the same item, so the id must too.
 func ResolveConstructionRow(
 	r ActivityConstructionStatus,
 	meta ActivityItem,
 ) (typ ActivityType, variant TestingVariant, resolved []PhaseCompletion, classified bool) {
-	typ, classified = ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	id := meta.Name
+	if id == "" {
+		id = r.ActivityID
+	}
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
 	if !classified {
 		return typ, variant, nil, false
 	}
 	if typ == ActivityTypeTesting {
-		variant = DeriveVariant(r.ActivityID)
+		variant = deriveVariant(id)
 	}
 	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Phases, r.Attempts), true
 }
@@ -8501,10 +8513,8 @@ func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) s
 // the task is unknown).
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
 	for p, tasks := range phaseTasks {
-		for _, candidate := range tasks {
-			if candidate == t {
-				return p
-			}
+		if slices.Contains(tasks, t) {
+			return p
 		}
 	}
 	return ""

@@ -239,8 +239,11 @@ encapsulation-check:
 # DERIVED-PLAN drift gate (Task 10b). Slot 9 (.aiarch/state/project.json
 # .slots["9"].model) stores the COMPUTED Phase-2 activity list, not a delta document —
 # same pattern as contract.gen.go + gen-models-check. This target re-derives the plan
-# from the committed System (slot 5) plus the authored overrides sidecar
-# (.activityListOverrides) and fails if the result differs from what slot 9 holds.
+# from the committed System (slot 5) and fails if the result differs from what slots 9
+# and 10 hold. The authored-overrides sidecar is gone: founder F3 (2026-09-12) deleted
+# all 25 overrides, so the plan is derived from the System alone. (project.json still
+# carries an empty `.activityListOverrides` member; the gate decodes it, so a re-authored
+# override could not slip past unnoticed.)
 # TestDerivedPlanMatchesCommittedState reads project.json out-of-tree (same reason
 # method-check uses -count=1: a green run would otherwise cache and a later
 # project.json edit would never re-run).

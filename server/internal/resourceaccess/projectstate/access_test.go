@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -7056,8 +7057,8 @@ func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 		"N-OTHER": TestVariantPlan, // unknown N- falls back to Plan
 	}
 	for id, want := range cases {
-		if got := DeriveVariant(id); got != want {
-			t.Errorf("DeriveVariant(%q) = %v, want %v", id, got, want)
+		if got := deriveVariant(id); got != want {
+			t.Errorf("deriveVariant(%q) = %v, want %v", id, got, want)
 		}
 	}
 }
@@ -8263,7 +8264,7 @@ func TestPhaseCompleteFromAttempts_RejectedGateIsDecidedIncomplete(t *testing.T)
 // pointer or the encoder's emptiness rule changes. A marshal-and-grep assertion
 // passes either way and therefore proves nothing; assert the tag itself.
 func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
-	f, ok := reflect.TypeOf(TaskAttempt{}).FieldByName("Provenance")
+	f, ok := reflect.TypeFor[TaskAttempt]().FieldByName("Provenance")
 	if !ok {
 		t.Fatal("TaskAttempt has no Provenance field")
 	}
@@ -8302,13 +8303,7 @@ func TestTaskAttempt_PhaseIsDenormalizedFromTask(t *testing.T) {
 		}
 		// Cross-check the denormalized value against the independent grouping table:
 		// the phase stamped on the attempt must be one that actually owns the task.
-		owns := false
-		for _, sibling := range TasksForPhase(a.Phase) {
-			if sibling == a.Task {
-				owns = true
-				break
-			}
-		}
+		owns := slices.Contains(TasksForPhase(a.Phase), a.Task)
 		if !owns {
 			t.Errorf("attempt %q stamped Phase %v, but TasksForPhase(%v) does not contain %q", a.AttemptID, a.Phase, a.Phase, a.Task)
 		}
@@ -8933,8 +8928,9 @@ func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
 // The len(phases)==0 branch. BuildInConstruction is a NAMED, plausible value derived
 // from no evidence at all, which is why callers must never reach here with an empty
 // slice for a row they intend to render a chip for — the read path materializes the
-// profile skeleton first (resolvedPhaseCompletions) or suppresses the whole claim
-// (Classified=false). Pinned so the branch's meaning is stated, not stumbled on.
+// profile skeleton first (ResolvePhaseCompletions) or suppresses the whole claim
+// (Classified=false, or HasBuildEvidence=false for a row with no evidence). Pinned so
+// the branch's meaning is stated, not stumbled on.
 func TestCoarseBuildStatus_EmptyPhaseSetIsAnEvidenceLessDefault(t *testing.T) {
 	for _, phases := range [][]PhaseCompletion{nil, {}} {
 		if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildInConstruction {
@@ -8989,5 +8985,46 @@ func TestLayerForActivity_ComponentlessActivitiesAreProjectWide(t *testing.T) {
 	}
 	if layer != "" {
 		t.Errorf("layer = %q, want empty — no fake layer for a cross-cutting activity", layer)
+	}
+}
+
+// A committed activity list with ZERO activities is not a completed construction: without
+// the guard, the loop over an empty list falls straight through to true. The fixture
+// harness above commits no list at all when a case has `activities: []`, so only its !ok
+// branch runs there; this pins the empty-list guard itself (Task 7a review minor 1).
+func TestIsConstructionComplete_EmptyCommittedListIsNotComplete(t *testing.T) {
+	p := Project{
+		Phase:        PhaseConstruction,
+		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{}}},
+		ActivityConstruction: map[string]ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Phase: ActivityConstructionDone, BuildStatus: BuildIntegrated},
+		},
+	}
+	if isConstructionComplete(p) {
+		t.Fatal("isConstructionComplete = true over an empty committed activity list, want false")
+	}
+}
+
+// ResolveConstructionRow classifies by the committed item's Name first and falls back to
+// the row's own ActivityID only when the activity is not in the committed list.
+func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) {
+	cases := []struct {
+		name        string
+		row         ActivityConstructionStatus
+		meta        ActivityItem
+		wantType    ActivityType
+		wantVariant TestingVariant
+	}{
+		{"the name decides the type", ActivityConstructionStatus{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, TestVariantPlan},
+		{"the name decides the variant", ActivityConstructionStatus{ActivityID: "N-STP"}, ActivityItem{Name: "N-IT", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantSystemTest},
+		{"the row id when the list does not hold it", ActivityConstructionStatus{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, TestVariantPlan},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			typ, variant, _, classified := ResolveConstructionRow(tc.row, tc.meta)
+			if !classified || typ != tc.wantType || variant != tc.wantVariant {
+				t.Errorf("ResolveConstructionRow = (%v, %v, classified=%v), want (%v, %v, true)", typ, variant, classified, tc.wantType, tc.wantVariant)
+			}
+		})
 	}
 }

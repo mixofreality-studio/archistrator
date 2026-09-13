@@ -46,6 +46,7 @@ import (
 	"fmt"
 	"hash/fnv"
 	"log/slog"
+	"maps"
 	"path"
 	"sort"
 	"strconv"
@@ -3394,9 +3395,7 @@ func constructionRowsToContract(
 	for id := range activityMeta {
 		all[id] = projectstate.ActivityConstructionStatus{ActivityID: id}
 	}
-	for id, r := range rows {
-		all[id] = r
-	}
+	maps.Copy(all, rows)
 	out := make(map[string]ActivityConstructionStatus, len(all))
 	for id, r := range all {
 		// Recorded is the one explicit wire signal that a stored head-state row backs
@@ -3412,7 +3411,8 @@ func constructionRowsToContract(
 		// what it is, how far its lifecycle has run, or what its coarse status is.
 		// ClassifyType's failure return is ActivityTypeService — which is also the
 		// generated enum's zero — so passing typ through unconditionally rendered the
-		// ~60 unclassifiable committed rows as Service builds carrying a Service
+		// unclassifiable rows (about 60 under the legacy activity list D9 deleted) as
+		// Service builds carrying a Service
 		// lifecycle skeleton. That is a different lie, not the honest blank the design
 		// requires ("the caller MUST render the row as Unclassified with NO lifecycle
 		// sub-rows at all" — and, per the same reasoning, no coarse status chip
@@ -3436,8 +3436,8 @@ func constructionRowsToContract(
 			}
 			// The row's coarse BuildStatus/Phase must be derived from the SAME phase
 			// completions phasesToContract actually emits below — never from the raw
-			// stored r.Phases directly. classifiedRowView/resolvedPhaseCompletions
-			// applies the identical profile-wins, ledger-preferred-over-stored
+			// stored r.Phases directly. projectstate.ResolveConstructionRow (through
+			// classifiedRowView) applies the identical profile-wins, ledger-preferred-over-stored
 			// resolution once; both the emitted Phases and the coarse derivation read
 			// off its result, so neither a partial attempt ledger nor a stored slice
 			// that contradicts the profile can make the coarse chip disagree with the
@@ -3465,9 +3465,10 @@ func constructionRowsToContract(
 			Classified:    classified,
 			// The SECOND half of the discriminated union, and deliberately not the
 			// same bit as Classified: a row can be perfectly well classified and
-			// still have NO record that any work happened on it. Twenty committed
-			// rows are exactly that — neither stored phases nor an attempt ledger —
-			// so resolvedPhaseCompletions returns nil for them and
+			// still have NO record that any work happened on it. Every
+			// planned-no-record row is exactly that (six of the committed 29 today) —
+			// neither stored phases nor an attempt ledger — so
+			// projectstate.ResolvePhaseCompletions returns nil for them and
 			// CoarseBuildStatusFor falls through to its zero value,
 			// BuildInConstruction. That is a named, non-omitempty member the SPA
 			// rendered as a confident "In construction" chip over work that had not
@@ -3593,7 +3594,8 @@ func resolvedPhaseCompletions(
 
 // phasesToContract maps the App-A internal phase-completion records onto the wire.
 // The caller (constructionRowsToContract) passes the ALREADY-RESOLVED phase set from
-// resolvedPhaseCompletions — this function performs no further derivation, so it
+// projectstate.ResolveConstructionRow (through classifiedRowView) — this function
+// performs no further derivation, so it
 // cannot drift from the coarse BuildStatus/Phase computed alongside it.
 func phasesToContract(phases []projectstate.PhaseCompletion) []PhaseCompletion {
 	if len(phases) == 0 {

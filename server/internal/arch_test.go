@@ -483,13 +483,17 @@ var encapsulationAllowlistData = map[string][]string{
 		// PURE DERIVATION HELPERS over projectstate's own owned types (ActivityType,
 		// TestingVariant, ActivityMethodPhase), shared downward with Managers per the
 		// normal RA→Manager layer edge — not service-contract operations, since they
-		// touch no resource. ClassifyType (corpusderive.go) is the classification rule a
-		// Manager view-model needs to turn a Phase-2 activity row's coding/workerClass/
-		// service-contract signals into a canonical ActivityType (systemdesign/catalog.go).
-		// CommandFor + its supporting profileSlug (kept unexported, see commandfor.go) is
-		// the (type, variant, phase) → .claude slash-command name mapping the construction
-		// Manager needs to dispatch the right command for an activity (construction/
-		// adapters.go). Both are total, side-effect-free functions of already-public
+		// touch no resource. ClassifyType (projectstateaccess.go) is the classification
+		// rule that turns a Phase-2 activity row's coding/workerClass/service-contract
+		// signals into a canonical ActivityType. Inside projectstate, ResolveConstructionRow
+		// reads it on behalf of the systemdesign Manager's view-model and the construction
+		// pump; its one outside caller is cmd/backfill-attempts (classify), which types each
+		// qualifying activity before recording its backfilled attempts. CommandFor + its
+		// supporting profileSlug (kept unexported; both in projectstateaccess.go) is the
+		// (type, variant, phase) → .claude slash-command name mapping the construction
+		// Manager needs to dispatch the right command for an activity
+		// (construction/constructactivity.go; cmd/gen-uiprofiles reads it too). Both are
+		// total, side-effect-free functions of already-public
 		// projectstate enum values; there is nothing to generate a contract op for.
 		//
 		// ClassifyActivity is the DISPATCH-TIME half of the same rule: (id, workerClass,
@@ -506,8 +510,8 @@ var encapsulationAllowlistData = map[string][]string{
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
 		// a total, side-effect-free function of already-public projectstate enum values plus
 		// the new DesignJobMode wire concept; its supporting designKindSlug/
-		// designKindHasCritique stay unexported (see designcommand.go / commandfor.go
-		// precedent).
+		// designKindHasCritique stay unexported (same precedent as profileSlug; all of them
+		// live in projectstateaccess.go).
 		"DesignCommandFor",
 		"DesignJobMode",
 		"DesignJobModeAnswer",
@@ -644,7 +648,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"DeriveKind",
 		"DeriveProduced",
 		"DeriveType",
-		"DeriveVariant",
 		"DynamicView",
 		"EdgeControlFlow",
 		"EdgeGuardedFlow",

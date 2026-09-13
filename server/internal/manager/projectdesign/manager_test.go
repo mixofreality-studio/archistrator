@@ -5781,8 +5781,10 @@ func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
 
 // loadDerivedPlanCheckFixtures reads the repo's own committed project document (LIVE
 // state, same convention as loadCommittedStateForTest) and returns the slot-5 System,
-// the authored overrides sidecar (top-level activityListOverrides — Task 10b Step 3,
-// "a new sibling holding the authored overrides"), the committed slot-9 ActivityList,
+// the top-level activityListOverrides member (Task 10b Step 3's authored-overrides
+// sidecar — gone since founder F3, 2026-09-12, deleted all 25 overrides; the member is an
+// empty residue, still decoded so a re-authored override would be caught), the committed
+// slot-9 ActivityList,
 // and the committed slot-10 Network (I1, 2026-08-10: the gate must cover dependencies
 // and milestones too, not just the activity list — a slot-5 RELATIONSHIP edit reshapes
 // slot 10 without touching slot 9 at all, and nothing was re-deriving or comparing that).
@@ -5857,7 +5859,8 @@ func milestonesByIDPS(ms []projectstate.NetworkMilestone) map[string][]string {
 
 // TestDerivedPlanMatchesCommittedState is the Task 10b drift gate (`make
 // derived-plan-check`): it re-derives the Phase-2 plan from the committed System (slot 5)
-// plus the authored overrides sidecar, and fails if the result differs from what slot 9
+// (the overrides sidecar it also decodes is empty since founder F3, 2026-09-12), and
+// fails if the result differs from what slot 9
 // and slot 10 hold. This is what makes ACT-COMPONENT-COVERAGE deletable (Task 11, retired
 // 2026-08-09) — re-deriving and comparing is strictly stronger than checking coverage —
 // and it is backed by a real Go test specifically so it also runs in the normal suite; a
