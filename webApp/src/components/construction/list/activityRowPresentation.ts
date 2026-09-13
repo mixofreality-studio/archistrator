@@ -26,8 +26,9 @@
  * project/bandTokens for the float bands) and are reached from the renderer —
  * no colour is invented for this lens, in this module or in the view.
  */
-import type { ActivityBuildStatusRow, ConstructionRow } from '../../../contracts/types';
+import type { ConstructionRow } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
+import { OWED_CHIP, type OwedMark } from '../tasks/owedChip.ts';
 import type { ActivityNode, PhaseNode, TaskNode } from './activityTree.ts';
 import {
   taskDetailStateFor,
@@ -259,8 +260,17 @@ export function criticalBorderPx(onCriticalPath: boolean | undefined): 2 | 3 {
  *                                            have no record of any progress)
  *   - otherwise               → its coarse status, mapped
  */
-export function activityRowState(row: ConstructionRow): RowState {
+export function activityRowState(row: ConstructionRow, owed?: OwedMark): RowState {
+  // Owed (a live gate, a steer, a recorded failure): the ONE owed vocabulary
+  // (tasks/owedChip.ts). Head-state alone never says a human is awaited (Q4).
+  if (owed !== undefined) return OWED_CHIP[owed.reason].state;
   return taskDetailStateFor(row, {});
+}
+
+/** The chip label an owed activity row carries — "Steer needed" is not "Awaiting
+ *  you" — or undefined for the state's own label. */
+export function owedChipLabel(owed: OwedMark | undefined): string | undefined {
+  return owed !== undefined ? OWED_CHIP[owed.reason].label : undefined;
 }
 
 /**
@@ -269,29 +279,38 @@ export function activityRowState(row: ConstructionRow): RowState {
  *
  * Both refinements read data the tree already carries; neither contradicts it:
  *
- *  1. `running` on a GATE task of an `in-review` activity is `awaitingHuman` —
- *     the same rule detailPaneState.stateForOutcome applies, narrowed to the
- *     gate task because the gate is the only task whose pending outcome is what
- *     the human is actually being asked about.
+ *  1. `running` on the GATE task the owed set says a human is deciding is
+ *     `awaitingHuman` — the live gate (tasks/owedChip.ts), never head-state
+ *     `in-review`, and narrowed to that gate task because it is the only task
+ *     whose pending outcome the human is actually being asked about.
  *  2. `passed` whose latest attempt was `skipped` is `skipped`. The tree maps
  *     `skipped` onto `passed` because its union has four members; this surface
  *     has a channel for it, and it MUST use it — see skippedIsNotPassed.
  */
 export function taskRowState(
   task: TaskNode,
-  rowStatus: ActivityBuildStatusRow | undefined,
+  /** The activity's owed mark, if any (tasks/owedChip.ts). */
+  owed: OwedMark | undefined,
   /** detailPaneState.noAttemptStateFor(the activity's row) — the ONE rule the pane
    *  and its provenance chip read too. Omitted, a task with no attempt stays the
    *  tree's own `unknown`. */
   noAttempt?: NoAttemptState
 ): RowState {
   if (task.latestAttempt?.outcome === 'skipped') return 'skipped';
-  if (task.state === 'running' && task.gate && rowStatus === 'in-review') return 'awaitingHuman';
+  if (task.state === 'running' && task.gate && isOwedGate(task, owed)) return 'awaitingHuman';
   // A task with no attempt reads NOT STARTED unless the row is unclassified or its
   // history predates per-task capture (evidence, zero attempts) — designer final
   // items, replacing re-check N3. A row with any attempt has complete history.
   if (task.latestAttempt === undefined && noAttempt !== undefined) return noAttempt;
   return task.state;
+}
+
+/** The owed gate is on this task: its gate task where the profile named one, else
+ *  its phase. */
+function isOwedGate(task: TaskNode, owed: OwedMark | undefined): boolean {
+  if (owed?.reason !== 'gate') return false;
+  if (owed.gateTask !== undefined) return owed.gateTask === task.task;
+  return owed.lifecyclePhase === task.lifecyclePhase;
 }
 
 function wordsOf(s: string): string[] {

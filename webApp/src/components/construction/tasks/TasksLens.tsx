@@ -48,11 +48,13 @@ import type { LensSelection } from '../lens/useLensSelection';
 import { criticalBorderPx, floatPresentation } from '../list/activityRowPresentation.ts';
 import { taskDetailStateFill } from '../detail/detailPaneState.ts';
 import type { RankedOwed } from './owedRanking.ts';
+import { OWED_CHIP } from './owedChip.ts';
 import {
   allClearHeadlineFor,
   askFor,
   ciVerdictFor,
   emptyStateLine,
+  filteredLineFor,
   headlineFor,
   policyBannerFor,
   policySummaryFor,
@@ -115,6 +117,8 @@ export function TasksLens(props: TasksLensProps): ReactElement {
   const lingering = props.lingeringKeys;
   const owedNow = lingering !== undefined ? items.filter((i) => !lingering.has(i.key)) : items;
   const slots = slotsLineFor(owedNow, props.supervisionCap);
+  // Lingering rows are always shown; everything else owed may be filtered out.
+  const filtered = filteredLineFor(owedNow.length, totalOwed - (lingering?.size ?? 0));
 
   return (
     <Box
@@ -175,6 +179,14 @@ export function TasksLens(props: TasksLensProps): ReactElement {
                 ? headlineFor(owedNow)
                 : allClearHeadlineFor(props.unchecked, true)}
             </Typography>
+            {filtered !== undefined ? (
+              <Typography
+                data-testid={UI_IDENTIFIERS.Construction.TASKS_FILTERED}
+                sx={{ fontFamily: t.mono, fontSize: 11.5, color: t.muted, mt: 0.25 }}
+              >
+                {filtered}
+              </Typography>
+            ) : null}
             <UncheckedNotice t={t} unchecked={props.unchecked} />
             {slots !== undefined ? (
               <Typography
@@ -287,12 +299,6 @@ function isSelected(item: RankedOwed, selection: LensSelection): boolean {
   return task === undefined || selection.task === undefined || selection.task === task;
 }
 
-const REASON_CHIP: Record<RankedOwed['reason'], string> = {
-  gate: 'Awaiting you',
-  takeover: 'Steer needed',
-  failed: 'Stopped',
-};
-
 function OwedRow({
   item,
   git,
@@ -364,7 +370,7 @@ function OwedRow({
               whiteSpace: 'nowrap',
             }}
           >
-            {lingering ? 'Resumed' : REASON_CHIP[item.reason]}
+            {lingering ? 'Resumed' : OWED_CHIP[item.reason].label}
           </Box>
           <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
             {item.activityId}

@@ -126,6 +126,7 @@ import {
   readProvenance,
 } from '../provenance';
 import type { LensSelection } from '../lens/useLensSelection';
+import type { OwedMarks } from '../tasks/owedChip.ts';
 import type { ActivityNode, PhaseNode, TaskAttemptNode, TaskNode } from './activityTree.ts';
 import {
   currentPhaseExpansionIds,
@@ -145,6 +146,7 @@ import {
   ACTIVITY_GRID_GAP_PX,
   activityGridColumns,
   activityRowState,
+  owedChipLabel,
   attemptRowState,
   bookKeyFor,
   chipFor,
@@ -333,9 +335,14 @@ interface RowContextValue {
   /** Task nodeIds a live search matched by their own key/label (Task 11).
    *  Empty when the search box is empty. */
   searchMatchedTaskIds: ReadonlySet<string>;
+  /** The live owed set (tasks/owedChip.ts): the ONE source of a row's "awaiting
+   *  you", "steer needed" and "failed" — never head-state in-review (Q4). */
+  owed: OwedMarks;
 }
 
 const RowContext = createContext<RowContextValue | undefined>(undefined);
+
+const NO_OWED: OwedMarks = new Map();
 
 function useRowContext(): RowContextValue {
   const value = useContext(RowContext);
@@ -370,6 +377,8 @@ export interface ActivityTreeViewProps {
   totalActivityCount: number;
   /** Resets every toolbar filter — offered only when the filters hid every row. */
   onClearFilters: () => void;
+  /** The live owed set, keyed by activity id (tasks/owedChip.ts). */
+  owed?: OwedMarks;
 }
 
 export function ActivityTreeView({
@@ -380,6 +389,7 @@ export function ActivityTreeView({
   expandToCurrentPhaseSignal,
   totalActivityCount,
   onClearFilters,
+  owed = NO_OWED,
 }: ActivityTreeViewProps): ReactElement {
   const t = useTokens();
   const apiRef = useRichTreeViewApiRef();
@@ -530,8 +540,9 @@ export function ActivityTreeView({
       idColumnCh,
       onInlineRetry: onSelect,
       searchMatchedTaskIds,
+      owed,
     }),
-    [t, maxEffortDays, idColumnCh, onSelect, searchMatchedTaskIds]
+    [t, maxEffortDays, idColumnCh, onSelect, searchMatchedTaskIds, owed]
   );
 
   // "Nothing matches" and "nothing exists" never share a sentence (P1-9): a search
@@ -769,8 +780,9 @@ function ActivityRow({
   chevron: ReactElement;
   node: ActivityNode;
 }): ReactElement {
-  const { t, maxEffortDays } = useRowContext();
-  const state = activityRowState(node.row);
+  const { t, maxEffortDays, owed } = useRowContext();
+  const mark = owed.get(node.activityId);
+  const state = activityRowState(node.row, mark);
   const loud = state === 'awaitingHuman';
   // The contagion roll-up: worst provenance anywhere beneath this activity, so
   // a collapsed row cannot hide a reconstructed task.
@@ -819,7 +831,7 @@ function ActivityRow({
         <ProvenanceGroupStamp reading={provenance} t={t} />
       </Box>
       <ProgressFill presentation={progressPresentationFor(state, node.percentComplete)} />
-      <StateSlotView retryCount={node.retryCount} state={state} />
+      <StateSlotView chipLabel={owedChipLabel(mark)} retryCount={node.retryCount} state={state} />
     </Box>
   );
 }
@@ -950,9 +962,12 @@ function KindSlot({ node }: { node: ActivityNode }): ReactElement {
 function StateSlotView({
   state,
   retryCount,
+  chipLabel,
 }: {
   state: RowState;
   retryCount: number;
+  /** The owed chip's own word ("Steer needed" is not "Awaiting you"). */
+  chipLabel?: string | undefined;
 }): ReactElement {
   const { t } = useRowContext();
   const slot = stateSlotFor(state);
@@ -972,7 +987,9 @@ function StateSlotView({
       {slot.kind === 'chip' ? (
         <>
           <StateGlyph state={state} />
-          <StateChip chip={slot.chip} />
+          <StateChip
+            chip={chipLabel !== undefined ? { ...slot.chip, label: chipLabel } : slot.chip}
+          />
         </>
       ) : null}
       {slot.kind === 'notStarted' ? (
@@ -1375,9 +1392,9 @@ function StageRuleRow({
 // ---------------------------------------------------------------------------
 
 function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
-  const { t, onInlineRetry, searchMatchedTaskIds } = useRowContext();
+  const { t, onInlineRetry, searchMatchedTaskIds, owed } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
-  const state = taskRowState(task, node.status, noAttemptStateFor(node.row));
+  const state = taskRowState(task, owed.get(node.activityId), noAttemptStateFor(node.row));
   const chip = chipFor(state);
   const bookKey = bookKeyFor(task.label, task.bookLabel, task.task);
   const loud = state === 'awaitingHuman';

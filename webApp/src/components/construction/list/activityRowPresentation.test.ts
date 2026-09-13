@@ -17,6 +17,7 @@ import { buildActivityTree, type ActivityNode, type TaskNode } from './activityT
 import { noAttemptStateFor } from '../detail/detailPaneState.ts';
 import {
   activityRowState,
+  owedChipLabel,
   attemptRowState,
   bookKeyFor,
   chipFor,
@@ -237,10 +238,21 @@ void test('a classified activity with no evidence is notStarted, and also chip-l
   assert.equal(chipFor(state), undefined);
 });
 
-void test('an in-review activity is the loudest row on the screen', () => {
-  const state = activityRowState(row({ kind: 'service', status: 'in-review' }));
-  assert.equal(state, 'awaitingHuman');
-  assert.equal(emphasisRank(state), emphasisRank('awaitingHuman'));
+void test('head-state in-review awaits nobody; the owed set is what says a human is owed (Q4)', () => {
+  const inReview = row({ kind: 'service', status: 'in-review' });
+  assert.equal(activityRowState(inReview), 'running');
+  assert.equal(owedChipLabel(undefined), undefined);
+  // A live gate: the loudest row on the screen.
+  const gated = activityRowState(inReview, { reason: 'gate' });
+  assert.equal(gated, 'awaitingHuman');
+  assert.equal(emphasisRank(gated), emphasisRank('awaitingHuman'));
+  assert.equal(owedChipLabel({ reason: 'gate' }), 'Awaiting you');
+  // A steer takes the same fill, under its own word.
+  assert.equal(activityRowState(inReview, { reason: 'takeover' }), 'awaitingHuman');
+  assert.equal(owedChipLabel({ reason: 'takeover' }), 'Steer needed');
+  // A failure is "Failed", one word everywhere.
+  assert.equal(activityRowState(inReview, { reason: 'failed' }), 'failed');
+  assert.equal(owedChipLabel({ reason: 'failed' }), 'Failed');
 });
 
 void test('a task with no attempt is unknown — the majority case, chip-less', () => {
@@ -256,7 +268,7 @@ void test('a task with no attempt is unknown — the majority case, chip-less', 
 void test('a task with no attempt: the one no-attempt rule, case by case, in the tree', () => {
   const stateOf = (r: ConstructionRow): RowState => {
     const node = onlyNode(r);
-    return taskRowState(taskNamed(node, 'srs'), node.status, noAttemptStateFor(node.row));
+    return taskRowState(taskNamed(node, 'srs'), undefined, noAttemptStateFor(node.row));
   };
   // Classified, no evidence: nothing has happened.
   assert.equal(
@@ -281,7 +293,7 @@ void test('a task with no attempt: the one no-attempt rule, case by case, in the
   );
   // Omitted rule: the tree's own coarse answer.
   const node = onlyNode(row({ kind: 'service', hasBuildEvidence: false }));
-  assert.equal(taskRowState(taskNamed(node, 'srs'), node.status), 'unknown');
+  assert.equal(taskRowState(taskNamed(node, 'srs'), undefined), 'unknown');
 });
 
 void test('an unclassified row keeps a task unknown (the rule, directly)', () => {
@@ -299,7 +311,7 @@ void test('the book key shows only where it adds a word the label lacks', () => 
   assert.equal(bookKeyFor('Code Review', 'Code Review', 'codeReview'), undefined);
 });
 
-void test('a pending gate task on an in-review activity is awaiting the human', () => {
+void test('a pending gate task awaits the human only where the owed set says its gate is live', () => {
   const node = onlyNode(
     row({
       kind: 'service',
@@ -309,7 +321,17 @@ void test('a pending gate task on an in-review activity is awaiting the human', 
   );
   const gate = taskNamed(node, 'codeReview');
   assert.equal(gate.gate, true);
-  assert.equal(taskRowState(gate, 'in-review'), 'awaitingHuman');
+  // Head-state in-review alone is not a gate (spec §1).
+  assert.equal(taskRowState(gate, undefined), 'running');
+  assert.equal(taskRowState(gate, { reason: 'gate', gateTask: 'codeReview' }), 'awaitingHuman');
+  // The live gate is on another task: this one is merely running.
+  assert.equal(taskRowState(gate, { reason: 'gate', gateTask: 'designReview' }), 'running');
+  // No gate task named: the gate's phase decides.
+  assert.equal(
+    taskRowState(gate, { reason: 'gate', lifecyclePhase: gate.lifecyclePhase }),
+    'awaitingHuman'
+  );
+  assert.equal(taskRowState(gate, { reason: 'takeover' }), 'running');
 });
 
 void test('the same pending outcome elsewhere is merely running', () => {
@@ -318,7 +340,7 @@ void test('the same pending outcome elsewhere is merely running', () => {
   );
   const notAGate = taskNamed(node, 'construction');
   assert.equal(notAGate.gate, false);
-  assert.equal(taskRowState(notAGate, 'in-construction'), 'running');
+  assert.equal(taskRowState(notAGate, { reason: 'gate', gateTask: 'codeReview' }), 'running');
 });
 
 void test('a skipped task does not borrow the success mark', () => {

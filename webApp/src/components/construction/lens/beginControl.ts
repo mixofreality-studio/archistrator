@@ -93,7 +93,10 @@ export function dispatchOutcomeFor(
 
 /** The alert's words for one outcome. The unknown sentence is the review's ruling
  *  verbatim; it never says "retry", because a retry could start a second pump. */
-export function dispatchOutcomeCopy(outcome: DispatchOutcome): { headline: string; detail: string } {
+export function dispatchOutcomeCopy(outcome: DispatchOutcome): {
+  headline: string;
+  detail: string;
+} {
   switch (outcome.kind) {
     case 'rejected':
       return {

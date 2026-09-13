@@ -8,6 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { BuildStatus } from '../../../contracts/constructionAdapters.ts';
+import type { FailureReason } from '../../../contracts/enums.gen';
 import type { RankedOwed } from './owedRanking.ts';
 import {
   allClearHeadlineFor,
@@ -17,9 +18,11 @@ import {
   uncheckedPendingLine,
   emptyStateCounts,
   emptyStateLine,
+  filteredLineFor,
   headlineFor,
   policyBannerFor,
   policySummaryFor,
+  reasonSentenceFor,
   roundLabel,
   shapeFor,
   slotsLineFor,
@@ -158,12 +161,39 @@ void test('the ask is a sentence about the artifact, from the profile exit crite
     title: 'Billing Engine',
     variance: 'retry budget exhausted',
   });
-  assert.equal(askFor(takeover), 'Steer Billing Engine: retry budget exhausted.');
+  // The PM's copy (pm-q3-ruling): the reason as a plain sentence, then the cause.
+  assert.equal(askFor(takeover), 'Stopped and asking you how to proceed — retry budget exhausted.');
   const failed = ranked('C-f', [], {
     reason: 'failed',
     failure: { reason: 'pipelineTimedOut', detail: 'the build ran past 30m' },
   });
-  assert.match(askFor(failed), /C-f stopped: the build ran past 30m/);
+  assert.equal(askFor(failed), 'The agent’s run timed out — the build ran past 30m.');
+});
+
+void test('every recorded cause says why in the PM’s words; a gate has no reason sentence', () => {
+  const said = (
+    reason: Parameters<typeof reasonSentenceFor>[0]['reason'],
+    extra = {}
+  ): string | undefined => reasonSentenceFor({ reason, ...extra });
+  assert.equal(said('takeover'), 'Stopped and asking you how to proceed');
+  assert.equal(said('gate'), undefined);
+  const cause = (r: FailureReason): string | undefined =>
+    reasonSentenceFor({ reason: 'failed', failure: { reason: r } });
+  assert.equal(cause('pipelineFailed'), 'The agent’s run failed');
+  assert.equal(cause('pipelineCancelled'), 'The run was cancelled');
+  assert.equal(cause('varianceExhausted'), 'Gave up after 10 attempts');
+  assert.equal(cause('escalationTimedOut'), 'No one answered the escalation in time');
+  assert.equal(cause('componentUnresolved'), 'The plan names a component that isn’t in the design');
+  assert.equal(cause('activityUnclassifiable'), 'The plan gives this activity no buildable type');
+  assert.equal(cause('dependencyUnresolved'), 'The plan depends on an activity that doesn’t exist');
+  assert.equal(cause('dependencyCycle'), 'The plan has a dependency loop');
+  assert.match(cause('unknown') ?? '', /not recorded/);
+});
+
+void test('the headline says when the toolbar hides owed decisions (review I4)', () => {
+  assert.equal(filteredLineFor(1, 3), '1 shown · 3 owed');
+  assert.equal(filteredLineFor(3, 3), undefined);
+  assert.equal(filteredLineFor(0, 0), undefined);
 });
 
 void test('round and CI never guess', () => {

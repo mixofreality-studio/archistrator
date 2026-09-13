@@ -249,13 +249,14 @@ void test('picks the latest attempt by NUMBER, not array position', () => {
   assert.equal(taskDetailStateFor(r, selection), 'passed');
 });
 
-void test('a pending gate task on an in-review row is awaitingHuman, not running', () => {
+void test('a pending gate task on an in-review row is running: head-state never says a human is awaited (Q4)', () => {
   const r = row({
     status: 'in-review',
     attempts: [attempt({ outcome: '' })],
   });
   const selection: LensSelection = { activityId: 'C-x', task: 'codeReview' };
-  assert.equal(taskDetailStateFor(r, selection), 'awaitingHuman');
+  assert.equal(taskDetailStateFor(r, selection), 'running');
+  assert.equal(taskDetailStateFor(r, { activityId: 'C-x' }), 'running');
 });
 
 void test('a pending task on an in-construction row is running', () => {

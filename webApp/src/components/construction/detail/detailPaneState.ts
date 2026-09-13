@@ -199,25 +199,23 @@ export function taskDetailStateFor(
   if (selection.task !== undefined) {
     const attempt = latestMatchingAttempt(row.attempts, selection.task, selection.attempt);
     if (attempt === undefined) return noAttemptStateFor(row);
-    return stateForOutcome(attempt.outcome, row.status);
+    return stateForOutcome(attempt.outcome);
   }
 
   if (!row.hasBuildEvidence) return 'notStarted';
   return stateForRowStatus(row.status);
 }
 
-/** The state of one task attempt's outcome, given the row's coarse status —
- *  a pending ('') gate task on an `in-review` row IS `awaitingHuman`; the
- *  same pending outcome elsewhere is plain `running`. Each function below is
- *  a single exhaustive switch AS the entire function body (the established
- *  idiom this codebase already uses — see buildStatusForStage), so a real,
- *  unreachable `default` closes the TS control-flow proof without hiding a
- *  genuinely-missing case: `switch-exhaustiveness-check` still fails the
- *  build the moment a member goes unhandled above it. */
-function stateForOutcome(
-  outcome: TaskAttemptRow['outcome'],
-  rowStatus: ActivityBuildStatusRow | undefined
-): TaskDetailState {
+/** The state of one task attempt's outcome. A pending ('') outcome is `running`
+ *  — head-state never says a human is awaited; only the live owed set does
+ *  (tasks/owedChip.ts, the Stage C plan's Q4), handed to the pane as its
+ *  `decision` / `owed` props. Each function below is a single exhaustive switch
+ *  AS the entire function body (the established idiom this codebase already uses
+ *  — see buildStatusForStage), so a real, unreachable `default` closes the TS
+ *  control-flow proof without hiding a genuinely-missing case:
+ *  `switch-exhaustiveness-check` still fails the build the moment a member goes
+ *  unhandled above it. */
+function stateForOutcome(outcome: TaskAttemptRow['outcome']): TaskDetailState {
   switch (outcome) {
     case 'passed':
       return 'passed';
@@ -230,7 +228,7 @@ function stateForOutcome(
       // than inventing a seventh state for one non-blocking case.
       return 'passed';
     case '':
-      return rowStatus === 'in-review' ? 'awaitingHuman' : 'running';
+      return 'running';
     default:
       return 'unknown';
   }
@@ -240,8 +238,9 @@ function stateForRowStatus(status: ActivityBuildStatusRow | undefined): TaskDeta
   switch (status) {
     case 'integrated':
       return 'passed';
+    // `in-review` means "some phases complete, not all" (spec §1) — mid-lifecycle,
+    // gated or not. Whether a human is awaited is the owed set's to say.
     case 'in-review':
-      return 'awaitingHuman';
     case 'in-construction':
       return 'running';
     case 'failed':

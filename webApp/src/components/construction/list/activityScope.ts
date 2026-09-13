@@ -49,6 +49,9 @@ import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../prov
 import type { ScopeId, SortId, ToolbarState } from '../lens/useLensSelection.ts';
 import { activityRowState, currentStageMarker } from './activityRowPresentation.ts';
 import type { ActivityNode, TaskNode } from './activityTree.ts';
+import type { OwedMarks } from '../tasks/owedChip.ts';
+
+const NO_OWED: OwedMarks = new Map();
 
 // ---------------------------------------------------------------------------
 // Scope chips
@@ -60,7 +63,12 @@ import type { ActivityNode, TaskNode } from './activityTree.ts';
  * on the critical path, or float <= 5 and NOT on it) rather than inventing a
  * second near-critical threshold for the same project.
  */
-export function scopePredicate(scope: ScopeId, node: ActivityNode): boolean {
+export function scopePredicate(
+  scope: ScopeId,
+  node: ActivityNode,
+  /** The live owed set (tasks/owedChip.ts) — the ONE source of "Awaiting me". */
+  owed: OwedMarks = NO_OWED
+): boolean {
   switch (scope) {
     case 'all':
       return true;
@@ -69,9 +77,11 @@ export function scopePredicate(scope: ScopeId, node: ActivityNode): boolean {
     case 'near':
       return node.onCriticalPath !== true && node.float !== undefined && node.float <= 5;
     case 'awaitingMe':
-      return activityRowState(node.row) === 'awaitingHuman';
+      // The owed set, not head-state `in-review` (spec §1, Q4): a gate, a steer or
+      // a recorded failure, exactly the rows the TASKS lens shows.
+      return owed.has(node.activityId);
     case 'inFlight':
-      return activityRowState(node.row) === 'running';
+      return activityRowState(node.row, owed.get(node.activityId)) === 'running';
     case 'hasRetries':
       return node.retryCount > 0;
     case 'reconstructed':
@@ -224,11 +234,12 @@ export type ToolbarFilters = Pick<ToolbarState, 'scope' | 'kind' | 'layer' | 'se
  */
 export function applyToolbarToActivities(
   nodes: readonly ActivityNode[],
-  toolbar: ToolbarFilters
+  toolbar: ToolbarFilters,
+  owed: OwedMarks = NO_OWED
 ): ActivityNode[] {
   const filtered = nodes.filter(
     (n) =>
-      scopePredicate(toolbar.scope, n) &&
+      scopePredicate(toolbar.scope, n, owed) &&
       matchesKind(n, toolbar.kind) &&
       matchesLayer(n, toolbar.layer) &&
       activityPassesSearch(n, toolbar.search)

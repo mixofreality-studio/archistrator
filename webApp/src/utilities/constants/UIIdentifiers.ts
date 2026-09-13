@@ -404,6 +404,8 @@ export const UI_IDENTIFIERS = {
     // Probes with no answer (architect Q1): "Checking N…" / "Couldn't check N…".
     TASKS_UNCHECKED: 'construction-tasks-unchecked',
     TASKS_UNCHECKED_RETRY: 'construction-tasks-unchecked-retry',
+    // "1 shown · 3 owed" when the toolbar hides owed decisions (review I4).
+    TASKS_FILTERED: 'construction-tasks-filtered',
     tasksRow: (key: string) => `construction-tasks-row-${key}`,
     tasksCell: (key: string, column: string) => `construction-tasks-${column}-${key}`,
     tasksReview: (key: string) => `construction-tasks-review-${key}`,
@@ -413,6 +415,10 @@ export const UI_IDENTIFIERS = {
     DETAIL_DECISION_NOTE: 'construction-detail-decision-note',
     DETAIL_DECISION_SEND_BACK: 'construction-detail-decision-send-back',
     DETAIL_DECISION_FLOW: 'construction-detail-decision-flow',
+    // A steer-needed or failed activity in the pane: why it is owed, and why it
+    // is review-only (designer P0-2, the PM's must-hold).
+    DETAIL_OWED_REASON: 'construction-detail-owed-reason',
+    DETAIL_REVIEW_ONLY_NOTE: 'construction-detail-review-only-note',
     // The lens shell (Stage B): ONE route, three lenses over one dataset, a
     // shared toolbar whose state survives a lens switch, and a persistent
     // detail slot. Replaces the Tracker/Interventions/Artifacts tab bar.

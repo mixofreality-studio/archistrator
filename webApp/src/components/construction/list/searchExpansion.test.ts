@@ -11,10 +11,13 @@ import {
 // Designer re-check N1: a link to a task opens its activity and phase and targets
 // the task row; a link to a phase opens its activity; an activity link opens nothing.
 void test('a deep link opens exactly its ancestors and targets the selected row', () => {
-  assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }), {
-    expand: ['N-STP', 'N-STP::construction'],
-    target: 'N-STP::construction::codeReview',
-  });
+  assert.deepEqual(
+    deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction', task: 'codeReview' }),
+    {
+      expand: ['N-STP', 'N-STP::construction'],
+      target: 'N-STP::construction::codeReview',
+    }
+  );
   assert.deepEqual(deepLinkReveal({ activityId: 'N-STP', lifecyclePhase: 'construction' }), {
     expand: ['N-STP'],
     target: 'N-STP::construction',

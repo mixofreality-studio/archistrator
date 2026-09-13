@@ -4,8 +4,8 @@
  * than the data behind them.
  */
 import type { CiStatus, ReviewPolicyView } from '../../../contracts/types';
+import type { FailureReason } from '../../../contracts/enums.gen';
 import type { BuildStatus } from '../../../contracts/constructionAdapters.ts';
-import { FAILURE_REASON_LABEL } from '../../../contracts/constructionAdapters.ts';
 import {
   CANONICAL_PHASE_NAME,
   KIND_NOUN,
@@ -48,6 +48,12 @@ export function headlineFor(items: readonly RankedOwed[]): string {
     'downstream activities'
   )}`;
   return onCp > 0 ? `${head} · ${String(onCp)} on the critical path` : head;
+}
+
+/** "1 shown · 3 owed" — said whenever the toolbar hides owed decisions, so the
+ *  headline's count is never read as the whole owed set (review I4). */
+export function filteredLineFor(shown: number, owed: number): string | undefined {
+  return shown < owed ? `${String(shown)} shown · ${String(owed)} owed` : undefined;
 }
 
 /** "G of CAP worker slots stopped at a gate" (spec §6's "3 of 3 workers idle,
@@ -169,16 +175,50 @@ export function emptyStateLine(c: EmptyStateCounts): string {
 // A row's triage fields (spec §6's seven)
 // ---------------------------------------------------------------------------
 
-/** The ask, as a sentence about the artifact rather than the machinery. */
-export function askFor(item: RankedOwed): string {
-  const name = item.title ?? item.activityId;
+/** Why the machine stopped, per recorded cause — the PM's binding copy (pm-q3-ruling). */
+const FAILURE_CAUSE: Readonly<Record<FailureReason, string>> = {
+  unknown: 'The run failed for a reason that was not recorded',
+  pipelineFailed: 'The agent’s run failed',
+  pipelineTimedOut: 'The agent’s run timed out',
+  pipelineCancelled: 'The run was cancelled',
+  varianceExhausted: 'Gave up after 10 attempts',
+  escalationTimedOut: 'No one answered the escalation in time',
+  componentUnresolved: 'The plan names a component that isn’t in the design',
+  activityUnclassifiable: 'The plan gives this activity no buildable type',
+  dependencyUnresolved: 'The plan depends on an activity that doesn’t exist',
+  dependencyCycle: 'The plan has a dependency loop',
+};
+
+/**
+ * The reason a steer-needed or failed activity is owed, as a plain sentence plus
+ * what is known of the last run (the PM's copy table) — the row's ask and the
+ * pane's header say the same words. Undefined for a gate, whose ask is its exit
+ * criterion.
+ */
+export function reasonSentenceFor(
+  item: Pick<RankedOwed, 'reason' | 'variance' | 'failure'>
+): string | undefined {
   switch (item.reason) {
     case 'takeover':
-      return `Steer ${name}: ${item.variance ?? 'the intervention engine escalated a variance'}.`;
+      return item.variance !== undefined
+        ? `Stopped and asking you how to proceed — ${item.variance}`
+        : 'Stopped and asking you how to proceed';
     case 'failed': {
-      const why = item.failure?.detail ?? FAILURE_REASON_LABEL[item.failure?.reason ?? 'unknown'];
-      return `Decide what happens next — ${item.activityId} stopped: ${why}.`;
+      const cause = FAILURE_CAUSE[item.failure?.reason ?? 'unknown'];
+      const detail = item.failure?.detail;
+      return detail !== undefined && detail.length > 0 ? `${cause} — ${detail}` : cause;
     }
+    case 'gate':
+      return undefined;
+  }
+}
+
+/** The ask, as a sentence about the artifact rather than the machinery. */
+export function askFor(item: RankedOwed): string {
+  switch (item.reason) {
+    case 'takeover':
+    case 'failed':
+      return `${reasonSentenceFor(item) ?? ''}.`;
     case 'gate': {
       const exit = item.gate?.exitCriterion;
       if (exit !== undefined && exit.length > 0) {

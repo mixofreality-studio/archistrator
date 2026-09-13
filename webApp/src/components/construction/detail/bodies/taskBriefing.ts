@@ -296,10 +296,7 @@ export const UNKNOWN_STATEMENT =
 export const UNKNOWN_STATEMENT_UNSCOPED =
   'No record. This has not run, or it ran before per-task history was captured.';
 
-export function unknownStatementFor(
-  scope: Briefing['scope'] | undefined,
-  hiddenCount = 0
-): string {
+export function unknownStatementFor(scope: Briefing['scope'] | undefined, hiddenCount = 0): string {
   if (hiddenCount > 0) return observedOnlyStatement(hiddenCount);
   return scope === 'task' ? UNKNOWN_STATEMENT : UNKNOWN_STATEMENT_UNSCOPED;
 }

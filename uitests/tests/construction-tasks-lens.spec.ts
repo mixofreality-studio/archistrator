@@ -358,6 +358,78 @@ test('owed rows come from the live stage, risk floor first; a running in-review 
   await expect(page.getByTestId(TESTID.constructionTasksGitHub(GATE_KEY))).toHaveCount(0);
 });
 
+test('steer-needed and failed rows stay review-only: the pane says why and offers nothing yet', async ({
+  page,
+}) => {
+  await serveOwed(page, initialStages());
+  await openTasks(page);
+  const takeoverRow = page.getByTestId(TESTID.constructionTasksRow(`${TAKEOVER}:takeover`));
+  const failedRow = page.getByTestId(TESTID.constructionTasksRow(`${FAILED}:failed`));
+  // The PM's words for why each stopped; one word for failure, "Failed".
+  await expect(takeoverRow).toContainText(
+    'Stopped and asking you how to proceed — three builds failed the contract tests'
+  );
+  await expect(takeoverRow).toContainText('Steer needed');
+  await expect(failedRow).toContainText('run timed out — the provisioning pipeline ran past its');
+  await expect(failedRow).toContainText('Failed');
+  await expect(failedRow).not.toContainText('Stopped');
+  // Until follow-up B1 delivers the operator's note: no Retry, Re-queue or Skip,
+  // and never the cut Takeover / Reassign.
+  for (const name of [/^Retry/, /Re-queue/, /^Skip/, /Takeover/, /Reassign/]) {
+    await expect(page.getByRole('button', { name })).toHaveCount(0);
+  }
+
+  await page.getByTestId(TESTID.constructionTasksReview(`${TAKEOVER}:takeover`)).click();
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/steer needed/i);
+  await expect(page.getByTestId(TESTID.constructionDetailOwedReason)).toContainText(
+    'three builds failed the contract tests'
+  );
+  await expect(page.getByTestId(TESTID.constructionDetailReviewOnlyNote)).toHaveText(
+    'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.'
+  );
+  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
+
+  await page.getByTestId(TESTID.constructionTasksReview(`${FAILED}:failed`)).click();
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/^failed$/i);
+  await expect(page.getByTestId(TESTID.constructionDetailOwedReason)).toContainText(
+    'the provisioning pipeline ran past its budget'
+  );
+  await expect(page.getByTestId(TESTID.constructionDetailReviewOnlyNote)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toHaveCount(0);
+  for (const name of [/^Retry/, /Re-queue/, /^Skip/, /Takeover/, /Reassign/]) {
+    await expect(page.getByRole('button', { name })).toHaveCount(0);
+  }
+});
+
+test('the list lens reads the same owed set: "Awaiting me" is the gate, the steer and the failure', async ({
+  page,
+}) => {
+  await serveOwed(page, initialStages());
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  // One vocabulary: the steer's row chip says "Steer needed", not "Awaiting you".
+  await expect(page.getByTestId(TESTID.constructionListRow(TAKEOVER))).toContainText(
+    /steer needed/i
+  );
+  await page.getByTestId(TESTID.constructionLensScope).getByRole('combobox').click();
+  await page.getByRole('option', { name: 'Awaiting me' }).click();
+  for (const id of [GATE, TAKEOVER, FAILED]) {
+    await expect(page.getByTestId(TESTID.constructionListRow(id))).toBeVisible();
+  }
+  // Head-state in-review with a merely running session is not awaiting anyone.
+  await expect(page.getByTestId(TESTID.constructionListRow(RUNNING))).toHaveCount(0);
+});
+
+test('the headline says when the toolbar hides owed decisions (review I4)', async ({ page }) => {
+  await serveOwed(page, initialStages());
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksFiltered)).toHaveCount(0);
+  await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('billing-state');
+  await expect(page.getByTestId(TESTID.constructionTasksFiltered)).toHaveText('1 shown · 3 owed');
+});
+
 test('the list no longer mounts a phase-gate panel; the decision lives in the pane', async ({
   page,
 }) => {

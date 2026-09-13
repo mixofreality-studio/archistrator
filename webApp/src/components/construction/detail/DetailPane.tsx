@@ -120,6 +120,7 @@ import {
   type FlowNote,
   type PaneDecision,
 } from '../tasks/decisionFlow.ts';
+import { REVIEW_ONLY_NOTE, owedStateFor, reviewOnlyFor, type OwedMark } from '../tasks/owedChip.ts';
 
 // Re-exported alongside the component per the brief: a caller (and this
 // file's own test) can reach the pure invariant without rendering anything.
@@ -212,6 +213,15 @@ export interface DetailPaneProps {
    * worse than none (spec §6).
    */
   decision?: PaneDecision | undefined;
+  /**
+   * The selected activity's owed mark (tasks/owedChip.ts) and, for a steer or a
+   * failure, the reason as a sentence. The ONE source of the pane's AWAITING YOU,
+   * STEER NEEDED and FAILED chips (review I4, designer P0-2): head-state
+   * `in-review` no longer says a human is awaited. A steer-needed or failed
+   * activity is REVIEW-ONLY until follow-up B1 delivers the operator's note to the
+   * agent (the PM's must-hold): no actions at all, and a muted line saying so.
+   */
+  owed?: { mark: OwedMark; sentence?: string | undefined } | undefined;
   onClose: () => void;
 }
 
@@ -225,6 +235,7 @@ export function DetailPane({
   reviewSet,
   hiddenAttempts,
   decision,
+  owed,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -288,20 +299,28 @@ export function DetailPane({
   // AWAITING YOU — the one source of that state; head-state `in-review` is not it.
   const decisionApplies = decision !== undefined && paneDecisionApplies(decision, selection);
   const decisionLive = decisionApplies && decision.open;
+  // The owed set says what is owed here, and nothing else does (review I4).
+  const owedChip = owedStateFor(owed?.mark, selection);
+  const reviewOnly = reviewOnlyFor(owed?.mark, selection);
   const state = useMemo(
-    (): TaskDetailState => (decisionLive ? 'awaitingHuman' : taskDetailStateFor(row, selection)),
-    [decisionLive, row, selection]
+    (): TaskDetailState => owedChip?.state ?? taskDetailStateFor(row, selection),
+    [owedChip, row, selection]
   );
   // Approve / Send back act only where a live decision backs them (and not while
   // one is in flight); `run` keeps Stage B's invariant — present and enabled always.
+  // A steer-needed or failed activity offers nothing: review-only (PM must-hold).
   const actions = useMemo(
     () =>
-      detailActionsFor(state, runActionFor(row, selection)).map(
-        (a): DetailAction =>
-          a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
-      ),
-    [state, row, selection, decisionLive, decision]
+      reviewOnly
+        ? []
+        : detailActionsFor(state, runActionFor(row, selection)).map(
+            (a): DetailAction =>
+              a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
+          ),
+    [reviewOnly, state, row, selection, decisionLive, decision]
   );
+  const stateLabel = owedChip?.label;
+  const owedReason = reviewOnly ? owed?.sentence : undefined;
   // The send-back composer, open for one activity at a time — keyed by the
   // activity rather than reset in an effect, so selecting elsewhere closes it.
   const [composingFor, setComposingFor] = useState<string | null>(null);
@@ -371,6 +390,7 @@ export function DetailPane({
         ) : undefined
       }
       flow={decisionApplies ? decision.note : undefined}
+      reviewOnlyNote={reviewOnly ? REVIEW_ONLY_NOTE : undefined}
       t={t}
       onAction={onAction}
     />
@@ -405,8 +425,10 @@ export function DetailPane({
       collapsed={collapsed}
       exitCriterion={meta.exitCriterion}
       hiddenCount={hiddenCount}
+      owedReason={owedReason}
       provenance={provenance}
       state={state}
+      stateLabel={stateLabel}
       summary={summary}
       t={t}
       taskAttempts={taskAttempts}
@@ -452,8 +474,10 @@ export function DetailPane({
           breadcrumb={breadcrumb}
           exitCriterion={meta.exitCriterion}
           hiddenCount={hiddenCount}
+          owedReason={owedReason}
           provenance={provenance}
           state={state}
+          stateLabel={stateLabel}
           summary={summary}
           t={t}
           taskAttempts={taskAttempts}
@@ -494,6 +518,8 @@ function DetailPaneChrome({
   actionBar,
   hiddenCount,
   taskSelected,
+  stateLabel,
+  owedReason,
   onClose,
   onToggleCollapsed,
   onResizePointerDown,
@@ -505,6 +531,8 @@ function DetailPaneChrome({
   t: Tokens;
   breadcrumb: string;
   state: TaskDetailState;
+  stateLabel: string | undefined;
+  owedReason: string | undefined;
   provenance: ProvenanceReading;
   hiddenCount: number;
   taskSelected: boolean;
@@ -589,8 +617,10 @@ function DetailPaneChrome({
           breadcrumb={breadcrumb}
           exitCriterion={exitCriterion}
           hiddenCount={hiddenCount}
+          owedReason={owedReason}
           provenance={provenance}
           state={state}
+          stateLabel={stateLabel}
           summary={summary}
           t={t}
           taskAttempts={taskAttempts}
@@ -631,9 +661,15 @@ function DetailHeader({
   onSelectAttempt,
   hiddenCount,
   taskSelected,
+  stateLabel,
+  owedReason,
 }: {
   breadcrumb: string;
   state: TaskDetailState;
+  /** The owed chip's own word, when the owed set says what is owed here. */
+  stateLabel: string | undefined;
+  /** A steer's or a failure's reason, as a sentence (designer P0-2). */
+  owedReason: string | undefined;
   provenance: ProvenanceReading;
   /** Attempts "Observed only" hid in the selection (B1); 0 with the toggle off. */
   hiddenCount: number;
@@ -724,7 +760,7 @@ function DetailHeader({
             whiteSpace: 'nowrap',
           }}
         >
-          {TASK_DETAIL_STATE_LABEL[state].toUpperCase()}
+          {(stateLabel ?? TASK_DETAIL_STATE_LABEL[state]).toUpperCase()}
         </Box>
 
         <ProvenanceChips
@@ -749,6 +785,22 @@ function DetailHeader({
           <AttemptSelector attempts={taskAttempts} t={t} onSelectAttempt={onSelectAttempt} />
         )}
       </Box>
+
+      {owedReason !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_OWED_REASON}
+          sx={{
+            fontFamily: t.body,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: state === 'failed' ? t.dangerFg : t.awaitingFg,
+            lineHeight: 1.4,
+            mt: 1,
+          }}
+        >
+          {owedReason}
+        </Typography>
+      ) : null}
 
       {/* Only when a phase applies: an "Exit: —" line with nothing after it said
           less than no line at all (P1-6). The weight comes from the same phase. */}
@@ -958,6 +1010,7 @@ function ActionBar({
   onAction,
   composer,
   flow,
+  reviewOnlyNote,
 }: {
   actions: DetailAction[];
   t: Tokens;
@@ -966,6 +1019,8 @@ function ActionBar({
   composer?: ReactNode;
   /** Stage C: the decision's line — sending, resumed, or did not land (loud). */
   flow?: FlowNote | undefined;
+  /** Why a steer-needed or failed activity offers no action yet (muted). */
+  reviewOnlyNote?: string | undefined;
 }): ReactElement {
   return (
     <Box
@@ -982,6 +1037,14 @@ function ActionBar({
       }}
     >
       {composer}
+      {reviewOnlyNote !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_REVIEW_ONLY_NOTE}
+          sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.45 }}
+        >
+          {reviewOnlyNote}
+        </Typography>
+      ) : null}
       <Box sx={{ display: 'flex', gap: 1 }}>
         {actions.map((a) => (
           <Button

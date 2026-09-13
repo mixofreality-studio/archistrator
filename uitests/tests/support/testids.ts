@@ -286,6 +286,7 @@ export const TESTID = {
   constructionTasksResume: UI_IDENTIFIERS.Construction.TASKS_RESUME,
   constructionTasksUnchecked: UI_IDENTIFIERS.Construction.TASKS_UNCHECKED,
   constructionTasksUncheckedRetry: UI_IDENTIFIERS.Construction.TASKS_UNCHECKED_RETRY,
+  constructionTasksFiltered: UI_IDENTIFIERS.Construction.TASKS_FILTERED,
   constructionTasksRow: UI_IDENTIFIERS.Construction.tasksRow,
   constructionTasksCell: UI_IDENTIFIERS.Construction.tasksCell,
   constructionTasksReview: UI_IDENTIFIERS.Construction.tasksReview,
@@ -295,6 +296,8 @@ export const TESTID = {
   constructionDetailDecisionNote: UI_IDENTIFIERS.Construction.DETAIL_DECISION_NOTE,
   constructionDetailDecisionSendBack: UI_IDENTIFIERS.Construction.DETAIL_DECISION_SEND_BACK,
   constructionDetailDecisionFlow: UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
+  constructionDetailOwedReason: UI_IDENTIFIERS.Construction.DETAIL_OWED_REASON,
+  constructionDetailReviewOnlyNote: UI_IDENTIFIERS.Construction.DETAIL_REVIEW_ONLY_NOTE,
   constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
   // The retired list-lens phase-gate panel — asserted ABSENT (the pane decides now).
   constructionPhaseGatePanel: UI_IDENTIFIERS.Construction.PHASE_GATE_PANEL,

@@ -60,7 +60,12 @@ import {
 } from '../components/construction/tasks/decisionRecords';
 import { owedWorkFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
 import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
-import { emptyStateCounts, shapeFor } from '../components/construction/tasks/tasksLensCopy';
+import {
+  emptyStateCounts,
+  reasonSentenceFor,
+  shapeFor,
+} from '../components/construction/tasks/tasksLensCopy';
+import { owedMarksFor } from '../components/construction/tasks/owedChip';
 import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { computeActivityStatuses } from '../contracts/constructionAdapters';
 import { contractForActivity } from '../contracts/serviceContracts';
@@ -489,6 +494,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   );
   const owedItems = owedWork.items;
   const tasksOwed = owedItems.length;
+  // ONE owed vocabulary for every lens and the pane (tasks/owedChip.ts, Q4): the
+  // list's "Awaiting me" scope, its row chips and the pane's state chip read these
+  // marks, never head-state in-review.
+  const owedMarks = useMemo(() => owedMarksFor(owedItems), [owedItems]);
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
     [viewRows, activityMeta]
@@ -498,8 +507,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // pipeline (see activityScope.ts) so ActivityTreeView renders exactly what
   // the toolbar says and nothing this file has to keep in sync by hand.
   const visibleActivityTree = useMemo(
-    () => applyToolbarToActivities(activityTree, toolbar),
-    [activityTree, toolbar]
+    () => applyToolbarToActivities(activityTree, toolbar, owedMarks),
+    [activityTree, toolbar, owedMarks]
   );
 
   // --- The TASKS lens (Stage C) ------------------------------------------------
@@ -663,6 +672,22 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         }
       : undefined;
 
+  // What the selected activity is owed for — its chip, and for a steer or a
+  // failure the reason in the PM's words (tasks/owedChip.ts, designer P0-2).
+  const selectedMark = selectedActivityId !== null ? owedMarks.get(selectedActivityId) : undefined;
+  const selectedOwedItem =
+    selectedActivityId !== null
+      ? owedItems.find((i) => i.activityId === selectedActivityId)
+      : undefined;
+  const paneOwed =
+    selectedMark !== undefined
+      ? {
+          mark: selectedMark,
+          sentence:
+            selectedOwedItem !== undefined ? reasonSentenceFor(selectedOwedItem) : undefined,
+        }
+      : undefined;
+
   // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
   // (never owned by the pane itself), so it cannot lose it to the cascade
   // poll's remount. Beside-content at >=1200px, the existing overlay Drawer
@@ -684,6 +709,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           />
         )}
         hiddenAttempts={evidenceView.hidden[selectedActivityId]}
+        owed={paneOwed}
         project={project}
         // The selected activity's OWN session, and only while it is at a gate —
         // another activity's reviewer set under this one's review body would be the
@@ -867,6 +893,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                     <ActivityTreeView
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
                       nodes={visibleActivityTree}
+                      owed={owedMarks}
                       searchQuery={toolbar.search}
                       selection={selection}
                       totalActivityCount={activityTree.length}

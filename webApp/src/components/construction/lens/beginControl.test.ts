@@ -119,7 +119,11 @@ void test('the unknown copy is the ruling verbatim and never invites a retry; th
 void test('after an unknown outcome Begin waits for a project read newer than the failure; a rejection never waits', () => {
   const unknown = { outcome: dispatchOutcomeFor(503, 'x'), at: 1000 };
   assert.equal(awaitingRefreshAfter(unknown, 0), true, 'no read yet');
-  assert.equal(awaitingRefreshAfter(unknown, 1000), true, 'a read from the same instant is not newer');
+  assert.equal(
+    awaitingRefreshAfter(unknown, 1000),
+    true,
+    'a read from the same instant is not newer'
+  );
   assert.equal(awaitingRefreshAfter(unknown, 1001), false, 'the refreshed project answered');
   assert.equal(awaitingRefreshAfter({ outcome: dispatchOutcomeFor(400, 'x'), at: 1000 }, 0), false);
   assert.equal(awaitingRefreshAfter(null, 0), false);

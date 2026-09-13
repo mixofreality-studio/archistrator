@@ -134,7 +134,7 @@ export function whyFor(item: OwedItem, policy: ReviewPolicyView | undefined): Ow
   switch (item.reason) {
     case 'takeover':
       return {
-        rule: 'Variance · interventionEngine escalated',
+        rule: 'Intervention engine escalated a variance',
         riskFloor: false,
         tooltip:
           'The intervention engine escalated a variance (decideOnVariance) and the workflow is waiting for an operator steer.',
@@ -142,7 +142,7 @@ export function whyFor(item: OwedItem, policy: ReviewPolicyView | undefined): Ow
     case 'failed': {
       const label = FAILURE_REASON_LABEL[item.failure?.reason ?? 'unknown'];
       return {
-        rule: `Stopped · ${label}`,
+        rule: `Failed · ${label}`,
         riskFloor: false,
         tooltip:
           'The pump recorded a terminal failure for this activity; it will not restart on its own.',

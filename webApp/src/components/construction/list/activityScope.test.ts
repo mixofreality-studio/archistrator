@@ -133,18 +133,25 @@ void test('scope "near" is float<=5 and NOT on the critical path', () => {
   assert.equal(scopePredicate('near', unclassified), false, 'no float on record is not near');
 });
 
-void test('scope "awaitingMe" is the awaitingHuman row state (in-review)', () => {
-  assert.equal(scopePredicate('awaitingMe', awaitingMe), true);
-  assert.equal(scopePredicate('awaitingMe', retried), false, 'in-construction is not awaiting me');
-  assert.equal(scopePredicate('awaitingMe', unclassified), false);
+void test('scope "awaitingMe" is the live owed set, never head-state in-review (Q4)', () => {
+  const owed = new Map([['C-awaiting', { reason: 'gate' as const }]]);
+  assert.equal(scopePredicate('awaitingMe', awaitingMe), false, 'in-review alone is not a gate');
+  assert.equal(scopePredicate('awaitingMe', awaitingMe, owed), true);
+  assert.equal(scopePredicate('awaitingMe', retried, owed), false, 'not owed is not awaiting me');
+  assert.equal(scopePredicate('awaitingMe', unclassified, owed), false);
+  // A steer and a failure are owed too — the TASKS lens's rows, exactly.
+  const steer = new Map([['C-retried', { reason: 'takeover' as const }]]);
+  assert.equal(scopePredicate('awaitingMe', retried, steer), true);
 });
 
 void test('scope "inFlight" is the running row state (in-construction)', () => {
   assert.equal(scopePredicate('inFlight', retried), true);
+  // Mid-lifecycle (in-review) is in flight — unless the owed set says it waits on you.
+  assert.equal(scopePredicate('inFlight', awaitingMe), true, 'in-review is mid-lifecycle');
   assert.equal(
-    scopePredicate('inFlight', awaitingMe),
+    scopePredicate('inFlight', awaitingMe, new Map([['C-awaiting', { reason: 'gate' as const }]])),
     false,
-    'in-review is awaitingMe, not inFlight'
+    'a live gate is awaiting me, not in flight'
   );
   assert.equal(scopePredicate('inFlight', recorded), false, 'integrated is not in flight');
 });
