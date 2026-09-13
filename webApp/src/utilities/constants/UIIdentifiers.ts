@@ -349,6 +349,10 @@ export const UI_IDENTIFIERS = {
     FRONTEND_PREVIEW_FRAME: 'construction-frontend-preview-frame',
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
+    /** The selected case's "what this proves / expected outcome" box (its left
+     *  border carries the case's ink) and the EXPECT label inside it. */
+    ACTIVE_CASE: 'construction-active-case',
+    CASE_EXPECT: 'construction-case-expect',
     BEGIN_BUTTON: 'construction-begin',
     /** The alert a failed Begin dispatch raises — failures are loud (spec §6). */
     BEGIN_ERROR: 'construction-begin-error',

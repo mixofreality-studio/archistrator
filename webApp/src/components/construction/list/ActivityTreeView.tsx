@@ -367,6 +367,9 @@ function useRowContext(): RowContextValue {
 // ---------------------------------------------------------------------------
 
 export interface ActivityTreeViewProps {
+  /** The project the tree belongs to. It scopes the deep-link memory, so an
+   *  in-app switch to another project reveals the same link again (fix-D review M1). */
+  projectId: string;
   /** Already filtered/sorted/searched — this file neither decides membership
    *  nor order (see ../list/activityScope.ts); it renders and reveals. */
   nodes: readonly ActivityNode[];
@@ -389,6 +392,7 @@ export interface ActivityTreeViewProps {
 }
 
 export function ActivityTreeView({
+  projectId,
   nodes,
   selection,
   onSelect,
@@ -493,7 +497,7 @@ export function ActivityTreeView({
   // the operator had since collapsed. searchExpansion.linkAlreadyShown remembers
   // the last selection shown, across remounts; it is written below, from an
   // effect, once this render has decided.
-  const linkKey = deepLinkKey(selection);
+  const linkKey = deepLinkKey(projectId, selection);
   const [linkTarget, setLinkTarget] = useState<string | null | undefined>(undefined);
   if (linkTarget === undefined && nodes.length > 0) {
     const link = linkAlreadyShown(linkKey)

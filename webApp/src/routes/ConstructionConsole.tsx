@@ -675,6 +675,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                     <ActivityTreeView
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
                       nodes={visibleActivityTree}
+                      projectId={projectId}
                       searchQuery={toolbar.search}
                       selection={selection}
                       totalActivityCount={activityTree.length}

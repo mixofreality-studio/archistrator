@@ -75,15 +75,27 @@ export function deepLinkReveal(selection: {
   return { expand: [activityId, phaseId], target: `${phaseId}::${task}` };
 }
 
-/** One URL selection as a key: a deep link is identified by its a/p/k alone. */
-export function deepLinkKey(selection: {
-  activityId?: string | undefined;
-  lifecyclePhase?: string | undefined;
-  task?: string | undefined;
-}): string {
-  return [selection.activityId ?? '', selection.lifecyclePhase ?? '', selection.task ?? ''].join(
-    '|'
-  );
+/**
+ * One URL selection as a key: its PROJECT plus its a/p/k (fix-D review M1). Keyed
+ * by a/p/k alone, the memory leaked across projects. An in-app switch to a second
+ * project with the same N-STP link found the link "already shown", so its row
+ * stayed hidden under a closed chevron.
+ */
+export function deepLinkKey(
+  projectId: string,
+  selection: {
+    activityId?: string | undefined;
+    lifecyclePhase?: string | undefined;
+    task?: string | undefined;
+  }
+): string {
+  // A JSON tuple, not a delimiter join: no id can make two different links collide.
+  return JSON.stringify([
+    projectId,
+    selection.activityId ?? '',
+    selection.lifecyclePhase ?? '',
+    selection.task ?? '',
+  ]);
 }
 
 /**

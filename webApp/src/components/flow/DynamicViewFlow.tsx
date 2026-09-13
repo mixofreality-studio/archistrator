@@ -108,6 +108,7 @@ import {
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import {
   ccChecksChipLabel,
+  ccChecksChipShown,
   fragmentCallLessCaption,
   fragmentPositionLabel,
   fragmentRowLabel,
@@ -691,7 +692,7 @@ function FragmentBar({
           </Typography>
           {/* The call-chain CHECKS chip speaks only to a verdict (red/green); a
               'planned' target (a never-run test view) has none to report. */}
-          {worst !== undefined && worst !== 'planned' ? (
+          {ccChecksChipShown(worst) ? (
             <Box
               component="span"
               data-testid={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}

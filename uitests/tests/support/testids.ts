@@ -221,6 +221,8 @@ export const TESTID = {
   constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
   constructionBeginCandidate: UI_IDENTIFIERS.Construction.beginConfirmCandidate,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
+  constructionActiveCase: UI_IDENTIFIERS.Construction.ACTIVE_CASE,
+  constructionCaseExpect: UI_IDENTIFIERS.Construction.CASE_EXPECT,
   activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.

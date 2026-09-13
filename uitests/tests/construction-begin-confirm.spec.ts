@@ -594,3 +594,39 @@ test('I3: evidence lifts the hold before it expires: a session goes live on the 
   expect(probes.length, 'the session was probed').toBeGreaterThan(0);
   expect(h.trapped).toHaveLength(1);
 });
+
+test('M4: a failed dispatch re-reads the session probes too, not only the project', async ({
+  page,
+}) => {
+  // The corpus has no in-construction row, so nothing probes a session. One row is
+  // made in construction in the read, and its probe settles as "no session" (a
+  // 404), after which it stops polling. Only the failure's refresh can re-read it.
+  const h = await harness(page, (route) =>
+    route.fulfill({
+      status: 400,
+      contentType: 'application/json',
+      body: JSON.stringify({ code: 'contract_misuse', error: 'empty tickId' }),
+    })
+  );
+  h.edit.fn = inConstruction(PICKED);
+  const probes: number[] = [];
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
+    probes.push(Date.now());
+    await route.fulfill({ status: 404, json: { code: 'not_found', error: 'no session' } });
+  });
+  await openConsole(page);
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  await page.waitForTimeout(1_500);
+  const settled = probes.length;
+
+  await dispatchOnce(page);
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveAttribute(
+    'data-outcome',
+    'rejected',
+    { timeout: 10_000 }
+  );
+  await expect
+    .poll(() => probes.length, { timeout: 5_000, message: 'the session probe re-read' })
+    .toBeGreaterThan(settled);
+  expect(h.trapped).toHaveLength(1);
+});

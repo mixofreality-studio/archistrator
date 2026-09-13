@@ -261,6 +261,8 @@ export function ScenarioBrowser({
           {/* case-level "what this proves / expected outcome" */}
           {activeCase !== undefined ? (
             <Box
+              data-case-ink={caseKindInk(activeCase.kind, mode)}
+              data-testid={UI_IDENTIFIERS.Construction.ACTIVE_CASE}
               sx={{
                 borderLeft: `3px solid ${kindColor(activeCase.kind, mode, t)}`,
                 pl: 1.25,
@@ -278,6 +280,7 @@ export function ScenarioBrowser({
                 <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted, mt: 0.35 }}>
                   <Box
                     component="span"
+                    data-testid={UI_IDENTIFIERS.Construction.CASE_EXPECT}
                     sx={{ color: kindColor(activeCase.kind, mode, t), fontWeight: 700 }}
                   >
                     EXPECT{' '}

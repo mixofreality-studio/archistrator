@@ -12,6 +12,7 @@ import {
   fragmentPositionLabel,
   fragmentRowLabel,
   ccChecksChipLabel,
+  ccChecksChipShown,
 } from './fragmentCaption.ts';
 
 const TRAIL_BODY =
@@ -172,4 +173,13 @@ void test('a flagged fragment names the count, pluralized, qualified "here" (fix
 
 void test('a flagged fragment with a somehow-absent count reads 0 findings rather than throwing', () => {
   assert.equal(ccChecksChipLabel('red', -1), 'CC checks · 0 findings here');
+});
+
+// Fix-D review M3: the chip speaks only to a verdict. A never-run test view's
+// 'planned' target has none, so it draws no chip, and neither does a statusless one.
+void test('the CHECKS chip shows for red and green only: never for planned, never without a status', () => {
+  assert.equal(ccChecksChipShown('red'), true);
+  assert.equal(ccChecksChipShown('green'), true);
+  assert.equal(ccChecksChipShown('planned'), false);
+  assert.equal(ccChecksChipShown(undefined), false);
 });
