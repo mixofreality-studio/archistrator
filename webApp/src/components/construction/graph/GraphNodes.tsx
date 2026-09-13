@@ -47,7 +47,9 @@ import { prefersReducedMotion } from '../../../utilities/reducedMotion';
 import { MUTED_OPACITY } from '../../flow/flowLayout';
 import type { ActivityNode } from '../list/activityTree';
 import { activityRowState, type RowChip } from '../list/activityRowPresentation';
-import { hoverCardStampFor, hoverLaneMarksFor, laneChipFor } from './hoverCard';
+import { hoverCardStampFor, hoverLaneMarksFor, laneChipFor, segmentLineFor } from './hoverCard';
+import { pendingPhaseLine } from '../list/pendingResume';
+import type { ConstructionRow } from '../../../contracts/types';
 import type { OwedMark, OwedMarks } from '../tasks/owedChip';
 import { HOVER_CARD_PLACEMENT, hoverCardModifiersFor } from './hoverCardPlacement';
 import { taskDetailStateFill } from '../detail/detailPaneState';
@@ -405,6 +407,7 @@ function Lane({
             <SpineBar
               activityId={lane.activityId}
               lod={lod}
+              row={lane.row}
               spine={spine}
               t={t}
               onSegment={(phase) => {
@@ -488,12 +491,15 @@ function FloatMark({
 function SpineBar({
   activityId,
   spine,
+  row,
   lod,
   t,
   onSegment,
 }: {
   activityId: string;
   spine: LaneSpine;
+  /** The lane's row: an integration-pending fromPhase segment names what it waits on. */
+  row: ConstructionRow;
   lod: Lod;
   t: Tokens;
   onSegment: (phase: string) => void;
@@ -505,6 +511,7 @@ function SpineBar({
           activityId={activityId}
           key={s.phase}
           lod={lod}
+          row={row}
           segment={s}
           t={t}
           onSegment={onSegment}
@@ -517,21 +524,25 @@ function SpineBar({
 function Segment({
   activityId,
   segment,
+  row,
   lod,
   t,
   onSegment,
 }: {
   activityId: string;
   segment: SpineSegment;
+  row: ConstructionRow;
   lod: Lod;
   t: Tokens;
   onSegment: (phase: string) => void;
 }): ReactElement {
   const paint = segmentPaint(t, segment.state);
   const bar = lod === 1 ? 9 : 8;
+  // The hover card's own words for the segment (hoverCard.segmentLineFor), so an
+  // integration-pending fromPhase reads "· waits on …" on the lane too.
   const label =
     segment.name !== undefined
-      ? `${segment.name} · ${SEGMENT_STATE_LABEL[segment.state]}`
+      ? segmentLineFor(row, segment, SEGMENT_STATE_LABEL[segment.state])
       : SEGMENT_STATE_LABEL.absent;
   const animate = paint.animated && !prefersReducedMotion();
   const code = segmentCodeFor(segment);
@@ -778,10 +789,15 @@ function HoverCard({
                   .filter((s) => s.state !== 'absent')
                   .map((s) => (
                     <Typography
+                      data-testid={
+                        pendingPhaseLine(lane.row, s.phase) !== undefined
+                          ? UI_IDENTIFIERS.Construction.graphHoverPending(lane.activityId)
+                          : undefined
+                      }
                       key={s.phase}
                       sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, pl: 1 }}
                     >
-                      {s.name ?? s.phase} · {SEGMENT_STATE_LABEL[s.state]}
+                      {segmentLineFor(lane.row, s, SEGMENT_STATE_LABEL[s.state])}
                     </Typography>
                   ))
               )}

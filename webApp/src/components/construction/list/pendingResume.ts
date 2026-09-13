@@ -62,3 +62,11 @@ export function pendingSentence(row: ConstructionRow): string | undefined {
   if (pr === undefined) return undefined;
   return `${pendingPhaseLabel(row, pr)} pending — ${waitsOnText(pr, true)}`;
 }
+
+/** The compact line the fromPhase's own row carries ("waits on C-a, C-b"), and
+ *  nothing for any other phase or any row that is not pending. */
+export function pendingPhaseLine(row: ConstructionRow, phase: string): string | undefined {
+  const pr = row.pendingResume;
+  if (pr?.fromPhase !== phase) return undefined;
+  return waitsOnText(pr, false);
+}

@@ -25,6 +25,7 @@ import {
   chipFor,
   type RowChip,
 } from '../list/activityRowPresentation.ts';
+import { pendingPhaseLine } from '../list/pendingResume.ts';
 import type { ConstructionRow } from '../../../contracts/types.ts';
 import type { OwedMark } from '../tasks/owedChip.ts';
 
@@ -57,6 +58,22 @@ export function laneChipFor(row: ConstructionRow, owed: OwedMark | undefined): R
   if (chip === undefined) return undefined;
   const label = activityChipLabel(row, owed);
   return label !== undefined ? { ...chip, label } : chip;
+}
+
+/**
+ * One lifecycle segment's words — on the lane's segment (its title) and on the
+ * hover card's line alike: "Integration · Not passed", and on an
+ * integration-pending lane's fromPhase "· waits on C-a, C-b" / "· next in line"
+ * (designer final pass, item 2).
+ */
+export function segmentLineFor(
+  row: ConstructionRow,
+  segment: { phase: string; name?: string | undefined },
+  stateLabel: string
+): string {
+  const pending = pendingPhaseLine(row, segment.phase);
+  const head = `${segment.name ?? segment.phase} · ${stateLabel}`;
+  return pending !== undefined ? `${head} · ${pending}` : head;
 }
 
 /** The header's card-level stamp: any reconstructed lane on the card. */

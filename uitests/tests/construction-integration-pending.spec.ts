@@ -206,3 +206,51 @@ test('graph: the lanes read waiting, with the Integration pending chip', async (
     await expect(lane.getByText(/^integration pending$/i)).toBeVisible();
   }
 });
+
+// ---------------------------------------------------------------------------
+// WHERE it waits — the fromPhase row, the lane segment, the hover card
+// ---------------------------------------------------------------------------
+
+/** "waits on C-a, C-b" — the fromPhase row's own line. */
+function phaseLineFor(p: Pending): string {
+  return p.waitsOn.length === 0
+    ? 'next in line'
+    : `waits on ${p.waitsOn.map((d) => d.id).join(', ')}`;
+}
+
+test('list: the Integration phase row says what it waits on', async ({ page }) => {
+  const p = pendingFor(BILLING);
+  await openList(page, `&a=${BILLING}&p=integration`);
+  await expect(page.getByTestId(TESTID.constructionListPendingLine(BILLING))).toHaveText(
+    `· ${phaseLineFor(p)}`
+  );
+  expect(phaseLineFor(p)).toBe('waits on C-billing-state-access, C-merchant-gateway-access');
+});
+
+test('list: a pending row that waits on nothing reads next in line on its phase row', async ({
+  page,
+}) => {
+  await serveNextInLine(page);
+  await openList(page, `&a=${BILLING}&p=integration`);
+  await expect(page.getByTestId(TESTID.constructionListPendingLine(BILLING))).toHaveText(
+    '· next in line'
+  );
+});
+
+test('graph: the Integration segment and the hover card say what it waits on', async ({ page }) => {
+  await openGraph(page);
+  for (const id of [BILLING, SYSTEM_DESIGN]) {
+    await expect(
+      page.getByTestId(TESTID.constructionGraphSegment(id, 'integration'))
+    ).toHaveAttribute('aria-label', new RegExp(`· ${phaseLineFor(pendingFor(id))}$`));
+  }
+  const lane = page.getByTestId(TESTID.constructionGraphLane(BILLING));
+  const box = await lane.boundingBox();
+  if (box === null) throw new Error('no lane box');
+  await page.mouse.move(box.x + box.width / 2, box.y + box.height / 2);
+  const card = page.getByTestId(TESTID.constructionGraphHoverCard);
+  await expect(card).toBeVisible();
+  await expect(card.getByTestId(TESTID.constructionGraphHoverPending(BILLING))).toContainText(
+    'waits on C-billing-state-access, C-merchant-gateway-access'
+  );
+});

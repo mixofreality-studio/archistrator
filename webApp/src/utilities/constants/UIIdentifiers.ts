@@ -372,6 +372,10 @@ export const UI_IDENTIFIERS = {
     // P0-4: a tier-1 row's id cell (sized in ch, titled with the full id).
     listIdCell: (activityId: string) => `construction-list-id-${activityId}`,
     listTitleCell: (activityId: string) => `construction-list-title-${activityId}`,
+    /** An integration-pending activity's fromPhase row: "waits on …" / "next in line". */
+    listPendingLine: (activityId: string) => `construction-list-pending-${activityId}`,
+    /** The same line on the hover card's fromPhase line (graph lens). */
+    graphHoverPending: (activityId: string) => `construction-graph-hover-pending-${activityId}`,
     /** The pane's sentence for an integration-pending activity. */
     DETAIL_PENDING_RESUME: 'construction-detail-pending-resume',
     /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */

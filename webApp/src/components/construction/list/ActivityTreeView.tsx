@@ -145,7 +145,7 @@ import {
   revealForQuery,
   type TreeExpansion,
 } from './searchExpansion.ts';
-import { pendingSentence } from './pendingResume.ts';
+import { pendingPhaseLine, pendingSentence } from './pendingResume.ts';
 import {
   ACTIVITY_GRID_GAP_PX,
   activityGridColumns,
@@ -1370,6 +1370,7 @@ function StageRuleRow({
   const heaviest = Math.max(...node.phases.map((p) => p.weight));
   const rule = stageRule(stage, heaviest);
   const current = isCurrentStage(node, stage);
+  const pendingLine = pendingPhaseLine(node.row, stage.phase);
   const nameColour = rule.filled ? t.committedText : rule.unreported ? t.muted : t.ink;
   const provenance = useMemo(() => readProvenance(stage), [stage]);
 
@@ -1457,6 +1458,29 @@ function StageRuleRow({
         <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted, flexShrink: 0 }}>
           {rule.weightLabel}
         </Typography>
+        {/* An integration-pending activity's fromPhase says what it waits on, on
+            its own row (designer final pass, item 2) — ahead of the exit text,
+            which is the one that ellipsizes. */}
+        {pendingLine !== undefined ? (
+          <Tooltip title={pendingSentence(node.row) ?? pendingLine}>
+            <Typography
+              data-testid={UI_IDENTIFIERS.Construction.listPendingLine(node.activityId)}
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 9.5,
+                fontWeight: 700,
+                color: t.ink,
+                minWidth: 0,
+                flexShrink: 1,
+                whiteSpace: 'nowrap',
+                overflow: 'hidden',
+                textOverflow: 'ellipsis',
+              }}
+            >
+              {`· ${pendingLine}`}
+            </Typography>
+          </Tooltip>
+        ) : null}
         <Typography
           sx={{
             fontFamily: t.body,
