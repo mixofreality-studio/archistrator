@@ -109,6 +109,7 @@ export function FlowCanvas({
   onMoveEnd,
   minZoom = 0.3,
   controlsStyle,
+  edgesFocusable,
   children,
 }: {
   nodes: Node[];
@@ -139,6 +140,10 @@ export function FlowCanvas({
    *  for every historical caller; the graph lens pushes them clear of its
    *  pinned row gutter. */
   controlsStyle?: CSSProperties;
+  /** Whether edges are Tab stops. Absent keeps xyflow's default (every
+   *  historical caller); a canvas whose edges carry no action passes false so
+   *  the keyboard reaches its nodes without crossing every wire. */
+  edgesFocusable?: boolean;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -171,6 +176,7 @@ export function FlowCanvas({
         // the accessible name + keyboard comment shortcut — xyflow's wrapper focus is
         // off so there is a single, well-labeled tab stop per node.
         nodesFocusable={false}
+        {...(edgesFocusable !== undefined ? { edgesFocusable } : {})}
         proOptions={{ hideAttribution: true }}
         {...(onNodeMouseEnter ? { onNodeMouseEnter } : {})}
         {...(onNodeMouseLeave ? { onNodeMouseLeave } : {})}

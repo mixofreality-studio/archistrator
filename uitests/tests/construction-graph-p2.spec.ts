@@ -284,3 +284,26 @@ test('at 1100 the graph drawer takes focus, Escape closes it, and focus returns 
   await expect.poll(() => new URL(page.url()).searchParams.get('a')).toBeNull();
   await expect(page.getByTestId(second)).toBeFocused();
 });
+
+test('edges are not Tab stops: the first lane is a few Tabs past the Key button (designer re-check)', async ({
+  page,
+}) => {
+  await openGraph(page);
+  const focusableEdges = await page
+    .getByTestId(TESTID.constructionGraphCanvas)
+    .evaluate((root) => root.querySelectorAll('.react-flow__edge[tabindex]').length);
+  expect(focusableEdges, 'no edge takes focus').toBe(0);
+  await page.getByTestId(TESTID.constructionGraphKeyButton).focus();
+  let presses = 0;
+  while (presses < 12) {
+    await page.keyboard.press('Tab');
+    presses += 1;
+    const onLane = await page.evaluate(
+      () =>
+        document.activeElement?.getAttribute('data-testid')?.startsWith('construction-graph-lane-') ===
+        true
+    );
+    if (onLane) break;
+  }
+  expect(presses, 'Tabs from the Key button to the first lane').toBeLessThanOrEqual(3);
+});

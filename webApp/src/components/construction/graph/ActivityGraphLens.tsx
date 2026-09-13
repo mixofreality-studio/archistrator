@@ -458,6 +458,10 @@ function GraphCanvas({
         // the right, where the narrow-screen drawer sits (live check at 1100).
         controlsStyle={{ marginLeft: CONTROLS_OFFSET_PX }}
         edges={edges}
+        // Edges carry no action here (never labelled, never selected), so they
+        // are not Tab stops: the keyboard reaches the first lane in a few
+        // presses, not after crossing all 58 wires (designer re-check).
+        edgesFocusable={false}
         height="100%"
         minZoom={MIN_ZOOM}
         nodeTypes={graphNodeTypes}
