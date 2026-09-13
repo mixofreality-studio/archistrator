@@ -641,7 +641,10 @@ func (s *GitStore) readProjectOnBranch(ctx context.Context, projectID ProjectID,
 // An owner with no project repos (or a store with no catalog wired) yields an empty
 // slice. A project repo whose project.json cannot yet be read (provisioned but
 // CreateProject not yet committed) is included with the catalog title + zero progress
-// rather than dropped — the repo's existence already means the project exists.
+// rather than dropped — the repo's existence already means the project exists. A
+// project whose state cannot be read for any other reason (an auth or transient
+// fault, or malformed committed state) is SKIPPED with a warning that names it: one
+// unreadable project must not fail the owner's whole list (fix-F review ruling).
 func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error) {
 	if owner == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate.ListProjects: empty owner")
@@ -709,17 +712,20 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				summary.ConstructionComplete = &complete
 			}
 		} else if !isNotFound(perr) {
-			// A real read fault (auth/transient/infra, or malformed committed state) on
-			// a discovered repo fails the list. The log names WHICH project, since the
-			// fault itself may not (fix-E review).
-			slog.WarnContext(ctx, "projectstate.ListProjects: a project could not be read; failing the list",
+			// A real read fault on one project (auth/transient/infra, or malformed
+			// committed state) SKIPS that project, and says so: it must not fail the
+			// owner's whole list and blank the landing grid (fix-F review ruling). The
+			// log names WHICH project, since the fault itself may not (fix-E review).
+			slog.WarnContext(ctx, "projectstate.ListProjects: skipping a project that could not be read",
 				"projectID", ref.ProjectID.String(), "reason", perr.Error())
-			return nil, perr
+			continue
 		} else {
 			// A NotFound (repo provisioned, project.json not yet committed) is tolerated:
 			// the catalog row stands on the repo's existence + title, with no progress.
-			// Said, not silent (fix-E review).
-			slog.InfoContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
+			// Said, not silent (fix-E review), at Debug: it is an expected state, and the
+			// landing grid re-lists on every visit, so at Info the same line repeated on
+			// every read (fix-F review).
+			slog.DebugContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
 				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 		}
 		out = append(out, summary)

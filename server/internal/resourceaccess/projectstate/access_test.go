@@ -9197,6 +9197,8 @@ func TestGitStore_ListProjects_SaysWhatItSkips(t *testing.T) {
 	for _, want := range []string{
 		"skipping a catalog repo with no project id", "title=Nameless",
 		"listing a project without its head-state", "projectID=" + string(ghost), "no state for project",
+		// An expected state, re-listed on every landing visit: Debug, not Info (fix-F review).
+		`level=DEBUG msg="projectstate.ListProjects: listing a project without its head-state"`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log must say %q; got:\n%s", want, out)
@@ -9207,41 +9209,61 @@ func TestGitStore_ListProjects_SaysWhatItSkips(t *testing.T) {
 	}
 }
 
-// TestGitStore_ListProjects_UnreadableProjectIsNamed: a project whose committed
-// state will not decode fails the list (as before), and the log names WHICH
-// project and why — the decode error alone does not carry the project id.
-func TestGitStore_ListProjects_UnreadableProjectIsNamed(t *testing.T) {
-	bad := ProjectID("bad-" + uuid.NewString())
-	r := gh.StartLocalGitRepo(t, "main")
-	gs, err := fwgithub.NewGitStore(r.URL, "main")
-	if err != nil {
-		t.Fatalf("NewGitStore: %v", err)
-	}
+// TestGitStore_ListProjects_SkipsAnUnreadableProject (fix-F review ruling): one
+// project whose committed state will not decode is SKIPPED with a warning, and the
+// owner's other projects are still listed. It used to fail the whole list, which
+// blanked the landing grid for that owner. The log names WHICH project and why: the
+// decode error alone does not carry the project id.
+func TestGitStore_ListProjects_SkipsAnUnreadableProject(t *testing.T) {
+	bad, good := ProjectID("bad-"+uuid.NewString()), ProjectID(uuid.NewString())
+	badRepo, goodRepo := gh.StartLocalGitRepo(t, "main"), gh.StartLocalGitRepo(t, "main")
 	raw, err := EncodeProjectJSON(Project{ID: bad, Name: "Bad", ActivityConstruction: map[string]ActivityConstructionStatus{
 		"C-a": {ActivityID: "C-b"}, // stored under another activity's key
 	}})
 	if err != nil {
 		t.Fatalf("EncodeProjectJSON: %v", err)
 	}
-	commitRawProjectJSON(t, r, raw)
-	store, err := NewGitStore(multiRepoLocator{repos: map[ProjectID]*fwgithub.GitStore{bad: gs}}, true)
+	commitRawProjectJSON(t, badRepo, raw)
+	repos := map[ProjectID]*fwgithub.GitStore{}
+	for id, r := range map[ProjectID]gh.LocalGitRepo{bad: badRepo, good: goodRepo} {
+		gs, err := fwgithub.NewGitStore(r.URL, "main")
+		if err != nil {
+			t.Fatalf("NewGitStore(%s): %v", id, err)
+		}
+		repos[id] = gs
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, true)
 	if err != nil {
 		t.Fatalf("NewGitStore(RA): %v", err)
 	}
-	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{{ProjectID: bad, Title: "Bad"}}})
+	cred, ctx := LocalRepoCredential(), context.Background()
+	if _, err := store.CreateProject(ctx, good, "alice", "Good", cred, "wf:good"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: bad, Title: "Bad"},
+		{ProjectID: good, Title: "Good"},
+	}})
 	logs := captureSlog(t)
 
-	_, err = store.ListProjects(context.Background(), "alice", LocalRepoCredential())
-	if err == nil {
-		t.Fatal("a project whose state will not decode must fail the list")
+	summaries, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("one unreadable project must not fail the list: %v", err)
 	}
-	if k := kindOf(t, err); k != fwra.ContractMisuse {
-		t.Fatalf("error kind = %v, want ContractMisuse", k)
+	if len(summaries) != 1 || summaries[0].ProjectID != good {
+		t.Fatalf("ListProjects = %+v, want exactly the readable project %s", summaries, good)
 	}
 	out := logs.String()
-	for _, want := range []string{"could not be read; failing the list", "projectID=" + string(bad), `activityConstruction[\"C-a\"]`} {
+	for _, want := range []string{
+		`level=WARN msg="projectstate.ListProjects: skipping a project that could not be read"`,
+		"projectID=" + string(bad),
+		`activityConstruction[\"C-a\"]`,
+	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log must say %q; got:\n%s", want, out)
 		}
+	}
+	if strings.Contains(out, "projectID="+string(good)) {
+		t.Errorf("a project that read cleanly must not be logged; got:\n%s", out)
 	}
 }
