@@ -286,7 +286,14 @@ export function computeActivityStatuses(
       const constructionRow = constructionRowFor !== undefined ? constructionRowFor(id) : undefined;
       const rowStatus =
         constructionRow !== undefined ? buildStatusForConstructionRow(constructionRow) : undefined;
-      if (rowStatus !== undefined) {
+      const pending = constructionRow?.pendingResume;
+      if (pending !== undefined) {
+        // Integration-pending (architect (D), D.3): its coarse status says in-review,
+        // but nothing runs it. The SERVER's waitsOn — the pump's own dependency rule —
+        // decides readiness, not this mirror's done set: blocked while it waits on
+        // something, eligible when it is next in line.
+        result.set(id, pending.waitsOn.length > 0 ? 'blocked' : 'eligible');
+      } else if (rowStatus !== undefined) {
         result.set(id, rowStatus);
       } else {
         // Network-derived fallback: eligible if all predecessors are satisfied, else

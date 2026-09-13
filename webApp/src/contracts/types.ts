@@ -803,6 +803,35 @@ export interface ConstructionRow {
    * project-wide side band beside it when `'projectWide'` — never both.
    */
   layerBand?: 'layered' | 'projectWide';
+  /**
+   * Present iff the row is INTEGRATION-PENDING (server: pendingResume, architect (D)):
+   * no construction pump wrote it, yet its attempt ledger holds some lifecycle phases
+   * complete and others not. Nothing is running it and nothing is reviewing it, so it
+   * is NOT in flight, whatever its coarse `status` says (the server leaves that alone
+   * because EV and percent-complete read it). Absent on every other row.
+   */
+  pendingResume?: PendingResumeRow;
+}
+
+/** Why one dependency of an integration-pending row is unsatisfied (server:
+ *  PendingDependency.reason). */
+export type PendingDependencyReason =
+  | 'notBuilt'
+  | 'builtNotIntegrated'
+  | 'milestoneNotReached'
+  | 'unresolved';
+
+export interface PendingDependencyRow {
+  /** The dependency as the network authors it: an activity or a milestone id. */
+  id: string;
+  reason: PendingDependencyReason;
+}
+
+export interface PendingResumeRow {
+  /** The first lifecycle phase the pump would run (wire name, e.g. `integration`). */
+  fromPhase: string;
+  /** The unsatisfied direct dependencies, in authored order; empty = next in line. */
+  waitsOn: PendingDependencyRow[];
 }
 
 export type ConstructionRows = Record<string, ConstructionRow>;

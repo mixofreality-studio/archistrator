@@ -145,8 +145,11 @@ export function tickPaint(t: Tokens, state: RowState): TickPaint {
         hollow: false,
         dashed: false,
       };
+    // `waiting` is an ACTIVITY's state (integration-pending); a task never reads it.
+    // Listed for exhaustiveness, drawn as what it is at task level: not happening.
     case 'skipped':
     case 'notStarted':
+    case 'waiting':
       return { color: t.muted, hollow: true, dashed: false };
     case 'unknown':
       return { color: t.line, hollow: true, dashed: true };

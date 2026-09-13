@@ -92,10 +92,18 @@ export const WIDE_PANE_SX = {
 // task attempt) in the shared detail pane.
 // ---------------------------------------------------------------------------
 
+/**
+ * `waiting` is an INTEGRATION-PENDING activity (the server's `pendingResume`,
+ * list/pendingResume.ts): part of its lifecycle is done, and the rest waits on its
+ * dependencies — nothing runs it and nothing reviews it. It is deliberately NOT
+ * `running`: that is what the row used to read, and it held Begin on "Construction
+ * running…" with no pump anywhere (rowIsInFlight reads running/awaitingHuman only).
+ */
 export type TaskDetailState =
   | 'unknown'
   | 'notStarted'
   | 'running'
+  | 'waiting'
   | 'awaitingHuman'
   | 'passed'
   | 'failed'
@@ -105,6 +113,9 @@ export const TASK_DETAIL_STATE_LABEL: Record<TaskDetailState, string> = {
   unknown: 'Unknown',
   notStarted: 'Not started',
   running: 'Running',
+  // The generic word; a pending row's own chip says which phase ("Integration
+  // pending", pendingResume.pendingChipLabel).
+  waiting: 'Pending',
   awaitingHuman: 'Awaiting you',
   passed: 'Passed',
   failed: 'Failed',
@@ -125,6 +136,10 @@ export function taskDetailStateFill(
       return { fg: t.muted, bg: 'transparent', border: t.line };
     case 'running':
       return { fg: t.chatArchitectFg, bg: t.chatArchitectBg, border: t.chatArchitectFg };
+    case 'waiting':
+      // Unfilled, like every state that is not happening now — but in ink, so
+      // "part-built, waiting" does not read as the muted "not started".
+      return { fg: t.ink, bg: 'transparent', border: t.muted };
     case 'awaitingHuman':
       // The awaiting tone, never the accent (designer palette ruling).
       return { fg: t.awaitingFg, bg: t.awaitingBg, border: t.awaitingFg };
@@ -209,6 +224,9 @@ export function taskDetailStateFor(
     return outcomeStateOf(attempt.outcome);
   }
 
+  // Integration-pending (the server's pendingResume): its coarse status says
+  // in-review, which would read `running`. Nothing runs it; it waits.
+  if (row.pendingResume !== undefined) return 'waiting';
   if (!row.hasBuildEvidence) return 'notStarted';
   return stateForRowStatus(row.status);
 }

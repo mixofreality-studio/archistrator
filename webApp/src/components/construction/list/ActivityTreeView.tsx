@@ -145,6 +145,7 @@ import {
   revealForQuery,
   type TreeExpansion,
 } from './searchExpansion.ts';
+import { pendingSentence } from './pendingResume.ts';
 import {
   ACTIVITY_GRID_GAP_PX,
   activityGridColumns,
@@ -905,7 +906,17 @@ function ActivityRow({
         <ProvenanceGroupStamp reading={provenance} t={t} />
       </Box>
       <ProgressFill presentation={progressPresentationFor(state, node.percentComplete)} />
-      <StateSlotView chipLabel={owedChipLabel(mark)} retryCount={node.retryCount} state={state} />
+      <StateSlotView
+        // The list's state slot is FIXED (STATE_SLOT_PX fits "AWAITING YOU"), so a
+        // pending row's chip keeps the state's own word, "Pending"; its full
+        // sentence rides the chip's tooltip and accessible name, and the fromPhase
+        // row says what it waits on. The graph lane and the pane have the room to
+        // name the phase ("Integration pending", activityChipLabel).
+        chipLabel={owedChipLabel(mark)}
+        chipTooltip={pendingSentence(node.row)}
+        retryCount={node.retryCount}
+        state={state}
+      />
     </Box>
   );
 }
@@ -1037,11 +1048,15 @@ function StateSlotView({
   state,
   retryCount,
   chipLabel,
+  chipTooltip,
 }: {
   state: RowState;
   retryCount: number;
-  /** The owed chip's own word ("Steer needed" is not "Awaiting you"). */
+  /** The chip's own word: the owed set's ("Steer needed" is not "Awaiting you"), or
+   *  an integration-pending row's ("Integration pending") — activityChipLabel. */
   chipLabel?: string | undefined;
+  /** The chip's full sentence, where it has one (pendingResume.pendingSentence). */
+  chipTooltip?: string | undefined;
 }): ReactElement {
   const { t } = useRowContext();
   const slot = stateSlotFor(state);
@@ -1061,9 +1076,19 @@ function StateSlotView({
       {slot.kind === 'chip' ? (
         <>
           <StateGlyph state={state} />
-          <StateChip
-            chip={chipLabel !== undefined ? { ...slot.chip, label: chipLabel } : slot.chip}
-          />
+          {chipTooltip !== undefined ? (
+            <Tooltip title={chipTooltip}>
+              <Box aria-label={chipTooltip} sx={{ display: 'inline-flex', minWidth: 0 }}>
+                <StateChip
+                  chip={chipLabel !== undefined ? { ...slot.chip, label: chipLabel } : slot.chip}
+                />
+              </Box>
+            </Tooltip>
+          ) : (
+            <StateChip
+              chip={chipLabel !== undefined ? { ...slot.chip, label: chipLabel } : slot.chip}
+            />
+          )}
         </>
       ) : null}
       {slot.kind === 'notStarted' ? (
@@ -1712,6 +1737,21 @@ function StateGlyph({ state }: { state: RowState }): ReactElement {
                 '50%': { opacity: 0.25 },
               },
               animation: 'constructionRunning 1.4s ease-in-out infinite',
+            }}
+          />
+        </Tooltip>
+      );
+    case 'waiting':
+      // Half a disc: part of the lifecycle is done, the rest waits. Static — the
+      // pulse is running's alone, and nothing runs here.
+      return (
+        <Tooltip title={ROW_STATE_LABEL.waiting}>
+          <Box
+            sx={{
+              ...base,
+              borderRadius: '50%',
+              border: `1px solid ${t.muted}`,
+              background: `linear-gradient(90deg, ${t.muted} 50%, transparent 50%)`,
             }}
           />
         </Tooltip>

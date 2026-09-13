@@ -29,6 +29,7 @@
 import type { ConstructionRow } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
 import { OWED_CHIP, type OwedMark } from '../tasks/owedChip.ts';
+import { pendingChipLabel } from './pendingResume.ts';
 import type { ActivityNode, PhaseNode, TaskNode } from './activityTree.ts';
 import {
   taskDetailStateFor,
@@ -69,7 +70,7 @@ export const ROW_STATE_LABEL: Record<RowState, string> = {
 };
 
 /** The subset of RowState that taskDetailStateFill already resolves to tokens. */
-export type ChipState = 'running' | 'awaitingHuman' | 'passed' | 'failed';
+export type ChipState = 'running' | 'waiting' | 'awaitingHuman' | 'passed' | 'failed';
 
 export interface RowChip {
   /** Rendered uppercase by the view; kept sentence-case here, like the pane's. */
@@ -94,6 +95,10 @@ export function chipFor(state: RowState): RowChip | undefined {
   switch (state) {
     case 'running':
       return { label: ROW_STATE_LABEL.running, size: 'xs', state: 'running' };
+    case 'waiting':
+      // Part of the lifecycle HAPPENED, so it earns a chip; the row's own label
+      // ("Integration pending") replaces this generic word (activityChipLabel).
+      return { label: ROW_STATE_LABEL.waiting, size: 'xs', state: 'waiting' };
     case 'awaitingHuman':
       return { label: ROW_STATE_LABEL.awaitingHuman, size: 'sm', state: 'awaitingHuman' };
     case 'passed':
@@ -236,6 +241,18 @@ export function activityRowState(row: ConstructionRow, owed?: OwedMark): RowStat
  *  you" — or undefined for the state's own label. */
 export function owedChipLabel(owed: OwedMark | undefined): string | undefined {
   return owed !== undefined ? OWED_CHIP[owed.reason].label : undefined;
+}
+
+/**
+ * The label an activity's chip carries in place of its state's generic word, in
+ * every lens and the pane: the owed set's word where something is owed, else an
+ * integration-pending row's "Integration pending", else nothing.
+ */
+export function activityChipLabel(
+  row: ConstructionRow,
+  owed: OwedMark | undefined
+): string | undefined {
+  return owedChipLabel(owed) ?? pendingChipLabel(row);
 }
 
 /**

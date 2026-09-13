@@ -372,6 +372,8 @@ export const UI_IDENTIFIERS = {
     // P0-4: a tier-1 row's id cell (sized in ch, titled with the full id).
     listIdCell: (activityId: string) => `construction-list-id-${activityId}`,
     listTitleCell: (activityId: string) => `construction-list-title-${activityId}`,
+    /** The pane's sentence for an integration-pending activity. */
+    DETAIL_PENDING_RESUME: 'construction-detail-pending-resume',
     /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */
     listTaskBookKey: (nodeId: string) => `construction-list-task-book-key-${nodeId}`,
     OVERRIDE_BUTTON: 'construction-override',

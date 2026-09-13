@@ -127,6 +127,7 @@ import { ProvenanceNote } from './bodies/ProvenanceNote';
 import { ReviewBody } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
 import { hiddenInScope } from '../list/observedOnly';
+import { pendingChipLabel, pendingSentence } from '../list/pendingResume.ts';
 import {
   paneDecisionApplies,
   sendBackReady,
@@ -389,8 +390,16 @@ export function DetailPane({
   const decided = decisionApplies ? decision.decided : undefined;
   const live =
     decided === undefined && owedChip === undefined ? liveChipFor(state, liveStage) : undefined;
+  // An integration-pending activity names its phase: "Integration pending".
+  const pendingLabel = state === 'waiting' && row !== undefined ? pendingChipLabel(row) : undefined;
   const stateLabel =
-    decided !== undefined ? decidedChipLabel(decided.decision) : (owedChip?.label ?? live?.label);
+    decided !== undefined
+      ? decidedChipLabel(decided.decision)
+      : (owedChip?.label ?? live?.label ?? pendingLabel);
+  // ...and says what it waits on, whenever no single task is selected: the task's
+  // own attempt is what a task selection is about.
+  const pendingLine =
+    selection.task === undefined && row !== undefined ? pendingSentence(row) : undefined;
   const chipState: TaskDetailState =
     decided !== undefined
       ? decided.decision === 'approve'
@@ -508,6 +517,7 @@ export function DetailPane({
       exitCriterion={meta.exitCriterion}
       hiddenCount={hiddenCount}
       owedReason={owedReason}
+      pendingLine={pendingLine}
       provenance={provenance}
       state={state}
       stateLabel={stateLabel}
@@ -590,6 +600,7 @@ export function DetailPane({
           exitCriterion={meta.exitCriterion}
           hiddenCount={hiddenCount}
           owedReason={owedReason}
+          pendingLine={pendingLine}
           provenance={provenance}
           state={state}
           stateLabel={stateLabel}
@@ -649,6 +660,7 @@ function DetailPaneChrome({
   stateLabel,
   chipState,
   owedReason,
+  pendingLine,
   onClose,
   onToggleCollapsed,
   onResizePointerDown,
@@ -663,6 +675,7 @@ function DetailPaneChrome({
   stateLabel: string | undefined;
   chipState: TaskDetailState;
   owedReason: string | undefined;
+  pendingLine: string | undefined;
   provenance: ProvenanceReading;
   hiddenCount: number;
   taskSelected: boolean;
@@ -749,6 +762,7 @@ function DetailPaneChrome({
           exitCriterion={exitCriterion}
           hiddenCount={hiddenCount}
           owedReason={owedReason}
+          pendingLine={pendingLine}
           provenance={provenance}
           state={state}
           stateLabel={stateLabel}
@@ -795,6 +809,7 @@ function DetailHeader({
   stateLabel,
   chipState,
   owedReason,
+  pendingLine,
 }: {
   breadcrumb: string;
   state: TaskDetailState;
@@ -804,6 +819,8 @@ function DetailHeader({
   chipState: TaskDetailState;
   /** A steer's or a failure's reason, as a sentence (designer P0-2). */
   owedReason: string | undefined;
+  /** An integration-pending activity's sentence (pendingResume.pendingSentence). */
+  pendingLine: string | undefined;
   provenance: ProvenanceReading;
   /** Attempts "Observed only" hid in the selection (B1); 0 with the toggle off. */
   hiddenCount: number;
@@ -933,6 +950,24 @@ function DetailHeader({
           }}
         >
           {owedReason}
+        </Typography>
+      ) : null}
+
+      {/* "Integration pending — waits on C-a (not built), …": what the WAITING
+          chip is waiting on. Ink, not the awaiting tone — nothing is owed here. */}
+      {pendingLine !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_PENDING_RESUME}
+          sx={{
+            fontFamily: t.body,
+            fontSize: 12.5,
+            fontWeight: 600,
+            color: t.ink,
+            lineHeight: 1.4,
+            mt: 1,
+          }}
+        >
+          {pendingLine}
         </Typography>
       ) : null}
 

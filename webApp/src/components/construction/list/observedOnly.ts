@@ -39,6 +39,10 @@ export function observedOnlyRow(row: ConstructionRow): ConstructionRow {
   delete next.status;
   delete next.currentLifecyclePhase;
   delete next.worstOrigin;
+  // "Integration pending" is a claim derived from the same ledger: with its
+  // reconstructed attempts set aside, the row has no completed phase to be
+  // pending after, so it reads not started like every other backfilled row.
+  delete next.pendingResume;
   if (kept.length > 0) next.worstOrigin = 'observed';
   return next;
 }

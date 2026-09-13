@@ -275,6 +275,7 @@ export const TESTID = {
   constructionLensToolbarToggles: UI_IDENTIFIERS.Construction.LENS_TOOLBAR_TOGGLES,
   constructionDetailCollapseToggle: UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
   constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
+  constructionDetailPendingResume: UI_IDENTIFIERS.Construction.DETAIL_PENDING_RESUME,
   constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,
   constructionListTaskBookKey: UI_IDENTIFIERS.Construction.listTaskBookKey,
   constructionListRow: UI_IDENTIFIERS.Construction.listRow,

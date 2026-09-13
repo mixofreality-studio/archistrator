@@ -106,6 +106,7 @@ import type {
   TimelineEvent,
 } from './types';
 import type { EvidenceRefRow, Layer, RecordOriginRow } from './types';
+import type { PendingDependencyReason, PendingResumeRow } from './types';
 import type { ArtifactModelEnvelope, Money, ProjectArtifactModelEnvelope } from './types';
 import type { CostProjection, OperationsView } from './operationsTypes';
 import { deriveOperating } from './operating.ts';
@@ -538,6 +539,34 @@ export function mapConstructionRow(
       : {}),
     ...(w.layer !== '' ? { layer: w.layer as Layer } : {}),
     ...(w.layerBand !== '' ? { layerBand: w.layerBand as 'layered' | 'projectWide' } : {}),
+    // Gated on `classified` like kind/status: the server only derives it for a row it
+    // could type, and a row this client treats as unclassified asserts nothing.
+    ...(classified && w.pendingResume !== undefined
+      ? { pendingResume: mapPendingResume(w.pendingResume) }
+      : {}),
+  };
+}
+
+const PENDING_REASONS: readonly PendingDependencyReason[] = [
+  'notBuilt',
+  'builtNotIntegrated',
+  'milestoneNotReached',
+  'unresolved',
+];
+
+/**
+ * The server's pendingResume, narrowed. A reason this client cannot place is read
+ * as `unresolved` — "we cannot say why" — never as `notBuilt`, which would be a
+ * specific claim about the dependency the server did not make.
+ */
+function mapPendingResume(w: Schemas['SystemDesignPendingResume']): PendingResumeRow {
+  return {
+    fromPhase: w.fromPhase,
+    // Required and non-null on the wire (the server sends [] when next in line).
+    waitsOn: w.waitsOn.map((d) => ({
+      id: d.id,
+      reason: PENDING_REASONS.find((r) => r === d.reason) ?? 'unresolved',
+    })),
   };
 }
 

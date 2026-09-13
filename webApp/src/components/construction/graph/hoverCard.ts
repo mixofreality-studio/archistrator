@@ -20,9 +20,9 @@
  */
 import { provenanceGradeOf, worstOriginOf, type ProvenanceBearing } from '../provenanceAxis.ts';
 import {
+  activityChipLabel,
   activityRowState,
   chipFor,
-  owedChipLabel,
   type RowChip,
 } from '../list/activityRowPresentation.ts';
 import type { ConstructionRow } from '../../../contracts/types.ts';
@@ -55,7 +55,7 @@ export function hoverLaneMarksFor(
 export function laneChipFor(row: ConstructionRow, owed: OwedMark | undefined): RowChip | undefined {
   const chip = chipFor(activityRowState(row, owed));
   if (chip === undefined) return undefined;
-  const label = owedChipLabel(owed);
+  const label = activityChipLabel(row, owed);
   return label !== undefined ? { ...chip, label } : chip;
 }
 
