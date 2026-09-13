@@ -292,6 +292,7 @@ export const TESTID = {
    *  therefore the box the row's `align-items: stretch` actually acts on. */
   constructionLensDetail: UI_IDENTIFIERS.Construction.LENS_DETAIL,
   constructionDetailDrawer: UI_IDENTIFIERS.Construction.DETAIL_DRAWER,
+  constructionDetailClose: UI_IDENTIFIERS.Construction.DETAIL_CLOSE,
   constructionDetailBreadcrumb: UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB,
   constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
   /** The pane header's provenance chip — or, with "Observed only" hiding this

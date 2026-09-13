@@ -13,7 +13,7 @@
  * it throws outright in a private window or with site data blocked, and the
  * pane must still render correctly with no stored value).
  *
- * < 1200px: degrades to a Drawer over the right edge (spec §7.4), driven by the
+ * 600–1200px: degrades to a Drawer over the right edge (spec §7.4), driven by the
  * shared header/body/action-bar. It is NON-modal, MUI's `persistent` variant, as
  * the graph lens's is (designer re-check #11): no backdrop, no focus trap, and
  * nothing else marked aria-hidden, so the lens toggle and the list stay reachable
@@ -21,6 +21,11 @@
  * trap put the lens toggle out of reach. Its a11y is kept by hand: focus moves in
  * when it opens, Escape inside it closes it, and on close focus goes back to
  * where it was outside it (the row that opened it, usually).
+ *
+ * < 600px: the drawer is the whole width, so it covers everything — the toggle
+ * included — and a non-modal one let focus walk behind it into content nobody can
+ * see (fix-H review I1). There it is MODAL: MUI's `temporary` variant, with its
+ * focus trap and aria-modal (ruling: modal at xs, non-modal 600–1200).
  *
  * The two invariants that make this surface trustworthy (see
  * detailPaneState.ts for the pure half of both):
@@ -149,6 +154,9 @@ const COLLAPSED_RAIL_WIDTH = 40;
 /** Below this, the beside-content layout has no room left for the content it
  *  sits next to — degrade to the overlay Drawer instead. */
 const WIDE_BREAKPOINT = '(min-width:1200px)';
+/** Below this the drawer is the whole width, covers everything, and is MODAL (fix-H
+ *  review I1). MUI's `sm` breakpoint, where the paper's width goes 100% → 480px. */
+const XS_BREAKPOINT = '(max-width:599.95px)';
 const WIDTH_STORAGE_KEY = 'archistrator.construction.detailPaneWidth';
 
 function clamp(n: number, min: number, max: number): number {
@@ -261,6 +269,7 @@ export function DetailPane({
   const t = useTokens();
   const { select } = useLensSelection();
   const isWide = useMediaQuery(WIDE_BREAKPOINT);
+  const modal = useMediaQuery(XS_BREAKPOINT);
 
   const [width, setWidth] = useState<number>(readStoredWidth);
   const [collapsed, setCollapsed] = useState(false);
@@ -527,26 +536,31 @@ export function DetailPane({
   }
 
   // Below 1200px the pane cannot sit beside content that no longer has room for it,
-  // so it is a Drawer over the right edge: a PERSISTENT one, which renders no Modal
-  // at all. A temporary Drawer is a Modal even with no backdrop and no focus trap:
-  // MUI's ModalManager marks every sibling of its container aria-hidden while it is
-  // open (found on the graph branch). The persistent variant ignores onClose, so
-  // Escape is handled on the body below.
+  // so it is a Drawer over the right edge. From 600px it is a PERSISTENT one, which
+  // renders no Modal at all. A temporary Drawer is a Modal even with no backdrop and
+  // no focus trap: MUI's ModalManager marks every sibling of its container
+  // aria-hidden while it is open (found on the graph branch). The persistent variant
+  // ignores onClose, so Escape is handled on the body below.
+  //
+  // Below 600px it covers the whole screen, so it IS modal: the temporary variant,
+  // whose focus trap keeps Tab inside it and whose aria-modal says so (fix-H review
+  // I1). Escape still closes it through the body's own handler.
   return (
     <Drawer
       anchor="right"
-      data-modal="false"
+      data-modal={String(modal)}
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_DRAWER}
       open={open}
       slotProps={{
         paper: {
           'aria-labelledby': 'construction-detail-pane-title',
-          'aria-modal': false,
+          'aria-modal': modal,
           role: 'dialog',
           sx: { width: { xs: '100%', sm: 480 }, bgcolor: t.paper, backgroundImage: 'none' },
         },
       }}
-      variant="persistent"
+      variant={modal ? 'temporary' : 'persistent'}
+      onClose={modal ? onClose : undefined}
     >
       <Box
         ref={drawerBodyRef}

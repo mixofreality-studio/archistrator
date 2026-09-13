@@ -118,3 +118,112 @@ test('at 1100px focus moves into the drawer when it opens, Escape inside it clos
     .toBe(true);
   expect(dispatchGuard.blocked).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// Fix I (fix-H review I1 and minors).
+// ---------------------------------------------------------------------------
+
+/** Whether the focused element is inside the drawer's root (its paper, or a Modal's
+ *  own focus-trap sentinels beside it). */
+async function focusInsideDrawer(page: Page): Promise<boolean> {
+  return page
+    .getByTestId(TESTID.constructionDetailDrawer)
+    .evaluate((root) => root.contains(document.activeElement));
+}
+
+/** Whether the focused element is the tree item that holds `row`, exactly. */
+async function focusOnRowItem(row: Locator): Promise<boolean> {
+  return row.evaluate((el) => {
+    const item = el.closest('[role="treeitem"]');
+    return item !== null && document.activeElement === item;
+  });
+}
+
+test('at 500px the drawer covers everything, so it is MODAL: Tab never reaches the content behind it', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await page.setViewportSize({ width: 500, height: 800 });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  const row = page.getByTestId(TESTID.constructionListRow(ACTIVITY));
+  await row.click();
+  const paper = drawerPaper(page);
+  await expect(paper).toBeVisible();
+  await expect(paper).toHaveAttribute('aria-modal', 'true');
+  await expect(page.getByTestId(TESTID.constructionDetailDrawer)).toHaveAttribute(
+    'data-modal',
+    'true'
+  );
+  await expect.poll(() => focusInsideDrawer(page), { message: 'focus moved in' }).toBe(true);
+
+  // Far more Tabs than the drawer has controls, both ways: every one lands inside it.
+  for (const key of ['Tab', 'Shift+Tab']) {
+    for (let i = 0; i < 25; i++) {
+      await page.keyboard.press(key);
+      const inside = await focusInsideDrawer(page);
+      const where = await page.evaluate(() => {
+        const el = document.activeElement;
+        return el === null ? 'nothing' : `${el.tagName} ${el.getAttribute('data-testid') ?? ''}`;
+      });
+      expect(inside, `${key} #${String(i + 1)} reached content behind the drawer: ${where}`).toBe(
+        true
+      );
+    }
+  }
+
+  // Escape still closes it, and focus goes back to the row that opened it.
+  await page.keyboard.press('Escape');
+  await expect(paper).toHaveCount(0);
+  await expect.poll(() => focusOnRowItem(row), { message: 'focus returned to the row' }).toBe(true);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('at 1100px focus returns to where the operator moved since opening, not to the row (mutant E)', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await openNarrowList(page);
+  await page.getByTestId(TESTID.constructionListRow(ACTIVITY)).click();
+  const paper = drawerPaper(page);
+  await expect(paper).toBeVisible();
+  await expect.poll(() => focusInsideDrawer(page), { message: 'focus moved in' }).toBe(true);
+
+  // The drawer is non-modal here, so the operator can move on: to the search field.
+  const search = page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox');
+  await search.focus();
+  await expect(search).toBeFocused();
+
+  // Closing from the drawer's own button hands focus back to the search field —
+  // the last place outside the drawer the operator was — not to the row.
+  await page.getByTestId(TESTID.constructionDetailClose).click();
+  await expect(paper).toHaveCount(0);
+  await expect(search).toBeFocused();
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('across 1200px the drawer gives way to the side pane without dropping focus, and comes back with it', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await openNarrowList(page);
+  const row = page.getByTestId(TESTID.constructionListRow(ACTIVITY));
+  await row.click();
+  const paper = drawerPaper(page);
+  await expect(paper).toBeVisible();
+  await expect.poll(() => focusInsideDrawer(page), { message: 'focus moved in' }).toBe(true);
+
+  // Wider than 1200px: the pane sits beside the list, and the drawer is gone. The
+  // focus that was inside it goes back to the row, never to <body>.
+  await page.setViewportSize({ width: 1300, height: 800 });
+  await expect(page.getByTestId(TESTID.constructionDetailPane)).toBeVisible();
+  await expect(paper).toHaveCount(0);
+  await expect.poll(() => focusOnRowItem(row), { message: 'focus is on the row' }).toBe(true);
+
+  // Back below 1200px: the drawer again, with focus moved into it.
+  await page.setViewportSize({ width: 1100, height: 800 });
+  await expect(paper).toBeVisible();
+  await expect(paper).toHaveAttribute('aria-modal', 'false');
+  await expect.poll(() => focusInsideDrawer(page), { message: 'focus moved in again' }).toBe(true);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
