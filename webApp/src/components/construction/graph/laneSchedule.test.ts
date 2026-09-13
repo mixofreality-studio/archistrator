@@ -214,7 +214,7 @@ void test('the caption names the figures as the unstaffed derived network', () =
 void test('the hover line carries only what is known', () => {
   assert.equal(
     scheduleLine(scheduleOf(tree(ALL_CRITICAL), 'C-m1')),
-    '30 days of effort · total float 0 · critical path'
+    '30 days of effort · total float 0 (unstaffed) · critical path'
   );
   assert.equal(scheduleLine(scheduleOf(tree(undefined), 'C-e1')), '10 days of effort');
 });

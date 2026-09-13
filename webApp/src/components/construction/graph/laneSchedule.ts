@@ -99,7 +99,9 @@ export function floatTooltip(f: LaneFloat): string {
 export function scheduleLine(s: LaneSchedule): string {
   return [
     effortText(s),
-    ...(s.float !== undefined ? [`total float ${s.float.numeral}`] : []),
+    // Named as what it is (designer re-check): the derived network's float,
+    // without staffing — never a staffed option's.
+    ...(s.float !== undefined ? [`total float ${s.float.numeral} (unstaffed)`] : []),
     ...(s.critical ? ['critical path'] : []),
   ].join(' · ');
 }
