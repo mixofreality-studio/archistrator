@@ -184,7 +184,7 @@ export function skipUnlessContent(present: boolean, reason: string): void {
  * skipUnlessConstructionArtifacts skips specs that assert against the REAL
  * committed N-STP/N-IT system-test-plan content (artifact-systemtest.spec.ts) when
  * the server behind the SPA proxy has no such data — e.g. CI's fresh/empty
- * project-state repo. Mirrors skipUnlessServer / skipUnlessLiveDrafting: an honest
+ * project-state repo. Mirrors requireServer / skipUnlessLiveDrafting: an honest
  * self-skip with a clear reason rather than a false failure against infra that was
  * never provisioned with this content. Under REQUIRE_CONSTRUCTION_ARTIFACTS=1 (the
  * seeded CI job) it FAILS instead (skipUnlessContent).

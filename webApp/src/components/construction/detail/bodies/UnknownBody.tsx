@@ -44,7 +44,7 @@ import type { ConstructionRow } from '../../../../contracts/types';
 import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
-import type { LensSelection } from '../../lens/useLensSelection';
+import { useLensSelection, type LensSelection } from '../../lens/useLensSelection';
 import type { TaskDetailState } from '../detailPaneState.ts';
 import {
   briefingFor,
@@ -94,11 +94,14 @@ function leadStatementFor(props: UnknownBodyProps, scope: Briefing['scope'] | un
 export function UnknownBody(props: UnknownBodyProps): ReactElement {
   const { row, selection, title, hiddenCount = 0 } = props;
   const t = useTokens();
+  // The pane sits beside a lens; the note points at the surface on screen
+  // (designer P2 — "click a segment of its lifecycle bar" beside the graph).
+  const { lens } = useLensSelection();
   const briefing = briefingFor(row, selection);
   return (
     <UnknownCard
       briefing={briefing}
-      noBriefingNote={noBriefingNoteFor(row, hiddenCount)}
+      noBriefingNote={noBriefingNoteFor(row, hiddenCount, lens)}
       statement={leadStatementFor(props, briefing?.scope)}
       t={t}
       title={title ?? unknownTitleFor(briefing, selection)}

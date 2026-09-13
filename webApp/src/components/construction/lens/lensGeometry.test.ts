@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   centeredScrollFor,
+  PANE_BOTTOM_GAP_PX,
   isToolbarStuck,
   lensGeometryVars,
   PANE_MAX_HEIGHT,
@@ -102,4 +103,15 @@ void test('a row near the top never scrolls negative, and needs no runway', () =
     }),
     { scrollTop: 0, runwayPx: 0 }
   );
+});
+
+void test("the published scroll height nets out the scroller's bottom padding — the pane ends where content does", () => {
+  // At 1280 the scroller is 737px tall with 23px of bottom padding: a pane capped
+  // against 737 overflowed it by 23 − 16 = 7px (designer re-check 2).
+  assert.equal(lensGeometryVars(86, 737, 190, 23)['--lens-scroll-h'], '714px');
+  assert.equal(lensGeometryVars(86, 737, 190)['--lens-scroll-h'], '737px');
+  // The pane's bottom (row top + cap) plus the padding never passes the client height.
+  const scrollH = Number.parseFloat(lensGeometryVars(86, 737, 190, 23)['--lens-scroll-h'] ?? '0');
+  const cap = scrollH - 190 - PANE_BOTTOM_GAP_PX;
+  assert.ok(190 + cap + 23 <= 737);
 });

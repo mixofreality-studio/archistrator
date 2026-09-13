@@ -9,8 +9,8 @@
  *
  * Task 13 retires the THREE-TAB shell (Tracker · Interventions · Artifacts) that
  * stood in for the lens shell while Stage B built it one lens at a time — the lens
- * shell IS the console now, mounted directly with no tab bar around it. GRAPH and
- * TASKS render `LensComingLater` until Stage D and Stage C build their bodies.
+ * shell IS the console now, mounted directly with no tab bar around it: LIST is
+ * the activity tree, GRAPH the Stage-D layer stack, TASKS the Stage-C owed work.
  *
  * It binds to the REAL backend:
  *   - the committed Phase-2 head-state (network × activityList slots, via useProject)
@@ -94,10 +94,7 @@ import { ChatRail } from '../components/design/ChatRail';
 // Float underneath it): it is the Stage D GRAPH lens's reference implementation
 // (founder ruling, Stage B progress log) — Stage D rebuilds the GRAPH lens body
 // from these pieces rather than reusing this exact composition wholesale.
-import {
-  ConstructionShell,
-  LensComingLater,
-} from '../components/construction/lens/ConstructionShell';
+import { ConstructionShell } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
   anyRowInFlight,
@@ -126,7 +123,13 @@ import {
   writeBeginFailure,
 } from '../components/construction/lens/beginFailureMemory';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
-import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
+import { ActivityGraphLens } from '../components/construction/graph/ActivityGraphLens';
+import { GRAPH_LIST_ONLY_REASON } from '../components/construction/graph/graphPresentation';
+import { m0FactsFor } from '../components/construction/graph/m0Gate';
+import { filtersActive } from '../components/construction/graph/graphFilter';
+import { slugForKind } from '../contracts/methodMetadata';
+import { buildActivityTree } from '../components/construction/list/activityTree';
+import { activityMetaFor } from '../components/construction/list/activityMeta';
 import {
   applyToolbarToActivities,
   expandToCurrentPhaseControl,
@@ -394,6 +397,10 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     return [...layers].sort((a, b) => a.localeCompare(b)).map((l) => ({ value: l, label: l }));
   }, [project]);
 
+  // M0 — the SDP review gate (PM Q4): the project's phase (the pump's own gate)
+  // and the SDP review slot's staleness. The read model already carries both.
+  const m0 = useMemo(() => m0FactsFor(project), [project]);
+
   const networkEnvelope = committedEnvelope(project, 'network');
   const activityEnvelope = committedEnvelope(project, 'activityList');
 
@@ -432,28 +439,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // Every row joins today: the server emits one row per activity in the
   // committed list (a planned-no-record row where nothing is recorded yet), and
   // the construction head-state is keyed by the same derived ids.
+  //
+  // ONE join for both lenses (architect Q2 ruling) — list/activityMeta.ts. The
+  // LIST's rails and the GRAPH's lanes read the same node fields it fills.
   const networkModel = useMemo(() => narrowProject(networkEnvelope, 'network'), [networkEnvelope]);
-  const activityMeta = useMemo((): Record<string, ActivityMeta> => {
-    const computed = networkModel?.computed ?? {};
-    const byId: Record<string, ActivityMeta> = {};
-    for (const a of activityListModel?.activities ?? []) {
-      const cpm = computed[a.name];
-      byId[a.name] = {
-        ...(a.title !== undefined && a.title.length > 0 ? { label: a.title } : {}),
-        effortDays: a.effortDays,
-        ...(cpm !== undefined
-          ? { float: cpm.totalFloat, onCriticalPath: cpm.onCriticalPath, band: cpm.band }
-          : {}),
-        // Task 11's search matches activity id / title / componentId — joined
-        // the same way as `label`; a project-wide activity (N-STP, N-IT, …)
-        // builds no single component, so it carries none.
-        ...(a.componentId !== undefined && a.componentId.length > 0
-          ? { componentId: a.componentId }
-          : {}),
-      };
-    }
-    return byId;
-  }, [activityListModel, networkModel]);
+  const activityMeta = useMemo(
+    () => activityMetaFor(activityListModel?.activities, networkModel?.computed),
+    [activityListModel, networkModel]
+  );
 
   // The rows as the EVIDENCE VIEW reads them: every activity always, and with
   // "Observed only" on, reconstructed evidence set aside so an activity known only
@@ -1146,16 +1139,48 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                     {/* The phase gate is decided in the shared pane now (Stage C),
                         for any owed gate — not in a panel under the list. */}
                   </Box>
-                ) : lens === 'tasks' ? (
-                  tasksContent
+                ) : lens === 'graph' ? (
+                  // Stage D: the architecture, layer by layer, each component
+                  // carrying its lifecycle — over the SAME evidence-view and
+                  // toolbar-filtered trees the list reads, so the two lenses and
+                  // the pane never disagree about one activity.
+                  <ActivityGraphLens
+                    activities={activityTree}
+                    filterActive={filtersActive(toolbar)}
+                    // M0 reads the project's phase and the SDP review slot —
+                    // never the evidence view, so "Observed only" leaves it be.
+                    m0={m0}
+                    network={networkModel}
+                    // The owed set the list reads: a lane's awaiting chip comes from it.
+                    owed={owedMarks}
+                    projectId={projectId}
+                    searchQuery={toolbar.search}
+                    selection={selection}
+                    systemEnvelope={paneSystemEnvelope}
+                    visible={visibleActivityTree}
+                    onClearFilters={() => {
+                      // The list's own Clear filters: every filter back to its
+                      // default; the sort is an ordering and stays.
+                      setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
+                    }}
+                    onOpenSdpReview={() =>
+                      void navigate({
+                        to: '/project/$projectId/design/project/{-$stepSlug}',
+                        params: { projectId, stepSlug: slugForKind('sdpReview') },
+                      })
+                    }
+                    onSelect={select}
+                  />
                 ) : (
-                  // Honest placeholder — NOT sample rows. GRAPH is the Stage-D
-                  // layer-stack projection.
-                  <LensComingLater lens={lens} stage="Stage D" />
+                  tasksContent
                 )
               }
               detail={detailPane}
-              expandToCurrentPhase={expandToCurrentPhaseControl(visibleActivityTree, owedMarks)}
+              expandToCurrentPhase={
+                lens === 'graph'
+                  ? { enabled: false, tooltip: GRAPH_LIST_ONLY_REASON }
+                  : expandToCurrentPhaseControl(visibleActivityTree, owedMarks)
+              }
               kindOptions={kindOptions}
               layerOptions={layerOptions}
               lens={lens}
@@ -1167,6 +1192,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               }}
               onLens={setLens}
               onToolbar={setToolbar}
+              {...(lens === 'graph' ? { sortDisabledReason: GRAPH_LIST_ONLY_REASON } : {})}
             />
           )}
         </Box>
@@ -1181,7 +1207,7 @@ function lensSubtitle(lens: LensId): string {
     case 'list':
       return 'Every activity, its lifecycle phases and its tasks · App-A tracking';
     case 'graph':
-      return 'The committed project network under a build lens';
+      return 'The architecture, layer by layer — each component carrying its lifecycle';
     case 'tasks':
       return 'Only the tasks that owe someone a decision';
   }

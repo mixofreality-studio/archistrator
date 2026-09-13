@@ -377,6 +377,40 @@ export const UI_IDENTIFIERS = {
     OVERRIDE_NOTES: 'construction-override-notes',
     OVERRIDE_CONFIRM: 'construction-override-confirm',
     trackerNode: (id: string) => `construction-track-node-${id}`,
+    // Stage D — the GRAPH lens: the architecture layer by layer, each component
+    // card carrying its activity's lifecycle spine (components/construction/graph).
+    GRAPH_CANVAS: 'construction-graph-canvas',
+    GRAPH_RIBBON: 'construction-graph-ribbon',
+    graphMilestone: (id: string) => `construction-graph-milestone-${id}`,
+    /** The key's popover content; GRAPH_KEY_BUTTON opens it (designer P1-2). */
+    GRAPH_KEY: 'construction-graph-key',
+    GRAPH_KEY_BUTTON: 'construction-graph-key-button',
+    /** "N of 29 match · Clear filters" — shown only while a filter is active (P1-4). */
+    GRAPH_FILTER_STATUS: 'construction-graph-filter-status',
+    /** The pinned HTML row-label gutter and one row's label in it (P1-6). */
+    GRAPH_ROW_GUTTER: 'construction-graph-row-gutter',
+    graphRowLabel: (row: string) => `construction-graph-row-label-${row}`,
+    GRAPH_CLEAR_FILTERS: 'construction-graph-clear-filters',
+    GRAPH_LAYER_CHECK: 'construction-graph-layer-check',
+    graphCard: (cardId: string) => `construction-graph-card-${cardId}`,
+    graphLane: (activityId: string) => `construction-graph-lane-${activityId}`,
+    graphSegment: (activityId: string, phase: string) =>
+      `construction-graph-segment-${activityId}-${phase}`,
+    GRAPH_HOVER_CARD: 'construction-graph-hover-card',
+    /** One lane's line inside the hover card (carries data-provenance). */
+    graphHoverLane: (activityId: string) => `construction-graph-hover-lane-${activityId}`,
+    /** A lane's float rail + numeral — rendered ONLY when the network has a computed entry. */
+    // Not under the `construction-graph-lane-` prefix: specs select the lane
+    // family by that prefix, and a float mark must never count as a lane.
+    graphLaneFloat: (activityId: string) => `construction-graph-float-${activityId}`,
+    GRAPH_SCHEDULE_CAPTION: 'construction-graph-schedule-caption',
+    /** M0's hover (PM Q4 copy) and its navigation-only link to the SDP review. */
+    GRAPH_M0_HOVER: 'construction-graph-m0-hover',
+    GRAPH_M0_OPEN_SDP: 'construction-graph-m0-open-sdp',
+    /** M0's copy as a popover — the chip is a button, so the link is keyboard-reachable. */
+    GRAPH_M0_POPOVER: 'construction-graph-m0-popover',
+    /** The key's drawn swatches: hatch, spine, float, critical (designer re-check 8). */
+    graphKeySwatch: (kind: string) => `construction-graph-key-swatch-${kind}`,
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,
@@ -444,7 +478,6 @@ export const UI_IDENTIFIERS = {
     LENS_SORT: 'construction-lens-sort',
     LENS_CONTENT: 'construction-lens-content',
     LENS_DETAIL: 'construction-lens-detail',
-    LENS_PLACEHOLDER: 'construction-lens-placeholder',
     // Navigability (Stage B Task 11): the 528-row tree gets no "expand all" —
     // only a targeted expand to whatever is in flight right now — and an
     // explicit audit toggle that treats reconstructed/synthesized evidence as

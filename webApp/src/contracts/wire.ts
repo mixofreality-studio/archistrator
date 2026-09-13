@@ -340,6 +340,15 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
     ...(w.revisions !== undefined ? { revisions: w.revisions } : {}),
     ...(w.staleBasis === true ? { staleBasis: true } : {}),
     ...(typeof staleCause === 'string' && staleCause.length > 0 ? { staleCause } : {}),
+    // The same cause, structured — the graph's M0 gate names it in its own words.
+    ...(rawCause && typeof rawCause.upstreamKind === 'string' && rawCause.upstreamKind.length > 0
+      ? {
+          staleCauseKind: rawCause.upstreamKind,
+          ...(typeof rawCause.upstreamRevision === 'number'
+            ? { staleCauseRevision: rawCause.upstreamRevision }
+            : {}),
+        }
+      : {}),
     ...(provenance && Object.keys(provenance).length > 0 ? { provenance } : {}),
   };
 }

@@ -90,7 +90,7 @@ const LENS_LABEL: Record<LensId, string> = {
 
 const LENS_HINT: Record<LensId, string> = {
   list: 'Every activity, its lifecycle phases and its tasks',
-  graph: 'The committed project network under a build lens',
+  graph: 'The architecture, layer by layer — each component carrying its lifecycle',
   tasks: 'Only the tasks that owe someone a decision',
 };
 
@@ -155,6 +155,9 @@ export interface ConstructionShellProps {
   /** Whether anything is in flight to expand to, and the tooltip that says so —
    *  activityScope.expandToCurrentPhaseControl. */
   expandToCurrentPhase: { enabled: boolean; tooltip: string };
+  /** When set, Sort is disabled with this reason — a lens whose tier-1 order is
+   *  not the operator's to choose (the graph's positions are the architecture's). */
+  sortDisabledReason?: string;
 }
 
 export function ConstructionShell({
@@ -171,6 +174,7 @@ export function ConstructionShell({
   onToolbar,
   onExpandToCurrentPhase,
   expandToCurrentPhase,
+  sortDisabledReason,
 }: ConstructionShellProps): ReactElement {
   const t = useTokens();
   const controls = toolbarForLens(lens);
@@ -222,7 +226,8 @@ export function ConstructionShell({
       const vars = lensGeometryVars(
         toolbarRect.height,
         scroller?.clientHeight ?? window.innerHeight,
-        row.getBoundingClientRect().top - scrollerTop
+        row.getBoundingClientRect().top - scrollerTop,
+        scroller !== null ? Number.parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0
       );
       for (const [name, value] of varsToWrite(written, vars)) {
         target.style.setProperty(name, value);
@@ -372,8 +377,9 @@ export function ConstructionShell({
             // once as the hover hint on the control, once as a leading disabled
             // row INSIDE the opened menu — the brief asks for it in the sort
             // menu's own helper text, not only on hover.
+            disabled={sortDisabledReason !== undefined}
             helperItem={SORT_HELP_TEXT}
-            hint={SORT_HELP_TEXT}
+            hint={sortDisabledReason ?? SORT_HELP_TEXT}
             label="Sort"
             options={SORT_IDS.map((id) => ({ value: id, label: SORT_LABEL[id] }))}
             t={t}
@@ -630,6 +636,7 @@ function ToolbarSelect({
   testid,
   hint,
   helperItem,
+  disabled,
   onChange,
 }: {
   label: string;
@@ -642,6 +649,8 @@ function ToolbarSelect({
    *  menu — the sort control's "why only two options" belongs where the
    *  operator is looking (the menu itself), not only in a hover tooltip. */
   helperItem?: string;
+  /** Greyed out; `hint` then says why. */
+  disabled?: boolean;
   onChange: (value: string) => void;
 }): ReactElement {
   const control = (
@@ -661,6 +670,7 @@ function ToolbarSelect({
       </Typography>
       <Select
         data-testid={testid}
+        disabled={disabled === true}
         inputProps={{ 'aria-label': label }}
         size="small"
         sx={{
@@ -712,43 +722,6 @@ function ToolbarSelect({
     </Tooltip>
   ) : (
     control
-  );
-}
-
-// ---------------------------------------------------------------------------
-// The honest placeholder for a lens that has not been built yet
-// ---------------------------------------------------------------------------
-
-export function LensComingLater({ lens, stage }: { lens: LensId; stage: string }): ReactElement {
-  const t = useTokens();
-  return (
-    <Box
-      data-testid={UI_IDENTIFIERS.Construction.LENS_PLACEHOLDER}
-      sx={{
-        border: `1.5px dashed ${t.line}`,
-        borderRadius: `${String(t.radius)}px`,
-        bgcolor: t.paperAlt,
-        px: 3,
-        py: 6,
-        textAlign: 'center',
-      }}
-    >
-      <Typography
-        sx={{
-          fontFamily: t.mono,
-          fontSize: 13,
-          fontWeight: 700,
-          letterSpacing: '0.06em',
-          color: t.ink,
-        }}
-      >
-        {LENS_LABEL[lens]} · Coming in a later stage
-      </Typography>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 1 }}>
-        {LENS_HINT[lens]} — built in {stage}. Nothing is rendered here rather than sample rows, so
-        this surface never shows anything the system cannot back.
-      </Typography>
-    </Box>
   );
 }
 

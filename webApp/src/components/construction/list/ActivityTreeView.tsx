@@ -107,7 +107,6 @@ import { useTreeItem } from '@mui/x-tree-view/useTreeItem';
 import { TreeItemProvider } from '@mui/x-tree-view/TreeItemProvider';
 import type { TreeItemProps } from '@mui/x-tree-view/TreeItem';
 
-import type { FloatBand } from '../../../contracts/projectAdapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
@@ -158,6 +157,7 @@ import {
   idColumnWidthCh,
   currentStageMarker,
   effortBarFraction,
+  floatBandOf,
   floatPresentation,
   isCurrentStage,
   LIST_COMPACT_BELOW_PX,
@@ -1165,16 +1165,6 @@ function ActivityListHeader(): ReactElement {
   );
 }
 
-/** The four bands the server's policy emits. `ActivityMeta.band` is a plain
- *  string (passed through untouched from the network's compute block), so it is
- *  NARROWED here rather than asserted: an unrecognised band renders as no band
- *  at all, which is the honest reading of a value we cannot place. */
-const FLOAT_BANDS: readonly FloatBand[] = ['critical', 'red', 'yellow', 'green'];
-
-function asFloatBand(value: string | undefined): FloatBand | undefined {
-  return FLOAT_BANDS.find((b) => b === value);
-}
-
 /** Float: a rail band (bandTokens) AND an always-visible numeral. Colour is
  *  never the sole carrier (WCAG 1.4.1), and an unknown float renders as a bare
  *  `—` — never as a green rail reading "plenty of slack", and never as a
@@ -1190,7 +1180,8 @@ function FloatRail({
 }): ReactElement {
   const { t } = useRowContext();
   const known = float !== undefined;
-  const bandName = asFloatBand(band);
+  // One narrowing for both lenses (activityRowPresentation.floatBandOf).
+  const bandName = floatBandOf(band);
   const presented = floatPresentation(float, bandName);
   const colour = bandName !== undefined ? bandTokens(t, bandName).fg : t.line;
   return (

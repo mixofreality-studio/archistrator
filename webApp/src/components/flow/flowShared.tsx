@@ -5,7 +5,7 @@
  * (colours, node/edge factories, the layer vocabulary) live in ./flowLayout so
  * this module exports only components.
  */
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
@@ -17,6 +17,8 @@ import {
   type NodeTypes,
   type NodeMouseHandler,
   type EdgeMouseHandler,
+  type OnMove,
+  type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import Box from '@mui/material/Box';
@@ -103,6 +105,11 @@ export function FlowCanvas({
   onNodeMouseLeave,
   onNodeClick,
   onEdgeClick,
+  defaultViewport,
+  onMoveEnd,
+  minZoom = 0.3,
+  controlsStyle,
+  edgesFocusable,
   children,
 }: {
   nodes: Node[];
@@ -121,6 +128,22 @@ export function FlowCanvas({
    *  so click callbacks, not `selected` state, drive the comment affordances. */
   onNodeClick?: NodeMouseHandler;
   onEdgeClick?: EdgeMouseHandler;
+  /** A viewport to open at INSTEAD of fitting the view — how a canvas that
+   *  remounts (a lens switch, a poll) restores where the reader left it. Absent
+   *  (every historical caller) keeps the fit-on-mount behaviour unchanged. */
+  defaultViewport?: Viewport;
+  /** Fired when a pan/zoom settles — pairs with `defaultViewport` to remember it. */
+  onMoveEnd?: OnMove;
+  /** The furthest zoom-out. Defaults to the historical 0.3. */
+  minZoom?: number;
+  /** Extra style for the zoom controls' panel (xyflow's bottom-left). Absent
+   *  for every historical caller; the graph lens pushes them clear of its
+   *  pinned row gutter. */
+  controlsStyle?: CSSProperties;
+  /** Whether edges are Tab stops. Absent keeps xyflow's default (every
+   *  historical caller); a canvas whose edges carry no action passes false so
+   *  the keyboard reaches its nodes without crossing every wire. */
+  edgesFocusable?: boolean;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -135,12 +158,16 @@ export function FlowCanvas({
     >
       <ReactFlow
         elementsSelectable
-        fitView
         edgeTypes={edgeTypes}
         edges={edges}
+        // Fit on mount ONLY when no viewport is being restored — a restored one
+        // is exactly the reader's own pan/zoom, which a fit would throw away.
+        fitView={defaultViewport === undefined}
         fitViewOptions={{ padding: 0.15 }}
         maxZoom={1.4}
-        minZoom={0.3}
+        minZoom={minZoom}
+        {...(defaultViewport !== undefined ? { defaultViewport } : {})}
+        {...(onMoveEnd !== undefined ? { onMoveEnd } : {})}
         nodeTypes={nodeTypesOverride ?? nodeTypes}
         nodes={nodes}
         nodesConnectable={false}
@@ -149,6 +176,7 @@ export function FlowCanvas({
         // the accessible name + keyboard comment shortcut — xyflow's wrapper focus is
         // off so there is a single, well-labeled tab stop per node.
         nodesFocusable={false}
+        {...(edgesFocusable !== undefined ? { edgesFocusable } : {})}
         proOptions={{ hideAttribution: true }}
         {...(onNodeMouseEnter ? { onNodeMouseEnter } : {})}
         {...(onNodeMouseLeave ? { onNodeMouseLeave } : {})}
@@ -156,7 +184,10 @@ export function FlowCanvas({
         {...(onEdgeClick ? { onEdgeClick } : {})}
       >
         <Background color={t.line} gap={22} size={1} />
-        <Controls showInteractive={false} />
+        <Controls
+          showInteractive={false}
+          {...(controlsStyle !== undefined ? { style: controlsStyle } : {})}
+        />
         {children}
       </ReactFlow>
     </Box>

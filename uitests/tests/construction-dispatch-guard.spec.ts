@@ -55,6 +55,15 @@ test('the guard lists what it aborted', async ({ page, dispatchGuard }) => {
   expect(probes.map((b) => b.split(' ')[0])).toEqual(['POST', 'PUT', 'PATCH', 'DELETE']);
 });
 
+// Folded in from the graph branch's local guard spec (integration merge): the
+// guard is a CONTEXT route, so a page's own `unrouteAll` cannot take it away.
+test('a page unrouteAll cannot remove the guard', async ({ page }) => {
+  await gotoApp(page, '/project/archistrator/construction?lens=graph');
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  const got = await probeMethods(page);
+  expect(got['POST']).toBe('aborted');
+});
+
 // ---------------------------------------------------------------------------
 // A held write never outlives its test (orchestrator, from the tasks-lens leak
 // demo: the context route alone let one held POST out).
