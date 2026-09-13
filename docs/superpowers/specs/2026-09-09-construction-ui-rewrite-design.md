@@ -477,6 +477,15 @@ A persistent coverage strip sits above the content:
 COVERAGE  40 derived · 31 mapped · 9 cross-cutting ‖ 69 legacy · 9 reconcile · 60 orphaned ⚠
 ```
 
+> **Amendment (2026-09-12) — the coverage strip is retired, not cut.** The strip measured the seam
+> between the legacy (hand-authored) activity list and the derived one: how many legacy rows mapped
+> onto derived activities and how many were orphaned. D9 removed that seam. The founder's D9 ruling
+> ("i essentially want no legacy rows/activities … just delete the old stuff") made slot 9 the only
+> activity list, and D9 plan Task 7 (`docs/superpowers/plans/2026-09-12-deterministic-activity-derivation.md`)
+> ordered the legacy group and this strip deleted. With one list there is nothing left for the strip
+> to measure, so it is gone because its subject is gone, not because it was cut for scope. The text
+> above is kept as the original design.
+
 ### 7.5 Lens 1 — Activity list
 
 Three tiers. **Tier 1 (activity)**: `▸ | float rail + CP weight | id + title + KindBadge | effort
@@ -657,6 +666,11 @@ Tasks** (read-only + link) · **virtualization**.
 
 **Do not cut** — these are the wave's reason to exist: the provenance hatch, the unknown body, the
 coverage strip, the always-enabled retry.
+
+> **Amendment (2026-09-12):** the coverage strip is **retired, not cut**. It measured the seam between
+> the legacy and derived activity lists, and D9 removed that seam: the founder's D9 ruling ("no legacy
+> rows… just delete the old stuff") and D9 plan Task 7, which ordered the deletion. See the §7.4
+> amendment. The other three items stand.
 
 ## 11. Earmarks (explicitly deferred, recorded so they are not lost)
 

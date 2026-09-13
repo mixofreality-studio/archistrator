@@ -16,6 +16,7 @@
 
 **Founder F1:** edit method-assets upstream, release it, bump the pin.
 **Founder F2:** "if they're not implemented in code, then leave them as real work that still needs to be done." N-STP is NOT signed off.
+> *Dated note (2026-09-12):* the N-STP clause above is superseded — the founder signed N-STP off on 2026-09-12, so it qualifies on that sign-off (see "Out of scope of the ruling" below). The ruling text above is kept as given.
 **Founder F3:** "we don't have customers, so i want to just move right to fully deterministic activity gen." → delete ALL 25 `.activityListOverrides`.
 **Earlier founder ruling, still standing:** "assume any component that is fully implemented is done and reviewed and integrated."
 
