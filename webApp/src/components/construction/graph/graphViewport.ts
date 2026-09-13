@@ -118,6 +118,26 @@ export function railGapPx(zoom: number): number {
   return Math.min(RAIL_GAP_MAX_PX, Math.max(RAIL_GAP_MIN_PX, 2 / zoom));
 }
 
+/** Below this, the drawer is taken to cover too much to frame beside it. */
+export const MIN_VISIBLE_CANVAS_PX = 240;
+
+/**
+ * The canvas width a framed card centres in: the canvas less whatever the
+ * narrow-screen drawer covers of its right side (designer re-check 4 — at 1100 a
+ * deep link centred its card under the drawer). No drawer: the whole canvas.
+ * Never under MIN_VISIBLE_CANVAS_PX (and never over the canvas).
+ */
+export function visibleCanvasWidthPx(
+  canvasLeft: number,
+  canvasRight: number,
+  drawerLeft: number | undefined
+): number {
+  const full = Math.max(0, canvasRight - canvasLeft);
+  if (drawerLeft === undefined) return full;
+  const covered = Math.max(0, canvasRight - Math.max(canvasLeft, drawerLeft));
+  return Math.min(full, Math.max(MIN_VISIBLE_CANVAS_PX, full - covered));
+}
+
 // ---------------------------------------------------------------------------
 // Level of detail (spec §7.6, Decision D7)
 // ---------------------------------------------------------------------------

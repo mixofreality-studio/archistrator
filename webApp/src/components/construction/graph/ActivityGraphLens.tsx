@@ -54,7 +54,7 @@ import { toC4View } from '../../../contracts/adapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
-import { FlowCanvas, FlowEmpty, FocusNodes } from '../../flow/flowShared';
+import { FlowCanvas, FlowEmpty } from '../../flow/flowShared';
 import { GUTTER_W, NODE_H, flowEdge, layerColors } from '../../flow/flowLayout';
 import type { ActivityNode } from '../list/activityTree';
 import type { LensSelection } from '../lens/useLensSelection';
@@ -81,6 +81,7 @@ import {
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
+import { GraphDeepLinkFrame } from './GraphDeepLinkFrame';
 import { GraphRowGutter, ROW_SPACER_W } from './GraphRowGutter';
 import { CONTROLS_OFFSET_PX } from './rowGutter';
 
@@ -313,10 +314,6 @@ function GraphCanvas({
     setMount(graphMountFor(signature, selectedActivityId, model.cardOfActivity));
   }
   const { stored, initialFocus } = mount;
-  const initialFocusIds = useMemo(
-    () => (initialFocus !== undefined ? [initialFocus] : []),
-    [initialFocus]
-  );
 
   // Hover-focus, debounced exactly as ArchitectureFlow's: moving between two
   // cards crosses empty canvas, and clearing at once would flash the whole
@@ -478,9 +475,8 @@ function GraphCanvas({
           leave();
         }}
       >
-        {initialFocus !== undefined ? (
-          <FocusNodes dep={initialFocus} nodeIds={initialFocusIds} />
-        ) : null}
+        {/* Framed once, clear of the narrow-screen drawer (designer re-check 4). */}
+        {initialFocus !== undefined ? <GraphDeepLinkFrame cardId={initialFocus} /> : null}
         <GraphRowGutter rows={layout.rows} />
       </FlowCanvas>
     </Box>

@@ -353,3 +353,21 @@ for (const [w, h] of [
     for (const g of gaps) expect(g.gap, g.id).toBeGreaterThanOrEqual(1.95);
   });
 }
+
+test('at 1100 a deep link frames its card CLEAR of the drawer, not under it (designer re-check 4)', async ({
+  page,
+}) => {
+  await openGraph(page, 1100, 800, `${GRAPH}&a=N-IT`);
+  const drawer = page.getByRole('dialog');
+  await expect(drawer).toBeVisible();
+  // The framing animates (400ms) after two frames; let it settle.
+  await page.waitForTimeout(1200);
+  const lane = await page.getByTestId(TESTID.constructionGraphLane('N-IT')).boundingBox();
+  const d = await drawer.boundingBox();
+  const c = await page.getByTestId(TESTID.constructionGraphCanvas).boundingBox();
+  expect(lane).not.toBeNull();
+  expect((lane?.x ?? 0) + (lane?.width ?? 0), 'the lane ends left of the drawer').toBeLessThanOrEqual(
+    d?.x ?? 0
+  );
+  expect(lane?.x ?? 0, 'the lane starts inside the canvas').toBeGreaterThanOrEqual(c?.x ?? 0);
+});

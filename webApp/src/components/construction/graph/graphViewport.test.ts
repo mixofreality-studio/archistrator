@@ -19,6 +19,7 @@ import {
   saveGraphViewport,
   railGapPx,
   selectionOutlinePx,
+  visibleCanvasWidthPx,
 } from './graphViewport.ts';
 
 // ---------------------------------------------------------------------------
@@ -195,4 +196,15 @@ void test('the rail gap keeps the critical edge and the provenance rail 2 SCREEN
   }
   assert.equal(railGapPx(0), 4);
   assert.equal(railGapPx(Number.NaN), 4);
+});
+
+void test('a framed card centres in the canvas the drawer leaves visible', () => {
+  // No drawer (or one past the canvas): the whole canvas.
+  assert.equal(visibleCanvasWidthPx(32, 1068, undefined), 1036);
+  assert.equal(visibleCanvasWidthPx(32, 1068, 1100), 1036);
+  // The 1100 layout: a 480px drawer from x 620 covers the canvas's right 448px.
+  assert.equal(visibleCanvasWidthPx(32, 1068, 620), 588);
+  // A drawer over nearly all of it: never under the floor, never over the canvas.
+  assert.equal(visibleCanvasWidthPx(32, 1068, 40), 240);
+  assert.equal(visibleCanvasWidthPx(0, 200, 10), 200);
 });
