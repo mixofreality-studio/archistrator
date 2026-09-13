@@ -9319,6 +9319,37 @@ func TestGitStore_ListProjects_FailsWhenEveryProjectRefusesTheCredential(t *test
 	}
 }
 
+// TestGitStore_ListProjects_FailsWhenTheOnlyProjectRefusesTheCredential (fix I, the
+// fix-H review's mutant A): the all-refused rule holds for a ONE-project catalog too.
+// That is current behaviour, and in local mode one project IS the whole list: a
+// refusal there must fail the call with Auth, never come back as an empty landing
+// grid with no error. The two-project case above could not tell "every project
+// refused" from "more than one project refused".
+func TestGitStore_ListProjects_FailsWhenTheOnlyProjectRefusesTheCredential(t *testing.T) {
+	only := ProjectID(uuid.NewString())
+	repos := map[ProjectID]*fwgithub.GitStore{only: refusingRemote(t)}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, false)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{{ProjectID: only, Title: "Only"}}})
+
+	summaries, err := store.ListProjects(context.Background(), "alice", RepoCredential{Bytes: []byte("expired-token")})
+	if err == nil {
+		t.Fatalf("the only project refusing the credential must fail the list; got %+v", summaries)
+	}
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.Auth {
+		t.Fatalf("want a fwra Auth error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "refused for all 1") {
+		t.Errorf("the error must say the credential was refused for its one project; got %v", err)
+	}
+	if summaries != nil {
+		t.Errorf("a failed list returns no rows; got %+v", summaries)
+	}
+}
+
 // TestGitStore_ListProjects_SkipsAProjectThatRefusesTheCredential_BesideOnesItReads:
 // an auth refusal on SOME projects, while the same credential reads the others, is
 // those projects' fault (a repo outside the grant, say). Each is skipped with a
