@@ -121,6 +121,9 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
   }, []);
   const modifiers = hoverCardModifiersFor(anchor?.canvas);
   const hoverOpen: boolean = d.hovered && anchor !== null;
+  // WCAG 1.4.13: the open hover card is the lanes' description, announced
+  // with them (the Popper's root is role="tooltip").
+  const hoverCardId = `construction-graph-hover-${card.id}`;
 
   return (
     <Box
@@ -213,6 +216,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
           const spine = d.spines[lane.activityId];
           return spine === undefined ? null : (
             <Lane
+              describedBy={hoverOpen ? hoverCardId : undefined}
               dim={d.unmatched.has(lane.activityId)}
               key={lane.activityId}
               lane={lane}
@@ -237,6 +241,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
           re-review) — the drawer covers what reaches beneath it. */}
       <Popper
         anchorEl={anchor?.card}
+        id={hoverCardId}
         modifiers={modifiers}
         open={hoverOpen}
         placement={HOVER_CARD_PLACEMENT}
@@ -260,10 +265,13 @@ function Lane({
   zoom,
   selected,
   dim,
+  describedBy,
   t,
   onSelect,
 }: {
   lane: ActivityNode;
+  /** The open hover card's id while it is open — the lane's description. */
+  describedBy: string | undefined;
   spine: LaneSpine;
   schedule: LaneSchedule | undefined;
   lod: Lod;
@@ -291,6 +299,7 @@ function Lane({
 
   return (
     <Box
+      aria-describedby={describedBy}
       aria-label={`${lane.activityId} — ${lane.label}`}
       aria-pressed={selected}
       className="nodrag nopan"

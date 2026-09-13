@@ -137,3 +137,35 @@ test('a zoom under an open hover card never re-creates its popper (graph re-revi
   await expect(hover).toBeVisible();
   expect(await page.evaluate(() => (window as ProbeWindow).popperRecreated)).toBe(0);
 });
+
+test('keyboard: a focus-opened hover card describes its lane and Escape dismisses it (WCAG 1.4.13)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await gotoApp(page, GRAPH);
+  await expect(page.getByTestId(TESTID.constructionGraphCanvas)).toBeVisible();
+  await page.waitForTimeout(400);
+  const lane = page.getByTestId(/^construction-graph-lane-/).first();
+  // A key press first, so the focus counts as keyboard focus (:focus-visible).
+  await page.keyboard.press('Shift');
+  await lane.focus();
+  const hover = page.getByTestId(TESTID.constructionGraphHoverCard);
+  await expect(hover).toBeVisible();
+
+  // Announced: the lane is described by the open card's tooltip.
+  const describedBy = (await lane.getAttribute('aria-describedby')) ?? '';
+  expect(describedBy, 'the lane names its hover card').not.toBe('');
+  const tooltip = page
+    .getByRole('tooltip')
+    .filter({ has: page.getByTestId(TESTID.constructionGraphHoverCard) });
+  await expect(tooltip).toBeVisible();
+  await expect(tooltip).toHaveAttribute('id', describedBy);
+
+  // Dismissible without moving focus, and nothing else happens.
+  const url = page.url();
+  await page.keyboard.press('Escape');
+  await expect(hover).toHaveCount(0);
+  await expect(lane).toBeFocused();
+  expect(await lane.getAttribute('aria-describedby')).toBeNull();
+  expect(page.url()).toBe(url);
+});

@@ -441,6 +441,15 @@ function GraphCanvas({
         focusOpened.current = true;
         enter({ id, type: 'graphCard' });
       }}
+      // WCAG 1.4.13: an open hover card is DISMISSIBLE without moving focus —
+      // Escape closes it and the lane keeps focus; the next focus reopens one.
+      onKeyDown={(e) => {
+        if (e.key !== 'Escape' || hoveredId === null) return;
+        e.stopPropagation();
+        cancelPendingLeave();
+        focusOpened.current = false;
+        setHoveredId(null);
+      }}
     >
       <FlowCanvas
         // Bottom-left, pushed just clear of the pinned row gutter (P1-6) — never
