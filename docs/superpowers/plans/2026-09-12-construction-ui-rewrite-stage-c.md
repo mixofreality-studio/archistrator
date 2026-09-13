@@ -102,7 +102,7 @@ The derivation rules, in order:
 - WHY (DC5): explicit map hit → `gated · <kind> › <phase name>`; preset hit (`checkpoints`: detailed design / construction / integration; `full`: every phase) → `preset · <name>`; otherwise → `risk floor`, `riskFloor: true`. A `failed`/`takeover` row → `variance · interventionEngine` / `failed · <reason>`, `riskFloor: false`. The preset table is the server's `EffectiveGate`, restated for **attribution only** (it decides nothing on the client); the test file cites `projectstateaccess.go EffectiveGate` so a drift is findable. (Recorded here because it is the one place this stage restates server logic; the alternative — a server-computed attribution — needs Q2's session fields.)
 - Sort (§6): risk-floor first · blast radius desc · age desc (age unknown today, so ties fall through) · activity id.
 
-- [ ] **Step 1: failing tests** — a chain A→M1→B→C with B integrated counts C once and M1 not at all; diamonds count once; WHY for `{}` policy is `risk floor`; `checkpoints` at `test_plan` is the floor, at `detailed_design` is the preset; explicit map wins over an unset preset; sort puts a floor gate with blast 0 above a non-floor gate with blast 5, then blast desc.
+- [ ] **Step 1: failing tests** — milestones are traversed but never counted; the walk STOPS at an integrated activity (its dependants are satisfied through it, so A→B→C with B integrated gives A a blast radius of 0 — corrected during execution); diamonds count once; WHY for `{}` policy is `risk floor`; `checkpoints` at `test_plan` is the floor, at `detailed_design` is the preset; explicit map wins over an unset preset; sort puts a floor gate with blast 0 above a non-floor gate with blast 5, then blast desc.
 - [ ] **Step 2–5:** red, implement, gates, **mutation-verify** the milestone rule and the floor-first key; commit `feat(construction): blast radius, the rule that opened the gate, and the risk-floor-first order`.
 
 ### Task 3: Probe the in-flight sessions; the badge and the pane read them
@@ -139,6 +139,8 @@ The derivation rules, in order:
 **Interfaces:** `DetailPaneProps.decision?: { gateTask?: string; lifecyclePhase: string; pending: boolean; flow: DecisionView; onApprove(): void; onSendBack(note: string): void }`. When present and the selection is the gated activity (activity-level or its gate task), the pane state is `awaitingHuman`, Approve/Send back carry handlers, Send back opens a required-note composer (anchored comments count as the note). Without the prop the pane is byte-for-byte Stage B.
 
 `decisionFlow.ts`: `step(state, event, now)` over `idle → sending → awaitingResume → resumed | notLanded | failed`; events `sent`, `sendFailed(status)`, `session(stage, phase)`, `tick`. `resumed` holds 30s then `idle`; `awaitingResume` past 12s → `notLanded`. `sendBackReady(note, anchoredCount)`.
+
+Execution note: a resumed row keeps lingering in place but is no longer owed — its chip reads RESUMED, the header and badge stop counting it, and the pane keeps its evidence line with no decision actions (`PaneDecision.open`), found in the Task 6 screenshots.
 
 The Tasks row reflects the flow in place ("resumed — now in Construction" / "decision did not land — the gate is still waiting" / the error), and the item leaves after the linger.
 

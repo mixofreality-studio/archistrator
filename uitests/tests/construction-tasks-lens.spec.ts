@@ -308,6 +308,19 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
     timeout: 10_000,
   });
   expect(sent).toHaveLength(1);
+  // Resumed is no longer owed: the row says so in place, the header stops counting
+  // it, and the pane keeps the evidence line with no decision to make.
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toHaveAttribute(
+    'data-lingering',
+    'true'
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toContainText('Resumed');
+  await expect(page.getByTestId(TESTID.constructionTasksHeadline)).toContainText('2 decisions');
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionFlow)).toContainText('Resumed');
+  // Nothing is owed on this selection any more, so the decision actions are gone
+  // (Stage B: they appear only where a decision is owed); Run stays.
+  await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toBeEnabled();
   // The badge drops the moment the gate clears; the row lingers with its evidence.
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('2');
 });

@@ -286,7 +286,8 @@ export function DetailPane({
 
   // Stage C: a live gate handed down by the route makes the gated selection
   // AWAITING YOU — the one source of that state; head-state `in-review` is not it.
-  const decisionLive = decision !== undefined && paneDecisionApplies(decision, selection);
+  const decisionApplies = decision !== undefined && paneDecisionApplies(decision, selection);
+  const decisionLive = decisionApplies && decision.open;
   const state = useMemo(
     (): TaskDetailState => (decisionLive ? 'awaitingHuman' : taskDetailStateFor(row, selection)),
     [decisionLive, row, selection]
@@ -369,7 +370,7 @@ export function DetailPane({
           />
         ) : undefined
       }
-      flow={decisionLive ? decision.note : undefined}
+      flow={decisionApplies ? decision.note : undefined}
       t={t}
       onAction={onAction}
     />

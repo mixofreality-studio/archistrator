@@ -523,6 +523,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       ([key]) => decisionViews[key]?.kind !== 'done' && !rankedOwed.some((i) => i.key === key)
     )
     .map(([, d]) => d.item);
+  const lingeringKeys = new Set(lingering.map((i) => i.key));
 
   const decideGate = (item: RankedOwed, decision: GateDecision, note = ''): void => {
     const lifecyclePhase = item.gate?.lifecyclePhase;
@@ -614,7 +615,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // one with a reported phase to address the signal to (DetailPane's `decision`).
   const selectedGate =
     selectedActivityId !== null
-      ? rankedOwed.find(
+      ? [...rankedOwed, ...lingering].find(
           (i) =>
             i.activityId === selectedActivityId &&
             i.reason === 'gate' &&
@@ -626,6 +627,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     selectedGate !== undefined && selectedGatePhase !== undefined
       ? {
           lifecyclePhase: selectedGatePhase,
+          open: rankedOwed.some((i) => i.key === selectedGate.key),
           gateTask: selectedGate.gate?.task,
           busy: decisionBusy(decisionViews[selectedGate.key]),
           anchoredCount: toWire().length,
@@ -698,6 +700,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       gitOf={(id) => gitFor(project, id)}
       // Just-decided rows first, lingering in place with their evidence line.
       items={[...lingering, ...visibleOwed]}
+      lingeringKeys={lingeringKeys}
       policy={project?.reviewPolicy}
       projectId={projectId}
       selection={selection}

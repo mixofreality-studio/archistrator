@@ -162,6 +162,10 @@ export function paneDecisionApplies(
  */
 export interface PaneDecision {
   lifecyclePhase: string;
+  /** The gate is still open (the item is still owed). False while a just-decided
+   *  row lingers: the pane keeps its evidence line but Approve / Send back go off
+   *  and the selection stops reading AWAITING YOU. */
+  open: boolean;
   gateTask?: string | undefined;
   /** A decision for this gate is in flight — Approve/Send back stay off. */
   busy: boolean;

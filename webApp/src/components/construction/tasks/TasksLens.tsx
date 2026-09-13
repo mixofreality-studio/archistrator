@@ -95,13 +95,19 @@ export interface TasksLensProps {
   };
   onReview: (item: RankedOwed) => void;
   onClearFilters: () => void;
+  /** Rows a decision was just made on, lingering with their evidence line (spec
+   *  §6: "lingers ~30s, then leaves") — shown, but no longer owed. */
+  lingeringKeys?: ReadonlySet<string> | undefined;
 }
 
 export function TasksLens(props: TasksLensProps): ReactElement {
   const t = useTokens();
   const { items, totalOwed, policy, projectId } = props;
   const banner = policyBannerFor(policy);
-  const slots = slotsLineFor(items, props.supervisionCap);
+  // A lingering row is shown but no longer owed: the header counts what still waits.
+  const lingering = props.lingeringKeys;
+  const owedNow = lingering !== undefined ? items.filter((i) => !lingering.has(i.key)) : items;
+  const slots = slotsLineFor(owedNow, props.supervisionCap);
 
   return (
     <Box
@@ -155,7 +161,7 @@ export function TasksLens(props: TasksLensProps): ReactElement {
               data-testid={UI_IDENTIFIERS.Construction.TASKS_HEADLINE}
               sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 17, color: t.ink }}
             >
-              {headlineFor(items)}
+              {owedNow.length > 0 ? headlineFor(owedNow) : 'Nothing else needs you.'}
             </Typography>
             {slots !== undefined ? (
               <Typography
@@ -207,6 +213,7 @@ function OwedTable({
   shapeOf,
   gitOf,
   flowOf,
+  lingeringKeys,
   onReview,
   t,
 }: TasksLensProps & { t: Tokens }): ReactElement {
@@ -247,6 +254,7 @@ function OwedTable({
             git={gitOf(item.activityId)}
             item={item}
             key={item.key}
+            lingering={lingeringKeys?.has(item.key) === true}
             selected={isSelected(item, selection)}
             shape={shapeOf(item)}
             t={t}
@@ -277,6 +285,7 @@ function OwedRow({
   git,
   shape,
   selected,
+  lingering,
   flow,
   t,
   onReview,
@@ -285,13 +294,18 @@ function OwedRow({
   git: GitRow | undefined;
   shape: string;
   selected: boolean;
+  /** Decided and resumed: shown in place, no longer owed. */
+  lingering: boolean;
   flow: RowFlowNote | undefined;
   t: Tokens;
   onReview: () => void;
 }): ReactElement {
   const fl = floatPresentation(item.blast.float, asBand(item.blast.band));
   const rail = fl.band !== undefined ? bandTokens(t, fl.band).fg : t.line;
-  const fill = taskDetailStateFill(t, item.reason === 'failed' ? 'failed' : 'awaitingHuman');
+  const fill = taskDetailStateFill(
+    t,
+    lingering ? 'passed' : item.reason === 'failed' ? 'failed' : 'awaitingHuman'
+  );
   const ci = ciVerdictFor(git?.ciStatus);
   const key = item.key;
   const cell = (column: string): string => UI_IDENTIFIERS.Construction.tasksCell(key, column);
@@ -299,6 +313,7 @@ function OwedRow({
   return (
     <Box
       aria-selected={selected}
+      data-lingering={String(lingering)}
       data-reason={item.reason}
       data-risk-floor={String(item.why.riskFloor)}
       data-testid={UI_IDENTIFIERS.Construction.tasksRow(key)}
@@ -308,7 +323,7 @@ function OwedRow({
         alignItems: 'start',
         px: 1.5,
         py: 1.25,
-        bgcolor: t.awaitingBg,
+        bgcolor: lingering ? t.paper : t.awaitingBg,
         borderRadius: `${String(t.radius)}px`,
         // The float rail, at the critical-path border weight (§7.2) — dashed
         // hairline where no float is known, never a fabricated band.
@@ -336,7 +351,7 @@ function OwedRow({
               whiteSpace: 'nowrap',
             }}
           >
-            {REASON_CHIP[item.reason]}
+            {lingering ? 'Resumed' : REASON_CHIP[item.reason]}
           </Box>
           <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
             {item.activityId}

@@ -22,9 +22,9 @@
  * no-inline-testid rule) — this file is still the single allowed source of
  * testid strings, it just resolves them by import instead of by hand-copy.
  */
-import { UI_IDENTIFIERS } from "../../../webApp/src/utilities/constants/UIIdentifiers.js";
-import { PHASE1_ORDER } from "../../../webApp/src/contracts/methodMetadata.js";
-import type { PhaseId } from "../../../webApp/src/contracts/adapters.js";
+import { UI_IDENTIFIERS } from '../../../webApp/src/utilities/constants/UIIdentifiers.js';
+import { PHASE1_ORDER } from '../../../webApp/src/contracts/methodMetadata.js';
+import type { PhaseId } from '../../../webApp/src/contracts/adapters.js';
 
 export const TESTID = {
   // Session gate / common
@@ -158,8 +158,7 @@ export const TESTID = {
   walkthroughRestart: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_RESTART,
   walkthroughBranch: UI_IDENTIFIERS.UseCaseCarousel.walkthroughBranch,
   walkthroughPathStep: UI_IDENTIFIERS.UseCaseCarousel.walkthroughPathStep,
-  walkthroughCurrentNode:
-    UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE,
+  walkthroughCurrentNode: UI_IDENTIFIERS.UseCaseCarousel.WALKTHROUGH_CURRENT_NODE,
   // Per-use-case realization roll-up chip, per-step badge, and the current
   // step's compact call list + call-chain join (Task 11).
   useCaseRealizationChip: UI_IDENTIFIERS.UseCaseCarousel.REALIZATION_CHIP,
@@ -218,42 +217,11 @@ export const TESTID = {
   /** The loud alert a failed Begin dispatch raises (fix-B review M3). */
   constructionBeginError: UI_IDENTIFIERS.Construction.BEGIN_ERROR,
   constructionBeginConfirm: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DIALOG,
-  constructionBeginConfirmCancel:
-    UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_CANCEL,
-  constructionBeginConfirmDispatch:
-    UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
+  constructionBeginConfirmCancel: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_CANCEL,
+  constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
   constructionBeginCandidate: UI_IDENTIFIERS.Construction.beginConfirmCandidate,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
   activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
-  // The TASKS lens (Stage C): one row per owed decision, the header, the
-  // degraded-policy banner, the empty state, and the pane's decision controls.
-  constructionTasksLens: UI_IDENTIFIERS.Construction.TASKS_LENS,
-  constructionTasksHeadline: UI_IDENTIFIERS.Construction.TASKS_HEADLINE,
-  constructionTasksSlots: UI_IDENTIFIERS.Construction.TASKS_SLOTS,
-  constructionTasksPolicyBanner:
-    UI_IDENTIFIERS.Construction.TASKS_POLICY_BANNER,
-  constructionTasksPolicySummary:
-    UI_IDENTIFIERS.Construction.TASKS_POLICY_SUMMARY,
-  constructionTasksPolicyLink: UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK,
-  constructionTasksTable: UI_IDENTIFIERS.Construction.TASKS_TABLE,
-  constructionTasksEmpty: UI_IDENTIFIERS.Construction.TASKS_EMPTY,
-  constructionTasksEmptyCounts: UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS,
-  constructionTasksResume: UI_IDENTIFIERS.Construction.TASKS_RESUME,
-  constructionTasksRow: UI_IDENTIFIERS.Construction.tasksRow,
-  constructionTasksCell: UI_IDENTIFIERS.Construction.tasksCell,
-  constructionTasksReview: UI_IDENTIFIERS.Construction.tasksReview,
-  constructionTasksGitHub: UI_IDENTIFIERS.Construction.tasksGitHub,
-  constructionTasksFlow: UI_IDENTIFIERS.Construction.tasksFlow,
-  constructionLensTasksCount: UI_IDENTIFIERS.Construction.LENS_TASKS_COUNT,
-  constructionDetailDecisionNote:
-    UI_IDENTIFIERS.Construction.DETAIL_DECISION_NOTE,
-  constructionDetailDecisionSendBack:
-    UI_IDENTIFIERS.Construction.DETAIL_DECISION_SEND_BACK,
-  constructionDetailDecisionFlow:
-    UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
-  constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
-  // The retired list-lens phase-gate panel — asserted ABSENT (the pane decides now).
-  constructionPhaseGatePanel: UI_IDENTIFIERS.Construction.PHASE_GATE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
@@ -263,8 +231,7 @@ export const TESTID = {
   // mark a search reveal stamps on a reconstructed task match (see
   // needsInlineProvenanceMark in activityScope.ts).
   constructionLensSearch: UI_IDENTIFIERS.Construction.LENS_SEARCH,
-  constructionSearchMatchProvenance:
-    UI_IDENTIFIERS.Construction.searchMatchProvenance,
+  constructionSearchMatchProvenance: UI_IDENTIFIERS.Construction.searchMatchProvenance,
   // The spelled-out "≈ RECONSTRUCTED" badge ProvenanceGroupStamp puts on a
   // tier-1 activity header and a tier-2 phase header (never on a task row).
   constructionProvenanceBadge: UI_IDENTIFIERS.Construction.PROVENANCE_BADGE,
@@ -273,10 +240,8 @@ export const TESTID = {
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListHeader: UI_IDENTIFIERS.Construction.LIST_HEADER,
   constructionLensObservedOnly: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY,
-  constructionLensExpandToPhase:
-    UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE,
-  constructionDetailCollapseToggle:
-    UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
+  constructionLensExpandToPhase: UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE,
+  constructionDetailCollapseToggle: UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
   constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
   constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,
   constructionListTaskBookKey: UI_IDENTIFIERS.Construction.listTaskBookKey,
@@ -285,10 +250,8 @@ export const TESTID = {
   constructionListEmpty: UI_IDENTIFIERS.Construction.LIST_EMPTY,
   constructionListClearFilters: UI_IDENTIFIERS.Construction.LIST_CLEAR_FILTERS,
   // The pane header's count line and exit line (fix round A, P1-6).
-  constructionDetailSelectionSummary:
-    UI_IDENTIFIERS.Construction.DETAIL_SELECTION_SUMMARY,
-  constructionDetailExitCriterion:
-    UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION,
+  constructionDetailSelectionSummary: UI_IDENTIFIERS.Construction.DETAIL_SELECTION_SUMMARY,
+  constructionDetailExitCriterion: UI_IDENTIFIERS.Construction.DETAIL_EXIT_CRITERION,
   // The shared detail pane (Stage B Task 4) that replaced the overlay Drawer
   // above as the console's mounted detail surface — beside content at
   // >=1200px, DETAIL_DRAWER below that (same overlay mechanism, kept).
@@ -301,18 +264,38 @@ export const TESTID = {
   constructionDetailStateChip: UI_IDENTIFIERS.Construction.DETAIL_STATE_CHIP,
   /** The pane header's provenance chip — or, with "Observed only" hiding this
    *  selection's attempts, the "OBSERVED ONLY · N reconstructed hidden" chip (B1). */
-  constructionDetailProvenanceChip:
-    UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP,
-  constructionDetailObservedOnlyChip:
-    UI_IDENTIFIERS.Construction.DETAIL_OBSERVED_ONLY_CHIP,
+  constructionDetailProvenanceChip: UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_CHIP,
+  constructionDetailObservedOnlyChip: UI_IDENTIFIERS.Construction.DETAIL_OBSERVED_ONLY_CHIP,
   constructionDetailActionBar: UI_IDENTIFIERS.Construction.DETAIL_ACTION_BAR,
-  constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction("run"),
+  constructionDetailActionRun: UI_IDENTIFIERS.Construction.detailAction('run'),
   // The four detail-pane bodies (Stage B Tasks 8-10) — which one fills the
   // pane's single body slot for the current selection (see bodyDispatch.ts).
-  constructionDetailBodyArtifact:
-    UI_IDENTIFIERS.Construction.DETAIL_BODY_ARTIFACT,
-  constructionDetailBodyUnknown:
-    UI_IDENTIFIERS.Construction.DETAIL_BODY_UNKNOWN,
+  constructionDetailBodyArtifact: UI_IDENTIFIERS.Construction.DETAIL_BODY_ARTIFACT,
+  constructionDetailBodyUnknown: UI_IDENTIFIERS.Construction.DETAIL_BODY_UNKNOWN,
+  // The TASKS lens (Stage C): one row per owed decision, the header, the
+  // degraded-policy banner, the empty state, and the pane's decision controls.
+  constructionTasksLens: UI_IDENTIFIERS.Construction.TASKS_LENS,
+  constructionTasksHeadline: UI_IDENTIFIERS.Construction.TASKS_HEADLINE,
+  constructionTasksSlots: UI_IDENTIFIERS.Construction.TASKS_SLOTS,
+  constructionTasksPolicyBanner: UI_IDENTIFIERS.Construction.TASKS_POLICY_BANNER,
+  constructionTasksPolicySummary: UI_IDENTIFIERS.Construction.TASKS_POLICY_SUMMARY,
+  constructionTasksPolicyLink: UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK,
+  constructionTasksTable: UI_IDENTIFIERS.Construction.TASKS_TABLE,
+  constructionTasksEmpty: UI_IDENTIFIERS.Construction.TASKS_EMPTY,
+  constructionTasksEmptyCounts: UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS,
+  constructionTasksResume: UI_IDENTIFIERS.Construction.TASKS_RESUME,
+  constructionTasksRow: UI_IDENTIFIERS.Construction.tasksRow,
+  constructionTasksCell: UI_IDENTIFIERS.Construction.tasksCell,
+  constructionTasksReview: UI_IDENTIFIERS.Construction.tasksReview,
+  constructionTasksGitHub: UI_IDENTIFIERS.Construction.tasksGitHub,
+  constructionTasksFlow: UI_IDENTIFIERS.Construction.tasksFlow,
+  constructionLensTasksCount: UI_IDENTIFIERS.Construction.LENS_TASKS_COUNT,
+  constructionDetailDecisionNote: UI_IDENTIFIERS.Construction.DETAIL_DECISION_NOTE,
+  constructionDetailDecisionSendBack: UI_IDENTIFIERS.Construction.DETAIL_DECISION_SEND_BACK,
+  constructionDetailDecisionFlow: UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
+  constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,
+  // The retired list-lens phase-gate panel — asserted ABSENT (the pane decides now).
+  constructionPhaseGatePanel: UI_IDENTIFIERS.Construction.PHASE_GATE_PANEL,
 
   // Operations console (route `/operations/$operatedAppId`).
   operationsRoot: UI_IDENTIFIERS.Operations.ROOT,
@@ -357,4 +340,4 @@ export const PHASE1_ARTIFACTS = PHASE1_ORDER;
  * silently drifting — there is no standalone webApp export of just the first
  * phase id to import a VALUE from (PhaseId only appears as a Record key).
  */
-export const ACTIVE_PHASE_ID: PhaseId = "systemDesign";
+export const ACTIVE_PHASE_ID: PhaseId = 'systemDesign';
