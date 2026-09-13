@@ -233,11 +233,15 @@ The third row is the trap: `managerSPAActivityFor` sets `ComponentID = <manager>
 `componentId → component.layer` join places a Client-layer surface on the Manager row. **The layer
 of an activity is not the layer of its component.**
 
-**Edges: render them, and make upward edges alarm.** Correct Method layering yields zero backward
-edges (measured across all 58 in prior work). In a layer-positioned render, any upward or sideways
-edge is therefore a **design-defect indicator**. Draw it in an alarm channel; never hide it or
-route around it. This is what earns the view its keep — it becomes a live App C layering check
-that runs whenever anyone looks at it.
+**Edges: render them, and make layering violations alarm.** Correct Method layering yields zero backward edges (measured across all 58 in prior work). In a layer-positioned render, an edge's direction is geometry, and the view is a live App C layering check that runs whenever anyone looks at it. It must therefore agree with App C exactly: never stricter, never looser.
+
+- **Upward** edge: always an alarm.
+- **Sideways** edge: an alarm, with one exception. The one sideways call App C §3.4 sanctions is a **queued Manager → Manager** relationship. It is drawn as the queued call it is (dashed), counted separately in the key as sanctioned with its App C citation, and **not** alarmed.
+- The exemption requires **both** endpoints to be Managers **and** `mode = queued`. A sync Manager→Manager edge alarms. An `eventPubSub` Manager→Manager edge alarms, because pub/sub opens the architecture through a Pub/Sub Utility, not a direct edge. Any queued sideways edge between non-Managers alarms. This holds even where the server's `RuleGraphSidewaysSync` is looser (see earmark).
+- Alarm edges are drawn in an alarm channel and are never hidden, routed around, or dimmed by hover-focus or filters.
+- The sanctioned count does not validate App C Don't 6b (at most one queued Manager per use case). That is a use-case check, not an edge check, and this view does not claim it.
+
+*(Amended 2026-09-12, architect Q1 ruling — `arch-graph-q1q2-ruling.md`.)*
 
 **Deliverable: `layer` + `layerBand` on the activity read model. Nothing else.**
 
@@ -669,5 +673,9 @@ coverage strip, the always-enabled retry.
 - Slot 10 not materialized (`list, _, _, err :=`).
 - M0 gates nothing.
 - `ProducedArtifact` PascalCase keys.
+- The server's sideways rule is looser than App C. `edgeLayeringFindings`
+  (`designhealthengine.go:2522`, `RuleGraphSidewaysSync`) exempts every queued same-layer edge; it
+  should exempt only queued Manager→Manager. Zero edges are affected today. Fix it in a
+  design-health wave. (Architect Q1 ruling, 2026-09-12.)
 - Per-project weight override via a justified render-on-read delta, if ever needed.
 - `ACTIVITIES 44 in network` → `NODES 44 · 40 activities + 4 milestones`.

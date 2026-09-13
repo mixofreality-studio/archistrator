@@ -255,6 +255,26 @@ void test('the carve-out does not extend to a queued call between non-Managers',
   assert.equal(onlyEdge(model(ACTIVITIES, [rel('a-engine', 'b-engine', 'queued')])).alarm, true);
 });
 
+void test('ARCHITECT Q1: a QUEUED Client→Client sideways call alarms — `queued` alone never exempts', () => {
+  // The exemption needs BOTH endpoints to be Managers AND mode = queued. A
+  // predicate that tests only `mode === 'queued'` (the server's looser rule,
+  // designhealthengine.go:2522) would sanction this edge; App C does not.
+  const m = model(ACTIVITIES, [rel('web-client', 'mcp-client', 'queued')]);
+  const e = onlyEdge(m);
+  assert.equal(e.direction, 'sideways');
+  assert.equal(e.alarm, true);
+  assert.equal(m.sanctionedSideways, 0);
+  assert.deepEqual(m.alarms, { up: 0, sideways: 1 });
+});
+
+void test('ARCHITECT Q1: an eventPubSub Manager→Manager call alarms — pub/sub goes through a Utility', () => {
+  const m = model(ACTIVITIES, [rel('x-manager', 'y-manager', 'eventPubSub')]);
+  const e = onlyEdge(m);
+  assert.equal(e.direction, 'sideways');
+  assert.equal(e.alarm, true);
+  assert.equal(m.sanctionedSideways, 0);
+});
+
 void test('edge ids stay unique when a pair repeats', () => {
   const m = model(ACTIVITIES, [rel('x-manager', 'a-engine'), rel('x-manager', 'a-engine')]);
   assert.equal(new Set(m.edges.map((e) => e.id)).size, 2);
