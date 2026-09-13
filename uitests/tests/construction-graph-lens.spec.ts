@@ -471,7 +471,11 @@ test('P0-1: the hover card never launders a reconstructed lane — stamp + chip 
       const chip = await line.evaluate(
         (el) => el.querySelector('[data-chip-state]')?.getAttribute('data-chip-state') ?? null
       );
-      const chipBearing = ['passed', 'failed', 'running', 'awaitingHuman'].includes(l.state ?? '');
+      // `waiting` (an integration-pending lane, D1) asserts that part of the
+      // lifecycle happened, so it carries a chip like `passed` does.
+      const chipBearing = ['passed', 'failed', 'running', 'waiting', 'awaitingHuman'].includes(
+        l.state ?? ''
+      );
       expect(chip, `${l.id} chip`).toBe(reconstructed(l.origin) && chipBearing ? l.state : null);
     }
     await page.mouse.move(2, 2);
