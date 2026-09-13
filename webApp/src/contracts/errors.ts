@@ -47,3 +47,28 @@ export function toApiError(status: number, error: WireError | undefined): ApiErr
 export function throwUnlessOk(response: Response, error: WireError | undefined): void {
   if (!response.ok) throw toApiError(response.status, error);
 }
+
+/**
+ * The parsed body of a 2xx response, or the ApiError for anything else.
+ *
+ * The status decides, as in throwUnlessOk. A 2xx that carries NO body where the
+ * operation owes one is an error too: create-project answered that way used to
+ * hand `undefined` on as the new project's id, and the next call went to
+ * set-operating-model/undefined and reported success. For an operation that
+ * returns nothing, use throwUnlessOk.
+ */
+export function bodyUnlessError<T>(result: {
+  data?: T;
+  error?: WireError | undefined;
+  response: Response;
+}): T {
+  throwUnlessOk(result.response, result.error);
+  if (result.data === undefined) {
+    throw new ApiError(
+      result.response.status,
+      'empty_body',
+      `the response (status ${String(result.response.status)}) carried no body`
+    );
+  }
+  return result.data;
+}

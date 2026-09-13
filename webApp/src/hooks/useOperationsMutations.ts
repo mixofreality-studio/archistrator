@@ -21,7 +21,7 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError } from '../contracts/errors';
 import type { components } from '../contracts/schema';
 import { REASON_DEPLOY_AFTER_CONSTRUCTION, PATCH_FULL_BUNDLE } from '../contracts/wire';
 import type { DeployResult, WithdrawResult } from '../contracts/operationsTypes';
@@ -52,14 +52,14 @@ export function useOperationAction(
   const client = useQueryClient();
   return useMutation<DeployResult, Error, OperationActionKind>({
     mutationFn: async (kind) => {
-      const { data, error, response } = await apiClient.POST(
+      const result = await apiClient.POST(
         '/api/v1/operations/deploy-after-construction/{operatedAppID}',
         {
           params: { path: { operatedAppID: operatedAppId } },
           body: { change: changeFor(kind, crypto.randomUUID()) },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return {
         operatedAppId,
         published: data.published,
@@ -83,14 +83,11 @@ export function useWithdrawOperatedApp(
   const client = useQueryClient();
   return useMutation<WithdrawResult, Error, WithdrawVars>({
     mutationFn: async (vars) => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/operations/withdraw-system/{operatedAppID}',
-        {
-          params: { path: { operatedAppID: operatedAppId } },
-          body: { changeID: crypto.randomUUID(), reason: { notes: vars.reason ?? '' } },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const result = await apiClient.POST('/api/v1/operations/withdraw-system/{operatedAppID}', {
+        params: { path: { operatedAppID: operatedAppId } },
+        body: { changeID: crypto.randomUUID(), reason: { notes: vars.reason ?? '' } },
+      });
+      const data = bodyUnlessError(result);
       return { operatedAppId, withdrawn: data.withdrawn };
     },
     onSuccess: () => client.invalidateQueries({ queryKey: operationsViewKey(operatedAppId) }),

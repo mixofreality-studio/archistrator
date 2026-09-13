@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { ApiError, throwUnlessOk } from './errors.ts';
+import { ApiError, bodyUnlessError, throwUnlessOk } from './errors.ts';
 
 function empty(status: number): Response {
   return new Response(null, { status, headers: { 'content-length': '0' } });
@@ -44,4 +44,30 @@ void test('a 2xx is success, with or without a body', () => {
       throwUnlessOk(empty(status), undefined);
     }, String(status));
   }
+});
+
+void test('bodyUnlessError: the status decides, and a 2xx with no body where one is owed is an error too', () => {
+  // An empty-body 5xx: the status, never "success with undefined".
+  assert.throws(
+    () => {
+      bodyUnlessError({ data: undefined, error: undefined, response: empty(500) });
+    },
+    (e: unknown) => e instanceof ApiError && e.status === 500 && e.code === 'internal'
+  );
+  // A 2xx with no body: create-project answered that way used to hand `undefined`
+  // on as the new project's id.
+  assert.throws(
+    () => {
+      bodyUnlessError({ data: undefined, error: undefined, response: empty(200) });
+    },
+    (e: unknown) => e instanceof ApiError && e.status === 200 && e.code === 'empty_body'
+  );
+  assert.equal(
+    bodyUnlessError({ data: 'p-1', response: new Response('"p-1"', { status: 200 }) }),
+    'p-1'
+  );
+  assert.deepEqual(
+    bodyUnlessError({ data: { a: 1 }, response: new Response('{}', { status: 201 }) }),
+    { a: 1 }
+  );
 });

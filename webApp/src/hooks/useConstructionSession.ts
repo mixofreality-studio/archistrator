@@ -14,7 +14,7 @@ import {
   type UseQueryResult,
 } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError } from '../contracts/errors';
 import { mapConstructionSession } from '../contracts/wire';
 import type { ConstructionSessionState } from '../contracts/types';
 import { sessionProbeQueryFn } from './sessionPolling';
@@ -47,11 +47,11 @@ function sessionQueryOptions(
     queryKey: key,
     queryFn: sessionProbeQueryFn<ConstructionSessionState>({
       fetch: async () => {
-        const { data, error, response } = await apiClient.GET(
+        const result = await apiClient.GET(
           '/api/v1/construction/get-session-state/{projectID}/{activityID}',
           { params: { path: { projectID: projectId, activityID: activityId ?? '' } } }
         );
-        if (error !== undefined) throw toApiError(response.status, error);
+        const data = bodyUnlessError(result);
         return mapConstructionSession(data);
       },
       getCached: () => queryClient.getQueryData<ConstructionSessionState | null>(key),

@@ -7,7 +7,7 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
 import { toResearchInputWire } from '../contracts/wire';
 import type { ResearchInput } from '../contracts/types';
 import { projectKey } from './useProject';
@@ -20,11 +20,10 @@ export function useStartSystemDesign(
   const client = useQueryClient();
   return useMutation<string, Error, undefined>({
     mutationFn: async () => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/system-design/start-system-design/{projectID}',
-        { params: { path: { projectID: projectId } } }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const result = await apiClient.POST('/api/v1/system-design/start-system-design/{projectID}', {
+        params: { path: { projectID: projectId } },
+      });
+      const data = bodyUnlessError(result);
       return data;
     },
     onSuccess: () => {
@@ -51,7 +50,7 @@ export function useSetResearchInput(
           body: { research: toResearchInputWire(research) },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
