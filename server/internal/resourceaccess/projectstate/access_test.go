@@ -1777,6 +1777,49 @@ func TestModelEnvelope_Decode_SolutionSlotKindReapplied(t *testing.T) {
 	}
 }
 
+// TestProjectEnvelope_RoundTrip_PreservesOperatorPaused pins that the RECORDED operator
+// pause crosses the Temporal boundary. The construction pump's recorded-pause gate reads
+// it from the decoded envelope (I2 ruling, 2026-09-12); dropping it in EncodeProject or
+// Decode would silently let a sweep-started pump dispatch through a pause. An unpaused
+// project's wire payload must stay byte-identical (no "operatorPaused" key).
+func TestProjectEnvelope_RoundTrip_PreservesOperatorPaused(t *testing.T) {
+	p := Project{ID: ProjectID(uuid.NewString()), Version: 7, OperatorPaused: true, PauseReason: "operator halt"}
+	env, err := EncodeProject(p)
+	if err != nil {
+		t.Fatalf("EncodeProject: %v", err)
+	}
+	if !env.OperatorPaused || env.PauseReason != "operator halt" {
+		t.Fatalf("EncodeProject dropped the recorded pause: %+v", env)
+	}
+	raw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatalf("marshal envelope: %v", err)
+	}
+	var wire ProjectEnvelope
+	if err := json.Unmarshal(raw, &wire); err != nil {
+		t.Fatalf("unmarshal envelope: %v", err)
+	}
+	got, err := wire.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if !got.OperatorPaused || got.PauseReason != "operator halt" {
+		t.Fatalf("Decode dropped the recorded pause: OperatorPaused=%v PauseReason=%q", got.OperatorPaused, got.PauseReason)
+	}
+
+	unpaused, err := EncodeProject(Project{ID: ProjectID(uuid.NewString()), Version: 1})
+	if err != nil {
+		t.Fatalf("EncodeProject(unpaused): %v", err)
+	}
+	rawUnpaused, err := json.Marshal(unpaused)
+	if err != nil {
+		t.Fatalf("marshal unpaused envelope: %v", err)
+	}
+	if bytes.Contains(rawUnpaused, []byte("operatorPaused")) || bytes.Contains(rawUnpaused, []byte("pauseReason")) {
+		t.Fatalf("an unpaused envelope must omit the pause keys, got %s", rawUnpaused)
+	}
+}
+
 func TestEncodeProject_SkipsUnpopulatedSlots(t *testing.T) {
 	p := Project{ID: "proj-1", Version: 3, Phase: 1}
 	env, err := EncodeProject(p)

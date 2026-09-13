@@ -3361,6 +3361,13 @@ type ProjectEnvelope struct {
 	ActivityConstruction map[string]ActivityConstructionStatus `json:"activityConstruction,omitempty"`
 	ServiceContracts     map[string]ServiceContract            `json:"serviceContracts,omitempty"`
 	ReviewPolicy         *ReviewPolicy                         `json:"reviewPolicy,omitempty"`
+
+	// OperatorPaused / PauseReason carry the operator's RECORDED pause
+	// (RecordOperatorPaused) across the boundary: the construction pump's
+	// recorded-pause gate reads it from the decoded envelope (I2 ruling, 2026-09-12).
+	// omitempty keeps every unpaused project's payload byte-identical to before.
+	OperatorPaused bool   `json:"operatorPaused,omitempty"`
+	PauseReason    string `json:"pauseReason,omitempty"`
 }
 
 // EncodeProject wraps the head-state aggregate for the Temporal boundary, using the
@@ -3376,6 +3383,8 @@ func EncodeProject(p Project) (ProjectEnvelope, error) {
 	// (omitempty), so non-construction payloads are byte-identical to before.
 	out.ActivityConstruction = p.ActivityConstruction
 	out.ServiceContracts = p.ServiceContracts
+	out.OperatorPaused = p.OperatorPaused
+	out.PauseReason = p.PauseReason
 	if len(p.ReviewPolicy.GatedPhasesByType) != 0 || p.ReviewPolicy.Preset != nil {
 		rp := p.ReviewPolicy
 		out.ReviewPolicy = &rp
@@ -3411,6 +3420,8 @@ func (e ProjectEnvelope) Decode() (Project, error) {
 	// decode to nil/zero, exactly the pre-construction Project state.
 	p.ActivityConstruction = e.ActivityConstruction
 	p.ServiceContracts = e.ServiceContracts
+	p.OperatorPaused = e.OperatorPaused
+	p.PauseReason = e.PauseReason
 	if e.ReviewPolicy != nil {
 		p.ReviewPolicy = *e.ReviewPolicy
 	}

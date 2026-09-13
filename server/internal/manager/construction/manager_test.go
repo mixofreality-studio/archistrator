@@ -147,7 +147,9 @@ func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testin
 				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING &&
 				o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
 		}),
-		executionKindPump, pumpInput{ProjectID: pid}).
+		// I2: Begin/MCP is the operator-driven path — the pump it starts ignores the
+		// recorded pause. A façade that dropped OperatorDriven matches nothing here.
+		executionKindPump, pumpInput{ProjectID: pid, OperatorDriven: true}).
 		Run(func(args mock.Arguments) {
 			startedIDs = append(startedIDs, args.Get(1).(client.StartWorkflowOptions).ID)
 		}).
@@ -1982,6 +1984,10 @@ type fakeProjectState struct {
 	phaseDone []phaseCompletedCall
 
 	version projectstate.Version
+
+	// order, when set, receives "record" on every RecordOperatorPaused — a call-order
+	// log shared with the other fakes (callLog).
+	order *callLog
 }
 
 // phaseCompletedCall records one RecordPhaseCompleted transition (the gate's durable
@@ -2086,6 +2092,7 @@ func (f *fakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.P
 		return 0, err
 	}
 	f.paused = append(f.paused, reason)
+	f.order.add("record")
 	return f.bump(), nil
 }
 
@@ -2317,6 +2324,10 @@ type fakePipeline struct {
 	cancelled []agenticjob.PipelineHandle
 	polls     int
 
+	// order, when set, receives "cancel" on every cancel — a call-order log shared
+	// with the other fakes (callLog).
+	order *callLog
+
 	// episode, when set, rides EVERY observation — the local executor's mined
 	// EpisodeSummary (SP1 capture-seam). nil mirrors the GitHub-Actions arm / a lost run.
 	episode *agenticjob.EpisodeSummary
@@ -2352,6 +2363,7 @@ func (p *fakePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.Pipeli
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.cancelled = append(p.cancelled, handle)
+	p.order.add("cancel")
 	return nil
 }
 
@@ -2611,6 +2623,8 @@ type recordingSignalBus struct {
 	targets  []messagebus.ExecutionID
 	names    []messagebus.SignalName
 	payloads []messagebus.ExecutionPayload
+	// order, when set, receives "relay" on every DeliverSignal (callLog).
+	order *callLog
 }
 
 func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
@@ -2619,7 +2633,68 @@ func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.Exe
 	b.targets = append(b.targets, target)
 	b.names = append(b.names, name)
 	b.payloads = append(b.payloads, payload)
+	b.order.add("relay")
 	return b.err
+}
+
+// callLog is one ordered record of calls shared across several fakes, so a test can
+// assert the ORDER of effects that land on DIFFERENT ports (state, bus, pipeline).
+// nil-safe: a fake without a log records nothing.
+type callLog struct {
+	mu    sync.Mutex
+	calls []string
+}
+
+func (l *callLog) add(call string) {
+	if l == nil {
+		return
+	}
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.calls = append(l.calls, call)
+}
+
+func (l *callLog) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return strings.Join(l.calls, "→")
+}
+
+// pauseRun is one ProjectSupervisionWorkflow pause-branch run against fakes that share
+// one call-order log.
+type pauseRun struct {
+	err   error
+	ps    *fakeProjectState
+	pipe  *fakePipeline
+	bus   *recordingSignalBus
+	order *callLog
+}
+
+// runPauseBranch signals a pause to a fresh supervision workflow whose plan cancels one
+// pipeline and records the pause. busErr is what the relay's DeliverSignal answers;
+// setup (optional) adjusts the env before the run (e.g. an OnGetVersion override).
+func runPauseBranchRig(busErr error, setup func(*testsuite.TestWorkflowEnvironment)) pauseRun {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	order := &callLog{}
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}, order: order}
+	pipe := &fakePipeline{order: order}
+	bus := &recordingSignalBus{err: busErr, order: order}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+	if setup != nil {
+		setup(env)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+	return pauseRun{err: env.GetWorkflowError(), ps: ps, pipe: pipe, bus: bus, order: order}
 }
 
 func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleID, messagebus.ScheduleSpec) error {
@@ -3427,14 +3502,27 @@ func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T
 type cascadingPumpRig struct {
 	env         *testsuite.TestWorkflowEnvironment
 	pid         ProjectID
+	ps          *fakeProjectState
 	childStarts *int
 }
 
-func newCascadingPumpRig(childRun, readDelay time.Duration) cascadingPumpRig {
+// recordedPause is a newCascadingPumpRig option: the project's head-state carries the
+// operator's RECORDED pause (as RecordOperatorPaused leaves it). The rig's read goes
+// through designSessionAccess.ReadProjectOnBranch → EncodeProject → the pump's Decode,
+// so the flag reaches the pump only if the envelope carries it.
+func recordedPause(p *projectstate.Project) {
+	p.OperatorPaused = true
+	p.PauseReason = "operator halt"
+}
+
+func newCascadingPumpRig(childRun, readDelay time.Duration, opts ...func(*projectstate.Project)) cascadingPumpRig {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	for _, opt := range opts {
+		opt(&ps.project)
+	}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
@@ -3454,7 +3542,7 @@ func newCascadingPumpRig(childRun, readDelay time.Duration) cascadingPumpRig {
 			After(readDelay).
 			Return(read.DesignSessionReadProjectOnBranch)
 	}
-	return cascadingPumpRig{env: env, pid: pid, childStarts: starts}
+	return cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: starts}
 }
 
 // pauseAt delivers a pause to the pump at workflow time `at`, in the wire form the
@@ -3470,9 +3558,15 @@ func (r cascadingPumpRig) pauseAt(t *testing.T, at time.Duration) {
 	}, at)
 }
 
+// run starts the pump sweep-shaped (OperatorDriven false); runInput takes any input.
 func (r cascadingPumpRig) run(t *testing.T) (PumpResult, error) {
 	t.Helper()
-	r.env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: r.pid})
+	return r.runInput(t, pumpInput{ProjectID: r.pid})
+}
+
+func (r cascadingPumpRig) runInput(t *testing.T, in pumpInput) (PumpResult, error) {
+	t.Helper()
+	r.env.ExecuteWorkflow(executionKindPump, in)
 	if !r.env.IsWorkflowCompleted() {
 		t.Fatal("pump did not complete")
 	}
@@ -3495,6 +3589,10 @@ func isContinueAsNew(err error) bool {
 // AFTER the run-start check and BEFORE the dispatch. It must not dispatch a NEW
 // activity — nothing would cancel it (the pause plan's PipelinesToCancel is empty).
 // Pause at 1m while the head-state read is held to 2m: the pump goes quiet, no child.
+// THE BOUND this pins: the pause is DELIVERED BEFORE the dispatching workflow task
+// starts (the task that runs once readProject completes), so signal check 2 sees it. A
+// pause arriving DURING that task is honoured at signal check 3, after exactly one
+// activity (Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity).
 func Test_Pump_PauseDuringReadProject_NoNewDispatch(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
 	rig.pauseAt(t, time.Minute)
@@ -3559,6 +3657,88 @@ func Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode(t *testing.T) {
 	}
 }
 
+// I2 test 3 (architect ruling, 2026-09-12). A SWEEP-started pump (OperatorDriven
+// false) on a project whose pause is RECORDED — no signal at all, an activity eligible
+// — must go quiet at the recorded-pause gate: no child, a clean completion (no
+// ContinueAsNew), a decided nothing-dispatched answer, and no blocked-activity failure
+// record. The read goes through EncodeProject/Decode (see recordedPause), so an
+// envelope that drops OperatorPaused fails this test.
+func Test_Pump_SweepStarted_RecordedPause_NoDispatch(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a sweep-started pump must honour the recorded pause quietly (no ContinueAsNew), got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("a recorded pause must stop a sweep-started pump before dispatch, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+	enc, err := rig.env.QueryWorkflow(queryPumpDispatch)
+	if err != nil {
+		t.Fatalf("query pump dispatch decision: %v", err)
+	}
+	var d pumpDispatch
+	if err := enc.Get(&d); err != nil {
+		t.Fatalf("decode pump dispatch decision: %v", err)
+	}
+	if !d.Decided || d.Dispatched {
+		t.Fatalf("want a decided, nothing-dispatched answer, got %+v", d)
+	}
+	if len(rig.ps.failed) != 0 {
+		t.Fatalf("the recorded-pause gate must not write a blocked-activity failure record, got %v", rig.ps.failed)
+	}
+}
+
+// I2 test 4. An OPERATOR-driven pump (Begin) ignores the recorded pause — the Task 11
+// ungated manual path, now enforced in the pump — and dispatches as usual.
+func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+
+	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	if !isContinueAsNew(err) {
+		t.Fatalf("an operator-driven pump must dispatch and self-cascade through a recorded pause, got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the one dispatched child, got %d", *rig.childStarts)
+	}
+}
+
+// I2 test 5. ContinueAsNew must carry the WHOLE input: a Begin-started cascade that
+// dropped OperatorDriven would honour the recorded pause on its second iteration and
+// stop after one activity.
+func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+
+	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	var canErr *workflow.ContinueAsNewError
+	if !errors.As(err, &canErr) {
+		t.Fatalf("want a ContinueAsNewError, got %v", err)
+	}
+	var next pumpInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &next); err != nil {
+		t.Fatalf("decode ContinueAsNew input: %v", err)
+	}
+	if next.ProjectID != rig.pid || !next.OperatorDriven {
+		t.Fatalf("ContinueAsNew must carry the whole input (OperatorDriven true), got %+v", next)
+	}
+}
+
+// I2 test 8 (version gate "pump-honors-recorded-pause", DefaultVersion branch). A
+// pre-change pump execution keeps the old sequence: no recorded-pause gate, so it
+// dispatches even with the pause recorded.
+func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+	rig.env.OnGetVersion("pump-honors-recorded-pause", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+
+	_, err := rig.run(t)
+	if !isContinueAsNew(err) {
+		t.Fatalf("a pre-change pump must dispatch as it always did, got %v", err)
+	}
+	if *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	}
+}
+
 // M4 (decided: an undecodable pause COUNTS). The channel name carries the operator's
 // intent; dropping a pause over a malformed body would fail open (dispatch through a
 // halt), counting it fails safe. See pumpPauseRequested.
@@ -3579,68 +3759,53 @@ func Test_Pump_UndecodablePauseSignal_StillPauses(t *testing.T) {
 
 // ---- Tests: pause branch (ProjectSupervisionWorkflow / NCUC2) ---------------
 
-// M1 (version gate "pause-relays-to-pump", DefaultVersion branch). A pre-change
-// supervision execution keeps the old sequence — no relay — and still cancels and
-// records the pause.
-func Test_Pause_RelayGate_DefaultVersion_NoRelay(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
-	pipe := &fakePipeline{}
-	bus := &recordingSignalBus{}
-	wf := newWorkflows(wfDeps{
-		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+// M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
+// pre-change supervision execution keeps main's sequence EXACTLY: cancel, then record,
+// and no relay.
+func Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay(t *testing.T) {
+	r := runPauseBranchRig(nil, func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion("pause-relays-to-pump", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	})
-	registerSupervisionWithBus(env, wf, ps, pipe, bus)
-	env.OnGetVersion("pause-relays-to-pump", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
-
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
-	}, time.Millisecond)
-	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("supervision error: %v", err)
+	if r.err != nil {
+		t.Fatalf("supervision error: %v", r.err)
 	}
-	if len(bus.targets) != 0 {
-		t.Fatalf("a pre-change execution must not relay, got %v", bus.targets)
+	if got := r.order.String(); got != "cancel→record" {
+		t.Fatalf("a pre-change execution must run main's cancel→record with no relay, got %q", got)
 	}
-	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 {
-		t.Fatalf("want the old cancel + record, got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	if len(r.bus.targets) != 0 {
+		t.Fatalf("a pre-change execution must not relay, got %v", r.bus.targets)
 	}
 }
 
-// M3. Only NotFound (no pump running) is tolerated: any other relay failure FAILS the
-// pause branch loudly, before the pause is recorded — a pause that could not reach a
-// possibly-cascading pump must not be reported as done. ContractMisuse is used because
-// it is non-retryable under the default Activity options (a Transient error would retry).
-func Test_Pause_RelayFailure_FailsThePause(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
+// I2 test 1 (architect ruling, 2026-09-12): RECORD → RELAY → CANCEL. The pause is
+// durable in head-state BEFORE it is relayed, so a pump the sweep (re)starts inside the
+// relay window reads it at its recorded-pause gate. One call-order log is shared across
+// the fake state (record), bus (relay) and pipeline (cancel).
+func Test_Pause_RecordsBeforeRelayingToPump(t *testing.T) {
+	r := runPauseBranchRig(nil, nil)
+	if r.err != nil {
+		t.Fatalf("supervision error: %v", r.err)
+	}
+	if got := r.order.String(); got != "record→relay→cancel" {
+		t.Fatalf("want record→relay→cancel, got %q", got)
+	}
+}
 
-	pid := ProjectID(uuid.NewString())
-	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
-	pipe := &fakePipeline{}
-	bus := &recordingSignalBus{err: fwra.New(fwra.ContractMisuse, "messagebus: invalid argument")}
-	wf := newWorkflows(wfDeps{
-		Review:       &fakeReview{},
-		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
-	})
-	registerSupervisionWithBus(env, wf, ps, pipe, bus)
-
-	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
-	}, time.Millisecond)
-	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
-
-	if err := env.GetWorkflowError(); err == nil {
+// I2 test 2 (also fix-round M3). Only NotFound (no pump running) is tolerated: any other
+// relay failure FAILS the pause branch loudly. The pause was recorded FIRST, so it STAYS
+// recorded (the sweep keeps honouring it), and the pipelines are not cancelled.
+// ContractMisuse is used because it is non-retryable under the default Activity options
+// (a Transient error would retry indefinitely).
+func Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails(t *testing.T) {
+	r := runPauseBranchRig(fwra.New(fwra.ContractMisuse, "messagebus: invalid argument"), nil)
+	if r.err == nil {
 		t.Fatal("a non-NotFound relay failure must fail the pause branch, got nil")
 	}
-	if len(ps.paused) != 0 {
-		t.Fatalf("a pause that failed to reach the pump must not be recorded, got %v", ps.paused)
+	if len(r.ps.paused) != 1 || r.ps.paused[0] != "operator halt" {
+		t.Fatalf("the pause was recorded before the relay and must stay recorded, got %v", r.ps.paused)
+	}
+	if got := r.order.String(); got != "record→relay" {
+		t.Fatalf("want record→relay and no cancel after the failed relay, got %q", got)
 	}
 }
 
@@ -4043,11 +4208,17 @@ func Test_PumpSweep_ChildPumpID_IsTheClientDrivenPumpWorkflowID(t *testing.T) {
 	registerPumpSweep(env, wf, lister, ps, &fakePipeline{phase: PipelineSucceeded})
 
 	var startedChildIDs []string
+	var startedInputs []pumpInput
 	var mu sync.Mutex
-	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, _ converter.EncodedValues) {
+	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
 		mu.Lock()
 		defer mu.Unlock()
 		startedChildIDs = append(startedChildIDs, info.WorkflowExecution.ID)
+		var in pumpInput
+		if err := args.Get(&in); err != nil {
+			t.Errorf("decode child pump input: %v", err)
+		}
+		startedInputs = append(startedInputs, in)
 	})
 
 	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
@@ -4061,6 +4232,10 @@ func Test_PumpSweep_ChildPumpID_IsTheClientDrivenPumpWorkflowID(t *testing.T) {
 	}
 	if len(startedChildIDs) != 1 || startedChildIDs[0] != want {
 		t.Fatalf("the sweep must start its child pump under the client-driven pump id %q, got %v", want, startedChildIDs)
+	}
+	// I2: the sweep's pump is NOT operator-driven — it must honour a recorded pause.
+	if len(startedInputs) != 1 || startedInputs[0].OperatorDriven {
+		t.Fatalf("the sweep must start its child pump with OperatorDriven false, got %+v", startedInputs)
 	}
 }
 

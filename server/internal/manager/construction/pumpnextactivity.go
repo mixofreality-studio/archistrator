@@ -17,9 +17,18 @@ import (
 // it self-cascades via ContinueAsNew under the same id until the frontier drains.
 // ===========================================================================
 
-// pumpInput is the start payload for PumpNextActivityWorkflow.
+// pumpInput is the start (and ContinueAsNew) payload for PumpNextActivityWorkflow.
 type pumpInput struct {
 	ProjectID ProjectID
+	// OperatorDriven marks a pump the OPERATOR started. It is set ONLY by
+	// ExecuteNextActivity (Begin / MCP) — the deliberately ungated manual path (Task
+	// 11): an operator-driven pump IGNORES the project's RECORDED pause, neither
+	// honouring nor clearing it, and that is the de-facto resume. The zero value — the
+	// 30s PumpSweepWorkflow fan-out, and any pre-change execution's input — HONOURS the
+	// recorded pause: fail-safe. Carried through ContinueAsNew (the whole `in`), so a
+	// Begin-started cascade keeps its mandate for every iteration, not only the first.
+	// Explicit pause SIGNALS are honoured regardless of this flag.
+	OperatorDriven bool
 }
 
 // pumpDispatch is THIS pump RUN's synchronous dispatch decision, surfaced to the
@@ -66,15 +75,20 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// place this run can block and let a signal in:
 	//   1. here, at run start;
 	//   2. immediately before ExecuteChildWorkflow — readProject is an Activity, so a
-	//      pause can land after (1) and before the dispatch; with no blocking call
-	//      between (2) and the child start, both commit in the same workflow task;
+	//      pause can land after (1) and before the dispatch. BOUND: it honours a pause
+	//      delivered before the dispatching workflow task starts; a pause arriving
+	//      DURING that task is honoured at (3), after exactly one activity;
 	//   3. just before the self-cascade's ContinueAsNew — a signal still buffered on a
 	//      run that ends in ContinueAsNew is NOT carried into the next run, so a pause
 	//      landing while this run is parked in child.Get or the pace Sleep would
 	//      otherwise be lost.
-	// A paused pump goes quiet WITHOUT ContinueAsNew; the resume path — a fresh
-	// ExecuteNextActivity (Begin), the deliberately ungated manual path (see
-	// pumpsweep.go) — starts a new pump under the same id.
+	// The signal checks are honoured regardless of OperatorDriven: an explicit pause
+	// always wins. Separately, between readProject and nextEligible, the RECORDED-pause
+	// gate (I2 ruling) quiets a sweep-started pump on a project whose pause is already
+	// recorded. A paused pump goes quiet WITHOUT ContinueAsNew. The resume path is a
+	// fresh ExecuteNextActivity (Begin): it starts a new pump under the same id with
+	// OperatorDriven set, and that pump IGNORES the recorded pause (without clearing it
+	// — the deliberately ungated manual path; see pumpsweep.go).
 	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
 	if reason, paused := pumpPausedAtRunStart(ctx, pauseCh); paused {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
@@ -91,6 +105,18 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 			return PumpResult{Dispatched: false}, nil
 		}
 		return PumpResult{}, err
+	}
+
+	// RECORDED-PAUSE GATE (I2 ruling, 2026-09-12). The supervision pause branch RECORDS
+	// the pause before relaying it, so a pump the sweep (re)starts inside the
+	// relay window — or any time before an operator resumes — sees the recorded pause
+	// here and goes quiet, BEFORE nextEligible: no dispatch, no ContinueAsNew, and no
+	// blocked-activity failure record. An operator-driven pump (Begin) skips it.
+	if pumpHonorsRecordedPause(ctx, in, proj) {
+		logger.Info("pump honours the recorded operator pause — going quiet without continue-as-new",
+			"projectId", string(in.ProjectID), "reason", proj.PauseReason)
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
+		return PumpResult{Dispatched: false}, nil
 	}
 
 	sel := wf.nextEligible(proj)
@@ -139,17 +165,20 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	}
 	activity := sel.Activity
 
-	// PRE-DISPATCH RE-CHECK (pause check 2 above). A pause that landed while readProject
+	// PRE-DISPATCH RE-CHECK (signal check 2 above). A pause that landed while readProject
 	// ran must not dispatch a NEW activity: nothing would cancel it — the pause plan's
-	// PipelinesToCancel is empty because InFlightPipelines is never populated. GetVersion
-	// pins pre-change executions to the old sequence (straight to the child start).
-	if workflow.GetVersion(ctx, "pump-pause-before-dispatch", workflow.DefaultVersion, 1) >= 1 {
-		if reason, paused := pumpPauseRequested(pauseCh); paused {
-			logger.Info("pump cascade paused by operator signal before dispatch — going quiet without continue-as-new",
-				"projectId", string(in.ProjectID), "activityId", activity.ActivityID, "reason", reason)
-			dispatch = pumpDispatch{Decided: true, Dispatched: false}
-			return PumpResult{Dispatched: false}, nil
-		}
+	// PipelinesToCancel is empty because InFlightPipelines is never populated.
+	// THE BOUND: this honours a pause DELIVERED BEFORE the dispatching workflow task
+	// starts (a signal buffered by then is visible to ReceiveAsync). A pause arriving
+	// DURING that task is not visible until the next task, so it is honoured at signal
+	// check 3, after exactly one activity. Signal-only, regardless of OperatorDriven: an
+	// explicit pause always wins. GetVersion pins pre-change executions to the old
+	// sequence (straight to the child start).
+	if reason, paused := pumpPausedBehindGate(ctx, "pump-pause-before-dispatch", pauseCh); paused {
+		logger.Info("pump cascade paused by operator signal before dispatch — going quiet without continue-as-new",
+			"projectId", string(in.ProjectID), "activityId", activity.ActivityID, "reason", reason)
+		dispatch = pumpDispatch{Decided: true, Dispatched: false}
+		return PumpResult{Dispatched: false}, nil
 	}
 
 	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
@@ -200,14 +229,38 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// the old command sequence (straight to ContinueAsNew): replaying a history that
 	// continued-as-new with a pause buffered would otherwise take the new quiet-return
 	// branch and fail the task with a non-determinism error.
-	if workflow.GetVersion(ctx, "pump-drain-pause-before-continue-as-new", workflow.DefaultVersion, 1) >= 1 {
-		if reason, paused := pumpPauseRequested(pauseCh); paused {
-			logger.Info("pump cascade paused by operator signal after the current activity — going quiet without continue-as-new",
-				"projectId", string(in.ProjectID), "activityId", string(dispatchedActivity), "reason", reason)
-			return PumpResult{Dispatched: true, ActivityID: &dispatchedActivity}, nil
-		}
+	if reason, paused := pumpPausedBehindGate(ctx, "pump-drain-pause-before-continue-as-new", pauseCh); paused {
+		logger.Info("pump cascade paused by operator signal after the current activity — going quiet without continue-as-new",
+			"projectId", string(in.ProjectID), "activityId", string(dispatchedActivity), "reason", reason)
+		return PumpResult{Dispatched: true, ActivityID: &dispatchedActivity}, nil
 	}
-	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, pumpInput{ProjectID: in.ProjectID})
+	// The WHOLE input rides ContinueAsNew — OperatorDriven included — or a Begin-started
+	// cascade on a project with a recorded pause would stop after its first activity.
+	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, in)
+}
+
+// pumpPausedBehindGate is a signal pause check (2: pre-dispatch, 3: pre-ContinueAsNew)
+// behind its OWN GetVersion change id. Pre-change executions (DefaultVersion) skip the
+// check entirely, keeping their recorded command sequence. GetVersion is always called
+// first, so the marker is recorded deterministically on every new run. (Extracted so
+// the pump body stays within the gocyclo budget — behavior identical to the inline
+// GetVersion-then-ReceiveAsync form.)
+func pumpPausedBehindGate(ctx workflow.Context, changeID string, ch workflow.ReceiveChannel) (reason string, paused bool) {
+	if workflow.GetVersion(ctx, changeID, workflow.DefaultVersion, 1) < 1 {
+		return "", false
+	}
+	return pumpPauseRequested(ch)
+}
+
+// pumpHonorsRecordedPause reports whether this run must go quiet on the project's
+// RECORDED pause: only a pump the operator did NOT start (the sweep; the zero value)
+// honours it. GetVersion pins pre-change executions to the old sequence (no gate) —
+// always called, so the marker is recorded deterministically on every new run.
+func pumpHonorsRecordedPause(ctx workflow.Context, in pumpInput, proj projectstate.Project) bool {
+	if workflow.GetVersion(ctx, "pump-honors-recorded-pause", workflow.DefaultVersion, 1) < 1 {
+		return false
+	}
+	return !in.OperatorDriven && proj.OperatorPaused
 }
 
 // pumpPausedAtRunStart is pause check 1, with the decode change version-gated. The

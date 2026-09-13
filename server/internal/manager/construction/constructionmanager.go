@@ -212,6 +212,12 @@ func newConstructionManager(
 //     ALLOW_DUPLICATE_FAILED_ONLY — a quiet-completed pump must be restartable, or the
 //     project could never be pumped again after its first drain.
 //
+// OPERATOR-DRIVEN (I2 ruling, 2026-09-12): the pump this op starts carries
+// pumpInput.OperatorDriven, so it ignores the project's RECORDED pause without clearing
+// it — the deliberately ungated manual path (Task 11), and the de-facto resume. The
+// 30s sweep's pump leaves the flag false and honours the recorded pause. A call that
+// JOINS a running pump inherits that run's input.
+//
 // tickID is a CORRELATION id only (logged here); it no longer shapes the workflow id,
 // so it cannot fork a second pump. It stays a required, non-empty input (the contract
 // shape is unchanged). SYNC: returns the pump's dispatch decision
@@ -239,7 +245,7 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
 		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
 	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID})
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID, OperatorDriven: true})
 	if err != nil {
 		return PumpResult{}, mapStartError(err)
 	}

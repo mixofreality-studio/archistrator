@@ -69,44 +69,69 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 		return fwmanager.MapError(perr)
 	}
 
-	// EXECUTE: stop the project's cascading pump (pause-delivery co-gate, 2026-09-12).
-	// PauseProject's signal lands HERE, on {projectId}:construction; nothing else
-	// reaches the pump, and nextEligibleActivity never reads OperatorPaused, so without
-	// this relay the pump's own pause gate (pumpnextactivity.go) is unreachable and a
-	// cascading pump keeps dispatching through a pause. Relayed FIRST among the
-	// executions, so the pump stops advancing the frontier before in-flight pipelines
-	// are cancelled. GetVersion pins supervision runs already inside this branch at
-	// deploy to the old command sequence.
+	// EXECUTE. GetVersion ("pause-relays-to-pump") pins supervision runs already inside
+	// this branch at deploy to the pre-change sequence.
 	if workflow.GetVersion(ctx, "pause-relays-to-pump", workflow.DefaultVersion, 1) >= 1 {
+		// RECORD → RELAY → CANCEL (I2 ruling, 2026-09-12).
+		//   - RECORD FIRST: the pause is durable in head-state before anything else, so a
+		//     pump the 30s sweep (re)starts at any point from here on — including inside
+		//     the relay window — reads it at its recorded-pause gate (pumpnextactivity.go)
+		//     and goes quiet. If a later step fails, the pause STAYS recorded.
+		//   - RELAY: PauseProject's signal lands HERE, on {projectId}:construction; a
+		//     pump already cascading holds a head-state snapshot from before the record,
+		//     so the relayed signal is what stops it (after its current activity).
+		//   - CANCEL the in-flight pipelines the plan names, last.
+		if err := wf.recordOperatorPaused(ctx, projectID, reason, plan); err != nil {
+			return err
+		}
 		if err := wf.relayPauseToPump(ctx, projectID, reason); err != nil {
 			return err
 		}
-	}
-
-	// EXECUTE: cancel each in-flight pipeline the plan names (GENERATED cancel invoker).
-	// PipelineRef is a published named-string type; cast to the Manager's own opaque
-	// pipelineHandle.Name (string) — NotifyTargets/ResumeHint stay unread, same as the
-	// retired pausePlan mirror never converting them into anything downstream read.
-	for _, pid := range plan.PipelinesToCancel {
-		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: string(pid)}); err != nil {
+		if err := wf.cancelPlannedPipelines(ctx, plan); err != nil {
 			return err
 		}
-	}
-
-	// EXECUTE: record the operator-paused head-state transition.
-	if plan.RecordPaused {
-		headVersion := wf.readVersion(ctx, projectID)
-		if _, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-			// Project-level pause has no per-activity minted cred; the cred-binding git
-			// adapter mints just-in-time and the local store ignores an empty cred.
-			return wf.Acts.ConstructionTransitionRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason, railCredEnvelope{}.toProjectState())
-		}); err != nil {
+	} else {
+		// DefaultVersion: the pre-change sequence, exactly as main had it — cancel, then
+		// record, no relay.
+		if err := wf.cancelPlannedPipelines(ctx, plan); err != nil {
+			return err
+		}
+		if err := wf.recordOperatorPaused(ctx, projectID, reason, plan); err != nil {
 			return err
 		}
 	}
 
 	state.stage = StagePaused
 	return nil
+}
+
+// cancelPlannedPipelines cancels each in-flight pipeline the pause plan names
+// (GENERATED cancel invoker). PipelineRef is a published named-string type; cast to the
+// Manager's own opaque pipelineHandle.Name (string) — NotifyTargets/ResumeHint stay
+// unread, same as the retired pausePlan mirror never converting them into anything
+// downstream read.
+func (wf *workflows) cancelPlannedPipelines(ctx workflow.Context, plan intervention.PausePlan) error {
+	for _, pid := range plan.PipelinesToCancel {
+		if err := wf.cancelPipeline(ctx, pipelineHandle{Name: string(pid)}); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// recordOperatorPaused records the operator-paused head-state transition when the
+// plan asks for it.
+func (wf *workflows) recordOperatorPaused(ctx workflow.Context, projectID ProjectID, reason string, plan intervention.PausePlan) error {
+	if !plan.RecordPaused {
+		return nil
+	}
+	headVersion := wf.readVersion(ctx, projectID)
+	_, err := wf.applyRecovering(ctx, projectID, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// Project-level pause has no per-activity minted cred; the cred-binding git
+		// adapter mints just-in-time and the local store ignores an empty cred.
+		return wf.Acts.ConstructionTransitionRecordOperatorPaused(ctx, projectstate.ProjectID(projectID), expected, reason, railCredEnvelope{}.toProjectState())
+	})
+	return err
 }
 
 // relayPauseToPump delivers the operator pause to the project's ONE pump
