@@ -3,7 +3,7 @@ import { createTheme, type Theme } from '@mui/material/styles';
 // The scanline texture generator. It used to be declared right here; it moved to
 // a zero-import sibling so the construction lens's provenance rail can reuse the
 // SAME geometry without pulling MUI into node:test. See textures.ts.
-import { scan } from './textures';
+import { scan } from './textures.ts';
 
 /**
  * Five swappable design languages for archistrator. Each is a bag of semantic

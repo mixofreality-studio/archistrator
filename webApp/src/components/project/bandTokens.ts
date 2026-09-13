@@ -16,12 +16,19 @@ export interface BandTokens {
   soft: string;
 }
 
+/**
+ * The scale is MONOTONIC in alarm (orchestrator ruling, designer re-check): the
+ * lower the float, the stronger the alarm — critical (zero float) in the danger
+ * ink, then amber, yellow, green, a red→green ramp in every theme (pinned by
+ * bandTokens.test.ts). Critical used to take the theme's ACCENT — rust, purple
+ * or cyan by theme — so a 0-day activity read milder than a 5-day one.
+ */
 export function bandTokens(t: Tokens, band: FloatBand): BandTokens {
   switch (band) {
     case 'critical':
-      return { fg: t.accent, soft: t.accent };
-    case 'red':
       return { fg: t.dangerFg, soft: alpha(t.dangerFg, 0.16) };
+    case 'red':
+      return { fg: t.awaitingFg, soft: alpha(t.awaitingFg, 0.16) };
     case 'yellow':
       return { fg: t.bandYellow, soft: alpha(t.bandYellow, 0.16) };
     case 'green':
