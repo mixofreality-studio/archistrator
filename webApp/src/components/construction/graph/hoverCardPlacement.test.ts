@@ -10,6 +10,7 @@ import {
   HOVER_CARD_FALLBACKS,
   HOVER_CARD_PLACEMENT,
   hoverCardModifiers,
+  hoverCardModifiersFor,
   type PopperModifierSpec,
 } from './hoverCardPlacement.ts';
 
@@ -47,4 +48,20 @@ void test('with no canvas yet, no boundary is invented — popper uses its clipp
     assert.equal('boundary' in modifier(mods, 'flip').options, false);
     assert.equal('boundary' in modifier(mods, 'preventOverflow').options, false);
   }
+});
+
+// ---------------------------------------------------------------------------
+// Identity — a re-render never hands the Popper a new list (graph re-review)
+// ---------------------------------------------------------------------------
+
+void test('the same canvas gets the SAME modifier list, so a re-render never re-creates the popper', () => {
+  assert.equal(hoverCardModifiersFor(CANVAS), hoverCardModifiersFor(CANVAS));
+  assert.equal(hoverCardModifiersFor(null), hoverCardModifiersFor(undefined));
+});
+
+void test('a different canvas gets its own list, bounded to it', () => {
+  const other = { tag: 'another canvas' } as unknown as Element;
+  assert.notEqual(hoverCardModifiersFor(other), hoverCardModifiersFor(CANVAS));
+  assert.equal(modifier(hoverCardModifiersFor(other), 'flip').options['boundary'], other);
+  assert.deepEqual(hoverCardModifiersFor(CANVAS), hoverCardModifiers(CANVAS));
 });

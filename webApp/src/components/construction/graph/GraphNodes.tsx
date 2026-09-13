@@ -25,7 +25,7 @@
  * canvas — hoverCardPlacement.ts) naming each lane's phases, because at fit
  * zoom nothing on the canvas is legible.
  */
-import { useState, type KeyboardEvent, type ReactElement } from 'react';
+import { useCallback, useState, type KeyboardEvent, type ReactElement } from 'react';
 import { Handle, Position, useStore, type NodeProps } from '@xyflow/react';
 import Box from '@mui/material/Box';
 import Popper from '@mui/material/Popper';
@@ -40,7 +40,7 @@ import { MUTED_OPACITY } from '../../flow/flowLayout';
 import type { ActivityNode } from '../list/activityTree';
 import { activityRowState, chipFor, type RowChip } from '../list/activityRowPresentation';
 import { hoverCardStampFor, hoverLaneMarksFor } from './hoverCard';
-import { HOVER_CARD_PLACEMENT, hoverCardModifiers } from './hoverCardPlacement';
+import { HOVER_CARD_PLACEMENT, hoverCardModifiersFor } from './hoverCardPlacement';
 import { taskDetailStateFill } from '../detail/detailPaneState';
 import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../provenance';
 import type { GraphCard } from './activityGraphModel';
@@ -88,6 +88,14 @@ export interface GraphCardData {
   [key: string]: unknown;
 }
 
+/** The card element and the canvas that bounds its hover card. */
+interface HoverAnchor {
+  card: HTMLDivElement;
+  canvas: Element | null;
+}
+
+const CANVAS_SELECTOR = `[data-testid="${UI_IDENTIFIERS.Construction.GRAPH_CANVAS}"]`;
+
 export function GraphCardNode({ data }: NodeProps): ReactElement {
   const t = useTokens();
   const d = data as GraphCardData;
@@ -103,10 +111,15 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
     filterActive: d.filterActive,
     unmatched: d.unmatched,
   });
-  // The hover card's anchor, held in state through a callback ref (never read
-  // from a ref during render), and the canvas that bounds it.
-  const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
-  const canvas = anchor?.closest(`[data-testid="${UI_IDENTIFIERS.Construction.GRAPH_CANVAS}"]`);
+  // The hover card's anchor AND the canvas that bounds it, both resolved in the
+  // ref callback (commit time) — never a DOM read during render (graph
+  // re-review). The modifier list is then the same array for the same canvas,
+  // so a re-render (a zoom step, a poll) never re-creates the popper.
+  const [anchor, setAnchor] = useState<HoverAnchor | null>(null);
+  const anchorRef = useCallback((el: HTMLDivElement | null): void => {
+    setAnchor(el === null ? null : { card: el, canvas: el.closest(CANVAS_SELECTOR) });
+  }, []);
+  const modifiers = hoverCardModifiersFor(anchor?.canvas);
   const hoverOpen: boolean = d.hovered && anchor !== null;
 
   return (
@@ -118,7 +131,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       data-row={card.row}
       data-testid={UI_IDENTIFIERS.Construction.graphCard(card.id)}
       data-utility={String(frame.utility)}
-      ref={setAnchor}
+      ref={anchorRef}
       sx={{
         width: CARD_W,
         height: d.height,
@@ -220,8 +233,8 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
       {/* A portal, anchored to the card, right then left, kept inside the
           canvas (hoverCardPlacement.ts — designer P1-1). */}
       <Popper
-        anchorEl={anchor}
-        modifiers={hoverCardModifiers(canvas)}
+        anchorEl={anchor?.card}
+        modifiers={modifiers}
         open={hoverOpen}
         placement={HOVER_CARD_PLACEMENT}
         sx={{ zIndex: 1300, pointerEvents: 'none' }}

@@ -81,3 +81,59 @@ for (const [w, h] of SIZES) {
     }
   });
 }
+
+/** Counts popper.js RE-CREATIONS of the open hover card: destroying a popper
+ *  strips `data-popper-placement` from its element, so a record whose old value
+ *  is null means the attribute came back after a destroy. */
+type ProbeWindow = Window & { popperRecreated?: number };
+
+test('a zoom under an open hover card never re-creates its popper (graph re-review)', async ({
+  page,
+}) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await gotoApp(page, GRAPH);
+  await expect(page.getByTestId(TESTID.constructionGraphCanvas)).toBeVisible();
+  await page.waitForTimeout(400);
+  const id = await page.getByTestId(CARD_ID).evaluateAll(
+    (els) =>
+      els
+        .find(
+          (e) => e.getAttribute('data-row') === 'manager' && e.getAttribute('data-lanes') !== '0'
+        )
+        ?.getAttribute('data-testid') ?? ''
+  );
+  expect(id, 'a Manager card with a lane').not.toBe('');
+  await page.getByTestId(id).hover();
+  const hover = page.getByTestId(TESTID.constructionGraphHoverCard);
+  await expect(hover).toBeVisible();
+  const scaleOf = async (): Promise<string> =>
+    page
+      .getByTestId(TESTID.constructionGraphCanvas)
+      .evaluate((root) => root.querySelector('.react-flow__viewport')?.getAttribute('style') ?? '');
+  const before = await scaleOf();
+  await hover.evaluate((el) => {
+    const root = el.closest('[data-popper-placement]');
+    if (root === null) throw new Error('the hover card is not inside a popper');
+    const w = window as ProbeWindow;
+    w.popperRecreated = 0;
+    new MutationObserver((records) => {
+      for (const r of records) if (r.oldValue === null) w.popperRecreated = (w.popperRecreated ?? 0) + 1;
+    }).observe(root, {
+      attributes: true,
+      attributeFilter: ['data-popper-placement'],
+      attributeOldValue: true,
+    });
+  });
+  // A pinch zoom about the pointer: the card stays under it (the hover holds)
+  // while every node re-renders with the new zoom.
+  await page.keyboard.down('Control');
+  for (let i = 0; i < 3; i += 1) {
+    await page.mouse.wheel(0, -120);
+    await page.waitForTimeout(150);
+  }
+  await page.keyboard.up('Control');
+  await page.waitForTimeout(400);
+  expect(await scaleOf(), 'the zoom changed').not.toBe(before);
+  await expect(hover).toBeVisible();
+  expect(await page.evaluate(() => (window as ProbeWindow).popperRecreated)).toBe(0);
+});

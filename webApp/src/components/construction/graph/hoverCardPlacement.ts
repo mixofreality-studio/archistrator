@@ -45,3 +45,26 @@ export function hoverCardModifiers(boundary: Element | null | undefined): Popper
     },
   ];
 }
+
+/**
+ * The SAME modifier list, by identity, for the same boundary (graph re-review:
+ * a fresh array every render made MUI's Popper destroy and re-create its
+ * popper.js instance on every re-render — every zoom step and every 1.5s poll).
+ * The card resolves its canvas once, in its ref callback, and asks here during
+ * render: no DOM read, and no new array.
+ */
+const modifiersByBoundary = new WeakMap<Element, PopperModifierSpec[]>();
+let unboundedModifiers: PopperModifierSpec[] | undefined;
+
+export function hoverCardModifiersFor(boundary: Element | null | undefined): PopperModifierSpec[] {
+  if (boundary === null || boundary === undefined) {
+    unboundedModifiers ??= hoverCardModifiers(undefined);
+    return unboundedModifiers;
+  }
+  let modifiers = modifiersByBoundary.get(boundary);
+  if (modifiers === undefined) {
+    modifiers = hoverCardModifiers(boundary);
+    modifiersByBoundary.set(boundary, modifiers);
+  }
+  return modifiers;
+}
