@@ -161,7 +161,7 @@ test('below 1200px the graph drawer is non-modal: no backdrop, and the canvas st
   await expect(page.getByRole('dialog')).toBeVisible();
   const backdrops = await page.evaluate(
     () =>
-      [...document.querySelectorAll('.MuiBackdrop-root')].filter(
+      Array.from(document.querySelectorAll('.MuiBackdrop-root')).filter(
         (b) => getComputedStyle(b).visibility !== 'hidden' && getComputedStyle(b).opacity !== '0'
       ).length
   );

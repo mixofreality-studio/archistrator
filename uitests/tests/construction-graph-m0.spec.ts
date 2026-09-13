@@ -192,7 +192,7 @@ test('the M0 chip keeps the spaces around its " · " separators (designer re-che
 }) => {
   await openGraph(page);
   const widths = await chip(page).evaluate((el) =>
-    [...el.querySelectorAll('[data-m0-separator]')].map((sep) => {
+    Array.from(el.querySelectorAll('[data-m0-separator]')).map((sep) => {
       const probe = document.createElement('span');
       probe.style.font = getComputedStyle(sep).font;
       probe.style.whiteSpace = 'pre';

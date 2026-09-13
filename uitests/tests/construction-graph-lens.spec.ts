@@ -155,7 +155,7 @@ async function cardFacts(page: Page): Promise<CardFacts[]> {
 async function cardPositions(page: Page): Promise<Record<string, string>> {
   return canvas(page).evaluate((root) =>
     Object.fromEntries(
-      [...root.querySelectorAll('.react-flow__node-graphCard')].map((n) => [
+      Array.from(root.querySelectorAll('.react-flow__node-graphCard')).map((n) => [
         n.getAttribute('data-id') ?? '',
         (n as HTMLElement).style.transform,
       ])
@@ -165,7 +165,7 @@ async function cardPositions(page: Page): Promise<Record<string, string>> {
 
 async function edgeIds(page: Page): Promise<string[]> {
   return canvas(page).evaluate((root) =>
-    [...root.querySelectorAll('.react-flow__edge')].map(
+    Array.from(root.querySelectorAll('.react-flow__edge')).map(
       (e) => e.getAttribute('data-id') ?? e.getAttribute('data-testid') ?? ''
     )
   );
@@ -436,7 +436,7 @@ test('P0-1: the hover card never launders a reconstructed lane — stamp + chip 
       .filter((e) => Number(e.getAttribute('data-lanes') ?? '0') > 0)
       .map((e) => ({
         id: (e.getAttribute('data-testid') ?? '').replace('construction-graph-card-', ''),
-        lanes: [...e.querySelectorAll('[data-testid^="construction-graph-lane-"]')].map((l) => ({
+        lanes: Array.from(e.querySelectorAll('[data-testid^="construction-graph-lane-"]')).map((l) => ({
           id: (l.getAttribute('data-testid') ?? '').replace('construction-graph-lane-', ''),
           origin: l.getAttribute('data-provenance'),
           state: l.getAttribute('data-state'),

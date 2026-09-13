@@ -107,7 +107,7 @@ test('the ribbon is one line that scrolls sideways, and the key is a popover but
   const geometry = await ribbon.evaluate((el) => ({
     wrap: getComputedStyle(el).flexWrap,
     overflowX: getComputedStyle(el).overflowX,
-    tops: [...el.children].map((c) => Math.round(c.getBoundingClientRect().top)),
+    tops: Array.from(el.children).map((c) => Math.round(c.getBoundingClientRect().top)),
   }));
   expect(geometry.wrap).toBe('nowrap');
   expect(['auto', 'scroll']).toContain(geometry.overflowX);

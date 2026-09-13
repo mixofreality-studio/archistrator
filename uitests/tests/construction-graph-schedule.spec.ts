@@ -87,7 +87,7 @@ async function laneOpacity(page: Page, id: string): Promise<number> {
 async function cardTransforms(page: Page): Promise<Record<string, string>> {
   return page.getByTestId(TESTID.constructionGraphCanvas).evaluate((root) =>
     Object.fromEntries(
-      [...root.querySelectorAll('.react-flow__node-graphCard')].map((n) => [
+      Array.from(root.querySelectorAll('.react-flow__node-graphCard')).map((n) => [
         n.getAttribute('data-id') ?? '',
         (n as HTMLElement).style.transform,
       ])
@@ -133,7 +133,7 @@ for (const [w, h] of SIZES) {
     // Nothing but a lane carries the critical treatment.
     // A page-wide attribute sweep — structural, with no single testid to select by.
     const holders = await page.evaluate(() =>
-      [...document.querySelectorAll('[data-critical="true"]')].map(
+      Array.from(document.querySelectorAll('[data-critical="true"]')).map(
         (e) => e.getAttribute('data-testid') ?? ''
       )
     );
@@ -172,7 +172,7 @@ for (const [w, h] of SIZES) {
     const classes = await page
       .getByTestId(TESTID.constructionGraphCanvas)
       .evaluate((root) =>
-        [...root.querySelectorAll('.react-flow__edge')].map((e) => e.getAttribute('class') ?? '')
+        Array.from(root.querySelectorAll('.react-flow__edge')).map((e) => e.getAttribute('class') ?? '')
       );
     for (const c of classes) expect(c).not.toMatch(/critical/i);
   });
