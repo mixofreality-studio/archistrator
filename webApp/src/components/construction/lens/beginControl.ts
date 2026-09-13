@@ -19,6 +19,7 @@
  *     never a hardcoded list.
  */
 import type { ConstructionRows, ConstructionStage } from '../../../contracts/types';
+import { rowIsInFlight } from '../list/activityScope.ts';
 
 export interface BeginControl {
   label: string;
@@ -132,11 +133,38 @@ export const UNKNOWN_OUTCOME_HOLD_MS = 60_000;
 /** The session stages at which no pump is running for the session. */
 const NO_PUMP_STAGES: ReadonlySet<ConstructionStage> = new Set(['exited', 'paused', 'unknown']);
 
+/** Whether a probed session stage is a live pump. `undefined` is no probe, or a
+ *  probe that established no session exists. */
+function sessionIsLive(stage: ConstructionStage | undefined): boolean {
+  return stage !== undefined && !NO_PUMP_STAGES.has(stage);
+}
+
+/**
+ * Whether the STATE shows construction in flight (fix-F review, root-cause
+ * ruling): any activity whose row state is running or awaiting a human (the one
+ * rowIsInFlight, so in-review counts), or any live session.
+ *
+ * This, not a timer, is what says a pump is running. The 30s no-progress
+ * watchdog used to decide it: 30s after the last integration it handed the label
+ * back to the read, and an ENABLED Begin or Resume stood beside a live session.
+ */
+export function constructionInFlight(state: {
+  rows: ConstructionRows | undefined;
+  sessionStage: ConstructionStage | undefined;
+}): boolean {
+  return anyRowInFlight(state.rows) || sessionIsLive(state.sessionStage);
+}
+
+/** Whether any row's state is running or awaiting a human (rowIsInFlight). */
+export function anyRowInFlight(rows: ConstructionRows | undefined): boolean {
+  return Object.values(rows ?? {}).some(rowIsInFlight);
+}
+
 /**
  * Whether the reads since `at` show the pump: the project says construction
- * started, or a session is live. Only reads NEWER than the failure count, so a
- * read that was already on screen before the dispatch failed is never taken as
- * an answer to it.
+ * started or shows an activity in flight, or a session is live. Only reads NEWER
+ * than the failure count, so a read that was already on screen before the
+ * dispatch failed is never taken as an answer to it.
  */
 export function pumpEvidencedSince(
   at: number,
@@ -144,17 +172,17 @@ export function pumpEvidencedSince(
     /** The project query's `dataUpdatedAt` (0 before any read), and what it said. */
     projectReadAt: number;
     constructionStarted: boolean | undefined;
+    /** Whether that read shows any activity in flight (rowIsInFlight). */
+    rowsInFlight: boolean;
     /** The session probe's `dataUpdatedAt`, and its stage. Stage is `undefined`
      *  when there is no probe, or the probe established that no session exists. */
     sessionReadAt: number;
     sessionStage: ConstructionStage | undefined;
   }
 ): boolean {
-  const started = reads.projectReadAt > at && reads.constructionStarted === true;
-  const live =
-    reads.sessionReadAt > at &&
-    reads.sessionStage !== undefined &&
-    !NO_PUMP_STAGES.has(reads.sessionStage);
+  const read = reads.projectReadAt > at;
+  const started = read && (reads.constructionStarted === true || reads.rowsInFlight);
+  const live = reads.sessionReadAt > at && sessionIsLive(reads.sessionStage);
   return started || live;
 }
 
@@ -178,23 +206,54 @@ export function beginHoldFor(
 
 /**
  * Whether the button reads "Construction running…" (disabled): a dispatch is
- * pending, or the poll is on for a run the console believes in.
+ * pending, or the STATE shows construction in flight (constructionInFlight).
  *
- * A dispatch that SUCCEEDED counts. So does an unknown outcome once the pump is
- * EVIDENCED (fix-E review I1). The pump showed itself, so the button must not
- * fall back to the read's label: a live session while `constructionStarted` is
- * still false read "Begin construction", enabled, with a pump running. A held or
- * expired unknown outcome does not count, and neither does a rejection.
+ * It is decided the same way on every path: after a success, after an unknown
+ * outcome, after a remount, and with no dispatch at all. No timer enters it
+ * (fix-F review, root-cause ruling). The unknown-outcome hold sits on top of it
+ * (beginControlFor's `awaitingPump`), so Begin and Resume are enabled only when
+ * nothing is pending, nothing is in flight, and no hold stands.
  */
-export function beginRunning(input: {
+export function beginRunning(input: { pending: boolean; inFlight: boolean }): boolean {
+  return input.pending || input.inFlight;
+}
+
+/** The project poll while a Begin is fresh, pending or held: fast enough to animate the cascade. */
+export const CASCADE_POLL_MS = 1500;
+/** The project poll while the state shows work in flight but the cascade has gone
+ *  quiet: slower, and never off, because only a read can say the work ended. */
+export const IN_FLIGHT_POLL_MS = 5000;
+
+/**
+ * The project read's poll interval. The 30s no-progress watchdog clears
+ * `cascading`, and that is ALL it does: it slows the poll, and never decides the
+ * label or whether Begin is enabled.
+ *
+ *   - fast while a dispatch is pending, while a failure in memory still awaits the
+ *     pump (so a remounted console polls for the evidence), or while cascading;
+ *   - slow while the state shows work in flight, so "Construction running…" ends
+ *     when the work does;
+ *   - off otherwise.
+ */
+export function consolePollMs(input: {
   pending: boolean;
+  awaitsPump: boolean;
   cascading: boolean;
-  failed: boolean;
-  hold: BeginHold;
-}): boolean {
-  if (input.pending) return true;
-  if (!input.cascading) return false;
-  return !input.failed || input.hold === 'evidenced';
+  inFlight: boolean;
+}): number | false {
+  if (input.pending || input.awaitsPump || input.cascading) return CASCADE_POLL_MS;
+  return input.inFlight ? IN_FLIGHT_POLL_MS : false;
+}
+
+/**
+ * Whether a failure has served its purpose and leaves memory (fix-F review): it
+ * was evidenced, and the state now shows nothing in flight. Kept, a remount
+ * would flash it and bring back a stale "Outcome unknown" alert. A held or expired
+ * failure stays (the hold and "Begin again?" still apply), and so does a rejection
+ * until it is dismissed.
+ */
+export function failureLeavesMemory(hold: BeginHold, inFlight: boolean): boolean {
+  return hold === 'evidenced' && !inFlight;
 }
 
 /** The alert's words once the hold has expired. The headline is the ruling verbatim. */

@@ -307,6 +307,38 @@ function inConstruction(activityId: string): (wire: WireProject) => void {
   };
 }
 
+/** Edit one row of the read to sit at the human code-review gate: BuildStatus 1
+ *  (BuildInReview). Its row state is "awaiting you", which is work in flight. */
+function inReview(activityId: string): (wire: WireProject) => void {
+  return (wire) => {
+    const row = wire.ActivityConstruction?.[activityId];
+    if (row === undefined) throw new Error(`no row ${activityId} in the read`);
+    row.classified = true;
+    row.hasBuildEvidence = true;
+    row.BuildStatus = 1;
+  };
+}
+
+/** The server accepted the dispatch. Answered in the browser; nothing is sent. */
+const SUCCESS = { status: 200, contentType: 'application/json', body: '{}' };
+
+/**
+ * A harness whose dispatch SUCCEEDS, with the pump's pickup of PICKED showing in
+ * every read from the answer on. The pickup lands with the answer here, so these
+ * cases pin the in-flight state, not the gap before a first read shows it (the
+ * fix-G report records that gap as a concern: the state is the authority, and
+ * until a read shows the pickup there is nothing in flight to show).
+ */
+async function harnessPickingUp(page: Page): Promise<Harness> {
+  const holder: { h?: Harness } = {};
+  const h = await harness(page, async (route) => {
+    if (holder.h !== undefined) holder.h.edit.fn = inConstruction(PICKED);
+    await route.fulfill(SUCCESS);
+  });
+  holder.h = h;
+  return h;
+}
+
 async function dispatchOnce(page: Page): Promise<number> {
   await openDialog(page);
   const at = Date.now();
@@ -568,7 +600,7 @@ test('I3: the hold expiring with no sign of the pump brings Begin back, asking "
   expect(h.trapped).toHaveLength(1);
 });
 
-test('I3: evidence lifts the hold before it expires: a read says construction started, and Begin reads as running', async ({
+test('I3: evidence lifts the hold: a read says construction started with nothing in flight, so the failure leaves and Resume is offered', async ({
   page,
 }) => {
   const h = await harness(page, (route) => route.fulfill(SERVER_500));
@@ -578,20 +610,24 @@ test('I3: evidence lifts the hold before it expires: a read says construction st
   await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
   await expectBeginHeldOff(page, 1_500);
 
-  // The pump stores its StartedAt, and the next read says so. Evidence means a pump
-  // is running, so the button says so and stays off (fix-E review I1). It used to
-  // fall back to the read's label: an enabled "Resume construction".
+  // The pump stores its StartedAt, and the next read says so: evidence. But no
+  // activity is in flight and no session is live, and the STATE decides the label
+  // (fix-F review, root-cause ruling). The failure has done its job and leaves
+  // memory, so its alert goes, and the button is the read's own: Resume.
   h.edit.fn = (wire) => {
     wire.constructionStarted = true;
   };
-  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
-  await expectRunning(page, 2_000);
+  await expect(alert).toBeHidden({ timeout: 10_000 });
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
 
-test('I3: evidence lifts the hold before it expires: a session goes live while constructionStarted is false, and Begin reads as running', async ({
+test('R2: a live session while constructionStarted is false reads as running, at 31s and at 90s', async ({
   page,
 }) => {
+  await page.clock.install();
   const h = await harness(page, (route) => route.fulfill(SERVER_500));
   const live = { on: false };
   const probes: string[] = [];
@@ -618,43 +654,51 @@ test('I3: evidence lifts the hold before it expires: a session goes live while c
   // to it: that was an ENABLED "Begin construction" beside a live session.
   await expectRunning(page, 2_000);
   expect(probes.length, 'the session was probed').toBeGreaterThan(0);
+
+  // 31s with no integration: the no-progress watchdog fires. It used to hand the
+  // label back to the read, an enabled "Begin construction" (fix-F review R2). It
+  // may only slow the poll now; the state still shows the pump, so it is running.
+  await page.clock.fastForward(31_000);
+  await expectRunning(page, 1_500);
+  // 90s: past the unknown-outcome hold too. Evidence ended the hold, so it never
+  // expires, and the state still decides.
+  await page.clock.fastForward(59_000);
+  await expectRunning(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced');
+  // The poll never stopped: only a read can say the work has ended.
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 12_000, message: 'reads while work is in flight' })
+    .toBeGreaterThan(before);
   expect(h.trapped).toHaveLength(1);
 });
 
-test('M4: a failed dispatch re-reads the session probes too, not only the project', async ({
+// M4 (fix-D review) pinned that a failed dispatch re-reads a session probe that
+// had settled as "no session". Under fix G that case cannot be reached: the only
+// row the console probes is the one in construction, and a row in construction is
+// work in flight, so Begin reads "Construction running…" and cannot be pressed
+// beside it. What stays reachable, and is pinned here: the ROW STATE alone holds
+// Begin off. The session probe has settled as absent (a 404), so no session term
+// helps it. (The refresh still invalidates the session probes; the fix-G report
+// records that this is no longer reachable from Begin.)
+test('M4 (fix G): a row in construction holds Begin off on its own, with its session probe settled as absent', async ({
   page,
 }) => {
-  // The corpus has no in-construction row, so nothing probes a session. One row is
-  // made in construction in the read, and its probe settles as "no session" (a
-  // 404), after which it stops polling. Only the failure's refresh can re-read it.
-  const h = await harness(page, (route) =>
-    route.fulfill({
-      status: 400,
-      contentType: 'application/json',
-      body: JSON.stringify({ code: 'contract_misuse', error: 'empty tickId' }),
-    })
-  );
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
   h.edit.fn = inConstruction(PICKED);
   const probes: number[] = [];
   await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
     probes.push(Date.now());
     await route.fulfill({ status: 404, json: { code: 'not_found', error: 'no session' } });
   });
-  await openConsole(page);
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionBegin)).toBeVisible({ timeout: 15_000 });
   await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
-  await page.waitForTimeout(1_500);
-  const settled = probes.length;
-
-  await dispatchOnce(page);
-  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveAttribute(
-    'data-outcome',
-    'rejected',
-    { timeout: 10_000 }
-  );
-  await expect
-    .poll(() => probes.length, { timeout: 5_000, message: 'the session probe re-read' })
-    .toBeGreaterThan(settled);
-  expect(h.trapped).toHaveLength(1);
+  await expectRunning(page, 1_500);
+  await page.clock.fastForward(31_000);
+  await expectRunning(page, 1_500);
+  expect(h.trapped).toEqual([]);
 });
 
 // ---------------------------------------------------------------------------
@@ -711,6 +755,11 @@ test('I2: after a 500, a trip to /design and back keeps Begin held and the alert
   await dispatchOnce(page);
   const alert = page.getByTestId(TESTID.constructionBeginError);
   await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+  // The mutation has SETTLED before the console is left (fix-F review): its refresh
+  // is done, so the label is the hold's "Checking…", not a pending dispatch's
+  // "running". Nothing is pending on return, and the state shows nothing in flight,
+  // so only the failure in module memory can restart the remounted console's poll.
+  await expect(page.getByTestId(TESTID.constructionBegin)).toHaveText(/Checking construction…/);
 
   await markDocument(page);
   await awayToDesign(page);
@@ -806,10 +855,12 @@ test('I2: a 500 that lands while the console is away is still recorded, and a pe
   expect(h.trapped).toHaveLength(1);
 });
 
-test('I2 + I1: after a remount, evidence still reads as running', async ({ page }) => {
-  // A remounted console has no progress of its own to time the poll from. It
-  // times it from the failure, so evidence arriving after the trip reads as a
-  // running pump, not as the read's clickable label.
+test('I2 + I1: after a remount, evidence of work in flight still reads as running', async ({
+  page,
+}) => {
+  // A remounted console has no progress of its own to go by, and does not need
+  // any: evidence arriving after the trip is an activity in flight, and the state
+  // says "running", not the read's clickable label.
   const h = await harness(page, (route) => route.fulfill(SERVER_500));
   await openConsole(page);
   await dispatchOnce(page);
@@ -820,10 +871,220 @@ test('I2 + I1: after a remount, evidence still reads as running', async ({ page 
   await backToConsole(page);
   await expect(alert).toHaveAttribute('data-hold', 'held');
 
-  h.edit.fn = (wire) => {
-    wire.constructionStarted = true;
-  };
+  h.edit.fn = inConstruction(PICKED);
   await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
   await expectRunning(page, 3_000);
   expect(h.trapped).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Fix round G: the label follows STATE, not timers (fix-F review, root-cause
+// ruling). "Construction running…", disabled, shows whenever an activity's row
+// state is running or awaiting a human, or a session is live, on every path. The
+// 30s no-progress watchdog only slows the poll. Begin/Resume are enabled only when
+// nothing is in flight and no hold stands.
+//
+// SAFETY: as above. Every dispatch is answered in the browser (a 500 or a 200);
+// reads go to the server as GETs, at most edited in the browser.
+// ---------------------------------------------------------------------------
+
+test('R1b: evidence that arrives at 35s still reads as running past 60s, and at 95s', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // 35s held, past the watchdog's 30s. Then the pump shows itself: it picks PICKED
+  // up and stores its StartedAt.
+  await page.clock.fastForward(35_000);
+  await expectBeginHeldOff(page, 1_000);
+  h.edit.fn = (wire) => {
+    inConstruction(PICKED)(wire);
+    wire.constructionStarted = true;
+  };
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 1_500);
+
+  // 61s since the failure: past the watchdog and the hold. It used to read
+  // "running" for about 1.5s here and then offer an enabled Resume.
+  await page.clock.fastForward(26_000);
+  await expectRunning(page, 2_000);
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced');
+  await page.clock.fastForward(34_000);
+  await expectRunning(page, 2_000);
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 12_000, message: 'reads while work is in flight' })
+    .toBeGreaterThan(before);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success with an activity running reads as running at 45s; with nothing in flight, Resume is offered', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harnessPickingUp(page);
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+  await expectRunning(page, 1_500);
+
+  // 45s with no integration: the watchdog has fired. It only slowed the poll.
+  await page.clock.fastForward(45_000);
+  await expectRunning(page, 2_000);
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+
+  // The work ends: nothing in flight by state, and the pump did start. The slow
+  // poll sees it, and the button is the read's own.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success answered after 33s pending still polls fast for the pickup', async ({ page }) => {
+  // The watchdog never runs while a dispatch is pending, but it times from Begin. A
+  // success answered past its 30s window used to leave the fast poll to stop at
+  // once, and with nothing yet in flight there was no slow poll either: the pickup
+  // in a later read was never seen. The answer re-arms the window.
+  await page.clock.install();
+  const pending: { answer?: () => Promise<void> } = {};
+  const h = await harness(
+    page,
+    (route) =>
+      new Promise<void>((resolve) => {
+        pending.answer = async () => {
+          await route.fulfill(SUCCESS);
+          resolve();
+        };
+      })
+  );
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+  await page.clock.fastForward(33_000);
+  if (pending.answer === undefined) throw new Error('the dispatch was never held');
+  await pending.answer();
+  // The answer's refresh reads "nothing in flight". Wait past several watchdog
+  // ticks (1.5s each): without the re-arm the first tick ends the fast poll, and
+  // with nothing in flight nothing polls at all. With it, reads keep coming.
+  await page.waitForTimeout(4_500);
+  const mark = Date.now();
+  await page.waitForTimeout(3_500);
+  expect(
+    h.reads.filter((t) => t > mark).length,
+    'reads after the answer, past the watchdog’s first ticks'
+  ).toBeGreaterThan(0);
+  // The pump then picks PICKED up, and only a later read can show it.
+  h.edit.fn = inConstruction(PICKED);
+  await expectRunning(page, 1_000);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('an evidenced failure leaves memory once nothing is in flight: the alert goes, and a remount does not bring it back', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  await openConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // Evidence, with work in flight: the failure stays while the pump runs.
+  h.edit.fn = inConstruction(PICKED);
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 1_000);
+  await expect(alert).toBeVisible();
+
+  // The work ends. The failure has done its job: it leaves memory.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  await expect(alert).toBeHidden({ timeout: 10_000 });
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toBeEnabled();
+
+  // A remount finds nothing in memory: no flash of the old alert, and no hold.
+  await markDocument(page);
+  await awayToDesign(page);
+  await backToConsole(page);
+  await expectSameDocument(page);
+  const until = Date.now() + 1_500;
+  while (Date.now() < until) {
+    expect(await alert.count(), 'the stale alert came back on remount').toBe(0);
+    await page.waitForTimeout(150);
+  }
+  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a remount after a SUCCESSFUL dispatch still reads as running while work is in flight, and keeps polling', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harnessPickingUp(page);
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+  await expectRunning(page, 1_000);
+
+  await markDocument(page);
+  await awayToDesign(page);
+  await backToConsole(page);
+  await expectSameDocument(page);
+  // The remounted console has no cascade of its own, no pending dispatch and no
+  // failure in memory. The state alone says running, and the poll goes on.
+  await expectRunning(page, 1_500);
+  await page.clock.fastForward(31_000);
+  await expectRunning(page, 1_500);
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 12_000, message: 'reads after the remount' })
+    .toBeGreaterThan(before);
+
+  // And when the work ends, the remounted console sees it.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('with no dispatch at all, an activity in review reads as running, past 30s, until it leaves review', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = inReview(PICKED);
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toBeVisible({ timeout: 15_000 });
+  // In review is work in flight (the one rowIsInFlight): it is owed a human
+  // decision, and the pump is not idle while it waits.
+  await expectRunning(page, 1_500);
+  await page.clock.fastForward(31_000);
+  await expectRunning(page, 1_500);
+  // No Begin armed a cascade here; the slow in-flight poll still re-reads.
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 12_000, message: 'reads while in review' })
+    .toBeGreaterThan(before);
+
+  // The real read: nothing in flight, never started.
+  h.edit.fn = null;
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toEqual([]);
 });

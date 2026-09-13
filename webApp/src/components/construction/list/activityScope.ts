@@ -48,6 +48,7 @@ import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../prov
 import type { ScopeId, SortId, ToolbarState } from '../lens/useLensSelection.ts';
 import { activityRowState, currentStageMarker } from './activityRowPresentation.ts';
 import type { ActivityNode, TaskNode } from './activityTree.ts';
+import type { ConstructionRow } from '../../../contracts/types.ts';
 
 // ---------------------------------------------------------------------------
 // Scope chips
@@ -256,7 +257,16 @@ export function applyToolbarToActivities(
  * scope chips are views, not a partition.
  */
 export function isInFlight(node: ActivityNode): boolean {
-  const state = activityRowState(node.row);
+  return rowIsInFlight(node.row);
+}
+
+/**
+ * The same rule over a bare row, for readers that hold rows rather than tree
+ * nodes. The Begin control reads it (beginControl.constructionInFlight), so the
+ * button and the "In flight" chip agree on what is in flight.
+ */
+export function rowIsInFlight(row: ConstructionRow): boolean {
+  const state = activityRowState(row);
   return state === 'running' || state === 'awaitingHuman';
 }
 

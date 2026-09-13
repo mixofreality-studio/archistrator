@@ -61,11 +61,15 @@ import {
 } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
+  anyRowInFlight,
   beginControlFor,
   beginHoldFor,
   beginRunning,
+  constructionInFlight,
+  consolePollMs,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
+  failureLeavesMemory,
   holdExpiredCopy,
   notStartedActivities,
   pumpEvidencedSince,
@@ -153,18 +157,29 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // permanently `running` (they are not live pump work); progress (the done count) is the
   // honest signal that the pump is actively completing activities.
   //
-  // A remount must not stop the poll a held Begin depends on (fix-E review I2). The
-  // console comes back polling when a dispatch is still in flight, or when module
-  // memory holds an unknown outcome whose hold has not run out.
+  //
+  // `cascading` governs only the poll's CADENCE (consolePollMs), never the label
+  // (fix-F review, root-cause ruling). The poll stays on, fast, while a dispatch is
+  // pending or a failure in module memory still awaits the pump, so a remount
+  // cannot stop the poll a held Begin depends on (fix-E review I2). It stays on,
+  // slower, while the STATE shows work in flight, however long ago the last
+  // integration was, because only a read can say the work has ended.
   const beginPending = useBeginConstructionPending(projectId);
-  const [cascading, setCascading] = useState(
-    () => beginPending || failureAwaitsPump(readBeginFailure(projectId))
-  );
+  const beginFailure = useBeginFailure(projectId);
+  const [cascading, setCascading] = useState(false);
+  const failureAwaitsPumpNow = failureAwaitsPump(beginFailure);
   const {
     data: project,
     isLoading: projectLoading,
     dataUpdatedAt: projectReadAt,
-  } = useProject(projectId, cascading ? 1500 : false);
+  } = useProject(projectId, (read) =>
+    consolePollMs({
+      pending: beginPending,
+      awaitsPump: failureAwaitsPumpNow,
+      cascading,
+      inFlight: anyRowInFlight(read?.constructionRows),
+    })
+  );
 
   const integratedCount = useMemo(() => {
     const rows = project?.constructionRows;
@@ -304,7 +319,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // pump one click away. The failure (its `at`, the alert's `dismissed`, the
   // hold's `holdExpired`) lives in module memory keyed by project, so a remount
   // keeps it (beginFailureMemory, fix-E review I2).
-  const beginFailure = useBeginFailure(projectId);
   const onBegin = (tickId: string): void => {
     if (beginInFlightRef.current || beginPending) return;
     beginInFlightRef.current = true;
@@ -312,6 +326,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     writeBeginFailure(projectId, null);
     setCascading(true);
     begin.mutate(tickId, {
+      // The fast poll runs its full window from the ANSWER: a dispatch pending past
+      // the watchdog's 30s would otherwise come back to a slow poll, or none, just
+      // as the pump picks its first activity up. Cadence only; the label is state's.
+      onSuccess: () => {
+        lastProgressAtRef.current = Date.now();
+        setCascading(true);
+      },
       onError: () => {
         // The mutation's own onError has recorded the failure. A refusal started
         // nothing, so there is nothing to wait on. Anything else keeps polling,
@@ -324,27 +345,39 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       },
     });
   };
+  // What the STATE says is in flight: any activity running or awaiting a human, or
+  // a live session (constructionInFlight). It alone decides "Construction running…".
+  const inFlight = constructionInFlight({
+    rows: project?.constructionRows,
+    sessionStage: phaseGateSession?.stage,
+  });
   // Pump evidence counts only from reads NEWER than the failure: the project says
-  // construction started, or the probed session is live (pumpEvidencedSince).
+  // construction started or shows work in flight, or the probed session is live
+  // (pumpEvidencedSince).
   const pumpEvidenced =
     beginFailure !== null &&
     pumpEvidencedSince(beginFailure.at, {
       projectReadAt,
       constructionStarted: project?.constructionStarted,
+      rowsInFlight: anyRowInFlight(project?.constructionRows),
       sessionReadAt: phaseGateSessionQuery.dataUpdatedAt,
       sessionStage: phaseGateSession?.stage,
     });
   const beginHold = beginHoldFor(beginFailure, pumpEvidenced);
-  // "Construction running…", disabled: a dispatch in flight, one that succeeded,
-  // or an unknown outcome once the pump is evidenced (beginRunning, fix-E review
-  // I1). Evidence used to hand the label back to the read, which offered an
-  // enabled "Begin construction" beside a live session.
-  const beginActive = beginRunning({
-    pending: beginPending,
-    cascading,
-    failed: beginFailure !== null,
-    hold: beginHold,
-  });
+  // "Construction running…", disabled: a dispatch pending, or work in flight by
+  // state (beginRunning). The same rule on the success path, the failure path and
+  // after a remount; no timer enters it (fix-F review, root-cause ruling).
+  const beginActive = beginRunning({ pending: beginPending, inFlight });
+  // An evidenced failure has done its job once the state shows nothing in flight,
+  // and leaves memory: kept, a remount would flash it and bring back a stale
+  // "Outcome unknown" alert (fix-F review). The write runs in an effect, keyed by
+  // the failure it clears, so a newer failure is never the one removed.
+  const leavingAt =
+    beginFailure !== null && failureLeavesMemory(beginHold, inFlight) ? beginFailure.at : undefined;
+  useEffect(() => {
+    if (leavingAt === undefined) return;
+    writeBeginFailure(projectId, (f) => (f !== null && f.at === leavingAt ? null : f));
+  }, [leavingAt, projectId]);
   // The bounded hold. It runs from the failure, and evidence clears it. When it
   // expires with no evidence, Begin comes back and the alert, shown again even if
   // it was dismissed, says there was no sign of the pump. The setState runs in the
