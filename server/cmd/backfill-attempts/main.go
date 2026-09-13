@@ -297,7 +297,7 @@ func integrationGates(p projectstate.Project, list projectstate.ActivityList, by
 
 // activityDependencies resolves slot 10 into each planned activity's direct ACTIVITY
 // dependencies, sorted and de-duplicated. A milestone is expanded into the activities it
-// depends on, recursively — the pump's own reading (resolveDependencySatisfied), under
+// depends on, recursively — the pump's own reading (projectstate.ResolveDependencySatisfied), under
 // which a milestone with no DependsOn (M0, the project-start gate) is satisfied. An id that
 // names neither a planned activity nor a milestone, a milestone cycle, and a dependency row
 // for an activity the plan does not hold are all refused: the graph must be whole for the

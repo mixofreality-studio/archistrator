@@ -210,11 +210,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   //
   //
   // `cascading` governs only the poll's CADENCE (consolePollMs), never the label
-  // (fix-F review, root-cause ruling). The poll stays on, fast, while a dispatch is
-  // pending or a failure in module memory still awaits the pump, so a remount
-  // cannot stop the poll a held Begin depends on (fix-E review I2). It stays on,
-  // slower, while the STATE shows work in flight, however long ago the last
-  // integration was, because only a read can say the work has ended.
+  // (fix-F review, root-cause ruling). The poll stays fast (1.5s) while a dispatch
+  // is pending, while a failure or a success in module memory still awaits the
+  // pump, or while cascading, so a remount cannot slow the poll a held Begin
+  // depends on (fix-E review I2). It is 5s while a ROW shows work in flight,
+  // however long ago the last integration was, because only a read can say the
+  // work has ended. Otherwise it never stops: it refreshes every 10s (the TASKS
+  // freshness cadence, below).
   const beginPending = useBeginConstructionPending(projectId);
   const beginFailure = useBeginFailure(projectId);
   // A successful dispatch whose pickup no read has shown yet (fix H). Module
@@ -224,9 +226,14 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // The poll's cadence is consolePollMs's. Where that would stop, the read still
   // refreshes on the TASKS freshness cadence: the owed set's probe candidates come
   // from it, and a gate on an activity started by the sweep, another tab or MCP
-  // must not stay invisible (review I3). Its in-flight term reads the rows alone,
-  // without the owed set (which is derived from this very read): it only sets the
-  // cadence, and the owed set can only turn a running row into a failed one.
+  // must not stay invisible (review I3). Its in-flight term is ONLY the row term of
+  // the in-flight set (anyRowInFlight over this read's rows). The rest of the set
+  // is derived after this read and is left out: the owed set (it can only move a
+  // running row to awaiting, still in flight, or to failed, so leaving it out can
+  // only make the poll faster), and the live sessions and pending probes (an
+  // activity in flight only by its session is refreshed on the 10s freshness
+  // cadence, and its session probe polls on its own). The label, Begin and the
+  // counts read the whole set (inFlightIds, below); this term sets only the cadence.
   const failureAwaitsPumpNow = failureAwaitsPump(beginFailure);
   const { data: project, isLoading: projectLoading } = useProject(projectId, (read) => {
     const ms = consolePollMs({

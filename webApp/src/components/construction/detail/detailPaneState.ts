@@ -622,14 +622,6 @@ export function detailActionsFor(state: TaskDetailState, run: DetailAction): Det
   return actions;
 }
 
-/**
- * The action bar on a REVIEW-ONLY selection: a steer-needed or failed activity,
- * until follow-up B1 delivers the operator's note to the next attempt (PM
- * must-hold). Run is still in the bar, because Run is always present (spec §7.8,
- * §9.3; tasks merge review I2 ruling). It is disabled, and its reason is the
- * review-only one. Nothing else is offered: no Approve or Send back, and never a
- * Retry, Re-queue or Skip.
- */
 /** Why Approve / Send back are off — said on hover (final review minor: an owed gate
  *  with no lifecycle phase disabled both with no reason at all). */
 export const DECISION_NO_PHASE_REASON =
@@ -655,6 +647,14 @@ export function decisionActionState(
   return { disabled: false };
 }
 
+/**
+ * The action bar on a REVIEW-ONLY selection: a steer-needed or failed activity,
+ * until follow-up B1 delivers the operator's note to the next attempt (PM
+ * must-hold). Run is still in the bar, because Run is always present (spec §7.8,
+ * §9.3; tasks merge review I2 ruling). It is disabled, and its reason is the
+ * review-only one. Nothing else is offered: no Approve or Send back, and never a
+ * Retry, Re-queue or Skip.
+ */
 export function reviewOnlyActionsFor(run: DetailAction): DetailAction[] {
   return [{ ...run, disabled: true, reason: REVIEW_ONLY_NOTE }];
 }

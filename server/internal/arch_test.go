@@ -584,9 +584,12 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                             sub-rows and the EV curve all read.
 		//	ResolvePhaseCompletions    → the systemdesign Manager (resolvedPhaseCompletions,
 		//	                             the name its view-model tests pin the rule under).
-		//	EffectiveConstructionPhase → the construction Manager (isActivityNotStarted,
-		//	                             resolveDependencySatisfied): stored state where the
-		//	                             pump wrote it, the attempt ledger where it did not.
+		//	EffectiveConstructionPhase → the construction Manager (isActivityNotStarted) and
+		//	                             the systemdesign Manager (isPendingResume): stored
+		//	                             state where the pump wrote it, the attempt ledger
+		//	                             where it did not. (The dependency rule that also
+		//	                             reads it, ResolveDependencySatisfied, now lives in
+		//	                             this package; see the list below.)
 		//
 		// phaseCompleteFromAttempts left this list in the same move. Its only outside caller
 		// was the view-model's copy of ResolvePhaseCompletions, which now lives here.
