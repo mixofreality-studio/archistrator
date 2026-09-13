@@ -11,7 +11,7 @@
  * SAFETY: the probe path does not exist on the server. A guard that failed would
  * only ever reach a 404, never a real write.
  */
-import type { Page } from '@playwright/test';
+import type { Page, Route } from '@playwright/test';
 import { test, expect, type DispatchGuard } from './support/dispatchGuard.js';
 import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -159,3 +159,55 @@ for (const [cleanup, probe] of [
     });
   });
 }
+
+// ---------------------------------------------------------------------------
+// Fix I (graph review minor): the fixture's TEARDOWN abort, pinned on its own.
+//
+// The cases above clean up with `unrouteAll` or `unroute`, whose patches abort the
+// holds first — so they would still pass with the teardown's own abort removed. Here
+// the test ends holding a POST and cleans up NOTHING: no release, no unroute, no
+// unrouteAll. Only the guard's teardown can end that hold, and it must end it as an
+// abort, never an answer. The route handed to the hold records the guard's abort.
+//
+// SAFETY: the probe path does not exist on the server; had the POST escaped, the
+// GET-only proxy would refuse (and log) it.
+// ---------------------------------------------------------------------------
+
+const TEARDOWN_PROBE = '/api/v1/__dispatch-guard-teardown-probe';
+/** What the guard did with the held POST, recorded from inside the hold. */
+const teardownHold = { held: 0, aborted: 0, answered: 0 };
+
+test.describe('a held write the test never cleans up at all', () => {
+  test.describe.configure({ mode: 'serial' });
+
+  test('a test that ends holding a POST, with no release, unroute or unrouteAll', async ({
+    page,
+    dispatchGuard,
+  }) => {
+    await gotoApp(page, '/project/archistrator/construction?lens=list');
+    const hold = dispatchGuard.hold();
+    await page.route(`**${TEARDOWN_PROBE}`, (route) => {
+      teardownHold.held += 1;
+      // The guard ends a hold through the route it was handed: this one records it.
+      const recording = {
+        abort: async (errorCode?: string): Promise<void> => {
+          teardownHold.aborted += 1;
+          await route.abort(errorCode);
+        },
+      } as unknown as Route;
+      return hold.handle(recording, async () => {
+        teardownHold.answered += 1;
+        await route.fulfill({ status: 200, json: {} });
+      });
+    });
+    void page
+      .evaluate((url) => fetch(url, { method: 'POST', body: '{}' }).then(() => undefined), TEARDOWN_PROBE)
+      .catch(() => undefined);
+    await expect.poll(() => teardownHold.held).toBe(1);
+    expect(teardownHold.aborted, 'nothing has aborted it before the test ends').toBe(0);
+  });
+
+  test("the guard's teardown aborted it: never answered, never let out", () => {
+    expect(teardownHold).toEqual({ held: 1, aborted: 1, answered: 0 });
+  });
+});
