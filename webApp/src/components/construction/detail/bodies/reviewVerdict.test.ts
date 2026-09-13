@@ -84,7 +84,9 @@ void test('the statement names the dropped signal rather than blaming this surfa
     reviewVerdictFor(row({ produced: [produced({ note: 'merged' })] }), undefined),
     reviewVerdictFor(row(), REVIEW_SET),
   ]) {
-    assert.match(verdict.statement, /awaitPhaseDecision never dereferences sig\.Feedback/);
+    // The engineering reason is kept — in the tooltip, not the sentence (P1-7).
+    assert.match(verdict.detail, /awaitPhaseDecision never dereferences sig\.Feedback/);
+    assert.doesNotMatch(verdict.statement, /sig\.Feedback/);
   }
 });
 
@@ -95,8 +97,12 @@ void test('a live reviewer set is WHO WAS ASKED, and says so', () => {
     verdict.reviewers.map((r) => r.role),
     ['system-architect', 'qa-engineer']
   );
-  assert.match(verdict.statement, /who was asked to look/);
-  assert.match(verdict.statement, /No per-reviewer verdict is recorded/);
+  assert.equal(
+    verdict.statement,
+    'Reviewer verdicts aren’t recorded yet — this is who was asked, not what they said.'
+  );
+  assert.match(verdict.detail, /who was asked to look/);
+  assert.match(verdict.detail, /No per-reviewer verdict is recorded/);
   // No reviewer carries an outcome, because none is stored.
   for (const reviewer of verdict.reviewers) {
     assert.equal('verdict' in reviewer, false);

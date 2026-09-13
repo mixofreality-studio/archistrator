@@ -13,6 +13,7 @@ import type { RankedOwed } from './owedRanking.ts';
 import {
   allClearHeadlineFor,
   askFor,
+  beginLinkLabel,
   ciVerdictFor,
   uncheckedErroredLine,
   uncheckedPendingLine,
@@ -142,14 +143,17 @@ void test('the empty state counts come from the statuses it is handed', () => {
     ['D', 'integrated'],
   ]);
   const counts = emptyStateCounts(statuses, 1);
-  assert.deepEqual(counts, { eligible: 2, inFlight: 1, blocked: 1 });
-  assert.equal(emptyStateLine(counts), '2 eligible · 1 in flight · 1 blocked');
+  assert.deepEqual(counts, { eligible: 2, inFlight: 1, blocked: 1, done: 1 });
+  // "· N done": the work already behind you (designer P2).
+  assert.equal(emptyStateLine(counts), '2 eligible · 1 in flight · 1 blocked · 1 done');
   // A different split moves the numbers — nothing is hardcoded.
   assert.deepEqual(emptyStateCounts(new Map([['A', 'blocked']]), 0), {
     eligible: 0,
     inFlight: 0,
     blocked: 1,
+    done: 0,
   });
+  assert.equal(beginLinkLabel('Begin construction', 4), 'Begin construction — 4 eligible');
 });
 
 // --- the row's triage fields -----------------------------------------------------

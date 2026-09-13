@@ -62,6 +62,7 @@ import MenuItem from '@mui/material/MenuItem';
 import Select from '@mui/material/Select';
 import TextField from '@mui/material/TextField';
 import Tooltip from '@mui/material/Tooltip';
+import Link from '@mui/material/Link';
 import Typography from '@mui/material/Typography';
 import useMediaQuery from '@mui/material/useMediaQuery';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
@@ -225,6 +226,9 @@ export interface DetailPaneProps {
    * agent (the PM's must-hold): no actions at all, and a muted line saying so.
    */
   owed?: { mark: OwedMark; sentence?: string | undefined } | undefined;
+  /** The next owed decision, offered in the drawer's footer below 1200px, where
+   *  the TASKS table is hidden behind the drawer (designer P2). */
+  nextDecision?: { label: string; onClick: () => void } | undefined;
   onClose: () => void;
 }
 
@@ -239,6 +243,7 @@ export function DetailPane({
   hiddenAttempts,
   decision,
   owed,
+  nextDecision,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -512,6 +517,19 @@ export function DetailPane({
           {body}
         </Box>
         {actionBar}
+        {nextDecision !== undefined ? (
+          <Box sx={{ px: 2, py: 1, borderTop: `1px solid ${t.line}`, bgcolor: t.paperAlt }}>
+            <Link
+              component="button"
+              data-testid={UI_IDENTIFIERS.Construction.DETAIL_NEXT_DECISION}
+              sx={{ fontFamily: t.mono, fontSize: 11.5, fontWeight: 700, color: t.accent2 }}
+              underline="hover"
+              onClick={nextDecision.onClick}
+            >
+              {nextDecision.label}
+            </Link>
+          </Box>
+        ) : null}
       </Box>
     </Drawer>
   );

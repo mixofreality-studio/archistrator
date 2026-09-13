@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 
 import type { NetworkModel, ReviewPolicyView } from '../../../contracts/types.ts';
 import type { OwedItem } from './owedWork.ts';
-import { downstreamOf, rankOwed, whyFor } from './owedRanking.ts';
+import { downstreamOf, nextOwedAfter, rankOwed, whyFor, type RankedOwed } from './owedRanking.ts';
 
 function net(
   deps: [string, string[]][],
@@ -183,4 +183,13 @@ void test('risk floor first, then blast radius descending, then activity id', ()
   assert.ok(aaa);
   assert.equal('float' in aaa.blast, false);
   assert.equal('onCriticalPath' in aaa.blast, false);
+});
+
+void test('the drawer offers the next owed decision in the lens order, wrapping (designer P2)', () => {
+  const ranked = ['A', 'B', 'C'].map((id) => ({ activityId: id }) as unknown as RankedOwed);
+  assert.equal(nextOwedAfter(ranked, 'A')?.activityId, 'B');
+  assert.equal(nextOwedAfter(ranked, 'C')?.activityId, 'A');
+  assert.equal(nextOwedAfter(ranked, 'Z')?.activityId, 'A');
+  assert.equal(nextOwedAfter([], 'A'), undefined);
+  assert.equal(nextOwedAfter(ranked.slice(0, 1), 'A'), undefined);
 });

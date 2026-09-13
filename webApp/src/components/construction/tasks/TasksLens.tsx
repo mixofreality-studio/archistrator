@@ -35,7 +35,6 @@ import Button from '@mui/material/Button';
 import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
-import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 
 import type { GitRow, ReviewPolicyView } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
@@ -52,6 +51,7 @@ import { OWED_CHIP } from './owedChip.ts';
 import {
   allClearHeadlineFor,
   askFor,
+  beginLinkLabel,
   ciVerdictFor,
   emptyStateLine,
   filteredLineFor,
@@ -426,12 +426,15 @@ function OwedRow({
           {askFor(item)}
         </Typography>
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25, mt: 0.5, fontFamily: t.mono }}>
-          <Typography
-            data-testid={cell('shape')}
-            sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
-          >
-            {shape}
-          </Typography>
+          {/* "—" says nothing a reader needs before "no CI record" (designer P2). */}
+          {shape !== '—' ? (
+            <Typography
+              data-testid={cell('shape')}
+              sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+            >
+              {shape}
+            </Typography>
+          ) : null}
           <Typography
             data-testid={cell('ci')}
             sx={{
@@ -493,10 +496,38 @@ function OwedRow({
 
       {/* WAITING */}
       <Cell area="wait" caption="Waiting" t={t} testid={cell('waiting')}>
-        <Unknown t={t} tooltip={WAITING_UNKNOWN_TOOLTIP} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}>
-          {item.reason === 'gate' ? roundLabel(item.round) : ''}
-        </Typography>
+        {/* Folded, WAITING reads on one line — "— · round —" (designer P2). */}
+        <Box
+          sx={{
+            display: 'flex',
+            flexDirection: 'column',
+            [FOLD]: { flexDirection: 'row', alignItems: 'baseline', gap: 0.5 },
+          }}
+        >
+          <Unknown t={t} tooltip={WAITING_UNKNOWN_TOOLTIP} />
+          {item.reason === 'gate' ? (
+            <>
+              <Typography
+                component="span"
+                sx={{
+                  display: 'none',
+                  fontFamily: t.mono,
+                  fontSize: 10.5,
+                  color: t.muted,
+                  [FOLD]: { display: 'inline' },
+                }}
+              >
+                ·
+              </Typography>
+              <Typography
+                data-testid={cell('round')}
+                sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+              >
+                {roundLabel(item.round)}
+              </Typography>
+            </>
+          ) : null}
+        </Box>
       </Cell>
 
       {/* BLAST */}
@@ -747,26 +778,25 @@ function NothingNeedsYou({
         {emptyStateLine(empty.counts)}
       </Typography>
       {empty.resume !== undefined ? (
-        <Button
+        // A link, not a second primary button beside the header's own (designer
+        // P2) — and it says what it would start with. Same confirm step.
+        <Link
+          component="button"
           data-testid={UI_IDENTIFIERS.Construction.TASKS_RESUME}
           disabled={empty.resume.disabled}
-          size="small"
-          startIcon={<PlayArrowRoundedIcon />}
           sx={{
             mt: 0.5,
             fontFamily: t.mono,
             fontWeight: 700,
             fontSize: 12,
-            textTransform: 'none',
-            color: t.bg,
-            bgcolor: t.accent,
-            '&:hover': { bgcolor: t.accent2 },
+            color: t.accent2,
+            '&:disabled': { color: t.muted, cursor: 'default', textDecoration: 'none' },
           }}
-          variant="contained"
+          underline="hover"
           onClick={empty.resume.onClick}
         >
-          {empty.resume.label}
-        </Button>
+          {beginLinkLabel(empty.resume.label, empty.counts.eligible)}
+        </Link>
       ) : null}
     </Box>
   );

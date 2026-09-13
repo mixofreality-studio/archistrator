@@ -419,6 +419,8 @@ export const UI_IDENTIFIERS = {
     // the body's lead line (designer P0-1, P1-4).
     DETAIL_DECISION_CAPTION: 'construction-detail-decision-caption',
     DETAIL_DECISION_LEAD: 'construction-detail-decision-lead',
+    // The drawer's footer link to the next owed decision, below 1200px (designer P2).
+    DETAIL_NEXT_DECISION: 'construction-detail-next-decision',
     // A steer-needed or failed activity in the pane: why it is owed, and why it
     // is review-only (designer P0-2, the PM's must-hold).
     DETAIL_OWED_REASON: 'construction-detail-owed-reason',

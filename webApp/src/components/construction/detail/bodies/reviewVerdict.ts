@@ -59,14 +59,24 @@ export interface ReconstructedNote {
  */
 export const RECONSTRUCTED_VERDICT_STAMP = '≈ reconstructed from the produced-record note';
 
-const REVIEWER_SET_STATEMENT =
+// The plain sentence (designer P1-7) and, for the tooltip, the engineering detail
+// behind it — the reader first learns WHAT is missing, and only on hover why.
+export const REVIEWER_SET_STATEMENT =
+  'Reviewer verdicts aren’t recorded yet — this is who was asked, not what they said.';
+
+const REVIEWER_SET_DETAIL =
   'This is the reviewer set the reviewEngine computed — who was asked to look. No per-reviewer verdict is recorded anywhere: the construction gate drops the reviewer feedback it is handed (awaitPhaseDecision never dereferences sig.Feedback), so what they answered was never written down.';
 
 const RECONSTRUCTED_STATEMENT =
+  'No verdict was recorded for this review — what survives is prose on the produced records, shown below as prose.';
+
+const RECONSTRUCTED_DETAIL =
   'No structured verdict exists for this review — the construction gate drops the reviewer feedback it is handed (awaitPhaseDecision never dereferences sig.Feedback). What survives is prose on the activity’s produced records, reproduced below AS prose.';
 
-const NONE_STATEMENT =
-  'No verdict and no reviewer set are recorded for this review. The construction gate drops the reviewer feedback it is handed (awaitPhaseDecision never dereferences sig.Feedback), so an approved gate leaves no trace of who approved it or why.';
+const NONE_STATEMENT = 'No verdict and no reviewer set are recorded for this review.';
+
+const NONE_DETAIL =
+  'The construction gate drops the reviewer feedback it is handed (awaitPhaseDecision never dereferences sig.Feedback), so an approved gate leaves no trace of who approved it or why.';
 
 export interface ReviewVerdictView {
   source: VerdictSource;
@@ -77,6 +87,8 @@ export interface ReviewVerdictView {
   /** Present exactly when `notes` is non-empty. */
   stamp?: string;
   statement: string;
+  /** The engineering reason, for the statement's tooltip (designer P1-7). */
+  detail: string;
 }
 
 function noteFrom(artifact: ProducedArtifactRow, index: number): ReconstructedNote {
@@ -116,6 +128,12 @@ export function reviewVerdictFor(
         : source === 'reconstructedNote'
           ? RECONSTRUCTED_STATEMENT
           : NONE_STATEMENT,
+    detail:
+      source === 'reviewerSet'
+        ? REVIEWER_SET_DETAIL
+        : source === 'reconstructedNote'
+          ? RECONSTRUCTED_DETAIL
+          : NONE_DETAIL,
   };
 }
 

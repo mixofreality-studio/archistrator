@@ -210,7 +210,11 @@ test('live: nothing is owed, and the lens says so without probing a session', as
   await openTasks(page);
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText('Nothing needs you.');
   await expect(page.getByTestId(TESTID.constructionTasksEmptyCounts)).toHaveText(
-    /^\d+ eligible · \d+ in flight · \d+ blocked$/
+    /^\d+ eligible · \d+ in flight · \d+ blocked · \d+ done$/
+  );
+  // The in-card Begin is a link that says what it would start with (designer P2).
+  await expect(page.getByTestId(TESTID.constructionTasksResume)).toHaveText(
+    /^(Begin|Resume) construction — \d+ eligible$/
   );
   // The corpus records no review policy: the designer's one-liner (§7.7 amended),
   // with the way to set one, and no summary line repeating it.
@@ -375,6 +379,36 @@ test('owed rows come from the live stage, risk floor first; a running in-review 
   );
   // No PR is recorded, so there is no GitHub link — never a dead one.
   await expect(page.getByTestId(TESTID.constructionTasksGitHub(GATE_KEY))).toHaveCount(0);
+  // An unknown shape says nothing before "no CI record": no "—" token (designer P2).
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'shape'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'ci'))).toHaveText(
+    'no CI record'
+  );
+});
+
+test('folded beside the pane, WAITING reads on one line; the drawer offers the next decision', async ({
+  page,
+}) => {
+  await serveOwed(page, initialStages());
+  // 1280: the pane takes the room and each row folds (designer P2).
+  await openTasks(page, 1280);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  const dash = page
+    .getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'waiting'))
+    .getByText('—', { exact: true });
+  const round = page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'round'));
+  const a = await dash.boundingBox();
+  const b = await round.boundingBox();
+  expect(a && b ? Math.abs(a.y + a.height / 2 - (b.y + b.height / 2)) : 99).toBeLessThan(6);
+  // Below 1200px the pane is a drawer over the table: its footer names the next one.
+  await openTasks(page, 1100);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  const next = page.getByTestId(TESTID.constructionDetailNextDecision);
+  await expect(next).toContainText('Next decision →');
+  const target = (await next.textContent())?.split('→ ')[1]?.trim() ?? '';
+  expect(target).not.toBe(GATE);
+  await next.click();
+  await expect(page).toHaveURL(new RegExp(`a=${target}`));
 });
 
 test('steer-needed and failed rows stay review-only: the pane says why and offers nothing yet', async ({
@@ -518,6 +552,10 @@ test('[Review] opens the pane on the gate task, awaiting you; send back needs a 
   await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
   await expect(page).toHaveURL(/k=designReview/);
   await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/awaiting you/i);
+  // The verdict block says what is missing plainly; the engineering is on hover (P1-7).
+  await expect(page.getByTestId(TESTID.constructionDetailVerdict)).toContainText(
+    'Reviewer verdicts aren’t recorded yet — this is who was asked, not what they said.'
+  );
   const sendBack = page.getByTestId(TESTID.constructionDetailAction('sendBack'));
   await expect(sendBack).toBeEnabled();
   await sendBack.click();

@@ -182,6 +182,8 @@ export interface EmptyStateCounts {
   eligible: number;
   inFlight: number;
   blocked: number;
+  /** Integrated — the work already behind you (designer P2). */
+  done: number;
 }
 
 /** Eligible and blocked from the network-derived statuses; in flight is what the
@@ -192,15 +194,23 @@ export function emptyStateCounts(
 ): EmptyStateCounts {
   let eligible = 0;
   let blocked = 0;
+  let done = 0;
   for (const s of statuses.values()) {
     if (s === 'eligible') eligible += 1;
     else if (s === 'blocked') blocked += 1;
+    else if (s === 'integrated') done += 1;
   }
-  return { eligible, inFlight, blocked };
+  return { eligible, inFlight, blocked, done };
 }
 
 export function emptyStateLine(c: EmptyStateCounts): string {
-  return `${String(c.eligible)} eligible · ${String(c.inFlight)} in flight · ${String(c.blocked)} blocked`;
+  return `${String(c.eligible)} eligible · ${String(c.inFlight)} in flight · ${String(c.blocked)} blocked · ${String(c.done)} done`;
+}
+
+/** The empty card's Begin, as a link that says what it would start with (designer
+ *  P2): "Begin construction — 4 eligible". It opens the same confirm step. */
+export function beginLinkLabel(label: string, eligible: number): string {
+  return `${label} — ${String(eligible)} eligible`;
 }
 
 // ---------------------------------------------------------------------------

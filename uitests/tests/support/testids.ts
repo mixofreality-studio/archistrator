@@ -301,6 +301,8 @@ export const TESTID = {
   constructionDetailDecisionFlow: UI_IDENTIFIERS.Construction.DETAIL_DECISION_FLOW,
   constructionDetailDecisionCaption: UI_IDENTIFIERS.Construction.DETAIL_DECISION_CAPTION,
   constructionDetailDecisionLead: UI_IDENTIFIERS.Construction.DETAIL_DECISION_LEAD,
+  constructionDetailNextDecision: UI_IDENTIFIERS.Construction.DETAIL_NEXT_DECISION,
+  constructionDetailVerdict: UI_IDENTIFIERS.Construction.DETAIL_VERDICT,
   constructionDetailOwedReason: UI_IDENTIFIERS.Construction.DETAIL_OWED_REASON,
   constructionDetailReviewOnlyNote: UI_IDENTIFIERS.Construction.DETAIL_REVIEW_ONLY_NOTE,
   constructionDetailAction: UI_IDENTIFIERS.Construction.detailAction,

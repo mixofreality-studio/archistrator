@@ -61,7 +61,11 @@ import {
   type DecisionMutationState,
 } from '../components/construction/tasks/decisionRecords';
 import { owedWorkFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
-import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
+import {
+  nextOwedAfter,
+  rankOwed,
+  type RankedOwed,
+} from '../components/construction/tasks/owedRanking';
 import {
   emptyStateCounts,
   reasonSentenceFor,
@@ -635,6 +639,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     );
   };
 
+  // [Review] (and the drawer's "Next decision →") open the shared pane in place:
+  // on the gate TASK where the profile names one (the review body), else on the
+  // activity.
+  const openOwed = (item: RankedOwed): void => {
+    const g = item.gate;
+    select(
+      g?.task !== undefined && g.lifecyclePhase !== undefined
+        ? { activityId: item.activityId, lifecyclePhase: g.lifecyclePhase, task: g.task }
+        : { activityId: item.activityId }
+    );
+  };
+
   const shapeOf = (item: RankedOwed): string => {
     const contract = contractForActivity(project, item.activityId);
     const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
@@ -698,6 +714,19 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         }
       : undefined;
 
+  // The next owed decision, in the lens order — the drawer's footer link below
+  // 1200px, where the table is behind the drawer (designer P2).
+  const nextItem = nextOwedAfter(visibleOwed, selectedActivityId ?? undefined);
+  const nextDecision =
+    nextItem !== undefined
+      ? {
+          label: `Next decision → ${nextItem.activityId}`,
+          onClick: (): void => {
+            openOwed(nextItem);
+          },
+        }
+      : undefined;
+
   // The shell's DETAIL slot: one pane, driven entirely by the URL's selection
   // (never owned by the pane itself), so it cannot lose it to the cascade
   // poll's remount. Beside-content at >=1200px, the existing overlay Drawer
@@ -719,6 +748,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           />
         )}
         hiddenAttempts={evidenceView.hidden[selectedActivityId]}
+        nextDecision={nextDecision}
         owed={paneOwed}
         project={project}
         // The selected activity's OWN session, and only while it is at a gate —
@@ -774,16 +804,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       onClearFilters={() => {
         setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
       }}
-      onReview={(item) => {
-        // [Review] opens the shared pane in place: on the gate TASK where the
-        // profile names one (the review body), else on the activity.
-        const g = item.gate;
-        select(
-          g?.task !== undefined && g.lifecyclePhase !== undefined
-            ? { activityId: item.activityId, lifecyclePhase: g.lifecyclePhase, task: g.task }
-            : { activityId: item.activityId }
-        );
-      }}
+      onReview={openOwed}
     />
   );
 

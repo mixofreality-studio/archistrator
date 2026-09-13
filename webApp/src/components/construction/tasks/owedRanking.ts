@@ -221,3 +221,19 @@ export function rankOwed(
       a.activityId.localeCompare(b.activityId)
   );
 }
+
+/**
+ * The next owed decision after the one selected, in the lens's own order — the
+ * drawer's "Next decision →" below 1200px, where the table is hidden behind it
+ * (designer P2). Wraps to the first; nothing when this is the only one.
+ */
+export function nextOwedAfter(
+  items: readonly RankedOwed[],
+  selectedActivityId: string | undefined
+): RankedOwed | undefined {
+  if (items.length === 0) return undefined;
+  const at = items.findIndex((i) => i.activityId === selectedActivityId);
+  if (at === -1) return items[0];
+  if (items.length === 1) return undefined;
+  return items[(at + 1) % items.length];
+}

@@ -35,6 +35,7 @@
  */
 import type { ReactElement } from 'react';
 import Box from '@mui/material/Box';
+import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 
 import type { ConstructionReviewSet } from '../../../../contracts/types';
@@ -84,11 +85,13 @@ export function ReviewBody({ reviewSet, ...artifact }: ReviewBodyProps): ReactEl
         >
           VERDICT
         </Typography>
-        <Typography
-          sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5, mt: 0.5 }}
-        >
-          {verdict.statement}
-        </Typography>
+        <Tooltip title={verdict.detail}>
+          <Typography
+            sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5, mt: 0.5 }}
+          >
+            {verdict.statement}
+          </Typography>
+        </Tooltip>
 
         {verdict.reviewers.length > 0 ? (
           <Box sx={{ mt: 1.25 }}>
