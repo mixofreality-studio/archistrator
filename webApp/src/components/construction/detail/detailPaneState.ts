@@ -455,17 +455,26 @@ export function selectionSummaryFor(
 }
 
 // ---------------------------------------------------------------------------
-// The action bar — invariant across every body. `run` (id 'run') is present
-// and ENABLED in every state, per the founder's standing ruling that failure
-// is never terminal: there is no condition under which it is absent or
-// disabled. Approve/send-back appear only where a human decision is owed.
+// The action bar — invariant across every body. `run` (id 'run') is present in
+// every state (the founder's ruling that the app always shows how to retry),
+// but it is DISABLED WITH ITS REASON (designer P1-2, orchestrator ruling
+// 2026-09-12): nothing here can start work yet — the pane ignored the click —
+// and an enabled button that does nothing is the lie this rewrite removes.
+// Approve/send-back appear only where a human decision is owed.
 // ---------------------------------------------------------------------------
 
 export interface DetailAction {
   id: 'run' | 'approve' | 'sendBack';
   label: string;
   disabled: boolean;
+  /** Why a disabled action is disabled — said on hover, never left to guess. */
+  reason?: string;
 }
+
+/** Why Run is off: the console cannot start a task (follow-ups B1/B2 give it the
+ *  verbs — retry with the operator's note delivered, and re-queue). */
+export const RUN_NOT_WIRED_REASON =
+  'Not wired yet — the pump starts work on its own; running a task from here arrives with follow-ups B1/B2.';
 
 /**
  * The run action, named for what is selected (designer re-check B2). It used to be
@@ -541,13 +550,14 @@ export function headerProvenanceChipsFor(input: {
 }
 
 export function detailActionsFor(state: TaskDetailState, run: DetailAction): DetailAction[] {
-  // `state` is intentionally unused in the condition below beyond the single
-  // `awaitingHuman` check — this is the whole point: no other branch may
-  // touch `run`'s presence or `disabled` flag.
-  const actions: DetailAction[] = [{ ...run, disabled: false }];
+  // `state` is intentionally unused beyond the single `awaitingHuman` check: no
+  // branch may touch `run`'s presence, and none may make it look live.
+  const actions: DetailAction[] = [];
   if (state === 'awaitingHuman') {
     actions.push({ id: 'approve', label: 'Approve', disabled: false });
     actions.push({ id: 'sendBack', label: 'Send back', disabled: false });
   }
+  // Last: the decision is the primary act where one is owed.
+  actions.push({ ...run, disabled: true, reason: RUN_NOT_WIRED_REASON });
   return actions;
 }

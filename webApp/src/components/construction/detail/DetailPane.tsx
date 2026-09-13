@@ -1071,32 +1071,55 @@ function ActionBar({
         </Typography>
       ) : null}
       <Box sx={{ display: 'flex', gap: 1 }}>
-        {actions.map((a) => (
-          <Button
-            data-testid={UI_IDENTIFIERS.Construction.detailAction(a.id)}
-            disabled={a.disabled}
-            key={a.id}
-            size="small"
-            startIcon={a.id === 'approve' ? <CheckRoundedIcon /> : undefined}
-            sx={{
-              fontFamily: t.mono,
-              fontWeight: 700,
-              fontSize: 11.5,
-              textTransform: 'none',
-              ...(a.id === 'run'
-                ? { color: t.bg, bgcolor: t.accent, '&:hover': { bgcolor: t.accent2 } }
-                : a.id === 'approve'
-                  ? { color: t.committedFg, borderColor: t.committedDot }
-                  : { color: t.muted, borderColor: t.line }),
-            }}
-            variant={a.id === 'run' ? 'contained' : 'outlined'}
-            onClick={() => {
-              onAction?.(a.id);
-            }}
-          >
-            {a.label}
-          </Button>
-        ))}
+        {actions.map((a) => {
+          const variant = actionVariant(a);
+          const button = (
+            <Button
+              data-reason={a.reason}
+              data-testid={UI_IDENTIFIERS.Construction.detailAction(a.id)}
+              data-variant={variant}
+              disabled={a.disabled}
+              size="small"
+              startIcon={a.id === 'approve' ? <CheckRoundedIcon /> : undefined}
+              sx={{
+                fontFamily: t.mono,
+                fontWeight: 700,
+                fontSize: 11.5,
+                textTransform: 'none',
+                ...(variant === 'contained'
+                  ? {
+                      color: t.bg,
+                      bgcolor: t.committedDot,
+                      '&:hover': { bgcolor: t.committedFg },
+                    }
+                  : a.id === 'approve'
+                    ? { color: t.committedFg, borderColor: t.committedDot }
+                    : variant === 'text'
+                      ? { color: t.muted }
+                      : { color: t.muted, borderColor: t.line }),
+              }}
+              variant={variant}
+              onClick={() => {
+                onAction?.(a.id);
+              }}
+            >
+              {a.label}
+            </Button>
+          );
+          // A disabled button fires no pointer events, so its reason hangs off a
+          // wrapper: the operator learns WHY, not just that it is off.
+          return a.reason !== undefined ? (
+            <Tooltip key={a.id} title={a.reason}>
+              <Box component="span" sx={{ display: 'inline-flex' }}>
+                {button}
+              </Box>
+            </Tooltip>
+          ) : (
+            <Box component="span" key={a.id} sx={{ display: 'inline-flex' }}>
+              {button}
+            </Box>
+          );
+        })}
       </Box>
       {flow !== undefined ? (
         <Typography
@@ -1120,6 +1143,17 @@ function ActionBar({
       ) : null}
     </Box>
   );
+}
+
+/**
+ * The decision bar's hierarchy (designer P1-2): a LIVE Approve is the filled
+ * primary, Send back is outlined beside it, and Run — disabled with its reason —
+ * is a quiet text button, never the loudest thing on a pane that cannot run.
+ */
+function actionVariant(a: DetailAction): 'contained' | 'outlined' | 'text' {
+  if (a.id === 'run') return 'text';
+  if (a.id === 'approve' && !a.disabled) return 'contained';
+  return 'outlined';
 }
 
 /**

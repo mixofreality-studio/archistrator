@@ -81,14 +81,15 @@ test('the Tracker renders the activity tree and an activity row opens its shared
   // while a selection was open).
   await expect(page.getByTestId(TESTID.constructionLensKind)).toBeVisible();
 
-  // The breadcrumb + action bar (with the always-present, always-enabled
-  // retry action) always render once a node is selected — real content, not
-  // a stub, proving the click drove a genuine activity selection against
-  // committed data.
+  // The breadcrumb + action bar (with the always-present retry action — disabled
+  // with its reason until the console can start work, designer P1-2) always
+  // render once a node is selected — real content, not a stub, proving the click
+  // drove a genuine activity selection against committed data.
   await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toBeVisible();
   const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
   await expect(runAction).toBeVisible();
-  await expect(runAction).toBeEnabled();
+  await expect(runAction).toBeDisabled();
+  await expect(runAction).toHaveAttribute('data-reason', /not wired/i);
 });
 
 /**

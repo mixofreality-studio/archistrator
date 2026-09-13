@@ -135,7 +135,10 @@ test('B2: the run action names its selection, and marks a re-run only where an a
   for (const [suffix, label] of cases) {
     await openList(page, suffix);
     await expect(run, suffix).toHaveText(label);
-    await expect(run, suffix).toBeEnabled();
+    // Present everywhere, but OFF with its reason: the console cannot start work
+    // yet, and an enabled no-op is the lie (designer P1-2, ruled 2026-09-12).
+    await expect(run, suffix).toBeDisabled();
+    await expect(run, suffix).toHaveAttribute('data-reason', /not wired/i);
   }
 });
 

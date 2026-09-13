@@ -75,6 +75,7 @@ import {
   type ToolbarState,
 } from './useLensSelection';
 import { isToolbarStuck, lensGeometryVars, varsToWrite } from './lensGeometry';
+import { LIST_LENS_ONLY, RANKED_LABEL, toolbarForLens } from './toolbarForLens';
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -167,6 +168,7 @@ export function ConstructionShell({
   expandToCurrentPhase,
 }: ConstructionShellProps): ReactElement {
   const t = useTokens();
+  const controls = toolbarForLens(lens);
   const rootRef = useRef<HTMLDivElement>(null);
   const toolbarRef = useRef<HTMLDivElement>(null);
   const rowRef = useRef<HTMLDivElement>(null);
@@ -353,31 +355,50 @@ export function ConstructionShell({
             onToolbar({ layer: value });
           }}
         />
-        <ToolbarSelect
-          // Tiers 2 and 3 are a Figure A-1 SEQUENCE — sorting them is nonsense
-          // and is deliberately not on offer. Only tier 1 sorts. Stated twice:
-          // once as the hover hint on the control, once as a leading disabled
-          // row INSIDE the opened menu — the brief asks for it in the sort
-          // menu's own helper text, not only on hover.
-          helperItem={SORT_HELP_TEXT}
-          hint={SORT_HELP_TEXT}
-          label="Sort"
-          options={SORT_IDS.map((id) => ({ value: id, label: SORT_LABEL[id] }))}
-          t={t}
-          testid={UI_IDENTIFIERS.Construction.LENS_SORT}
-          value={toolbar.sort}
-          onChange={(value) => {
-            onToolbar({ sort: asSort(value) });
-          }}
-        />
+        {controls.sort === 'menu' ? (
+          <ToolbarSelect
+            // Tiers 2 and 3 are a Figure A-1 SEQUENCE — sorting them is nonsense
+            // and is deliberately not on offer. Only tier 1 sorts. Stated twice:
+            // once as the hover hint on the control, once as a leading disabled
+            // row INSIDE the opened menu — the brief asks for it in the sort
+            // menu's own helper text, not only on hover.
+            helperItem={SORT_HELP_TEXT}
+            hint={SORT_HELP_TEXT}
+            label="Sort"
+            options={SORT_IDS.map((id) => ({ value: id, label: SORT_LABEL[id] }))}
+            t={t}
+            testid={UI_IDENTIFIERS.Construction.LENS_SORT}
+            value={toolbar.sort}
+            onChange={(value) => {
+              onToolbar({ sort: asSort(value) });
+            }}
+          />
+        ) : (
+          // The TASKS lens has its own order (owedRanking.ts); a Sort menu it
+          // ignores would be a control that does nothing (designer P1-1).
+          <Typography
+            data-testid={UI_IDENTIFIERS.Construction.LENS_SORT_RANKED}
+            sx={{
+              flexShrink: 0,
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              color: t.muted,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {RANKED_LABEL}
+          </Typography>
+        )}
 
-        <Tooltip title={expandToCurrentPhase.tooltip}>
+        <Tooltip title={controls.listControls ? expandToCurrentPhase.tooltip : LIST_LENS_ONLY}>
           {/* A disabled button fires no pointer events, so the tooltip hangs off
               this wrapper: the operator still learns WHY there is nothing to open. */}
           <Box component="span" sx={{ display: 'inline-flex', flexShrink: 0 }}>
             <Button
               data-testid={UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE}
-              disabled={!expandToCurrentPhase.enabled}
+              disabled={!controls.listControls || !expandToCurrentPhase.enabled}
               size="small"
               startIcon={<UnfoldMoreRoundedIcon sx={{ fontSize: 15 }} />}
               sx={{
@@ -407,11 +428,18 @@ export function ConstructionShell({
           </Box>
         </Tooltip>
 
-        <Tooltip title="Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.">
+        <Tooltip
+          title={
+            controls.listControls
+              ? 'Count only what the running system observed. Every activity stays listed; evidence reconstructed after the fact (backfilled or synthesized) is set aside, so an activity known only from it reads as not started.'
+              : LIST_LENS_ONLY
+          }
+        >
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
             <Switch
               checked={toolbar.observedOnly}
               data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY}
+              disabled={!controls.listControls}
               size="small"
               slotProps={{ input: { 'aria-label': 'Observed only' } }}
               onChange={(e) => {

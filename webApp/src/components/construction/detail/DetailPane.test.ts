@@ -15,6 +15,7 @@ import {
   attemptsForTask,
   breadcrumbFor,
   detailActionsFor,
+  RUN_NOT_WIRED_REASON,
   headerProvenanceChipsFor,
   noAttemptStateFor,
   observedOnlyChipLabel,
@@ -59,7 +60,7 @@ function attempt(overrides: Partial<TaskAttemptRow> = {}): TaskAttemptRow {
 
 const RUN = runActionFor(undefined, {});
 
-void test('enables the retry action in every task state', () => {
+void test('the run action is in every task state, off with its reason — never a silent no-op (designer P1-2)', () => {
   for (const state of [
     'unknown',
     'notStarted',
@@ -68,12 +69,20 @@ void test('enables the retry action in every task state', () => {
     'passed',
     'failed',
   ] as const) {
-    // Even a run action handed in disabled comes out enabled: nothing may gate it.
-    const actions = detailActionsFor(state, { ...RUN, disabled: true });
-    const retry = actions.find((a) => a.id === 'run');
-    assert.ok(retry !== undefined, `no retry action for ${state}`);
-    assert.equal(retry.disabled, false, `retry disabled for ${state}`);
+    // Even a run action handed in enabled comes out disabled WITH a reason: the
+    // console cannot start work yet, and a button that does nothing would lie.
+    const actions = detailActionsFor(state, { ...RUN, disabled: false });
+    const run = actions.find((a) => a.id === 'run');
+    assert.ok(run !== undefined, `no run action for ${state}`);
+    assert.equal(run.disabled, true, `run enabled for ${state}`);
+    assert.equal(run.reason, RUN_NOT_WIRED_REASON);
+    // Where a decision is owed it comes first; Run is last.
+    assert.equal(actions[actions.length - 1]?.id, 'run');
   }
+  assert.deepEqual(
+    detailActionsFor('awaitingHuman', RUN).map((a) => a.id),
+    ['approve', 'sendBack', 'run']
+  );
 });
 
 void test('offers approve and send-back only where a human decision is owed', () => {

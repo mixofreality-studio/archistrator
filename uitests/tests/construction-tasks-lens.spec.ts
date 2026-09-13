@@ -471,6 +471,23 @@ test('a gate a policy rule opened offers "stop asking"; the summary replaces the
   ).toHaveCount(0);
 });
 
+test('the TASKS toolbar names its own order and disables the list-only controls (designer P1-1)', async ({
+  page,
+}) => {
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionLensSortRanked)).toHaveText(
+    'Ranked: risk floor · blast radius · id'
+  );
+  await expect(page.getByTestId(TESTID.constructionLensSort)).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();
+  await expect(page.getByLabel('Observed only')).toBeDisabled();
+  // Back on the list, both come back and the Sort menu returns.
+  await page.getByTestId(TESTID.constructionLensButton('list')).click();
+  await expect(page.getByTestId(TESTID.constructionLensSort)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionLensSortRanked)).toHaveCount(0);
+  await expect(page.getByLabel('Observed only')).toBeEnabled();
+});
+
 test('the list no longer mounts a phase-gate panel; the decision lives in the pane', async ({
   page,
 }) => {
@@ -554,6 +571,13 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   await openTasks(page);
   await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
   const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
+  // With a live decision behind the selection, Approve is the filled primary and
+  // Send back is outlined (designer P1-2).
+  await expect(approve).toHaveAttribute('data-variant', 'contained');
+  await expect(page.getByTestId(TESTID.constructionDetailAction('sendBack'))).toHaveAttribute(
+    'data-variant',
+    'outlined'
+  );
   // One click, one signal — even three clicks in one task.
   await approve.evaluate((el) => {
     for (let i = 0; i < 3; i += 1) (el as HTMLButtonElement).click();
@@ -584,9 +608,12 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
     'gate decisions are not yet written to the task ledger'
   );
   // Nothing is owed on this selection any more, so the decision actions are gone
-  // (Stage B: they appear only where a decision is owed); Run stays.
+  // (Stage B: they appear only where a decision is owed). Run stays — a text button,
+  // disabled with its reason, never a silent no-op (designer P1-2).
   await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
-  await expect(page.getByTestId(TESTID.constructionDetailAction('run'))).toBeEnabled();
+  const run = page.getByTestId(TESTID.constructionDetailAction('run'));
+  await expect(run).toBeDisabled();
+  await expect(run).toHaveAttribute('data-reason', /not wired/i);
   // The badge drops the moment the gate clears; the row lingers with its evidence.
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('2');
 });

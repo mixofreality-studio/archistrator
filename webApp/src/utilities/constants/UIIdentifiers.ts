@@ -431,6 +431,8 @@ export const UI_IDENTIFIERS = {
     LENS_TASKS_COUNT: 'construction-lens-tasks-count',
     LENS_SEARCH: 'construction-lens-search',
     LENS_SCOPE: 'construction-lens-scope',
+    // The TASKS lens's static order label, in place of the Sort menu (designer P1-1).
+    LENS_SORT_RANKED: 'construction-lens-sort-ranked',
     LENS_KIND: 'construction-lens-kind',
     LENS_LAYER: 'construction-lens-layer',
     LENS_SORT: 'construction-lens-sort',

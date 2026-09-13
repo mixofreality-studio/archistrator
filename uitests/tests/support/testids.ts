@@ -227,6 +227,9 @@ export const TESTID = {
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
   constructionLensScope: UI_IDENTIFIERS.Construction.LENS_SCOPE,
+  constructionLensSortRanked: UI_IDENTIFIERS.Construction.LENS_SORT_RANKED,
+  constructionLensSort: UI_IDENTIFIERS.Construction.LENS_SORT,
+  constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
   // Navigability (Stage B Task 11) — search box and the per-row provenance
   // mark a search reveal stamps on a reconstructed task match (see
   // needsInlineProvenanceMark in activityScope.ts).
