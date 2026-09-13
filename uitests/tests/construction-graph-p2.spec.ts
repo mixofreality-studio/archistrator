@@ -324,3 +324,32 @@ test('the key draws its swatches and never reads "= =" (designer re-check 8)', a
   await expect(page.getByTestId(TESTID.constructionGraphKeySwatch('float'))).toContainText(/\d/);
   await expect(key).toContainText('RECONSTRUCTED');
 });
+
+for (const [w, h] of [
+  [1280, 800],
+  [1366, 768],
+  [1600, 900],
+] as const) {
+  test(`${String(w)}: at fit, every lane's provenance rail sits 2 screen px clear of its edge (designer re-check 7)`, async ({
+    page,
+  }) => {
+    await openGraph(page, w, h);
+    const gaps = await page.getByTestId(LANE_ID).evaluateAll((lanes) =>
+      lanes.flatMap((lane) => {
+        const rail = lane.querySelector('[data-testid="construction-provenance-rail"]');
+        if (rail === null) return [];
+        const r = lane.getBoundingClientRect();
+        const zoom = r.width / (lane as HTMLElement).offsetWidth;
+        const edgeRight = r.left + (lane as HTMLElement).clientLeft * zoom;
+        return [
+          {
+            id: lane.getAttribute('data-testid') ?? '',
+            gap: rail.getBoundingClientRect().left - edgeRight,
+          },
+        ];
+      })
+    );
+    expect(gaps.length, 'some lane carries a provenance rail').toBeGreaterThan(0);
+    for (const g of gaps) expect(g.gap, g.id).toBeGreaterThanOrEqual(1.95);
+  });
+}

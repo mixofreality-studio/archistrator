@@ -17,6 +17,7 @@ import {
   loadGraphViewport,
   lodFor,
   saveGraphViewport,
+  railGapPx,
   selectionOutlinePx,
 } from './graphViewport.ts';
 
@@ -181,4 +182,17 @@ void test('the canvas never shrinks below its minimum — the page scrolls inste
 
 void test('a non-finite measurement falls back to the minimum, never NaN', () => {
   assert.equal(canvasHeightPx(Number.NaN, 0), CANVAS_MIN_PX);
+});
+
+void test('the rail gap keeps the critical edge and the provenance rail 2 SCREEN px apart from fit down to 0.25', () => {
+  for (let zoom = 0.25; zoom <= 3; zoom += 0.05) {
+    assert.ok(
+      railGapPx(zoom) * zoom >= 2 - 1e-9,
+      `zoom ${zoom.toFixed(2)}: ${String(railGapPx(zoom))}`
+    );
+    assert.ok(railGapPx(zoom) >= 4, 'never under the old 4px');
+    assert.ok(railGapPx(zoom) <= 8, 'never wider than 8px');
+  }
+  assert.equal(railGapPx(0), 4);
+  assert.equal(railGapPx(Number.NaN), 4);
 });

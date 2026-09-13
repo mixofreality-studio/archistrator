@@ -46,7 +46,7 @@ import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../pro
 import type { GraphCard } from './activityGraphModel';
 import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
-import { lodFor, selectionOutlinePx, type Lod } from './graphViewport';
+import { lodFor, railGapPx, selectionOutlinePx, type Lod } from './graphViewport';
 import {
   HOLLOW_HOVER_TEXT,
   SEGMENT_STATE_LABEL,
@@ -317,7 +317,10 @@ function Lane({
         display: 'flex',
         alignItems: 'stretch',
         gap: 0.5,
-        px: 0.5,
+        // The rail keeps 2 screen px clear of the edge at every zoom a reader
+        // uses (graphViewport.railGapPx, designer re-check 7).
+        pl: `${String(railGapPx(zoom))}px`,
+        pr: 0.5,
         boxSizing: 'border-box',
         // The critical path is the LANE's left edge, full-bleed: 3px in full ink
         // on the path, a receding 2px off it (laneSchedule, the list's

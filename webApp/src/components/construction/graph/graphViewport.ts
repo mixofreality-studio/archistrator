@@ -101,6 +101,23 @@ export function selectionOutlinePx(zoom: number): number {
   return Math.min(SELECTION_OUTLINE_MAX_PX, Math.max(SELECTION_OUTLINE_MIN_PX, 2 / zoom));
 }
 
+/** The lane's gap between its left edge and its provenance rail, in FLOW px. */
+export const RAIL_GAP_MIN_PX = 4;
+export const RAIL_GAP_MAX_PX = 8;
+
+/**
+ * The room between a lane's left edge — the critical path's heavy edge — and
+ * its provenance rail: 2 / zoom, clamped to 4–8 FLOW px, so the two marks keep
+ * at least 2 SCREEN px apart from fit (≈0.4) down to 0.25 (designer re-check
+ * 7: at fit the old flat 4px drew as 1.6px and the edge touched the rail). Never
+ * under the old 4px zoomed in. A zoom that is not a positive number falls back
+ * to the minimum.
+ */
+export function railGapPx(zoom: number): number {
+  if (!Number.isFinite(zoom) || zoom <= 0) return RAIL_GAP_MIN_PX;
+  return Math.min(RAIL_GAP_MAX_PX, Math.max(RAIL_GAP_MIN_PX, 2 / zoom));
+}
+
 // ---------------------------------------------------------------------------
 // Level of detail (spec §7.6, Decision D7)
 // ---------------------------------------------------------------------------
