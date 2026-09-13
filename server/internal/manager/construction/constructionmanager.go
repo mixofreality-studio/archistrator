@@ -341,8 +341,11 @@ func (m *constructionManager) RunReplanSweep(rc fwm.Context, projectID *ProjectI
 // PauseProject — op 2.3. Temporal Signal (operatorPauseRequested) to the project's
 // in-flight construction execution(s). The suspended supervision resumes on its
 // awaitSignal and runs the pause branch (interventionEngine.applyPausePolicy →
-// pausePlan, then the Manager EXECUTES the cancels/records). SYNC from the
-// operator's POV: returns once the signal is durably enqueued.
+// pausePlan, then the Manager EXECUTES the cancels/records). The pause branch also
+// relays the pause to the project's ONE pump ({projectId}:nextActivity) through
+// messageBus.deliverSignal, so a cascading pump stops after its current activity
+// instead of dispatching through the pause (runPauseBranch, projectsupervision.go).
+// SYNC from the operator's POV: returns once the signal is durably enqueued.
 func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, reason string) error {
 	ctx := rc.Context
 	if projectID == "" {

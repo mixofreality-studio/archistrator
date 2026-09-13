@@ -2544,13 +2544,47 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 }
 
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
+	registerSupervisionWithBus(env, wf, ps, pipe, &recordingSignalBus{}, eps...)
+}
+
+// registerSupervisionWithBus is registerSupervision with the messageBus.deliverSignal
+// Activity backed by a caller-supplied bus — the pause branch relays the pause to the
+// project's pump through it.
+func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.ProjectSupervisionWorkflow, workflow.RegisterOptions{Name: executionKindProjectSupervision})
 	registerGenPipeline(env, pipe)
 	registerGenEpisodes(env, eps)
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	acts := &genActivities{MessageBus: bus}
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
+
+// recordingSignalBus records every DeliverSignal and answers with err (nil ⇒
+// delivered). Satisfies messagebus.MessageBus.
+type recordingSignalBus struct {
+	mu       sync.Mutex
+	err      error
+	targets  []messagebus.ExecutionID
+	names    []messagebus.SignalName
+	payloads []messagebus.ExecutionPayload
+}
+
+func (b *recordingSignalBus) DeliverSignal(_ fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.targets = append(b.targets, target)
+	b.names = append(b.names, name)
+	b.payloads = append(b.payloads, payload)
+	return b.err
+}
+
+func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleID, messagebus.ScheduleSpec) error {
+	return nil
+}
+
+var _ messagebus.MessageBus = (*recordingSignalBus)(nil)
 
 func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState) {
 	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
@@ -3284,7 +3318,143 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	}
 }
 
+// PAUSE-DELIVERY CO-GATE (architect pump ruling, 2026-09-12). A pause that lands while
+// the pump is parked in child.Get (the current activity still running) must stop the
+// cascade AFTER that activity: the pump drains its signal channel before the
+// self-cascade's ContinueAsNew and goes quiet, so no further child starts. Before the
+// fix the pump read its channel only at run start; the buffered pause was discarded by
+// ContinueAsNew and the next run dispatched the next activity. The pause is delivered in
+// the exact wire form the supervision relay sends (pumpPausePayload's bytes through
+// messageBus — binary/plain), which also pins that the pump's receive does not silently
+// drop that encoding.
+func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := newWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // the frontier never drains on its own
+		},
+	})
+	registerPump(env, wf, ps, &fakePipeline{phase: PipelineSucceeded})
+
+	// Hold the per-activity child open for 10 minutes of workflow time, so the pump is
+	// parked in child.Get when the pause lands at minute 1.
+	var childStarts int
+	env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+		After(10 * time.Minute).
+		Run(func(mock.Arguments) { childStarts++ }).
+		Return(nil)
+
+	payload, err := pumpPausePayload(pid, "operator halt")
+	if err != nil {
+		t.Fatalf("encode pause payload: %v", err)
+	}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, payload.Bytes)
+	}, time.Minute)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pause during child.Get must end the cascade quietly (no ContinueAsNew into a next dispatch), got %v", err)
+	}
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+		t.Fatalf("the run dispatched C-XYZ before the pause; want that reported, got %+v", res)
+	}
+	if childStarts != 1 {
+		t.Fatalf("want exactly the one in-flight child (no further child after the pause), got %d", childStarts)
+	}
+}
+
 // ---- Tests: pause branch (ProjectSupervisionWorkflow / NCUC2) ---------------
+
+// PauseProject's signal lands on the supervision workflow, and nothing else reaches the
+// pump — so the pause branch must RELAY the pause to the project's one pump id through
+// messageBus.deliverSignal, in the wire form the pump decodes.
+func Test_Pause_RelaysPauseToProjectPump(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	bus := &recordingSignalBus{}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if len(bus.targets) != 1 || string(bus.targets[0]) != string(pid)+":nextActivity" {
+		t.Fatalf("want one pause relayed to the project pump %q, got %v", string(pid)+":nextActivity", bus.targets)
+	}
+	if bus.names[0] != messagebus.SignalName(signalOperatorPauseRequested) {
+		t.Fatalf("want signal %q, got %q", signalOperatorPauseRequested, bus.names[0])
+	}
+	var sig operatorPauseSignal
+	if err := json.Unmarshal(bus.payloads[0].Bytes, &sig); err != nil || sig.Reason != "operator halt" || sig.ProjectID != pid {
+		t.Fatalf("relayed payload must decode to the operator's pause, got %+v (err %v)", sig, err)
+	}
+	// The rest of the pause branch still runs.
+	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 {
+		t.Fatalf("want the pipeline cancel + recordOperatorPaused as before, got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	}
+}
+
+// No pump running (never started, or already closed quiet) is the normal case for a
+// project paused between cascades: messageBus reports the target NotFound, and the
+// pause branch must tolerate it and still cancel + record the pause.
+func Test_Pause_NoRunningPump_NotFoundTolerated(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &fakePipeline{}
+	bus := &recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")}
+	wf := newWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a pause with no running pump must succeed (NotFound tolerated), got %v", err)
+	}
+	if len(bus.targets) != 1 {
+		t.Fatalf("want the relay attempted once, got %d", len(bus.targets))
+	}
+	if len(pipe.cancelled) != 1 || len(ps.paused) != 1 || ps.paused[0] != "operator halt" {
+		t.Fatalf("want the pipeline cancel + recordOperatorPaused(operator halt), got cancels=%d paused=%v", len(pipe.cancelled), ps.paused)
+	}
+}
 
 // The operator-pause branch: applyPausePolicy returns a plan naming a pipeline to
 // cancel + RecordPaused; the Manager EXECUTES the pipeline cancel + recordOperatorPaused.

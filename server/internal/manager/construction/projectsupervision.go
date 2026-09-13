@@ -2,7 +2,10 @@ package construction
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 
+	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -10,6 +13,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
 // This file holds the operator-supervision Signal payloads + the project-level
@@ -65,6 +69,20 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 		return fwmanager.MapError(perr)
 	}
 
+	// EXECUTE: stop the project's cascading pump (pause-delivery co-gate, 2026-09-12).
+	// PauseProject's signal lands HERE, on {projectId}:construction; nothing else
+	// reaches the pump, and nextEligibleActivity never reads OperatorPaused, so without
+	// this relay the pump's own pause gate (pumpnextactivity.go) is unreachable and a
+	// cascading pump keeps dispatching through a pause. Relayed FIRST among the
+	// executions, so the pump stops advancing the frontier before in-flight pipelines
+	// are cancelled. GetVersion pins supervision runs already inside this branch at
+	// deploy to the old command sequence.
+	if workflow.GetVersion(ctx, "pause-relays-to-pump", workflow.DefaultVersion, 1) >= 1 {
+		if err := wf.relayPauseToPump(ctx, projectID, reason); err != nil {
+			return err
+		}
+	}
+
 	// EXECUTE: cancel each in-flight pipeline the plan names (GENERATED cancel invoker).
 	// PipelineRef is a published named-string type; cast to the Manager's own opaque
 	// pipelineHandle.Name (string) — NotifyTargets/ResumeHint stay unread, same as the
@@ -89,6 +107,47 @@ func (wf *workflows) runPauseBranch(ctx workflow.Context, projectID ProjectID, r
 
 	state.stage = StagePaused
 	return nil
+}
+
+// relayPauseToPump delivers the operator pause to the project's ONE pump
+// (pumpWorkflowID) through the GENERATED messageBus.deliverSignal invoker. No pump
+// running is the normal case for a paused-between-cascades project: the target is
+// gone (never started, or closed quiet), which messageBus reports as RA NotFound —
+// tolerated, since there is no cascade to stop. Every other delivery failure
+// propagates.
+func (wf *workflows) relayPauseToPump(ctx workflow.Context, projectID ProjectID, reason string) error {
+	payload, err := pumpPausePayload(projectID, reason)
+	if err != nil {
+		return err
+	}
+	err = wf.Acts.MessageBusDeliverSignal(ctx,
+		messagebus.ExecutionID(pumpWorkflowID(projectID)),
+		messagebus.SignalName(signalOperatorPauseRequested),
+		payload)
+	if err != nil && !isSignalTargetNotFound(err) {
+		return err
+	}
+	return nil
+}
+
+// pumpPausePayload is the ONE wire encoding of a pause relayed to the pump: the
+// operatorPauseSignal as JSON bytes. messageBus transports the bytes verbatim
+// (binary/plain); the pump's pumpPauseRequested decodes them. Deterministic
+// (json.Marshal of a plain struct) — safe in-workflow.
+func pumpPausePayload(projectID ProjectID, reason string) (messagebus.ExecutionPayload, error) {
+	b, err := json.Marshal(operatorPauseSignal{ProjectID: projectID, Reason: reason})
+	if err != nil {
+		return messagebus.ExecutionPayload{}, err
+	}
+	return messagebus.ExecutionPayload{Bytes: b, ContentType: "application/json"}, nil
+}
+
+// isSignalTargetNotFound reports whether a messageBus.deliverSignal Activity failed
+// because the target execution does not exist (RA NotFound, surfaced through the
+// Activity boundary as a non-retryable ApplicationError of that type).
+func isSignalTargetNotFound(err error) bool {
+	var appErr *temporal.ApplicationError
+	return errors.As(err, &appErr) && appErr.Type() == raNotFoundErrType
 }
 
 // cancelPipeline calls the GENERATED cancel invoker (idempotent-on-intent in the RA).
