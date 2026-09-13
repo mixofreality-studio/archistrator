@@ -60,7 +60,11 @@ import {
   policySummaryFor,
   roundLabel,
   slotsLineFor,
+  CANT_TURN_OFF_LABEL,
+  HEADLINE_TOOLTIP,
+  SET_POLICY_LABEL,
   STOP_ASKING_LABEL,
+  whyAffordanceFor,
   uncheckedErroredLine,
   uncheckedPendingLine,
   WAITING_UNKNOWN_TOOLTIP,
@@ -141,27 +145,29 @@ export function TasksLens(props: TasksLensProps): ReactElement {
           }}
         >
           <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
-            {banner}
+            <Box component="strong" sx={{ fontWeight: 800 }}>
+              {banner.title}
+            </Box>{' '}
+            {banner.body}{' '}
+            <Link
+              data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK}
+              href={`/project/${projectId}/home`}
+              sx={{ fontWeight: 700, color: t.accent2, whiteSpace: 'nowrap' }}
+              underline="hover"
+            >
+              {SET_POLICY_LABEL}
+            </Link>
           </Typography>
         </Box>
-      ) : null}
-
-      <Box sx={{ display: 'flex', alignItems: 'baseline', flexWrap: 'wrap', gap: 1 }}>
+      ) : (
+        // The summary would repeat the banner; it speaks only once a policy exists.
         <Typography
           data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_SUMMARY}
           sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}
         >
           {policySummaryFor(policy)}
         </Typography>
-        <Link
-          data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_LINK}
-          href={`/project/${projectId}/home`}
-          sx={{ fontFamily: t.mono, fontSize: 11, fontWeight: 700, color: t.accent2 }}
-          underline="hover"
-        >
-          {STOP_ASKING_LABEL}
-        </Link>
-      </Box>
+      )}
 
       {totalOwed === 0 ? (
         <NothingNeedsYou empty={props.empty} t={t} unchecked={props.unchecked} />
@@ -173,15 +179,17 @@ export function TasksLens(props: TasksLensProps): ReactElement {
       ) : (
         <>
           <Box>
-            <Typography
-              component="h2"
-              data-testid={UI_IDENTIFIERS.Construction.TASKS_HEADLINE}
-              sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 17, color: t.ink }}
-            >
-              {owedNow.length > 0
-                ? headlineFor(owedNow)
-                : allClearHeadlineFor(props.unchecked, true)}
-            </Typography>
+            <Tooltip placement="bottom-start" title={HEADLINE_TOOLTIP}>
+              <Typography
+                component="h2"
+                data-testid={UI_IDENTIFIERS.Construction.TASKS_HEADLINE}
+                sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 17, color: t.ink }}
+              >
+                {owedNow.length > 0
+                  ? headlineFor(owedNow)
+                  : allClearHeadlineFor(props.unchecked, true)}
+              </Typography>
+            </Tooltip>
             {filtered !== undefined ? (
               <Typography
                 data-testid={UI_IDENTIFIERS.Construction.TASKS_FILTERED}
@@ -243,6 +251,7 @@ function OwedTable({
   flowOf,
   decidedOf,
   lingeringKeys,
+  projectId,
   onReview,
   t,
 }: TasksLensProps & { t: Tokens }): ReactElement {
@@ -285,6 +294,7 @@ function OwedTable({
             item={item}
             key={item.key}
             lingering={lingeringKeys?.has(item.key) === true}
+            projectId={projectId}
             selected={isSelected(item, selection)}
             shape={shapeOf(item)}
             t={t}
@@ -312,10 +322,12 @@ function OwedRow({
   lingering,
   flow,
   decided,
+  projectId,
   t,
   onReview,
 }: {
   item: RankedOwed;
+  projectId: string;
   /** How a lingering row was decided. */
   decided: 'approve' | 'sendBack' | undefined;
   git: GitRow | undefined;
@@ -334,6 +346,7 @@ function OwedRow({
     lingering ? 'passed' : item.reason === 'failed' ? 'failed' : 'awaitingHuman'
   );
   const ci = ciVerdictFor(git?.ciStatus);
+  const affordance = whyAffordanceFor(item);
   const key = item.key;
   const cell = (column: string): string => UI_IDENTIFIERS.Construction.tasksCell(key, column);
 
@@ -448,6 +461,23 @@ function OwedRow({
             {item.why.rule}
           </Typography>
         </Tooltip>
+        {affordance === 'stopAsking' ? (
+          <Link
+            data-testid={cell('stop-asking')}
+            href={`/project/${projectId}/home`}
+            sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: 700, color: t.accent2 }}
+            underline="hover"
+          >
+            {STOP_ASKING_LABEL}
+          </Link>
+        ) : affordance === 'cantTurnOff' ? (
+          <Typography
+            data-testid={cell('cant-turn-off')}
+            sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+          >
+            {CANT_TURN_OFF_LABEL}
+          </Typography>
+        ) : null}
       </Cell>
 
       {/* WHO */}
@@ -699,12 +729,14 @@ function NothingNeedsYou({
       }}
     >
       {headline !== undefined ? (
-        <Typography
-          component="h2"
-          sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 22, color: t.ink }}
-        >
-          {headline}
-        </Typography>
+        <Tooltip title={HEADLINE_TOOLTIP}>
+          <Typography
+            component="h2"
+            sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 22, color: t.ink }}
+          >
+            {headline}
+          </Typography>
+        </Tooltip>
       ) : (
         <UncheckedNotice prominent t={t} unchecked={unchecked} />
       )}

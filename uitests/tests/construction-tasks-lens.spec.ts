@@ -43,6 +43,7 @@ interface WireRow {
 }
 interface Wire {
   ActivityConstruction?: Record<string, WireRow>;
+  reviewPolicy?: unknown;
 }
 
 /** Trap every write before the page can issue one: EVERY non-GET is aborted (the
@@ -68,7 +69,13 @@ async function trapWrites(page: Page): Promise<void> {
 /** Mutable session stages per activity, served for the session route. */
 type Stages = Record<string, number | undefined>;
 
-async function serveOwed(page: Page, stages: Stages, only?: readonly string[]): Promise<void> {
+async function serveOwed(
+  page: Page,
+  stages: Stages,
+  only?: readonly string[],
+  /** Further edits to the same read (one handler, so none is bypassed). */
+  alsoEdit?: (wire: Wire) => void
+): Promise<void> {
   const started = '2026-09-12T20:00:00Z';
   const all: Record<string, WireRow> = {
     [GATE]: { BuildStatus: BUILD.inReview, CurrentPhase: 'detailed_design' },
@@ -103,6 +110,7 @@ async function serveOwed(page: Page, stages: Stages, only?: readonly string[]): 
         e
       );
     }
+    alsoEdit?.(wire);
     await route.fulfill({ response, json: wire });
   });
   await page.route('**/get-session-state/archistrator/**', async (route: Route) => {
@@ -204,11 +212,17 @@ test('live: nothing is owed, and the lens says so without probing a session', as
   await expect(page.getByTestId(TESTID.constructionTasksEmptyCounts)).toHaveText(
     /^\d+ eligible · \d+ in flight · \d+ blocked$/
   );
-  // The corpus records no review policy: the banner says what the server does.
-  await expect(page.getByTestId(TESTID.constructionTasksPolicyBanner)).toContainText(
-    'No review policy recorded'
+  // The corpus records no review policy: the designer's one-liner (§7.7 amended),
+  // with the way to set one, and no summary line repeating it.
+  const banner = page.getByTestId(TESTID.constructionTasksPolicyBanner);
+  await expect(banner).toContainText('No review policy recorded.');
+  await expect(banner).toContainText(
+    'Only the risk floor is gated — changes touching deploy, spend or schema always ask you; everything else proceeds without asking.'
   );
-  await expect(page.getByTestId(TESTID.constructionTasksPolicyBanner)).toContainText('risk floor');
+  await expect(page.getByTestId(TESTID.constructionTasksPolicyLink)).toHaveText(
+    'Set a review policy →'
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksPolicySummary)).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveCount(0);
   expect(sessionGets).toEqual([]);
 });
@@ -334,10 +348,15 @@ test('owed rows come from the live stage, risk floor first; a running in-review 
   const order = await rows.evaluateAll((els) => els.map((e) => e.getAttribute('data-testid')));
   expect(order[0]).toBe(TESTID.constructionTasksRow(GATE_KEY));
   expect(order).not.toContain(TESTID.constructionTasksRow(`${RUNNING}:gate`));
-  // With no policy recorded, an open gate can only be the risk floor.
+  // With no policy recorded, an open gate can only be the risk floor — which no
+  // policy edit can turn off, so the row never offers "stop asking" (designer P1-5).
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'why'))).toContainText(
     'Risk floor'
   );
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'cant-turn-off'))).toHaveText(
+    'Can’t be turned off'
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking'))).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'who'))).toContainText(
     'system-architect'
   );
@@ -428,6 +447,28 @@ test('the headline says when the toolbar hides owed decisions (review I4)', asyn
   await expect(page.getByTestId(TESTID.constructionTasksFiltered)).toHaveCount(0);
   await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('billing-state');
   await expect(page.getByTestId(TESTID.constructionTasksFiltered)).toHaveText('1 shown · 3 owed');
+});
+
+test('a gate a policy rule opened offers "stop asking"; the summary replaces the banner', async ({
+  page,
+}) => {
+  // Record a preset that gates Detailed Design, in the same read as the owed rows.
+  await serveOwed(page, initialStages(), undefined, (wire) => {
+    wire.reviewPolicy = { gatedPhasesByType: {}, preset: 'checkpoints' };
+  });
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksPolicyBanner)).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionTasksPolicySummary)).toContainText('checkpoints');
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'why'))).toContainText(
+    'Preset'
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking'))).toHaveText(
+    'Stop asking me about this class of thing → review policy'
+  );
+  // A steer and a failure are not policy questions: nothing to turn off.
+  await expect(
+    page.getByTestId(TESTID.constructionTasksCell(`${TAKEOVER}:takeover`, 'stop-asking'))
+  ).toHaveCount(0);
 });
 
 test('the list no longer mounts a phase-gate panel; the decision lives in the pane', async ({

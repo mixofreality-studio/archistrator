@@ -557,9 +557,19 @@ Header: **"3 tasks are blocking 11 downstream activities · 18 days of critical 
 (`PhaseGatePanel` + `CommentProvider` anchors + `toWire()` — that path already works end to end).
 `[GH ↗]` is the escape hatch, deliberately secondary.
 
-**Permanent degraded banner until `reviewPolicy` is populated:** *"No review policy recorded for
-this project. Showing the 3 default gates; tasks are derived from activity status only."* Silently
-presenting a hardcoded constant as project policy is exactly what this rewrite exists to stop.
+**Permanent degraded banner until `reviewPolicy` is populated:** *"**No review policy recorded.**
+Only the risk floor is gated — changes touching deploy, spend or schema always ask you; everything
+else proceeds without asking. [Set a review policy →]"* Silently presenting a hardcoded constant as
+project policy is exactly what this rewrite exists to stop.
+
+> *Amended 2026-09-12 (tasks-lens follow-up round 1; orchestrator ruling reconciling the PM's Q3
+> banner copy with designer P1-5).* The original sentence — "Showing the 3 default gates; tasks are
+> derived from activity status only." — was false for the shipped lens: with no policy the server
+> gates only the risk floor, and the rows come from each activity's live workflow stage. The PM's
+> sentence "Failures and escalations show here under any policy." and "rows come from each running
+> activity's live workflow stage" live in the headline's tooltip; the policy summary line is dropped
+> while the banner shows; "stop asking me about this class of thing" is offered only on rows a
+> policy rule opened, and a risk-floor row says it can't be turned off.
 
 **Empty state is not a dead end.** Replace *"No interventions pending"* with **"Nothing needs you."**
 + `17 eligible · 3 in flight · 14 blocked` + `[ Resume construction ]`.

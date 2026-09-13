@@ -78,16 +78,48 @@ function policyIsEmpty(policy: ReviewPolicyView | undefined): boolean {
   return Object.values(policy.gatedPhasesByType).every((phases) => phases.length === 0);
 }
 
-/**
- * The permanent degraded banner while no review policy is recorded (spec §7.7).
- * Its words are the true ones for THIS lens (plan DC6): with no policy the server
- * gates only the risk floor, and the rows come from live workflow stages — the
- * spec's draft sentence described the old queue built from activity status.
- */
-export function policyBannerFor(policy: ReviewPolicyView | undefined): string | undefined {
-  if (!policyIsEmpty(policy)) return undefined;
-  return 'No review policy recorded for this project. With none recorded, the server gates only the non-overridable risk floor — a construction dispatch or merge whose contract touches deploy, spend or schema — and every other phase proceeds without asking. The rows below come from each running activity’s live workflow stage.';
+/** The degraded banner: a bold title and one sentence, then the link to set one. */
+export interface PolicyBanner {
+  title: string;
+  body: string;
 }
+
+/**
+ * The permanent degraded banner while no review policy is recorded (spec §7.7,
+ * amended 2026-09-12): the designer's one-liner, which is the orchestrator's
+ * reconciliation of the PM's Q3 copy with designer P1-5. With no policy the server
+ * gates only the risk floor. The rest of what the PM's sentence said — failures
+ * and escalations show here under any policy, and where the rows come from — is
+ * the headline's tooltip (HEADLINE_TOOLTIP), not a second paragraph here.
+ */
+export function policyBannerFor(policy: ReviewPolicyView | undefined): PolicyBanner | undefined {
+  if (!policyIsEmpty(policy)) return undefined;
+  return {
+    title: 'No review policy recorded.',
+    body: 'Only the risk floor is gated — changes touching deploy, spend or schema always ask you; everything else proceeds without asking.',
+  };
+}
+
+export const SET_POLICY_LABEL = 'Set a review policy →';
+
+/** The headline's tooltip: what the lens shows under any policy, and from where. */
+export const HEADLINE_TOOLTIP =
+  'Failures and escalations show here under any policy. The rows come from each running activity’s live workflow stage.';
+
+/**
+ * What a row's WHY offers about turning its question off (designer P1-5):
+ * "stop asking" only where a POLICY rule opened the gate — the one thing a policy
+ * edit can change — and a risk-floor gate says it can't be turned off. A steer or a
+ * failure is not a policy question at all.
+ */
+export function whyAffordanceFor(
+  item: Pick<RankedOwed, 'reason' | 'why'>
+): 'stopAsking' | 'cantTurnOff' | undefined {
+  if (item.reason !== 'gate') return undefined;
+  return item.why.riskFloor ? 'cantTurnOff' : 'stopAsking';
+}
+
+export const CANT_TURN_OFF_LABEL = 'Can’t be turned off';
 
 /** One line: what this project gates, and always the floor. */
 export function policySummaryFor(policy: ReviewPolicyView | undefined): string {

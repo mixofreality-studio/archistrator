@@ -19,13 +19,16 @@ import {
   emptyStateCounts,
   emptyStateLine,
   filteredLineFor,
+  HEADLINE_TOOLTIP,
   headlineFor,
   policyBannerFor,
   policySummaryFor,
   reasonSentenceFor,
   roundLabel,
+  SET_POLICY_LABEL,
   shapeFor,
   slotsLineFor,
+  whyAffordanceFor,
 } from './tasksLensCopy.ts';
 
 function ranked(
@@ -72,16 +75,30 @@ void test('the worker-slot line appears only when a gate holds a slot and the ca
 
 // --- the policy ------------------------------------------------------------------
 
-void test('the degraded banner stands while no policy is recorded, and says what the server does', () => {
+void test('the degraded banner is the designer one-liner while no policy is recorded (§7.7 amended)', () => {
   const none = policyBannerFor(undefined);
-  assert.ok(none !== undefined);
-  assert.match(none, /No review policy recorded/);
-  assert.match(none, /risk floor/);
-  // The spec's old wording described a queue built from head-state status — false here.
-  assert.doesNotMatch(none, /derived from activity status/);
+  assert.deepEqual(none, {
+    title: 'No review policy recorded.',
+    body: 'Only the risk floor is gated — changes touching deploy, spend or schema always ask you; everything else proceeds without asking.',
+  });
+  assert.equal(SET_POLICY_LABEL, 'Set a review policy →');
+  // What the PM's sentence also said lives in the headline's tooltip.
+  assert.equal(
+    HEADLINE_TOOLTIP,
+    'Failures and escalations show here under any policy. The rows come from each running activity’s live workflow stage.'
+  );
   assert.ok(policyBannerFor({ gatedPhasesByType: {} }) !== undefined);
   assert.equal(policyBannerFor({ gatedPhasesByType: {}, preset: 'checkpoints' }), undefined);
   assert.equal(policyBannerFor({ gatedPhasesByType: { service: ['integration'] } }), undefined);
+});
+
+void test('"stop asking" only where a policy rule opened the gate; the risk floor cannot be turned off', () => {
+  const policyGate = ranked('A', [], { why: { rule: 'Preset', riskFloor: false, tooltip: '' } });
+  const floorGate = ranked('B', [], { why: { rule: 'Risk floor', riskFloor: true, tooltip: '' } });
+  assert.equal(whyAffordanceFor(policyGate), 'stopAsking');
+  assert.equal(whyAffordanceFor(floorGate), 'cantTurnOff');
+  assert.equal(whyAffordanceFor(ranked('S', [], { reason: 'takeover' })), undefined);
+  assert.equal(whyAffordanceFor(ranked('F', [], { reason: 'failed' })), undefined);
 });
 
 void test('the policy summary names what is gated, and always the floor', () => {
