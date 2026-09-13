@@ -25,3 +25,25 @@ export function sessionsByActivity(
   });
   return out;
 }
+
+/**
+ * The probes that FAILED without ever answering: no view, no established absence,
+ * and the query is in error (its retry spent). A probe still in its first fetch is
+ * not here — it is pending, which the TASKS lens says differently. A probe that
+ * answered once and errored since keeps its answer (above) and is not here either.
+ */
+export function erroredProbesFor(
+  ids: readonly string[],
+  results: readonly { data?: unknown; status?: 'pending' | 'error' | 'success' }[]
+): string[] {
+  return ids.filter((_, i) => {
+    const r = results[i];
+    return r !== undefined && r.data === undefined && r.status === 'error';
+  });
+}
+
+/** What the fan-out hands the route: the answers, and which probes failed. */
+export interface SessionProbes {
+  sessions: SessionsById;
+  errored: readonly string[];
+}

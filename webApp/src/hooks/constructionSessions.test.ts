@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ConstructionSessionState } from '../contracts/types.ts';
-import { sessionsByActivity } from './constructionSessions.ts';
+import { erroredProbesFor, sessionsByActivity } from './constructionSessions.ts';
 
 function session(activityId: string): ConstructionSessionState {
   return {
@@ -28,6 +28,19 @@ void test('keeps an established absence (null) apart from "not answered yet"', (
   assert.equal('A' in got, true);
   // Unanswered is ABSENT — a caller must not read it as "no session".
   assert.equal('B' in got, false);
+});
+
+void test('a probe that failed without answering is errored; pending and answered ones are not', () => {
+  const got = erroredProbesFor(
+    ['A', 'B', 'C', 'D'],
+    [
+      { status: 'error' }, // failed, never answered
+      { status: 'pending' }, // first fetch in flight
+      { status: 'error', data: session('C') }, // answered once, errored since: keeps its answer
+      { status: 'success', data: null }, // established absence
+    ]
+  );
+  assert.deepEqual(got, ['A']);
 });
 
 void test('a short results list never invents entries', () => {

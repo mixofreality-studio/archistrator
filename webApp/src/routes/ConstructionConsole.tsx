@@ -50,7 +50,7 @@ import {
   type ObservedGate,
   type PaneDecision,
 } from '../components/construction/tasks/decisionFlow';
-import { owedItemsFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
+import { owedWorkFor, probeCandidatesFor } from '../components/construction/tasks/owedWork';
 import { rankOwed, type RankedOwed } from '../components/construction/tasks/owedRanking';
 import { emptyStateCounts, shapeFor } from '../components/construction/tasks/tasksLensCopy';
 import { TasksLens } from '../components/construction/tasks/TasksLens';
@@ -424,11 +424,24 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       ].sort((a, b) => a.localeCompare(b)),
     [probeIds, decidedIdsKey]
   );
-  const sessionsByActivity = useConstructionSessions(projectId, sessionIds);
-  const owedItems = useMemo(
-    () => owedItemsFor({ rows: viewRows, sessions: sessionsByActivity, titleFor: titleForId }),
-    [viewRows, sessionsByActivity, titleForId]
+  const {
+    sessions: sessionsByActivity,
+    errored: erroredProbes,
+    retryErrored,
+  } = useConstructionSessions(projectId, sessionIds);
+  // A probe that has not answered is not an answer: `unchecked` counts them, and
+  // the lens makes no all-clear claim while it is above zero (architect Q1).
+  const owedWork = useMemo(
+    () =>
+      owedWorkFor({
+        rows: viewRows,
+        sessions: sessionsByActivity,
+        erroredProbes,
+        titleFor: titleForId,
+      }),
+    [viewRows, sessionsByActivity, erroredProbes, titleForId]
   );
+  const owedItems = owedWork.items;
   const tasksOwed = owedItems.length;
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
@@ -707,6 +720,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       shapeOf={shapeOf}
       supervisionCap={project?.constructionProgress?.supervisionCap}
       totalOwed={rankedOwed.length + lingering.length}
+      unchecked={{
+        pending: owedWork.unchecked.pending.length,
+        errored: owedWork.unchecked.errored.length,
+        onRetry: retryErrored,
+      }}
       onClearFilters={() => {
         setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
       }}

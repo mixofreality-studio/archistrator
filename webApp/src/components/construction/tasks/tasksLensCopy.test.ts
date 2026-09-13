@@ -10,8 +10,11 @@ import assert from 'node:assert/strict';
 import type { BuildStatus } from '../../../contracts/constructionAdapters.ts';
 import type { RankedOwed } from './owedRanking.ts';
 import {
+  allClearHeadlineFor,
   askFor,
   ciVerdictFor,
+  uncheckedErroredLine,
+  uncheckedPendingLine,
   emptyStateCounts,
   emptyStateLine,
   headlineFor,
@@ -89,6 +92,24 @@ void test('the policy summary names what is gated, and always the floor', () => 
   });
   assert.match(explicit, /Service › Detailed Design, Integration/);
   assert.match(explicit, /Testing › Test Plan/);
+});
+
+// --- what could not be checked (architect Q1) ----------------------------------
+
+void test('the all-clear headline is suppressed while any probe is unchecked', () => {
+  assert.equal(allClearHeadlineFor({ pending: 0, errored: 0 }), 'Nothing needs you.');
+  assert.equal(allClearHeadlineFor({ pending: 0, errored: 0 }, true), 'Nothing else needs you.');
+  assert.equal(allClearHeadlineFor({ pending: 1, errored: 0 }), undefined);
+  assert.equal(allClearHeadlineFor({ pending: 0, errored: 2 }), undefined);
+  assert.equal(allClearHeadlineFor({ pending: 0, errored: 1 }, true), undefined);
+});
+
+void test('the unchecked lines say how many, and nothing when none', () => {
+  assert.equal(uncheckedPendingLine(1), 'Checking 1 in-flight activity…');
+  assert.equal(uncheckedPendingLine(3), 'Checking 3 in-flight activities…');
+  assert.equal(uncheckedPendingLine(0), undefined);
+  assert.equal(uncheckedErroredLine(2), "Couldn't check 2 in-flight activities");
+  assert.equal(uncheckedErroredLine(0), undefined);
 });
 
 // --- the empty state -------------------------------------------------------------

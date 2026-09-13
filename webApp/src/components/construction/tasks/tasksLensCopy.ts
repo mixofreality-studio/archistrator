@@ -103,6 +103,40 @@ export function policySummaryFor(policy: ReviewPolicyView | undefined): string {
 export const STOP_ASKING_LABEL = 'Stop asking me about this class of thing → review policy';
 
 // ---------------------------------------------------------------------------
+// What could not be checked (architect Q1)
+// ---------------------------------------------------------------------------
+
+/** Probe candidates with no answer: still fetching, or failed without one. */
+export interface UncheckedCounts {
+  pending: number;
+  errored: number;
+}
+
+const inFlight = (n: number): string =>
+  `${String(n)} in-flight ${n === 1 ? 'activity' : 'activities'}`;
+
+/** Said while probes are still in their first fetch. */
+export function uncheckedPendingLine(n: number): string | undefined {
+  return n > 0 ? `Checking ${inFlight(n)}…` : undefined;
+}
+
+/** Said when probes failed without answering — beside a Retry. */
+export function uncheckedErroredLine(n: number): string | undefined {
+  return n > 0 ? `Couldn't check ${inFlight(n)}` : undefined;
+}
+
+/**
+ * "Nothing needs you." is a claim about EVERY in-flight activity, so it is made
+ * only once every probe has answered; otherwise there is no all-clear headline at
+ * all, and the unchecked lines speak instead. `rest` is the variant for when every
+ * owed row has just been decided and is lingering ("Nothing else needs you.").
+ */
+export function allClearHeadlineFor(unchecked: UncheckedCounts, rest = false): string | undefined {
+  if (unchecked.pending + unchecked.errored > 0) return undefined;
+  return rest ? 'Nothing else needs you.' : 'Nothing needs you.';
+}
+
+// ---------------------------------------------------------------------------
 // The empty state (spec §7.7: "Nothing needs you." is not a dead end)
 // ---------------------------------------------------------------------------
 

@@ -284,6 +284,8 @@ export const TESTID = {
   constructionTasksEmpty: UI_IDENTIFIERS.Construction.TASKS_EMPTY,
   constructionTasksEmptyCounts: UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS,
   constructionTasksResume: UI_IDENTIFIERS.Construction.TASKS_RESUME,
+  constructionTasksUnchecked: UI_IDENTIFIERS.Construction.TASKS_UNCHECKED,
+  constructionTasksUncheckedRetry: UI_IDENTIFIERS.Construction.TASKS_UNCHECKED_RETRY,
   constructionTasksRow: UI_IDENTIFIERS.Construction.tasksRow,
   constructionTasksCell: UI_IDENTIFIERS.Construction.tasksCell,
   constructionTasksReview: UI_IDENTIFIERS.Construction.tasksReview,

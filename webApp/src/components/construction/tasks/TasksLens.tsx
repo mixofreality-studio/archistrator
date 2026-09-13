@@ -49,6 +49,7 @@ import { criticalBorderPx, floatPresentation } from '../list/activityRowPresenta
 import { taskDetailStateFill } from '../detail/detailPaneState.ts';
 import type { RankedOwed } from './owedRanking.ts';
 import {
+  allClearHeadlineFor,
   askFor,
   ciVerdictFor,
   emptyStateLine,
@@ -58,8 +59,11 @@ import {
   roundLabel,
   slotsLineFor,
   STOP_ASKING_LABEL,
+  uncheckedErroredLine,
+  uncheckedPendingLine,
   WAITING_UNKNOWN_TOOLTIP,
   type EmptyStateCounts,
+  type UncheckedCounts,
 } from './tasksLensCopy.ts';
 
 const FLOAT_BANDS: ReadonlySet<string> = new Set(['critical', 'red', 'yellow', 'green']);
@@ -93,6 +97,9 @@ export interface TasksLensProps {
      *  project is operating (nothing left to begin). */
     resume?: { label: string; disabled: boolean; onClick: () => void };
   };
+  /** Probes with no answer yet (owedWork's `unchecked`) and a retry for the failed
+   *  ones. Above zero, the lens makes no all-clear claim. */
+  unchecked: UncheckedCounts & { onRetry: () => void };
   onReview: (item: RankedOwed) => void;
   onClearFilters: () => void;
   /** Rows a decision was just made on, lingering with their evidence line (spec
@@ -150,9 +157,12 @@ export function TasksLens(props: TasksLensProps): ReactElement {
       </Box>
 
       {totalOwed === 0 ? (
-        <NothingNeedsYou empty={props.empty} t={t} />
+        <NothingNeedsYou empty={props.empty} t={t} unchecked={props.unchecked} />
       ) : items.length === 0 ? (
-        <FilteredOut t={t} totalOwed={totalOwed} onClearFilters={props.onClearFilters} />
+        <>
+          <UncheckedNotice t={t} unchecked={props.unchecked} />
+          <FilteredOut t={t} totalOwed={totalOwed} onClearFilters={props.onClearFilters} />
+        </>
       ) : (
         <>
           <Box>
@@ -161,8 +171,11 @@ export function TasksLens(props: TasksLensProps): ReactElement {
               data-testid={UI_IDENTIFIERS.Construction.TASKS_HEADLINE}
               sx={{ fontFamily: t.display, fontWeight: 700, fontSize: 17, color: t.ink }}
             >
-              {owedNow.length > 0 ? headlineFor(owedNow) : 'Nothing else needs you.'}
+              {owedNow.length > 0
+                ? headlineFor(owedNow)
+                : allClearHeadlineFor(props.unchecked, true)}
             </Typography>
+            <UncheckedNotice t={t} unchecked={props.unchecked} />
             {slots !== undefined ? (
               <Typography
                 data-testid={UI_IDENTIFIERS.Construction.TASKS_SLOTS}
@@ -584,13 +597,73 @@ function Unknown({ t, tooltip }: { t: Tokens; tooltip: string }): ReactElement {
 // The two non-table states
 // ---------------------------------------------------------------------------
 
+/**
+ * Probes that have not answered, said plainly: still checking, or could not check
+ * (with a Retry that refetches exactly those). Nothing when every probe answered.
+ */
+function UncheckedNotice({
+  unchecked,
+  t,
+  prominent = false,
+}: {
+  unchecked: TasksLensProps['unchecked'];
+  t: Tokens;
+  /** In place of the empty state's heading, at its weight. */
+  prominent?: boolean;
+}): ReactElement | null {
+  const pending = uncheckedPendingLine(unchecked.pending);
+  const errored = uncheckedErroredLine(unchecked.errored);
+  if (pending === undefined && errored === undefined) return null;
+  const text = {
+    fontFamily: prominent ? t.display : t.mono,
+    fontWeight: 700,
+    fontSize: prominent ? 17 : 11.5,
+  };
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.TASKS_UNCHECKED}
+      role="status"
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: prominent ? 'center' : 'flex-start',
+        gap: 0.5,
+        mt: prominent ? 0 : 0.25,
+      }}
+    >
+      {pending !== undefined ? (
+        <Typography sx={{ ...text, color: t.muted }}>{pending}</Typography>
+      ) : null}
+      {errored !== undefined ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Typography sx={{ ...text, color: t.dangerFg }}>{errored}</Typography>
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.TASKS_UNCHECKED_RETRY}
+            size="small"
+            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, textTransform: 'none' }}
+            variant="outlined"
+            onClick={unchecked.onRetry}
+          >
+            Retry
+          </Button>
+        </Box>
+      ) : null}
+    </Box>
+  );
+}
+
 function NothingNeedsYou({
   empty,
+  unchecked,
   t,
 }: {
   empty: TasksLensProps['empty'];
+  unchecked: TasksLensProps['unchecked'];
   t: Tokens;
 }): ReactElement {
+  // The all-clear is a claim about every in-flight activity: made only once every
+  // probe has answered. Until then the unchecked lines take the heading's place.
+  const headline = allClearHeadlineFor(unchecked);
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.TASKS_EMPTY}
@@ -607,12 +680,16 @@ function NothingNeedsYou({
         textAlign: 'center',
       }}
     >
-      <Typography
-        component="h2"
-        sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 22, color: t.ink }}
-      >
-        Nothing needs you.
-      </Typography>
+      {headline !== undefined ? (
+        <Typography
+          component="h2"
+          sx={{ fontFamily: t.display, fontWeight: 800, fontSize: 22, color: t.ink }}
+        >
+          {headline}
+        </Typography>
+      ) : (
+        <UncheckedNotice prominent t={t} unchecked={unchecked} />
+      )}
       <Typography
         data-testid={UI_IDENTIFIERS.Construction.TASKS_EMPTY_COUNTS}
         sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.muted }}

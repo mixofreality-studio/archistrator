@@ -45,8 +45,14 @@ interface Wire {
   ActivityConstruction?: Record<string, WireRow>;
 }
 
-/** Trap every write before the page can issue one. */
+/** Trap every write before the page can issue one: EVERY non-GET is aborted (the
+ *  catch-all, registered first so a test's own answering route still wins), and
+ *  each known write route is named on top of it. */
 async function trapWrites(page: Page): Promise<void> {
+  await page.route('**', (r) => {
+    const m = r.request().method();
+    return m === 'GET' || m === 'HEAD' ? r.fallback() : r.abort();
+  });
   for (const pat of [
     '**/execute-next-activity/**',
     '**/override-activity/**',
@@ -62,9 +68,9 @@ async function trapWrites(page: Page): Promise<void> {
 /** Mutable session stages per activity, served for the session route. */
 type Stages = Record<string, number | undefined>;
 
-async function serveOwed(page: Page, stages: Stages): Promise<void> {
+async function serveOwed(page: Page, stages: Stages, only?: readonly string[]): Promise<void> {
   const started = '2026-09-12T20:00:00Z';
-  const edits: Record<string, WireRow> = {
+  const all: Record<string, WireRow> = {
     [GATE]: { BuildStatus: BUILD.inReview, CurrentPhase: 'detailed_design' },
     [TAKEOVER]: {
       BuildStatus: BUILD.inConstruction,
@@ -77,6 +83,9 @@ async function serveOwed(page: Page, stages: Stages): Promise<void> {
     },
     [RUNNING]: { BuildStatus: BUILD.inReview, CurrentPhase: 'construction' },
   };
+  const edits = Object.fromEntries(
+    Object.entries(all).filter(([id]) => only === undefined || only.includes(id))
+  );
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
@@ -196,6 +205,54 @@ test('live: nothing is owed, and the lens says so without probing a session', as
   await expect(page.getByTestId(TESTID.constructionTasksPolicyBanner)).toContainText('risk floor');
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveCount(0);
   expect(sessionGets).toEqual([]);
+});
+
+test('a probe that fails is not an all-clear: no "Nothing needs you", and Retry asks again', async ({
+  page,
+}) => {
+  // Only the RUNNING row is started, and its session route answers 500 every time.
+  await serveOwed(page, {}, [RUNNING]);
+  const sessionGets: string[] = [];
+  await page.route('**/get-session-state/archistrator/**', async (route) => {
+    sessionGets.push(route.request().url());
+    await route.fulfill({ status: 500, json: { error: 'session store unavailable' } });
+  });
+  await openTasks(page);
+  const unchecked = page.getByTestId(TESTID.constructionTasksUnchecked);
+  await expect(unchecked).toContainText("Couldn't check 1 in-flight activity", {
+    timeout: 15_000,
+  });
+  await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionTasksEmpty)).not.toContainText('Nothing needs');
+  const before = sessionGets.length;
+  await page.getByTestId(TESTID.constructionTasksUncheckedRetry).click();
+  await expect.poll(() => sessionGets.length).toBeGreaterThan(before);
+  await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
+});
+
+test('a probe still in flight reads "Checking…", never the all-clear', async ({ page }) => {
+  await serveOwed(page, {}, [RUNNING]);
+  let release: () => void = () => undefined;
+  const held = new Promise<void>((r) => {
+    release = r;
+  });
+  await page.route('**/get-session-state/archistrator/**', async (route) => {
+    await held;
+    await route.fulfill({ status: 404, json: { error: 'no construction session' } }).catch(() => {
+      // the page may already be closed when the test releases the hold
+    });
+  });
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksUnchecked)).toContainText(
+    'Checking 1 in-flight activity…'
+  );
+  await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
+  // Once the probe answers (a dormant-pump 404 — an established absence), it is clear.
+  release();
+  await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText(
+    'Nothing needs you.',
+    { timeout: 10_000 }
+  );
 });
 
 test('owed rows come from the live stage, risk floor first; a running in-review row is not owed', async ({

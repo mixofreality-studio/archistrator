@@ -15,7 +15,12 @@ import type {
   ConstructionStage,
   TaskAttemptRow,
 } from '../../../contracts/types.ts';
-import { owedItemsFor, probeCandidatesFor, type SessionsByActivity } from './owedWork.ts';
+import {
+  owedItemsFor,
+  owedWorkFor,
+  probeCandidatesFor,
+  type SessionsByActivity,
+} from './owedWork.ts';
 import { evidenceViewFor } from '../list/observedOnly.ts';
 
 /** A started, classified, in-review service row; `drop` removes optional fields
@@ -195,6 +200,34 @@ void test('owed items come back in activity-id order (ranking is Task 2)', () =>
     items.map((i) => i.activityId),
     ['C-a', 'C-b']
   );
+});
+
+// --- a probe that has not answered is not an answer (architect Q1) --------------
+
+void test('an errored probe counts as unchecked, never as nothing owed', () => {
+  const work = owedWorkFor({
+    rows: rowsOf(row({ activityId: 'C-err' })),
+    sessions: {}, // the probe failed: no view, no 404
+    erroredProbes: ['C-err'],
+  });
+  assert.deepEqual(work.items, []);
+  assert.deepEqual(work.unchecked, { pending: [], errored: ['C-err'] });
+});
+
+void test('a pending probe is unchecked; an established absence is clear; an unasked row never is', () => {
+  const rows = rowsOf(
+    row({ activityId: 'C-pending' }),
+    row({ activityId: 'C-absent' }),
+    row({ activityId: 'C-running' }),
+    // Backfilled: never started by a pump, so never probed — not "unchecked".
+    row({ activityId: 'C-backfilled', status: 'integrated' }, 'startedAt')
+  );
+  const work = owedWorkFor({
+    rows,
+    sessions: { 'C-absent': null, 'C-running': session('C-running', 'pipelineRunning') },
+  });
+  assert.deepEqual(work.items, []);
+  assert.deepEqual(work.unchecked, { pending: ['C-pending'], errored: [] });
 });
 
 // --- which sessions are worth probing ------------------------------------------

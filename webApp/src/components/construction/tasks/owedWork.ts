@@ -27,9 +27,16 @@
  * neither a finish stamp nor a recorded failure. That excludes every backfilled
  * row (reconstructed evidence, no pump ever ran it) and every planned-no-record
  * row, which is all 29 today — zero probes. The pump runs at most the supervision
- * cap at once, so the probe count stays that small. The start stamp is written only
- * under the git profile; outside it this set is empty and the lens cannot see a
- * waiting gate (plan Q1).
+ * cap at once, so the probe count stays that small. The start stamp is written in
+ * both shipping profiles (cloud = GitHub, local = GitLocal); only unit-test setups
+ * lack it (plan Q1, ruled: keep these per-child probes — they also find orphans).
+ *
+ * A PROBE THAT HAS NOT ANSWERED IS NOT AN ANSWER
+ * ----------------------------------------------
+ * A candidate whose probe is still in flight, or failed without answering, is
+ * neither owed nor clear: nobody knows. owedWorkFor counts those as `unchecked`,
+ * split into pending and errored, and the lens says "Nothing needs you." only when
+ * that count is zero (architect Q1 — the honesty gap this branch shipped with).
  */
 import type {
   ConstructionReviewer,
@@ -139,11 +146,15 @@ function base(
   };
 }
 
+/** What one row's evidence says: a decision is owed, nothing is owed, or the
+ *  probe that would say has not answered. */
+type RowVerdict = OwedItem | 'clear' | 'unchecked';
+
 function owedFor(
   row: ConstructionRow,
   session: ConstructionSessionState | null | undefined,
   titleFor: ((id: string) => string | undefined) | undefined
-): OwedItem | undefined {
+): RowVerdict {
   // A recorded terminal failure outranks whatever a (likely closed) session says.
   if (row.status === 'failed' || row.failureReason !== undefined) {
     return {
@@ -156,7 +167,11 @@ function owedFor(
       },
     };
   }
-  if (session === null || session === undefined) return undefined;
+  // `null` is an ANSWER (the probe established there is no session). `undefined`
+  // is the absence of one — pending, errored, or never asked — and must never read
+  // as "nothing is owed".
+  if (session === undefined) return 'unchecked';
+  if (session === null) return 'clear';
   const reviewers = session.view.reviewSet?.reviewers ?? [];
   if (session.stage === 'awaitingTakeover') {
     const summary = session.view.variance?.summary;
@@ -167,7 +182,7 @@ function owedFor(
       ...(summary !== undefined && summary.length > 0 ? { variance: summary } : {}),
     };
   }
-  if (session.stage !== 'awaitingApproval') return undefined;
+  if (session.stage !== 'awaitingApproval') return 'clear';
   const gate = gateFor(row);
   const gateTask = gate.task;
   const round = gateTask !== undefined ? row.attempts.filter((a) => a.task === gateTask).length : 0;
@@ -183,19 +198,58 @@ function owedFor(
   };
 }
 
-/**
- * Every owed decision across the rows, in activity-id order (owedRanking.ts
- * applies the product's default sort on top).
- */
-export function owedItemsFor(input: {
+/** Probe candidates with no answer yet — each id in exactly one list, sorted. */
+export interface UncheckedProbes {
+  /** Still in their first fetch. */
+  pending: readonly string[];
+  /** Failed without answering (the retry is spent). */
+  errored: readonly string[];
+}
+
+export interface OwedWork {
+  /** Every owed decision, in activity-id order (owedRanking.ts ranks on top). */
+  items: OwedItem[];
+  unchecked: UncheckedProbes;
+}
+
+export interface OwedWorkInput {
   rows: Readonly<Record<string, ConstructionRow>> | undefined;
   sessions: SessionsByActivity;
+  /** Probes that failed without answering (constructionSessions.erroredProbesFor). */
+  erroredProbes?: readonly string[];
   titleFor?: (id: string) => string | undefined;
-}): OwedItem[] {
-  const out: OwedItem[] = [];
+}
+
+/**
+ * The owed set, and what could not be checked. Only a probe CANDIDATE can be
+ * unchecked: a row nobody asks about (backfilled, planned, finished) was never
+ * going to have a session to report.
+ */
+export function owedWorkFor(input: OwedWorkInput): OwedWork {
+  const candidates = new Set(probeCandidatesFor(input.rows));
+  const errored = new Set(input.erroredProbes ?? []);
+  const items: OwedItem[] = [];
+  const pending: string[] = [];
+  const failed: string[] = [];
   for (const row of Object.values(input.rows ?? {})) {
-    const item = owedFor(row, input.sessions[row.activityId], input.titleFor);
-    if (item !== undefined) out.push(item);
+    const verdict = owedFor(row, input.sessions[row.activityId], input.titleFor);
+    if (verdict === 'clear') continue;
+    if (verdict === 'unchecked') {
+      if (candidates.has(row.activityId)) {
+        (errored.has(row.activityId) ? failed : pending).push(row.activityId);
+      }
+      continue;
+    }
+    items.push(verdict);
   }
-  return out.sort((a, b) => a.activityId.localeCompare(b.activityId));
+  const byId = (a: string, b: string): number => a.localeCompare(b);
+  return {
+    items: items.sort((a, b) => byId(a.activityId, b.activityId)),
+    unchecked: { pending: pending.sort(byId), errored: failed.sort(byId) },
+  };
+}
+
+/** Every owed decision across the rows, in activity-id order. */
+export function owedItemsFor(input: OwedWorkInput): OwedItem[] {
+  return owedWorkFor(input).items;
 }

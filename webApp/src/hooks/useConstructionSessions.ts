@@ -6,31 +6,51 @@
  * SAME query useConstructionSession runs — same key, same dormant-404-as-null
  * absence, same polling that stops at a terminal stage — so the two hooks share
  * cache entries rather than fetching twice.
+ *
+ * It also reports which probes FAILED without answering, and a retry for them:
+ * the lens may say "Nothing needs you." only once every probe has answered
+ * (owedWork.owedWorkFor's `unchecked`), and it must say which ones did not.
  */
 import { useCallback } from 'react';
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import type { ConstructionSessionState } from '../contracts/types';
-import { sessionQueryOptions } from './useConstructionSession';
-import { sessionsByActivity, type SessionsById } from './constructionSessions';
+import { constructionSessionKey, sessionQueryOptions } from './useConstructionSession';
+import { erroredProbesFor, sessionsByActivity, type SessionProbes } from './constructionSessions';
 
-export type { SessionsById } from './constructionSessions';
+export type { SessionsById, SessionProbes } from './constructionSessions';
 
 export function useConstructionSessions(
   projectId: string,
   activityIds: readonly string[]
-): SessionsById {
+): SessionProbes & { retryErrored: () => void } {
   const queryClient = useQueryClient();
   // `combine` re-runs whenever its reference changes, so it is keyed on the id
   // LIST's content: the route rebuilds the array on every 1.5s poll, and a fresh
   // reference each time would hand the owed-set derivation a new record per render.
   const idsKey = activityIds.join(' ');
   const combine = useCallback(
-    (results: UseQueryResult<ConstructionSessionState | null>[]): SessionsById =>
-      sessionsByActivity(idsKey.length > 0 ? idsKey.split(' ') : [], results),
+    (results: UseQueryResult<ConstructionSessionState | null>[]): SessionProbes => {
+      const ids = idsKey.length > 0 ? idsKey.split(' ') : [];
+      return {
+        sessions: sessionsByActivity(ids, results),
+        errored: erroredProbesFor(ids, results),
+      };
+    },
     [idsKey]
   );
-  return useQueries({
+  const probes = useQueries({
     queries: activityIds.map((id) => sessionQueryOptions(queryClient, projectId, id, true)),
     combine,
   });
+  const erroredKey = probes.errored.join(' ');
+  // Refetch exactly the probes that failed — the lens's "Couldn't check N…" Retry.
+  const retryErrored = useCallback((): void => {
+    for (const id of erroredKey.length > 0 ? erroredKey.split(' ') : []) {
+      void queryClient.refetchQueries({
+        queryKey: constructionSessionKey(projectId, id),
+        exact: true,
+      });
+    }
+  }, [queryClient, projectId, erroredKey]);
+  return { ...probes, retryErrored };
 }

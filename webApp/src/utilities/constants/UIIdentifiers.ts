@@ -401,6 +401,9 @@ export const UI_IDENTIFIERS = {
     TASKS_EMPTY: 'construction-tasks-empty',
     TASKS_EMPTY_COUNTS: 'construction-tasks-empty-counts',
     TASKS_RESUME: 'construction-tasks-resume',
+    // Probes with no answer (architect Q1): "Checking N…" / "Couldn't check N…".
+    TASKS_UNCHECKED: 'construction-tasks-unchecked',
+    TASKS_UNCHECKED_RETRY: 'construction-tasks-unchecked-retry',
     tasksRow: (key: string) => `construction-tasks-row-${key}`,
     tasksCell: (key: string, column: string) => `construction-tasks-${column}-${key}`,
     tasksReview: (key: string) => `construction-tasks-review-${key}`,
