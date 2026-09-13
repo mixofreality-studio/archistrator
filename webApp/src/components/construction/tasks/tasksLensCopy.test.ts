@@ -242,25 +242,50 @@ void test('the empty state counts are a partition: every activity in exactly one
     ['fail', 'failed'],
     ['unk', 'unclassified'],
     ['probe', 'eligible'],
+    ['stopped', 'in-construction'],
+    ['waitLive', 'blocked'],
   ]);
   const counts = emptyStateCounts(statuses, {
-    inFlight: new Set(['probe']),
-    waiting: new Set(['wait']),
+    // The ONE in-flight set decides "in flight": the under-way statuses the set
+    // holds, a fresh pickup that reads eligible, and a waiting row with a live
+    // session. `stopped` is under way by status but not in the set (an owed failure).
+    inFlight: new Set(['probe', 'review', 'build', 'dd', 'live', 'waitLive']),
+    waiting: new Set(['wait', 'waitLive']),
   });
   assert.equal(sum(counts), statuses.size);
   assert.deepEqual(counts, {
     eligible: 1,
     waiting: 1,
-    inFlight: 5,
+    inFlight: 6,
     blocked: 1,
     done: 1,
-    failed: 1,
+    failed: 2,
     unclassified: 1,
   });
   assert.equal(
     emptyStateLine(counts),
-    '1 eligible · 1 waiting on dependencies · 5 in flight · 1 blocked · 1 done · 1 failed · 1 unclassified'
+    '1 eligible · 1 waiting on dependencies · 6 in flight · 1 blocked · 1 done · 2 failed · 1 unclassified'
   );
+});
+
+// The inflight-residual round: the count had two rules of its own on top of the set
+// (waiting checked first, and every under-way status counted as in flight), and
+// disagreed with Begin, the chip and Expand. The set now decides, alone.
+void test('the in-flight count is exactly the in-flight set: no status or waiting rule overrides it', () => {
+  const statuses = new Map<string, BuildStatus>([
+    ['waitingButLive', 'blocked'],
+    ['reviewNotInSet', 'in-review'],
+    ['buildNotInSet', 'in-construction'],
+  ]);
+  const set = new Set(['waitingButLive']);
+  const counts = emptyStateCounts(statuses, {
+    inFlight: set,
+    waiting: new Set(['waitingButLive']),
+  });
+  assert.equal(counts.inFlight, set.size, 'a waiting row the set holds is in flight');
+  assert.equal(counts.waiting, 0);
+  assert.equal(counts.failed, 2, 'an under-way status outside the set is not in flight');
+  assert.equal(sum(counts), statuses.size);
 });
 
 void test('the committed 62efcafe shape: 29 activities, two waiting on dependencies', () => {

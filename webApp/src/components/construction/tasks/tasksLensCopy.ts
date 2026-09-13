@@ -235,13 +235,19 @@ export interface EmptyStateCounts {
 }
 
 /**
- * The partition, one bucket per activity in `statuses` (computeActivityStatuses):
- *   - `waiting` first: an integration-pending row still waiting on a dependency.
- *     Its status reads blocked; the line names it for what it is.
- *   - `inFlight`: what the pump started and has not finished (the probe
- *     candidates, owedWork.probeCandidatesFor) — a fresh pickup with no evidence
- *     yet reads eligible by status — plus any status that is work under way.
- *   - then eligible / blocked / done / failed / unclassified by status.
+ * The partition, one bucket per activity in `statuses` (computeActivityStatuses).
+ * "In flight" is decided by THE in-flight set (activityScope.inFlightActivityIds)
+ * and by nothing else, so this count is the set Begin, the "In flight" chip and
+ * "Expand to current phase" read (final review I1; the inflight-residual round):
+ *   - `inFlight` FIRST: exactly the set's members. A fresh pickup reads eligible by
+ *     status, and an integration-pending row with a live session or a live gate is
+ *     in the set too; each is counted where Begin counts it.
+ *   - `waiting`: an integration-pending row, still waiting on a dependency, that
+ *     the set does not hold. Its status reads blocked; the line names it for what
+ *     it is.
+ *   - then eligible / blocked / done / failed / unclassified by status. An
+ *     under-way status reaches here only when the set has said the activity is NOT
+ *     in flight, so it never counts as in flight (below).
  */
 export function emptyStateCounts(
   statuses: ReadonlyMap<string, BuildStatus>,
@@ -265,8 +271,8 @@ function bucketFor(
   s: BuildStatus,
   sets: { inFlight: ReadonlySet<string>; waiting: ReadonlySet<string> }
 ): keyof EmptyStateCounts {
-  if (sets.waiting.has(id)) return 'waiting';
   if (sets.inFlight.has(id)) return 'inFlight';
+  if (sets.waiting.has(id)) return 'waiting';
   switch (s) {
     case 'eligible':
       return 'eligible';
@@ -282,8 +288,13 @@ function bucketFor(
     case 'in-construction':
     case 'in-detailed-design':
     case 'not-started':
-      // Under way by status (the live override's `not-started` included): in flight.
-      return 'inFlight';
+      // Under way by status, but NOT in the in-flight set: the status alone never
+      // makes an activity in flight. A row carries an under-way status only when it
+      // is classified and has build evidence (wire.mapConstructionRow), and such a
+      // row's own state is running, which puts it in the set, unless the owed set
+      // marks it FAILED: a recorded failure the pump has stopped on
+      // (tasks/owedChip.ts). So it counts with the failures the TASKS rows list.
+      return 'failed';
   }
 }
 
