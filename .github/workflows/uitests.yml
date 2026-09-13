@@ -35,6 +35,9 @@ name: UI Tests
 # returns the construction-phase state for every new project the tests create,
 # causing design-experience tests to navigate to /construction instead of
 # /design/system and breaking the projects-catalog (emptyState/projectsGrid).
+# The specs that NEED that dogfood state (construction-*, artifact-systemtest,
+# episodes-panel, meta/use-case-coverage) self-skip here and run for real in the
+# separate `uitests-construction` job below, against a repo seeded from it.
 #
 # GATED TESTS (run with UITESTS_LIVE_DRAFTING=off, live-drafting specs self-skip):
 #   tests/design-experience.spec.ts  "co-author drafting" block
@@ -224,5 +227,167 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-traces
+          path: uitests/test-results/
+          retention-days: 7
+
+  # ── uitests-construction ────────────────────────────────────────────────────
+  # The OTHER project-state configuration. The construction-* specs,
+  # artifact-systemtest, episodes-panel and meta/use-case-coverage assert against
+  # the REAL dogfood construction-phase project ("archistrator"), which the
+  # fresh empty repo above does not hold, so in the job above they self-skip.
+  # Here the project-state repo is seeded LIVE from this checkout's own
+  # .aiarch/state/project.json (uitests/scripts/seed-construction-state.sh), and
+  # REQUIRE_CONSTRUCTION_ARTIFACTS=1 turns every content gate's skip into a
+  # failure: a seed that did not take must go red, not green-by-skip.
+  #
+  # THIS MUST STAY A SEPARATE JOB. Under the LOCAL profile every project id
+  # resolves to the one configured repo, so the project-CREATION specs run
+  # against this seeded repo would hard-fail (CreateProject's
+  # guardProjectIdentity: the repo already holds "archistrator"), and these specs
+  # run against the empty repo would skip. The two configurations are mutually
+  # exclusive (uitests/README.md). Plan:
+  # .superpowers/sdd/2026-09-12-deterministic-activity-derivation/plan-ci-seeding.md
+  uitests-construction:
+    runs-on: ubuntu-latest
+
+    permissions:
+      contents: read
+
+    # Unused by the LOCAL profile (no Postgres-backed bindings), kept so this
+    # job's server boots with exactly the env of the job above.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: archistrator
+          POSTGRES_PASSWORD: archistrator
+          POSTGRES_DB: archistrator
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U archistrator"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+
+      - name: Set up Go
+        uses: actions/setup-go@v6
+        with:
+          go-version: '1.25'
+          cache-dependency-path: server/go.sum
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      # Boot-time `claude --version` preflight: see the job above.
+      - name: Install Claude Code CLI
+        run: npm install -g @anthropic-ai/claude-code
+
+      - name: Install Temporal CLI
+        run: |
+          curl -sSf https://temporal.download/cli.sh | sh
+          echo "$HOME/.temporalio/bin" >> "$GITHUB_PATH"
+
+      - name: Start Temporal dev server
+        run: |
+          temporal server start-dev \
+            --namespace aiarch-test \
+            --headless \
+            --port 7233 \
+            --log-level error &
+          for i in $(seq 1 60); do
+            if temporal operator cluster health --address 127.0.0.1:7233 >/dev/null 2>&1; then
+              echo "Temporal ready"
+              break
+            fi
+            sleep 1
+          done
+          temporal operator cluster health --address 127.0.0.1:7233
+
+      - name: Build Go server binary
+        working-directory: server
+        run: GOWORK=off go build -o /tmp/archistrator-server ./cmd/server
+
+      # The DOGFOOD-SEEDED repo, not the fresh empty one: see the job header.
+      # --episodes runs server/cmd/gen-uitests-episodes from server/ (it resolves
+      # its trace fixture relative to that directory); the script handles the cwd.
+      - name: Seed the dogfood project-state repo (+ episode ledger)
+        run: bash uitests/scripts/seed-construction-state.sh --episodes /tmp/uitests-construction-projectstate.git
+
+      - name: Start Go server (dev-mode, replay worker, dogfood-seeded local git project state)
+        run: |
+          /tmp/archistrator-server &
+          # Wait up to 60s for /healthz
+          for i in $(seq 1 60); do
+            if curl -sf http://127.0.0.1:8888/healthz >/dev/null 2>&1; then
+              echo "Server ready"
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://127.0.0.1:8888/healthz
+        env:
+          ARCHISTRATOR_LISTEN_ADDR: ':8888'
+          ARCHISTRATOR_POSTGRES_URL: postgres://archistrator:archistrator@localhost:5432/archistrator?sslmode=disable
+          ARCHISTRATOR_TEMPORAL_HOSTPORT: localhost:7233
+          ARCHISTRATOR_TEMPORAL_NAMESPACE: aiarch-test
+          ARCHISTRATOR_AUTH_DEV_MODE: 'true'
+          ARCHISTRATOR_DEV_SUBJECT: dev-architect
+          ARCHISTRATOR_WORKER_PROVIDER: replay
+          ARCHISTRATOR_WORKER_REPLAY_DIR: ${{ github.workspace }}/uitests/testdata/cassettes
+          ARCHISTRATOR_WORKER_REPLAY_MODE: strict
+          # The one env var that differs from the job above: the seeded repo.
+          ARCHISTRATOR_PROJECT_STATE_GIT_LOCAL: 'true'
+          ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL: 'file:///tmp/uitests-construction-projectstate.git'
+          # No real construction dispatch or operated runtime: both stubbed.
+          ARCHISTRATOR_CONSTRUCTION_DRYRUN: 'true'
+          ARCHISTRATOR_OPERATIONS_DRYRUN: 'true'
+
+      - name: Install webApp dependencies
+        working-directory: webApp
+        run: npm ci
+
+      - name: Install uitests dependencies
+        working-directory: uitests
+        run: npm ci
+
+      # Typecheck + lint run once, in the job above; this job only runs specs.
+
+      - name: Install Playwright browsers
+        working-directory: uitests
+        run: npx playwright install --with-deps chromium
+
+      # ONLY the specs that need the seeded state (npm run test:construction is
+      # the one filter, shared with local runs). Running anything else here breaks
+      # it: see the job header.
+      - name: Run construction UI tests
+        working-directory: uitests
+        env:
+          CI: 'true'
+          UITESTS_LIVE_DRAFTING: 'off'
+          UITESTS_SPA_URL: 'http://localhost:5173'
+          # Content gates FAIL instead of skip (tests/support/gating.ts).
+          REQUIRE_CONSTRUCTION_ARTIFACTS: '1'
+        run: npm run test:construction
+
+      - name: Upload Playwright report on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-construction
+          path: uitests/playwright-report/
+          retention-days: 7
+
+      - name: Upload Playwright traces on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-traces-construction
           path: uitests/test-results/
           retention-days: 7

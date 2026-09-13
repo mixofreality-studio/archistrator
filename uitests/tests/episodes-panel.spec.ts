@@ -38,6 +38,7 @@ import {
   fetchDesignEpisodes,
   gotoApp,
   requireServer,
+  skipUnlessContent,
   type DesignEpisodes,
 } from './support/gating.js';
 import { tagUseCase } from './support/useCases.js';
@@ -64,8 +65,8 @@ let discovered: DesignEpisodes | undefined;
 test.beforeEach(async ({ request }) => {
   await requireServer(request, BASE);
   discovered = await fetchDesignEpisodes(request, BASE);
-  test.skip(
-    discovered === undefined,
+  skipUnlessContent(
+    discovered !== undefined,
     'uitests: no captured episodes (a traced succeeded one AND a gap) on the "archistrator" ' +
       'project behind the SPA proxy — this spec asserts REAL episode-ledger content and cannot ' +
       "run against a stack whose ledger was never provisioned. Point the server's " +

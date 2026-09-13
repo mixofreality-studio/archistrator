@@ -24,7 +24,7 @@
 import { test, expect } from '../support/dispatchGuard.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { fetchCoreUseCases, requireServer } from '../support/gating.js';
+import { fetchCoreUseCases, requireServer, skipUnlessContent } from '../support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -65,8 +65,8 @@ test('every core use case has at least one tagged UI spec (or a documented gap)'
   request,
 }) => {
   const coreUseCases = await fetchCoreUseCases(request, BASE);
-  test.skip(
-    coreUseCases === undefined,
+  skipUnlessContent(
+    coreUseCases !== undefined,
     'uitests: no committed coreUseCases slot on the "archistrator" project behind the SPA ' +
       'proxy — this meta-check asserts REAL coverage against the committed core use case ' +
       'list and cannot run against a fresh/empty project-state repo.',

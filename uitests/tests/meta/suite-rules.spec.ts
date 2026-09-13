@@ -13,7 +13,11 @@
 import guardedDefault, { test, expect } from '../support/dispatchGuard.js';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join, relative } from 'node:path';
-import { requireServer, skipUnlessConstructionArtifacts } from '../support/gating.js';
+import {
+  requireServer,
+  skipUnlessConstructionArtifacts,
+  skipUnlessContent,
+} from '../support/gating.js';
 
 const TESTS = join(import.meta.dirname, '..');
 
@@ -128,6 +132,25 @@ test('the construction-artifacts probe FAILS when nothing answers; it never skip
   request,
 }) => {
   await expect(skipUnlessConstructionArtifacts(request, NOWHERE)).rejects.toThrow(/did not answer/);
+  expect(test.info().expectedStatus).toBe('passed');
+  expect(test.info().annotations.filter((a) => a.type === 'skip')).toEqual([]);
+});
+
+// The seeded CI job (uitests-construction) sets REQUIRE_CONSTRUCTION_ARTIFACTS=1:
+// there, missing content is a broken seed, and a skip would read as green.
+test('under REQUIRE_CONSTRUCTION_ARTIFACTS=1 missing content FAILS; it never skips', () => {
+  const saved = process.env.REQUIRE_CONSTRUCTION_ARTIFACTS;
+  process.env.REQUIRE_CONSTRUCTION_ARTIFACTS = '1';
+  try {
+    expect(() => {
+      skipUnlessContent(false, 'no content.');
+    }).toThrow(/REQUIRE_CONSTRUCTION_ARTIFACTS=1/);
+    // Present content is not a reason to fail.
+    skipUnlessContent(true, 'unused');
+  } finally {
+    if (saved === undefined) delete process.env.REQUIRE_CONSTRUCTION_ARTIFACTS;
+    else process.env.REQUIRE_CONSTRUCTION_ARTIFACTS = saved;
+  }
   expect(test.info().expectedStatus).toBe('passed');
   expect(test.info().annotations.filter((a) => a.type === 'skip')).toEqual([]);
 });

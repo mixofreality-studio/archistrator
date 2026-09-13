@@ -154,20 +154,48 @@ export async function constructionArtifactsAvailable(
 }
 
 /**
+ * requireSeededContent reports whether this run was provisioned WITH the dogfood
+ * content (REQUIRE_CONSTRUCTION_ARTIFACTS=1). The `uitests-construction` CI job
+ * sets it, because that job seeds the project-state repo from this checkout's own
+ * project.json: there, a content gate that finds nothing is a broken seed or a
+ * broken server, not a stack that lacks the content, and a skip would read as green.
+ */
+export function requireSeededContent(): boolean {
+  return (process.env.REQUIRE_CONSTRUCTION_ARTIFACTS ?? '').trim() === '1';
+}
+
+/**
+ * skipUnlessContent is the one decision every fixture-content gate makes. Content
+ * present: run. Content missing: skip with `reason`, unless the run said the
+ * content was seeded (requireSeededContent), in which case it FAILS.
+ */
+export function skipUnlessContent(present: boolean, reason: string): void {
+  if (present) return;
+  if (requireSeededContent()) {
+    throw new Error(
+      `${reason} REQUIRE_CONSTRUCTION_ARTIFACTS=1 says this run was seeded with that content, ` +
+        'so this FAILS rather than skips (see uitests/scripts/seed-construction-state.sh).',
+    );
+  }
+  test.skip(true, reason);
+}
+
+/**
  * skipUnlessConstructionArtifacts skips specs that assert against the REAL
  * committed N-STP/N-IT system-test-plan content (artifact-systemtest.spec.ts) when
  * the server behind the SPA proxy has no such data — e.g. CI's fresh/empty
  * project-state repo. Mirrors skipUnlessServer / skipUnlessLiveDrafting: an honest
  * self-skip with a clear reason rather than a false failure against infra that was
- * never provisioned with this content.
+ * never provisioned with this content. Under REQUIRE_CONSTRUCTION_ARTIFACTS=1 (the
+ * seeded CI job) it FAILS instead (skipUnlessContent).
  */
 export async function skipUnlessConstructionArtifacts(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<void> {
   const ok = await constructionArtifactsAvailable(request, baseURL);
-  test.skip(
-    !ok,
+  skipUnlessContent(
+    ok,
     'uitests: no committed construction-phase "archistrator" project with a system-test plan behind the ' +
       'SPA proxy — this spec asserts REAL N-STP/N-IT content and cannot run against a fresh/empty ' +
       'project-state repo. Point ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL at a repo seeded from this ' +

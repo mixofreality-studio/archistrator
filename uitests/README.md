@@ -54,6 +54,7 @@ tests/close-and-no-render.spec.ts  ✕ returns home; network log has NO /render 
 tests/support/testids.ts    data-testid contract, imported from the SPA's own UI_IDENTIFIERS (no component/behavior import)
 tests/support/gating.ts     infra gating — serverReachable / liveDrafting (the UI requireStack)
 tests/support/flows.ts      reusable black-box flows (create project, enter design)
+scripts/seed-construction-state.sh  builds the dogfood-seeded project-state repo the construction specs need (§1b)
 ```
 
 ## Infra gating (mirrors systemtests)
@@ -177,40 +178,65 @@ To point the managed SPA's `/api` proxy at a server on a DIFFERENT port
 `UITESTS_SPA_URL=http://localhost:<a-free-port>` when invoking `npm test` — see
 [Environment variables](#environment-variables).
 
-### 1b. (episodes-panel only) seed the episode ledger
+### 1b. The dogfood-seeded repo (construction specs, episodes, use-case coverage)
 
-`tests/episodes-panel.spec.ts` asserts against REAL captured episode-ledger
-content on the well-known `archistrator` dogfood project, so it needs the
-**dogfood-seeded** project-state repo (same requirement as
-`artifact-systemtest.spec.ts` — see `skipUnlessConstructionArtifacts`), PLUS an
-episode ledger under `<repoRoot>/.aiarch/traces/`. Without both it self-skips.
+The `construction-*` specs, `artifact-systemtest`, `episodes-panel` and the
+`meta/use-case-coverage` check assert against REAL content on the well-known
+`archistrator` dogfood project: its construction phase, its system-test plan,
+its committed core use cases, and (episodes-panel) an episode ledger under
+`<repoRoot>/.aiarch/traces/`. They need a project-state repo seeded from THIS
+checkout's own `.aiarch/state/project.json`. One script builds it, for CI and
+locally alike:
 
 ```bash
-# a) a repo seeded from THIS checkout's committed project.json
-REPO=/tmp/uitests-episodes-repo
-git init --initial-branch=main "$REPO"
-git -C "$REPO" config receive.denyCurrentBranch updateInstead
-mkdir -p "$REPO/.aiarch/state"
-cp .aiarch/state/project.json "$REPO/.aiarch/state/project.json"
-git -C "$REPO" add -A && git -C "$REPO" commit -m "seed: dogfood project state"
-
-# b) the episode ledger, written through the real episodeAccess RA and derived
-#    from the committed capture fixtures (see the tool's own doc comment for
-#    why this is seeded rather than produced by a live dispatch)
-cd ../server && GOWORK=off go run ./cmd/gen-uitests-episodes -repo "$REPO"
+# a NEW bare repo whose one commit holds this checkout's project.json (id forced
+# to "archistrator"), plus the episode ledger via server/cmd/gen-uitests-episodes
+bash scripts/seed-construction-state.sh --episodes /tmp/uitests-construction-projectstate.git
 ```
 
-Then point the server at that repo
-(`ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file:///tmp/uitests-episodes-repo`).
+It refuses a path that already exists (a stale seed would test stale state and
+still pass): delete the old repo to reseed. Then boot the server as in §1, with
+`ARCHISTRATOR_PROJECT_STATE_GIT_REPO_URL=file:///tmp/uitests-construction-projectstate.git`
+and `ARCHISTRATOR_OPERATIONS_DRYRUN=true`, and run only the seeded set:
+
+```bash
+REQUIRE_CONSTRUCTION_ARTIFACTS=1 npm run test:construction
+```
+
+`REQUIRE_CONSTRUCTION_ARTIFACTS=1` makes every content gate
+(`skipUnlessConstructionArtifacts`, and the episodes and core-use-case gates,
+all through `skipUnlessContent` in `tests/support/gating.ts`) FAIL instead of
+skip: in a run that was seeded, missing content is a broken seed, and a skip
+would read as green. Without it the gates skip as before.
 
 > **The two project-state configurations are mutually exclusive** — a
-> long-standing property of this harness, not new. The project-CREATION specs
+> long-standing property of this harness, not new. Under the LOCAL profile every
+> project id resolves to the one configured repo. The project-CREATION specs
 > (`landing`, `homebase`, `close-and-no-render`, `design-experience`'s
-> `structure` block, `gate-sendback-fault`) require the FRESH EMPTY repo CI
-> provisions; `artifact-systemtest`, `episodes-panel` and the
-> `meta/use-case-coverage` check require the dogfood-seeded one. Whichever half
-> is not configured self-skips. See `.github/workflows/uitests.yml`'s "Project
-> state" note.
+> `structure` block, `gate-sendback-fault`) require the FRESH EMPTY repo: against
+> the seeded one, `CreateProject` hard-fails (`guardProjectIdentity`: the repo
+> already holds `archistrator`). The seeded set above requires the seeded repo:
+> against the empty one, it self-skips. So `npm test` belongs with the empty repo
+> and `npm run test:construction` with the seeded one, never the other way round.
+
+### CI: two jobs, one per configuration
+
+`.github/workflows/uitests.yml` runs both halves as two parallel jobs:
+
+| Job | Project-state repo | Runs | Content gates |
+|-----|--------------------|------|---------------|
+| `uitests` | fresh empty bare repo (one empty commit) | `npm test` (everything; the seeded set self-skips) | skip |
+| `uitests-construction` | seeded LIVE from the checkout by `scripts/seed-construction-state.sh --episodes` | `npm run test:construction` only | FAIL (`REQUIRE_CONSTRUCTION_ARTIFACTS=1`) |
+
+Keep them separate jobs: merging them, or pointing the wrong spec set at the
+wrong repo, turns skips into `ContractMisuse` failures (see above). The seed is
+never a committed fixture: it is the commit under test's own `project.json`, so
+it cannot drift. The flip side is that these specs are coupled to the live
+dogfood content: a change to `.aiarch/state/project.json` that removes an
+activity a spec names (for example `C-billing-engine` or
+`C-construction-manager`) fails this job with no UI change. `uitests-construction`
+installs its own dependencies and browsers; typecheck and lint run once, in
+`uitests`.
 
 ### 2. Run the UI tests
 

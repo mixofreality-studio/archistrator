@@ -7,6 +7,8 @@
   "scripts": {
     "test": "playwright test",
     "test:ui": "playwright test --ui",
+    "test:construction": "playwright test construction- artifact-systemtest meta/use-case-coverage episodes-panel",
+    "seed:construction-state": "bash scripts/seed-construction-state.sh",
     "test:report": "playwright show-report",
     "list": "playwright test --list",
     "install:browsers": "playwright install --with-deps chromium",
