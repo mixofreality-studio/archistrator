@@ -14,16 +14,17 @@
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect, type APIRequestContext, type Page } from '@playwright/test';
+import type { APIRequestContext, Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
-test.beforeEach(async ({ page, request }) => {
+// Every non-GET is aborted by the shared dispatch guard (support/dispatchGuard).
+test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
-  await page.route('**/execute-next-activity/**', (r) => r.abort());
 });
 
 interface WireAttempt {

@@ -8,7 +8,7 @@
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { ApiError, toApiError } from '../contracts/errors';
+import { ApiError, bodyUnlessError } from '../contracts/errors';
 import { mapOperationsView } from '../contracts/wire';
 import type { OperationsView } from '../contracts/operationsTypes';
 
@@ -26,7 +26,7 @@ export function useOperationsView(
   return useQuery<OperationsView>({
     queryKey: operationsViewKey(operatedAppId),
     queryFn: async () => {
-      const { data, error, response } = await apiClient.GET(
+      const result = await apiClient.GET(
         '/api/v1/operations/query-operated-system-view/{operatedAppID}',
         {
           params: {
@@ -35,7 +35,7 @@ export function useOperationsView(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return mapOperationsView(data);
     },
     enabled: enabled && operatedAppId.length > 0,

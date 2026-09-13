@@ -37,7 +37,7 @@
  * search-reveal auto-expand (`matchingTaskIds`) only fires on a TASK-field
  * match, not an activity-id-only one.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 import { tagUseCase } from './support/useCases.js';
@@ -88,8 +88,17 @@ test('the Tracker renders the activity tree and an activity row opens its shared
   await expect(page.getByTestId(TESTID.constructionDetailBreadcrumb)).toBeVisible();
   const runAction = page.getByTestId(TESTID.constructionDetailActionRun);
   await expect(runAction).toBeVisible();
+  // Disabled with its reason (spec §7.8 as amended: an action with nothing behind
+  // it is disabled with its reason, never a no-op)…
   await expect(runAction).toBeDisabled();
   await expect(runAction).toHaveAttribute('data-reason', /not wired/i);
+  // …and it lives IN the invariant action bar, the one bar every body shares —
+  // not in a body, where a body swap could take it away.
+  await expect(
+    page
+      .getByTestId(TESTID.constructionDetailActionBar)
+      .getByTestId(TESTID.constructionDetailActionRun)
+  ).toBeVisible();
 });
 
 /**
@@ -132,11 +141,10 @@ test('the detail pane stays pinned beside content, so its action bar survives a 
   await gotoApp(page, '/project/archistrator/construction');
 
   // See the doc comment above: the search only lengthens the page.
-  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
-  await page
-    .getByTestId(TESTID.constructionLensSearch)
-    .getByRole('textbox')
-    .fill('srs review');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({
+    timeout: 15_000,
+  });
+  await page.getByTestId(TESTID.constructionLensSearch).getByRole('textbox').fill('srs review');
   await page.waitForTimeout(600);
 
   const firstRow = page.getByTestId(TESTID.constructionListRow('C-construction-manager'));

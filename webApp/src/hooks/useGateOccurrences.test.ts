@@ -12,6 +12,7 @@ import { QueryClient } from '@tanstack/react-query';
 
 import { gateOccurrenceStoreFor } from './useGateOccurrences.ts';
 import { occurrenceKey } from './gateOccurrences.ts';
+import { readRequestedAt } from './readRequestTimes.ts';
 
 const sleep = (ms: number): Promise<void> =>
   new Promise((r) => {
@@ -55,5 +56,58 @@ void test('a read already cached before the store subscribed has no request time
   client.setQueryData(['constructionSession', 'p', 'B'], session('B', 'pipelineRunning'));
   const store = gateOccurrenceStoreFor(client);
   assert.equal(store.snapshot.get(occurrenceKey('p', 'B'))?.requestedAt, 0);
+  client.clear();
+});
+
+// Tasks-lens merge round: ONE request-time store. The gate occurrences take a read's
+// request time from readRequestTimes, the store the Begin hold reads, so the two
+// cannot disagree about when the same session read was asked for.
+void test('the occurrence and the Begin hold read the SAME request time for one session read', async () => {
+  const client = new QueryClient();
+  const store = gateOccurrenceStoreFor(client);
+  const key = ['constructionSession', 'p', 'C'];
+  let answer: (v: unknown) => void = () => undefined;
+  const read = client.fetchQuery({
+    queryKey: key,
+    queryFn: () =>
+      new Promise((r) => {
+        answer = r;
+      }),
+  });
+  await sleep(30);
+  answer(session('C', 'awaitingApproval'));
+  await read;
+  const occ = store.snapshot.get(occurrenceKey('p', 'C'));
+  assert.ok(occ);
+  assert.ok(occ.requestedAt > 0);
+  assert.equal(occ.requestedAt, readRequestedAt(client, key));
+  // Hand-written data has no request, in both readers. (A later millisecond: the
+  // fold ignores a read no newer than the last.)
+  await sleep(5);
+  client.setQueryData(key, session('C', 'pipelineRunning'));
+  assert.equal(store.snapshot.get(occurrenceKey('p', 'C'))?.stage, 'pipelineRunning');
+  assert.equal(store.snapshot.get(occurrenceKey('p', 'C'))?.requestedAt, 0);
+  assert.equal(readRequestedAt(client, key), 0);
+  client.clear();
+});
+
+void test('a cancelled session fetch lends its start to no occurrence', async () => {
+  const client = new QueryClient();
+  const store = gateOccurrenceStoreFor(client);
+  const key = ['constructionSession', 'p', 'D'];
+  const first = client.fetchQuery({ queryKey: key, queryFn: () => new Promise(() => undefined) });
+  first.catch(() => undefined);
+  await sleep(20);
+  const cancelledStart = Date.now() - 20;
+  await client.cancelQueries({ queryKey: key });
+  await sleep(20);
+  const secondStart = Date.now();
+  await client.fetchQuery({ queryKey: key, queryFn: () => session('D', 'awaitingApproval') });
+  const occ = store.snapshot.get(occurrenceKey('p', 'D'));
+  assert.ok(occ);
+  assert.ok(
+    occ.requestedAt >= secondStart,
+    `requestedAt ${String(occ.requestedAt)} came from the cancelled fetch (~${String(cancelledStart)})`
+  );
   client.clear();
 });

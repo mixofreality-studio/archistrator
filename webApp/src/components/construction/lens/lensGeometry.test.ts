@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  centeredScrollFor,
   isToolbarStuck,
   lensGeometryVars,
   PANE_MAX_HEIGHT,
@@ -56,4 +57,49 @@ void test('the toolbar is stuck only once the scroller has moved and it sits at 
   assert.equal(isToolbarStuck({ toolbarTop: 63.5, scrollerTop: 63, scrollTop: 240 }), true);
   // Scrolled a little, but the header is still partly on screen above it.
   assert.equal(isToolbarStuck({ toolbarTop: 120, scrollerTop: 63, scrollTop: 30 }), false);
+});
+
+// Designer final N1: the linked row is centred in the band below the toolbar —
+// and where the list ends too soon to scroll that far, a runway makes the room.
+void test('a row mid-list is centred with no runway', () => {
+  // Band 86..837 (mid 461.5); row mid at 1500 → scrollTop 1039; room to 1500.
+  assert.deepEqual(
+    centeredScrollFor({
+      rowTop: 1490,
+      rowHeight: 20,
+      bandTop: 86,
+      bandBottom: 837,
+      contentHeight: 2400,
+      clientHeight: 837,
+    }),
+    { scrollTop: 1039, runwayPx: 0 }
+  );
+});
+
+void test('a row near the list’s end gets the runway it needs instead of landing low', () => {
+  // The measured 1280 case: max scroll 870, but centring needs 1100.
+  const plan = centeredScrollFor({
+    rowTop: 1551,
+    rowHeight: 20,
+    bandTop: 86,
+    bandBottom: 837,
+    contentHeight: 1707,
+    clientHeight: 837,
+  });
+  assert.equal(plan.scrollTop, 1100);
+  assert.equal(plan.runwayPx, 230);
+});
+
+void test('a row near the top never scrolls negative, and needs no runway', () => {
+  assert.deepEqual(
+    centeredScrollFor({
+      rowTop: 100,
+      rowHeight: 20,
+      bandTop: 86,
+      bandBottom: 837,
+      contentHeight: 3000,
+      clientHeight: 837,
+    }),
+    { scrollTop: 0, runwayPx: 0 }
+  );
 });

@@ -15,6 +15,7 @@ import {
   provenanceBasesOf,
   provenanceGradeOf,
   provenanceRailFor,
+  provenanceSubGradeLabel,
   provenanceTooltipFor,
   worstOriginOf,
   type ProvenanceBearing,
@@ -169,6 +170,20 @@ void test('the tooltip surfaces the founder ruling that stands in for the eviden
   const tip = provenanceTooltipFor(worstOriginOf(node), bases);
   assert.match(tip, /Reconstructed \(backfilled\)/);
   assert.match(tip, /founderRuling\[2026-09-09\]/);
+});
+
+// Final web review: the attempt ledger read a second label table ("reconstructed",
+// "synthesized") while the tooltip on the same row said "backfilled" / "inferred".
+// The ledger now reads provenanceSubGradeLabel — this pins its words to the tooltip's.
+void test('the sub-grade words are the tooltip’s own: "backfilled" and "inferred"', () => {
+  assert.equal(provenanceSubGradeLabel('backfilled'), 'backfilled');
+  assert.equal(provenanceSubGradeLabel('synthesized'), 'inferred');
+  for (const origin of ['backfilled', 'synthesized'] as const) {
+    assert.ok(
+      provenanceTooltipFor(origin, []).includes(`(${provenanceSubGradeLabel(origin)})`),
+      `${origin}: the ledger word is not the tooltip's`
+    );
+  }
 });
 
 void test('an observed attempt contributes no basis to quote', () => {

@@ -58,6 +58,7 @@ import {
   type GeneratedTask,
   type LifecyclePhase,
 } from '../lifecycleTemplates.gen.ts';
+import { outcomeStateOf, type OutcomeState } from '../detail/detailPaneState.ts';
 
 /** The activity kinds the server can classify — the profile registry's key set. */
 export type ClassifiedKind = NonNullable<ConstructionRow['kind']>;
@@ -67,13 +68,14 @@ export type ClassifiedKind = NonNullable<ConstructionRow['kind']>;
 // ---------------------------------------------------------------------------
 
 /**
- * A task's state, derived from its LATEST attempt and nothing else.
+ * A task's state, derived from its LATEST attempt and nothing else — through
+ * detailPaneState.outcomeStateOf, the ONE outcome mapping the pane and the
+ * attempt ledger read too, so `skipped` stays `skipped` here as well.
  *
- * `unknown` (no attempt recorded) is the majority state across the real
- * project and is a first-class answer, not a placeholder: Task 6 renders it
- * chip-less, because chip-less IS the signal.
+ * `unknown` (no attempt recorded) is a first-class answer, not a placeholder:
+ * the list renders it chip-less, because chip-less IS the signal.
  */
-export type TaskState = 'unknown' | 'running' | 'passed' | 'failed';
+export type TaskState = OutcomeState;
 
 /** One attempt, plus whether a later attempt has superseded it. */
 export interface TaskAttemptNode extends TaskAttemptRow {
@@ -255,29 +257,6 @@ function attemptsForTask(attempts: readonly TaskAttemptRow[], task: string): Tas
   return attempts.filter((a) => a.task === task).sort((a, b) => a.attempt - b.attempt);
 }
 
-/** A task's state from its latest attempt's outcome. No attempt at all is `unknown`. */
-function stateForOutcome(outcome: TaskAttemptRow['outcome']): TaskState {
-  switch (outcome) {
-    case 'passed':
-      return 'passed';
-    case 'rejected':
-    case 'failed':
-      return 'failed';
-    case 'skipped':
-      // A skipped (conditional-not-needed) task is a benign terminal outcome,
-      // not a verdict of its own — grouped with `passed` exactly as
-      // detailPaneState.stateForOutcome already does, rather than inventing a
-      // fifth state for one non-blocking case.
-      return 'passed';
-    case '':
-      return 'running';
-    default:
-      // Unreachable for a well-formed wire value; a junk outcome is "we do not
-      // know", never a guessed verdict.
-      return 'unknown';
-  }
-}
-
 function buildTaskNode(
   activityId: string,
   lifecyclePhase: LifecyclePhase,
@@ -298,7 +277,8 @@ function buildTaskNode(
     gate: task.gate,
     conditional: task.conditional,
     lifecyclePhase,
-    state: latestAttempt === undefined ? 'unknown' : stateForOutcome(latestAttempt.outcome),
+    // No attempt at all is `unknown`.
+    state: latestAttempt === undefined ? 'unknown' : outcomeStateOf(latestAttempt.outcome),
     attempts,
     ...(latestAttempt !== undefined ? { latestAttempt } : {}),
     attemptCount: attempts.length,

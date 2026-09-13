@@ -44,12 +44,12 @@
  * every row and strips the untrusted evidence instead (observedOnly.ts), so a
  * backfilled activity reads not started rather than disappearing (designer P1-11).
  */
-import type { ActivityBuildStatusRow } from '../../../contracts/types';
 import { provenanceGradeOf, worstOriginOf, type ProvenanceOrigin } from '../provenanceAxis.ts';
 import type { ScopeId, SortId, ToolbarState } from '../lens/useLensSelection.ts';
 import { activityRowState, currentStageMarker } from './activityRowPresentation.ts';
 import type { ActivityNode, TaskNode } from './activityTree.ts';
-import type { OwedMarks } from '../tasks/owedChip.ts';
+import type { ConstructionRow } from '../../../contracts/types.ts';
+import type { OwedMark, OwedMarks } from '../tasks/owedChip.ts';
 
 const NO_OWED: OwedMarks = new Map();
 
@@ -81,7 +81,7 @@ export function scopePredicate(
       // a recorded failure, exactly the rows the TASKS lens shows.
       return owed.has(node.activityId);
     case 'inFlight':
-      return activityRowState(node.row, owed.get(node.activityId)) === 'running';
+      return isInFlight(node, owed);
     case 'hasRetries':
       return node.retryCount > 0;
     case 'reconstructed':
@@ -251,23 +251,52 @@ export function applyToolbarToActivities(
 // "Expand to current phase"
 // ---------------------------------------------------------------------------
 
-/** In-construction (actively running) or in-review (blocked on a human gate
- *  decision) — both are "the current phase is happening right now", which is
- *  the whole point of the button. An activity with no evidence, or one that
- *  already integrated, has no "current phase" left to jump to. */
-export function isActivelyInFlight(status: ActivityBuildStatusRow | undefined): boolean {
-  return status === 'in-construction' || status === 'in-review';
+/**
+ * IN FLIGHT — the ONE definition, read by the "In flight" scope chip AND by
+ * "Expand to current phase" (both its enabled state and what it opens), so the
+ * chip never lists an activity the button would not open, or the reverse.
+ *
+ * An activity is in flight when its OWED-AWARE row state (activityRowState with
+ * the activity's owed mark) is `running` or `awaitingHuman`: either way its
+ * current phase is happening right now. Head-state `in-review` reads `running`
+ * (Q4: head-state never says a human is awaited), a live gate or a steer reads
+ * `awaitingHuman` — both in flight. A recorded failure reads `failed`, which is
+ * not: the pump has stopped on it. Read from the ROW STATE rather than the bare
+ * status, so it follows everything the row state follows — an unclassified row,
+ * or one whose status "Observed only" set aside with its reconstructed evidence,
+ * is not in flight. An activity with no evidence, or one already integrated, has
+ * no current phase left to jump to.
+ *
+ * It overlaps "Awaiting me" on purpose (orchestrator ruling at the tasks review):
+ * a live gate is still work in flight, and scope chips are views, not a partition.
+ */
+export function isInFlight(node: ActivityNode, owed: OwedMarks = NO_OWED): boolean {
+  return rowIsInFlight(node.row, owed.get(node.activityId));
+}
+
+/**
+ * The same rule over a bare row and its owed mark, for readers that hold rows
+ * rather than tree nodes. The Begin control reads it
+ * (beginControl.constructionInFlight), so the button and the "In flight" chip
+ * agree on what is in flight.
+ */
+export function rowIsInFlight(row: ConstructionRow, owed?: OwedMark): boolean {
+  const state = activityRowState(row, owed);
+  return state === 'running' || state === 'awaitingHuman';
 }
 
 /**
  * The tree-item ids "Expand to current phase" opens — deliberately just the
  * in-flight ACTIVITIES' own ids (revealing their phase rows), never every
  * activity: that is the "expand all" trap the whole feature exists to avoid.
- * Today's live project has 1-3 activities in flight at once, so clicking the
- * button opens 1-3 rows' worth of phase children, not 528.
+ * A live project has a handful of activities in flight at once, so clicking the
+ * button opens a few rows' worth of phase children, not 528.
  */
-export function currentPhaseExpansionIds(nodes: readonly ActivityNode[]): string[] {
-  return nodes.filter((n) => isActivelyInFlight(n.row.status)).map((n) => n.nodeId);
+export function currentPhaseExpansionIds(
+  nodes: readonly ActivityNode[],
+  owed: OwedMarks = NO_OWED
+): string[] {
+  return nodes.filter((n) => isInFlight(n, owed)).map((n) => n.nodeId);
 }
 
 /** The "Expand to current phase" button's state (fix round B, adopted P2). */
@@ -282,9 +311,10 @@ export interface ExpandToCurrentPhaseControl {
  * it is disabled and its tooltip says why rather than failing silently on click.
  */
 export function expandToCurrentPhaseControl(
-  nodes: readonly ActivityNode[]
+  nodes: readonly ActivityNode[],
+  owed: OwedMarks = NO_OWED
 ): ExpandToCurrentPhaseControl {
-  const n = currentPhaseExpansionIds(nodes).length;
+  const n = currentPhaseExpansionIds(nodes, owed).length;
   if (n === 0) {
     return {
       enabled: false,

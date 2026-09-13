@@ -6,7 +6,7 @@
  */
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError } from '../contracts/errors';
 import { artifactKindToOrdinal, mapProjectSessionState } from '../contracts/wire';
 import { PROJECT_TERMINAL_STAGES } from '../contracts/types';
 import type { ProjectArtifactKind, ProjectSessionState } from '../contracts/types';
@@ -38,16 +38,13 @@ export function useProjectSessionState(
     queryKey: key,
     queryFn: sessionProbeQueryFn<ProjectSessionState>({
       fetch: async () => {
-        const { data, error, response } = await apiClient.GET(
-          '/api/v1/project-design/get-session-state/{projectID}',
-          {
-            params: {
-              path: { projectID: projectId },
-              query: { kind: artifactKindToOrdinal(kind) },
-            },
-          }
-        );
-        if (error !== undefined) throw toApiError(response.status, error);
+        const result = await apiClient.GET('/api/v1/project-design/get-session-state/{projectID}', {
+          params: {
+            path: { projectID: projectId },
+            query: { kind: artifactKindToOrdinal(kind) },
+          },
+        });
+        const data = bodyUnlessError(result);
         return mapProjectSessionState(data);
       },
       getCached: () => queryClient.getQueryData<ProjectSessionState | null>(key),

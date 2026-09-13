@@ -14,7 +14,7 @@ import assert from 'node:assert/strict';
 
 import type { ConstructionRow, TaskAttemptRow } from '../../../contracts/types.ts';
 import { buildActivityTree, type ActivityNode, type TaskNode } from './activityTree.ts';
-import { noAttemptStateFor } from '../detail/detailPaneState.ts';
+import { noAttemptStateFor, taskDetailStateFor } from '../detail/detailPaneState.ts';
 import {
   activityRowState,
   owedChipLabel,
@@ -24,9 +24,7 @@ import {
   criticalBorderPx,
   currentStageMarker,
   effortBarFraction,
-  emphasisRank,
   floatPresentation,
-  inlineActionsFor,
   isCurrentStage,
   activityGridColumns,
   listSlotVars,
@@ -103,15 +101,6 @@ void test('never renders a chip for the unknown state', () => {
   assert.equal(chipFor('unknown'), undefined);
 });
 
-void test('marks awaitingHuman as the loudest state', () => {
-  assert.ok(emphasisRank('awaitingHuman') > emphasisRank('running'));
-  assert.ok(emphasisRank('awaitingHuman') > emphasisRank('failed'));
-});
-
-void test('always offers an inline retry on a failed task', () => {
-  assert.ok(inlineActionsFor('failed').includes('retry'));
-});
-
 void test('renders float as a numeral, not only a colour band', () => {
   assert.equal(floatPresentation(6).numeral, '6');
 });
@@ -144,28 +133,6 @@ void test('the two states that owe a human something get the larger chip', () =>
 void test('every state has a label, including the ones that never render a chip', () => {
   for (const state of EVERY_STATE) {
     assert.ok(ROW_STATE_LABEL[state].length > 0, `${state} has no label`);
-  }
-});
-
-void test('emphasis is a total order with no ties between the four chip states', () => {
-  const ranks = (['awaitingHuman', 'failed', 'running', 'passed'] as const).map(emphasisRank);
-  assert.deepEqual(
-    [...ranks].sort((a, b) => b - a),
-    ranks
-  );
-  assert.equal(new Set(ranks).size, ranks.length);
-});
-
-void test('unknown and absent are the quietest states on the surface', () => {
-  for (const state of EVERY_STATE) {
-    assert.ok(emphasisRank(state) >= emphasisRank('unknown'));
-    assert.ok(emphasisRank(state) >= emphasisRank('absent'));
-  }
-});
-
-void test('no state but failed offers an inline action', () => {
-  for (const state of EVERY_STATE.filter((s) => s !== 'failed')) {
-    assert.deepEqual(inlineActionsFor(state), []);
   }
 });
 
@@ -245,7 +212,7 @@ void test('head-state in-review awaits nobody; the owed set is what says a human
   // A live gate: the loudest row on the screen.
   const gated = activityRowState(inReview, { reason: 'gate' });
   assert.equal(gated, 'awaitingHuman');
-  assert.equal(emphasisRank(gated), emphasisRank('awaitingHuman'));
+  assert.equal(chipFor(gated)?.size, 'sm', 'the larger chip: it owes a human something');
   assert.equal(owedChipLabel({ reason: 'gate' }), 'Awaiting you');
   // A steer takes the same fill, under its own word.
   assert.equal(activityRowState(inReview, { reason: 'takeover' }), 'awaitingHuman');
@@ -344,15 +311,18 @@ void test('the same pending outcome elsewhere is merely running', () => {
 });
 
 void test('a skipped task does not borrow the success mark', () => {
-  // The tree's four-member union has to fold `skipped` onto `passed`; this
-  // surface has a channel for it and must use it. A skipped task did not run,
-  // and the phase's exit is the GATE task's verdict, not this one's.
-  const node = onlyNode(
-    row({ kind: 'service', attempts: [attempt({ task: 'srs', outcome: 'skipped' })] })
-  );
-  const task = taskNamed(node, 'srs');
-  assert.equal(task.state, 'passed', 'the tree still reports its coarse answer');
+  // A skipped task did not run, and the phase's exit is the GATE task's
+  // verdict, not this one's. The tree, the list row and the pane all read the
+  // one outcome mapping (detailPaneState.outcomeStateOf), so all three say so.
+  const r = row({ kind: 'service', attempts: [attempt({ task: 'srs', outcome: 'skipped' })] });
+  const task = taskNamed(onlyNode(r), 'srs');
+  assert.equal(task.state, 'skipped');
   assert.equal(taskRowState(task, undefined), 'skipped');
+  assert.equal(
+    taskDetailStateFor(r, { activityId: r.activityId, task: 'srs' }),
+    taskRowState(task, undefined),
+    'the pane and the list agree on the same attempt'
+  );
   assert.equal(chipFor('skipped'), undefined);
 });
 

@@ -13,14 +13,27 @@
  * server is reachable. The live drafting half (generating → render → gate) needs
  * the full Postgres+Temporal+worker stack and is GATED behind
  * UITESTS_LIVE_DRAFTING=1 — the UI analogue of systemtests' requireStack.
+ *
+ * SAFETY (fix-F review): the structure cases run under the shared dispatch guard
+ * (support/dispatchGuard), which aborts every non-GET, over a FRESH project stubbed
+ * in the browser (stubCreatedProject). They create nothing. The live-drafting
+ * block is the one deliberate exception: its whole purpose is to drive real
+ * drafting writes against a real project, so it keeps the unguarded test. It is
+ * opt-in (UITESTS_LIVE_DRAFTING=1) and self-skips otherwise, CI included
+ * (uitests.yml runs with UITESTS_LIVE_DRAFTING=off).
  */
-import { test, expect, type Page } from '@playwright/test';
+import { test as liveTest, type Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
-import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
+import { skipUnlessServer, skipUnlessLiveDrafting, gotoApp } from './support/gating.js';
 import { openSharedProject, enterDesignExperience } from './support/flows.js';
+import { stubCreatedProject } from './support/designStubs.js';
 import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
+
+/** A fresh project, stubbed in the browser: no slots, no design session yet. */
+const FRESH_ID = 'uitest-design-fresh';
 
 // The first step (mission) may require research input before drafting can start.
 const RESEARCH_NOTE =
@@ -50,37 +63,45 @@ async function requestFirstDraft(page: Page): Promise<void> {
   }
 }
 
+/** Open the stubbed fresh project's home base, then enter System Design from it. */
+async function openFreshDesign(page: Page): Promise<void> {
+  await stubCreatedProject(page, FRESH_ID, 'Design Fresh Fixture');
+  await gotoApp(page, `/project/${FRESH_ID}/home`);
+  await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+  await enterDesignExperience(page);
+}
+
 test.describe('structure (pure UI — server reachable)', () => {
   test.beforeEach(async ({ request }) => {
     await skipUnlessServer(request, BASE);
   });
 
-  test('the spine renders a step per Phase-1 artifact', async ({ page }) => {
-    await openSharedProject(page);
-    await enterDesignExperience(page);
+  test('the spine renders a step per Phase-1 artifact', async ({ page, dispatchGuard }) => {
+    await openFreshDesign(page);
 
     await expect(page.getByTestId(TESTID.slimSpine)).toBeVisible();
     for (const kind of PHASE1_ARTIFACTS) {
       await expect(page.getByTestId(TESTID.spineStep(kind))).toBeVisible();
     }
+    expect(dispatchGuard.blocked).toEqual([]);
   });
 
-  test('the first step offers a "Request draft" affordance', async ({ page }) => {
-    await openSharedProject(page);
-    await enterDesignExperience(page);
+  test('the first step offers a "Request draft" affordance', async ({ page, dispatchGuard }) => {
+    await openFreshDesign(page);
     // The active first step is `mission`; with no session yet it shows the CTA.
     await expect(page.getByTestId(TESTID.spineStep(PHASE1_ARTIFACTS[0]))).toBeVisible();
     await expect(page.getByTestId(TESTID.requestDraft)).toBeVisible();
+    expect(dispatchGuard.blocked).toEqual([]);
   });
 });
 
-test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
+liveTest.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
   // Real drafting on a live worker can take a few minutes; the per-test timeout
   // must exceed the 180s artifact-render waits below (the default 60s would kill
   // the test mid-draft before the model ever reaches the gate).
-  test.describe.configure({ timeout: 300_000 });
+  liveTest.describe.configure({ timeout: 300_000 });
 
-  test.beforeEach(async ({ request }) => {
+  liveTest.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();
     await skipUnlessServer(request, BASE);
     // This whole block drives the real dispatch → observe → gate → approve/
@@ -89,7 +110,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     tagUseCase('drive-system-design');
   });
 
-  test('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {
+  liveTest('Request draft shows the generating scene then a rendered artifact', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -105,7 +126,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     await expect(page.getByTestId(TESTID.generatingScene)).toHaveCount(0);
   });
 
-  test('the gate panel appears and Approve advances the spine', async ({ page }) => {
+  liveTest('the gate panel appears and Approve advances the spine', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -129,7 +150,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     await expect(gate).toHaveCount(0, { timeout: 30_000 });
   });
 
-  test('Send-back enables after entering free-form feedback', async ({ page }) => {
+  liveTest('Send-back enables after entering free-form feedback', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 
@@ -158,7 +179,7 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     await expect(page.getByTestId(TESTID.gateSendback)).toBeEnabled();
   });
 
-  test('Send back with feedback regenerates the artifact', async ({ page }) => {
+  liveTest('Send back with feedback regenerates the artifact', async ({ page }) => {
     await openSharedProject(page);
     await enterDesignExperience(page);
 

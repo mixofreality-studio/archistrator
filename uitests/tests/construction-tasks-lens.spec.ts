@@ -14,16 +14,19 @@
  *    the session leaves the gate, says "did not land" when it does not, and tells a
  *    4xx rejection from a 5xx unknown outcome.
  *
- * SAFETY: two layers, because neither alone closes review I2 (measured, round 2).
- *  - guardContext: every non-GET no page route answers is aborted by a CONTEXT
- *    route, registered before the page opens; a page's `unrouteAll` cannot remove it.
- *  - abortHolds: a request a test HOLDS open is aborted in teardown BEFORE anything
- *    is unrouted. This is the layer that closes I2: when `unrouteAll` removes a page
- *    handler that is still holding a request, Playwright lets that request go on to
- *    the network — past the context guard too.
+ * SAFETY: the shared dispatch guard (support/dispatchGuard.ts), both its layers,
+ * because neither alone closes review I2 (measured, tasks round 2):
+ *  - a CONTEXT route aborts every non-GET no page route answers; a page's
+ *    `unrouteAll` cannot remove it;
+ *  - a request a test HOLDS open goes through `dispatchGuard.hold()`, and is
+ *    aborted BEFORE anything is unrouted (`page.unrouteAll` and the fixture's
+ *    teardown both abort holds first). When `unrouteAll` removes a page handler
+ *    still holding a request, Playwright lets that request go on to the network —
+ *    past the context route too.
  * Nothing reaches the server but GET reads.
  */
-import { test, expect, type BrowserContext, type Page, type Route } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
+import type { Page, Route } from '@playwright/test';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -49,78 +52,6 @@ interface WireRow {
 interface Wire {
   ActivityConstruction?: Record<string, WireRow>;
   reviewPolicy?: unknown;
-}
-
-/** Every non-GET the context guard aborted in the current test, as "METHOD url". */
-let blocked: string[] = [];
-
-/**
- * Abort every non-GET/HEAD no page route answers (review I2). A CONTEXT route, not
- * a page one: the page catch-all this replaces was itself removed by the teardown's
- * `unrouteAll`. A test that answers a write registers its own page route, which
- * takes precedence; anything it does not answer falls through to here.
- *
- * It does NOT catch a request a page handler is HOLDING when that handler is
- * unrouted — Playwright sends such a request straight on (round 2 leak demo: guard
- * alone, one POST reached the GET-only proxy). abortHolds is what closes that.
- * The merge round swaps this for rewrite's shared `dispatchGuard` fixture
- * (support/dispatchGuard.ts) — which, being a context route too, needs abortHolds
- * alongside it just the same.
- */
-async function guardContext(context: BrowserContext): Promise<void> {
-  await context.route('**/*', async (route) => {
-    const req = route.request();
-    if (req.method() === 'GET' || req.method() === 'HEAD') {
-      await route.fallback();
-      return;
-    }
-    blocked.push(`${req.method()} ${req.url()}`);
-    await route.abort('blockedbyclient');
-  });
-}
-
-/** Teardown's release for every hold the current test opened: each ABORTS. */
-let holds: (() => Promise<void>)[] = [];
-
-/** Abort every request the current test still holds, and wait until each has —
- *  what teardown does FIRST, while every route is still in place (review I2). */
-async function abortHolds(): Promise<void> {
-  for (const abortHeld of holds) await abortHeld();
-  holds = [];
-}
-
-/**
- * Hold requests open until the test releases them (review I2). `handle` answers
- * a held route with `answer` once released; if the test ends first (a failure, a
- * timeout), teardown aborts it instead, and waits until it has, BEFORE any route
- * is removed. A held write can never outlive its test.
- */
-function newHold(): {
-  release: () => void;
-  handle: (route: Route, answer: () => Promise<void>) => Promise<void>;
-} {
-  let settle: (answer: boolean) => void = () => undefined;
-  const released = new Promise<boolean>((r) => {
-    settle = r;
-  });
-  const handled: Promise<void>[] = [];
-  holds.push(async () => {
-    settle(false);
-    await Promise.all(handled);
-  });
-  return {
-    release: () => {
-      settle(true);
-    },
-    handle: (route, answer) => {
-      const done = released.then(async (go) => {
-        if (go) await answer();
-        else await route.abort('blockedbyclient').catch(() => undefined);
-      });
-      handled.push(done);
-      return done;
-    },
-  };
 }
 
 /** Mutable session stages per activity, served for the session route. */
@@ -247,26 +178,23 @@ async function answerDecisions(
   });
 }
 
-test.beforeEach(async ({ context, request }) => {
-  blocked = [];
-  holds = [];
+test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
   await skipUnlessConstructionArtifacts(request, BASE);
-  await guardContext(context);
 });
 
 test.afterEach(async ({ page }) => {
-  // Held requests die as aborts FIRST, while every route is still in place (I2):
-  // unrouting a handler that still holds one would send it on to the network.
-  await abortHolds();
-  // The console re-reads the project every 10s (review I3), so a route handler can
-  // be mid-fetch when a test ends; that is teardown, not a failure. The context
-  // guard outlives this.
+  // The guard's `unrouteAll` aborts every held request FIRST, while every route is
+  // still in place (I2): unrouting a handler that still holds one would send it on
+  // to the network. The console re-reads the project every 10s (review I3), so a
+  // route handler can be mid-fetch when a test ends; that is teardown, not a
+  // failure. The context route outlives this.
   await page.unrouteAll({ behavior: 'ignoreErrors' });
 });
 
 test('a write is aborted by the context guard, even once every page route is gone (review I2)', async ({
   page,
+  dispatchGuard,
 }) => {
   await openTasks(page);
   await page.unrouteAll({ behavior: 'ignoreErrors' });
@@ -281,17 +209,18 @@ test('a write is aborted by the context guard, even once every page route is gon
     }
   }, probe);
   expect(outcome).toBe('aborted');
-  expect(blocked.filter((b) => b.endsWith(probe))).toEqual([`POST ${BASE}${probe}`]);
+  expect(dispatchGuard.blocked.filter((b) => b.endsWith(probe))).toEqual([`POST ${BASE}${probe}`]);
 });
 
 test('a write a test still holds when it ends is aborted by teardown, never let out (review I2)', async ({
   page,
+  dispatchGuard,
 }) => {
   await openTasks(page);
   // SAFETY: the probe path does not exist on the server; were it let out, it could
   // only reach the GET-only proxy, which refuses it.
   const probe = '/api/v1/__tasks-lens-hold-probe';
-  const hold = newHold();
+  const hold = dispatchGuard.hold();
   let held = 0;
   await page.route(`**${probe}`, (route) => {
     held += 1;
@@ -308,7 +237,7 @@ test('a write a test still holds when it ends is aborted by teardown, never let 
   }, probe);
   await expect.poll(() => held).toBe(1);
   // Exactly what teardown does when a test fails with the request still held.
-  await abortHolds();
+  await dispatchGuard.abortHolds();
   await page.unrouteAll({ behavior: 'ignoreErrors' });
   expect(await outcome).toBe('aborted');
 });
@@ -351,7 +280,10 @@ test('a probe that fails is not an all-clear; "Couldn\'t check" holds through re
   const sessionGets: number[] = [];
   await page.route('**/get-session-state/archistrator/**', async (route) => {
     sessionGets.push(Date.now());
-    await route.fulfill({ status: 500, json: { error: 'session store unavailable' } });
+    await route.fulfill({
+      status: 500,
+      json: { error: 'session store unavailable' },
+    });
   });
   await openTasks(page);
   const unchecked = page.getByTestId(TESTID.constructionTasksUnchecked);
@@ -392,12 +324,18 @@ test('a probe that fails is not an all-clear; "Couldn\'t check" holds through re
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
 });
 
-test('a probe still in flight reads "Checking…", never the all-clear', async ({ page }) => {
+test('a probe still in flight reads "Checking…", never the all-clear', async ({
+  page,
+  dispatchGuard,
+}) => {
   await serveOwed(page, {}, [RUNNING]);
-  const hold = newHold();
+  const hold = dispatchGuard.hold();
   await page.route('**/get-session-state/archistrator/**', (route) =>
     hold.handle(route, async () => {
-      await route.fulfill({ status: 404, json: { error: 'no construction session' } });
+      await route.fulfill({
+        status: 404,
+        json: { error: 'no construction session' },
+      });
     })
   );
   await openTasks(page);
@@ -442,7 +380,11 @@ test('a gate on an activity started after the page loaded appears without a relo
   });
   await page.route('**/get-session-state/archistrator/**', async (route) => {
     await route.fulfill({
-      json: { projectId: 'archistrator', activityId: GATE, stage: STAGE.awaitingApproval },
+      json: {
+        projectId: 'archistrator',
+        activityId: GATE,
+        stage: STAGE.awaitingApproval,
+      },
     });
   });
   await openTasks(page);
@@ -462,11 +404,18 @@ test('a probe that met the dormant 404 asks again, and finds the gate that opene
   let opened = false;
   await page.route('**/get-session-state/archistrator/**', async (route) => {
     if (!opened) {
-      await route.fulfill({ status: 404, json: { error: 'no construction session' } });
+      await route.fulfill({
+        status: 404,
+        json: { error: 'no construction session' },
+      });
       return;
     }
     await route.fulfill({
-      json: { projectId: 'archistrator', activityId: GATE, stage: STAGE.awaitingApproval },
+      json: {
+        projectId: 'archistrator',
+        activityId: GATE,
+        stage: STAGE.awaitingApproval,
+      },
     });
   });
   await openTasks(page);
@@ -600,7 +549,9 @@ test('the list lens reads the same owed set: "Awaiting me" is the gate, the stee
   await serveOwed(page, initialStages());
   await page.setViewportSize({ width: 1600, height: 950 });
   await gotoApp(page, '/project/archistrator/construction?lens=list');
-  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible({
+    timeout: 15_000,
+  });
   // One vocabulary: the steer's row chip says "Steer needed", not "Awaiting you".
   await expect(page.getByTestId(TESTID.constructionListRow(TAKEOVER))).toContainText(
     /steer needed/i
@@ -850,6 +801,7 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
 
 test('a decision on the wire survives a remount: Approve stays off, exactly one POST (review C1)', async ({
   page,
+  dispatchGuard,
 }) => {
   test.setTimeout(45_000);
   const stages = initialStages();
@@ -857,7 +809,7 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   const posts: string[] = [];
   // Hold the 200 while the console is navigated away and back. If the test fails
   // first, teardown aborts it — it never goes out (review I2).
-  const hold = newHold();
+  const hold = dispatchGuard.hold();
   await page.route('**/submit-phase-decision/**', (route) => {
     posts.push(route.request().url());
     return hold.handle(route, async () => {
@@ -873,7 +825,9 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   await page.getByTestId(TESTID.designClose).click();
   await expect(page).toHaveURL(/\/home/);
   await page.goBack();
-  await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible({ timeout: 15_000 });
+  await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible({
+    timeout: 15_000,
+  });
   const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
   await expect(approve).toBeDisabled();
   await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText(
@@ -895,13 +849,14 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
 
 test('a POST still on the wire keeps the re-opened gate busy, and says why (round 2 I1)', async ({
   page,
+  dispatchGuard,
 }) => {
   test.setTimeout(60_000);
   const stages = initialStages();
   await serveOwed(page, stages);
   const posts: string[] = [];
   // The reviewer's repro: hold the approval on the wire…
-  const hold = newHold();
+  const hold = dispatchGuard.hold();
   await page.route('**/submit-phase-decision/**', (route) => {
     posts.push(route.request().url());
     return hold.handle(route, async () => {
@@ -917,10 +872,14 @@ test('a POST still on the wire keeps the re-opened gate busy, and says why (roun
   const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
   // …flip the session to running (the gate is left: the row lingers, still sending)…
   stages[GATE] = STAGE.pipelineRunning;
-  await expect(row).toHaveAttribute('data-lingering', 'true', { timeout: 10_000 });
+  await expect(row).toHaveAttribute('data-lingering', 'true', {
+    timeout: 10_000,
+  });
   // …and back to the gate, which bumps the occurrence and retires the pending record.
   stages[GATE] = STAGE.awaitingApproval;
-  await expect(row).toHaveAttribute('data-lingering', 'false', { timeout: 10_000 });
+  await expect(row).toHaveAttribute('data-lingering', 'false', {
+    timeout: 10_000,
+  });
   // The new gate cannot be decided while the first request is on the wire: the
   // buttons stay off and the line says why — never an enabled Approve that does nothing.
   await expect(flow).toHaveText('Previous decision still sending…');

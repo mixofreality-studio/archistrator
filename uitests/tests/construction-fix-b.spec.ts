@@ -17,7 +17,8 @@
  * Gated like construction-tracker.spec.ts: needs the seeded "archistrator"
  * construction-phase project behind the SPA proxy.
  */
-import { test, expect, type Page } from '@playwright/test';
+import type { Page } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 
@@ -44,7 +45,7 @@ async function readGeometry(
   page: Page
 ): Promise<{ header: Record<string, number>; rows: RowGeometry[] }> {
   return page.evaluate(
-    ({ headerId, slots }) => {
+    ({ headerId, slots, idPrefix, titlePrefix }) => {
       const header = document.querySelector(`[data-testid="${headerId}"]`);
       if (header === null) throw new Error('no list header');
       const lefts = (root: Element): Record<string, number> => {
@@ -55,11 +56,11 @@ async function readGeometry(
         }
         return out;
       };
-      const rows = Array.from(document.querySelectorAll('[data-testid^="construction-list-id-"]')).map(
+      const rows = Array.from(document.querySelectorAll(`[data-testid^="${idPrefix}"]`)).map(
         (idCell) => {
-          const id = (idCell.getAttribute('data-testid') ?? '').slice('construction-list-id-'.length);
+          const id = (idCell.getAttribute('data-testid') ?? '').slice(idPrefix.length);
           const grid = idCell.closest('[data-slot="idTitle"]')?.parentElement;
-          const title = document.querySelector(`[data-testid="construction-list-title-${id}"]`);
+          const title = document.querySelector(`[data-testid="${titlePrefix}${id}"]`);
           const el = idCell as HTMLElement;
           return {
             id,
@@ -73,7 +74,12 @@ async function readGeometry(
       );
       return { header: lefts(header), rows };
     },
-    { headerId: TESTID.constructionListHeader, slots: [...SLOTS] }
+    {
+      headerId: TESTID.constructionListHeader,
+      slots: [...SLOTS],
+      idPrefix: TESTID.constructionListIdCell(''),
+      titlePrefix: TESTID.constructionListTitleCell(''),
+    }
   );
 }
 

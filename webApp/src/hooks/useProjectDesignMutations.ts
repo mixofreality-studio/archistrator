@@ -12,7 +12,7 @@ import {
   type QueryClient,
 } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
 import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
@@ -54,7 +54,7 @@ export function useRequestProjectArtifactDraft(
   const client = useQueryClient();
   return useMutation<string, Error, RequestProjectDraftVars>({
     mutationFn: async (vars) => {
-      const { data, error, response } = await apiClient.POST(
+      const result = await apiClient.POST(
         '/api/v1/project-design/request-artifact-draft/{projectID}',
         {
           params: { path: { projectID: projectId } },
@@ -64,7 +64,7 @@ export function useRequestProjectArtifactDraft(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return data;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -104,7 +104,7 @@ export function useSubmitProjectReviewDecision(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -136,7 +136,7 @@ export function useSetProjectReviewCommentStatus(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -168,7 +168,7 @@ export function useAcknowledgeProjectStaleBasis(
           body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -182,11 +182,10 @@ export function useRequestSDPCommit(
   const client = useQueryClient();
   return useMutation<string, Error, undefined>({
     mutationFn: async () => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/project-design/request-sdp-commit/{projectID}',
-        { params: { path: { projectID: projectId } } }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const result = await apiClient.POST('/api/v1/project-design/request-sdp-commit/{projectID}', {
+        params: { path: { projectID: projectId } },
+      });
+      const data = bodyUnlessError(result);
       return data;
     },
     onSuccess: () => invalidateArtifact(client, projectId, SDP_REVIEW_KIND),
@@ -223,7 +222,7 @@ export function useSubmitSDPDecision(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      throwUnlessOk(response, error);
       return undefined;
     },
     onSuccess: () => invalidateArtifact(client, projectId, SDP_REVIEW_KIND),
@@ -242,14 +241,14 @@ export function useAdvanceToConstruction(
   const client = useQueryClient();
   return useMutation<ProjectPhaseAdvanceResponse, Error, boolean>({
     mutationFn: async (acknowledgeStale: boolean) => {
-      const { data, error, response } = await apiClient.POST(
+      const result = await apiClient.POST(
         '/api/v1/project-design/advance-to-construction/{projectID}',
         {
           params: { path: { projectID: projectId } },
           body: { acknowledgeStale },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return {
         advanced: data.advanced,
         missingArtifacts: (data.missingArtifacts ?? []).map(projectArtifactKindFromOrdinal),

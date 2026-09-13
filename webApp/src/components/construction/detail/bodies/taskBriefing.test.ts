@@ -23,8 +23,11 @@ import {
   NO_CURRENT_PHASE_NOTE,
   NO_PROFILE_NOTE,
   noBriefingNoteFor,
+  NOT_STARTED_STATEMENT,
+  NOT_STARTED_STATEMENT_UNSCOPED,
   unknownStatementFor,
   UNKNOWN_STATEMENT,
+  UNKNOWN_STATEMENT_UNSCOPED,
 } from './taskBriefing.ts';
 import {
   artifactRendererKeyFor,
@@ -148,11 +151,29 @@ void test('an unclassified activity gets no briefing at all, never a borrowed on
 });
 
 void test('the unknown statement carries no error tone and names both real causes', () => {
-  assert.equal(unknownStatementFor('task'), UNKNOWN_STATEMENT);
+  assert.equal(unknownStatementFor('task', 0, 'unknown'), UNKNOWN_STATEMENT);
   assert.match(UNKNOWN_STATEMENT, /has not run, or it ran before per-task history was captured/);
   for (const word of ['error', 'failed', 'wrong', 'unable', 'problem']) {
     assert.equal(UNKNOWN_STATEMENT.toLowerCase().includes(word), false, `tone word: ${word}`);
   }
+});
+
+// Fix-D concern 1: a NOT STARTED task still said "…or it ran before per-task
+// history was captured". That cause exists only where the history cannot say — an
+// UNKNOWN selection — so a not-started one states the single cause left.
+void test('a not-started selection says it has not run, without the pre-history clause', () => {
+  assert.equal(unknownStatementFor('task', 0, 'notStarted'), NOT_STARTED_STATEMENT);
+  assert.equal(
+    unknownStatementFor('lifecyclePhase', 0, 'notStarted'),
+    NOT_STARTED_STATEMENT_UNSCOPED
+  );
+  assert.equal(unknownStatementFor(undefined, 0, 'notStarted'), NOT_STARTED_STATEMENT_UNSCOPED);
+  for (const s of [NOT_STARTED_STATEMENT, NOT_STARTED_STATEMENT_UNSCOPED]) {
+    assert.match(s, /^Not started\. Nothing has run/);
+    assert.doesNotMatch(s, /per-task history/);
+  }
+  // The two-cause sentence is kept for UNKNOWN, at every scope.
+  assert.equal(unknownStatementFor(undefined, 0, 'unknown'), UNKNOWN_STATEMENT_UNSCOPED);
 });
 
 // ---------------------------------------------------------------------------
@@ -163,14 +184,14 @@ void test('the unknown statement carries no error tone and names both real cause
 // set aside must not be told it "has not run" — a record exists and is hidden.
 void test('a selection whose attempts Observed only hid says so, never "No record"', () => {
   assert.equal(
-    unknownStatementFor('task', 10),
+    unknownStatementFor('task', 10, 'notStarted'),
     'Nothing observed. 10 reconstructed attempts are hidden by Observed only — turn it off to see them.'
   );
   assert.equal(
-    unknownStatementFor(undefined, 1),
+    unknownStatementFor(undefined, 1, 'unknown'),
     'Nothing observed. 1 reconstructed attempt is hidden by Observed only — turn it off to see it.'
   );
-  assert.equal(unknownStatementFor('task', 0), UNKNOWN_STATEMENT);
+  assert.equal(unknownStatementFor('task', 0, 'unknown'), UNKNOWN_STATEMENT);
   const classified = row({ kind: 'service', hasBuildEvidence: false });
   assert.equal(noBriefingNoteFor(classified, 0), NO_CURRENT_PHASE_NOTE);
   assert.doesNotMatch(noBriefingNoteFor(classified, 3), /Nothing is recorded/);

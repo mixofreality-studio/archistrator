@@ -21,8 +21,9 @@
 // Perf/SystemTest/QAProcess — materially different weights) into their own
 // consts plus the GENERATED_TESTING_VARIANTS record below, so a testing
 // activity's rendered lifecycle matches its actual variant instead of always
-// falling back to the Plan (N-STP) shape. Testing is 7 of 40 committed
-// activities, so this mattered for most of them.
+// falling back to the Plan (N-STP) shape. Testing is 2 of 29 committed
+// activities (N-STP, the Plan variant, and N-IT, the SystemTest variant), so
+// without this N-IT would render the wrong lifecycle.
 //
 // Every phase also carries its Figure A-1 task vocabulary (TasksForPhase) —
 // the KEYS are invariant across profiles; only the labels vary — each task flagged gate (its success IS the phase's binary exit criterion,
@@ -68,7 +69,8 @@ var kinds = []kindSpec{
 
 // testingVariants emits the FIVE testing profiles the server actually carries. The
 // generator used to emit only TestVariantPlan, so an N-IT activity rendered the N-STP
-// shape — wrong for four of the five, and testing is 7 of 40 committed activities.
+// shape — wrong for four of the five, and N-IT is one of the 2 of 29 committed
+// activities that are testing.
 var testingVariants = []struct {
 	tsVariant string
 	constName string

@@ -40,6 +40,7 @@
 import type { ConstructionRow } from '../../../../contracts/types';
 import type { LensSelection } from '../../lens/useLensSelection';
 import type { ClassifiedKind } from '../../list/activityTree.ts';
+import type { TaskDetailState } from '../detailPaneState.ts';
 import {
   GENERATED_TEMPLATES,
   GENERATED_TESTING_VARIANTS,
@@ -283,11 +284,16 @@ export function briefingFor(
 }
 
 /**
- * The one sentence the unknown card leads with.
+ * The one sentence the unknown card leads with when the selection is UNKNOWN.
  *
  * Two causes, both stated, neither guessed — the surface genuinely cannot tell
  * them apart, and picking one would be a fabrication in a very quiet voice.
  * Deliberately free of error tone: nothing here went wrong.
+ *
+ * Only for UNKNOWN (detailPaneState.noAttemptStateFor: an unclassified row, or
+ * build evidence with ZERO attempts — history that predates per-task capture).
+ * Where the history is complete, the second cause cannot be true, so a NOT
+ * STARTED selection says NOT_STARTED_STATEMENT instead.
  */
 export const UNKNOWN_STATEMENT =
   'No record. This task has not run, or it ran before per-task history was captured.';
@@ -296,8 +302,28 @@ export const UNKNOWN_STATEMENT =
 export const UNKNOWN_STATEMENT_UNSCOPED =
   'No record. This has not run, or it ran before per-task history was captured.';
 
-export function unknownStatementFor(scope: Briefing['scope'] | undefined, hiddenCount = 0): string {
+/** What a NOT STARTED selection says: its history is complete (or nothing has
+ *  happened at all), so "never ran" is the only cause left, and it is stated. */
+export const NOT_STARTED_STATEMENT = 'Not started. Nothing has run for this task yet.';
+
+/** The same sentence at phase/activity scope. */
+export const NOT_STARTED_STATEMENT_UNSCOPED = 'Not started. Nothing has run for this yet.';
+
+/**
+ * The unknown card's lead sentence, by the no-attempt rule the pane's state
+ * already follows (`state` is the pane's taskDetailStateFor): hidden attempts
+ * first (Observed only), then NOT STARTED, and the two-cause sentence only for
+ * what is genuinely UNKNOWN.
+ */
+export function unknownStatementFor(
+  scope: Briefing['scope'] | undefined,
+  hiddenCount: number,
+  state: TaskDetailState
+): string {
   if (hiddenCount > 0) return observedOnlyStatement(hiddenCount);
+  if (state === 'notStarted') {
+    return scope === 'task' ? NOT_STARTED_STATEMENT : NOT_STARTED_STATEMENT_UNSCOPED;
+  }
   return scope === 'task' ? UNKNOWN_STATEMENT : UNKNOWN_STATEMENT_UNSCOPED;
 }
 

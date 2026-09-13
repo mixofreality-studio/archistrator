@@ -160,6 +160,18 @@ export function fragmentRowLabel(call: { seq: number; altLabel?: string }): stri
  * qualified as local. The trailing "here" is that qualifier; the clean
  * "CC checks · passing" copy is unaffected (there is no count to misread).
  */
+/**
+ * Whether the fragment carries the CHECKS chip at all. The chip speaks only to a
+ * verdict, red or green. A 'planned' target (a call in a never-run test view) has
+ * no verdict to report, and neither does a fragment with no status (fix-D review
+ * M3: this rule was unpinned).
+ */
+export function ccChecksChipShown(
+  worst: 'red' | 'green' | 'planned' | undefined
+): worst is 'red' | 'green' {
+  return worst === 'red' || worst === 'green';
+}
+
 export function ccChecksChipLabel(status: 'red' | 'green', findingsCount: number): string {
   if (status === 'green') return 'CC checks · passing';
   const n = Math.max(findingsCount, 0);

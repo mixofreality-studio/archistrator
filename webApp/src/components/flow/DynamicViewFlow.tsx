@@ -108,6 +108,7 @@ import {
 import { LayerLegend, FlowCanvas, FlowEmpty, FocusNodes } from './flowShared';
 import {
   ccChecksChipLabel,
+  ccChecksChipShown,
   fragmentCallLessCaption,
   fragmentPositionLabel,
   fragmentRowLabel,
@@ -115,11 +116,14 @@ import {
 import { parallelIndex } from './parallelEdges';
 import { seqChipLabel } from './seqChipLabel';
 
-/** Per-call status for the test views: 'red' = target/failing, 'green' = passing. */
-export type StepStatus = 'red' | 'green';
+/** Per-call status for the test views: 'red' = target/failing, 'green' = passing,
+ *  'planned' = a target nothing has run against yet — the same "target" tag in
+ *  NEUTRAL ink (a never-run N-IT; designer final items: never-run is not failing). */
+export type StepStatus = 'red' | 'green' | 'planned';
 
 function statusColor(status: StepStatus | undefined, t: Tokens): string | undefined {
   if (status === undefined) return undefined;
+  if (status === 'planned') return t.muted;
   return status === 'green' ? t.committedDot : t.dangerFg;
 }
 
@@ -455,6 +459,7 @@ function StepBar({
         </IconButton>
         {status !== undefined ? (
           <Chip
+            data-step-status={status}
             label={status === 'green' ? 'passing ✓' : 'target'}
             size="small"
             sx={{
@@ -632,7 +637,9 @@ function FragmentBar({
     ? 'red'
     : statuses.includes('green')
       ? 'green'
-      : undefined;
+      : statuses.includes('planned')
+        ? 'planned'
+        : undefined;
   const captionAccent = statusColor(worst, t) ?? t.accent;
   const stepLabel = first !== undefined && first.stepLabel.length > 0 ? first.stepLabel : undefined;
   // Where this fragment sits in the WHOLE chain (founder QA round 4): a step's
@@ -683,7 +690,9 @@ function FragmentBar({
           >
             {heading}
           </Typography>
-          {worst !== undefined ? (
+          {/* The call-chain CHECKS chip speaks only to a verdict (red/green); a
+              'planned' target (a never-run test view) has none to report. */}
+          {ccChecksChipShown(worst) ? (
             <Box
               component="span"
               data-testid={UI_IDENTIFIERS.Architecture.CC_CHECKS_CHIP}

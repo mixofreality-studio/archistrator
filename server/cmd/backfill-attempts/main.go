@@ -758,11 +758,8 @@ func deQualified(rows map[string]projectstate.ActivityConstructionStatus, verdic
 		if v.Qualifies {
 			continue
 		}
-		for _, a := range rows[v.ActivityID].Attempts {
-			if ownBackfill(a) {
-				regressed = append(regressed, fmt.Sprintf("  %s: %s", v.ActivityID, v.Reason))
-				break
-			}
+		if slices.ContainsFunc(rows[v.ActivityID].Attempts, ownBackfill) {
+			regressed = append(regressed, fmt.Sprintf("  %s: %s", v.ActivityID, v.Reason))
 		}
 	}
 	if len(regressed) == 0 {

@@ -19,7 +19,7 @@ import type { App } from '@modelcontextprotocol/ext-apps';
 // tsc's bundler moduleResolution, requires full specifiers). The type-only
 // imports above are erased entirely and never hit Node's resolver, so they
 // keep the extensionless convention the rest of the app uses.
-import { ApiError, toApiError, type WireError } from '../contracts/errors.ts';
+import { ApiError, throwUnlessOk, type WireError } from '../contracts/errors.ts';
 
 export const OP_BINDINGS = {
   constructionExecuteNextActivity: {
@@ -300,7 +300,12 @@ export function restOpsClient(client: ReturnType<typeof createClient<paths>>): O
         params: { path: params.path, query: params.query },
         body: params.body,
       });
-      if (error !== undefined) throw toApiError(response.status, error as WireError);
+      // The STATUS decides, never the parsed body (fix-E review). openapi-fetch
+      // returns `error: undefined` for an empty body, which is what a proxy's
+      // 502/503/504 looks like, so testing `error` counted those as success. An
+      // empty-body 404 still throws ApiError(404), which the session probes read as
+      // "no session"; an empty-body 502 reads "request failed with status 502".
+      throwUnlessOk(response, error as WireError | undefined);
       return data as R;
     },
   };

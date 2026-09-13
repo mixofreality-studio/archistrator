@@ -6,7 +6,7 @@
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError } from '../contracts/errors';
 import { mapProjectSummary } from '../contracts/wire';
 import { useUser } from '../utilities/auth/UserContext';
 import type { ProjectSummary } from '../contracts/types';
@@ -21,10 +21,10 @@ export function useProjects(): UseQueryResult<ProjectSummary[]> {
   return useQuery<ProjectSummary[]>({
     queryKey: [...projectsKey(), owner],
     queryFn: async () => {
-      const { data, error, response } = await apiClient.GET('/api/v1/system-design/list-projects', {
+      const result = await apiClient.GET('/api/v1/system-design/list-projects', {
         params: { query: { owner } },
       });
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return data.map(mapProjectSummary);
     },
     staleTime: 30_000,

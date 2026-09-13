@@ -21,13 +21,23 @@ export function projectKey(projectId: string): readonly unknown[] {
 /**
  * refetchInterval (ms) polls the project read — used by the Construction console to
  * animate the live pump cascade (per-activity status flips). Pass false (the
- * default) for the normal one-shot read.
+ * default) for the normal one-shot read. A function is given the latest read, for a
+ * caller whose cadence depends on what the read says (the console polls while the
+ * state shows work in flight, and a caller cannot know that before this hook runs).
  */
 export function useProject(
   projectId: string,
-  refetchInterval: number | false = false
+  refetchInterval:
+    | number
+    | false
+    | ((project: ProjectStateWithGit | undefined) => number | false) = false
 ): UseQueryResult<ProjectStateWithGit> {
   const { ops } = useOpsClient();
+  const interval =
+    typeof refetchInterval === 'function'
+      ? (query: { state: { data: ProjectStateWithGit | undefined } }): number | false =>
+          refetchInterval(query.state.data)
+      : refetchInterval;
   return useQuery<ProjectStateWithGit>({
     queryKey: projectKey(projectId),
     queryFn: async () => {
@@ -38,6 +48,6 @@ export function useProject(
       return mapProjectState(data);
     },
     enabled: projectId.length > 0,
-    refetchInterval,
+    refetchInterval: interval,
   });
 }

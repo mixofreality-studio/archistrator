@@ -9,14 +9,17 @@
  * while the console is away is still counted. Components read it through
  * useSyncExternalStore; nothing here sets React state from an effect.
  *
- * It also notes when each session fetch BEGAN (the cache's `fetch` action), so an
- * occurrence carries when its latest read was requested — the time the decision's
- * evidence rule counts (tasks round 2). And it keeps only the most recently observed
+ * Each occurrence carries when its latest read was REQUESTED — the time the
+ * decision's evidence rule counts (tasks round 2). That time comes from the ONE
+ * request-time store (readRequestTimes.ts), which the Begin hold reads too: this
+ * store folds each read through `subscribeToShownReads`, never timing fetches on
+ * its own (tasks-lens merge round). And it keeps only the most recently observed
  * activities (gateOccurrences.OCCURRENCE_LIMIT).
  */
 import { useSyncExternalStore } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { ConstructionSessionState } from '../contracts/types';
+import { readRequestedAtByHash, subscribeToShownReads } from './readRequestTimes.ts';
 import {
   observeGate,
   occurrenceKey,
@@ -56,10 +59,7 @@ export function gateOccurrenceStoreFor(client: QueryClient): Store {
   const existing = stores.get(client);
   if (existing !== undefined) return existing;
   const store: Store = { snapshot: new Map(), listeners: new Set() };
-  // When each query's current fetch began. A read the store never saw start (it was
-  // in the cache before the store subscribed) has no request time: 0, never newer.
-  const fetchStartedAt = new Map<string, number>();
-  const fold = (query: CachedRead): void => {
+  const fold = (query: CachedRead, requestedAt: number): void => {
     const [root, projectId, activityId] = query.queryKey;
     if (root !== 'constructionSession' || typeof projectId !== 'string') return;
     if (typeof activityId !== 'string') return;
@@ -71,24 +71,18 @@ export function gateOccurrenceStoreFor(client: QueryClient): Store {
       prev,
       session === null ? null : session.stage,
       query.state.dataUpdatedAt,
-      fetchStartedAt.get(query.queryHash) ?? 0
+      requestedAt
     );
     if (next === prev) return;
     store.snapshot = withOccurrence(store.snapshot, key, next);
     for (const listener of store.listeners) listener();
   };
-  const cache = client.getQueryCache();
-  for (const query of cache.getAll()) fold(query);
-  cache.subscribe((event) => {
-    if (event.type === 'removed') {
-      fetchStartedAt.delete(event.query.queryHash);
-      return;
-    }
-    if (event.type === 'updated' && event.action.type === 'fetch') {
-      fetchStartedAt.set(event.query.queryHash, Date.now());
-    }
-    if (event.type === 'updated' || event.type === 'added') fold(event.query);
-  });
+  // A read already cached takes whatever request time the one store has for it: 0
+  // where it was cached before that store subscribed, which is never newer.
+  for (const query of client.getQueryCache().getAll()) {
+    fold(query, readRequestedAtByHash(client, query.queryHash));
+  }
+  subscribeToShownReads(client, fold);
   stores.set(client, store);
   return store;
 }

@@ -349,6 +349,10 @@ export const UI_IDENTIFIERS = {
     FRONTEND_PREVIEW_FRAME: 'construction-frontend-preview-frame',
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
+    /** The selected case's "what this proves / expected outcome" box (its left
+     *  border carries the case's ink) and the EXPECT label inside it. */
+    ACTIVE_CASE: 'construction-active-case',
+    CASE_EXPECT: 'construction-case-expect',
     BEGIN_BUTTON: 'construction-begin',
     /** The alert a failed Begin dispatch raises — failures are loud (spec §6). */
     BEGIN_ERROR: 'construction-begin-error',
@@ -452,6 +456,8 @@ export const UI_IDENTIFIERS = {
     /** The "Observed only" switch with its label — the box that reads visibly off
      *  where the toggle does not apply (tasks round 2, designer). */
     LENS_OBSERVED_ONLY_TOGGLE: 'construction-lens-observed-only-toggle',
+    /** Expand + Observed only: ONE no-wrap group, so they wrap together (designer). */
+    LENS_TOOLBAR_TOGGLES: 'construction-lens-toolbar-toggles',
     // The provenance mark carried on a SEARCH-MATCHED task row itself (in
     // addition to the ancestor reveal + the group headers' own badge). A task
     // row read in isolation still asserts a state; a match that scrolls one
@@ -465,6 +471,8 @@ export const UI_IDENTIFIERS = {
     /** The column header above the tier-1 rows (float … state). */
     LIST_HEADER: 'construction-list-header',
     LIST_EMPTY: 'construction-list-empty',
+    /** The blank room a deep link adds below the list to centre its row (designer N1). */
+    LIST_RUNWAY: 'construction-list-runway',
     listRow: (nodeId: string) => `construction-list-row-${nodeId}`,
     listAttempts: (nodeId: string) => `construction-list-attempts-${nodeId}`,
     // The provenance axis (Stage B Task 7) — orthogonal to state. The rail rides
@@ -472,13 +480,10 @@ export const UI_IDENTIFIERS = {
     // and tier 2), so a screen of task rows never fills with chips.
     PROVENANCE_RAIL: 'construction-provenance-rail',
     PROVENANCE_BADGE: 'construction-provenance-badge',
-    listInlineAction: (nodeId: string, action: string) =>
-      `construction-list-action-${action}-${nodeId}`,
     // The shared detail pane (Stage B Task 4) — one header/body/action-bar
     // surface behind all three lenses. Laid out BESIDE the content at
-    // >=1200px; below that it degrades to DETAIL_DRAWER, the same overlay
-    // Drawer mechanism the old ActivityLifecyclePanel used (kept, not
-    // deleted — see ActivityLifecyclePanel.tsx).
+    // >=1200px; below that it degrades to DETAIL_DRAWER, an overlay Drawer
+    // rendered by DetailPane.tsx itself.
     DETAIL_PANE: 'construction-detail-pane',
     DETAIL_DRAWER: 'construction-detail-drawer',
     DETAIL_COLLAPSE_TOGGLE: 'construction-detail-collapse-toggle',

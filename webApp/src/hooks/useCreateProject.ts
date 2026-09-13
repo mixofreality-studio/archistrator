@@ -11,7 +11,7 @@
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
 import { useUser } from '../utilities/auth/UserContext';
 import { projectsKey } from './useProjects';
 
@@ -30,13 +30,10 @@ export function useCreateProject(): UseMutationResult<string, Error, CreateProje
   const owner = useUser().sub;
   return useMutation<string, Error, CreateProjectVars>({
     mutationFn: async ({ name, operatingModel }: CreateProjectVars) => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/system-design/create-project',
-        {
-          body: { name, owner },
-        }
-      );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const result = await apiClient.POST('/api/v1/system-design/create-project', {
+        body: { name, owner },
+      });
+      const data = bodyUnlessError(result);
       const projectId = data;
       // Born selfOperated; only issue the set call when the user chose otherwise.
       if (operatingModel !== 'selfOperated') {
@@ -44,7 +41,7 @@ export function useCreateProject(): UseMutationResult<string, Error, CreateProje
           params: { path: { projectID: projectId } },
           body: { model: operatingModel },
         });
-        if (set.error !== undefined) throw toApiError(set.response.status, set.error);
+        throwUnlessOk(set.response, set.error);
       }
       return projectId;
     },

@@ -166,7 +166,8 @@ void test('rest impl dispatches to the bound method/path and returns data', asyn
   const { client, calls } = spyRestClient(() => ({
     data: { stage: 'drafting' },
     error: undefined,
-    response: { status: 200 },
+    // A real Response: openapi-fetch always hands one back, and its `ok` decides.
+    response: new Response(null, { status: 200 }),
   }));
   const ops: OpsClient = restOpsClient(client as never);
   const out = await ops.call('systemDesignGetSessionState', {
@@ -182,7 +183,8 @@ void test('rest impl maps a non-2xx response to ApiError via toApiError', async 
   const { client } = spyRestClient(() => ({
     data: undefined,
     error: { code: 'not_found', error: 'no session' },
-    response: { status: 404 },
+    // A real Response: openapi-fetch always hands one back, and its `ok` decides.
+    response: new Response(null, { status: 404 }),
   }));
   const ops: OpsClient = restOpsClient(client as never);
   await assert.rejects(
@@ -223,4 +225,90 @@ void test('mcp impl passes a void-op empty structuredContent through as {}', asy
     body: {},
   });
   assert.deepEqual(out, {});
+});
+
+// -- REST transport: the status decides (fix-E review) --------------------------
+
+/** A fake openapi-fetch client whose every verb answers with `result`. */
+function restAnswering(result: { data?: unknown; error?: unknown; response: Response }): {
+  client: never;
+  calls: string[];
+} {
+  const calls: string[] = [];
+  const answer = (path: string): Promise<typeof result> => {
+    calls.push(path);
+    return Promise.resolve(result);
+  };
+  return { client: { GET: answer, POST: answer } as never, calls };
+}
+
+const emptyResponse = (status: number): Response =>
+  new Response(null, { status, headers: { 'content-length': '0' } });
+
+void test('rest impl: an EMPTY-body 500 on a mutation is an error, not a success', async () => {
+  // openapi-fetch returns `error: undefined` for an empty body (a proxy's bare 5xx).
+  const { client } = restAnswering({
+    data: undefined,
+    error: undefined,
+    response: emptyResponse(500),
+  });
+  await assert.rejects(
+    restOpsClient(client).call('systemDesignSubmitReviewDecision', {
+      path: { projectID: 'p1' },
+      body: { kind: 1, decision: 0 },
+    }),
+    (err: unknown) => {
+      assert.ok(err instanceof ApiError);
+      assert.equal(err.status, 500);
+      assert.equal(err.message, 'request failed with status 500');
+      return true;
+    }
+  );
+});
+
+void test('rest impl: an empty-body 404 GET is ApiError(404), which the session probe reads as "no session"', async () => {
+  const { client } = restAnswering({
+    data: undefined,
+    error: undefined,
+    response: emptyResponse(404),
+  });
+  await assert.rejects(
+    restOpsClient(client).call('systemDesignGetSessionState', {
+      path: { projectID: 'p1' },
+      query: { kind: 1 },
+    }),
+    (err: unknown) => err instanceof ApiError && err.status === 404
+  );
+});
+
+void test('rest impl: an empty-body 502 GET says "status 502", not a TypeError from a mapper', async () => {
+  const { client } = restAnswering({
+    data: undefined,
+    error: undefined,
+    response: emptyResponse(502),
+  });
+  await assert.rejects(
+    restOpsClient(client).call('systemDesignGetProject', { path: { projectID: 'p1' } }),
+    (err: unknown) => err instanceof ApiError && err.message === 'request failed with status 502'
+  );
+});
+
+void test('rest impl: a 2xx hands its data back, and an error body keeps its code', async () => {
+  const ok = restAnswering({ data: { stage: 1 }, response: new Response('{}', { status: 200 }) });
+  assert.deepEqual(
+    await restOpsClient(ok.client).call('systemDesignGetProject', { path: { projectID: 'p1' } }),
+    { stage: 1 }
+  );
+  assert.deepEqual(ok.calls, ['/api/v1/system-design/get-project/{projectID}']);
+  const refused = restAnswering({
+    error: { code: 'failed_precondition', error: 'no research input' },
+    response: new Response('{}', { status: 409 }),
+  });
+  await assert.rejects(
+    restOpsClient(refused.client).call('systemDesignStartSystemDesign', {
+      path: { projectID: 'p1' },
+    }),
+    (err: unknown) =>
+      err instanceof ApiError && err.code === 'failed_precondition' && err.status === 409
+  );
 });

@@ -42,7 +42,7 @@
  * construction-phase project (real committed backfilled state) behind the SPA
  * proxy.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
 

@@ -43,27 +43,28 @@ import {
 
 /**
  * What ONE rendered row is in — the detail pane's `TaskDetailState` extended
- * with the three presentation-only members the LIST needs and a single pane
+ * with the two presentation-only members the LIST needs and a single pane
  * never does.
  *
  * Extending that union (rather than opening a second, parallel one) is
  * deliberate: the pane and the list must never disagree about what a thing is,
- * and `taskDetailStateFill` already resolves every shared member to tokens. The
- * three additions describe RELATIONSHIPS between rows, which is why they are
- * meaningless to a pane showing exactly one thing:
+ * and `taskDetailStateFill` already resolves every shared member to tokens.
+ * That includes `skipped` — a real, terminal, NON-success outcome (see
+ * skippedIsNotPassed) — which the pane shows too, from the same
+ * detailPaneState.outcomeStateOf mapping. The two additions describe
+ * RELATIONSHIPS between rows, which is why they are meaningless to a pane
+ * showing exactly one thing:
  *
  *   - `absent`     — named by the data but not carried by this activity's
  *                    profile — e.g. a `CurrentPhase` of `integration` on a
  *                    two-phase `uiDesign` profile, which has no such node.
- *   - `skipped`    — a real, terminal, NON-success outcome (see skippedIsNotPassed).
  *   - `superseded` — an attempt a later attempt replaced.
  */
-export type RowState = TaskDetailState | 'absent' | 'skipped' | 'superseded';
+export type RowState = TaskDetailState | 'absent' | 'superseded';
 
 export const ROW_STATE_LABEL: Record<RowState, string> = {
   ...TASK_DETAIL_STATE_LABEL,
   absent: 'Not in this profile',
-  skipped: 'Skipped',
   superseded: 'Superseded',
 };
 
@@ -106,54 +107,6 @@ export function chipFor(state: RowState): RowChip | undefined {
     case 'superseded':
       return undefined;
   }
-}
-
-/**
- * How loud a row is, as a total order over the vocabulary.
- *
- * `awaitingHuman` outranks everything — it is the loudest thing on the screen
- * by design, because it is the only state that is BLOCKED ON THE PERSON READING
- * IT. `failed` sits below it deliberately: a failure is amber-backed and carries
- * an inline retry ("needs you", never "dead"), so it is loud, but a human has
- * not yet been asked for anything.
- *
- * Used for the sort key a later task will offer and for choosing which state an
- * aggregate row reports; exported mainly so the ordering is pinned by a test
- * rather than by the order of a switch nobody re-reads.
- */
-export function emphasisRank(state: RowState): number {
-  switch (state) {
-    case 'awaitingHuman':
-      return 6;
-    case 'failed':
-      return 5;
-    case 'running':
-      return 4;
-    case 'passed':
-      return 3;
-    case 'notStarted':
-      return 2;
-    case 'skipped':
-    case 'superseded':
-      return 1;
-    // "We have no record" and "this activity does not do this" are the two
-    // quietest things on the surface, and equally quiet.
-    case 'unknown':
-    case 'absent':
-      return 0;
-  }
-}
-
-/** The inline affordances a row offers, in render order. */
-export type InlineAction = 'retry';
-
-/**
- * Failure is never terminal (the founder's standing ruling, made structural in
- * detailActionsFor for the detail pane): a failed row carries its own `↻ Retry`
- * inline, so recovering never requires finding the pane first.
- */
-export function inlineActionsFor(state: RowState): InlineAction[] {
-  return state === 'failed' ? ['retry'] : [];
 }
 
 // ---------------------------------------------------------------------------
@@ -223,8 +176,6 @@ export function retryCounterLabel(attemptCount: number): string | undefined {
   return attemptCount > 1 ? `↻${String(attemptCount)}` : undefined;
 }
 
-/** 3px on the critical path, 2px otherwise — never a "CRITICAL" chip.
- *  Not-known renders at the neutral 2px: criticality is ASSERTED, never assumed. */
 /** The id column's clamp, in `ch` of the id's own monospace face. */
 export const ID_COLUMN_MIN_CH = 12;
 export const ID_COLUMN_MAX_CH = 32;
@@ -242,6 +193,8 @@ export function idColumnWidthCh(activityIds: readonly string[]): number {
   return Math.min(ID_COLUMN_MAX_CH, Math.max(ID_COLUMN_MIN_CH, longest + 1));
 }
 
+/** 3px on the critical path, 2px otherwise — never a "CRITICAL" chip.
+ *  Not-known renders at the neutral 2px: criticality is ASSERTED, never assumed. */
 export function criticalBorderPx(onCriticalPath: boolean | undefined): 2 | 3 {
   return onCriticalPath === true ? 3 : 2;
 }
@@ -274,8 +227,8 @@ export function owedChipLabel(owed: OwedMark | undefined): string | undefined {
 }
 
 /**
- * The state of a TIER-3 task row, refining the tree's four-member `TaskState`
- * with the two distinctions a ROW can draw and a pure derivation cannot.
+ * The state of a TIER-3 task row, refining the tree's `TaskState` with the two
+ * distinctions a ROW can draw and a pure derivation cannot.
  *
  * Both refinements read data the tree already carries; neither contradicts it:
  *
@@ -283,9 +236,10 @@ export function owedChipLabel(owed: OwedMark | undefined): string | undefined {
  *     `awaitingHuman` — the live gate (tasks/owedChip.ts), never head-state
  *     `in-review`, and narrowed to that gate task because it is the only task
  *     whose pending outcome the human is actually being asked about.
- *  2. `passed` whose latest attempt was `skipped` is `skipped`. The tree maps
- *     `skipped` onto `passed` because its union has four members; this surface
- *     has a channel for it, and it MUST use it — see skippedIsNotPassed.
+ *  2. A task with no attempt reads the row's no-attempt state (below).
+ *
+ * `skipped` needs no refinement: the tree's state already comes from
+ * detailPaneState.outcomeStateOf, which keeps it `skipped` (skippedIsNotPassed).
  */
 export function taskRowState(
   task: TaskNode,
@@ -296,7 +250,6 @@ export function taskRowState(
    *  tree's own `unknown`. */
   noAttempt?: NoAttemptState
 ): RowState {
-  if (task.latestAttempt?.outcome === 'skipped') return 'skipped';
   if (task.state === 'running' && task.gate && isOwedGate(task, owed)) return 'awaitingHuman';
   // A task with no attempt reads NOT STARTED unless the row is unclassified or its
   // history predates per-task capture (evidence, zero attempts) — designer final
@@ -334,9 +287,10 @@ export function bookKeyFor(label: string, bookLabel: string, key: string): strin
 }
 
 /**
- * WHY `skipped` is not rendered as `passed` (recorded here because the
+ * WHY `skipped` is not rendered as `passed` — on the list OR in the pane, which
+ * both read detailPaneState.outcomeStateOf (recorded here because the
  * coordinator asked for the reasoning, and because the corpus cannot yet show
- * it — all 92 committed attempts are `passed`).
+ * it — all 214 committed attempts are `passed`).
  *
  * A skipped task did not run. The olive check is the SUCCESS mark on this
  * surface, and lending it to work that never happened is the same false-positive

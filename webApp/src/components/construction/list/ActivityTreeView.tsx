@@ -51,9 +51,8 @@
  * component owns roving-tabindex keyboard traversal, `role="tree"`/`treeitem`
  * semantics and aria-expanded, none of which a hand-rolled `<div>` list gets for
  * free. `slots.item` then hands the whole row body back to us, so MUI owns the
- * accessibility and this file owns every pixel. The `apiRef` is wired now
- * because Task 11's search-reveal and expand-to-current-phase drive it; nothing
- * here calls it yet.
+ * accessibility and this file owns every pixel. The `apiRef` is how this file
+ * focuses a search match or a deep-linked row (see NAVIGABILITY below).
  *
  * `expansionTrigger: 'iconContainer'` is deliberate — clicking a ROW selects it
  * (and fills the detail pane); only the chevron expands. Sharing one gesture
@@ -88,6 +87,7 @@ import {
   useContext,
   useEffect,
   useMemo,
+  useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
   type ReactElement,
@@ -107,7 +107,6 @@ import { useTreeItem } from '@mui/x-tree-view/useTreeItem';
 import { TreeItemProvider } from '@mui/x-tree-view/TreeItemProvider';
 import type { TreeItemProps } from '@mui/x-tree-view/TreeItem';
 
-import type { TaskAttemptRow } from '../../../contracts/types';
 import type { FloatBand } from '../../../contracts/projectAdapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
@@ -116,9 +115,11 @@ import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
 import {
   noAttemptStateFor,
-  PROVENANCE_LABEL,
+  outcomeStateOf,
   taskDetailStateFill,
 } from '../detail/detailPaneState.ts';
+import { provenanceSubGradeLabel } from '../provenanceAxis.ts';
+import { centeredScrollFor } from '../lens/lensGeometry.ts';
 import {
   GRADE_LABEL,
   ProvenanceGroupStamp,
@@ -136,7 +137,10 @@ import {
 import { emptyListCopyFor } from './listEmptyState.ts';
 import {
   applyOperatorExpansion,
+  deepLinkKey,
   deepLinkReveal,
+  linkAlreadyShown,
+  rememberShownLink,
   NO_EXPANSION,
   openByOperator,
   revealForQuery,
@@ -155,7 +159,6 @@ import {
   currentStageMarker,
   effortBarFraction,
   floatPresentation,
-  inlineActionsFor,
   isCurrentStage,
   LIST_COMPACT_BELOW_PX,
   listSlotVars,
@@ -172,13 +175,7 @@ import {
 
 // The pure rules are re-exported beside the component so a caller (and the
 // tests, which cannot load a `.tsx` module at all) reaches them either way.
-export {
-  chipFor,
-  emphasisRank,
-  floatPresentation,
-  inlineActionsFor,
-  type RowState,
-} from './activityRowPresentation.ts';
+export { chipFor, floatPresentation, type RowState } from './activityRowPresentation.ts';
 
 // ---------------------------------------------------------------------------
 // Geometry constants — one place, so the three tiers cannot drift apart.
@@ -216,18 +213,30 @@ const LIST_SLOT_SX = {
     '& [data-kind-icon]': { display: 'inline-flex' },
     // The compact float/effort slots are 30/36px, exactly the width of "FLOAT" and
     // "EFFORT" at 9px with wide tracking — so "FLOAT EFFORT ID" ran together at
-    // 1600 with the pane open (designer re-check N5). Compact labels set smaller
-    // and tighter, which leaves each one a visible gutter inside its own slot.
+    // 1600 with the pane open (designer re-check N5). Compact labels set TIGHTER,
+    // which leaves each one a visible gutter inside its own slot — at 9px, never
+    // smaller: 9px is the floor for these labels (designer final items; they read
+    // 8px here for one round). At 9px, even 0.02em of tracking left "FLOAT" 7.5px
+    // from "EFFORT" (measured at 1600); untracked, the gutter is ~8.5px.
     [`& [data-testid="${UI_IDENTIFIERS.Construction.LIST_HEADER}"] .MuiTypography-root`]: {
-      fontSize: 8,
-      letterSpacing: '0.02em',
+      fontSize: 9,
+      letterSpacing: 0,
     },
   },
 } as const;
 
-/** How long a deep link waits for its ancestors' Collapse to finish before the
- *  second centring pass. MUI's auto duration for a group this size is < 350ms. */
-const DEEP_LINK_SETTLE_MS = 450;
+/** How many frames a deep link waits for its row to appear before giving up. */
+const DEEP_LINK_MAX_FRAMES = 90;
+
+/** The nearest scrolling ancestor — the console's scroller, found the way the
+ *  lens shell finds it. */
+function scrollParentOf(el: HTMLElement): HTMLElement | null {
+  let node: HTMLElement | null = el.parentElement;
+  while (node !== null && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) {
+    node = node.parentElement;
+  }
+  return node;
+}
 
 // ---------------------------------------------------------------------------
 // The item model
@@ -239,8 +248,9 @@ type TreeTier = 'activity' | 'stage' | 'task';
  * One tree item. `children` is what RichTreeView traverses; every other field is
  * ours, read back inside the row with `useTreeItemModel`.
  *
- * `label` exists because the tree needs a searchable string per item (type-ahead
- * today, Task 11's search-reveal next) — it is never what the row renders.
+ * `label` exists because the tree needs a string per item for its keyboard
+ * type-ahead — it is never what the row renders. The toolbar's search does not
+ * read it: that matches the node fields activityScope.ts names.
  */
 interface TreeRow {
   id: string;
@@ -331,7 +341,6 @@ interface RowContextValue {
    *  One value for every row: each row is its own grid, so a shared width is
    *  what keeps the column aligned down the list. */
   idColumnCh: number;
-  onInlineRetry: (selection: LensSelection) => void;
   /** Task nodeIds a live search matched by their own key/label (Task 11).
    *  Empty when the search box is empty. */
   searchMatchedTaskIds: ReadonlySet<string>;
@@ -358,6 +367,9 @@ function useRowContext(): RowContextValue {
 // ---------------------------------------------------------------------------
 
 export interface ActivityTreeViewProps {
+  /** The project the tree belongs to. It scopes the deep-link memory, so an
+   *  in-app switch to another project reveals the same link again (fix-D review M1). */
+  projectId: string;
   /** Already filtered/sorted/searched — this file neither decides membership
    *  nor order (see ../list/activityScope.ts); it renders and reveals. */
   nodes: readonly ActivityNode[];
@@ -382,6 +394,7 @@ export interface ActivityTreeViewProps {
 }
 
 export function ActivityTreeView({
+  projectId,
   nodes,
   selection,
   onSelect,
@@ -466,7 +479,7 @@ export function ActivityTreeView({
   if (appliedExpandSignal !== expandToCurrentPhaseSignal) {
     setAppliedExpandSignal(expandToCurrentPhaseSignal);
     if (expandToCurrentPhaseSignal !== 0) {
-      const ids = currentPhaseExpansionIds(nodes);
+      const ids = currentPhaseExpansionIds(nodes, owed);
       if (ids.length > 0) {
         // An explicit operator action: these rows are theirs, so clearing a
         // search never closes them.
@@ -481,28 +494,80 @@ export function ActivityTreeView({
   // describing it. Same render-time-adjustment shape as the reveals above; the
   // rows it opens are the operator's (a later search clear leaves them open).
   // `undefined` = not yet applied; `null` = applied, nothing to scroll to.
+  //
+  // Only for a selection no tree has shown yet (fix-C review N1): a lens switch
+  // unmounts this tree, and re-running the reveal on the way back re-opened rows
+  // the operator had since collapsed. searchExpansion.linkAlreadyShown remembers
+  // the last selection shown, across remounts; it is written below, from an
+  // effect, once this render has decided.
+  const linkKey = deepLinkKey(projectId, selection);
   const [linkTarget, setLinkTarget] = useState<string | null | undefined>(undefined);
   if (linkTarget === undefined && nodes.length > 0) {
-    const link = deepLinkReveal(selection);
+    const link = linkAlreadyShown(linkKey)
+      ? { expand: [], target: null }
+      : deepLinkReveal(selection);
     setLinkTarget(link.target);
     if (link.expand.length > 0) setExpansion((prev) => openByOperator(prev, link.expand));
   }
   useEffect(() => {
+    if (linkTarget !== undefined) rememberShownLink(linkKey);
+  }, [linkKey, linkTarget]);
+
+  // Centre the linked row in the band below the sticky toolbar (designer final
+  // N1). Measured, it used to land at 62-81% of the band at 1280/1366: not because
+  // it was centred mid-expansion, but because the scroller was already at its
+  // maximum — the list ends just below the row. So where the list ends too soon,
+  // the runway below it makes the room (lensGeometry.centeredScrollFor).
+  //
+  // No wait for the expansion is needed, and none is kept: the reveal runs only on
+  // this tree's FIRST render, whose render-time setState opens the ancestors before
+  // the first commit, so their Collapse mounts already open and never animates —
+  // the row is where it will stay on the first frame it exists. (A stable-frame
+  // wait stood here for one commit; its mutant was equivalent, and the runway
+  // pin in construction-fix-d would catch a runway sized against a growing list.)
+  // Imperative DOM only; no React state is set here.
+  const runwayRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
     if (linkTarget === null || linkTarget === undefined) return undefined;
     const target = linkTarget;
-    // Centred, so the sticky lens toolbar can never cover it. Once on the next
-    // frame and once after the group's Collapse has finished growing, because the
-    // row moves while its ancestors' heights animate.
+    let frames = 0;
+    let frame = 0;
     const center = (): void => {
-      apiRef.current?.getItemDOMElement(target)?.scrollIntoView({ block: 'center' });
+      const row = document.querySelector<HTMLElement>(
+        `[data-testid="${UI_IDENTIFIERS.Construction.listRow(target)}"]`
+      );
+      if (row === null) {
+        frames += 1;
+        if (frames < DEEP_LINK_MAX_FRAMES) frame = requestAnimationFrame(center);
+        return;
+      }
+      const scroller = scrollParentOf(row);
+      if (scroller === null) {
+        row.scrollIntoView({ block: 'center' });
+        return;
+      }
+      const runway = runwayRef.current;
+      const toolbar = scroller.querySelector<HTMLElement>(
+        `[data-testid="${UI_IDENTIFIERS.Construction.LENS_TOOLBAR}"]`
+      );
+      const box = scroller.getBoundingClientRect();
+      const rect = row.getBoundingClientRect();
+      const plan = centeredScrollFor({
+        rowTop: rect.top - box.top + scroller.scrollTop,
+        rowHeight: rect.height,
+        bandTop: toolbar?.offsetHeight ?? 0,
+        bandBottom: Math.min(box.bottom, window.innerHeight) - box.top,
+        contentHeight: scroller.scrollHeight - (runway?.offsetHeight ?? 0),
+        clientHeight: scroller.clientHeight,
+      });
+      if (runway !== null) runway.style.height = `${String(plan.runwayPx)}px`;
+      scroller.scrollTop = plan.scrollTop;
     };
-    const frame = requestAnimationFrame(center);
-    const settled = window.setTimeout(center, DEEP_LINK_SETTLE_MS);
+    frame = requestAnimationFrame(center);
     return (): void => {
       cancelAnimationFrame(frame);
-      window.clearTimeout(settled);
     };
-  }, [linkTarget, apiRef]);
+  }, [linkTarget]);
 
   // The one genuine SIDE EFFECT here (an imperative DOM/library call, not a
   // state update): once a reveal names a focus target, `focusItem` also
@@ -538,11 +603,10 @@ export function ActivityTreeView({
       t,
       maxEffortDays,
       idColumnCh,
-      onInlineRetry: onSelect,
       searchMatchedTaskIds,
       owed,
     }),
-    [t, maxEffortDays, idColumnCh, onSelect, searchMatchedTaskIds, owed]
+    [t, maxEffortDays, idColumnCh, searchMatchedTaskIds, owed]
   );
 
   // "Nothing matches" and "nothing exists" never share a sentence (P1-9): a search
@@ -623,6 +687,15 @@ export function ActivityTreeView({
           </Box>
         </RowContext.Provider>
       )}
+      {/* The deep-link runway: blank room below the list, sized only when a linked
+          row near the list's end needs it to reach the centre (see above). The
+          negative margin cancels this column's gap, so at 0 it takes no space. */}
+      <Box
+        aria-hidden
+        data-testid={UI_IDENTIFIERS.Construction.LIST_RUNWAY}
+        ref={runwayRef}
+        sx={{ height: 0, mt: -1.25, flexShrink: 0 }}
+      />
     </Box>
   );
 }
@@ -1392,7 +1465,7 @@ function StageRuleRow({
 // ---------------------------------------------------------------------------
 
 function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactElement {
-  const { t, onInlineRetry, searchMatchedTaskIds, owed } = useRowContext();
+  const { t, searchMatchedTaskIds, owed } = useRowContext();
   const [openAttempts, setOpenAttempts] = useState(false);
   const state = taskRowState(task, owed.get(node.activityId), noAttemptStateFor(node.row));
   const chip = chipFor(state);
@@ -1560,36 +1633,6 @@ function TaskRow({ node, task }: { node: ActivityNode; task: TaskNode }): ReactE
               {counter}
             </Box>
           ) : null}
-          {inlineActionsFor(state).map((action) => (
-            <Box
-              component="button"
-              data-testid={UI_IDENTIFIERS.Construction.listInlineAction(task.nodeId, action)}
-              key={action}
-              sx={{
-                flexShrink: 0,
-                fontFamily: t.mono,
-                fontSize: 9.5,
-                fontWeight: 700,
-                color: t.dangerFg,
-                bgcolor: 'transparent',
-                border: `1px solid ${t.dangerFg}`,
-                borderRadius: 1,
-                px: 0.5,
-                cursor: 'pointer',
-              }}
-              type="button"
-              onClick={(e) => {
-                e.stopPropagation();
-                onInlineRetry({
-                  activityId: task.activityId,
-                  lifecyclePhase: task.lifecyclePhase,
-                  task: task.task,
-                });
-              }}
-            >
-              ↻ Retry
-            </Box>
-          ))}
           <StateChip chip={chip} />
         </Box>
       </Box>
@@ -1606,7 +1649,7 @@ function AttemptLedger({ task }: { task: TaskNode }): ReactElement {
   return (
     <Box sx={{ pl: `${String(TIER_INDENT.task + 22)}px`, pr: 1.25, pb: 0.5 }}>
       {newestFirst.map((attempt: TaskAttemptNode) => {
-        const state = attemptRowState(attempt.superseded, outcomeState(attempt.outcome));
+        const state = attemptRowState(attempt.superseded, outcomeStateOf(attempt.outcome));
         return (
           <Box
             key={attempt.attemptId}
@@ -1628,31 +1671,13 @@ function AttemptLedger({ task }: { task: TaskNode }): ReactElement {
               {ROW_STATE_LABEL[state]}
             </Typography>
             <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
-              {`${PROVENANCE_LABEL[attempt.provenance.origin].toLowerCase()} · ${attempt.actor ?? '—'}`}
+              {`${provenanceSubGradeLabel(attempt.provenance.origin)} · ${attempt.actor ?? '—'}`}
             </Typography>
           </Box>
         );
       })}
     </Box>
   );
-}
-
-/** One attempt's own outcome, read exactly as the tree reads it — with the
- *  `skipped` refinement this surface has a channel for. */
-function outcomeState(outcome: TaskAttemptRow['outcome']): RowState {
-  switch (outcome) {
-    case 'passed':
-      return 'passed';
-    case 'skipped':
-      return 'skipped';
-    case 'rejected':
-    case 'failed':
-      return 'failed';
-    case '':
-      return 'running';
-    default:
-      return 'unknown';
-  }
 }
 
 // ---------------------------------------------------------------------------

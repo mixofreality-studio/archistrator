@@ -28,7 +28,7 @@
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { toApiError } from '../contracts/errors';
+import { bodyUnlessError } from '../contracts/errors';
 import type { HealthState } from '../contracts/types';
 import { deploymentHealthQueryEnabled } from './deploymentHealthEnabled';
 
@@ -58,11 +58,11 @@ export function useDeploymentHealth(
   return useQuery<Record<string, HealthState>>({
     queryKey: deploymentHealthKey(operatedAppId),
     queryFn: async () => {
-      const { data, error, response } = await apiClient.GET(
+      const result = await apiClient.GET(
         '/api/v1/operations/query-deployment-health/{operatedAppID}',
         { params: { path: { operatedAppID: operatedAppId } } }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       const byKey: Record<string, HealthState> = {};
       for (const node of data.Nodes ?? []) {
         if (node.Health === HEALTH_ORDINAL_HEALTHY) byKey[node.ModelKey] = 'Healthy';

@@ -221,10 +221,14 @@ export const TESTID = {
   constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,
   constructionBeginCandidate: UI_IDENTIFIERS.Construction.beginConfirmCandidate,
   constructionCaseChip: UI_IDENTIFIERS.Construction.caseChip,
+  constructionActiveCase: UI_IDENTIFIERS.Construction.ACTIVE_CASE,
+  constructionCaseExpect: UI_IDENTIFIERS.Construction.CASE_EXPECT,
   activityLifecyclePanel: UI_IDENTIFIERS.Construction.ACTIVITY_LIFECYCLE_PANEL,
   // The Stage-B lens shell's toolbar (ConstructionShell.tsx) — its right end
   // is exactly what the old overlay Drawer's backdrop used to cover.
   constructionLensToolbar: UI_IDENTIFIERS.Construction.LENS_TOOLBAR,
+  constructionLensButton: UI_IDENTIFIERS.Construction.lensButton,
+  constructionListRunway: UI_IDENTIFIERS.Construction.LIST_RUNWAY,
   constructionLensKind: UI_IDENTIFIERS.Construction.LENS_KIND,
   constructionLensScope: UI_IDENTIFIERS.Construction.LENS_SCOPE,
   constructionLensSortRanked: UI_IDENTIFIERS.Construction.LENS_SORT_RANKED,
@@ -245,6 +249,7 @@ export const TESTID = {
   constructionLensObservedOnly: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY,
   constructionLensObservedOnlyToggle: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY_TOGGLE,
   constructionLensExpandToPhase: UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE,
+  constructionLensToolbarToggles: UI_IDENTIFIERS.Construction.LENS_TOOLBAR_TOGGLES,
   constructionDetailCollapseToggle: UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
   constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,
   constructionListIdCell: UI_IDENTIFIERS.Construction.listIdCell,

@@ -17,7 +17,8 @@ import {
   applyToolbarToActivities,
   currentPhaseExpansionIds,
   expandToCurrentPhaseControl,
-  isActivelyInFlight,
+  isInFlight,
+  rowIsInFlight,
   matchesKind,
   matchesLayer,
   matchingTaskIds,
@@ -25,6 +26,7 @@ import {
   scopePredicate,
   sortActivities,
 } from './activityScope.ts';
+import { observedOnlyRow } from './observedOnly.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures — the same shape activityTree.test.ts and activityRowPresentation
@@ -144,14 +146,25 @@ void test('scope "awaitingMe" is the live owed set, never head-state in-review (
   assert.equal(scopePredicate('awaitingMe', retried, steer), true);
 });
 
-void test('scope "inFlight" is the running row state (in-construction)', () => {
+void test('scope "inFlight" is in construction OR in review (the one isInFlight)', () => {
   assert.equal(scopePredicate('inFlight', retried), true);
-  // Mid-lifecycle (in-review) is in flight — unless the owed set says it waits on you.
+  // Mid-lifecycle (in-review) is in flight, and so is a live gate or a steer on it:
+  // the owed-aware row state is running or awaiting (orchestrator ruling).
   assert.equal(scopePredicate('inFlight', awaitingMe), true, 'in-review is mid-lifecycle');
   assert.equal(
     scopePredicate('inFlight', awaitingMe, new Map([['C-awaiting', { reason: 'gate' as const }]])),
+    true,
+    'a live gate is still in flight (it overlaps awaitingMe on purpose)'
+  );
+  assert.equal(
+    scopePredicate('inFlight', retried, new Map([['C-retried', { reason: 'takeover' as const }]])),
+    true,
+    'a steer is still in flight'
+  );
+  assert.equal(
+    scopePredicate('inFlight', retried, new Map([['C-retried', { reason: 'failed' as const }]])),
     false,
-    'a live gate is awaiting me, not in flight'
+    'a recorded failure reads failed: the pump stopped on it'
   );
   assert.equal(scopePredicate('inFlight', recorded), false, 'integrated is not in flight');
 });
@@ -291,12 +304,90 @@ void test('applyToolbarToActivities combines every filter with AND, then sorts',
 // "Expand to current phase"
 // ---------------------------------------------------------------------------
 
-void test('isActivelyInFlight is true for in-construction and in-review only', () => {
-  assert.equal(isActivelyInFlight('in-construction'), true);
-  assert.equal(isActivelyInFlight('in-review'), true);
-  assert.equal(isActivelyInFlight('integrated'), false);
-  assert.equal(isActivelyInFlight('failed'), false);
-  assert.equal(isActivelyInFlight(undefined), false);
+void test('isInFlight is true for in-construction and in-review only', () => {
+  const at = (status: ConstructionRow['status']): ActivityNode =>
+    nodeFor(row({ activityId: 'C-s', kind: 'service', ...(status ? { status } : {}) }));
+  assert.equal(isInFlight(at('in-construction')), true);
+  assert.equal(isInFlight(at('in-review')), true);
+  assert.equal(isInFlight(at('integrated')), false);
+  assert.equal(isInFlight(at('failed')), false);
+  assert.equal(isInFlight(at(undefined)), false);
+  // It reads the ROW STATE, so an unclassified in-construction row is not in flight.
+  assert.equal(isInFlight(nodeFor(row({ classified: false, status: 'in-construction' }))), false);
+});
+
+void test('isInFlight reads the OWED-AWARE row state: a gate or steer is in flight, a failure is not', () => {
+  const n = nodeFor(row({ activityId: 'C-s', kind: 'service', status: 'in-construction' }));
+  const owedAs = (reason: 'gate' | 'takeover' | 'failed'): Map<string, { reason: typeof reason }> =>
+    new Map([['C-s', { reason }]]);
+  assert.equal(isInFlight(n, owedAs('gate')), true, 'a live gate: awaiting, still in flight');
+  assert.equal(isInFlight(n, owedAs('takeover')), true, 'a steer: awaiting, still in flight');
+  assert.equal(isInFlight(n, owedAs('failed')), false, 'a recorded failure reads failed');
+  // Another activity's mark is not this one's.
+  assert.equal(isInFlight(n, new Map([['C-other', { reason: 'failed' as const }]])), true);
+  // The bare-row form is the same rule (the Begin control reads it).
+  assert.equal(rowIsInFlight(n.row, { reason: 'failed' }), false);
+  assert.equal(rowIsInFlight(n.row, { reason: 'gate' }), true);
+  assert.equal(rowIsInFlight(n.row), true);
+});
+
+void test('the chip and the button still agree once the owed set is applied', () => {
+  const failedMark = new Map([['C-retried', { reason: 'failed' as const }]]);
+  const nodes = [retried, awaitingMe, recorded];
+  const expanded = new Set(currentPhaseExpansionIds(nodes, failedMark));
+  for (const n of nodes) {
+    assert.equal(scopePredicate('inFlight', n, failedMark), expanded.has(n.nodeId), n.activityId);
+  }
+  assert.deepEqual([...expanded], ['C-awaiting']);
+  assert.equal(expandToCurrentPhaseControl([retried], failedMark).enabled, false);
+  assert.equal(expandToCurrentPhaseControl([retried]).enabled, true);
+});
+
+// Final web review: the scope chip used to read `running` only while the button
+// read in-construction OR in-review — "In flight" meant two things on one toolbar.
+void test('the "In flight" scope and "Expand to current phase" share ONE definition', () => {
+  const stripped = nodeFor(
+    observedOnlyRow(
+      row({
+        activityId: 'C-stripped',
+        kind: 'service',
+        status: 'in-construction',
+        attempts: [attempt({ provenance: { origin: 'backfilled' } })],
+      })
+    )
+  );
+  // An unclassified row CAN carry an in-construction status; with no profile it
+  // has no current phase to open, and the chip must not list it either.
+  const unclassifiedRunning = nodeFor(
+    row({ activityId: 'C-unclassified-running', classified: false, status: 'in-construction' })
+  );
+  const all = [
+    unclassified,
+    unclassifiedRunning,
+    reconstructed,
+    retried,
+    awaitingMe,
+    recorded,
+    critical,
+    near,
+    stripped,
+  ];
+  const expanded = new Set(currentPhaseExpansionIds(all));
+  for (const n of all) {
+    assert.equal(
+      scopePredicate('inFlight', n),
+      expanded.has(n.nodeId),
+      `${n.activityId}: the chip and the button disagree`
+    );
+  }
+  assert.deepEqual([...expanded], ['C-retried', 'C-awaiting']);
+  // What the chip shows is exactly what enables the button.
+  const shown = all.filter((n) => scopePredicate('inFlight', n));
+  assert.equal(expandToCurrentPhaseControl(shown).enabled, true);
+  assert.equal(
+    expandToCurrentPhaseControl(all.filter((n) => !scopePredicate('inFlight', n))).enabled,
+    false
+  );
 });
 
 void test('currentPhaseExpansionIds opens ONLY the in-flight activities', () => {

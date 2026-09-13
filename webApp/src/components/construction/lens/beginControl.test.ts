@@ -2,11 +2,22 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import type { ConstructionRow } from '../../../contracts/types';
 import {
-  awaitingRefreshAfter,
+  anyRowInFlight,
   beginControlFor,
+  beginHoldFor,
+  beginRunning,
+  CASCADE_POLL_MS,
+  consolePollMs,
+  constructionInFlight,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
+  failureLeavesMemory,
+  holdExpiredCopy,
+  IN_FLIGHT_POLL_MS,
+  newestLiveSession,
   notStartedActivities,
+  pumpEvidencedSince,
+  UNKNOWN_OUTCOME_HOLD_MS,
 } from './beginControl.ts';
 
 const COMMITTED_WORDS = /Begin construction|Resume construction/;
@@ -116,26 +127,310 @@ void test('the unknown copy is the ruling verbatim and never invites a retry; th
   assert.match(rejected.detail, /nothing was started/);
 });
 
-void test('after an unknown outcome Begin waits for a project read newer than the failure; a rejection never waits', () => {
-  const unknown = { outcome: dispatchOutcomeFor(503, 'x'), at: 1000 };
-  assert.equal(awaitingRefreshAfter(unknown, 0), true, 'no read yet');
+// ---------------------------------------------------------------------------
+// After an unknown outcome, Begin is held until the pump is EVIDENCED, or a
+// bounded hold expires (orchestrator ruling on the fix-D review, I3). A newer
+// read alone no longer lifts it.
+// ---------------------------------------------------------------------------
+
+const NO_READS = {
+  projectRequestedAt: 0,
+  constructionStarted: undefined,
+  rowsInFlight: false,
+  sessionRequestedAt: 0,
+  sessionStage: undefined,
+} as const;
+
+void test('pump evidence: a newer read that shows an activity in flight, even with constructionStarted false', () => {
   assert.equal(
-    awaitingRefreshAfter(unknown, 1000),
-    true,
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      projectRequestedAt: 1001,
+      constructionStarted: false,
+      rowsInFlight: true,
+    }),
+    true
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1000, rowsInFlight: true }),
+    false,
     'a read from the same instant is not newer'
   );
-  assert.equal(awaitingRefreshAfter(unknown, 1001), false, 'the refreshed project answered');
-  assert.equal(awaitingRefreshAfter({ outcome: dispatchOutcomeFor(400, 'x'), at: 1000 }, 0), false);
-  assert.equal(awaitingRefreshAfter(null, 0), false);
 });
 
-void test('while awaiting the refresh the button is disabled and names neither Begin nor Resume', () => {
+void test('a newer read that says "not started", with no live session, is NOT pump evidence', () => {
+  assert.equal(pumpEvidencedSince(1000, NO_READS), false, 'no read yet');
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 5000, constructionStarted: false }),
+    false
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 5000, sessionStage: undefined }),
+    false,
+    'a probe that established no session exists'
+  );
+});
+
+void test('pump evidence: a newer read says constructionStarted, or a newer probe shows a live session', () => {
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1001, constructionStarted: true }),
+    true
+  );
+  for (const stage of [
+    'dispatching',
+    'pipelineRunning',
+    'reviewing',
+    'awaitingTakeover',
+    'awaitingApproval',
+  ] as const) {
+    assert.equal(
+      pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 1001, sessionStage: stage }),
+      true,
+      stage
+    );
+  }
+  for (const stage of ['exited', 'paused', 'unknown'] as const) {
+    assert.equal(
+      pumpEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 1001, sessionStage: stage }),
+      false,
+      `${stage} is not a running pump`
+    );
+  }
+});
+
+void test('only reads NEWER than the failure count as evidence', () => {
+  assert.equal(
+    pumpEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1000, constructionStarted: true }),
+    false,
+    'a read from the same instant is not newer'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 999,
+      sessionStage: 'pipelineRunning',
+    }),
+    false,
+    'a session seen before the failure'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 1000,
+      sessionStage: 'pipelineRunning',
+    }),
+    false,
+    'a session probe from the same instant is not newer'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// The label follows STATE, not timers (fix-F review, root-cause ruling).
+// ---------------------------------------------------------------------------
+
+void test('in flight by state: a row running or awaiting a human, or a live session', () => {
+  const at = (status: ConstructionRow['status']): ConstructionRow =>
+    row({ hasBuildEvidence: true, recorded: true, ...(status !== undefined ? { status } : {}) });
+  const none = { sessionStage: undefined };
+  assert.equal(constructionInFlight({ rows: { a: at('in-construction') }, ...none }), true);
+  assert.equal(constructionInFlight({ rows: { a: at('in-review') }, ...none }), true, 'in review');
+  for (const status of ['integrated', 'failed', undefined] as const) {
+    assert.equal(constructionInFlight({ rows: { a: at(status) }, ...none }), false, String(status));
+  }
+  assert.equal(
+    constructionInFlight({ rows: { a: row({ status: 'in-construction' }) }, ...none }),
+    false,
+    'no build evidence: not started, whatever the coarse status says'
+  );
+  assert.equal(
+    constructionInFlight({
+      rows: { a: row({ classified: false, hasBuildEvidence: true, status: 'in-construction' }) },
+      ...none,
+    }),
+    false,
+    'unclassified: unknown, not in flight'
+  );
+  assert.equal(constructionInFlight({ rows: undefined, ...none }), false, 'no read');
+  // One in-flight row among settled ones is enough.
+  assert.equal(anyRowInFlight({ a: at('integrated'), b: at('in-construction'), c: row({}) }), true);
+  // A live session counts on its own, with no row in flight: it is the pump.
+  for (const stage of [
+    'dispatching',
+    'pipelineRunning',
+    'reviewing',
+    'awaitingTakeover',
+    'awaitingApproval',
+  ] as const) {
+    assert.equal(constructionInFlight({ rows: {}, sessionStage: stage }), true, stage);
+  }
+  for (const stage of ['exited', 'paused', 'unknown'] as const) {
+    assert.equal(constructionInFlight({ rows: {}, sessionStage: stage }), false, stage);
+  }
+});
+
+// Tasks-lens merge round: "awaiting" comes from the live owed set (Q4), never
+// head-state, and the Begin label reads it.
+void test('in flight reads the OWED set: a live gate or a steer is in flight, a recorded failure is not', () => {
+  const inConstruction = row({
+    activityId: 'a',
+    hasBuildEvidence: true,
+    recorded: true,
+    status: 'in-construction',
+  });
+  const none = { sessionStage: undefined };
+  const owedAs = (reason: 'gate' | 'takeover' | 'failed'): Map<string, { reason: typeof reason }> =>
+    new Map([['a', { reason }]]);
+  assert.equal(constructionInFlight({ rows: { a: inConstruction }, ...none }), true);
+  assert.equal(
+    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('gate'), ...none }),
+    true,
+    'a live gate: awaiting a human is in flight'
+  );
+  assert.equal(
+    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('takeover'), ...none }),
+    true,
+    'a steer: awaiting a human is in flight'
+  );
+  assert.equal(
+    constructionInFlight({ rows: { a: inConstruction }, owed: owedAs('failed'), ...none }),
+    false,
+    'the pump stopped on a recorded failure: Begin/Resume may be offered'
+  );
+  // Keyed by activity: another activity's failure does not settle this one.
+  assert.equal(
+    anyRowInFlight({ a: inConstruction }, new Map([['b', { reason: 'failed' as const }]])),
+    true
+  );
+  // A live session is still the pump, whatever the owed set says.
+  assert.equal(
+    constructionInFlight({
+      rows: { a: inConstruction },
+      owed: owedAs('failed'),
+      sessionStage: 'pipelineRunning',
+    }),
+    true
+  );
+});
+
+void test('the newest-requested LIVE session among the probes, or none', () => {
+  assert.equal(newestLiveSession([]), undefined);
+  assert.equal(
+    newestLiveSession([
+      { stage: null, requestedAt: 9 },
+      { stage: undefined, requestedAt: 9 },
+      { stage: 'exited', requestedAt: 9 },
+      { stage: 'paused', requestedAt: 9 },
+      { stage: 'unknown', requestedAt: 9 },
+    ]),
+    undefined,
+    'no session, no answer, or a stage with no pump: none is live'
+  );
+  assert.deepEqual(
+    newestLiveSession([
+      { stage: 'pipelineRunning', requestedAt: 5 },
+      { stage: 'exited', requestedAt: 50 },
+      { stage: 'awaitingApproval', requestedAt: 20 },
+      { stage: 'reviewing', requestedAt: 10 },
+    ]),
+    { stage: 'awaitingApproval', requestedAt: 20 },
+    'a newer read that is not live never wins'
+  );
+  // Judged by pumpEvidencedSince, the newest live read stands for them all.
+  const live = newestLiveSession([
+    { stage: 'pipelineRunning', requestedAt: 999 },
+    { stage: 'dispatching', requestedAt: 1001 },
+  ]);
+  assert.equal(
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: live?.requestedAt ?? 0,
+      sessionStage: live?.stage,
+    }),
+    true
+  );
+});
+
+void test('running is a pending dispatch or work in flight by state, and nothing else', () => {
+  assert.equal(beginRunning({ pending: true, inFlight: false }), true, 'pending');
+  assert.equal(beginRunning({ pending: false, inFlight: true }), true, 'in flight by state');
+  assert.equal(beginRunning({ pending: false, inFlight: false }), false, 'idle: the read decides');
+  // A running control is disabled and never claims Begin or Resume, whatever the
+  // project read or the hold says.
+  for (const awaitingPump of [true, false]) {
+    const c = beginControlFor({
+      constructionStarted: false,
+      projectLoading: false,
+      running: true,
+      awaitingPump,
+    });
+    assert.equal(c.label, 'Construction running…');
+    assert.equal(c.disabled, true);
+  }
+});
+
+void test('the poll: fast while pending, awaiting the pump or cascading; slow while in flight; else off', () => {
+  const poll = (
+    pending: boolean,
+    awaitsPump: boolean,
+    cascading: boolean,
+    inFlight: boolean
+  ): number | false => consolePollMs({ pending, awaitsPump, cascading, inFlight });
+  assert.equal(poll(true, false, false, false), CASCADE_POLL_MS, 'a pending dispatch');
+  assert.equal(
+    poll(false, true, false, false),
+    CASCADE_POLL_MS,
+    'a remount: memory awaits the pump'
+  );
+  assert.equal(poll(false, false, true, false), CASCADE_POLL_MS, 'a fresh Begin');
+  assert.equal(poll(false, false, true, true), CASCADE_POLL_MS, 'cascading wins the cadence');
+  // The watchdog cleared `cascading`: the poll slows, and does not stop, while
+  // the state still shows work in flight.
+  assert.equal(poll(false, false, false, true), IN_FLIGHT_POLL_MS);
+  assert.equal(poll(false, false, false, false), false, 'idle');
+});
+
+void test('an evidenced failure leaves memory once nothing is in flight; nothing else does', () => {
+  assert.equal(failureLeavesMemory('evidenced', false), true);
+  assert.equal(failureLeavesMemory('evidenced', true), false, 'still running: keep it');
+  for (const hold of ['none', 'held', 'expired'] as const) {
+    for (const inFlight of [true, false]) {
+      assert.equal(failureLeavesMemory(hold, inFlight), false, `${hold}, ${String(inFlight)}`);
+    }
+  }
+});
+
+void test('the hold: an unknown outcome is held until evidence or expiry; a rejection is never held', () => {
+  const unknown = { outcome: dispatchOutcomeFor(503, 'x'), holdExpired: false };
+  assert.equal(beginHoldFor(null, false), 'none');
+  assert.equal(
+    beginHoldFor({ outcome: dispatchOutcomeFor(400, 'x'), holdExpired: false }, false),
+    'none'
+  );
+  assert.equal(beginHoldFor(unknown, false), 'held');
+  assert.equal(beginHoldFor(unknown, true), 'evidenced');
+  assert.equal(beginHoldFor({ ...unknown, holdExpired: true }, false), 'expired');
+  assert.equal(
+    beginHoldFor({ ...unknown, holdExpired: true }, true),
+    'evidenced',
+    'evidence after expiry still decides'
+  );
+  assert.equal(UNKNOWN_OUTCOME_HOLD_MS, 60_000);
+});
+
+void test('once the hold expires the alert asks the ruling’s question verbatim', () => {
+  const copy = holdExpiredCopy(dispatchOutcomeFor(500, 'request failed with status 500'));
+  assert.equal(copy.headline, 'No sign the pump started. Begin again?');
+  assert.match(copy.detail, /request failed with status 500/);
+  assert.match(copy.detail, /60s/);
+});
+
+void test('while held for the pump the button is disabled and names neither Begin nor Resume', () => {
   for (const constructionStarted of [true, false]) {
     const c = beginControlFor({
       constructionStarted,
       projectLoading: false,
       running: false,
-      awaitingRefresh: true,
+      awaitingPump: true,
     });
     assert.equal(c.disabled, true);
     assert.doesNotMatch(c.label, COMMITTED_WORDS);

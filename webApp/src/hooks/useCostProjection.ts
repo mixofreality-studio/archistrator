@@ -6,7 +6,7 @@
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
 import { apiClient } from '../api/client';
-import { ApiError, toApiError } from '../contracts/errors';
+import { ApiError, bodyUnlessError } from '../contracts/errors';
 import { mapCostProjection } from '../contracts/wire';
 import type { CostProjection } from '../contracts/operationsTypes';
 
@@ -28,7 +28,7 @@ export function useCostProjection(
   return useQuery<CostProjection>({
     queryKey: costProjectionKey(operatedAppId, points),
     queryFn: async () => {
-      const { data, error, response } = await apiClient.POST(
+      const result = await apiClient.POST(
         '/api/v1/operations/query-cost-projection/{operatedAppID}',
         {
           params: { path: { operatedAppID: operatedAppId } },
@@ -38,7 +38,7 @@ export function useCostProjection(
           },
         }
       );
-      if (error !== undefined) throw toApiError(response.status, error);
+      const data = bodyUnlessError(result);
       return mapCostProjection(operatedAppId, data);
     },
     enabled: enabled && operatedAppId.length > 0,

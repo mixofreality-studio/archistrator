@@ -37,7 +37,8 @@ import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
 import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
-import { useProject } from '../hooks/useProject';
+import { projectKey, useProject } from '../hooks/useProject';
+import { useReadRequestedAt } from '../hooks/readRequestTimes';
 import { TASKS_FRESHNESS_MS, useConstructionSessions } from '../hooks/useConstructionSessions';
 import { useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useGateOccurrences } from '../hooks/useGateOccurrences';
@@ -79,6 +80,7 @@ import { gitFor } from '../contracts/types';
 import {
   phaseDecisionMutationKey,
   useBeginConstruction,
+  useBeginConstructionPending,
   useSubmitPhaseDecision,
 } from '../hooks/useConstructionMutations';
 
@@ -98,14 +100,28 @@ import {
 } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
-  awaitingRefreshAfter,
+  anyRowInFlight,
   beginControlFor,
+  beginHoldFor,
+  beginRunning,
+  constructionInFlight,
+  consolePollMs,
   dispatchOutcomeCopy,
   dispatchOutcomeFor,
+  failureLeavesMemory,
+  holdExpiredCopy,
+  newestLiveSession,
   notStartedActivities,
-  type DispatchOutcome,
+  pumpEvidencedSince,
+  UNKNOWN_OUTCOME_HOLD_MS,
 } from '../components/construction/lens/beginControl';
 import { ApiError } from '../contracts/errors';
+import {
+  failureAwaitsPump,
+  readBeginFailure,
+  useBeginFailure,
+  writeBeginFailure,
+} from '../components/construction/lens/beginFailureMemory';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
 import { buildActivityTree, type ActivityMeta } from '../components/construction/list/activityTree';
 import {
@@ -179,15 +195,33 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // key off `phase === 'running'` because the corpus-seeded in-review activities are
   // permanently `running` (they are not live pump work); progress (the done count) is the
   // honest signal that the pump is actively completing activities.
+  //
+  //
+  // `cascading` governs only the poll's CADENCE (consolePollMs), never the label
+  // (fix-F review, root-cause ruling). The poll stays on, fast, while a dispatch is
+  // pending or a failure in module memory still awaits the pump, so a remount
+  // cannot stop the poll a held Begin depends on (fix-E review I2). It stays on,
+  // slower, while the STATE shows work in flight, however long ago the last
+  // integration was, because only a read can say the work has ended.
+  const beginPending = useBeginConstructionPending(projectId);
+  const beginFailure = useBeginFailure(projectId);
   const [cascading, setCascading] = useState(false);
-  // Outside a cascade the read still refreshes on the TASKS freshness cadence: the
-  // owed set's probe candidates come from it, and a gate on an activity started by
-  // the sweep, another tab or MCP must not stay invisible (review I3).
-  const {
-    data: project,
-    isLoading: projectLoading,
-    dataUpdatedAt: projectReadAt,
-  } = useProject(projectId, cascading ? 1500 : TASKS_FRESHNESS_MS);
+  // The poll's cadence is consolePollMs's. Where that would stop, the read still
+  // refreshes on the TASKS freshness cadence: the owed set's probe candidates come
+  // from it, and a gate on an activity started by the sweep, another tab or MCP
+  // must not stay invisible (review I3). Its in-flight term reads the rows alone,
+  // without the owed set (which is derived from this very read): it only sets the
+  // cadence, and the owed set can only turn a running row into a failed one.
+  const failureAwaitsPumpNow = failureAwaitsPump(beginFailure);
+  const { data: project, isLoading: projectLoading } = useProject(projectId, (read) => {
+    const ms = consolePollMs({
+      pending: beginPending,
+      awaitsPump: failureAwaitsPumpNow,
+      cascading,
+      inFlight: anyRowInFlight(read?.constructionRows),
+    });
+    return ms === false ? TASKS_FRESHNESS_MS : ms;
+  });
 
   const integratedCount = useMemo(() => {
     const rows = project?.constructionRows;
@@ -204,17 +238,21 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       lastProgressAtRef.current = Date.now();
     }
   }, [integratedCount]);
-  useEffect(() => {
-    if (!cascading) return undefined;
-    const id = setInterval(() => {
-      if (Date.now() - lastProgressAtRef.current > 30000) setCascading(false);
-    }, 1500);
-    return (): void => {
-      clearInterval(id);
-    };
-  }, [cascading]);
+  // The watchdog that ends the poll sits below the Begin state, because it must
+  // never end it while a dispatch is pending or Begin is held for the pump.
 
-  const begin = useBeginConstruction(projectId);
+  // The failure is recorded from the mutation's OWN onError, into module memory, so
+  // an answer that lands while the console is away is still kept (fix-E review I2).
+  const begin = useBeginConstruction(projectId, {
+    onError: (err) => {
+      writeBeginFailure(projectId, {
+        outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
+        at: Date.now(),
+        dismissed: false,
+        holdExpired: false,
+      });
+    },
+  });
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
 
   // --- Gate decisions (Stage C) ----------------------------------------------
@@ -230,6 +268,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // sets state to follow the workflow.
   const queryClient = useQueryClient();
   const occurrences = useGateOccurrences();
+  // When the shown project read was REQUESTED — from the ONE request-time store
+  // (hooks/readRequestTimes), which the gate occurrences read too. The Begin hold's
+  // evidence and the gate's "now in <phase>" both count a read from its request,
+  // never its arrival.
+  const projectRequestedAt = useReadRequestedAt(projectKey(projectId));
   const decisionStates = useMutationState({
     filters: { mutationKey: phaseDecisionMutationKey(projectId) },
     select: (m): DecisionMutationState => ({
@@ -250,7 +293,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // (architect I1 ruling). The client guards here and in the dialog are UX
   // debouncing, so one press sends one request. `null` is "closed".
   const [beginTick, setBeginTick] = useState<string | null>(null);
-  // A ref, not only begin.isPending: clicks delivered in one task all land before a
+  // A ref, not only the pending flag: clicks delivered in one task all land before a
   // re-render could report the first as pending (pinned by the same-task triple
   // click in construction-begin-confirm.spec).
   const beginInFlightRef = useRef(false);
@@ -258,52 +301,39 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // and HONEST about what it knows (fix-C review). The server starts the pump before
   // it answers and can still answer 5xx after that, or the response can be dropped,
   // so only a 4xx means nothing started (dispatchOutcomeFor). On an unknown outcome
-  // the console keeps polling, as it does after a success, and Begin stays off until
-  // a project read newer than the failure has answered (awaitingRefreshAfter) — a
-  // stale "Begin" there was a second pump one click away. `at` is when the console
-  // learned of the failure; `dismissed` hides the alert without lifting that gate.
-  const [beginFailure, setBeginFailure] = useState<{
-    outcome: DispatchOutcome;
-    at: number;
-    dismissed: boolean;
-  } | null>(null);
+  // the console keeps polling, as it does after a success, and Begin stays held
+  // until the pump is EVIDENCED or a bounded hold expires (beginHoldFor, fix-D
+  // review I3). A newer read alone does not lift it: the first read after a 5xx can
+  // land before the pump has stored its StartedAt, and a "Begin" there was a second
+  // pump one click away. The failure (its `at`, the alert's `dismissed`, the
+  // hold's `holdExpired`) lives in module memory keyed by project, so a remount
+  // keeps it (beginFailureMemory, fix-E review I2).
   const onBegin = (tickId: string): void => {
-    if (beginInFlightRef.current) return;
+    if (beginInFlightRef.current || beginPending) return;
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
-    setBeginFailure(null);
+    writeBeginFailure(projectId, null);
     setCascading(true);
     begin.mutate(tickId, {
-      onError: (err) => {
-        const outcome = dispatchOutcomeFor(
-          err instanceof ApiError ? err.status : undefined,
-          err.message
-        );
-        const at = Date.now();
-        if (outcome.kind === 'rejected') {
-          // Refused: nothing started, so there is nothing to wait on.
-          setCascading(false);
-        } else {
-          // Keep polling, exactly as after a success: the list shows the pump if it
-          // started. The progress window restarts from here.
-          lastProgressAtRef.current = at;
-        }
-        setBeginFailure({ outcome, at, dismissed: false });
+      // The fast poll runs its full window from the ANSWER: a dispatch pending past
+      // the watchdog's 30s would otherwise come back to a slow poll, or none, just
+      // as the pump picks its first activity up. Cadence only; the label is state's.
+      onSuccess: () => {
+        lastProgressAtRef.current = Date.now();
+        setCascading(true);
+      },
+      onError: () => {
+        // The mutation's own onError has recorded the failure. A refusal started
+        // nothing, so there is nothing to wait on. Anything else keeps polling,
+        // exactly as after a success, with the progress window restarted from the
+        // failure (the watchdog reads its `at`).
+        if (readBeginFailure(projectId)?.outcome.kind === 'rejected') setCascading(false);
       },
       onSettled: () => {
         beginInFlightRef.current = false;
       },
     });
   };
-  // Running only on the strength of a dispatch that SUCCEEDED: a failed one may
-  // still be polled, but the button's state is then the refreshed project's.
-  const beginActive = begin.isPending || (cascading && beginFailure === null);
-  const awaitingRefresh = awaitingRefreshAfter(beginFailure, projectReadAt);
-  const beginFailureCopy =
-    beginFailure !== null && !beginFailure.dismissed
-      ? dispatchOutcomeCopy(beginFailure.outcome)
-      : undefined;
-
   // --- Lens state (Stage B) -------------------------------------------------
   // Selection is NOT component state: it lives in the URL's search params
   // (?lens=&a=&p=&k=&n=), so neither the 1.5s cascade poll's remount nor a lens
@@ -367,24 +397,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     const byId = new Map<string, string | undefined>(items.map((a) => [a.name, a.title]));
     return (id: string): string | undefined => byId.get(id);
   }, [activityListModel]);
-
-  // --- Begin/Resume ---------------------------------------------------------
-  // The label is the project read's constructionStarted, computed once on the
-  // server from the stored head-state — never counted from rows or attempts here,
-  // which the backfill filled with reconstructed work no pump ever ran. It used to
-  // probe one session endpoint per committed activity on every load. While the
-  // project is loading the button is disabled and names neither word, so it cannot
-  // read "Begin" and flip to "Resume" after load.
-  const beginControl = beginControlFor({
-    constructionStarted: project?.constructionStarted,
-    projectLoading,
-    running: beginActive,
-    awaitingRefresh,
-  });
-  const dispatchCandidates = useMemo(
-    () => notStartedActivities(project?.constructionRows, titleForId),
-    [project, titleForId]
-  );
 
   // --- The LIST lens's tree ------------------------------------------------
   // Per-activity network/activity-list facts, joined by activity id for the
@@ -461,7 +473,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   );
   const observedFor = (activityId: string): ObservedGate =>
     observedGateFor(occurrences.get(occurrenceKey(projectId, activityId)), {
-      at: projectReadAt,
+      at: projectRequestedAt,
       lifecyclePhase: project?.constructionRows?.[activityId]?.currentLifecyclePhase,
     });
   const decisionViews: Record<string, DecisionView> = {};
@@ -511,6 +523,118 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // list's "Awaiting me" scope, its row chips and the pane's state chip read these
   // marks, never head-state in-review.
   const owedMarks = useMemo(() => owedMarksFor(owedItems), [owedItems]);
+
+  // --- Begin/Resume state --------------------------------------------------------
+  // It sits below the owed set because it reads it.
+  //
+  // What the STATE says is in flight: any activity whose owed-aware row state is
+  // running or awaiting a human — "awaiting" from the owed set, never head-state
+  // (Q4) — or a live session among the probed ones (constructionInFlight). It alone
+  // decides "Construction running…". The probes are the owed set's: every activity
+  // the pump started and has not finished, each read's stage and request time taken
+  // from the gate occurrences, which the one request-time store feeds.
+  const liveSession = newestLiveSession(
+    sessionIds.map((id) => {
+      const o = occurrences.get(occurrenceKey(projectId, id));
+      return { stage: o?.stage, requestedAt: o?.requestedAt ?? 0 };
+    })
+  );
+  const inFlight = constructionInFlight({
+    rows: project?.constructionRows,
+    owed: owedMarks,
+    sessionStage: liveSession?.stage,
+  });
+  // Pump evidence counts only from reads REQUESTED after the failure, never by when
+  // they arrived: the project says construction started or shows work in flight,
+  // or the probed session is live (pumpEvidencedSince, hooks/readRequestTimes).
+  const pumpEvidenced =
+    beginFailure !== null &&
+    pumpEvidencedSince(beginFailure.at, {
+      projectRequestedAt,
+      constructionStarted: project?.constructionStarted,
+      rowsInFlight: anyRowInFlight(project?.constructionRows, owedMarks),
+      sessionRequestedAt: liveSession?.requestedAt ?? 0,
+      sessionStage: liveSession?.stage,
+    });
+  const beginHold = beginHoldFor(beginFailure, pumpEvidenced);
+  // "Construction running…", disabled: a dispatch pending, or work in flight by
+  // state (beginRunning). The same rule on the success path, the failure path and
+  // after a remount; no timer enters it (fix-F review, root-cause ruling).
+  const beginActive = beginRunning({ pending: beginPending, inFlight });
+  // An evidenced failure has done its job once the state shows nothing in flight,
+  // and leaves memory: kept, a remount would flash it and bring back a stale
+  // "Outcome unknown" alert (fix-F review). The write runs in an effect, keyed by
+  // the failure it clears, so a newer failure is never the one removed.
+  const leavingAt =
+    beginFailure !== null && failureLeavesMemory(beginHold, inFlight) ? beginFailure.at : undefined;
+  useEffect(() => {
+    if (leavingAt === undefined) return;
+    writeBeginFailure(projectId, (f) => (f !== null && f.at === leavingAt ? null : f));
+  }, [leavingAt, projectId]);
+  // The bounded hold. It runs from the failure, and evidence clears it. When it
+  // expires with no evidence, Begin comes back and the alert, shown again even if
+  // it was dismissed, says there was no sign of the pump. The setState runs in the
+  // timer's callback, never in the effect body.
+  const heldSince = beginHold === 'held' && beginFailure !== null ? beginFailure.at : undefined;
+  useEffect(() => {
+    if (heldSince === undefined) return undefined;
+    const id = setTimeout(
+      () => {
+        writeBeginFailure(projectId, (f) =>
+          f !== null && f.at === heldSince ? { ...f, holdExpired: true, dismissed: false } : f
+        );
+      },
+      Math.max(0, heldSince + UNKNOWN_OUTCOME_HOLD_MS - Date.now())
+    );
+    return (): void => {
+      clearTimeout(id);
+    };
+  }, [heldSince, projectId]);
+
+  // The poll's watchdog: it falls quiet ~30s after progress stops. It never runs
+  // while a dispatch is still PENDING, because a 5xx that arrives after 30s would
+  // otherwise find the poll already stopped (fix-D review I1). It also never runs
+  // while Begin is held for the pump: only a read can bring the evidence that
+  // lifts the hold.
+  const keepPolling = beginPending || beginHold === 'held';
+  useEffect(() => {
+    if (!cascading || keepPolling) return undefined;
+    const id = setInterval(() => {
+      // Progress, or the failure the poll resumed after (a remounted console has
+      // no progress of its own to go on).
+      const since = Math.max(lastProgressAtRef.current, readBeginFailure(projectId)?.at ?? 0);
+      if (Date.now() - since > 30000) setCascading(false);
+    }, 1500);
+    return (): void => {
+      clearInterval(id);
+    };
+  }, [cascading, keepPolling, projectId]);
+
+  const beginFailureCopy =
+    beginFailure !== null && !beginFailure.dismissed
+      ? beginHold === 'expired'
+        ? holdExpiredCopy(beginFailure.outcome)
+        : dispatchOutcomeCopy(beginFailure.outcome)
+      : undefined;
+
+  // --- Begin/Resume ---------------------------------------------------------
+  // The label is the project read's constructionStarted, computed once on the
+  // server from the stored head-state — never counted from rows or attempts here,
+  // which the backfill filled with reconstructed work no pump ever ran. It used to
+  // probe one session endpoint per committed activity on every load. While the
+  // project is loading the button is disabled and names neither word, so it cannot
+  // read "Begin" and flip to "Resume" after load.
+  const beginControl = beginControlFor({
+    constructionStarted: project?.constructionStarted,
+    projectLoading,
+    running: beginActive,
+    awaitingPump: beginHold === 'held',
+  });
+  const dispatchCandidates = useMemo(
+    () => notStartedActivities(project?.constructionRows, titleForId),
+    [project, titleForId]
+  );
+
   const activityTree = useMemo(
     () => buildActivityTree(Object.values(viewRows ?? {}), { meta: activityMeta }),
     [viewRows, activityMeta]
@@ -913,12 +1037,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
           {beginFailure !== null && beginFailureCopy !== undefined ? (
             <Alert
+              data-hold={beginHold}
               data-outcome={beginFailure.outcome.kind}
               data-testid={UI_IDENTIFIERS.Construction.BEGIN_ERROR}
               severity="error"
               sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
               onClose={() => {
-                setBeginFailure({ ...beginFailure, dismissed: true });
+                writeBeginFailure(projectId, { ...beginFailure, dismissed: true });
               }}
             >
               <Box component="span" sx={{ display: 'block', fontWeight: 700 }}>
@@ -943,6 +1068,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                       expandToCurrentPhaseSignal={expandToPhaseSignal}
                       nodes={visibleActivityTree}
                       owed={owedMarks}
+                      projectId={projectId}
                       searchQuery={toolbar.search}
                       selection={selection}
                       totalActivityCount={activityTree.length}
@@ -965,7 +1091,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                 )
               }
               detail={detailPane}
-              expandToCurrentPhase={expandToCurrentPhaseControl(visibleActivityTree)}
+              expandToCurrentPhase={expandToCurrentPhaseControl(visibleActivityTree, owedMarks)}
               kindOptions={kindOptions}
               layerOptions={layerOptions}
               lens={lens}

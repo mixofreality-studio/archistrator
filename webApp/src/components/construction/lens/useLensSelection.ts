@@ -186,7 +186,7 @@ export function useLensSelection(): LensSelectionApi {
 /**
  * Scope chips, shared by every lens. `critical`/`near` carry the existing tracker
  * filter vocabulary forward unchanged; the rest are the rewrite's additions.
- * Only `all` is wired to anything this stage — the predicates land in Task 11.
+ * Each one's predicate lives in list/activityScope.ts (scopePredicate).
  */
 export const SCOPE_IDS = [
   'all',

@@ -1140,3 +1140,46 @@ func TestRewrite_ReRunIsByteIdenticalUnlessTheEvidenceChanged(t *testing.T) {
 		t.Errorf("C-alpha-manager: re-stamped (%s, %v) although its evidence did not change", alpha.Evidence.Ref, alpha.Provenance.GeneratedAt)
 	}
 }
+
+// The systemdesign view-model's constructionStarted (Begin versus Resume) reads a stored
+// row's Phase, Phases, StartedAt, FailureReason and FailureDetail as fields only the pump
+// writes. That trust is safe only while this tool never writes them: a row it creates
+// carries none of them, and a re-run over a row it backfilled earlier keeps whatever that
+// row held.
+func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
+	p, _ := backfillFixture(t)
+	if len(p.ActivityConstruction) == 0 {
+		t.Fatal("the fixture backfilled no row; the test would pass vacuously")
+	}
+	for id, row := range p.ActivityConstruction {
+		if row.Phase != projectstate.ActivityConstructionNotStarted || len(row.Phases) != 0 || row.StartedAt != nil ||
+			row.FailureReason != projectstate.FailureReasonUnknown || row.FailureDetail != "" {
+			t.Errorf("%s: backfill wrote pump-owned state: phase=%v phases=%v startedAt=%v failure=%v/%q",
+				id, row.Phase, row.Phases, row.StartedAt, row.FailureReason, row.FailureDetail)
+		}
+	}
+
+	p, root := fixtureProject(), fixtureServer(t)
+	vs, err := evaluate(inputs{Project: p, ServerRoot: root, Head: fixtureHead})
+	if err != nil {
+		t.Fatal(err)
+	}
+	started := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	held := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-alpha-manager",
+		Phase:      projectstate.ActivityConstructionDone,
+		Phases:     []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseIntegration, Weight: 20, Completed: true}},
+		StartedAt:  &started,
+		Attempts: []projectstate.TaskAttempt{{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{
+			Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "earlier run"}}},
+	}
+	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-alpha-manager": held}
+	if _, err := backfill(&p, vs, time.Now()); err != nil {
+		t.Fatalf("re-running over this tool's own backfill: %v", err)
+	}
+	row := p.ActivityConstruction["C-alpha-manager"]
+	if row.Phase != held.Phase || !reflect.DeepEqual(row.Phases, held.Phases) || row.StartedAt != held.StartedAt {
+		t.Errorf("re-run changed pump-owned state: phase=%v phases=%v startedAt=%v, want %v %v %v",
+			row.Phase, row.Phases, row.StartedAt, held.Phase, held.Phases, held.StartedAt)
+	}
+}

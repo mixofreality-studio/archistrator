@@ -32,6 +32,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"maps"
 	"regexp"
 	"slices"
@@ -640,7 +641,10 @@ func (s *GitStore) readProjectOnBranch(ctx context.Context, projectID ProjectID,
 // An owner with no project repos (or a store with no catalog wired) yields an empty
 // slice. A project repo whose project.json cannot yet be read (provisioned but
 // CreateProject not yet committed) is included with the catalog title + zero progress
-// rather than dropped — the repo's existence already means the project exists.
+// rather than dropped — the repo's existence already means the project exists. A
+// project whose state cannot be read for any other reason (an auth or transient
+// fault, or malformed committed state) is SKIPPED with a warning that names it: one
+// unreadable project must not fail the owner's whole list (fix-F review ruling).
 func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error) {
 	if owner == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate.ListProjects: empty owner")
@@ -655,7 +659,11 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 	out := make([]ProjectSummary, 0, len(refs))
 	for _, ref := range refs {
 		if ref.ProjectID == "" {
-			continue // a repo whose name carried no parseable project id — skip defensively
+			// A repo whose name carried no parseable project id is skipped, and says so
+			// (fix-E review): a project must never vanish from the catalog silently.
+			slog.WarnContext(ctx, "projectstate.ListProjects: skipping a catalog repo with no project id",
+				"owner", string(owner), "title", ref.Title)
+			continue
 		}
 		summary := ProjectSummary{
 			ProjectID:  ref.ProjectID,
@@ -704,10 +712,21 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				summary.ConstructionComplete = &complete
 			}
 		} else if !isNotFound(perr) {
-			// A real read fault (auth/transient/infra) on a discovered repo is surfaced;
-			// a NotFound (repo provisioned, project.json not yet committed) is tolerated —
-			// the catalog row stands on the repo's existence + title.
-			return nil, perr
+			// A real read fault on one project (auth/transient/infra, or malformed
+			// committed state) SKIPS that project, and says so: it must not fail the
+			// owner's whole list and blank the landing grid (fix-F review ruling). The
+			// log names WHICH project, since the fault itself may not (fix-E review).
+			slog.WarnContext(ctx, "projectstate.ListProjects: skipping a project that could not be read",
+				"projectID", ref.ProjectID.String(), "reason", perr.Error())
+			continue
+		} else {
+			// A NotFound (repo provisioned, project.json not yet committed) is tolerated:
+			// the catalog row stands on the repo's existence + title, with no progress.
+			// Said, not silent (fix-E review), at Debug: it is an expected state, and the
+			// landing grid re-lists on every visit, so at Info the same line repeated on
+			// every read (fix-F review).
+			slog.DebugContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
+				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 		}
 		out = append(out, summary)
 	}
@@ -1211,6 +1230,9 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		PauseReason:          doc.PauseReason,
 		ReviewPolicy:         doc.ReviewPolicy,
 	}
+	if err := checkActivityConstructionKeys(doc.ActivityConstruction); err != nil {
+		return Project{}, false, err
+	}
 	if err := decodeSlotsMap(doc.Slots, &p); err != nil {
 		// A committed slot model that will not decode — e.g. free prose in a CLOSED-ENUM
 		// field (a Trigger/Axis/CallMode wire name), a type mismatch — is MALFORMED
@@ -1221,6 +1243,32 @@ func decodeProjectDoc(raw []byte, projectID ProjectID) (Project, bool, error) {
 		return Project{}, false, fwra.Wrap(fwra.ContractMisuse, err, "projectstate: decode slots")
 	}
 	return p, true, nil
+}
+
+// checkActivityConstructionKeys refuses a stored construction row whose ActivityID
+// is non-empty and differs from its map key (Task 8 review, item 2).
+//
+// The map key IS the row's identity. ResolveConstructionRow classifies name-first,
+// from the activity-list item joined by that key, and the construction view keys
+// every row by it. Other readers still read r.ActivityID. Nothing enforced that the
+// two agree: a hand edit or a buggy writer could store row "C-b" under key "C-a",
+// and the two paths would then disagree about which activity the row is, with no
+// error anywhere. That is MALFORMED COMMITTED STATE, so it is terminal
+// (ContractMisuse) like every other decode failure here (QA F36).
+//
+// An EMPTY ActivityID is allowed. The only writer, upsertActivityConstruction,
+// stamps it from the key, but a legacy row born before that stamp may carry none,
+// and it names no other activity. Keys are checked in sorted order, so the error
+// is deterministic.
+func checkActivityConstructionKeys(rows map[string]ActivityConstructionStatus) error {
+	for _, key := range slices.Sorted(maps.Keys(rows)) {
+		if id := rows[key].ActivityID; id != "" && id != key {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate: decode project.json: activityConstruction[%q] carries activityID %q, but the map key is the row's identity",
+				key, id))
+		}
+	}
+	return nil
 }
 
 // DecodeProjectJSON decodes a raw `.aiarch/state/project.json` document into the
@@ -7194,7 +7242,7 @@ type TaskAttempt struct {
 	// Outcome is the terminal state; the zero value is OutcomePending.
 	Outcome TaskOutcome `json:"outcome,omitempty"`
 	// Evidence points at what this attempt produced or reviewed.
-	Evidence EvidenceRef `json:"evidence,omitempty"`
+	Evidence EvidenceRef `json:"evidence"`
 	// Provenance is REQUIRED and never omitempty — see AttemptProvenance.
 	Provenance AttemptProvenance `json:"provenance"`
 }
@@ -7382,7 +7430,9 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // An EMPTY slice returns BuildInConstruction — a named, plausible value derived from no
 // evidence at all. Callers must not reach here with an empty slice for a row they intend
 // to render a status chip for; the read path suppresses the whole claim instead (see
-// ActivityConstructionStatus.Classified and resolvedPhaseCompletions' honest-empty).
+// ActivityConstructionStatus.Classified, and HasBuildEvidence on the wire: a row with
+// neither stored phases nor a ledger resolves to no completions, and its coarse status is
+// marked meaningless rather than shown).
 //
 // The second parameter is retained for signature compatibility and is unused: coarse
 // status is derived solely from phase completion.
@@ -7856,10 +7906,10 @@ func DeriveType(activityID string) ActivityType {
 	}
 }
 
-// DeriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
+// deriveVariant maps a testing activity id prefix to its TestingVariant. Meaningful
 // only when DeriveType == ActivityTypeTesting; unknown N- ids fall back to Plan.
 // Order matters: N-STH / N-STP share the "N-ST" stem, so match the longer first.
-func DeriveVariant(activityID string) TestingVariant {
+func deriveVariant(activityID string) TestingVariant {
 	id := strings.ToUpper(activityID)
 	switch {
 	case strings.HasPrefix(id, "N-STH"):
@@ -7895,7 +7945,7 @@ func DeriveVariant(activityID string) TestingVariant {
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
-//     variant read off the id (DeriveVariant)
+//     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
 //  3. id prefix U-SPA                 → Frontend
 //  4. id prefix I-                    → Integration
@@ -7910,7 +7960,7 @@ func DeriveVariant(activityID string) TestingVariant {
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
-		return ActivityTypeTesting, DeriveVariant(id), nil
+		return ActivityTypeTesting, deriveVariant(id), nil
 	case "ui-designer":
 		if coding {
 			return ActivityTypeFrontend, TestVariantPlan, nil
@@ -7993,16 +8043,26 @@ func rowHasServiceContract(r ActivityConstructionStatus) bool {
 // not in the committed list). classified == false means ClassifyType refused to type
 // the row: typ and variant are then meaningless and resolved is nil, so the caller
 // asserts nothing about the row.
+//
+// The row is classified by meta.Name, the id the committed plan knows the activity by,
+// and by r.ActivityID only when the activity is not in the committed list (meta is then
+// the zero value). The plan's item is the authority on what the activity is; the row's
+// ActivityID is a copy of its map key, and the workerClass and coding flag the rule also
+// reads come from the same item, so the id must too.
 func ResolveConstructionRow(
 	r ActivityConstructionStatus,
 	meta ActivityItem,
 ) (typ ActivityType, variant TestingVariant, resolved []PhaseCompletion, classified bool) {
-	typ, classified = ClassifyType(r.ActivityID, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
+	id := meta.Name
+	if id == "" {
+		id = r.ActivityID
+	}
+	typ, classified = ClassifyType(id, meta.WorkerClass, meta.Coding, rowHasServiceContract(r))
 	if !classified {
 		return typ, variant, nil, false
 	}
 	if typ == ActivityTypeTesting {
-		variant = DeriveVariant(r.ActivityID)
+		variant = deriveVariant(id)
 	}
 	return typ, variant, ResolvePhaseCompletions(ProfileFor(typ, variant), r.Phases, r.Attempts), true
 }
@@ -8501,10 +8561,8 @@ func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) s
 // the task is unknown).
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
 	for p, tasks := range phaseTasks {
-		for _, candidate := range tasks {
-			if candidate == t {
-				return p
-			}
+		if slices.Contains(tasks, t) {
+			return p
 		}
 	}
 	return ""

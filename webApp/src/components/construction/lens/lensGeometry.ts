@@ -99,3 +99,32 @@ export function isToolbarStuck(input: {
 }): boolean {
   return input.scrollTop > 0 && input.toolbarTop - input.scrollerTop <= 1;
 }
+
+/**
+ * Where to scroll so a deep-linked row sits at the CENTRE of the visible band —
+ * below the stuck toolbar, above the window's bottom edge (designer final N1).
+ *
+ * Measured, it used to land at 62-81% of the band at 1280/1366: the scroller was
+ * already at its maximum, because the list ENDS a little below the linked row and
+ * there was nothing left to scroll. So when the centring scrollTop is past the
+ * current maximum, the difference is returned as a RUNWAY — blank space the list
+ * adds below itself — rather than silently clamping the row to the bottom.
+ *
+ * All inputs in px. `rowTop` is in the scroller's CONTENT coordinates; `bandTop`
+ * and `bandBottom` in its VIEWPORT coordinates; `contentHeight` is the scroll
+ * extent with no runway. Pure, so node:test pins it.
+ */
+export function centeredScrollFor(input: {
+  rowTop: number;
+  rowHeight: number;
+  bandTop: number;
+  bandBottom: number;
+  contentHeight: number;
+  clientHeight: number;
+}): { scrollTop: number; runwayPx: number } {
+  const rowMid = input.rowTop + input.rowHeight / 2;
+  const bandMid = (input.bandTop + input.bandBottom) / 2;
+  const scrollTop = Math.max(0, Math.round(rowMid - bandMid));
+  const max = Math.max(0, input.contentHeight - input.clientHeight);
+  return { scrollTop, runwayPx: Math.max(0, scrollTop - max) };
+}

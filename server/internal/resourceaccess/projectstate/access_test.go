@@ -5,10 +5,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -7056,8 +7059,8 @@ func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 		"N-OTHER": TestVariantPlan, // unknown N- falls back to Plan
 	}
 	for id, want := range cases {
-		if got := DeriveVariant(id); got != want {
-			t.Errorf("DeriveVariant(%q) = %v, want %v", id, got, want)
+		if got := deriveVariant(id); got != want {
+			t.Errorf("deriveVariant(%q) = %v, want %v", id, got, want)
 		}
 	}
 }
@@ -8263,12 +8266,65 @@ func TestPhaseCompleteFromAttempts_RejectedGateIsDecidedIncomplete(t *testing.T)
 // pointer or the encoder's emptiness rule changes. A marshal-and-grep assertion
 // passes either way and therefore proves nothing; assert the tag itself.
 func TestTaskAttempt_ProvenanceIsNotOmitempty(t *testing.T) {
-	f, ok := reflect.TypeOf(TaskAttempt{}).FieldByName("Provenance")
+	f, ok := reflect.TypeFor[TaskAttempt]().FieldByName("Provenance")
 	if !ok {
 		t.Fatal("TaskAttempt has no Provenance field")
 	}
 	if got := f.Tag.Get("json"); got != "provenance" {
 		t.Errorf(`TaskAttempt.Provenance json tag = %q, want exactly "provenance" — a missing or dropped provenance stamp must never be omitted from the wire`, got)
+	}
+}
+
+// Evidence is encoded on every attempt, even when it is empty (Task 8 review, item
+// 1). The committed corpus carries 132 `"evidence":{}` entries. An omitempty or
+// omitzero tag would silently drop every one of them on the next encode, and the
+// rest of the suite would stay green: the reviewer proved that by mutation. So the
+// tag must be exactly "evidence".
+func TestTaskAttempt_EvidenceIsNotOmitempty(t *testing.T) {
+	f, ok := reflect.TypeFor[TaskAttempt]().FieldByName("Evidence")
+	if !ok {
+		t.Fatal("TaskAttempt has no Evidence field")
+	}
+	if got := f.Tag.Get("json"); got != "evidence" {
+		t.Errorf(`TaskAttempt.Evidence json tag = %q, want exactly "evidence" (no omitempty, no omitzero): an empty evidence ref must still be encoded`, got)
+	}
+}
+
+// The activityConstruction map key IS the row's identity (Task 8 review, item 2).
+// A row stored under another activity's key must fail decode as TERMINAL, naming
+// both ids. A matching key, and a legacy row with no activityID, decode cleanly.
+func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing.T) {
+	id := ProjectID("11111111-1111-1111-1111-111111111111")
+	encode := func(rows map[string]ActivityConstructionStatus) []byte {
+		t.Helper()
+		raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: rows})
+		if err != nil {
+			t.Fatalf("EncodeProjectJSON: %v", err)
+		}
+		return raw
+	}
+	for name, rows := range map[string]map[string]ActivityConstructionStatus{
+		"matching key":          {"C-a": {ActivityID: "C-a"}},
+		"legacy row with no id": {"C-a": {}},
+		"several matching rows": {"C-a": {ActivityID: "C-a"}, "N-STP": {ActivityID: "N-STP"}},
+	} {
+		if _, _, err := DecodeProjectJSON(encode(rows), id); err != nil {
+			t.Errorf("%s: want a clean decode, got %v", name, err)
+		}
+	}
+
+	_, _, err := DecodeProjectJSON(encode(map[string]ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-a"},
+		"C-b": {ActivityID: "C-c"},
+	}), id)
+	if err == nil {
+		t.Fatal("a row whose activityID differs from its map key must FAIL decode")
+	}
+	if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("decode error kind = %v, want ContractMisuse (terminal: malformed committed state)", k)
+	}
+	if !strings.Contains(err.Error(), `activityConstruction["C-b"]`) || !strings.Contains(err.Error(), `"C-c"`) {
+		t.Errorf("the error must name the key and the stored id; got: %v", err)
 	}
 }
 
@@ -8302,13 +8358,7 @@ func TestTaskAttempt_PhaseIsDenormalizedFromTask(t *testing.T) {
 		}
 		// Cross-check the denormalized value against the independent grouping table:
 		// the phase stamped on the attempt must be one that actually owns the task.
-		owns := false
-		for _, sibling := range TasksForPhase(a.Phase) {
-			if sibling == a.Task {
-				owns = true
-				break
-			}
-		}
+		owns := slices.Contains(TasksForPhase(a.Phase), a.Task)
 		if !owns {
 			t.Errorf("attempt %q stamped Phase %v, but TasksForPhase(%v) does not contain %q", a.AttemptID, a.Phase, a.Phase, a.Task)
 		}
@@ -8933,8 +8983,9 @@ func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
 // The len(phases)==0 branch. BuildInConstruction is a NAMED, plausible value derived
 // from no evidence at all, which is why callers must never reach here with an empty
 // slice for a row they intend to render a chip for — the read path materializes the
-// profile skeleton first (resolvedPhaseCompletions) or suppresses the whole claim
-// (Classified=false). Pinned so the branch's meaning is stated, not stumbled on.
+// profile skeleton first (ResolvePhaseCompletions) or suppresses the whole claim
+// (Classified=false, or HasBuildEvidence=false for a row with no evidence). Pinned so
+// the branch's meaning is stated, not stumbled on.
 func TestCoarseBuildStatus_EmptyPhaseSetIsAnEvidenceLessDefault(t *testing.T) {
 	for _, phases := range [][]PhaseCompletion{nil, {}} {
 		if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildInConstruction {
@@ -8989,5 +9040,230 @@ func TestLayerForActivity_ComponentlessActivitiesAreProjectWide(t *testing.T) {
 	}
 	if layer != "" {
 		t.Errorf("layer = %q, want empty — no fake layer for a cross-cutting activity", layer)
+	}
+}
+
+// A committed activity list with ZERO activities is not a completed construction: without
+// the guard, the loop over an empty list falls straight through to true. The fixture
+// harness above commits no list at all when a case has `activities: []`, so only its !ok
+// branch runs there; this pins the empty-list guard itself (Task 7a review minor 1).
+func TestIsConstructionComplete_EmptyCommittedListIsNotComplete(t *testing.T) {
+	p := Project{
+		Phase:        PhaseConstruction,
+		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{}}},
+		ActivityConstruction: map[string]ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", Phase: ActivityConstructionDone, BuildStatus: BuildIntegrated},
+		},
+	}
+	if isConstructionComplete(p) {
+		t.Fatal("isConstructionComplete = true over an empty committed activity list, want false")
+	}
+}
+
+// ResolveConstructionRow classifies by the committed item's Name first and falls back to
+// the row's own ActivityID only when the activity is not in the committed list.
+func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) {
+	cases := []struct {
+		name        string
+		row         ActivityConstructionStatus
+		meta        ActivityItem
+		wantType    ActivityType
+		wantVariant TestingVariant
+	}{
+		{"the name decides the type", ActivityConstructionStatus{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, TestVariantPlan},
+		{"the name decides the variant", ActivityConstructionStatus{ActivityID: "N-STP"}, ActivityItem{Name: "N-IT", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantSystemTest},
+		{"the row id when the list does not hold it", ActivityConstructionStatus{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, TestVariantPlan},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			typ, variant, _, classified := ResolveConstructionRow(tc.row, tc.meta)
+			if !classified || typ != tc.wantType || variant != tc.wantVariant {
+				t.Errorf("ResolveConstructionRow = (%v, %v, classified=%v), want (%v, %v, true)", typ, variant, classified, tc.wantType, tc.wantVariant)
+			}
+		})
+	}
+}
+
+// With several mismatched rows, the error names the FIRST key in sorted order, so
+// the same bad document always reports the same row (fix-E review minor). Map
+// iteration order is random per range, so an unsorted walk fails this within a
+// few of the 64 decodes.
+func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_NamesTheFirstSortedKey(t *testing.T) {
+	id := ProjectID("11111111-1111-1111-1111-111111111111")
+	raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: map[string]ActivityConstructionStatus{
+		"C-z": {ActivityID: "X-z"},
+		"C-m": {ActivityID: "C-m"},
+		"C-a": {ActivityID: "X-a"},
+	}})
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	for i := range 64 {
+		_, _, err := DecodeProjectJSON(raw, id)
+		if err == nil {
+			t.Fatal("two mismatched rows must FAIL decode")
+		}
+		if !strings.Contains(err.Error(), `activityConstruction["C-a"]`) || strings.Contains(err.Error(), "C-z") {
+			t.Fatalf("decode %d: the error must name the first sorted key (C-a) and only it; got: %v", i, err)
+		}
+	}
+}
+
+// fixedCatalog yields exactly the refs it is given, so a test can list a repo with
+// no parseable id, a repo with no project.json, and a repo with malformed state.
+type fixedCatalog struct{ refs []ProjectCatalogRef }
+
+func (c fixedCatalog) ListProjectRepos(context.Context, OwnerScope, RepoCredential) ([]ProjectCatalogRef, error) {
+	return c.refs, nil
+}
+
+// captureSlog routes the default logger into a buffer for the test's duration.
+// The package's tests do not run in parallel, so swapping the default is safe.
+func captureSlog(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prev := slog.Default()
+	slog.SetDefault(slog.New(slog.NewTextHandler(&buf, &slog.HandlerOptions{Level: slog.LevelDebug})))
+	t.Cleanup(func() { slog.SetDefault(prev) })
+	return &buf
+}
+
+// commitRawProjectJSON commits raw bytes as the repo's project.json, bypassing the
+// store's writers: the only way malformed committed state gets there is by hand.
+func commitRawProjectJSON(t *testing.T, repo gh.LocalGitRepo, raw []byte) {
+	t.Helper()
+	work := t.TempDir()
+	git := func(args ...string) {
+		t.Helper()
+		cmd := exec.Command("git", args...)
+		cmd.Dir = work
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("git %v: %v\n%s", args, err, out)
+		}
+	}
+	git("clone", repo.Dir, ".")
+	git("config", "user.email", "test@aiarch.local")
+	git("config", "user.name", "test")
+	path := filepath.Join(work, statePathPrefix, projectFile)
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git("add", ".")
+	git("commit", "-m", "hand-written project.json")
+	git("push", "origin", "HEAD")
+}
+
+// TestGitStore_ListProjects_SaysWhatItSkips (fix-E review): list-projects must never
+// drop or thin a project silently. A repo with no parseable id is skipped and the
+// skip is logged; a repo whose project.json is not there yet is listed without its
+// head-state, and that is logged with its id and the reason.
+func TestGitStore_ListProjects_SaysWhatItSkips(t *testing.T) {
+	readable, ghost := ProjectID(uuid.NewString()), ProjectID("ghost-"+uuid.NewString())
+	repos := map[ProjectID]*fwgithub.GitStore{}
+	for _, id := range []ProjectID{readable, ghost} {
+		r := gh.StartLocalGitRepo(t, "main")
+		gs, err := fwgithub.NewGitStore(r.URL, "main")
+		if err != nil {
+			t.Fatalf("NewGitStore(%s): %v", id, err)
+		}
+		repos[id] = gs
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, true /* local */)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	cred, ctx := LocalRepoCredential(), context.Background()
+	if _, err := store.CreateProject(ctx, readable, "alice", "Real", cred, "wf:real"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: readable, Title: "Real"},
+		{ProjectID: ghost, Title: "Ghost"},
+		{ProjectID: "", Title: "Nameless"},
+	}})
+	logs := captureSlog(t)
+
+	summaries, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("ListProjects: %v", err)
+	}
+	if len(summaries) != 2 {
+		t.Fatalf("ListProjects = %d rows, want 2 (the real one and the ghost): %+v", len(summaries), summaries)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		"skipping a catalog repo with no project id", "title=Nameless",
+		"listing a project without its head-state", "projectID=" + string(ghost), "no state for project",
+		// An expected state, re-listed on every landing visit: Debug, not Info (fix-F review).
+		`level=DEBUG msg="projectstate.ListProjects: listing a project without its head-state"`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log must say %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "projectID="+string(readable)) {
+		t.Errorf("a project that read cleanly must not be logged; got:\n%s", out)
+	}
+}
+
+// TestGitStore_ListProjects_SkipsAnUnreadableProject (fix-F review ruling): one
+// project whose committed state will not decode is SKIPPED with a warning, and the
+// owner's other projects are still listed. It used to fail the whole list, which
+// blanked the landing grid for that owner. The log names WHICH project and why: the
+// decode error alone does not carry the project id.
+func TestGitStore_ListProjects_SkipsAnUnreadableProject(t *testing.T) {
+	bad, good := ProjectID("bad-"+uuid.NewString()), ProjectID(uuid.NewString())
+	badRepo, goodRepo := gh.StartLocalGitRepo(t, "main"), gh.StartLocalGitRepo(t, "main")
+	raw, err := EncodeProjectJSON(Project{ID: bad, Name: "Bad", ActivityConstruction: map[string]ActivityConstructionStatus{
+		"C-a": {ActivityID: "C-b"}, // stored under another activity's key
+	}})
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	commitRawProjectJSON(t, badRepo, raw)
+	repos := map[ProjectID]*fwgithub.GitStore{}
+	for id, r := range map[ProjectID]gh.LocalGitRepo{bad: badRepo, good: goodRepo} {
+		gs, err := fwgithub.NewGitStore(r.URL, "main")
+		if err != nil {
+			t.Fatalf("NewGitStore(%s): %v", id, err)
+		}
+		repos[id] = gs
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, true)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	cred, ctx := LocalRepoCredential(), context.Background()
+	if _, err := store.CreateProject(ctx, good, "alice", "Good", cred, "wf:good"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: bad, Title: "Bad"},
+		{ProjectID: good, Title: "Good"},
+	}})
+	logs := captureSlog(t)
+
+	summaries, err := store.ListProjects(ctx, "alice", cred)
+	if err != nil {
+		t.Fatalf("one unreadable project must not fail the list: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ProjectID != good {
+		t.Fatalf("ListProjects = %+v, want exactly the readable project %s", summaries, good)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		`level=WARN msg="projectstate.ListProjects: skipping a project that could not be read"`,
+		"projectID=" + string(bad),
+		`activityConstruction[\"C-a\"]`,
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log must say %q; got:\n%s", want, out)
+		}
+	}
+	if strings.Contains(out, "projectID="+string(good)) {
+		t.Errorf("a project that read cleanly must not be logged; got:\n%s", out)
 	}
 }

@@ -21,8 +21,10 @@ import {
  * NEVER RUN IS NOT FAILING (fix round B, designer P1-12): until anything has been
  * attempted — no attempt on this row, no step status anywhere — the view says "not
  * run · N scenarios planned", its chips are muted, there is no green/total tile,
- * and the diagram reads in plan mode (red = target). Red is reserved for a step
- * that recorded red (systemTestRunSummary.ts).
+ * and the diagram reads in `notRun` mode: plan semantics, but NEUTRAL ink — the
+ * negative/boundary case chips and the "target" tag are not red (designer final
+ * items; scenarioInk.ts). Red is reserved for a step that recorded red
+ * (systemTestRunSummary.ts).
  */
 export function SystemTestRunView({ vm, project, t }: ArtifactRendererProps): ReactNode {
   const scenarios = project?.testingState?.systemTestPlan?.scenarios ?? [];
@@ -68,7 +70,7 @@ export function SystemTestRunView({ vm, project, t }: ArtifactRendererProps): Re
         </Box>
       ) : null}
       <ScenarioBrowser
-        mode={summary.attempted ? 'run' : 'plan'}
+        mode={summary.attempted ? 'run' : 'notRun'}
         scenarios={scenarios}
         statusChip={(s) => {
           const chip = scenarioChipFor(scenarioRunStatus(s));
