@@ -738,6 +738,49 @@ test('M4 (fix G): a row in construction holds Begin off on its own, with its ses
   expect(h.trapped).toEqual([]);
 });
 
+// Tasks-lens merge round: the session term is reachable again. The console probes
+// every activity the pump started and has not finished (the owed set's probes). One
+// picked up a moment ago has its stored record and StartedAt but no build evidence
+// yet, so its row reads NOT STARTED, and only its live session says the pump runs.
+test('a fresh pickup with no build evidence yet: its live session alone holds Begin off (merge round)', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.abort());
+  h.edit.fn = (wire) => {
+    const row = wire.ActivityConstruction?.[PICKED];
+    if (row === undefined) throw new Error(`no row ${PICKED} in the read`);
+    row.classified = true;
+    row.recorded = true;
+    row.startedAt = PICKUP_AT;
+    row.hasBuildEvidence = false;
+  };
+  // pipelineRunning (2) while the pump works; exited (6) once the workflow ends — a
+  // finished session reports its terminal stage (a later 404 keeps the last one).
+  const live = { stage: 2 };
+  const probes: number[] = [];
+  await page.route(`**/construction/get-session-state/archistrator/${PICKED}**`, async (route) => {
+    probes.push(Date.now());
+    await route.fulfill({
+      status: 200,
+      json: { projectId: 'archistrator', activityId: PICKED, stage: live.stage },
+    });
+  });
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toBeVisible({ timeout: 15_000 });
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(0);
+  await expectRunning(page, 1_500);
+  // The session ends. Nothing is in flight by state now, so Begin is offered.
+  live.stage = 6;
+  const asked = probes.length;
+  await page.clock.fastForward(4_000);
+  await expect.poll(() => probes.length, { timeout: 10_000 }).toBeGreaterThan(asked);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toEqual([]);
+});
+
 // ---------------------------------------------------------------------------
 // Fix round F: a remount must not drop the hold (fix-E review I2).
 //
