@@ -258,36 +258,80 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 // the poll converges within a few iterations.
 const pumpDispatchPollInterval = 25 * time.Millisecond
 
-// pumpDispatchWaitBudget bounds the poll so a run that fails BEFORE reaching its
-// decision point (an infra fault in the head-state read) cannot spin forever; on
-// expiry the terminal workflow result/error is surfaced instead (a failed run returns
-// promptly — there is no cascade to await on that path).
-const pumpDispatchWaitBudget = 30 * time.Second
+// pumpDispatchWaitBudget bounds the poll, so a run that never reaches its decision point
+// cannot hold the caller forever. A var (not a const) only so tests can shorten it.
+//
+// OPEN (fix round 3, pending a contract ruling): when this budget expires while the run
+// is still RUNNING and undecided, the honest answer is "still deciding — the pump is
+// running", which is not a failure. PumpResult has no such outcome and fwm has no
+// non-failure Kind, so saying it on the wire needs a contract change
+// (project.json .serviceContracts), which this branch must not make while D9 rewrites
+// project.json. Until then the façade returns promptly with a DISTINGUISHABLE
+// Infrastructure Detail (pumpStillDecidingDetail) instead of waiting out the terminal
+// budget into a generic timeout.
+var pumpDispatchWaitBudget = 30 * time.Second
 
-// awaitDispatchDecision returns THIS tick's dispatch outcome as soon as the pump run
-// has decided, WITHOUT waiting for the background self-cascade to drain the dependency
-// frontier. It polls queryPumpDispatch against the exact run ExecuteWorkflow started
-// (pinned RunID) so the answer stays this tick's FIRST decision even after the pump
-// ContinueAsNews into the next cascade iteration.
+// pumpQueryFailureBudget is how long the dispatch-decision Query may KEEP failing (e.g.
+// no worker polling during a rolling restart) before the façade stops retrying it and
+// falls back to the bounded terminal wait. A single failed Query is retried, never read
+// as "the run is gone". A var only so tests can shorten it.
+var pumpQueryFailureBudget = 10 * time.Second
+
+// pumpClosureCheckInterval paces the DescribeWorkflowExecution check that detects a run
+// which CLOSED without deciding (it failed before its decision point). Queries against a
+// closed run are served by replay and keep answering "not decided", so without this
+// check the caller would wait out the whole budget and could lose the run's real error.
+// A var only so tests can shorten it.
+var pumpClosureCheckInterval = 250 * time.Millisecond
+
+// pumpStillDecidingDetail marks the budget-exhausted, run-still-RUNNING outcome, so a
+// caller can tell a slow pump from a failed one (see pumpDispatchWaitBudget's OPEN note).
+const pumpStillDecidingDetail = "construction pump is still deciding — it is running, not failed; re-check with GetSessionState"
+
+// awaitDispatchDecision returns THIS run's dispatch outcome as soon as the pump run has
+// decided, WITHOUT waiting for the background self-cascade to drain the dependency
+// frontier. It polls queryPumpDispatch against the exact run ExecuteWorkflow started or
+// joined (pinned RunID), so the answer stays that run's decision even after the pump
+// ContinueAsNews into the next cascade iteration. A slow run is not a failed one:
+//   - "not decided" answers keep the poll going;
+//   - a FAILING Query is retried for up to pumpQueryFailureBudget before falling back to
+//     the bounded terminal wait;
+//   - a run that CLOSED without deciding surfaces its own terminal result / real error
+//     promptly (throttled Describe);
+//   - a run still RUNNING and undecided at the budget returns pumpStillDecidingDetail.
 func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we client.WorkflowRun, wfID string) (PumpResult, error) {
 	runID := we.GetRunID()
 	deadline := time.Now().Add(pumpDispatchWaitBudget)
+	var queryFailingSince, lastClosureCheck time.Time
 	for {
-		enc, qerr := m.client.QueryWorkflow(ctx, wfID, runID, queryPumpDispatch)
-		if qerr != nil {
-			// The run cannot serve the Query (gone / not-found). Surface the terminal
-			// result/error — prompt for a failed or already-quiescent run.
-			return m.terminalPumpResult(ctx, we)
+		d, qerr, fatal := m.pollPumpDispatch(ctx, wfID, runID)
+		if fatal != nil {
+			return PumpResult{}, fatal
 		}
-		var d pumpDispatch
-		if derr := enc.Get(&d); derr != nil {
-			return PumpResult{}, newError(fwm.Infrastructure, derr.Error())
-		}
-		if d.Decided {
+		if qerr == nil && d.Decided {
 			return PumpResult{Dispatched: d.Dispatched, ActivityID: d.ActivityID}, nil
 		}
-		if time.Now().After(deadline) {
+		now := time.Now()
+		switch {
+		case qerr == nil:
+			queryFailingSince = time.Time{}
+		case queryFailingSince.IsZero():
+			queryFailingSince = now
+		}
+		if now.Sub(lastClosureCheck) >= pumpClosureCheckInterval {
+			lastClosureCheck = now
+			if m.pumpRunClosed(ctx, wfID, runID) {
+				return m.terminalPumpResult(ctx, we)
+			}
+		}
+		if qerr != nil && now.Sub(queryFailingSince) >= pumpQueryFailureBudget {
 			return m.terminalPumpResult(ctx, we)
+		}
+		if now.After(deadline) {
+			if m.pumpRunClosed(ctx, wfID, runID) {
+				return m.terminalPumpResult(ctx, we)
+			}
+			return PumpResult{}, newError(fwm.Infrastructure, pumpStillDecidingDetail)
 		}
 		select {
 		case <-ctx.Done():
@@ -295,6 +339,35 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 		case <-time.After(pumpDispatchPollInterval):
 		}
 	}
+}
+
+// pollPumpDispatch runs one queryPumpDispatch against the pinned run. queryErr means the
+// run could not SERVE the Query right now (the caller retries); fatal is a decode failure
+// of an answer it did serve.
+func (m *constructionManager) pollPumpDispatch(ctx context.Context, wfID, runID string) (d pumpDispatch, queryErr, fatal error) {
+	enc, err := m.client.QueryWorkflow(ctx, wfID, runID, queryPumpDispatch)
+	if err != nil {
+		return pumpDispatch{}, err, nil
+	}
+	if err := enc.Get(&d); err != nil {
+		return pumpDispatch{}, nil, newError(fwm.Infrastructure, err.Error())
+	}
+	return d, nil, nil
+}
+
+// pumpRunClosed reports whether the pinned pump run has CLOSED (any status but
+// Running). A Describe failure, or an empty answer, reads as "not known closed" — the
+// poll carries on.
+func (m *constructionManager) pumpRunClosed(ctx context.Context, wfID, runID string) bool {
+	resp, err := m.client.DescribeWorkflowExecution(ctx, wfID, runID)
+	if err != nil {
+		return false
+	}
+	info := resp.GetWorkflowExecutionInfo()
+	if info == nil {
+		return false
+	}
+	return info.GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING
 }
 
 // pumpTerminalWaitBudget bounds terminalPumpResult's wait. A var (not a const) only so
