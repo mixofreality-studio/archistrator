@@ -228,11 +228,8 @@ const LIST_SLOT_SX = {
   },
 } as const;
 
-/** A deep link centres once its row has held still this many frames — i.e. its
- *  ancestors' Collapse has finished growing (designer final N1) … */
-const DEEP_LINK_STABLE_FRAMES = 4;
-/** … or after this long, whichever comes first. */
-const DEEP_LINK_SETTLE_CAP_MS = 1500;
+/** How many frames a deep link waits for its row to appear before giving up. */
+const DEEP_LINK_MAX_FRAMES = 90;
 
 /** The nearest scrolling ancestor — the console's scroller, found the way the
  *  lens shell finds it. */
@@ -507,22 +504,39 @@ export function ActivityTreeView({
     if (linkTarget !== undefined) rememberShownLink(linkKey);
   }, [linkKey, linkTarget]);
 
-  // Centre the linked row in the band below the sticky toolbar, once its
-  // ancestors have finished expanding (designer final N1): wait until the row and
-  // the scroll extent hold still for a few frames, then scroll. Where the list ends
-  // too soon to centre it, the runway below the list makes the room
-  // (lensGeometry.centeredScrollFor) — measured, the row used to land at 62-81% of
-  // the band at 1280/1366 because the scroller was already at its maximum.
+  // Centre the linked row in the band below the sticky toolbar (designer final
+  // N1). Measured, it used to land at 62-81% of the band at 1280/1366: not because
+  // it was centred mid-expansion, but because the scroller was already at its
+  // maximum — the list ends just below the row. So where the list ends too soon,
+  // the runway below it makes the room (lensGeometry.centeredScrollFor).
+  //
+  // No wait for the expansion is needed, and none is kept: the reveal runs only on
+  // this tree's FIRST render, whose render-time setState opens the ancestors before
+  // the first commit, so their Collapse mounts already open and never animates —
+  // the row is where it will stay on the first frame it exists. (A stable-frame
+  // wait stood here for one commit; its mutant was equivalent, and the runway
+  // pin in construction-fix-d would catch a runway sized against a growing list.)
   // Imperative DOM only; no React state is set here.
   const runwayRef = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (linkTarget === null || linkTarget === undefined) return undefined;
     const target = linkTarget;
-    const rowOf = (): HTMLElement | null =>
-      document.querySelector<HTMLElement>(
+    let frames = 0;
+    let frame = 0;
+    const center = (): void => {
+      const row = document.querySelector<HTMLElement>(
         `[data-testid="${UI_IDENTIFIERS.Construction.listRow(target)}"]`
       );
-    const center = (row: HTMLElement, scroller: HTMLElement): void => {
+      if (row === null) {
+        frames += 1;
+        if (frames < DEEP_LINK_MAX_FRAMES) frame = requestAnimationFrame(center);
+        return;
+      }
+      const scroller = scrollParentOf(row);
+      if (scroller === null) {
+        row.scrollIntoView({ block: 'center' });
+        return;
+      }
       const runway = runwayRef.current;
       const toolbar = scroller.querySelector<HTMLElement>(
         `[data-testid="${UI_IDENTIFIERS.Construction.LENS_TOOLBAR}"]`
@@ -540,33 +554,7 @@ export function ActivityTreeView({
       if (runway !== null) runway.style.height = `${String(plan.runwayPx)}px`;
       scroller.scrollTop = plan.scrollTop;
     };
-    const started = performance.now();
-    let last = '';
-    let still = 0;
-    let frame = 0;
-    const tick = (): void => {
-      const row = rowOf();
-      const scroller = row === null ? null : scrollParentOf(row);
-      if (row !== null && scroller === null) {
-        row.scrollIntoView({ block: 'center' });
-        return;
-      }
-      const where =
-        row === null || scroller === null
-          ? ''
-          : `${String(Math.round(row.getBoundingClientRect().top + scroller.scrollTop))}:${String(scroller.scrollHeight)}`;
-      still = where !== '' && where === last ? still + 1 : 0;
-      last = where;
-      const settled =
-        still >= DEEP_LINK_STABLE_FRAMES || performance.now() - started > DEEP_LINK_SETTLE_CAP_MS;
-      if (settled && row !== null && scroller !== null) {
-        center(row, scroller);
-        return;
-      }
-      if (performance.now() - started > DEEP_LINK_SETTLE_CAP_MS) return;
-      frame = requestAnimationFrame(tick);
-    };
-    frame = requestAnimationFrame(tick);
+    frame = requestAnimationFrame(center);
     return (): void => {
       cancelAnimationFrame(frame);
     };
