@@ -252,28 +252,19 @@ of an activity is not the layer of its component.**
 **Remaining role for AI in the graph: none.** No LLM output may determine a node's existence,
 position, layer, edge, or lifecycle state.
 
-**`activityListOverrides` gap: still OUT; the tripwire is met because the override set is empty.**
-An override may only replace `effortDays`/`riskBucket` on an already-derived activity, so it can
-never add or remove a node. The overrides were deleted (F3) and slot 10 is materialized and
-drift-gated with exact equality, so today the rendered figures are the derived network's own.
+**`activityListOverrides` gap: still OUT; the tripwire is met because the set is empty (amended 2026-09-12).** The override set is empty, slots 9 and 10 are materialized from `DerivePlan`, and `TestDerivedPlanMatchesCommittedState` holds all of slot 10 (including `criticalPath`) to exact equality. So every per-activity effort, float and critical-path figure is exactly what the committed architecture derives.
 
-- **Channels allowed now, on both lenses, through ONE shared join** (the list's `activityMeta`,
-  lifted to `list/activityMeta.ts`): effort from slot 9 `effortDays` (the graph: the lane spine's
-  length, segments keeping their Table A-1 proportions, positions still deterministic); float, band
-  and critical path from `network.computed` (a float rail plus an always-visible numeral; critical
-  path as the lane's 2→3px full-bleed edge). **No computed entry means no channel** — no rail, never
-  0. Float and critical path belong to the **lane**, never to a card or an edge. The list lens's
-  existing float/critical rails are ratified retroactively.
-- These are **unstaffed derived-network figures**, captioned as such ("Float and critical path of
-  the derived network, unstaffed.").
-- **Stays OFF** until slots 11–16 are re-derived and the EV ruling lands: milestone event times,
-  total duration, dates and weeks, cost, option risk, EV, SPI, project %, and the TotalWeeks figure.
-- **The tripwire moves to reintroducing an override.** That requires the codec to carry the
-  `activityListOverrides` sidecar and `materializePhase2Draft` to apply the deltas — a contract
-  change.
+**Channels that may render (list and graph alike):**
+- effort from slot 9 `effortDays`;
+- float, band and critical path from the server's compute-at-read `network.computed`.
 
-*(Amended 2026-09-12, architect Q2 ruling — composed from the ruling summary in
-`arch-graph-q1q2-ruling.md`; the architect's full reply is recorded in the orchestrator ledger.)*
+Both lenses read one shared join. An activity with no computed entry renders no float channel, never a zero. On the graph, float and critical path belong to the activity **lane**, never to the component card, and **never to an edge**: graph edges are call-chain relationships, not precedence, so no edge may be styled as critical.
+
+These figures describe the derived network **without staffing**, and they are captioned that way. They are not the float or critical path of a staffed, committed option.
+
+**Channels that stay OFF until the Phase-2 options (slots 11–16) are re-derived over the current plan and the founder rules on EV provenance:** milestone event times, total duration, dates or weeks, cost, option risk, earned value, SPI and project-level percent.
+
+**The tripwire moves:** before any override is reintroduced, the codec must carry the `activityListOverrides` sidecar through a round trip, and `materializePhase2Draft` must apply the authored deltas (a contract change to the slot's model).
 
 ### R6 — Minimum honest defect set
 
@@ -702,9 +693,10 @@ coverage strip, the always-enabled retry.
 - `phase` (and ideally `task`) on `EpisodeRecord`; durable, non-gitignored episode storage.
 - `.activityConstruction` re-keying, then **deletion of the 60 legacy records** once the 40 derived
   activities are in good shape (founder D8).
-- `activityListOverrides` unreachable — inert with an empty override set (architect Q2: tripwire
-  met). **New tripwire: fix before any override is reintroduced** — the codec must carry the
-  sidecar and `materializePhase2Draft` must apply the deltas (a contract change).
+- `activityListOverrides` unreachable — inert while the override set is empty (R5: the tripwire is
+  met because the set is empty). **The tripwire moves:** before any override is reintroduced, the
+  codec must carry the `activityListOverrides` sidecar through a round trip, and
+  `materializePhase2Draft` must apply the authored deltas (a contract change to the slot's model).
 - Slot 10 not materialized (`list, _, _, err :=`).
 - ~~M0 gates nothing.~~ Corrected (PM Q4, 2026-09-12): M0 gates 18 activities; the graph shows its
   state from `project.phase` (§7.6). **Open, founder's call:** construction is currently authorized
