@@ -759,6 +759,16 @@ export interface ConstructionRow {
    */
   recorded: boolean;
   /**
+   * When the construction pump dispatched this activity (server: StartedAt, written
+   * by RecordActivityStarted) and when it finished it (CompletedAt). Absent when the
+   * pump never wrote them — every backfilled row, every planned-no-record row, and
+   * any row outside the git profile, which records no start. Between the two, a
+   * per-activity workflow can exist, which is where the TASKS lens probes for a
+   * human-awaiting stage (Stage C).
+   */
+  startedAt?: string;
+  completedAt?: string;
+  /**
    * The least-trustworthy provenance origin across this row's attempt ledger.
    *
    * Absent when `attempts` is empty, for the same reason as `kind`/`status`: the

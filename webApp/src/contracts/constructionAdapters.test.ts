@@ -169,6 +169,26 @@ void test('mapConstructionRow carries recorded and never invents an origin for a
   assert.equal(stored.worstOrigin, 'backfilled');
 });
 
+// Stage C: startedAt/completedAt are the pump's own record that it dispatched the
+// activity and finished it — the TASKS lens probes a session only in between. The
+// wire sends null (or omits the key) when the pump never wrote one; that is absence.
+void test('mapConstructionRow carries the pump start/complete stamps and drops nulls', () => {
+  const live = mapConstructionRow(
+    wireRow({ startedAt: '2026-09-12T10:00:00Z', completedAt: null })
+  );
+  assert.equal(live.startedAt, '2026-09-12T10:00:00Z');
+  assert.equal('completedAt' in live, false);
+
+  const done = mapConstructionRow(
+    wireRow({ startedAt: '2026-09-12T10:00:00Z', completedAt: '2026-09-12T12:00:00Z' })
+  );
+  assert.equal(done.completedAt, '2026-09-12T12:00:00Z');
+
+  const never = mapConstructionRow(wireRow({}));
+  assert.equal('startedAt' in never, false);
+  assert.equal('completedAt' in never, false);
+});
+
 // `recorded` and `hasBuildEvidence` are DIFFERENT facts (fix-A review M1): a stored
 // row with no resolved completions is recorded yet carries no build evidence. A
 // mapper that read one off the other would pass every case above.

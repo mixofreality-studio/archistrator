@@ -518,6 +518,10 @@ export function mapConstructionRow(
     // Required on the wire, so a dropped flag decodes falsy — the safe direction
     // (an unrecorded row claims nothing), exactly as `classified` is read above.
     recorded: w.recorded,
+    // The pump's own dispatch/finish stamps (Stage C). null or absent is "the pump
+    // never wrote one" — dropped, never surfaced as a present-but-empty time.
+    ...(w.startedAt != null ? { startedAt: w.startedAt } : {}),
+    ...(w.completedAt != null ? { completedAt: w.completedAt } : {}),
     // The server omits worstOrigin on an unrecorded row; on a recorded one it is
     // still dropped here over an empty ledger (see the comment above `attempts`).
     ...(attempts.length > 0 && w.worstOrigin !== undefined
