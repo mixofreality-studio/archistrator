@@ -28,6 +28,7 @@ void test('with no filter active there is no status line', () => {
 void test('an active filter says how many match, and always offers the way back', () => {
   assert.deepEqual(graphFilterStatusFor(7, 29, '', true), {
     message: '7 of 29 match',
+    separated: true,
     offerClear: true,
     matched: 7,
     total: 29,
@@ -41,4 +42,10 @@ void test("nothing matching reuses the list's own no-match copy", () => {
     graphFilterStatusFor(0, 29, '', true)?.message,
     'No activity matches the current filters.'
   );
+});
+
+void test('a sentence that ends in its own punctuation takes no " · " before "Clear filters"', () => {
+  assert.equal(graphFilterStatusFor(0, 29, 'zzz', true)?.separated, false);
+  assert.equal(graphFilterStatusFor(0, 29, '', true)?.separated, false);
+  assert.equal(graphFilterStatusFor(7, 29, '', true)?.separated, true);
 });

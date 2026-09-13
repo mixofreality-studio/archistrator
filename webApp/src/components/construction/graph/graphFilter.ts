@@ -30,6 +30,12 @@ export function filtersActive(
 export interface GraphFilterStatus {
   /** "7 of 29 match", or the list's no-match sentence at zero. */
   message: string;
+  /**
+   * Whether a " · " belongs between the message and "Clear filters". Not after
+   * a sentence that already ends in its own punctuation — "…“zzz”. · Clear
+   * filters" read as doubled punctuation (designer re-check).
+   */
+  separated: boolean;
   /** Always offered while a filter is active — the way back. */
   offerClear: true;
   matched: number;
@@ -45,8 +51,10 @@ export function graphFilterStatusFor(
 ): GraphFilterStatus | undefined {
   if (!active) return undefined;
   const none = emptyListCopyFor(matched, total, query);
+  const message = none?.message ?? `${String(matched)} of ${String(total)} match`;
   return {
-    message: none?.message ?? `${String(matched)} of ${String(total)} match`,
+    message,
+    separated: !/[.!?…]$/.test(message),
     offerClear: true,
     matched,
     total,

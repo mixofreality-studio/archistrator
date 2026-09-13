@@ -546,6 +546,9 @@ test('P1-4: a filter is never silent — "N of 29 match · Clear filters", whole
   // Nothing matching reuses the list's own copy.
   await search.fill('zzz-no-such-activity');
   await expect(status).toContainText('No activity matches “zzz-no-such-activity”.');
+  // One mark of punctuation, not two: a sentence that ends in its own full stop
+  // takes no " · " before "Clear filters" (designer re-check).
+  expect((await status.textContent()) ?? '').not.toMatch(/[.!?…]\s*·/);
 
   // Clear filters restores the canvas.
   await page.getByTestId(TESTID.constructionGraphClearFilters).click();

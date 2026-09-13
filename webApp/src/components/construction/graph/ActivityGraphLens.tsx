@@ -228,9 +228,11 @@ export function ActivityGraphLens({
           }}
         >
           <Box component="span">{filterStatus.message}</Box>
-          <Box aria-hidden component="span" sx={{ color: t.muted }}>
-            ·
-          </Box>
+          {filterStatus.separated ? (
+            <Box aria-hidden component="span" sx={{ color: t.muted }}>
+              ·
+            </Box>
+          ) : null}
           <Button
             data-testid={UI_IDENTIFIERS.Construction.GRAPH_CLEAR_FILTERS}
             size="small"
