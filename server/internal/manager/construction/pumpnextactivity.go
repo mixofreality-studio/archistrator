@@ -136,8 +136,8 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		// verdictBlocked also covers two SIBLING plan defects surfaced by
 		// nextEligibleActivity: an authored dependency id (network.dependencies[].dependsOn)
 		// that names neither a known activity nor a known milestone (DependencyUnresolved),
-		// or a milestone dependency cycle (DependencyCycle) — see resolveDependencySatisfied
-		// in constructionmanager.go. Each defect class is recorded through its OWN
+		// or a milestone dependency cycle (DependencyCycle) — see projectstate.ResolveDependencySatisfied
+		// (called from constructionmanager.go). Each defect class is recorded through its OWN
 		// FailureReason variant — sel.BlockedFailureReason, set by nextEligibleActivity at
 		// the point the defect is classified — per the ruling that one FailureReason variant
 		// covers one repair class; FailureDetail (sel.BlockedReason below) discriminates

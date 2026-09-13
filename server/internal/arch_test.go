@@ -593,6 +593,26 @@ var encapsulationAllowlistData = map[string][]string{
 		"EffectiveConstructionPhase",
 		"ResolveConstructionRow",
 		"ResolvePhaseCompletions",
+		// INTEGRATION-PENDING ROWS (architect (D), D.1.1 + D.3). Same category: total,
+		// side-effect-free functions (and the one plain result struct they return) over
+		// projectstate's own owned types, so there is no contract operation to generate.
+		// The dependency rule moved DOWN from the construction Manager so the pump and the
+		// construction view read one copy (systemdesign cannot call construction sideways).
+		// Callers outside this package, verifiable by grep:
+		//
+		//	PumpWroteRow               → the systemdesign Manager (pendingResumeFor): a row
+		//	                             no pump wrote whose ledger is partial is pending.
+		//	MilestonesByID             → the construction Manager (nextEligibleActivity) and
+		//	                             the systemdesign Manager (pendingResumeFor).
+		//	AllDepsSatisfied           → the construction Manager (nextEligibleActivity).
+		//	ResolveDependencySatisfied → the systemdesign Manager (pendingResumeFor), per
+		//	                             direct dependency, for waitsOn.
+		//	DependencyResolution       → the result both of the above return.
+		"AllDepsSatisfied",
+		"DependencyResolution",
+		"MilestonesByID",
+		"PumpWroteRow",
+		"ResolveDependencySatisfied",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the

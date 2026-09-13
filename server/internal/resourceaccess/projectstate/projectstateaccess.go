@@ -8230,7 +8230,7 @@ func ResolvePhaseCompletions(
 // the ledger is its own workstream (see the earmark on constructactivity.go's resume
 // snapshot, which still reads the stored Phases).
 func EffectiveConstructionPhase(r ActivityConstructionStatus, meta ActivityItem) (ActivityConstructionPhase, ActivityBuildStatus) {
-	if r.Phase != ActivityConstructionNotStarted || len(r.Phases) > 0 || len(r.Attempts) == 0 {
+	if PumpWroteRow(r) || len(r.Attempts) == 0 {
 		return r.Phase, r.BuildStatus
 	}
 	_, _, resolved, classified := ResolveConstructionRow(r, meta)
@@ -8238,6 +8238,134 @@ func EffectiveConstructionPhase(r ActivityConstructionStatus, meta ActivityItem)
 		return r.Phase, r.BuildStatus
 	}
 	return CoarsePhaseFor(r.Phase, resolved), CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)
+}
+
+// PumpWroteRow reports whether the construction pump wrote this row: its stored coarse
+// Phase is past NotStarted, or it carries a stored phase set. It is EffectiveConstructionPhase's
+// first clause, named once (architect (D), D.1.1) so every reader that must tell a
+// pump-written row from a ledger-only one asks the same question. RecordActivityStarted,
+// the child workflow's first durable write, sets Phase to Running, so a row the pump has
+// begun always satisfies it.
+func PumpWroteRow(r ActivityConstructionStatus) bool {
+	return r.Phase != ActivityConstructionNotStarted || len(r.Phases) > 0
+}
+
+// DependencyResolution is the outcome of resolving one dependency id. ProblemReason is
+// set (non-empty) the instant resolution meets a genuine plan-authoring defect — an id
+// naming neither an activity nor a milestone, or a milestone dependency cycle — and is
+// propagated unchanged back up through every enclosing recursive frame, so the caller
+// always reports the FIRST defect actually encountered. ProblemKind discriminates the
+// two defect CLASSES (DependencyUnresolved for a dangling id, DependencyCycle for a
+// cycle) — the repair-class choice per the FailureReason ruling; ProblemReason stays
+// free text WITHIN that class.
+type DependencyResolution struct {
+	Satisfied     bool
+	ProblemReason string
+	ProblemKind   FailureReason
+}
+
+// MilestonesByID indexes the network's AUTHORED milestones (M0-M5 + N-DOGFOOD, per
+// NetworkMilestone) by id for O(1) lookup during dependency resolution. Built once per
+// selection from the authored Network.Milestones slice — the only iteration is over that
+// slice's fixed authored order, so this stays deterministic (no map-order-sensitive
+// decision is ever made from it; it is purely a lookup index).
+func MilestonesByID(network *Network) map[string]NetworkMilestone {
+	m := make(map[string]NetworkMilestone, len(network.Milestones))
+	for _, ms := range network.Milestones {
+		m[ms.ID] = ms
+	}
+	return m
+}
+
+// ResolveDependencySatisfied resolves whether one dependency id is satisfied. It is the
+// construction pump's rule, moved here (architect (D), D.3) so the pump's eligibility
+// scan and the construction view's pendingResume read one copy.
+//
+//   - Names an ACTIVITY (present in itemByName, the authored ActivityList) —
+//     satisfied iff its ActivityConstruction head-state record exists and its
+//     EFFECTIVE phase is Done (EffectiveConstructionPhase: the stored Phase wherever
+//     the pump wrote it, the attempt ledger only where it did not). A stored Done wins
+//     even over stored Phases left incomplete, so the Skipped/TakenOver exit shape
+//     still unblocks its dependents.
+//   - Names a MILESTONE (present in milestones, the authored Network.Milestones) —
+//     milestones never receive a head-state record of their own (they are
+//     zero-duration authored event nodes, not activities), so their satisfaction is
+//     DERIVED: satisfied iff every id in the milestone's OWN DependsOn is,
+//     recursively, satisfied. A milestone with no DependsOn (the project-start gate)
+//     is satisfied.
+//   - Names NEITHER — a genuine authored-network defect — is surfaced via
+//     ProblemReason/ProblemKind (DependencyUnresolved) rather than silently folded into
+//     "not satisfied"; the same loud-terminal treatment as the R4-style
+//     ComponentUnresolved precedent this mirrors (the construction pump's componentId
+//     check / verdictBlocked), but its OWN FailureReason variant — dangling reference
+//     is a different repair class from an unresolved componentId, even though both
+//     escalate the same way.
+//
+// visiting is the set of milestone ids currently on THIS call's recursion stack.
+// Re-entering an id already in it is a cycle in the authored network — reported as a
+// ProblemKind==DependencyCycle problem instead of recursing forever: an authored cycle
+// is a real possibility (this is data the pump does not control) and an infinite loop
+// inside a Temporal workflow is far worse than a false negative, so termination is
+// guaranteed unconditionally by this check, independent of any assumption that the
+// network is acyclic. Every id in a cycle DOES resolve (to a milestone), which is
+// exactly why this is DependencyCycle, not DependencyUnresolved — the topology is
+// broken, not a dangling reference.
+func ResolveDependencySatisfied(
+	depID string,
+	itemByName map[string]ActivityItem,
+	status map[string]ActivityConstructionStatus,
+	milestones map[string]NetworkMilestone,
+	visiting map[string]bool,
+) DependencyResolution {
+	if ms, isMilestone := milestones[depID]; isMilestone {
+		if visiting[depID] {
+			return DependencyResolution{ProblemKind: DependencyCycle, ProblemReason: fmt.Sprintf(
+				"milestone dependency cycle detected: %q depends (directly or transitively) on itself", depID)}
+		}
+		visiting[depID] = true
+		defer delete(visiting, depID)
+		for _, sub := range ms.DependsOn {
+			r := ResolveDependencySatisfied(sub, itemByName, status, milestones, visiting)
+			if r.ProblemReason != "" {
+				return r
+			}
+			if !r.Satisfied {
+				return DependencyResolution{Satisfied: false}
+			}
+		}
+		return DependencyResolution{Satisfied: true}
+	}
+	if item, isActivity := itemByName[depID]; isActivity {
+		s, exists := status[depID]
+		if !exists {
+			return DependencyResolution{Satisfied: false}
+		}
+		effective, _ := EffectiveConstructionPhase(s, item)
+		return DependencyResolution{Satisfied: effective == ActivityConstructionDone}
+	}
+	return DependencyResolution{ProblemKind: DependencyUnresolved, ProblemReason: fmt.Sprintf(
+		"dependency id %q is neither an authored activity (activityList) nor an authored milestone (network.milestones)",
+		depID)}
+}
+
+// AllDepsSatisfied reports whether every dependency id for one activity resolves to
+// satisfied, short-circuiting on the first unsatisfied id OR the first authoring problem
+// (whichever is found first, in authored slice order). A fresh `visiting` set per
+// top-level dependency id keeps unrelated dependency chains from cross-polluting each
+// other's cycle detection.
+func AllDepsSatisfied(
+	deps []string,
+	itemByName map[string]ActivityItem,
+	status map[string]ActivityConstructionStatus,
+	milestones map[string]NetworkMilestone,
+) DependencyResolution {
+	for _, dep := range deps {
+		r := ResolveDependencySatisfied(dep, itemByName, status, milestones, map[string]bool{})
+		if r.ProblemReason != "" || !r.Satisfied {
+			return r
+		}
+	}
+	return DependencyResolution{Satisfied: true}
 }
 
 // Layer bands (task 11, construction-UI-rewrite stage A). An activity's row is either

@@ -3709,7 +3709,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 // DependencyCycle (below) — asserted on the recorded failure record itself, not just a
 // log line. Mirrors Test_Pump_BlockedActivity_RecordsTerminalFailure's shape, wired
 // through nextEligibleActivity's real dependency-defect classification instead of a
-// hand-built pumpSelection, so it also exercises resolveDependencySatisfied end to end.
+// hand-built pumpSelection, so it also exercises projectstate.ResolveDependencySatisfied end to end.
 func Test_Pump_DependencyUnresolved_RecordsDistinctFailureReason(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()

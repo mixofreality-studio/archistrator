@@ -8546,6 +8546,107 @@ func TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere
 	}
 }
 
+// TestPumpWroteRow_IsEffectiveConstructionPhasesFirstClause pins architect (D), D.1.1:
+// PumpWroteRow is exactly the old `r.Phase != NotStarted || len(r.Phases) > 0` clause —
+// the same truth table — and the row RecordActivityStarted writes satisfies it, so a row
+// the pump has begun can never read as ledger-only.
+func TestPumpWroteRow_IsEffectiveConstructionPhasesFirstClause(t *testing.T) {
+	ledger := constructionLedger("C-x", MethodPhaseRequirements)
+	phases := []PhaseCompletion{{Phase: MethodPhaseRequirements}}
+	cases := []struct {
+		name string
+		row  ActivityConstructionStatus
+		want bool
+	}{
+		{"an empty row", ActivityConstructionStatus{ActivityID: "C-x"}, false},
+		{"a ledger-only row", ActivityConstructionStatus{ActivityID: "C-x", Attempts: ledger}, false},
+		{"a failure detail alone is not the clause", ActivityConstructionStatus{ActivityID: "C-x", FailureDetail: "x"}, false},
+		{"a stored Running", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionRunning}, true},
+		{"a stored Done", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionDone}, true},
+		{"a stored Failed", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionFailed}, true},
+		{"stored Phases alone", ActivityConstructionStatus{ActivityID: "C-x", Phases: phases}, true},
+		{"stored Phases plus a ledger", ActivityConstructionStatus{ActivityID: "C-x", Phases: phases, Attempts: ledger}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := PumpWroteRow(c.row); got != c.want {
+				t.Errorf("PumpWroteRow = %v, want %v", got, c.want)
+			}
+			old := c.row.Phase != ActivityConstructionNotStarted || len(c.row.Phases) > 0
+			if PumpWroteRow(c.row) != old {
+				t.Errorf("PumpWroteRow = %v, but the clause it names says %v", PumpWroteRow(c.row), old)
+			}
+		})
+	}
+
+	store, id, v, cred := newConstructionStore(t)
+	if _, err := store.RecordActivityStarted(fwra.Context{Context: context.Background()}, id, v, "X001", ActivityTypeService, TestVariantPlan, cred, fwra.IdempotencyKey("wf:pump-wrote")); err != nil {
+		t.Fatalf("RecordActivityStarted: %v", err)
+	}
+	if s := readConstruction(t, store, id, cred, "X001"); !PumpWroteRow(s) {
+		t.Errorf("the row RecordActivityStarted writes (%+v) must satisfy PumpWroteRow", s)
+	}
+}
+
+// TestResolveDependencySatisfied_TheMovedPumpRule pins the dependency rule the pump and
+// the construction view now share (architect (D), D.3) directly, beside the pump tests
+// that exercise it end to end: an activity is satisfied iff its effective phase is Done;
+// a milestone iff its own dependencies are, recursively; a dangling id and a milestone
+// cycle are plan defects with their own FailureReason; AllDepsSatisfied stops at the
+// first unsatisfied or defective id in authored order.
+func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
+	svc := func(name string) ActivityItem {
+		return ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
+	}
+	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	items := map[string]ActivityItem{"A-done": svc("A-done"), "A-partial": svc("A-partial"), "A-norow": svc("A-norow"), "A-stored": svc("A-stored")}
+	status := map[string]ActivityConstructionStatus{
+		"A-done":    {ActivityID: "A-done", Attempts: constructionLedger("A-done", all...)},
+		"A-partial": {ActivityID: "A-partial", Attempts: constructionLedger("A-partial", all[:len(all)-1]...)},
+		"A-stored":  {ActivityID: "A-stored", Phase: ActivityConstructionDone},
+	}
+	milestones := MilestonesByID(&Network{Milestones: []NetworkMilestone{
+		{ID: "M-start"},
+		{ID: "M-met", DependsOn: []string{"A-done", "M-start"}},
+		{ID: "M-unmet", DependsOn: []string{"A-done", "A-partial"}},
+		{ID: "M-loop-a", DependsOn: []string{"M-loop-b"}},
+		{ID: "M-loop-b", DependsOn: []string{"M-loop-a"}},
+	}})
+	cases := []struct {
+		dep  string
+		want DependencyResolution
+	}{
+		{"A-done", DependencyResolution{Satisfied: true}},
+		{"A-stored", DependencyResolution{Satisfied: true}},
+		{"A-partial", DependencyResolution{}},
+		{"A-norow", DependencyResolution{}},
+		{"M-start", DependencyResolution{Satisfied: true}},
+		{"M-met", DependencyResolution{Satisfied: true}},
+		{"M-unmet", DependencyResolution{}},
+		{"M-loop-a", DependencyResolution{ProblemKind: DependencyCycle, ProblemReason: `milestone dependency cycle detected: "M-loop-a" depends (directly or transitively) on itself`}},
+		{"ghost", DependencyResolution{ProblemKind: DependencyUnresolved, ProblemReason: `dependency id "ghost" is neither an authored activity (activityList) nor an authored milestone (network.milestones)`}},
+	}
+	for _, c := range cases {
+		t.Run(c.dep, func(t *testing.T) {
+			if got := ResolveDependencySatisfied(c.dep, items, status, milestones, map[string]bool{}); got != c.want {
+				t.Errorf("ResolveDependencySatisfied(%q) = %+v, want %+v", c.dep, got, c.want)
+			}
+		})
+	}
+	if got := AllDepsSatisfied([]string{"A-done", "M-met"}, items, status, milestones); got != (DependencyResolution{Satisfied: true}) {
+		t.Errorf("AllDepsSatisfied(all met) = %+v, want satisfied", got)
+	}
+	if got := AllDepsSatisfied([]string{"A-done", "A-partial", "ghost"}, items, status, milestones); got != (DependencyResolution{}) {
+		t.Errorf("AllDepsSatisfied stops at the first unsatisfied id, before a later defect: got %+v", got)
+	}
+	if got := AllDepsSatisfied([]string{"ghost", "A-partial"}, items, status, milestones); got.ProblemKind != DependencyUnresolved {
+		t.Errorf("AllDepsSatisfied reports a defect met first: got %+v", got)
+	}
+	if got := AllDepsSatisfied(nil, items, status, milestones); !got.Satisfied {
+		t.Errorf("no dependencies is satisfied: got %+v", got)
+	}
+}
+
 func TestTasksForPhase_MatchesFigureA2Grouping(t *testing.T) {
 	cases := []struct {
 		phase ActivityMethodPhase

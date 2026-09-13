@@ -956,8 +956,8 @@ type pumpSelection struct {
 // satisfied, both read through projectstate.EffectiveConstructionPhase (the stored
 // state where the pump wrote it, the attempt ledger where it did not; see
 // isActivityNotStarted) — an activity dependency requires a Done record, a milestone dependency is
-// satisfied DERIVEDLY (it never has a Done record of its own; see allDepsSatisfied /
-// milestonesByID). Iteration is ActivityList declaration order; the first eligible
+// satisfied DERIVEDLY (it never has a Done record of its own; see projectstate.AllDepsSatisfied /
+// projectstate.MilestonesByID). Iteration is ActivityList declaration order; the first eligible
 // activity in that order is chosen (the candidate-list name tie-break below is
 // currently unreachable, since declIdx is already unique per activity).
 func nextEligibleActivity(proj projectstate.Project) pumpSelection {
@@ -975,7 +975,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 
 	// itemByName is both the ActivityItem lookup AND the membership set of authored
 	// activity names (the two ideas share exactly one key set, so one map serves both:
-	// resolveDependencySatisfied/allDepsSatisfied below only ever probe it for
+	// projectstate.ResolveDependencySatisfied/AllDepsSatisfied below only ever probe it for
 	// presence via `_, isActivity := itemByName[depID]`).
 	itemByName := make(map[string]projectstate.ActivityItem, len(activityList.Activities))
 	for _, item := range activityList.Activities {
@@ -987,7 +987,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		depsByActivity[dep.Activity] = dep.DependsOn
 	}
 
-	milestones := milestonesByID(network)
+	milestones := projectstate.MilestonesByID(network)
 
 	type candidate struct {
 		declIdx  int
@@ -1010,14 +1010,14 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 		if !isActivityNotStarted(name, item, proj.ActivityConstruction) {
 			continue
 		}
-		res := allDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
-		if res.problemReason != "" {
+		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
+		if res.ProblemReason != "" {
 			if problemReason == "" {
-				problemActivityID, problemReason, problemKind = name, res.problemReason, res.problemKind
+				problemActivityID, problemReason, problemKind = name, res.ProblemReason, res.ProblemKind
 			}
 			continue
 		}
-		if !res.satisfied {
+		if !res.Satisfied {
 			continue
 		}
 		candidates = append(candidates, candidate{declIdx: i, activity: name})
@@ -1146,122 +1146,6 @@ func isActivityNotStarted(activityID string, item projectstate.ActivityItem, sta
 	}
 	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
 	return effective == projectstate.ActivityConstructionNotStarted
-}
-
-// milestonesByID indexes the network's AUTHORED milestones (M0-M5 + N-DOGFOOD, per
-// projectstate.NetworkMilestone) by id for O(1) lookup during dependency resolution.
-// Built once per selection from the authored Network.Milestones slice — the only
-// iteration is over that slice's fixed authored order, so this stays deterministic
-// (no map-order-sensitive decision is ever made from it; it is purely a lookup index).
-func milestonesByID(network *projectstate.Network) map[string]projectstate.NetworkMilestone {
-	m := make(map[string]projectstate.NetworkMilestone, len(network.Milestones))
-	for _, ms := range network.Milestones {
-		m[ms.ID] = ms
-	}
-	return m
-}
-
-// depResolution is the outcome of resolving one dependency id. problemReason is set
-// (non-empty) the instant resolution meets a genuine plan-authoring defect — an id
-// naming neither an activity nor a milestone, or a milestone dependency cycle — and
-// is propagated unchanged back up through every enclosing recursive frame, so the
-// caller always reports the FIRST defect actually encountered. problemKind
-// discriminates the two defect CLASSES (projectstate.DependencyUnresolved for a
-// dangling id, projectstate.DependencyCycle for a cycle) — the repair-class choice
-// per the FailureReason ruling; problemReason stays free text WITHIN that class.
-type depResolution struct {
-	satisfied     bool
-	problemReason string
-	problemKind   projectstate.FailureReason
-}
-
-// resolveDependencySatisfied resolves whether one dependency id is satisfied.
-//
-//   - Names an ACTIVITY (present in itemByName, the authored ActivityList) —
-//     satisfied iff its ActivityConstruction head-state record exists and its
-//     EFFECTIVE phase is Done (projectstate.EffectiveConstructionPhase: the stored
-//     Phase wherever the pump wrote it, the attempt ledger only where it did not).
-//     A stored Done wins even over stored Phases left incomplete, so the
-//     Skipped/TakenOver exit shape still unblocks its dependents.
-//   - Names a MILESTONE (present in milestones, the authored Network.Milestones) —
-//     milestones never receive a head-state record of their own (they are
-//     zero-duration authored event nodes, not activities), so their satisfaction is
-//     DERIVED: satisfied iff every id in the milestone's OWN DependsOn is,
-//     recursively, satisfied. A milestone with no DependsOn (the project-start gate)
-//     is satisfied.
-//   - Names NEITHER — a genuine authored-network defect — is surfaced via
-//     problemReason/problemKind (projectstate.DependencyUnresolved) rather than
-//     silently folded into "not satisfied"; the same loud-terminal treatment as the
-//     R4-style ComponentUnresolved precedent this mirrors (constructionmanager.go's
-//     nextEligibleActivity componentId check / pumpnextactivity.go verdictBlocked),
-//     but its OWN FailureReason variant — dangling reference is a different repair
-//     class from an unresolved componentId, even though both escalate the same way.
-//
-// visiting is the set of milestone ids currently on THIS call's recursion stack.
-// Re-entering an id already in it is a cycle in the authored network — reported as a
-// problemKind==projectstate.DependencyCycle problem instead of recursing forever: an
-// authored cycle is a real possibility (this is data the pump does not control) and
-// an infinite loop inside a Temporal workflow is far worse than a false negative, so
-// termination is guaranteed unconditionally by this check, independent of any
-// assumption that the network is acyclic. Every id in a cycle DOES resolve (to a
-// milestone), which is exactly why this is DependencyCycle, not
-// DependencyUnresolved — the topology is broken, not a dangling reference.
-func resolveDependencySatisfied(
-	depID string,
-	itemByName map[string]projectstate.ActivityItem,
-	status map[string]projectstate.ActivityConstructionStatus,
-	milestones map[string]projectstate.NetworkMilestone,
-	visiting map[string]bool,
-) depResolution {
-	if ms, isMilestone := milestones[depID]; isMilestone {
-		if visiting[depID] {
-			return depResolution{problemKind: projectstate.DependencyCycle, problemReason: fmt.Sprintf(
-				"milestone dependency cycle detected: %q depends (directly or transitively) on itself", depID)}
-		}
-		visiting[depID] = true
-		defer delete(visiting, depID)
-		for _, sub := range ms.DependsOn {
-			r := resolveDependencySatisfied(sub, itemByName, status, milestones, visiting)
-			if r.problemReason != "" {
-				return r
-			}
-			if !r.satisfied {
-				return depResolution{satisfied: false}
-			}
-		}
-		return depResolution{satisfied: true}
-	}
-	if item, isActivity := itemByName[depID]; isActivity {
-		s, exists := status[depID]
-		if !exists {
-			return depResolution{satisfied: false}
-		}
-		effective, _ := projectstate.EffectiveConstructionPhase(s, item)
-		return depResolution{satisfied: effective == projectstate.ActivityConstructionDone}
-	}
-	return depResolution{problemKind: projectstate.DependencyUnresolved, problemReason: fmt.Sprintf(
-		"dependency id %q is neither an authored activity (activityList) nor an authored milestone (network.milestones)",
-		depID)}
-}
-
-// allDepsSatisfied reports whether every dependency id for one activity resolves to
-// satisfied, short-circuiting on the first unsatisfied id OR the first authoring
-// problem (whichever is found first, in authored slice order). A fresh `visiting` set
-// per top-level dependency id keeps unrelated dependency chains from cross-polluting
-// each other's cycle detection.
-func allDepsSatisfied(
-	deps []string,
-	itemByName map[string]projectstate.ActivityItem,
-	status map[string]projectstate.ActivityConstructionStatus,
-	milestones map[string]projectstate.NetworkMilestone,
-) depResolution {
-	for _, dep := range deps {
-		r := resolveDependencySatisfied(dep, itemByName, status, milestones, map[string]bool{})
-		if r.problemReason != "" || !r.satisfied {
-			return r
-		}
-	}
-	return depResolution{satisfied: true}
 }
 
 // hydrateConstructionActivity populates a constructionActivity from the activity id +

@@ -717,7 +717,7 @@ func (wf *workflows) recordActivityStarted(
 
 // recordActivityCompleted marks the activity Done in the per-activity construction
 // head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
-// is what unblocks dependents in the pump's eligibility selection (allDepsSatisfied). A
+// is what unblocks dependents in the pump's eligibility selection (projectstate.AllDepsSatisfied). A
 // dormant slice is a no-op.
 func (wf *workflows) recordActivityCompleted(
 	ctx workflow.Context,
