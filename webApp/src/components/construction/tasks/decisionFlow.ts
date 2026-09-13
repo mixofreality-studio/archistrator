@@ -36,6 +36,10 @@
  * when the failure came back describes the gate from before it, and must not
  * re-enable the buttons (tasks round 2).
  *
+ * An unknown outcome is held the same way on a NEWER occurrence: a record is
+ * retired by a later occurrence only once a read requested after its answer has
+ * come back (tasks round-2 review, minor; decisionViewFor).
+ *
  * A POST STILL ON THE WIRE HOLDS ITS ACTIVITY (tasks round 2, review I1)
  * ----------------------------------------------------------------------
  * A record retires once a later occurrence opens, even while its own request is
@@ -141,8 +145,9 @@ function resumed(r: DecisionRecord, o: ObservedGate): DecisionView {
 
 export function decisionViewFor(r: DecisionRecord, o: ObservedGate, now: number): DecisionView {
   // A later occurrence of this activity's gate has opened: the gate this record
-  // answered was left, and the record is retired (review C2).
-  if (o.epoch !== undefined && o.epoch > r.epoch) return { kind: 'done' };
+  // answered was left, and the record is retired (review C2) — with one exception,
+  // below.
+  const superseded = o.epoch !== undefined && o.epoch > r.epoch;
   // Left the gate: the session moved on, or no longer exists (the activity ended).
   const leftGate = o.stage === null || (o.stage !== undefined && o.stage !== 'awaitingApproval');
   const lingerOver = r.sentAt !== undefined && now - r.sentAt > RESUMED_LINGER_MS;
@@ -150,13 +155,24 @@ export function decisionViewFor(r: DecisionRecord, o: ObservedGate, now: number)
     const outcome = dispatchOutcomeFor(r.error.status, r.error.message);
     // Only an UNKNOWN outcome can turn into a resume: a 4xx decided nothing, so a
     // gate that clears afterwards cleared for some other reason.
-    if (outcome.kind === 'unknown' && leftGate)
+    if (!superseded && outcome.kind === 'unknown' && leftGate)
       return lingerOver ? { kind: 'done' } : resumed(r, o);
     // Asked for after the failure came back — not merely arrived after it.
     const newerRead =
       o.requestedAt !== undefined && r.sentAt !== undefined && o.requestedAt > r.sentAt;
-    return { kind: 'failed', outcome, watching: outcome.kind === 'unknown' && !newerRead };
+    // An unknown outcome with no read asked for since its answer holds its activity,
+    // on a newer occurrence too (tasks round-2 review, minor). The signal may have
+    // been delivered, to the gate this record answered or to the one that opened
+    // while the request was on the wire; until a read taken after the answer says
+    // where the session stands, the gate showing now is not a fresh decision.
+    // Retired first, a held POST answered 500 after the gate left and re-opened put
+    // an ENABLED Approve on the new gate 26ms later.
+    if (outcome.kind === 'unknown' && !newerRead)
+      return { kind: 'failed', outcome, watching: true };
+    if (superseded) return { kind: 'done' };
+    return { kind: 'failed', outcome, watching: false };
   }
+  if (superseded) return { kind: 'done' };
   if (r.sentAt === undefined) return { kind: 'sending' };
   if (leftGate) return lingerOver ? { kind: 'done' } : resumed(r, o);
   return now - r.sentAt > RESUME_TIMEOUT_MS ? { kind: 'notLanded' } : { kind: 'awaitingResume' };

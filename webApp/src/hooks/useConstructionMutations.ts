@@ -22,7 +22,7 @@ import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire
 import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
-import { phaseDecisionMutationKey } from './phaseDecisionKey';
+import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
 import { projectKey } from './useProject';
 
 /** The mutation-cache key of one project's Begin dispatches. */
@@ -165,7 +165,7 @@ export interface SubmitPhaseDecisionVars {
  * and so does its evidence (tasks-lens review C1). The key lives in a pure module so
  * node:test can pin that it is per project (phaseDecisionKey.test.ts).
  */
-export { phaseDecisionMutationKey };
+export { phaseDecisionFilters, phaseDecisionMutationKey };
 
 /** When the server answered a decision that came back clean. */
 export interface PhaseDecisionAnswer {

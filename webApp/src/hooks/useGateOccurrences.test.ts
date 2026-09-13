@@ -111,3 +111,18 @@ void test('a cancelled session fetch lends its start to no occurrence', async ()
   );
   client.clear();
 });
+
+// The one store's time, whichever store a client made first: a session read cached
+// after the request-time store subscribed, but before the occurrence store did, keeps
+// the request time that store paired to it — never 0 for a read it saw requested.
+void test("an occurrence store made after a read takes that read's request time from the one store", async () => {
+  const client = new QueryClient();
+  const key = ['constructionSession', 'p', 'E'];
+  readRequestedAt(client, key); // the request-time store subscribes first
+  await client.fetchQuery({ queryKey: key, queryFn: () => session('E', 'awaitingApproval') });
+  const requested = readRequestedAt(client, key);
+  assert.ok(requested > 0);
+  const store = gateOccurrenceStoreFor(client);
+  assert.equal(store.snapshot.get(occurrenceKey('p', 'E'))?.requestedAt, requested);
+  client.clear();
+});

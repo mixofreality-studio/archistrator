@@ -78,7 +78,7 @@ import { computeActivityStatuses } from '../contracts/constructionAdapters';
 import { contractForActivity } from '../contracts/serviceContracts';
 import { gitFor } from '../contracts/types';
 import {
-  phaseDecisionMutationKey,
+  phaseDecisionFilters,
   useBeginConstruction,
   useBeginConstructionPending,
   useSubmitPhaseDecision,
@@ -274,7 +274,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // never its arrival.
   const projectRequestedAt = useReadRequestedAt(projectKey(projectId));
   const decisionStates = useMutationState({
-    filters: { mutationKey: phaseDecisionMutationKey(projectId) },
+    // The ONE project-scoped filter, shared with the one-click guard below.
+    filters: phaseDecisionFilters(projectId),
     select: (m): DecisionMutationState => ({
       status: m.state.status,
       variables: m.state.variables,
@@ -732,7 +733,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     // keeps a pending decision pending (review C1). Per ACTIVITY, the same rule the
     // buttons follow (controlFor): a decision on the wire holds its whole activity.
     const onTheWire = queryClient.isMutating({
-      mutationKey: phaseDecisionMutationKey(projectId),
+      ...phaseDecisionFilters(projectId),
       predicate: (m) => decisionActivityOf(m.state.variables) === item.activityId,
     });
     if (onTheWire > 0 || controlFor(item).busy) return;

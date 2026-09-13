@@ -62,7 +62,10 @@ async function serveOwed(
   stages: Stages,
   only?: readonly string[],
   /** Further edits to the same read (one handler, so none is bypassed). */
-  alsoEdit?: (wire: Wire) => void
+  alsoEdit?: (wire: Wire) => void,
+  /** Serve these rows under another project id: the archistrator read, re-keyed in
+   *  the browser (the two-project pin). */
+  projectId = 'archistrator'
 ): Promise<void> {
   const started = '2026-09-12T20:00:00Z';
   const all: Record<string, WireRow> = {
@@ -81,8 +84,17 @@ async function serveOwed(
   const edits = Object.fromEntries(
     Object.entries(all).filter(([id]) => only === undefined || only.includes(id))
   );
-  await page.route('**/system-design/get-project/archistrator**', async (route) => {
-    const response = await route.fetch();
+  await page.route(`**/system-design/get-project/${projectId}**`, async (route) => {
+    const response = await route.fetch(
+      projectId === 'archistrator'
+        ? undefined
+        : {
+            url: route
+              .request()
+              .url()
+              .replace(`/get-project/${projectId}`, '/get-project/archistrator'),
+          }
+    );
     const wire = (await response.json()) as Wire;
     for (const [id, e] of Object.entries(edits)) {
       const row = wire.ActivityConstruction?.[id];
@@ -101,7 +113,7 @@ async function serveOwed(
     alsoEdit?.(wire);
     await route.fulfill({ response, json: wire });
   });
-  await page.route('**/get-session-state/archistrator/**', async (route: Route) => {
+  await page.route(`**/get-session-state/${projectId}/**`, async (route: Route) => {
     const id = decodeURIComponent(new URL(route.request().url()).pathname.split('/').pop() ?? '');
     const stage = stages[id];
     if (stage === undefined) {
@@ -113,7 +125,7 @@ async function serveOwed(
     }
     await route.fulfill({
       json: {
-        projectId: 'archistrator',
+        projectId,
         activityId: id,
         stage,
         ...(id === GATE
@@ -941,6 +953,139 @@ for (const decision of ['sendBack', 'approve'] as const) {
     await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toBeEnabled();
   });
 }
+
+// Tasks round-2 review, minor: a record was retired on a newer occurrence BEFORE its
+// error was read. The reviewer's repro: hold the POST, let the gate leave and
+// re-open, then answer 500 — Approve came back enabled on the new gate 26ms later.
+test('a 500 answered after the gate re-opened holds the new gate until a read asked for after it (round-2 review, minor)', async ({
+  page,
+  dispatchGuard,
+}) => {
+  test.setTimeout(60_000);
+  const stages = initialStages();
+  await serveOwed(page, stages);
+  // Session reads asked for after the 500 are answered late, so the window between
+  // the answer and the first newer read is long enough to watch.
+  let stallFrom = Number.POSITIVE_INFINITY;
+  await page.route('**/get-session-state/archistrator/**', async (route) => {
+    if (Date.now() >= stallFrom) {
+      await new Promise((r) => {
+        setTimeout(r, 3_000);
+      });
+    }
+    await route.fallback().catch(() => undefined);
+  });
+  const posts: string[] = [];
+  const hold = dispatchGuard.hold();
+  await page.route('**/submit-phase-decision/**', (route) => {
+    posts.push(route.request().url());
+    return hold.handle(route, async () => {
+      await route.fulfill({ status: 500, json: { code: 'internal', error: 'boom' } });
+    });
+  });
+  await openTasks(page);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
+  await approve.click();
+  await expect.poll(() => posts.length).toBe(1);
+  const row = page.getByTestId(TESTID.constructionTasksRow(GATE_KEY));
+  const flow = page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY));
+  // The gate is left while the POST is on the wire…
+  stages[GATE] = STAGE.pipelineRunning;
+  await expect(row).toHaveAttribute('data-lingering', 'true', { timeout: 10_000 });
+  // …and re-opens: a newer occurrence.
+  stages[GATE] = STAGE.awaitingApproval;
+  await expect(row).toHaveAttribute('data-lingering', 'false', { timeout: 10_000 });
+  await expect(flow).toHaveText('Previous decision still sending…');
+  // Now the 500. The signal may have been delivered, and no read taken since says
+  // where the session stands: the re-opened gate is not a fresh decision yet.
+  stallFrom = Date.now();
+  hold.release();
+  await expect(flow).toContainText('Outcome unknown', { timeout: 10_000 });
+  for (let i = 0; i < 15; i++) {
+    expect(await approve.isDisabled(), `Approve enabled ${String(i * 100)}ms after`).toBe(true);
+    await page.waitForTimeout(100);
+  }
+  // A read asked for after the answer lands and still shows the gate: decide again.
+  await expect(approve).toBeEnabled({ timeout: 20_000 });
+  await expect(flow).toHaveCount(0);
+  expect(posts).toHaveLength(1);
+});
+
+// Tasks round-2 review, minor: the route's cache read and its one-click guard each
+// built the mutation key themselves, and a key without the project survived every
+// test. Both use phaseDecisionFilters now; this drives each call site across two
+// projects that share an activity id. SAFETY: the other project exists only in the
+// browser (its read is the archistrator read, re-keyed); every POST is held here
+// and aborted by the guard's teardown.
+test('a decision on the wire in one project never holds the same gate in another (round-2 review, minor)', async ({
+  page,
+  dispatchGuard,
+}) => {
+  test.setTimeout(60_000);
+  const OTHER = 'tasks-lens-second-project';
+  await serveOwed(page, initialStages());
+  await serveOwed(page, { [GATE]: STAGE.awaitingApproval }, [GATE], undefined, OTHER);
+  const posts: string[] = [];
+  const hold = dispatchGuard.hold();
+  await page.route('**/submit-phase-decision/**', (route) => {
+    posts.push(new URL(route.request().url()).pathname);
+    return hold.handle(route, async () => {
+      await route.fulfill({ status: 200, json: {} });
+    });
+  });
+  await openTasks(page);
+  await page.getByTestId(TESTID.constructionTasksReview(GATE_KEY)).click();
+  await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
+  await expect.poll(() => posts.length).toBe(1);
+  await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText(
+    'Sending your approval'
+  );
+  // In-app to the other project's console: the QueryClient, and the decision on
+  // the wire in its mutation cache, come along.
+  await page.evaluate((to) => {
+    window.history.pushState(null, '', to);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  }, `/project/${OTHER}/construction?lens=tasks`);
+  const review = page.getByTestId(TESTID.constructionTasksReview(GATE_KEY));
+  await expect(review).toBeVisible({ timeout: 15_000 });
+  await review.click();
+  // The cache read: project A's decision is not this gate's record…
+  await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toHaveCount(0);
+  const approve = page.getByTestId(TESTID.constructionDetailAction('approve'));
+  await expect(approve).toBeEnabled();
+  // …and the one-click guard lets this project's own decision go.
+  await approve.click();
+  await expect.poll(() => posts.length).toBe(2);
+  expect(posts[0]).toContain('/submit-phase-decision/archistrator/');
+  expect(posts[1]).toContain(`/submit-phase-decision/${OTHER}/`);
+});
+
+// Tasks-lens merge round: the Begin label reads the owed set for "awaiting" (Q4).
+// Head-state still says in construction; the pump's own failure record says it
+// stopped there. Nothing else is in flight, so Begin is offered, not "running".
+test('a recorded failure is not work in flight: Begin stays offered beside it (merge round)', async ({
+  page,
+}) => {
+  await serveOwed(page, {}, [FAILED], (wire) => {
+    const r = wire.ActivityConstruction?.[FAILED];
+    if (r !== undefined) r['BuildStatus'] = BUILD.inConstruction;
+  });
+  await openTasks(page);
+  await expect(page.getByTestId(TESTID.constructionTasksRow(`${FAILED}:failed`))).toBeVisible();
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction|Resume construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  // Sampled: it never reads as running beside the stopped activity.
+  for (let i = 0; i < 10; i++) {
+    await expect(begin).not.toHaveText(/Construction running/);
+    await page.waitForTimeout(150);
+  }
+  // The list's "Expand to current phase" reads the same owed-aware rule: nothing to open.
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();
+});
 
 test('an approval the gate never takes reads "did not land", loudly', async ({ page }) => {
   test.setTimeout(45_000);

@@ -350,3 +350,41 @@ void test('the pane says what was decided while the record lives, and when (desi
     'You sent this back at 09:05; gate decisions are not yet written to the task ledger.'
   );
 });
+
+// Tasks round-2 review, minor: retiring on a newer occurrence ran BEFORE the error
+// branch. The reviewer's repro: hold the POST, let the gate leave and re-open, then
+// answer 500 — Approve came back enabled on the new gate 26ms later.
+void test('an unknown outcome with no read asked for since its answer holds its activity on a newer occurrence', () => {
+  const unknown = rec({
+    sentAt: T0 + 5_000,
+    error: { status: 500, message: 'Internal Server Error' },
+  });
+  // The gate left and re-opened while the POST was on the wire (epoch 2), and the
+  // read showing it was asked for BEFORE the 500 came back.
+  const reopened = at('awaitingApproval', { epoch: 2, requestedAt: T0 + 4_000 });
+  const held = decisionViewFor(unknown, reopened, T0 + 5_026);
+  assert.deepEqual(held, {
+    kind: 'failed',
+    outcome: { kind: 'unknown', message: 'Internal Server Error' },
+    watching: true,
+  });
+  assert.equal(decisionBusy(held), true);
+  assert.equal(gateControlFor(held, 'approve', false).busy, true);
+  // The same instant is not newer.
+  const same = at('awaitingApproval', { epoch: 2, requestedAt: T0 + 5_000 });
+  assert.equal(decisionViewFor(unknown, same, T0 + 6_000).kind, 'failed');
+  // A read asked for after the answer: the record retires, and the new gate is a
+  // fresh decision.
+  const newer = at('awaitingApproval', { epoch: 2, requestedAt: T0 + 5_001 });
+  assert.equal(decisionViewFor(unknown, newer, T0 + 6_000).kind, 'done');
+  assert.deepEqual(gateControlFor(decisionViewFor(unknown, newer, T0 + 6_000), 'approve', false), {
+    busy: false,
+  });
+  // Superseded and left again, still with no newer read: held, never "Resumed" for
+  // a gate this record did not answer.
+  const leftAgain = at('pipelineRunning', { epoch: 2, requestedAt: T0 + 4_000 });
+  assert.equal(decisionViewFor(unknown, leftAgain, T0 + 6_000).kind, 'failed');
+  // A 4xx decided nothing: it retires on a newer occurrence at once.
+  const rejected: DecisionRecord = { ...unknown, error: { status: 409, message: 'no' } };
+  assert.equal(decisionViewFor(rejected, reopened, T0 + 5_026).kind, 'done');
+});

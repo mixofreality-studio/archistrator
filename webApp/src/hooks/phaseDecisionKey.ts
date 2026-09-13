@@ -12,3 +12,17 @@
 export function phaseDecisionMutationKey(projectId: string): readonly unknown[] {
   return ['submitPhaseDecision', projectId];
 }
+
+/**
+ * The mutation-cache filter for ONE project's phase decisions — the only filter
+ * the route passes, to its cache read (useMutationState) and to its one-click
+ * guard (isMutating) alike (tasks round-2 review, minor: each call site built its
+ * own, and a key without the project survived every test). Exact, so no other
+ * project's key can match, whatever id it has.
+ */
+export function phaseDecisionFilters(projectId: string): {
+  mutationKey: readonly unknown[];
+  exact: true;
+} {
+  return { mutationKey: phaseDecisionMutationKey(projectId), exact: true };
+}
