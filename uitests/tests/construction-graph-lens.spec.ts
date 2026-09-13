@@ -464,6 +464,56 @@ test('P1-3: at LOD-1 a segment shows a short code; its full name is its title an
   expect(facts.aria).toMatch(/^Requirements · /);
 });
 
+test('P1-4: a filter is never silent — "N of 29 match · Clear filters", whole cards dim', async ({
+  page,
+  request,
+}) => {
+  const t = await truth(request);
+  await openGraph(page);
+  // At rest: no status line, and no card is filter-dimmed.
+  await expect(page.getByTestId(TESTID.constructionGraphFilterStatus)).toHaveCount(0);
+  const dimmedAtRest = await page
+    .getByTestId(CARD_ID)
+    .evaluateAll((els) => els.filter((e) => e.getAttribute('data-filter-dimmed') === 'true').length);
+  expect(dimmedAtRest).toBe(0);
+
+  // A search that matches some lanes: the count is the lanes left lit.
+  const search = page.getByPlaceholder(/Search id, title or component/);
+  await search.fill('manager');
+  const status = page.getByTestId(TESTID.constructionGraphFilterStatus);
+  await expect(status).toBeVisible();
+  const matched = Number(await status.getAttribute('data-matched'));
+  expect(matched).toBeGreaterThan(0);
+  await expect(status).toContainText(
+    `${String(matched)} of ${String(t.activities.length)} match`
+  );
+  await expect(status).toContainText('Clear filters');
+  // Hollow and utility cards dim whenever a filter is active; so does any card
+  // none of whose lanes match — and every card with a matching lane stays lit.
+  const cards = await page.getByTestId(CARD_ID).evaluateAll((els) =>
+    els.map((e) => ({
+      id: e.getAttribute('data-testid') ?? '',
+      row: e.getAttribute('data-row'),
+      hollow: e.getAttribute('data-hollow'),
+      lanes: Number(e.getAttribute('data-lanes') ?? '0'),
+      dimmed: e.getAttribute('data-filter-dimmed'),
+    }))
+  );
+  for (const c of cards) {
+    if (c.lanes === 0) expect(c.dimmed, c.id).toBe('true');
+  }
+  expect(cards.filter((c) => c.dimmed === 'false').length).toBeGreaterThan(0);
+
+  // Nothing matching reuses the list's own copy.
+  await search.fill('zzz-no-such-activity');
+  await expect(status).toContainText('No activity matches “zzz-no-such-activity”.');
+
+  // Clear filters restores the canvas.
+  await page.getByTestId(TESTID.constructionGraphClearFilters).click();
+  await expect(status).toHaveCount(0);
+  await expect(search).toHaveValue('');
+});
+
 test('Sort and "Expand to current phase" are list-only', async ({ page }) => {
   await openGraph(page);
   await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();

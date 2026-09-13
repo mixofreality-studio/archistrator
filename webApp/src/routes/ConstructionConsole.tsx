@@ -69,6 +69,7 @@ import { ActivityTreeView } from '../components/construction/list/ActivityTreeVi
 import { ActivityGraphLens } from '../components/construction/graph/ActivityGraphLens';
 import { GRAPH_LIST_ONLY_REASON } from '../components/construction/graph/graphPresentation';
 import { m0FactsFor } from '../components/construction/graph/m0Gate';
+import { filtersActive } from '../components/construction/graph/graphFilter';
 import { slugForKind } from '../contracts/methodMetadata';
 import { buildActivityTree } from '../components/construction/list/activityTree';
 import { activityMetaFor } from '../components/construction/list/activityMeta';
@@ -654,14 +655,21 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
                   // the pane never disagree about one activity.
                   <ActivityGraphLens
                     activities={activityTree}
+                    filterActive={filtersActive(toolbar)}
                     // M0 reads the project's phase and the SDP review slot —
                     // never the evidence view, so "Observed only" leaves it be.
                     m0={m0}
                     network={networkModel}
                     projectId={projectId}
+                    searchQuery={toolbar.search}
                     selection={selection}
                     systemEnvelope={paneSystemEnvelope}
                     visible={visibleActivityTree}
+                    onClearFilters={() => {
+                      // The list's own Clear filters: every filter back to its
+                      // default; the sort is an ordering and stays.
+                      setToolbar({ ...DEFAULT_TOOLBAR, sort: toolbar.sort });
+                    }}
                     onOpenSdpReview={() =>
                       void navigate({
                         to: '/project/$projectId/design/project/{-$stepSlug}',

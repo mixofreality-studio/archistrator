@@ -47,6 +47,7 @@ import {
 } from 'react';
 import type { Edge, Node } from '@xyflow/react';
 import Box from '@mui/material/Box';
+import Button from '@mui/material/Button';
 
 import type { ArtifactModelEnvelope, NetworkModel } from '../../../contracts/types';
 import { toC4View } from '../../../contracts/adapters';
@@ -68,6 +69,7 @@ import { CARD_W, UTIL_PAD, layoutActivityGraph, type GraphLayout } from './activ
 import { laneSpineFor, type LaneSpine } from './laneSpine';
 import { laneScheduleFor, maxEffortOf, type LaneSchedule } from './laneSchedule';
 import type { M0Facts } from './m0Gate';
+import { graphFilterStatusFor } from './graphFilter';
 import { gateRibbonFor } from './gateRibbon';
 import {
   CANVAS_MIN_PX,
@@ -103,6 +105,12 @@ export interface ActivityGraphLensProps {
   m0: M0Facts;
   /** Navigation only: the stale M0 approval's way back to the SDP review. */
   onOpenSdpReview?: () => void;
+  /** Any toolbar filter is active (graphFilter.filtersActive) — designer P1-4. */
+  filterActive: boolean;
+  /** The toolbar's search, for the no-match sentence. */
+  searchQuery: string;
+  /** Every filter back to its default — the list's own Clear filters. */
+  onClearFilters: () => void;
 }
 
 export function ActivityGraphLens({
@@ -115,6 +123,9 @@ export function ActivityGraphLens({
   onSelect,
   m0,
   onOpenSdpReview,
+  filterActive,
+  searchQuery,
+  onClearFilters,
 }: ActivityGraphLensProps): ReactElement {
   const t = useTokens();
   const c4 = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
@@ -148,6 +159,12 @@ export function ActivityGraphLens({
     const shown = new Set(visible.map((n) => n.activityId));
     return new Set(activities.filter((a) => !shown.has(a.activityId)).map((a) => a.activityId));
   }, [activities, visible]);
+  const filterStatus = graphFilterStatusFor(
+    activities.length - unmatched.size,
+    activities.length,
+    searchQuery,
+    filterActive
+  );
   const signature = useMemo(
     () =>
       graphSignatureOf(
@@ -193,9 +210,47 @@ export function ActivityGraphLens({
         {...(onOpenSdpReview !== undefined ? { onOpenSdpReview } : {})}
       />
       <GraphKeyBar model={model} t={t} />
+      {filterStatus !== undefined ? (
+        // A filter is never silent (designer P1-4): how many match, and the way back.
+        <Box
+          data-matched={filterStatus.matched}
+          data-testid={UI_IDENTIFIERS.Construction.GRAPH_FILTER_STATUS}
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 1,
+            fontFamily: t.mono,
+            fontSize: 11,
+            color: t.ink,
+            whiteSpace: 'nowrap',
+          }}
+        >
+          <Box component="span">{filterStatus.message}</Box>
+          <Box aria-hidden component="span" sx={{ color: t.muted }}>
+            ·
+          </Box>
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.GRAPH_CLEAR_FILTERS}
+            size="small"
+            sx={{
+              minWidth: 0,
+              p: 0,
+              fontFamily: t.mono,
+              fontSize: 11,
+              fontWeight: 700,
+              textTransform: 'none',
+              color: t.accent,
+            }}
+            onClick={onClearFilters}
+          >
+            Clear filters
+          </Button>
+        </Box>
+      ) : null}
       <GraphCanvas
         // A genuinely different architecture or plan starts from its own
         // remembered viewport (or a fit); the same one keeps where it was left.
+        filterActive={filterActive}
         key={signature}
         layout={layout}
         model={model}
@@ -223,11 +278,13 @@ function GraphCanvas({
   spines,
   schedules,
   unmatched,
+  filterActive,
   selectedActivityId,
   ribbonFocus,
   t,
   onSelectLane,
 }: {
+  filterActive: boolean;
   signature: string;
   model: ActivityGraphModel<ActivityNode>;
   layout: GraphLayout;
@@ -295,6 +352,7 @@ function GraphCanvas({
         spines,
         schedules,
         unmatched,
+        filterActive,
         selectedActivityId,
         focus,
         hoveredId,
@@ -307,6 +365,7 @@ function GraphCanvas({
       spines,
       schedules,
       unmatched,
+      filterActive,
       selectedActivityId,
       focus,
       hoveredId,
@@ -400,6 +459,7 @@ function buildNodes(args: {
   spines: Readonly<Record<string, LaneSpine>>;
   schedules: Readonly<Record<string, LaneSchedule>>;
   unmatched: ReadonlySet<string>;
+  filterActive: boolean;
   selectedActivityId: string | undefined;
   focus: GraphFocus | null;
   hoveredId: string | null;
@@ -433,6 +493,7 @@ function buildNodes(args: {
       layerColor: colourOf(t, card.row),
       ...(holdsSelection ? { selectedActivityId } : {}),
       outsideFocus: focus !== null && !focus.cards.has(card.id),
+      filterActive: args.filterActive,
       hovered: hoveredId === card.id,
       unmatched,
       onSelect: args.onSelectLane,

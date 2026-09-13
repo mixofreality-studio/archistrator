@@ -48,7 +48,7 @@ import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
 import { lodFor, type Lod } from './graphViewport';
 import { SEGMENT_STATE_LABEL, segmentCodeFor, segmentPaint, tickPaint } from './graphPresentation';
-import { cardFrameFor } from './graphCardPresentation';
+import { cardDimmed, cardFrameFor } from './graphCardPresentation';
 import {
   effortText,
   floatTooltip,
@@ -75,6 +75,8 @@ export interface GraphCardData {
   hovered: boolean;
   /** Activities the toolbar's filters do NOT match (dimmed, never removed — D4). */
   unmatched: ReadonlySet<string>;
+  /** Any toolbar filter is active (graphFilter.filtersActive) — P1-4's card dim. */
+  filterActive: boolean;
   onSelect: (activityId: string, lifecyclePhase?: string) => void;
   [key: string]: unknown;
 }
@@ -86,8 +88,14 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
   const lod = lodFor(zoom, d.hovered);
   const { card } = d;
   const cardReading = readProvenance({ phases: card.lanes });
-  // The card's frame reads the card alone — never a lane's schedule (Q2 ruling).
-  const frame = cardFrameFor(card, { outsideFocus: d.outsideFocus });
+  // The card's frame reads the card alone — never a lane's schedule (Q2 ruling)
+  // — plus hover-focus and the filters (P1-4: a card nothing on which matches
+  // dims as a whole).
+  const frame = cardFrameFor(card, {
+    outsideFocus: d.outsideFocus,
+    filterActive: d.filterActive,
+    unmatched: d.unmatched,
+  });
   // The hover card's anchor, held in state through a callback ref (never read
   // from a ref during render), and the canvas that bounds it.
   const [anchor, setAnchor] = useState<HTMLDivElement | null>(null);
@@ -96,6 +104,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
 
   return (
     <Box
+      data-filter-dimmed={String(frame.filterDimmed)}
       data-hollow={String(card.hollow)}
       data-kind={card.kind}
       data-lanes={card.lanes.length}
@@ -115,7 +124,7 @@ export function GraphCardNode({ data }: NodeProps): ReactElement {
             : `1.5px solid ${t.line}`,
         borderTop: frame.layerEdge ? `3px solid ${d.layerColor}` : undefined,
         borderRadius: `${String(Math.min(t.radius, 8))}px`,
-        opacity: frame.muted ? MUTED_OPACITY : 1,
+        opacity: cardDimmed(frame) ? MUTED_OPACITY : 1,
         transition: 'opacity 120ms ease-out',
         overflow: 'hidden',
       }}
