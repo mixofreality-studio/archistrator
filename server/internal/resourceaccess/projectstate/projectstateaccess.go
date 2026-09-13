@@ -645,6 +645,17 @@ func (s *GitStore) readProjectOnBranch(ctx context.Context, projectID ProjectID,
 // project whose state cannot be read for any other reason (an auth or transient
 // fault, or malformed committed state) is SKIPPED with a warning that names it: one
 // unreadable project must not fail the owner's whole list (fix-F review ruling).
+//
+// A CREDENTIAL fault is not one project's fault, and fails the whole list (fix-G
+// review ruling): the listing reads every project with the one credential, so a
+// credential that cannot be used, or that every project refuses, would otherwise
+// blank the grid with nothing but warnings to say why. So:
+//   - a credential that cannot authenticate anything (gitAuth refuses it) fails
+//     the call before any project is read;
+//   - an auth refusal on EVERY project read fails the call with an Auth error;
+//   - an auth refusal on SOME projects, beside projects the same credential read,
+//     is those projects' fault (e.g. a repo outside the installation's grant): each
+//     is skipped with a warning, like any other per-project read fault.
 func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred RepoCredential) ([]ProjectSummary, error) {
 	if owner == "" {
 		return nil, fwra.New(fwra.ContractMisuse, "projectstate.ListProjects: empty owner")
@@ -652,11 +663,18 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 	if s.catalog == nil {
 		return []ProjectSummary{}, nil
 	}
+	if _, err := s.gitAuth(cred, "ListProjects"); err != nil {
+		return nil, err
+	}
 	refs, err := s.catalog.ListProjectRepos(ctx, owner, cred)
 	if err != nil {
 		return nil, err
 	}
 	out := make([]ProjectSummary, 0, len(refs))
+	// Every project read attempted, and those the credential was refused for: when
+	// the two are equal the credential, not a project, is at fault.
+	attempted, refused := 0, 0
+	var refusal error
 	for _, ref := range refs {
 		if ref.ProjectID == "" {
 			// A repo whose name carried no parseable project id is skipped, and says so
@@ -665,70 +683,29 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 				"owner", string(owner), "title", ref.Title)
 			continue
 		}
-		summary := ProjectSummary{
-			ProjectID:  ref.ProjectID,
-			Name:       ref.Title,
-			Owner:      owner,
-			Phase:      PhaseSystemDesign,
-			TotalCount: len(Phase1RequiredKinds()),
-		}
 		// N+1: read the per-project head-state for phase + progress + (fallback) title.
-		if p, docUpdatedAt, perr := s.readProjectForList(ctx, ref.ProjectID, cred); perr == nil {
-			if summary.Name == "" {
-				summary.Name = p.Name
-			}
-			// Report the project's CANONICAL STORED owner, not the caller's requested
-			// owner scope (the enumeration key). The two normally coincide, but a caller
-			// may pass a wildcard/placeholder scope (e.g. "{}") and must still see each
-			// project's real owner — the same value get-project returns. Fall back to the
-			// enumeration scope only when the head-state carries no owner yet.
-			if p.Owner != "" {
-				summary.Owner = p.Owner
-			}
-			summary.Phase = p.Phase
-			// projectUpdatedAt checks ActivityGit entries; docUpdatedAt is the
-			// doc-level stamp written on every mutation (the fallback for construction-
-			// phase projects that have committed design slots but no git activity yet).
-			summary.UpdatedAt = projectUpdatedAt(p)
-			if summary.UpdatedAt.IsZero() {
-				summary.UpdatedAt = docUpdatedAt
-			}
-			summary.CommittedCount, summary.TotalCount = phaseProgress(p)
-			// OperatorPaused (fix round 1, Task 7c): surfaces the SAME head-state flag
-			// PumpSweepWorkflow's eligibility filter reads, at zero extra I/O cost — p
-			// is already the full per-project read this N+1 pass performs. Omitted
-			// (nil) rather than always-set-false, mirroring the doc field's own
-			// "omitted when false" convention (Project.OperatorPaused).
-			if p.OperatorPaused {
-				paused := true
-				summary.OperatorPaused = &paused
-			}
-			// ConstructionComplete (Task 13, finish-construction): surfaces the SAME
-			// derived construction-complete signal on the catalog row, at zero extra
-			// I/O cost — p is already the full per-project read this N+1 pass performs.
-			// Omitted (nil) unless true, mirroring the OperatorPaused convention above.
-			if isConstructionComplete(p) {
-				complete := true
-				summary.ConstructionComplete = &complete
-			}
-		} else if !isNotFound(perr) {
+		attempted++
+		summary, perr := s.listedSummary(ctx, owner, ref, cred)
+		if perr != nil {
 			// A real read fault on one project (auth/transient/infra, or malformed
 			// committed state) SKIPS that project, and says so: it must not fail the
 			// owner's whole list and blank the landing grid (fix-F review ruling). The
 			// log names WHICH project, since the fault itself may not (fix-E review).
+			// An auth refusal is counted too: refused for EVERY project, it is the
+			// credential's fault, and the call fails below.
+			if isAuth(perr) {
+				refused++
+				refusal = perr
+			}
 			slog.WarnContext(ctx, "projectstate.ListProjects: skipping a project that could not be read",
 				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 			continue
-		} else {
-			// A NotFound (repo provisioned, project.json not yet committed) is tolerated:
-			// the catalog row stands on the repo's existence + title, with no progress.
-			// Said, not silent (fix-E review), at Debug: it is an expected state, and the
-			// landing grid re-lists on every visit, so at Info the same line repeated on
-			// every read (fix-F review).
-			slog.DebugContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
-				"projectID", ref.ProjectID.String(), "reason", perr.Error())
 		}
 		out = append(out, summary)
+	}
+	if attempted > 0 && refused == attempted {
+		return nil, fwra.Wrap(fwra.Auth, refusal, fmt.Sprintf(
+			"projectstate.ListProjects: the credential was refused for all %d of owner %s's projects", attempted, owner))
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if !out[i].UpdatedAt.Equal(out[j].UpdatedAt) {
@@ -737,6 +714,77 @@ func (s *GitStore) ListProjects(ctx context.Context, owner OwnerScope, cred Repo
 		return out[i].ProjectID.String() > out[j].ProjectID.String()
 	})
 	return out, nil
+}
+
+// listedSummary is one catalog project's ListProjects row: the catalog's title,
+// filled from the project's head-state when that can be read. A NotFound head-state
+// (repo provisioned, project.json not yet committed) is tolerated: the row stands on
+// the repo's existence + title, with no progress. Any other read fault is returned,
+// for ListProjects to skip the project on (or, refused for every project, to fail).
+func (s *GitStore) listedSummary(ctx context.Context, owner OwnerScope, ref ProjectCatalogRef, cred RepoCredential) (ProjectSummary, error) {
+	summary := ProjectSummary{
+		ProjectID:  ref.ProjectID,
+		Name:       ref.Title,
+		Owner:      owner,
+		Phase:      PhaseSystemDesign,
+		TotalCount: len(Phase1RequiredKinds()),
+	}
+	p, docUpdatedAt, err := s.readProjectForList(ctx, ref.ProjectID, cred)
+	if isNotFound(err) {
+		// Said, not silent (fix-E review), at Debug: it is an expected state, and the
+		// landing grid re-lists on every visit, so at Info the same line repeated on
+		// every read (fix-F review).
+		slog.DebugContext(ctx, "projectstate.ListProjects: listing a project without its head-state",
+			"projectID", ref.ProjectID.String(), "reason", err.Error())
+		return summary, nil
+	}
+	if err != nil {
+		return ProjectSummary{}, err
+	}
+	applyHeadState(&summary, p, docUpdatedAt)
+	return summary, nil
+}
+
+// applyHeadState fills a catalog row from the project's head-state: its phase and
+// progress, its stored owner, and the flags the landing grid shows.
+func applyHeadState(summary *ProjectSummary, p Project, docUpdatedAt time.Time) {
+	if summary.Name == "" {
+		summary.Name = p.Name
+	}
+	// Report the project's CANONICAL STORED owner, not the caller's requested
+	// owner scope (the enumeration key). The two normally coincide, but a caller
+	// may pass a wildcard/placeholder scope (e.g. "{}") and must still see each
+	// project's real owner — the same value get-project returns. Fall back to the
+	// enumeration scope only when the head-state carries no owner yet.
+	if p.Owner != "" {
+		summary.Owner = p.Owner
+	}
+	summary.Phase = p.Phase
+	// projectUpdatedAt checks ActivityGit entries; docUpdatedAt is the
+	// doc-level stamp written on every mutation (the fallback for construction-
+	// phase projects that have committed design slots but no git activity yet).
+	summary.UpdatedAt = projectUpdatedAt(p)
+	if summary.UpdatedAt.IsZero() {
+		summary.UpdatedAt = docUpdatedAt
+	}
+	summary.CommittedCount, summary.TotalCount = phaseProgress(p)
+	// OperatorPaused (fix round 1, Task 7c): surfaces the SAME head-state flag
+	// PumpSweepWorkflow's eligibility filter reads, at zero extra I/O cost — p
+	// is already the full per-project read this N+1 pass performs. Omitted
+	// (nil) rather than always-set-false, mirroring the doc field's own
+	// "omitted when false" convention (Project.OperatorPaused).
+	if p.OperatorPaused {
+		paused := true
+		summary.OperatorPaused = &paused
+	}
+	// ConstructionComplete (Task 13, finish-construction): surfaces the SAME
+	// derived construction-complete signal on the catalog row, at zero extra
+	// I/O cost — p is already the full per-project read this N+1 pass performs.
+	// Omitted (nil) unless true, mirroring the OperatorPaused convention above.
+	if isConstructionComplete(p) {
+		complete := true
+		summary.ConstructionComplete = &complete
+	}
 }
 
 // isConstructionComplete derives the catalog's construction-complete signal
@@ -1374,6 +1422,13 @@ func encodeKeyFilename(key fwra.IdempotencyKey) string {
 func isNotFound(err error) bool {
 	var e *fwra.Error
 	return errors.As(err, &e) && e.Kind == fwra.NotFound
+}
+
+// isAuth reports whether err is a fwra Auth fault: the credential was rejected or
+// has expired (ListProjects fails the whole list when every project refuses it).
+func isAuth(err error) bool {
+	var e *fwra.Error
+	return errors.As(err, &e) && e.Kind == fwra.Auth
 }
 
 // encodeProjectDoc serializes the Project aggregate to its on-infrastructure JSON.

@@ -31,7 +31,10 @@
  * nodes appear, tolerating a model that produced a thinner artifact (mirroring
  * systemtests, which also refuse to hard-gate on local-model output shape).
  */
-import { test, expect } from '@playwright/test';
+// SAFETY (fix-G review ruling): the shared dispatch guard, letting through ONLY the
+// co-author loop's writes (LIVE_DRAFTING_WRITES). It cannot create a project: the
+// real project it drives is made by the seed step (tests/seed/shared-project.setup.ts).
+import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
 import {
@@ -60,6 +63,7 @@ test.describe('architecture & deployment views (live backend — UITESTS_LIVE_DR
   // several-minute-per-heavy-artifact) convergence cost a single time. The budget
   // must cover five sequential step gates plus the assertions.
   test.describe.configure({ timeout: 12_000_000 });
+  test.use({ dispatchGuardAllows: LIVE_DRAFTING_WRITES });
 
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();

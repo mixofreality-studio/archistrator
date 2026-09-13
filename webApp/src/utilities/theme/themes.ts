@@ -52,9 +52,15 @@ export interface Tokens {
   dangerFg: string;
   awaitingBg: string;
   awaitingFg: string;
+  /**
+   * Float-band RED (≤5d slack): an orange-red, between danger (the critical band,
+   * float 0) and yellow in hue, so the ramp is monotonic: the lower the float, the
+   * stronger the alarm (designer re-check #12; pinned by bandRamp.test.ts).
+   */
+  bandRed: string;
   /** Float-band YELLOW (6–25d slack) — a real amber, distinct from accent/danger. */
   bandYellow: string;
-  /** Float-band GREEN (≥26d slack) — distinct from accent (critical) per theme. */
+  /** Float-band GREEN (≥26d slack). */
   bandGreen: string;
   chatArchitectBg: string;
   chatArchitectFg: string;
@@ -102,6 +108,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     // 3:1 while staying in the same warm-amber family as the retro palette.
     bandYellow: '#8A7000',
     bandGreen: '#2E7D32',
+    bandRed: '#B04A12',
     chatArchitectBg: '#E7DFF2',
     chatArchitectFg: '#3A2A55',
     chatPmBg: '#C5DEDB',
@@ -137,6 +144,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     awaitingFg: '#e0b06a',
     bandYellow: '#E6C84D',
     bandGreen: '#6FBF73',
+    bandRed: '#EDA06A',
     chatArchitectBg: 'rgba(123,104,174,0.2)',
     chatArchitectFg: '#cdbef0',
     chatPmBg: 'rgba(80,150,150,0.16)',
@@ -172,6 +180,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     awaitingFg: '#e7b574',
     bandYellow: '#CFCB55',
     bandGreen: '#7FB562',
+    bandRed: '#E9A060',
     chatArchitectBg: 'rgba(149,132,192,0.22)',
     chatArchitectFg: '#d8cdf0',
     chatPmBg: 'rgba(80,150,150,0.18)',
@@ -208,6 +217,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     awaitingFg: '#f0c074',
     bandYellow: '#E8C547',
     bandGreen: '#5FD08A',
+    bandRed: '#F0A060',
     chatArchitectBg: 'rgba(168,216,255,0.14)',
     chatArchitectFg: '#cfe6fa',
     chatPmBg: 'rgba(120,220,200,0.14)',
@@ -244,6 +254,7 @@ export const TOKENS: Record<ThemeKey, Tokens> = {
     awaitingFg: '#e0b06a',
     bandYellow: '#E6C84D',
     bandGreen: '#7FCB7A',
+    bandRed: '#EDA06A',
     chatArchitectBg: 'rgba(123,104,174,0.22)',
     chatArchitectFg: '#cdbef0',
     chatPmBg: 'rgba(110,198,230,0.16)',

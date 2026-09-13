@@ -26,7 +26,10 @@
  * drafting block and architecture-views.spec are: a real drafted/committed
  * artifact is reachable ONLY via the real co-author workflow over the wire.
  */
-import { test, expect } from '@playwright/test';
+// SAFETY (fix-G review ruling): the shared dispatch guard, letting through ONLY the
+// co-author loop's writes (LIVE_DRAFTING_WRITES). It cannot create a project: the
+// real project it drives is made by the seed step (tests/seed/shared-project.setup.ts).
+import { test, expect, LIVE_DRAFTING_WRITES } from './support/dispatchGuard.js';
 import { TESTID, PHASE1_ARTIFACTS } from './support/testids.js';
 import { skipUnlessServer, skipUnlessLiveDrafting } from './support/gating.js';
 import { openSharedProject, enterDesignExperience, commitArtifactsThrough } from './support/flows.js';
@@ -41,6 +44,7 @@ const GATE_TIMEOUT = 1_800_000;
 
 test.describe('coreUseCases diagram + picker affordances (live backend — UITESTS_LIVE_DRAFTING=1)', () => {
   test.describe.configure({ timeout: 10_000_000 });
+  test.use({ dispatchGuardAllows: LIVE_DRAFTING_WRITES });
 
   test.beforeEach(async ({ request }) => {
     skipUnlessLiveDrafting();

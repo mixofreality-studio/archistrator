@@ -101,6 +101,7 @@ import {
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
   anyRowInFlight,
+  awaitingPickup,
   beginControlFor,
   beginHoldFor,
   beginRunning,
@@ -119,7 +120,9 @@ import { ApiError } from '../contracts/errors';
 import {
   failureAwaitsPump,
   readBeginFailure,
+  useBeginDispatched,
   useBeginFailure,
+  writeBeginDispatched,
   writeBeginFailure,
 } from '../components/construction/lens/beginFailureMemory';
 import { ActivityTreeView } from '../components/construction/list/ActivityTreeView';
@@ -162,8 +165,14 @@ export function ConstructionConsoleScreen(): ReactNode {
   // The CommentProvider wraps the body (mirrors Phase-1 SystemDesignScreen) so the
   // body itself can read useComments() — the accumulated anchored comments + the
   // toWire()/freeformNotes() the phase-gate "Send back" carries into the redraft.
+  //
+  // Keyed by project (fix-G review M3). An in-app switch to another project reuses
+  // this route's component, so the body's refs and state carried over: the Begin
+  // in-flight ref, `cascading`, the confirm's tick, the rail and its comments. With
+  // a dispatch still pending on the first project, the second's enabled Begin did
+  // nothing and said nothing. Another project is another console.
   return (
-    <CommentProvider>
+    <CommentProvider key={projectId}>
       <ConstructionConsoleBody projectId={projectId} />
     </CommentProvider>
   );
@@ -205,6 +214,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // integration was, because only a read can say the work has ended.
   const beginPending = useBeginConstructionPending(projectId);
   const beginFailure = useBeginFailure(projectId);
+  // A successful dispatch whose pickup no read has shown yet (fix H). Module
+  // memory, like the failure, so a remount during the gap keeps its hold.
+  const beginDispatched = useBeginDispatched(projectId);
   const [cascading, setCascading] = useState(false);
   // The poll's cadence is consolePollMs's. Where that would stop, the read still
   // refreshes on the TASKS freshness cadence: the owed set's probe candidates come
@@ -216,7 +228,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const { data: project, isLoading: projectLoading } = useProject(projectId, (read) => {
     const ms = consolePollMs({
       pending: beginPending,
-      awaitsPump: failureAwaitsPumpNow,
+      awaitsPump: failureAwaitsPumpNow || beginDispatched !== null,
       cascading,
       inFlight: anyRowInFlight(read?.constructionRows),
     });
@@ -243,14 +255,20 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   // The failure is recorded from the mutation's OWN onError, into module memory, so
   // an answer that lands while the console is away is still kept (fix-E review I2).
+  // A success is recorded the same way, before its refresh is requested (fix H).
   const begin = useBeginConstruction(projectId, {
-    onError: (err) => {
+    onError: (err, atFailure) => {
       writeBeginFailure(projectId, {
         outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
         at: Date.now(),
         dismissed: false,
         holdExpired: false,
+        // Only a change from "not started" can be evidence (fix-G review I1).
+        startedAtFailure: atFailure.constructionStarted,
       });
+    },
+    onSuccess: () => {
+      writeBeginDispatched(projectId, { at: Date.now() });
     },
   });
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
@@ -314,6 +332,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     beginInFlightRef.current = true;
     lastProgressAtRef.current = Date.now();
     writeBeginFailure(projectId, null);
+    writeBeginDispatched(projectId, null);
     setCascading(true);
     begin.mutate(tickId, {
       // The fast poll runs its full window from the ANSWER: a dispatch pending past
@@ -546,22 +565,62 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     sessionStage: liveSession?.stage,
   });
   // Pump evidence counts only from reads REQUESTED after the failure, never by when
-  // they arrived: the project says construction started or shows work in flight,
-  // or the probed session is live (pumpEvidencedSince, hooks/readRequestTimes).
+  // they arrived, and only what CHANGED after it: the project shows work in flight
+  // (owed-aware) or newly says construction started, or a probed session is live
+  // (pumpEvidencedSince, hooks/readRequestTimes; fix-G review I1).
+  const pickupReads = {
+    projectRequestedAt,
+    rowsInFlight: anyRowInFlight(project?.constructionRows, owedMarks),
+    sessionRequestedAt: liveSession?.requestedAt ?? 0,
+    sessionStage: liveSession?.stage,
+  };
   const pumpEvidenced =
     beginFailure !== null &&
     pumpEvidencedSince(beginFailure.at, {
-      projectRequestedAt,
+      ...pickupReads,
       constructionStarted: project?.constructionStarted,
-      rowsInFlight: anyRowInFlight(project?.constructionRows, owedMarks),
-      sessionRequestedAt: liveSession?.requestedAt ?? 0,
-      sessionStage: liveSession?.stage,
+      startedAtFailure: beginFailure.startedAtFailure,
     });
   const beginHold = beginHoldFor(beginFailure, pumpEvidenced);
-  // "Construction running…", disabled: a dispatch pending, or work in flight by
-  // state (beginRunning). The same rule on the success path, the failure path and
-  // after a remount; no timer enters it (fix-F review, root-cause ruling).
-  const beginActive = beginRunning({ pending: beginPending, inFlight });
+  // After a SUCCESS, Begin stays held until a read requested after it shows the
+  // pickup, or the hold runs out (fix H; until B1's "pump open" read). Without it,
+  // the gap between the answer and the first read showing the pickup offered an
+  // enabled Begin/Resume beside a pump that had just been started.
+  const awaitingPickupNow = awaitingPickup(beginDispatched, pickupReads);
+  // "Construction running…", disabled: a dispatch pending, work in flight by state,
+  // or a success awaiting its pickup (beginRunning). The same rule on the success
+  // path, the failure path and after a remount (fix-F review, root-cause ruling).
+  const beginActive = beginRunning({
+    pending: beginPending,
+    inFlight,
+    awaitingPickup: awaitingPickupNow,
+  });
+  // The pickup hold's record leaves memory once a read shows the pickup (the state
+  // decides from then on), keyed by the success it clears, so a newer one is never
+  // the one removed.
+  const pickedUpAt =
+    beginDispatched !== null && !awaitingPickupNow ? beginDispatched.at : undefined;
+  useEffect(() => {
+    if (pickedUpAt === undefined) return;
+    writeBeginDispatched(projectId, (d) => (d !== null && d.at === pickedUpAt ? null : d));
+  }, [pickedUpAt, projectId]);
+  // ...or when the hold runs out with no sign of the pickup: Begin/Resume come back.
+  // Timed from the SUCCESS, so a remount re-arms whatever is left, or clears it at
+  // once if it ran out while the console was away.
+  const dispatchedAt =
+    awaitingPickupNow && beginDispatched !== null ? beginDispatched.at : undefined;
+  useEffect(() => {
+    if (dispatchedAt === undefined) return undefined;
+    const id = setTimeout(
+      () => {
+        writeBeginDispatched(projectId, (d) => (d !== null && d.at === dispatchedAt ? null : d));
+      },
+      Math.max(0, dispatchedAt + UNKNOWN_OUTCOME_HOLD_MS - Date.now())
+    );
+    return (): void => {
+      clearTimeout(id);
+    };
+  }, [dispatchedAt, projectId]);
   // An evidenced failure has done its job once the state shows nothing in flight,
   // and leaves memory: kept, a remount would flash it and bring back a stale
   // "Outcome unknown" alert (fix-F review). The write runs in an effect, keyed by
@@ -595,9 +654,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // The poll's watchdog: it falls quiet ~30s after progress stops. It never runs
   // while a dispatch is still PENDING, because a 5xx that arrives after 30s would
   // otherwise find the poll already stopped (fix-D review I1). It also never runs
-  // while Begin is held for the pump: only a read can bring the evidence that
-  // lifts the hold.
-  const keepPolling = beginPending || beginHold === 'held';
+  // while Begin is held for the pump, or for a success's pickup: only a read can
+  // bring the evidence that lifts the hold.
+  const keepPolling = beginPending || beginHold === 'held' || awaitingPickupNow;
   useEffect(() => {
     if (!cascading || keepPolling) return undefined;
     const id = setInterval(() => {

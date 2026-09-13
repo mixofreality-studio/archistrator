@@ -253,6 +253,9 @@ interface Harness {
   reads: number[];
   /** Timestamps of every project read answered with the project (not held). */
   served: number[];
+  /** The edit each served read carried (null: served as the server sent it), in
+   *  serve order: how a case knows a read carrying its edit has been served. */
+  servedEdits: (((wire: WireProject) => void) | null)[];
   /** While true, project reads are answered 503 in the browser. */
   holdReads: { on: boolean };
   /** When set, the real project read is served with this edit applied, in the
@@ -268,6 +271,7 @@ async function harness(
     trapped: [],
     reads: [],
     served: [],
+    servedEdits: [],
     holdReads: { on: false },
     edit: { fn: null },
   };
@@ -302,6 +306,7 @@ async function harness(
       }
     }
     h.served.push(Date.now());
+    h.servedEdits.push(edit);
   });
   return h;
 }
@@ -344,9 +349,8 @@ const SUCCESS = { status: 200, contentType: 'application/json', body: '{}' };
 /**
  * A harness whose dispatch SUCCEEDS, with the pump's pickup of PICKED showing in
  * every read from the answer on. The pickup lands with the answer here, so these
- * cases pin the in-flight state, not the gap before a first read shows it (the
- * fix-G report records that gap as a concern: the state is the authority, and
- * until a read shows the pickup there is nothing in flight to show).
+ * cases pin the in-flight state. The gap BEFORE a first read shows the pickup is
+ * pinned by the fix-H cases below, on the plain `harness` with a SUCCESS answer.
  */
 async function harnessPickingUp(page: Page): Promise<Harness> {
   const holder: { h?: Harness } = {};
@@ -1150,6 +1154,161 @@ test('a remount after a SUCCESSFUL dispatch still reads as running while work is
   expect(h.trapped).toHaveLength(1);
 });
 
+// ---------------------------------------------------------------------------
+// Fix round H: after a SUCCESS, the same bounded hold covers the gap before the
+// pickup shows (fix-G report, concern 1). A success says the pump was started, not
+// that a read shows it yet; until one does, nothing is in flight by state. So
+// Begin/Resume stay "Construction running…" until a read requested after the
+// success shows work in flight, or 60s pass with no sign of it. (Until B1's
+// server-side "pump open" read.)
+//
+// SAFETY: as above. The dispatch is answered 200 in the browser; nothing is sent.
+// ---------------------------------------------------------------------------
+
+/** Wait until the success has SETTLED: its refresh read and one more are served. */
+async function awaitSettledSuccess(h: Harness): Promise<void> {
+  await expect.poll(() => h.trapped.length).toBe(1);
+  const at = h.served.length;
+  await expect
+    .poll(() => h.served.length, { timeout: 10_000, message: 'reads after the answer' })
+    .toBeGreaterThan(at + 1);
+}
+
+/**
+ * Serve `fn` as the read's edit, and wait until a read CARRYING it has been served.
+ * Reads land every ~2.5-3s (the 1.5s poll plus the fetch), so a case that swapped
+ * its edits faster than that could replace the pickup before any read showed it,
+ * and never exercise the pickup at all (measured while pinning fix H).
+ */
+async function serveEdit(h: Harness, fn: (wire: WireProject) => void): Promise<void> {
+  h.edit.fn = fn;
+  await expect
+    .poll(() => h.servedEdits.includes(fn), {
+      timeout: 10_000,
+      message: 'a read carrying the edit',
+    })
+    .toBe(true);
+}
+
+test('a success, then a gap before the pickup: the button reads running throughout, and past the pickup', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  // The answer's refresh and the polls after it read NOTHING in flight: the gap.
+  // Nothing is pending by now, and the state shows no work, so only the hold says
+  // "running". It used to be an enabled "Begin construction" here.
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 3_000);
+
+  // 32s into the gap: past the watchdog's 30s. Still held, and still reading fast.
+  await page.clock.fastForward(32_000);
+  await expectRunning(page, 1_500);
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 6_000, message: 'reads during the gap' })
+    .toBeGreaterThan(before + 1);
+
+  // The pickup shows. Running still, now by state: the pickup ended the hold.
+  await serveEdit(h, inConstruction(PICKED));
+  await expectRunning(page, 2_000);
+
+  // The work ends, still inside the success's 60s: nothing in flight, and no hold
+  // standing, because the pickup already ended it. Resume at once, not at 60s.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success whose pickup never shows holds Begin for 60s, then gives it back', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 1_500);
+
+  // The clock keeps real time between jumps, so the jumps leave margin: 50s here
+  // (plus the few real seconds above) is short of 60s, and 12s more is past it.
+  await page.clock.fastForward(50_000);
+  await expectRunning(page, 1_500);
+  // Past 60s since the success, with no read showing the pickup: the hold runs out.
+  await page.clock.fastForward(12_000);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  // A success is not a failure: nothing to alert about.
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a trip to /design and back during the gap keeps the hold, and its 60s still run from the success', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  // Settled before leaving: nothing is pending on return, and the state shows
+  // nothing in flight, so only the success in module memory can hold Begin.
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 1_000);
+
+  await markDocument(page);
+  await awayToDesign(page);
+  await page.clock.fastForward(20_000);
+  await backToConsole(page);
+  await expectSameDocument(page);
+
+  await expectRunning(page, 1_500);
+  // The remounted console polls for the pickup.
+  const back = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads after the remount' })
+    .toBeGreaterThan(back + 1);
+
+  // 20s away + 42s here: past 60s from the SUCCESS, not from the remount.
+  await page.clock.fastForward(42_000);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success picked up and finished well inside 60s gives Resume back with the next read, not at 60s', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  await awaitSettledSuccess(h);
+
+  // The pickup shows: the hold has done its job, and the state decides from here.
+  await serveEdit(h, inConstruction(PICKED));
+  await expectRunning(page, 1_500);
+
+  // The work ends seconds after the success, far inside its 60s. Nothing is in
+  // flight, and the pickup already ended the hold (its record left memory), so
+  // Resume comes back with the next read. Kept, the record would hold it to 60s.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
 test('with no dispatch at all, an activity in review reads as running, past 30s, until it leaves review', async ({
   page,
 }) => {
@@ -1178,4 +1337,141 @@ test('with no dispatch at all, an activity in review reads as running, past 30s,
   await expect(begin).toHaveText(/Begin construction/, { timeout: 12_000 });
   await expect(begin).toBeEnabled();
   expect(h.trapped).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Fix-G review I1: evidence must be something that CHANGED after the dispatch. On
+// a project already started, constructionStarted was true before a Resume, so a
+// read saying so proves nothing about it. A Resume answered 500 used to be
+// "evidenced" by the next read: its alert wiped, and Resume offered again 4.4s
+// after the 500, beside a pump that may be running.
+//
+// SAFETY: as above. The dispatch is answered 500 in the browser; reads go to the
+// server as GETs, edited in the browser to read as a project already started.
+// ---------------------------------------------------------------------------
+
+/** Every read says construction has started: a project already run. */
+function alreadyStarted(wire: WireProject): void {
+  wire.constructionStarted = true;
+}
+
+async function openStartedConsole(page: Page): Promise<void> {
+  await gotoApp(page, '/project/archistrator/construction?lens=list');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+}
+
+test('I1: on a project already started, a Resume answered 500 stays held, with its alert, until work shows in flight', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  h.edit.fn = alreadyStarted;
+  await openStartedConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // Reads keep arriving, and every one says constructionStarted. None is evidence:
+  // sampled well past the 4.4s the review measured.
+  const before = h.served.length;
+  await expectBeginHeldOff(page, 6_000);
+  expect(h.served.length, 'reads after the failure').toBeGreaterThan(before + 1);
+  await expect(alert).toBeVisible();
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await expect(alert).toContainText(UNKNOWN_HEADLINE);
+  await page.clock.fastForward(40_000);
+  await expectBeginHeldOff(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+
+  // Work shows in flight: that changed after the dispatch.
+  h.edit.fn = (wire) => {
+    alreadyStarted(wire);
+    inConstruction(PICKED)(wire);
+  };
+  await expect(alert).toHaveAttribute('data-hold', 'evidenced', { timeout: 10_000 });
+  await expectRunning(page, 1_500);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('I1: on a project already started, with nothing changing, a Resume 500 holds for 60s, then asks again', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SERVER_500));
+  h.edit.fn = alreadyStarted;
+  await openStartedConsole(page);
+  await dispatchOnce(page);
+  const alert = page.getByTestId(TESTID.constructionBeginError);
+  await expect(alert).toHaveAttribute('data-hold', 'held', { timeout: 10_000 });
+
+  // The clock keeps real time between jumps: 50s here is short of 60s, 12s more past it.
+  await page.clock.fastForward(50_000);
+  await expectBeginHeldOff(page, 1_500);
+  await expect(alert).toHaveAttribute('data-hold', 'held');
+  await page.clock.fastForward(12_000);
+  await expect(alert).toHaveAttribute('data-hold', 'expired', { timeout: 10_000 });
+  await expect(alert).toContainText('No sign the pump started. Begin again?');
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Fix-G review M3: an in-app switch to a second project reused the console's
+// component, and its Begin in-flight ref and cascade carried over. With a dispatch
+// still pending on the first project, the second's enabled Begin did nothing and
+// said nothing. The console is now keyed by project.
+//
+// SAFETY: as above. Both dispatches are answered in the browser (the first held,
+// then aborted at teardown; the second aborted). The second project is the first's
+// real read, served in the browser at another id; nothing is written.
+// ---------------------------------------------------------------------------
+
+const SECOND_PROJECT = 'uitest-second-console';
+
+test('M3: switching in-app to a second project gives it its own Begin, even with a dispatch pending on the first', async ({
+  page,
+  dispatchGuard,
+}) => {
+  const hold = dispatchGuard.hold();
+  const dispatched: string[] = [];
+  await page.route('**/execute-next-activity/**', async (route) => {
+    dispatched.push(new URL(route.request().url()).pathname);
+    if (dispatched.length === 1) return hold.handle(route, () => route.fulfill(SUCCESS));
+    await route.abort();
+  });
+  // The second project reads as the first, under its own id.
+  await page.route(`**/system-design/get-project/${SECOND_PROJECT}**`, async (route) => {
+    try {
+      const url = route.request().url().replace(SECOND_PROJECT, 'archistrator');
+      await route.fulfill({ response: await route.fetch({ url }) });
+    } catch (err) {
+      if (page.isClosed() || /has been closed/.test(String(err))) return;
+      throw err;
+    }
+  });
+
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => dispatched.length).toBe(1);
+  await expectRunning(page, 1_000);
+
+  // In-app to the second project's console: the same route, another id.
+  await page.evaluate((to) => {
+    window.history.pushState(null, '', to);
+    window.dispatchEvent(new PopStateEvent('popstate', { state: null }));
+  }, `/project/${SECOND_PROJECT}/construction?lens=list`);
+  await expect(page).toHaveURL(new RegExp(`/project/${SECOND_PROJECT}/construction`));
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+
+  // Its Begin dispatches for IT: the first project's pending dispatch does not
+  // swallow it.
+  await dispatchOnce(page);
+  await expect.poll(() => dispatched.length, { message: 'the second project dispatched' }).toBe(2);
+  expect(dispatched[1]).toContain(`/execute-next-activity/${SECOND_PROJECT}`);
 });

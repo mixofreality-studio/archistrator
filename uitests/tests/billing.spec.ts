@@ -13,28 +13,36 @@
  *
  * Pure-UI: static content, no backend call at all — needs only the SPA + a
  * Postgres-backed dev server (for the session gate).
+ *
+ * SAFETY (fix-G review ruling): runs under the shared dispatch guard, over a
+ * project faked in the browser (openStubbedProject). It creates nothing. It used
+ * to open the run's shared project, and in CI, as the first spec to ask on an
+ * empty catalog, it was the one that created it.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer, gotoApp } from './support/gating.js';
-import { openSharedProject } from './support/flows.js';
+import { openStubbedProject } from './support/flows.js';
 import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
+
+/** The project faked in the browser for this spec. */
+const PROJECT_ID = 'uitest-billing-stub';
 
 test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
 });
 
-test('Billing renders the honest "backend not yet provisioned" pending state', async ({ page }) => {
+test('Billing renders the honest "backend not yet provisioned" pending state', async ({
+  page,
+  dispatchGuard,
+}) => {
   tagUseCase('bill-the-user-for-usage');
 
-  await openSharedProject(page);
-  const projectIdMatch = /\/project\/([^/]+)\/home$/.exec(page.url());
-  const projectId = projectIdMatch?.[1];
-  expect(projectId, 'expected openSharedProject to land on /project/$id/home').toBeDefined();
+  await openStubbedProject(page, PROJECT_ID, 'Billing Stub Project');
 
-  await gotoApp(page, `/project/${String(projectId)}/billing`);
+  await gotoApp(page, `/project/${PROJECT_ID}/billing`);
   await expect(page.getByTestId(TESTID.billingRoot)).toBeVisible();
   await expect(page.getByTestId(TESTID.billingPendingState)).toBeVisible();
   await expect(page.getByTestId(TESTID.billingPendingState)).toContainText(
@@ -43,4 +51,5 @@ test('Billing renders the honest "backend not yet provisioned" pending state', a
 
   await page.getByTestId(TESTID.billingHomeLink).click();
   await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+  expect(dispatchGuard.blocked).toEqual([]);
 });

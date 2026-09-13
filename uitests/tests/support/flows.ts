@@ -6,6 +6,7 @@
 import { expect, type Page } from '@playwright/test';
 import { TESTID } from './testids.js';
 import { gotoApp } from './gating.js';
+import { stubCreatedProject } from './designStubs.js';
 
 /**
  * createProjectFromLanding opens `/`, creates a uniquely-named project via the
@@ -18,24 +19,26 @@ import { gotoApp } from './gating.js';
  * any starting catalog.
  */
 /**
- * openSharedProject gives a spec THE project for this test run.
+ * openSharedProject opens THE real project for this test run. It NEVER creates one
+ * (fix-G review ruling): the seed step, tests/seed/shared-project.setup.ts, is the
+ * one place in this suite that may create a project, and it runs before every
+ * spec (playwright.config's `seed-shared-project` project). Only the
+ * live-drafting specs need a real project, so the seed runs only with
+ * UITESTS_LIVE_DRAFTING on; every other spec opens a project faked in the browser
+ * (openStubbedProject) and creates nothing.
  *
  * ONE PROJECT.JSON PER RUN (founder ruling 2026-08-14). A project's identity is
  * its repository: the local git substrate holds exactly one project.json per
  * repo, and `guardProjectIdentity` refuses a second project's write into a repo
  * another project already claimed. uitests.yml points the server at ONE bare
  * repo, so a suite where every spec created its own project could only ever have
- * its FIRST creation succeed — which is exactly what happened: ten specs failed
- * with "identity mismatch" on every main commit for a week while the two specs
- * that create nothing kept passing. The guard is right; creating N projects
- * against one repo was wrong. A new project means a new folder — and for this
+ * its FIRST creation succeed. A new project means a new folder — and for this
  * suite, the new folder arrives with the next run.
  *
- * The create FLOW is still exercised once per run, by whichever spec asks first
- * (this function's create path asserts the dialog, the home base, and the URL
- * shape). Later callers navigate to the project already made. The catalog is
- * re-read rather than trusting cached module state, so a worker restart or a
- * retry adopts the existing project instead of trying to create a second one.
+ * It used to create the project itself when the catalog was empty, so whichever
+ * spec asked first created it as a side effect, and any spec could create one
+ * against a writable server. The catalog is re-read rather than trusting cached
+ * module state, so a worker restart or a retry finds the seeded project again.
  */
 export async function openSharedProject(page: Page): Promise<void> {
   if (sharedProjectURL !== undefined) {
@@ -47,16 +50,31 @@ export async function openSharedProject(page: Page): Promise<void> {
   await gotoApp(page, '/');
   await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
   const existing = page.getByTestId(/^project-card-/);
-  if ((await existing.count()) > 0) {
-    await existing.first().click();
-    await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
-    await expect(page).toHaveURL(/\/project\/[^/]+\/home$/);
-    sharedProjectURL = page.url();
-    return;
-  }
-
-  await createProjectFromLanding(page);
+  await expect(
+    existing.first(),
+    'no project to open: the seed step (tests/seed/shared-project.setup.ts) makes the run’s one real project, with UITESTS_LIVE_DRAFTING on; this flow never creates one'
+  ).toBeVisible();
+  await existing.first().click();
+  await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+  await expect(page).toHaveURL(/\/project\/[^/]+\/home$/);
   sharedProjectURL = page.url();
+}
+
+/**
+ * openStubbedProject opens a project faked in the browser (stubCreatedProject) on
+ * its home base: a fresh Phase-0 project with no design session, whose catalog row
+ * rides on the real catalog read. Nothing is created. Pair it with the shared
+ * dispatch guard. Returns the number of creates the stub answered.
+ */
+export async function openStubbedProject(
+  page: Page,
+  projectId: string,
+  name: string
+): Promise<{ creates: number }> {
+  const created = await stubCreatedProject(page, projectId, name);
+  await gotoApp(page, `/project/${projectId}/home`);
+  await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+  return created;
 }
 
 /** The run's single project home-base URL, memoized after the first open. */

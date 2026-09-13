@@ -7,17 +7,23 @@
  * (Owns / Does-NOT / Reviewed-by / chapter) with a secondary "View full prompt"
  * disclosure. Reached from the project-scoped AppShell's Team nav link.
  *
- * Pure-UI: a freshly created project mounts the shell + this static roster from
- * head-state with no draft, so this needs only the SPA + a Postgres-backed dev
- * server — NO Temporal/worker/model. It self-skips when that server is unreachable,
- * exactly like homebase.spec.
+ * Pure-UI: a fresh project mounts the shell + this static roster from head-state
+ * with no draft, so this needs only the SPA + a Postgres-backed dev server — NO
+ * Temporal/worker/model. It self-skips when that server is unreachable, exactly
+ * like homebase.spec.
+ *
+ * SAFETY (fix-G review ruling): runs under the shared dispatch guard, over a
+ * project faked in the browser (openStubbedProject). It creates nothing.
  */
-import { test, expect } from '@playwright/test';
+import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { skipUnlessServer } from './support/gating.js';
-import { openSharedProject } from './support/flows.js';
+import { openStubbedProject } from './support/flows.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
+
+/** The project faked in the browser for this spec. */
+const PROJECT_ID = 'uitest-team-stub';
 
 // One representative role per Method phase group, so the assertion fails if a whole
 // section of the roster goes missing (System Design / Construction / Quality).
@@ -27,9 +33,11 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessServer(request, BASE);
 });
 
-test('the Team nav opens the Method-roles roster with role cards', async ({ page }) => {
-  await openSharedProject(page);
-  await expect(page.getByTestId(TESTID.homeBaseScreen)).toBeVisible();
+test('the Team nav opens the Method-roles roster with role cards', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await openStubbedProject(page, PROJECT_ID, 'Team Stub Project');
 
   await page.getByTestId(TESTID.teamNav).click();
 
@@ -39,10 +47,14 @@ test('the Team nav opens the Method-roles roster with role cards', async ({ page
   for (const id of SAMPLE_ROLE_IDS) {
     await expect(page.getByTestId(TESTID.teamRoleCard(id))).toBeVisible();
   }
+  expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('a role card opens its charter with the full-prompt disclosure', async ({ page }) => {
-  await openSharedProject(page);
+test('a role card opens its charter with the full-prompt disclosure', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await openStubbedProject(page, PROJECT_ID, 'Team Stub Project');
   await page.getByTestId(TESTID.teamNav).click();
   await expect(page.getByTestId(TESTID.teamScreen)).toBeVisible();
 
@@ -57,4 +69,5 @@ test('a role card opens its charter with the full-prompt disclosure', async ({ p
 
   await page.getByTestId(TESTID.teamCharterClose).click();
   await expect(drawer).toBeHidden();
+  expect(dispatchGuard.blocked).toEqual([]);
 });

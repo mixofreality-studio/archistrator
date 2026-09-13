@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"errors"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -9265,5 +9267,128 @@ func TestGitStore_ListProjects_SkipsAnUnreadableProject(t *testing.T) {
 	}
 	if strings.Contains(out, "projectID="+string(good)) {
 		t.Errorf("a project that read cleanly must not be logged; got:\n%s", out)
+	}
+}
+
+// refusingRemote serves a git-HTTP remote that refuses every credential with a 401,
+// the way GitHub answers an expired or revoked installation token.
+func refusingRemote(t *testing.T) *fwgithub.GitStore {
+	t.Helper()
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("WWW-Authenticate", `Basic realm="GitHub"`)
+		http.Error(w, "Bad credentials", http.StatusUnauthorized)
+	}))
+	t.Cleanup(srv.Close)
+	gs, err := fwgithub.NewGitStore(srv.URL+"/owner/repo.git", "main")
+	if err != nil {
+		t.Fatalf("NewGitStore(refusing): %v", err)
+	}
+	return gs
+}
+
+// TestGitStore_ListProjects_FailsWhenEveryProjectRefusesTheCredential (fix-G review
+// ruling): the listing reads every project with ONE credential. When every project
+// refuses it, the credential is at fault, not a project, and the call fails with an
+// Auth error. Skipping each with a warning would blank the landing grid with no
+// error at all.
+func TestGitStore_ListProjects_FailsWhenEveryProjectRefusesTheCredential(t *testing.T) {
+	a, b := ProjectID(uuid.NewString()), ProjectID(uuid.NewString())
+	repos := map[ProjectID]*fwgithub.GitStore{a: refusingRemote(t), b: refusingRemote(t)}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, false)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: a, Title: "A"},
+		{ProjectID: b, Title: "B"},
+	}})
+
+	summaries, err := store.ListProjects(context.Background(), "alice", RepoCredential{Bytes: []byte("expired-token")})
+	if err == nil {
+		t.Fatalf("a credential every project refuses must fail the list; got %+v", summaries)
+	}
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.Auth {
+		t.Fatalf("want a fwra Auth error, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "refused for all 2") {
+		t.Errorf("the error must say the credential was refused for every project; got %v", err)
+	}
+	if summaries != nil {
+		t.Errorf("a failed list returns no rows; got %+v", summaries)
+	}
+}
+
+// TestGitStore_ListProjects_SkipsAProjectThatRefusesTheCredential_BesideOnesItReads:
+// an auth refusal on SOME projects, while the same credential reads the others, is
+// those projects' fault (a repo outside the grant, say). Each is skipped with a
+// warning and the rest are listed, exactly like any other per-project read fault.
+func TestGitStore_ListProjects_SkipsAProjectThatRefusesTheCredential_BesideOnesItReads(t *testing.T) {
+	refusing, good := ProjectID("refusing-"+uuid.NewString()), ProjectID(uuid.NewString())
+	goodRepo := gh.StartLocalGitRepo(t, "main")
+	goodStore, err := fwgithub.NewGitStore(goodRepo.URL, "main")
+	if err != nil {
+		t.Fatalf("NewGitStore(good): %v", err)
+	}
+	repos := map[ProjectID]*fwgithub.GitStore{refusing: refusingRemote(t), good: goodStore}
+	ctx := context.Background()
+	// The readable project is created through a LOCAL store over the same repo.
+	local, err := NewGitStore(multiRepoLocator{repos: repos}, true)
+	if err != nil {
+		t.Fatalf("NewGitStore(local): %v", err)
+	}
+	if _, err := local.CreateProject(ctx, good, "alice", "Good", LocalRepoCredential(), "wf:good"); err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: repos}, false)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{
+		{ProjectID: refusing, Title: "Refusing"},
+		{ProjectID: good, Title: "Good"},
+	}})
+	logs := captureSlog(t)
+
+	summaries, err := store.ListProjects(ctx, "alice", RepoCredential{Bytes: []byte("installation-token")})
+	if err != nil {
+		t.Fatalf("one project refusing the credential must not fail the list: %v", err)
+	}
+	if len(summaries) != 1 || summaries[0].ProjectID != good {
+		t.Fatalf("ListProjects = %+v, want exactly the readable project %s", summaries, good)
+	}
+	out := logs.String()
+	for _, want := range []string{
+		`level=WARN msg="projectstate.ListProjects: skipping a project that could not be read"`,
+		"projectID=" + string(refusing),
+		"auth failed",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the log must say %q; got:\n%s", want, out)
+		}
+	}
+}
+
+// TestGitStore_ListProjects_FailsOnACredentialThatCannotAuthenticate: a cloud listing
+// handed an empty credential cannot read any project, so it fails the call before
+// reading one. It used to be refused per project, and every project was skipped: an
+// empty grid and no error.
+func TestGitStore_ListProjects_FailsOnACredentialThatCannotAuthenticate(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	repo := gh.StartLocalGitRepo(t, "main")
+	gs, err := fwgithub.NewGitStore(repo.URL, "main")
+	if err != nil {
+		t.Fatalf("NewGitStore: %v", err)
+	}
+	store, err := NewGitStore(multiRepoLocator{repos: map[ProjectID]*fwgithub.GitStore{id: gs}}, false)
+	if err != nil {
+		t.Fatalf("NewGitStore(RA): %v", err)
+	}
+	store = store.WithCatalog(fixedCatalog{refs: []ProjectCatalogRef{{ProjectID: id, Title: "One"}}})
+
+	summaries, err := store.ListProjects(context.Background(), "alice", RepoCredential{})
+	var e *fwra.Error
+	if !errors.As(err, &e) || e.Kind != fwra.ContractMisuse {
+		t.Fatalf("an empty cloud credential must fail the list with ContractMisuse; got %+v, %v", summaries, err)
 	}
 }

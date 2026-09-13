@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import type { ConstructionRow } from '../../../contracts/types';
 import {
   anyRowInFlight,
+  awaitingPickup,
   beginControlFor,
   beginHoldFor,
   beginRunning,
@@ -16,6 +17,7 @@ import {
   IN_FLIGHT_POLL_MS,
   newestLiveSession,
   notStartedActivities,
+  pickupEvidencedSince,
   pumpEvidencedSince,
   UNKNOWN_OUTCOME_HOLD_MS,
 } from './beginControl.ts';
@@ -133,9 +135,11 @@ void test('the unknown copy is the ruling verbatim and never invites a retry; th
 // read alone no longer lifts it.
 // ---------------------------------------------------------------------------
 
+// A Begin on a project not yet started: the read at the failure said `false`.
 const NO_READS = {
   projectRequestedAt: 0,
   constructionStarted: undefined,
+  startedAtFailure: false,
   rowsInFlight: false,
   sessionRequestedAt: 0,
   sessionStage: undefined,
@@ -221,6 +225,104 @@ void test('only reads NEWER than the failure count as evidence', () => {
     }),
     false,
     'a session probe from the same instant is not newer'
+  );
+});
+
+void test('I1 (fix-G review): constructionStarted is evidence only if it was false when the dispatch failed', () => {
+  const startedRead = { ...NO_READS, projectRequestedAt: 5000, constructionStarted: true };
+  assert.equal(
+    pumpEvidencedSince(1000, { ...startedRead, startedAtFailure: false }),
+    true,
+    'a Begin: not started at the failure, started since'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...startedRead, startedAtFailure: true }),
+    false,
+    'a Resume: already started before the dispatch, so it proves nothing'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, { ...startedRead, startedAtFailure: undefined }),
+    false,
+    'no read at the failure: nothing to have changed from'
+  );
+  // On a project already started, what changed after the dispatch still counts.
+  assert.equal(
+    pumpEvidencedSince(1000, { ...startedRead, startedAtFailure: true, rowsInFlight: true }),
+    true,
+    'work in flight'
+  );
+  assert.equal(
+    pumpEvidencedSince(1000, {
+      ...NO_READS,
+      startedAtFailure: true,
+      sessionRequestedAt: 5000,
+      sessionStage: 'pipelineRunning',
+    }),
+    true,
+    'a live session'
+  );
+});
+
+// ---------------------------------------------------------------------------
+// After a SUCCESS: the pickup hold (fix H).
+// ---------------------------------------------------------------------------
+
+void test('pickup evidence: a newer read showing work in flight, or a newer live session; never constructionStarted alone', () => {
+  assert.equal(
+    pickupEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1001, rowsInFlight: true }),
+    true
+  );
+  assert.equal(
+    pickupEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 1001,
+      sessionStage: 'pipelineRunning',
+    }),
+    true
+  );
+  assert.equal(
+    pickupEvidencedSince(1000, { ...NO_READS, projectRequestedAt: 1000, rowsInFlight: true }),
+    false,
+    'a read from the same instant is not newer'
+  );
+  assert.equal(
+    pickupEvidencedSince(1000, {
+      ...NO_READS,
+      sessionRequestedAt: 999,
+      sessionStage: 'pipelineRunning',
+    }),
+    false,
+    'a session seen before the success'
+  );
+  assert.equal(
+    pickupEvidencedSince(1000, { ...NO_READS, sessionRequestedAt: 1001, sessionStage: 'exited' }),
+    false,
+    'an exited session is no pump'
+  );
+  // A Resume's read already said constructionStarted before the dispatch: it is
+  // not the pickup. Pump evidence after a FAILURE still counts it.
+  const startedOnly = { ...NO_READS, projectRequestedAt: 5000, constructionStarted: true };
+  assert.equal(pickupEvidencedSince(1000, startedOnly), false);
+  assert.equal(pumpEvidencedSince(1000, startedOnly), true);
+});
+
+void test('a success awaits its pickup until a newer read shows it; no record, no hold', () => {
+  assert.equal(awaitingPickup(null, NO_READS), false, 'nothing dispatched');
+  assert.equal(awaitingPickup({ at: 1000 }, NO_READS), true, 'no read since');
+  assert.equal(
+    awaitingPickup({ at: 1000 }, { ...NO_READS, projectRequestedAt: 2000, rowsInFlight: false }),
+    true,
+    'a newer read with nothing in flight: the gap before the pickup'
+  );
+  assert.equal(
+    awaitingPickup({ at: 1000 }, { ...NO_READS, projectRequestedAt: 900, rowsInFlight: true }),
+    true,
+    'work seen in flight BEFORE the success is not its pickup'
+  );
+  assert.equal(
+    awaitingPickup({ at: 1000 }, { ...NO_READS, projectRequestedAt: 2000, rowsInFlight: true }),
+    false,
+    'picked up'
   );
 });
 
@@ -350,10 +452,13 @@ void test('the newest-requested LIVE session among the probes, or none', () => {
   );
 });
 
-void test('running is a pending dispatch or work in flight by state, and nothing else', () => {
-  assert.equal(beginRunning({ pending: true, inFlight: false }), true, 'pending');
-  assert.equal(beginRunning({ pending: false, inFlight: true }), true, 'in flight by state');
-  assert.equal(beginRunning({ pending: false, inFlight: false }), false, 'idle: the read decides');
+void test('running is a pending dispatch, work in flight by state, or an awaited pickup, and nothing else', () => {
+  const run = (pending: boolean, inFlight: boolean, awaitingPickup: boolean): boolean =>
+    beginRunning({ pending, inFlight, awaitingPickup });
+  assert.equal(run(true, false, false), true, 'pending');
+  assert.equal(run(false, true, false), true, 'in flight by state');
+  assert.equal(run(false, false, true), true, 'a success still awaiting its pickup');
+  assert.equal(run(false, false, false), false, 'idle: the read decides');
   // A running control is disabled and never claims Begin or Resume, whatever the
   // project read or the hold says.
   for (const awaitingPump of [true, false]) {

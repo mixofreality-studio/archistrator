@@ -19,7 +19,12 @@ import { apiClient } from '../api/client';
 // with `error: undefined` (throwUnlessOk, fix-D review I2).
 import { ApiError, throwUnlessOk } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
-import type { OverrideKind, PhaseDecision, ReviewPreset } from '../contracts/types';
+import type {
+  OverrideKind,
+  PhaseDecision,
+  ProjectStateWithGit,
+  ReviewPreset,
+} from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
 import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
@@ -53,12 +58,21 @@ export function useBeginConstruction(
     /**
      * Runs at the MUTATION level, so it still runs when the answer lands after the
      * console unmounted (a callback passed to `mutate` would not). The console
-     * records the failure in module memory from here (fix-E review I2).
+     * records the failure in module memory from here (fix-E review I2), with what
+     * the project read on screen said at that moment (fix-G review I1): only a
+     * change from "not started" can count as pump evidence.
      */
-    onError?: (error: Error) => void;
+    onError?: (error: Error, atFailure: { constructionStarted: boolean | undefined }) => void;
+    /**
+     * Runs at the MUTATION level too, for the same reason, and BEFORE the refresh
+     * is requested: the console records the success in module memory from here,
+     * and only a read requested after that record may count as the pickup (fix H).
+     */
+    onSuccess?: () => void;
   }
 ): UseMutationResult<undefined, Error, string> {
   const onFailure = options?.onError;
+  const onDispatched = options?.onSuccess;
   const client = useQueryClient();
   // Refresh the project read so the just-dispatched activity (flipping to
   // in-construction) shows up; the console's cascade poll keeps it fresh. The
@@ -80,13 +94,17 @@ export function useBeginConstruction(
       throwUnlessOk(response, error);
       return undefined;
     },
-    onSuccess: refresh,
+    onSuccess: async () => {
+      onDispatched?.();
+      await refresh();
+    },
     // A FAILED dispatch refreshes exactly as a successful one does (fix-C review):
     // the server starts the pump before it answers and can still answer 5xx after
     // that, or the response can be dropped on the way. Only a fresh read can say
     // whether construction started, so the console never guesses from the error.
     onError: async (error) => {
-      onFailure?.(error);
+      const shown = client.getQueryData<ProjectStateWithGit>(projectKey(projectId));
+      onFailure?.(error, { constructionStarted: shown?.constructionStarted });
       await refresh();
     },
   });

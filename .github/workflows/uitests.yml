@@ -184,6 +184,14 @@ jobs:
         working-directory: uitests
         run: npm ci
 
+      # Playwright transpiles each spec without type-checking it, so nothing else
+      # catches a type error in uitests: a merge shipped some unnoticed. tsc follows
+      # the published testid table into webApp, so its dependencies are installed
+      # above first.
+      - name: Typecheck uitests
+        working-directory: uitests
+        run: npm run typecheck
+
       - name: Install Playwright browsers
         working-directory: uitests
         run: npx playwright install --with-deps chromium
