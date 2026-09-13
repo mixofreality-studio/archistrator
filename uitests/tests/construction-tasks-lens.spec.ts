@@ -463,6 +463,11 @@ test('[Review] opens the pane on the gate task, awaiting you; send back needs a 
   const sendBack = page.getByTestId(TESTID.constructionDetailAction('sendBack'));
   await expect(sendBack).toBeEnabled();
   await sendBack.click();
+  // Told before sending: the note rides the decision, but the redraft does not read
+  // it yet (designer P0-1; delivery is follow-up B1).
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionCaption)).toHaveText(
+    'Your note goes with the decision, but this redraft does not read it yet — the agent re-runs Detailed Design from its original brief.'
+  );
   const send = page.getByTestId(TESTID.constructionDetailDecisionSendBack);
   await expect(send).toBeDisabled();
   await page.getByTestId(TESTID.constructionDetailDecisionNote).fill('   ');
@@ -474,10 +479,18 @@ test('[Review] opens the pane on the gate task, awaiting you; send back needs a 
   expect(sent[0]?.['phase']).toBe('detailed_design');
   expect(JSON.stringify(sent[0]?.['feedback'])).toContain('The ops list drops refund.');
   await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText(
-    'Sent back',
-    {
-      timeout: 10_000,
-    }
+    'Sent back — re-running Detailed Design (your note was not delivered)',
+    { timeout: 10_000 }
+  );
+  // The lingering row reads SENT BACK, not RESUMED (designer P2); the pane says what
+  // was decided and when (P1-4).
+  const row = page.getByTestId(TESTID.constructionTasksRow(GATE_KEY));
+  await expect(row).toHaveAttribute('data-lingering', 'true');
+  await expect(row).toContainText('Sent back');
+  await expect(row).not.toContainText('Resumed');
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/^sent back$/i);
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionLead)).toContainText(
+    'You sent back this at'
   );
 });
 
@@ -522,6 +535,13 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toContainText('Resumed');
   await expect(page.getByTestId(TESTID.constructionTasksHeadline)).toContainText('2 decisions');
   await expect(page.getByTestId(TESTID.constructionDetailDecisionFlow)).toContainText('Resumed');
+  // The pane says what was decided, and that the ledger does not hold it yet (P1-4).
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(
+    /^decided · approved$/i
+  );
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionLead)).toContainText(
+    'gate decisions are not yet written to the task ledger'
+  );
   // Nothing is owed on this selection any more, so the decision actions are gone
   // (Stage B: they appear only where a decision is owed); Run stays.
   await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);

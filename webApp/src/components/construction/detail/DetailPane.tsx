@@ -119,6 +119,9 @@ import {
   sendBackReady,
   type FlowNote,
   type PaneDecision,
+  decidedChipLabel,
+  decisionLeadFor,
+  sendBackCaptionFor,
 } from '../tasks/decisionFlow.ts';
 import { REVIEW_ONLY_NOTE, owedStateFor, reviewOnlyFor, type OwedMark } from '../tasks/owedChip.ts';
 
@@ -319,7 +322,12 @@ export function DetailPane({
           ),
     [reviewOnly, state, row, selection, decisionLive, decision]
   );
-  const stateLabel = owedChip?.label;
+  // After a decision, while its record lives, the chip says what was decided
+  // (designer P1-4): "Decided · approved" / "Sent back".
+  const decided = decisionApplies ? decision.decided : undefined;
+  const stateLabel = decided !== undefined ? decidedChipLabel(decided.decision) : owedChip?.label;
+  const chipState: TaskDetailState =
+    decided !== undefined ? (decided.decision === 'approve' ? 'passed' : 'running') : state;
   const owedReason = reviewOnly ? owed?.sentence : undefined;
   // The send-back composer, open for one activity at a time — keyed by the
   // activity rather than reset in an effect, so selecting elsewhere closes it.
@@ -375,6 +383,7 @@ export function DetailPane({
         composing ? (
           <SendBackComposer
             anchoredCount={decision.anchoredCount}
+            caption={sendBackCaptionFor(decision.lifecyclePhase)}
             note={sendBackNote}
             t={t}
             onCancel={() => {
@@ -401,6 +410,14 @@ export function DetailPane({
       {/* Invariant across every body — provenance is an ORTHOGONAL axis, so
           which body is showing must never change whether the reader is told how
           the record came to exist. */}
+      {decided !== undefined ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_DECISION_LEAD}
+          sx={{ fontFamily: t.body, fontSize: 12.5, fontWeight: 600, color: t.ink, mb: 1.25 }}
+        >
+          {decisionLeadFor(decided)}
+        </Typography>
+      ) : null}
       <ProvenanceNote evidence={evidence} reading={provenance} />
       <DetailBody
         activityTitle={activityTitle}
@@ -422,6 +439,7 @@ export function DetailPane({
       actionBar={actionBar}
       body={body}
       breadcrumb={breadcrumb}
+      chipState={chipState}
       collapsed={collapsed}
       exitCriterion={meta.exitCriterion}
       hiddenCount={hiddenCount}
@@ -472,6 +490,7 @@ export function DetailPane({
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <DetailHeader
           breadcrumb={breadcrumb}
+          chipState={chipState}
           exitCriterion={meta.exitCriterion}
           hiddenCount={hiddenCount}
           owedReason={owedReason}
@@ -519,6 +538,7 @@ function DetailPaneChrome({
   hiddenCount,
   taskSelected,
   stateLabel,
+  chipState,
   owedReason,
   onClose,
   onToggleCollapsed,
@@ -532,6 +552,7 @@ function DetailPaneChrome({
   breadcrumb: string;
   state: TaskDetailState;
   stateLabel: string | undefined;
+  chipState: TaskDetailState;
   owedReason: string | undefined;
   provenance: ProvenanceReading;
   hiddenCount: number;
@@ -615,6 +636,7 @@ function DetailPaneChrome({
       >
         <DetailHeader
           breadcrumb={breadcrumb}
+          chipState={chipState}
           exitCriterion={exitCriterion}
           hiddenCount={hiddenCount}
           owedReason={owedReason}
@@ -662,12 +684,15 @@ function DetailHeader({
   hiddenCount,
   taskSelected,
   stateLabel,
+  chipState,
   owedReason,
 }: {
   breadcrumb: string;
   state: TaskDetailState;
   /** The owed chip's own word, when the owed set says what is owed here. */
   stateLabel: string | undefined;
+  /** The chip's fill — the state, unless a decision just made says otherwise. */
+  chipState: TaskDetailState;
   /** A steer's or a failure's reason, as a sentence (designer P0-2). */
   owedReason: string | undefined;
   provenance: ProvenanceReading;
@@ -685,7 +710,7 @@ function DetailHeader({
   onCollapse?: () => void;
   onSelectAttempt: (attempt: number) => void;
 }): ReactElement {
-  const fill = taskDetailStateFill(t, state);
+  const fill = taskDetailStateFill(t, chipState);
 
   return (
     <Box
@@ -1105,6 +1130,7 @@ function ActionBar({
 function SendBackComposer({
   note,
   anchoredCount,
+  caption,
   t,
   onChange,
   onSend,
@@ -1112,6 +1138,8 @@ function SendBackComposer({
 }: {
   note: string;
   anchoredCount: number;
+  /** What will and will not happen to the note (designer P0-1). */
+  caption: string;
   t: Tokens;
   onChange: (note: string) => void;
   onSend: () => void;
@@ -1126,6 +1154,12 @@ function SendBackComposer({
           ? `; ${String(anchoredCount)} anchored comment${anchoredCount === 1 ? '' : 's'} ride along`
           : ''}
         .
+      </Typography>
+      <Typography
+        data-testid={UI_IDENTIFIERS.Construction.DETAIL_DECISION_CAPTION}
+        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.awaitingFg, lineHeight: 1.45 }}
+      >
+        {caption}
       </Typography>
       <TextField
         multiline

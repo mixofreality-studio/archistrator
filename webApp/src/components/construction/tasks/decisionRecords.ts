@@ -103,6 +103,7 @@ export function decisionEntriesFrom(
       decision: vars.decision,
       epoch: vars.occurrence.epoch,
       gatedPhase: vars.phase,
+      decidedAt: s.submittedAt,
       ...(sentAt !== undefined ? { sentAt } : {}),
       ...(s.status === 'error' ? { error: errorOf(s.error) } : {}),
     };

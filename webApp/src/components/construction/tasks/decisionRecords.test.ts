@@ -50,6 +50,8 @@ void test('a pending decision is on the wire, with no answer yet', () => {
   assert.equal(e.record.sentAt, undefined);
   assert.equal(e.record.epoch, 1);
   assert.equal(e.record.gatedPhase, 'detailed_design');
+  // When the human decided: the request's own submit time.
+  assert.equal(e.record.decidedAt, 100);
   assert.equal(e.item?.key, 'C-a:gate');
 });
 

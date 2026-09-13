@@ -43,10 +43,12 @@ import { useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useGateOccurrences } from '../hooks/useGateOccurrences';
 import { occurrenceKey } from '../hooks/gateOccurrences';
 import {
+  decidedFor,
   decisionBusy,
   decisionNoteFor,
   decisionViewFor,
   observedGateFor,
+  type DecidedMark,
   type DecisionView,
   type FlowNote,
   type GateDecision,
@@ -568,6 +570,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       ? decisionNoteFor(view, e.record.decision)
       : undefined;
   };
+  // A decision made on a gate, while its record lives — the pane's "Decided ·
+  // approved" chip and its lead line (designer P1-4).
+  const decidedForKey = (key: string): DecidedMark | undefined => {
+    const e = decisionEntries[key];
+    const view = decisionViews[key];
+    return e !== undefined && view !== undefined ? decidedFor(e.record, view) : undefined;
+  };
   // A resumed row lingers in place (spec §6) after the owed set has dropped it —
   // across a remount too: the item it shows rode the decision into the cache.
   const lingering = Object.entries(decisionEntries)
@@ -663,6 +672,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           busy: decisionBusy(decisionViews[selectedGate.key]),
           anchoredCount: toWire().length,
           note: noteForKey(selectedGate.key),
+          decided: decidedForKey(selectedGate.key),
           onApprove: (): void => {
             decideGate(selectedGate, 'approve');
           },
@@ -728,6 +738,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   const tasksContent = (
     <TasksLens
+      decidedOf={(key) => decisionEntries[key]?.record.decision}
       empty={{
         counts: emptyCounts,
         // The header's own Begin/Resume (its label is the server's

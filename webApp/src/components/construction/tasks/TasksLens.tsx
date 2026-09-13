@@ -93,6 +93,9 @@ export interface TasksLensProps {
   gitOf: (activityId: string) => GitRow | undefined;
   /** The decision-in-flight note for a row, if one is showing (Task 5). */
   flowOf?: (key: string) => RowFlowNote | undefined;
+  /** Which decision a lingering row was decided with — a sent-back row reads
+   *  SENT BACK, not RESUMED (designer P2). */
+  decidedOf?: (key: string) => 'approve' | 'sendBack' | undefined;
   empty: {
     counts: EmptyStateCounts;
     /** The header's Begin/Resume, opening the same confirm step. Absent when the
@@ -238,6 +241,7 @@ function OwedTable({
   shapeOf,
   gitOf,
   flowOf,
+  decidedOf,
   lingeringKeys,
   onReview,
   t,
@@ -275,6 +279,7 @@ function OwedTable({
       <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, mt: 1 }}>
         {items.map((item) => (
           <OwedRow
+            decided={decidedOf?.(item.key)}
             flow={flowOf?.(item.key)}
             git={gitOf(item.activityId)}
             item={item}
@@ -306,10 +311,13 @@ function OwedRow({
   selected,
   lingering,
   flow,
+  decided,
   t,
   onReview,
 }: {
   item: RankedOwed;
+  /** How a lingering row was decided. */
+  decided: 'approve' | 'sendBack' | undefined;
   git: GitRow | undefined;
   shape: string;
   selected: boolean;
@@ -370,7 +378,11 @@ function OwedRow({
               whiteSpace: 'nowrap',
             }}
           >
-            {lingering ? 'Resumed' : OWED_CHIP[item.reason].label}
+            {lingering
+              ? decided === 'sendBack'
+                ? 'Sent back'
+                : 'Resumed'
+              : OWED_CHIP[item.reason].label}
           </Box>
           <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
             {item.activityId}

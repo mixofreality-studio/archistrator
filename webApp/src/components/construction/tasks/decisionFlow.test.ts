@@ -12,11 +12,15 @@ import assert from 'node:assert/strict';
 import {
   RESUME_TIMEOUT_MS,
   RESUMED_LINGER_MS,
+  decidedChipLabel,
+  decidedFor,
   decisionBusy,
+  decisionLeadFor,
   decisionNoteFor,
   decisionViewFor,
   observedGateFor,
   paneDecisionApplies,
+  sendBackCaptionFor,
   sendBackReady,
   type DecisionRecord,
   type ObservedGate,
@@ -238,4 +242,43 @@ void test('the pane offers the decision only on the gated activity, phase or gat
     paneDecisionApplies(gate, { activityId: 'C-a', lifecyclePhase: 'construction' }),
     false
   );
+});
+
+void test('a send-back says its note was not delivered — before and after sending (designer P0-1)', () => {
+  assert.equal(
+    sendBackCaptionFor('detailed_design'),
+    'Your note goes with the decision, but this redraft does not read it yet — the agent re-runs Detailed Design from its original brief.'
+  );
+  const view = decisionViewFor(
+    rec({ sentAt: T0, decision: 'sendBack' }),
+    at('pipelineRunning'),
+    T0 + 3_000
+  );
+  assert.deepEqual(decisionNoteFor(view, 'sendBack'), {
+    tone: 'ok',
+    text: 'Sent back — re-running Detailed Design (your note was not delivered)',
+  });
+});
+
+void test('the pane says what was decided while the record lives, and when (designer P1-4)', () => {
+  const r = rec({ sentAt: T0, decidedAt: T0 - 500 });
+  const inFlight = decidedFor(r, decisionViewFor(r, at('awaitingApproval'), T0 + 1_000));
+  assert.deepEqual(inFlight, { decision: 'approve', at: T0 - 500 });
+  assert.ok(decidedFor(r, decisionViewFor(r, at('pipelineRunning'), T0 + 1_000)));
+  // Louder states say their own thing; a retired record says nothing.
+  assert.equal(
+    decidedFor(r, decisionViewFor(r, at('awaitingApproval'), T0 + RESUME_TIMEOUT_MS + 1)),
+    undefined
+  );
+  assert.equal(decidedFor(r, decisionViewFor(r, at('awaitingTakeover'), T0 + 1_000)), undefined);
+  assert.equal(decidedFor(r, { kind: 'done' }), undefined);
+  assert.equal(decidedFor(rec({ sentAt: T0 }), { kind: 'awaitingResume' }), undefined);
+  assert.equal(decidedChipLabel('approve'), 'Decided · approved');
+  assert.equal(decidedChipLabel('sendBack'), 'Sent back');
+  const nine = new Date(2026, 8, 12, 9, 5).getTime();
+  assert.equal(
+    decisionLeadFor({ decision: 'approve', at: nine }),
+    'You approved this at 09:05; gate decisions are not yet written to the task ledger.'
+  );
+  assert.match(decisionLeadFor({ decision: 'sendBack', at: nine }), /^You sent back this at 09:05/);
 });

@@ -55,6 +55,8 @@ export interface DecisionRecord {
   epoch: number;
   /** The lifecycle phase the decision was sent against — what "approved" names. */
   gatedPhase: string;
+  /** When the human decided (the request went out). */
+  decidedAt?: number;
   /** When the server ANSWERED (success, or a failure whose outcome is unknown). */
   sentAt?: number;
   /** The failure, when the request did not come back clean. */
@@ -185,7 +187,15 @@ export function decisionNoteFor(view: DecisionView, decision: GateDecision): Flo
         };
       }
       const gated = phaseName(view.gatedPhase);
-      if (decision === 'sendBack') return { tone: 'ok', text: `Sent back — redrafting ${gated}` };
+      // The server drops the send-back's note today (constructactivity.go never reads
+      // sig.Feedback — designer P0-1); the redraft re-runs from its original brief,
+      // and the row says so rather than implying the agent read it. Follow-up B1.
+      if (decision === 'sendBack') {
+        return {
+          tone: 'ok',
+          text: `Sent back — re-running ${gated} (your note was not delivered)`,
+        };
+      }
       return {
         tone: 'ok',
         text:
@@ -209,6 +219,57 @@ export function decisionNoteFor(view: DecisionView, decision: GateDecision): Flo
     case 'done':
       return undefined;
   }
+}
+
+/**
+ * The send-back composer's caption (designer P0-1): the note is still required —
+ * it rides the decision and is the operator's record of why — but the redraft does
+ * not read it yet, and the operator is told so before sending, not after.
+ */
+export function sendBackCaptionFor(gatedPhase: string): string {
+  return `Your note goes with the decision, but this redraft does not read it yet — the agent re-runs ${phaseName(gatedPhase)} from its original brief.`;
+}
+
+/** What a decision made on this gate says in the pane while its record lives
+ *  (designer P1-4). */
+export interface DecidedMark {
+  decision: GateDecision;
+  /** When the human decided. */
+  at: number;
+}
+
+/**
+ * The decision the pane reports as made: while the record is on the wire, waiting
+ * for its resume, or resumed. Not for "did not land", a failure, an escalation or a
+ * retired record — those say something louder, or nothing.
+ */
+export function decidedFor(record: DecisionRecord, view: DecisionView): DecidedMark | undefined {
+  if (record.decidedAt === undefined) return undefined;
+  const made =
+    view.kind === 'sending' ||
+    view.kind === 'awaitingResume' ||
+    (view.kind === 'resumed' && !view.escalated);
+  return made ? { decision: record.decision, at: record.decidedAt } : undefined;
+}
+
+/** The pane's state chip after a decision: "Decided · approved" / "Sent back". */
+export function decidedChipLabel(decision: GateDecision): string {
+  return decision === 'approve' ? 'Decided · approved' : 'Sent back';
+}
+
+function hhmm(at: number): string {
+  const d = new Date(at);
+  return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
+/**
+ * The pane body's lead line after a decision (designer P1-4): the ledger has no
+ * attempt for the gate yet (no live RecordTaskAttempt writer — Stage A earmark), so
+ * the body would otherwise read "has not run" right under a decision just made.
+ */
+export function decisionLeadFor(decided: DecidedMark): string {
+  const verb = decided.decision === 'approve' ? 'approved' : 'sent back';
+  return `You ${verb} this at ${hhmm(decided.at)}; gate decisions are not yet written to the task ledger.`;
 }
 
 /** Send back carries the human's words into the redraft, so it needs some (spec §6):
@@ -249,6 +310,8 @@ export interface PaneDecision {
   anchoredCount: number;
   /** The decision's current line, if one was made. */
   note?: FlowNote | undefined;
+  /** A decision made on this gate, while its record lives (decidedFor). */
+  decided?: DecidedMark | undefined;
   onApprove: () => void;
   onSendBack: (note: string) => void;
 }
