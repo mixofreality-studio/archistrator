@@ -393,7 +393,7 @@ test('selection and viewport survive a lens round trip', async ({ page, request 
 // The pane, the ribbon, the list-only controls
 // ---------------------------------------------------------------------------
 
-test('a lane opens the shared pane, whose run action is present and enabled', async ({
+test('a lane opens the shared pane, whose run action is present and disabled with its reason', async ({
   page,
   request,
 }) => {
@@ -402,8 +402,13 @@ test('a lane opens the shared pane, whose run action is present and enabled', as
   await openGraph(page);
   await page.getByTestId(TESTID.constructionGraphLane(id)).click();
   await expect(page.getByTestId(TESTID.constructionDetailPane)).toBeVisible();
-  // Present and enabled in every state (§9 AC3) — and never clicked here.
-  await expect(page.getByTestId(TESTID.constructionDetailActionRun)).toBeEnabled();
+  // Present in every state, in every lens's pane (§9.3 AC3), and disabled with its
+  // reason until the console can start work (detailPaneState.RUN_NOT_WIRED_REASON).
+  // The graph shares the list's pane, so it says what the list says.
+  const run = page.getByTestId(TESTID.constructionDetailActionRun);
+  await expect(run).toBeVisible();
+  await expect(run).toBeDisabled();
+  await expect(run).toHaveAttribute('data-reason', /not wired/i);
 });
 
 test('the ribbon shows every milestone and no count over unobserved evidence', async ({
