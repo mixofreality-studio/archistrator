@@ -373,6 +373,18 @@ export const UI_IDENTIFIERS = {
     OVERRIDE_NOTES: 'construction-override-notes',
     OVERRIDE_CONFIRM: 'construction-override-confirm',
     trackerNode: (id: string) => `construction-track-node-${id}`,
+    // Stage D — the GRAPH lens: the architecture layer by layer, each component
+    // card carrying its activity's lifecycle spine (components/construction/graph).
+    GRAPH_CANVAS: 'construction-graph-canvas',
+    GRAPH_RIBBON: 'construction-graph-ribbon',
+    graphMilestone: (id: string) => `construction-graph-milestone-${id}`,
+    GRAPH_KEY: 'construction-graph-key',
+    GRAPH_LAYER_CHECK: 'construction-graph-layer-check',
+    graphCard: (cardId: string) => `construction-graph-card-${cardId}`,
+    graphLane: (activityId: string) => `construction-graph-lane-${activityId}`,
+    graphSegment: (activityId: string, phase: string) =>
+      `construction-graph-segment-${activityId}-${phase}`,
+    GRAPH_HOVER_CARD: 'construction-graph-hover-card',
     ACTIVITY_LIFECYCLE_PANEL: 'construction-activity-lifecycle-panel',
     POLICY_PANEL: 'construction-policy-panel',
     policyRowToggle: (kind: string) => `construction-policy-toggle-${kind}`,
