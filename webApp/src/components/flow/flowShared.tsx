@@ -5,7 +5,7 @@
  * (colours, node/edge factories, the layer vocabulary) live in ./flowLayout so
  * this module exports only components.
  */
-import { useEffect, type ReactNode } from 'react';
+import { useEffect, type CSSProperties, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
@@ -18,7 +18,6 @@ import {
   type NodeMouseHandler,
   type EdgeMouseHandler,
   type OnMove,
-  type PanelPosition,
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -109,7 +108,7 @@ export function FlowCanvas({
   defaultViewport,
   onMoveEnd,
   minZoom = 0.3,
-  controlsPosition,
+  controlsStyle,
   children,
 }: {
   nodes: Node[];
@@ -136,9 +135,10 @@ export function FlowCanvas({
   onMoveEnd?: OnMove;
   /** The furthest zoom-out. Defaults to the historical 0.3. */
   minZoom?: number;
-  /** Where the zoom controls sit. Defaults to xyflow's bottom-left (every
-   *  historical caller); the graph lens moves them clear of its row gutter. */
-  controlsPosition?: PanelPosition;
+  /** Extra style for the zoom controls' panel (xyflow's bottom-left). Absent
+   *  for every historical caller; the graph lens pushes them clear of its
+   *  pinned row gutter. */
+  controlsStyle?: CSSProperties;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -180,7 +180,7 @@ export function FlowCanvas({
         <Background color={t.line} gap={22} size={1} />
         <Controls
           showInteractive={false}
-          {...(controlsPosition !== undefined ? { position: controlsPosition } : {})}
+          {...(controlsStyle !== undefined ? { style: controlsStyle } : {})}
         />
         {children}
       </ReactFlow>

@@ -166,9 +166,32 @@ test('below 1200px the graph drawer is non-modal: no backdrop, and the canvas st
       ).length
   );
   expect(backdrops, 'no backdrop over the canvas').toBe(0);
+  // Non-modal for assistive technology too: a Modal marks the rest of the app
+  // aria-hidden; the canvas must stay in the accessibility tree.
+  const hidden = await page
+    .getByTestId(TESTID.constructionGraphCanvas)
+    .evaluate((el) => el.closest('[aria-hidden="true"]') !== null);
+  expect(hidden, 'the canvas is not aria-hidden behind the drawer').toBe(false);
 
   // Non-modal: another lane on the canvas is still clickable with the drawer open.
   const second = (left[1] ?? '').replace('construction-graph-lane-', '');
   await page.getByTestId(left[1] ?? '').click();
   await expect.poll(() => new URL(page.url()).searchParams.get('a')).toBe(second);
+});
+
+test('the zoom controls stay reachable: clear of the gutter, never under the narrow drawer', async ({
+  page,
+}) => {
+  await openGraph(page, 1100, 800);
+  await page.getByTestId(LANE_ID).first().click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  const zoomIn = page.getByRole('button', { name: /zoom in/i });
+  // Actionable: visible, stable, and nothing covers it (the drawer used to).
+  await zoomIn.click({ trial: true, timeout: 5_000 });
+  const control = await zoomIn.boundingBox();
+  const drawer = await page.getByRole('dialog').boundingBox();
+  const gutter = await page.getByTestId(TESTID.constructionGraphRowGutter).boundingBox();
+  expect(control).not.toBeNull();
+  expect((control?.x ?? 0) + (control?.width ?? 0)).toBeLessThanOrEqual(drawer?.x ?? 0);
+  expect(control?.x ?? 0).toBeGreaterThanOrEqual((gutter?.x ?? 0) + (gutter?.width ?? 0));
 });

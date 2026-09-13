@@ -6,7 +6,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GUTTER_LABEL_PX, gutterLabelFontPx, rowGutterLabels } from './rowGutter.ts';
+import {
+  CONTROLS_OFFSET_PX,
+  GUTTER_LABEL_PX,
+  GUTTER_PX,
+  gutterLabelFontPx,
+  rowGutterLabels,
+} from './rowGutter.ts';
 
 const ROWS = [
   { row: 'client', y: 0, height: 86, label: 'Clients' },
@@ -48,4 +54,8 @@ void test('a band wholly above or below the canvas is not shown; a partial one i
   const partial = rowGutterLabels(ROWS, [0, -100, 1], 400);
   assert.equal(partial.find((l) => l.row === 'client')?.visible, false);
   assert.equal(partial.find((l) => l.row === 'manager')?.visible, true, 'band 58..178');
+});
+
+void test('the zoom controls sit just clear of the gutter', () => {
+  assert.equal(CONTROLS_OFFSET_PX, GUTTER_PX + 8);
 });

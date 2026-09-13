@@ -439,6 +439,7 @@ test('P0-1: the hover card never launders a reconstructed lane — stamp + chip 
         lanes: [...e.querySelectorAll('[data-testid^="construction-graph-lane-"]')].map((l) => ({
           id: (l.getAttribute('data-testid') ?? '').replace('construction-graph-lane-', ''),
           origin: l.getAttribute('data-provenance'),
+          state: l.getAttribute('data-state'),
         })),
       }))
   );
@@ -461,6 +462,13 @@ test('P0-1: the hover card never launders a reconstructed lane — stamp + chip 
       await expect(line.getByTestId(TESTID.constructionProvenanceBadge), l.id).toHaveCount(
         reconstructed(l.origin) ? 1 : 0
       );
+      // A reconstructed line also carries the lane's state chip, so the stamp
+      // qualifies the "passed" it sits beside; no other line carries one.
+      const chip = await line.evaluate(
+        (el) => el.querySelector('[data-chip-state]')?.getAttribute('data-chip-state') ?? null
+      );
+      const chipBearing = ['passed', 'failed', 'running', 'awaitingHuman'].includes(l.state ?? '');
+      expect(chip, `${l.id} chip`).toBe(reconstructed(l.origin) && chipBearing ? l.state : null);
     }
     await page.mouse.move(2, 2);
   }

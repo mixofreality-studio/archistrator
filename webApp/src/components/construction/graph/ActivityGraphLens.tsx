@@ -82,6 +82,7 @@ import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
 import { GraphRowGutter } from './GraphRowGutter';
+import { CONTROLS_OFFSET_PX } from './rowGutter';
 
 /** Far enough out to fit the widest real row (ten ResourceAccess cards) at 1280. */
 const MIN_ZOOM = 0.15;
@@ -442,8 +443,9 @@ function GraphCanvas({
       }}
     >
       <FlowCanvas
-        // Bottom-right: the pinned row gutter owns the left edge (P1-6).
-        controlsPosition="bottom-right"
+        // Bottom-left, pushed just clear of the pinned row gutter (P1-6) — never
+        // the right, where the narrow-screen drawer sits (live check at 1100).
+        controlsStyle={{ marginLeft: CONTROLS_OFFSET_PX }}
         edges={edges}
         height="100%"
         minZoom={MIN_ZOOM}

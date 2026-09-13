@@ -380,24 +380,16 @@ export function DetailPane({
           'aria-labelledby': 'construction-detail-pane-title',
           'aria-modal': modal,
           role: 'dialog',
-          sx: {
-            width: { xs: '100%', sm: 480 },
-            bgcolor: t.paper,
-            backgroundImage: 'none',
-            // Non-modal: the root lets clicks through; the paper takes its own.
-            ...(modal ? {} : { pointerEvents: 'auto' }),
-          },
+          sx: { width: { xs: '100%', sm: 480 }, bgcolor: t.paper, backgroundImage: 'none' },
         },
       }}
+      // Non-modal (the graph lens) is a PERSISTENT drawer — no Modal at all. A
+      // temporary drawer, even with no backdrop and no focus trap, still marks
+      // every sibling of its container aria-hidden while open (MUI's
+      // ModalManager), so the canvas beside it vanished from assistive
+      // technology; the zoom-controls spec found it.
+      variant={modal ? 'temporary' : 'persistent'}
       onClose={onClose}
-      {...(modal
-        ? {}
-        : {
-            hideBackdrop: true,
-            disableEnforceFocus: true,
-            disableScrollLock: true,
-            sx: { pointerEvents: 'none' },
-          })}
     >
       <Box sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         <DetailHeader

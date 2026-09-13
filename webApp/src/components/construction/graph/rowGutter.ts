@@ -17,6 +17,14 @@ export const GUTTER_PX = 76;
 /** The label's on-screen size — the same at every zoom. */
 export const GUTTER_LABEL_PX = 10;
 
+/**
+ * How far the zoom controls sit from the canvas's left edge: just clear of the
+ * gutter. They stay bottom-LEFT — on the right, the narrow-screen detail drawer
+ * (non-modal, below 1200px) covered them, and with it the only way to zoom
+ * (found in live verification at 1100).
+ */
+export const CONTROLS_OFFSET_PX = GUTTER_PX + 8;
+
 export interface GutterRowInput {
   row: string;
   /** The row's top and height in FLOW coordinates (activityGraphLayout). */
