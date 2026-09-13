@@ -3013,7 +3013,7 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Research:             researchToContract(p.Research),
 		Slots:                slotsToContract(p),
 		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p)),
+		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
 		ConstructionStarted:  constructionStartedFor(p.ActivityConstruction),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
@@ -3387,6 +3387,7 @@ func constructionRowsToContract(
 	rows map[string]projectstate.ActivityConstructionStatus,
 	activityMeta map[string]projectstate.ActivityItem,
 	componentLayer map[string]string,
+	plan constructionPlan,
 ) map[string]ActivityConstructionStatus {
 	if len(rows) == 0 && len(activityMeta) == 0 {
 		return nil
@@ -3490,12 +3491,121 @@ func constructionRowsToContract(
 			// value is the aggregate seed "observed", which read on its own says
 			// "recorded" about a row where nothing was recorded; a planned-no-record
 			// row has no ledger by construction, so it carries no origin at all.
-			WorstOrigin: worstOriginFor(recorded, r.Attempts),
-			Layer:       layer,
-			LayerBand:   band,
+			WorstOrigin:   worstOriginFor(recorded, r.Attempts),
+			Layer:         layer,
+			LayerBand:     band,
+			PendingResume: pendingResumeFor(id, r, meta, resolved, rows, activityMeta, plan),
 		}
 	}
 	return out
+}
+
+// constructionPlan is the committed network's dependency edges and milestones, indexed
+// once per read, for pendingResumeFor. The zero value (no network) has no edges.
+type constructionPlan struct {
+	depsByActivity map[string][]string
+	milestones     map[string]projectstate.NetworkMilestone
+}
+
+// constructionPlanFor indexes the network the project holds, read the way
+// activityMetaByID reads the activity list: whatever model the slot carries.
+func constructionPlanFor(p projectstate.Project) constructionPlan {
+	network, ok := p.Network.Model.(*projectstate.Network)
+	if !ok || network == nil {
+		return constructionPlan{}
+	}
+	deps := make(map[string][]string, len(network.Dependencies))
+	for _, d := range network.Dependencies {
+		deps[d.Activity] = d.DependsOn
+	}
+	return constructionPlan{depsByActivity: deps, milestones: projectstate.MilestonesByID(network)}
+}
+
+// The wire reasons a PendingDependency carries (the contract's PendingDependency.reason).
+const (
+	pendingReasonNotBuilt            = "notBuilt"
+	pendingReasonBuiltNotIntegrated  = "builtNotIntegrated"
+	pendingReasonMilestoneNotReached = "milestoneNotReached"
+	pendingReasonUnresolved          = "unresolved"
+)
+
+// isPendingResume reports whether a row is integration-pending (architect (D), D.3): no
+// pump wrote it (projectstate.PumpWroteRow), yet its effective state is Running — which,
+// for a row no pump wrote, means its attempt ledger holds some phases complete and not
+// others. Nothing runs it and nothing reviews it, so it is not in flight.
+func isPendingResume(r projectstate.ActivityConstructionStatus, meta projectstate.ActivityItem) bool {
+	if projectstate.PumpWroteRow(r) {
+		return false
+	}
+	effective, _ := projectstate.EffectiveConstructionPhase(r, meta)
+	return effective == projectstate.ActivityConstructionRunning
+}
+
+// pendingResumeFor is the wire pendingResume for one row, or nil when the row is not
+// integration-pending. fromPhase is the first profile phase its resolved phase set does
+// not hold complete (resolved is the row's profile-ordered ResolveConstructionRow set);
+// waitsOn is every direct network dependency the pump's own rule
+// (projectstate.ResolveDependencySatisfied) does not find satisfied, in authored order,
+// and is empty, never nil, when the row is next in line.
+func pendingResumeFor(
+	id string,
+	r projectstate.ActivityConstructionStatus,
+	meta projectstate.ActivityItem,
+	resolved []projectstate.PhaseCompletion,
+	rows map[string]projectstate.ActivityConstructionStatus,
+	activityMeta map[string]projectstate.ActivityItem,
+	plan constructionPlan,
+) *PendingResume {
+	if !isPendingResume(r, meta) {
+		return nil
+	}
+	from := firstIncompletePhase(resolved)
+	if from == "" {
+		return nil
+	}
+	waitsOn := []PendingDependency{}
+	for _, dep := range plan.depsByActivity[id] {
+		res := projectstate.ResolveDependencySatisfied(dep, activityMeta, rows, plan.milestones, map[string]bool{})
+		if res.Satisfied && res.ProblemReason == "" {
+			continue
+		}
+		waitsOn = append(waitsOn, PendingDependency{Id: dep, Reason: pendingReasonFor(dep, res, rows, activityMeta, plan)})
+	}
+	return &PendingResume{FromPhase: ActivityMethodPhase(string(from)), WaitsOn: waitsOn}
+}
+
+// firstIncompletePhase is the first phase of a profile-ordered resolved set that is not
+// complete, or "" when every phase is.
+func firstIncompletePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
+	for _, pc := range resolved {
+		if !pc.Completed {
+			return pc.Phase
+		}
+	}
+	return ""
+}
+
+// pendingReasonFor names why one unsatisfied dependency is unsatisfied, in the order
+// projectstate.ResolveDependencySatisfied itself tries: a plan defect, a milestone, then
+// an activity — which is "built but not integrated" when it is itself integration-pending
+// (the backfill's own wording), and "not built" otherwise.
+func pendingReasonFor(
+	dep string,
+	res projectstate.DependencyResolution,
+	rows map[string]projectstate.ActivityConstructionStatus,
+	activityMeta map[string]projectstate.ActivityItem,
+	plan constructionPlan,
+) string {
+	if res.ProblemReason != "" {
+		return pendingReasonUnresolved
+	}
+	if _, isMilestone := plan.milestones[dep]; isMilestone {
+		return pendingReasonMilestoneNotReached
+	}
+	if r, exists := rows[dep]; exists && isPendingResume(r, activityMeta[dep]) {
+		return pendingReasonBuiltNotIntegrated
+	}
+	return pendingReasonNotBuilt
 }
 
 // constructionStartedFor answers the Begin-versus-Resume question — has construction

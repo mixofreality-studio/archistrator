@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -4038,7 +4039,7 @@ func TestConstructionRowsToContract_ClassifiesFromWorkerClass(t *testing.T) {
 		"C-BE":             {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"U-SPA-web-client": {Name: "U-SPA-web-client", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 	cases := []struct {
 		id       string
 		wantType ActivityType
@@ -10448,7 +10449,7 @@ func TestConstructionRowsToContract_CarriesLedgerAndWorstOrigin(t *testing.T) {
 		}},
 	}
 	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
-	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})["C-BE"]
 	if len(got.Attempts) != 2 {
 		t.Fatalf("Attempts len = %d, want 2", len(got.Attempts))
 	}
@@ -10485,7 +10486,7 @@ func TestConstructionRowsToContract_UnclassifiableAssertsNoLifecycle(t *testing.
 			},
 		},
 	}
-	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil)["C-AA"]
+	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil, constructionPlan{})["C-AA"]
 	if got.Classified {
 		t.Errorf("Classified = true, want false — the classifier has no rule for this row")
 	}
@@ -10583,7 +10584,7 @@ func TestConstructionRowsToContract_DerivesPhaseAndBuildStatusNotStored(t *testi
 		"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
 		"C-FE": {Name: "C-FE", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 
 	if got["C-BE"].Phase != ActivityConstructionPhase(int(projectstate.ActivityConstructionDone)) {
 		t.Errorf("C-BE Phase = %d, want Done (derived) — stored NotStarted must not win", got["C-BE"].Phase)
@@ -10628,7 +10629,7 @@ func TestConstructionRowsToContract_CoarseStatusAgreesWithEmittedPhases(t *testi
 		},
 	}
 	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
-	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})["C-BE"]
 
 	if len(got.Phases) != 5 || !got.Phases[3].Completed {
 		t.Fatalf("emitted Construction sub-row Completed = %+v, want true (the ledger's codeReview passed)", got.Phases)
@@ -10661,7 +10662,7 @@ func TestConstructionRowsToContract_LedgerWithNoStoredPhasesMaterializesTheProfi
 		},
 	}
 	meta := map[string]projectstate.ActivityItem{"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true}}
-	got := constructionRowsToContract(rows, meta, nil)["C-BE"]
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})["C-BE"]
 
 	if len(got.Phases) != 5 {
 		t.Fatalf("Phases len = %d, want the Service profile's 5 rows materialized from the ledger's row", len(got.Phases))
@@ -10699,7 +10700,7 @@ func TestConstructionRowsToContract_ProfileWinsOverAContradictoryStoredPhaseSet(
 		},
 	}
 	meta := map[string]projectstate.ActivityItem{"N-UI-CONCEPT": {Name: "N-UI-CONCEPT", WorkerClass: "ui-designer", Coding: false}}
-	got := constructionRowsToContract(rows, meta, nil)["N-UI-CONCEPT"]
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})["N-UI-CONCEPT"]
 
 	if got.Type != ActivityType(int(projectstate.ActivityTypeUIDesign)) {
 		t.Fatalf("Type = %d, want uiDesign — the fixture's whole point", got.Type)
@@ -10749,7 +10750,7 @@ func TestConstructionRowsToContract_WorstOriginIsOnlyMeaningfulWithALedger(t *te
 		"C-EMPTY":  {Name: "C-EMPTY", WorkerClass: "junior-developer", Coding: true},
 		"C-LEDGER": {Name: "C-LEDGER", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 
 	if n := len(got["C-EMPTY"].Attempts); n != 0 {
 		t.Fatalf("C-EMPTY Attempts len = %d, want 0 — the fixture's whole point", n)
@@ -10795,7 +10796,7 @@ func TestConstructionRowsToContract_NoEvidenceAssertsNoBuildStatus(t *testing.T)
 		"C-STORED": {Name: "C-STORED", WorkerClass: "junior-developer", Coding: true},
 		"C-LEDGER": {Name: "C-LEDGER", WorkerClass: "junior-developer", Coding: true},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 
 	row := got["C-x"]
 	if !row.Classified {
@@ -10824,7 +10825,7 @@ func TestConstructionRowsToContract_UnclassifiedRowHasNoBuildEvidence(t *testing
 	rows := map[string]projectstate.ActivityConstructionStatus{
 		"ZZ-mystery": {ActivityID: "ZZ-mystery", Phases: allServicePhases()},
 	}
-	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil)
+	got := constructionRowsToContract(rows, map[string]projectstate.ActivityItem{}, nil, constructionPlan{})
 	row := got["ZZ-mystery"]
 	if row.Classified {
 		t.Fatalf("fixture should NOT classify; got Classified=true")
@@ -10849,7 +10850,7 @@ func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *
 		"C-PLAN": {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
 		"N-IT":   {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 	if len(got) != 3 {
 		t.Fatalf("len(got) = %d, want 3 (one stored row + two listed-with-no-row)", len(got))
 	}
@@ -10884,7 +10885,7 @@ func TestConstructionRowsToContract_ListedActivityWithNoRowIsPlannedNoRecord(t *
 	if !got["C-BE"].HasBuildEvidence || len(got["C-BE"].Phases) == 0 {
 		t.Errorf("the stored C-BE row lost its evidence in the merge")
 	}
-	if out := constructionRowsToContract(nil, map[string]projectstate.ActivityItem{}, nil); out != nil {
+	if out := constructionRowsToContract(nil, map[string]projectstate.ActivityItem{}, nil, constructionPlan{}); out != nil {
 		t.Errorf("nothing stored and nothing listed = %d rows, want nil", len(out))
 	}
 }
@@ -10906,7 +10907,7 @@ func TestConstructionRowsToContract_PlannedNoRecordRowIsUnrecordedAndCarriesNoOr
 		"C-PLAN":  {Name: "C-PLAN", WorkerClass: "junior-developer", Coding: true},
 		"N-IT":    {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
 	}
-	got := constructionRowsToContract(rows, meta, nil)
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
 	for id, want := range map[string]bool{"C-BE": true, "C-EMPTY": true, "C-PLAN": false, "N-IT": false} {
 		r := got[id]
 		if r.Recorded != want {
@@ -10935,7 +10936,7 @@ func TestConstructionRowsToContract_RowTakesItsComponentsLayer(t *testing.T) {
 		"N-IT":              {Name: "N-IT", WorkerClass: "software-tester", Coding: false},
 	}
 	componentLayer := map[string]string{"billing-manager": "manager", "web-client": "client"}
-	got := constructionRowsToContract(rows, meta, componentLayer)
+	got := constructionRowsToContract(rows, meta, componentLayer, constructionPlan{})
 
 	if l, b := got["U-SPA-web-client"].Layer, got["U-SPA-web-client"].LayerBand; l != "client" || b != "layered" {
 		t.Errorf("U-SPA-web-client Layer/LayerBand = %q/%q, want client/layered", l, b)
@@ -11170,5 +11171,115 @@ func TestProjectStateToContract_CarriesConstructionStarted(t *testing.T) {
 	}}
 	if m.projectStateToContract(backfilledOnly).ConstructionStarted {
 		t.Errorf("a project whose only evidence is backfilled reads ConstructionStarted=true")
+	}
+}
+
+// pendingLedger is a backfill-shaped attempt ledger: every non-conditional task of each
+// named phase, attempt 1, passed.
+func pendingLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {
+	var out []projectstate.TaskAttempt
+	for _, ph := range phases {
+		for _, task := range projectstate.TasksForPhase(ph) {
+			if projectstate.IsConditionalTask(task) {
+				continue
+			}
+			out = append(out, projectstate.TaskAttempt{
+				AttemptID:  projectstate.AttemptID(activityID, task, 1),
+				Task:       task,
+				Phase:      projectstate.PhaseForTask(task),
+				Attempt:    1,
+				Outcome:    projectstate.OutcomePassed,
+				Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "test fixture"},
+			})
+		}
+	}
+	return out
+}
+
+// TestConstructionRowsToContract_PendingResume pins architect (D), D.3 on the shape of
+// the committed integration-pending rows (62efcafe): a row no pump wrote whose ledger
+// holds every phase but Integration carries pendingResume, resuming at integration and
+// waiting on exactly its unsatisfied direct dependencies — in authored order, each with
+// its reason, and never a satisfied one. Every other population carries none.
+func TestConstructionRowsToContract_PendingResume(t *testing.T) {
+	svc := func(name string) projectstate.ActivityItem {
+		return projectstate.ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true}
+	}
+	all := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan).PhaseIDs()
+	fourOfFive := all[:len(all)-1]
+	ids := []string{"C-billing-manager", "C-billing-engine", "C-billing-state-access", "C-merchant-gateway-access",
+		"C-operations-manager", "C-next", "C-live", "C-both", "C-done", "C-planned"}
+	meta := map[string]projectstate.ActivityItem{}
+	for _, id := range ids {
+		meta[id] = svc(id)
+	}
+	started := time.Date(2026, 9, 13, 0, 0, 0, 0, time.UTC)
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-billing-manager":    {ActivityID: "C-billing-manager", Attempts: pendingLedger("C-billing-manager", fourOfFive...)},
+		"C-billing-engine":     {ActivityID: "C-billing-engine", Attempts: pendingLedger("C-billing-engine", all...)},
+		"C-operations-manager": {ActivityID: "C-operations-manager", Attempts: pendingLedger("C-operations-manager", fourOfFive...)},
+		"C-next":               {ActivityID: "C-next", Attempts: pendingLedger("C-next", fourOfFive...)},
+		// Pump-written: a stored Running with its start stamp — in flight, not pending.
+		"C-live": {ActivityID: "C-live", Phase: projectstate.ActivityConstructionRunning, StartedAt: &started},
+		// Stored Phases plus a partial ledger: the pump wrote it, so it is not pending.
+		"C-both": {ActivityID: "C-both", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseRequirements}},
+			Attempts: pendingLedger("C-both", fourOfFive...)},
+		"C-done": {ActivityID: "C-done", Attempts: pendingLedger("C-done", all...)},
+	}
+	plan := constructionPlan{
+		depsByActivity: map[string][]string{
+			"C-billing-manager": {"C-billing-engine", "C-billing-state-access", "M-gate", "C-merchant-gateway-access", "C-operations-manager", "M-start", "ghost"},
+			"C-next":            {"C-billing-engine", "M-start"},
+			"C-live":            {"C-billing-state-access"},
+			"C-both":            {"C-billing-state-access"},
+		},
+		milestones: projectstate.MilestonesByID(&projectstate.Network{Milestones: []projectstate.NetworkMilestone{
+			{ID: "M-start"},
+			{ID: "M-gate", DependsOn: []string{"C-billing-state-access"}},
+		}}),
+	}
+	got := constructionRowsToContract(rows, meta, nil, plan)
+
+	pr := got["C-billing-manager"].PendingResume
+	if pr == nil {
+		t.Fatal("C-billing-manager: pendingResume = nil, want the integration-pending read")
+	}
+	if pr.FromPhase != ActivityMethodPhase(string(projectstate.MethodPhaseIntegration)) {
+		t.Errorf("FromPhase = %q, want integration", pr.FromPhase)
+	}
+	want := []PendingDependency{
+		{Id: "C-billing-state-access", Reason: "notBuilt"},
+		{Id: "M-gate", Reason: "milestoneNotReached"},
+		{Id: "C-merchant-gateway-access", Reason: "notBuilt"},
+		{Id: "C-operations-manager", Reason: "builtNotIntegrated"},
+		{Id: "ghost", Reason: "unresolved"},
+	}
+	if !slices.Equal(pr.WaitsOn, want) {
+		t.Errorf("WaitsOn = %+v\nwant     %+v", pr.WaitsOn, want)
+	}
+
+	next := got["C-next"].PendingResume
+	if next == nil || next.WaitsOn == nil || len(next.WaitsOn) != 0 {
+		t.Fatalf("C-next: pendingResume = %+v, want next in line with an empty, non-nil waitsOn", next)
+	}
+	raw, err := json.Marshal(got["C-next"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(raw), `"pendingResume":{"fromPhase":"integration","waitsOn":[]}`) {
+		t.Errorf("next in line must serialize an empty waitsOn array, got %s", raw)
+	}
+
+	for _, id := range []string{"C-live", "C-both", "C-done", "C-planned", "C-billing-engine"} {
+		if got[id].PendingResume != nil {
+			t.Errorf("%s: pendingResume = %+v, want omitted (not started, pump-written, or done)", id, got[id].PendingResume)
+		}
+	}
+	raw, err = json.Marshal(got["C-planned"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "pendingResume") {
+		t.Errorf("a row with no pendingResume must omit the key, got %s", raw)
 	}
 }
