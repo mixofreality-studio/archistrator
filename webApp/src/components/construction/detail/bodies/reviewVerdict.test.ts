@@ -166,9 +166,12 @@ void test('anchor paths are stable and human-meaningful — the server treats th
 // ---------------------------------------------------------------------------
 
 void test('dispatch picks the right renderer key per kind', () => {
+  // The service contract is PLACED (artifactPlacement.ts, from the contract
+  // join), never dispatched by classification: a missing contract and none by
+  // design need different bodies, which a renderer key cannot say.
   assert.equal(
     artifactRendererKeyFor(row({ kind: 'service' }), { task: 'detailedDesign' }),
-    'service'
+    undefined
   );
   assert.equal(
     artifactRendererKeyFor(row({ kind: 'uiDesign' }), { task: 'designReview' }),
@@ -197,10 +200,14 @@ void test('the cut kinds fall back honestly rather than to an empty renderer fra
 });
 
 void test("a gate task sees its own phase's artifact, which is what it is reviewing", () => {
-  // designReview gates Detailed Design, so the contract IS the thing under
-  // review; codeReview gates Construction, where a service activity has no
-  // artifact view in this stage.
+  // A uiDesign activity's Design Review gates its concept. The service
+  // contract above a designReview verdict is placed by artifactPlacement.ts
+  // (pinned in artifactPlacement.test.ts), so this dispatch answers nothing.
   const service = row({ kind: 'service' });
-  assert.equal(artifactRendererKeyFor(service, { task: 'designReview' }), 'service');
+  assert.equal(
+    artifactRendererKeyFor(row({ kind: 'uiDesign' }), { task: 'designReview' }),
+    'uiDesign'
+  );
+  assert.equal(artifactRendererKeyFor(service, { task: 'designReview' }), undefined);
   assert.equal(artifactRendererKeyFor(service, { task: 'codeReview' }), undefined);
 });

@@ -6,8 +6,9 @@
  * No new renderer is written here: every kind the founder named already has one,
  * and a second implementation of a view is how this branch's worst bug happened.
  *
- *   service            ServiceContractView → ContractCodeFlow (the code-level
- *                      diagram) + ContractComponentFlow + ContractRevisionHistory
+ *   service            placed by artifactPlacement.ts, not this dispatch:
+ *                      ServiceContractView → ContractCodeFlow (the code-level
+ *                      diagram) + the architecture's relationships + revisions
  *   uiDesign           FrontendArtifactView (the UI spec)
  *   frontend           FrontendArtifactView
  *   testing:plan       TestPlanView → ScenarioBrowser
@@ -22,8 +23,13 @@
  * `ArtifactRender` is exported because the REVIEW body puts the same artifact
  * above its verdict: one renderer, reached two ways, so the review can never
  * show a different artifact from the one the artifact body shows.
+ *
+ * The SERVICE CONTRACT is no longer dispatched here: artifactPlacement.ts places
+ * it (and its honest absences) per phase and task from the contract JOIN, and
+ * the pane hands the result in as `primary` — see ArtifactStateFrame for how a
+ * Not started row shows a committed artifact without pretending it ran.
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 
@@ -34,19 +40,21 @@ import type {
 } from '../../../../contracts/types';
 import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
-import { contractForActivity } from '../../../../contracts/serviceContracts';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { artifactRenderers } from '../../artifactRenderers';
-import { ServiceContractView } from '../../ServiceContractView';
 import {
   artifactRendererKeyFor,
   testingArtifactRendererKeyFor,
   type ArtifactBodyKind,
 } from './bodyDispatch.ts';
 import { UnknownBody } from './UnknownBody';
+import type { TaskDetailState } from '../detailPaneState.ts';
+import { briefingFor, unknownStatementFor } from './taskBriefing.ts';
 
 /** What each renderer is showing, named so the reader is never left guessing. */
 const ARTIFACT_LABEL: Record<ArtifactBodyKind, string> = {
+  // Never reached through this dispatch any more (ARTIFACT_PHASES.service is
+  // empty); the contract is placed by artifactPlacement.ts.
   service: 'SERVICE CONTRACT',
   uiDesign: 'UI DESIGN CONCEPT',
   frontend: 'FRONTEND ARTIFACT',
@@ -63,13 +71,111 @@ export interface ArtifactBodyProps {
   systemEnvelope?: ArtifactModelEnvelope | undefined;
 }
 
-export function ArtifactBody(props: ArtifactBodyProps): ReactElement {
+export function ArtifactBody({
+  primary,
+  ...props
+}: ArtifactBodyProps & {
+  /** The placed committed artifact (artifactPlacement.ts); replaces the renderer dispatch. */
+  primary?: ReactNode;
+}): ReactElement {
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_BODY_ARTIFACT}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1, minWidth: 0 }}
     >
-      <ArtifactRender {...props} />
+      {primary ?? <ArtifactRender {...props} />}
+    </Box>
+  );
+}
+
+/**
+ * A committed artifact shown on a selection with NO RECORD (designer §2.1): the
+ * artifact outranks "no record", but the state is not hidden. One state line —
+ * the unknown body's own sentence — opens the body, and the rest of that body's
+ * briefing (what it is, exit, weight, retry rule) moves into a collapsed "About
+ * this task" disclosure under the artifact. The header already carries exit and
+ * weight, so nothing is lost. Any other state renders the artifact alone.
+ */
+export function ArtifactStateFrame({
+  row,
+  selection,
+  state,
+  hiddenCount,
+  children,
+}: {
+  row: ConstructionRow | undefined;
+  selection: LensSelection;
+  state: TaskDetailState;
+  hiddenCount: number;
+  children: ReactNode;
+}): ReactElement {
+  const t = useTokens();
+  const noRecord = state === 'unknown' || state === 'notStarted';
+  if (!noRecord) return <>{children}</>;
+  const briefing = briefingFor(row, selection);
+  return (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
+      <Typography
+        data-testid={UI_IDENTIFIERS.Construction.ARTIFACT_STATE_LINE}
+        sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.5 }}
+      >
+        {unknownStatementFor(briefing?.scope, hiddenCount, state)}
+      </Typography>
+      {children}
+      {briefing !== undefined ? (
+        <Box
+          component="details"
+          data-testid={UI_IDENTIFIERS.Construction.ARTIFACT_ABOUT_TASK}
+          sx={{ borderTop: `1px solid ${t.line}`, pt: 1 }}
+        >
+          <Box
+            component="summary"
+            sx={{
+              cursor: 'pointer',
+              fontFamily: t.mono,
+              fontSize: 10.5,
+              fontWeight: 700,
+              letterSpacing: '0.06em',
+              color: t.muted,
+            }}
+          >
+            {briefing.scope === 'task' ? 'About this task' : 'About this phase'}
+          </Box>
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 1 }}>
+            {(
+              [
+                ['What it is', briefing.whatItIs],
+                ['Exit', briefing.exit],
+                ['Weight', briefing.weight],
+                ['Retry rule', briefing.retryRule],
+              ] as const
+            ).map(([label, value]) => (
+              <Box key={label} sx={{ display: 'flex', gap: 1 }}>
+                <Typography
+                  sx={{
+                    flexShrink: 0,
+                    width: 86,
+                    fontFamily: t.mono,
+                    fontSize: 9.5,
+                    fontWeight: 700,
+                    letterSpacing: '0.08em',
+                    color: t.muted,
+                    textTransform: 'uppercase',
+                    lineHeight: 1.6,
+                  }}
+                >
+                  {label}
+                </Typography>
+                <Typography
+                  sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5 }}
+                >
+                  {value}
+                </Typography>
+              </Box>
+            ))}
+          </Box>
+        </Box>
+      ) : null}
     </Box>
   );
 }
@@ -111,25 +217,6 @@ export function ArtifactRender({
 
   const activityId = row.activityId;
   const vm = { activityId, name: activityTitle ?? activityId, row };
-
-  if (key === 'service') {
-    const contract = contractForActivity(project, activityId);
-    if (contract === undefined) {
-      return (
-        <UnknownBody
-          row={row}
-          selection={selection}
-          statement="No service contract is recorded against this activity, so there is nothing to render — the contract view is not shown empty, which would read as a contract with no operations."
-        />
-      );
-    }
-    return (
-      <>
-        <ArtifactHeading label={ARTIFACT_LABEL.service} />
-        <ServiceContractView contract={contract} systemEnvelope={systemEnvelope} />
-      </>
-    );
-  }
 
   const Renderer = artifactRenderers[key];
   if (Renderer === undefined) {

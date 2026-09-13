@@ -80,6 +80,7 @@ import LastPageRoundedIcon from '@mui/icons-material/LastPageRounded';
 import CloseIcon from '@mui/icons-material/Close';
 
 import type {
+  ActivityItem,
   ArtifactModelEnvelope,
   ConstructionReviewSet,
   ConstructionRow,
@@ -87,11 +88,22 @@ import type {
   ProjectStateWithGit,
   TaskAttemptRow,
 } from '../../../contracts/types';
+import { toC4View } from '../../../contracts/adapters';
+import {
+  activityForComponent,
+  contractJoinFor,
+  type ContractJoin,
+} from '../../../contracts/serviceContracts';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { provenanceHatchFill } from '../provenanceAxis.ts';
-import { useLensSelection, type LensSelection } from '../lens/useLensSelection';
+import {
+  useLensSelection,
+  type ArtifactViewId,
+  type LensSelection,
+} from '../lens/useLensSelection';
+import { classify } from '../artifactClassification.ts';
 import {
   GRADE_LABEL,
   provenanceGradeOf,
@@ -120,10 +132,25 @@ import {
   type DetailAction,
   type TaskDetailState,
 } from './detailPaneState.ts';
-import { absenceFor } from './bodies/taskBriefing.ts';
-import { detailBodyFor } from './bodies/bodyDispatch.ts';
+import { absenceFor, profileFor } from './bodies/taskBriefing.ts';
+import { detailBodyFor, lifecyclePhaseOfTask, selectedTaskIsGate } from './bodies/bodyDispatch.ts';
+import {
+  artifactRoleFor,
+  focusRoleFor,
+  focusTargetFor,
+  isPrimaryPlacement,
+  placementFor,
+  type NamedOperation,
+  type Placement,
+} from './bodies/artifactPlacement.ts';
+import {
+  ArtifactPlacementView,
+  FocusArtifact,
+  type PlacementViewContext,
+} from './bodies/ArtifactPlacementView';
+import { FocusView } from './bodies/FocusView';
 import { AbsentBody } from './bodies/AbsentBody';
-import { ArtifactBody } from './bodies/ArtifactBody';
+import { ArtifactBody, ArtifactStateFrame } from './bodies/ArtifactBody';
 import { ProvenanceNote } from './bodies/ProvenanceNote';
 import { ReviewBody } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
@@ -161,6 +188,28 @@ const WIDE_BREAKPOINT = '(min-width:1200px)';
 const XS_BREAKPOINT = '(max-width:599.95px)';
 const WIDTH_STORAGE_KEY = 'archistrator.construction.detailPaneWidth';
 
+/**
+ * The contract tab last shown per activity — a module store, so neither the 1.5s
+ * poll's remount nor a trip to another activity resets it (designer §3). The
+ * URL's `av` wins when present.
+ */
+const artifactViewStore = new Map<string, ArtifactViewId>();
+
+/** Where focus goes back to when the focus view closes: the control that opened it. */
+let focusReturnTarget: HTMLElement | null = null;
+
+/** True when the key event came from a control that takes typing. */
+function typingTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof HTMLElement)) return false;
+  return (
+    target.isContentEditable ||
+    target instanceof HTMLInputElement ||
+    target instanceof HTMLTextAreaElement ||
+    target instanceof HTMLSelectElement ||
+    target.getAttribute('role') === 'combobox'
+  );
+}
+
 function clamp(n: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, n));
 }
@@ -194,6 +243,13 @@ function writeStoredWidth(width: number): void {
 export interface DetailPaneProps {
   selection: LensSelection;
   row: ConstructionRow | undefined;
+  /**
+   * The committed activity-list slot's activities — the first hop of the
+   * contract join (activity → componentId → contractKey → contract), and the
+   * inverse hop a Component-tab neighbour click takes. Undefined while unloaded:
+   * the join then answers "unresolved", never "no contract".
+   */
+  activities?: readonly ActivityItem[] | undefined;
   /** Human-readable activity title, falling back to the raw id when absent. */
   activityTitle?: string | undefined;
   /**
@@ -256,6 +312,7 @@ export interface DetailPaneProps {
 export function DetailPane({
   selection,
   row,
+  activities,
   activityTitle,
   episodeSlot,
   project,
@@ -269,7 +326,7 @@ export function DetailPane({
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
-  const { select } = useLensSelection();
+  const { select, artifact, setArtifactView, setFocus } = useLensSelection();
   const isWide = useMediaQuery(WIDE_BREAKPOINT);
   const modal = useMediaQuery(XS_BREAKPOINT);
 
@@ -439,7 +496,172 @@ export function DetailPane({
   const label = activityTitle ?? activityId ?? '—';
   const breadcrumb = breadcrumbFor(label, meta.phaseName, meta.taskLabel, effectiveAttempt);
 
+  // --- The committed artifact at this selection (renderers-placement §2) ------
+  const c4 = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
+  const joinInput = useMemo(
+    () => ({ activities, components: c4.components, contracts: project?.serviceContracts }),
+    [activities, c4.components, project?.serviceContracts]
+  );
+  const join = useMemo(
+    (): ContractJoin | undefined =>
+      activityId !== undefined ? contractJoinFor(joinInput, activityId) : undefined,
+    [joinInput, activityId]
+  );
+  const placement = useMemo(() => placementFor(row, selection, join), [row, selection, join]);
+  const primary = isPrimaryPlacement(placement);
+  // UNDER REVIEW: a gate task, owed NOW (the live workflow at it), on an
+  // observed attempt — never a reconstructed or stripped one (§1, §4.3).
+  const gateOwedNow = decisionLive || (owed?.mark.reason === 'gate' && owedChip !== undefined);
+  const role = artifactRoleFor({
+    gateSelected: selectedTaskIsGate(row, selection),
+    gateOwedNow,
+    attemptOrigin: selectedAttempt?.provenance.origin,
+    hiddenCount,
+  });
+  const reconstructed = provenance.origin === 'backfilled' || provenance.origin === 'synthesized';
+  const stpLatest = attemptsForTask(row?.attempts ?? [], 'stp').at(-1);
+  const focusTarget = focusTargetFor(placement, join);
+  const focusOpen = open && artifact?.focus === true && focusTarget !== undefined;
+  const view: ArtifactViewId =
+    artifact?.view ??
+    (activityId !== undefined ? artifactViewStore.get(activityId) : undefined) ??
+    'code';
+
+  const enterFocus = useCallback((): void => {
+    focusReturnTarget =
+      document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    setFocus(true);
+  }, [setFocus]);
+  const exitFocus = useCallback((): void => {
+    setFocus(false);
+    // Back to the control that opened it — or, after a deep link, the pane's own
+    // Focus button — once the layer has unmounted.
+    window.setTimeout(() => {
+      const target =
+        focusReturnTarget?.isConnected === true
+          ? focusReturnTarget
+          : document.querySelector<HTMLElement>(
+              `[data-testid="${UI_IDENTIFIERS.Construction.ARTIFACT_FOCUS}"]`
+            );
+      target?.focus();
+      focusReturnTarget = null;
+    }, 0);
+  }, [setFocus]);
+
+  const placementCtx = useMemo((): PlacementViewContext => {
+    const componentId = join !== undefined && 'componentId' in join ? join.componentId : undefined;
+    const inboundOperations: NamedOperation[] =
+      componentId !== undefined
+        ? c4.relationships
+            .filter((r) => r.to === componentId)
+            .map((r) => ({ label: r.label, calledBy: r.from }))
+        : [];
+    const othersMissing = (activities ?? []).filter(
+      (a) => a.name !== activityId && contractJoinFor(joinInput, a.name).kind === 'missing'
+    ).length;
+    const stpOrigin = stpLatest?.provenance.origin;
+    const planRow = Object.values(project?.constructionRows ?? {}).find(
+      (r) => classify(r) === 'testing:plan'
+    );
+    return {
+      join,
+      activityKind: row?.kind,
+      role,
+      observedOnly: hiddenAttempts !== undefined,
+      reconstructedScope: reconstructed
+        ? selection.task !== undefined
+          ? 'task'
+          : 'wider'
+        : undefined,
+      project,
+      systemEnvelope,
+      compact: modal,
+      view,
+      onViewChange: (next): void => {
+        if (activityId !== undefined) artifactViewStore.set(activityId, next);
+        setArtifactView(next);
+      },
+      onFocusComponent: (componentId): void => {
+        // A neighbour's activity, at the same phase and task where its own
+        // profile has them, on the same tab. A neighbour no activity builds (a
+        // utility) has nowhere to go, so the click does nothing.
+        const next = activityForComponent(activities, componentId);
+        if (next === undefined) return;
+        const nextRow = project?.constructionRows?.[next];
+        const task =
+          selection.task !== undefined &&
+          lifecyclePhaseOfTask(nextRow, selection.task) !== undefined
+            ? selection.task
+            : undefined;
+        const phase =
+          selection.lifecyclePhase !== undefined &&
+          (profileFor(nextRow) ?? []).some((p) => p.phase === selection.lifecyclePhase)
+            ? selection.lifecyclePhase
+            : undefined;
+        artifactViewStore.set(next, 'component');
+        select(
+          {
+            activityId: next,
+            ...(phase !== undefined ? { lifecyclePhase: phase } : {}),
+            ...(task !== undefined ? { task } : {}),
+          },
+          { view: 'component', ...(artifact?.focus === true ? { focus: true as const } : {}) }
+        );
+      },
+      onOpenDesign: (): void => {
+        if (activityId !== undefined) select({ activityId, lifecyclePhase: 'detailed_design' });
+      },
+      onOpenDynamic: (): void => {
+        if (activityId === undefined) return;
+        artifactViewStore.set(activityId, 'dynamic');
+        select({ activityId, lifecyclePhase: 'detailed_design' }, { view: 'dynamic' });
+      },
+      onFocus: focusTarget !== undefined ? enterFocus : undefined,
+      onOpenSystemTestPlan:
+        planRow !== undefined
+          ? (): void => {
+              select({ activityId: planRow.activityId });
+            }
+          : undefined,
+      evidence,
+      stpReconstructed: stpOrigin === 'backfilled' || stpOrigin === 'synthesized',
+      othersMissing,
+      inboundOperations,
+    };
+  }, [
+    join,
+    c4.relationships,
+    activities,
+    activityId,
+    joinInput,
+    stpLatest,
+    project,
+    row?.kind,
+    role,
+    hiddenAttempts,
+    reconstructed,
+    selection,
+    systemEnvelope,
+    modal,
+    view,
+    setArtifactView,
+    select,
+    artifact?.focus,
+    focusTarget,
+    enterFocus,
+    evidence,
+  ]);
+
   if (!open) return null;
+
+  // `F` while the pane has focus opens the focus view (§3) — never while typing.
+  const onBodyKeyDown = (e: React.KeyboardEvent<HTMLElement>): void => {
+    if (e.key !== 'f' && e.key !== 'F') return;
+    if (e.metaKey || e.ctrlKey || e.altKey || e.defaultPrevented) return;
+    if (focusTarget === undefined || typingTarget(e.target)) return;
+    e.preventDefault();
+    enterFocus();
+  };
 
   const onSelectAttempt = (attempt: number): void => {
     select({ ...selection, attempt });
@@ -493,20 +715,66 @@ export function DetailPane({
         </Typography>
       ) : null}
       <ProvenanceNote evidence={evidence} reading={provenance} />
-      <DetailBody
-        activityTitle={activityTitle}
-        episodeSlot={episodeSlot}
-        hiddenCount={hiddenCount}
-        project={project}
-        reviewSet={reviewSet}
-        row={row}
-        selectedAttemptId={selectedAttempt?.attemptId}
-        selection={selection}
-        state={state}
-        systemEnvelope={systemEnvelope}
-      />
+      <Box sx={{ minWidth: 0 }} onKeyDown={onBodyKeyDown}>
+        <DetailBody
+          activityTitle={activityTitle}
+          episodeSlot={episodeSlot}
+          hiddenCount={hiddenCount}
+          placement={placement}
+          placementCtx={placementCtx}
+          primary={primary}
+          project={project}
+          reviewSet={reviewSet}
+          row={row}
+          selectedAttemptId={selectedAttempt?.attemptId}
+          selection={selection}
+          state={state}
+          systemEnvelope={systemEnvelope}
+        />
+      </Box>
     </>
   );
+
+  // The focus view (§3): the same header and action bar, the artifact at full
+  // width, the lens still mounted underneath. `focus=1` with nothing to focus is
+  // ignored rather than opening an empty layer.
+  const focusLayer = focusOpen ? (
+    <FocusView
+      open
+      actionBar={actionBar}
+      header={
+        <DetailHeader
+          breadcrumb={breadcrumb}
+          chipState={chipState}
+          exitCriterion={meta.exitCriterion}
+          hiddenCount={hiddenCount}
+          owedReason={owedReason}
+          pendingLine={pendingLine}
+          provenance={provenance}
+          state={state}
+          stateLabel={stateLabel}
+          summary={summary}
+          t={t}
+          taskAttempts={taskAttempts}
+          taskSelected={selection.task !== undefined}
+          titleId="construction-focus-pane-title"
+          weight={meta.phaseWeight}
+          onClose={exitFocus}
+          onSelectAttempt={onSelectAttempt}
+        />
+      }
+      onClose={exitFocus}
+    >
+      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+        <ProvenanceNote evidence={evidence} reading={provenance} />
+        <FocusArtifact
+          artifactRole={focusRoleFor(placement, role)}
+          ctx={placementCtx}
+          target={focusTarget}
+        />
+      </Box>
+    </FocusView>
+  ) : null;
 
   const paneContent = (
     <DetailPaneChrome
@@ -542,6 +810,7 @@ export function DetailPane({
     return (
       <Box data-testid={UI_IDENTIFIERS.Construction.DETAIL_PANE} sx={WIDE_PANE_SX}>
         {paneContent}
+        {focusLayer}
       </Box>
     );
   }
@@ -634,6 +903,7 @@ export function DetailPane({
           </Box>
         ) : null}
       </Box>
+      {focusLayer}
     </Drawer>
   );
 }
@@ -811,7 +1081,10 @@ function DetailHeader({
   chipState,
   owedReason,
   pendingLine,
+  titleId = 'construction-detail-pane-title',
 }: {
+  /** The breadcrumb's element id; the focus view's copy of the header takes its own. */
+  titleId?: string;
   breadcrumb: string;
   state: TaskDetailState;
   /** The owed chip's own word, when the owed set says what is owed here. */
@@ -853,7 +1126,7 @@ function DetailHeader({
       <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
         <Typography
           data-testid={UI_IDENTIFIERS.Construction.DETAIL_BREADCRUMB}
-          id="construction-detail-pane-title"
+          id={titleId}
           sx={{
             flexGrow: 1,
             minWidth: 0,
@@ -1377,7 +1650,45 @@ function SendBackComposer({
 // and tested — and this switch is only the wiring from its answer to a renderer.
 // ---------------------------------------------------------------------------
 
-function DetailBody({
+function DetailBody(props: {
+  row: ConstructionRow | undefined;
+  selection: LensSelection;
+  selectedAttemptId: string | undefined;
+  state: TaskDetailState;
+  episodeSlot: DetailPaneProps['episodeSlot'];
+  activityTitle: string | undefined;
+  project: ProjectStateWithGit | undefined;
+  systemEnvelope: ArtifactModelEnvelope | undefined;
+  reviewSet: ConstructionReviewSet | undefined;
+  hiddenCount: number;
+  placement: Placement;
+  placementCtx: PlacementViewContext;
+  primary: boolean;
+}): ReactElement {
+  const { row, selection, state, hiddenCount, placement, placementCtx, primary } = props;
+  const kind = detailBodyFor(row, selection, state, props.project, primary);
+  // A COMPANION (the bare-click summary, a REFERENCE line, an overview-depth
+  // absence) rides above whatever body the selection gets; a PRIMARY placement
+  // IS the body, framed by its state when nothing has run (§2.1).
+  const placed = <ArtifactPlacementView ctx={placementCtx} placement={placement} />;
+  const primarySlot = primary ? (
+    <ArtifactStateFrame hiddenCount={hiddenCount} row={row} selection={selection} state={state}>
+      {placed}
+    </ArtifactStateFrame>
+  ) : undefined;
+  const companion = !primary && placement.kind !== 'none' && kind !== 'absent' ? placed : null;
+  const body = <DetailBodySlot {...props} kind={kind} primarySlot={primarySlot} />;
+  return companion !== null ? (
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, minWidth: 0 }}>
+      {companion}
+      {body}
+    </Box>
+  ) : (
+    body
+  );
+}
+
+function DetailBodySlot({
   row,
   selection,
   selectedAttemptId,
@@ -1388,6 +1699,8 @@ function DetailBody({
   systemEnvelope,
   reviewSet,
   hiddenCount,
+  kind,
+  primarySlot,
 }: {
   row: ConstructionRow | undefined;
   selection: LensSelection;
@@ -1399,8 +1712,9 @@ function DetailBody({
   systemEnvelope: ArtifactModelEnvelope | undefined;
   reviewSet: ConstructionReviewSet | undefined;
   hiddenCount: number;
+  kind: ReturnType<typeof detailBodyFor>;
+  primarySlot: ReactNode;
 }): ReactElement {
-  const kind = detailBodyFor(row, selection, state, project);
   switch (kind) {
     case 'absent': {
       const absence = absenceFor(row, selection);
@@ -1442,6 +1756,7 @@ function DetailBody({
       return (
         <ReviewBody
           activityTitle={activityTitle}
+          artifactSlot={primarySlot}
           project={project}
           reviewSet={reviewSet}
           row={row}
@@ -1453,6 +1768,7 @@ function DetailBody({
       return (
         <ArtifactBody
           activityTitle={activityTitle}
+          primary={primarySlot}
           project={project}
           row={row}
           selection={selection}
