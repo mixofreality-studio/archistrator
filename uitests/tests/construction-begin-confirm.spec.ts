@@ -241,6 +241,10 @@ interface WireRow {
   classified: boolean;
   hasBuildEvidence: boolean;
   BuildStatus: number;
+  /** The pump's own record is stored (a pickup writes it). */
+  recorded?: boolean;
+  /** When the pump picked the activity up (RFC 3339). */
+  startedAt?: string;
 }
 interface WireProject {
   constructionStarted?: boolean;
