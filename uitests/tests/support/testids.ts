@@ -229,6 +229,8 @@ export const TESTID = {
   constructionGraphKey: UI_IDENTIFIERS.Construction.GRAPH_KEY,
   constructionGraphKeyButton: UI_IDENTIFIERS.Construction.GRAPH_KEY_BUTTON,
   constructionGraphFilterStatus: UI_IDENTIFIERS.Construction.GRAPH_FILTER_STATUS,
+  constructionGraphRowGutter: UI_IDENTIFIERS.Construction.GRAPH_ROW_GUTTER,
+  constructionGraphRowLabel: UI_IDENTIFIERS.Construction.graphRowLabel,
   constructionGraphClearFilters: UI_IDENTIFIERS.Construction.GRAPH_CLEAR_FILTERS,
   constructionGraphLayerCheck: UI_IDENTIFIERS.Construction.GRAPH_LAYER_CHECK,
   constructionGraphCard: UI_IDENTIFIERS.Construction.graphCard,

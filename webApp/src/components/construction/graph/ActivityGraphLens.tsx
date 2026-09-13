@@ -81,6 +81,7 @@ import {
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
+import { GraphRowGutter } from './GraphRowGutter';
 
 /** Far enough out to fit the widest real row (ten ResourceAccess cards) at 1280. */
 const MIN_ZOOM = 0.15;
@@ -419,6 +420,8 @@ function GraphCanvas({
       sx={{ height: CANVAS_MIN_PX }}
     >
       <FlowCanvas
+        // Bottom-right: the pinned row gutter owns the left edge (P1-6).
+        controlsPosition="bottom-right"
         edges={edges}
         height="100%"
         minZoom={MIN_ZOOM}
@@ -439,6 +442,7 @@ function GraphCanvas({
         {initialFocus !== undefined ? (
           <FocusNodes dep={initialFocus} nodeIds={initialFocusIds} />
         ) : null}
+        <GraphRowGutter rows={layout.rows} />
       </FlowCanvas>
     </Box>
   );
@@ -513,7 +517,9 @@ function buildNodes(args: {
   for (const r of layout.rows) {
     nodes.push({
       id: `__row-${r.row}`,
-      type: 'rowLabel',
+      // An invisible spacer: the labels themselves are the pinned HTML gutter
+      // (GraphRowGutter, designer P1-6); this keeps their room at fit.
+      type: 'rowSpacer',
       position: { x: -GUTTER_W, y: r.y + (r.height - NODE_H) / 2 },
       data: { text: r.label },
       draggable: false,

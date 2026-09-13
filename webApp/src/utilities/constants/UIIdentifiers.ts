@@ -383,6 +383,9 @@ export const UI_IDENTIFIERS = {
     GRAPH_KEY_BUTTON: 'construction-graph-key-button',
     /** "N of 29 match · Clear filters" — shown only while a filter is active (P1-4). */
     GRAPH_FILTER_STATUS: 'construction-graph-filter-status',
+    /** The pinned HTML row-label gutter and one row's label in it (P1-6). */
+    GRAPH_ROW_GUTTER: 'construction-graph-row-gutter',
+    graphRowLabel: (row: string) => `construction-graph-row-label-${row}`,
     GRAPH_CLEAR_FILTERS: 'construction-graph-clear-filters',
     GRAPH_LAYER_CHECK: 'construction-graph-layer-check',
     graphCard: (cardId: string) => `construction-graph-card-${cardId}`,

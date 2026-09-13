@@ -18,6 +18,7 @@ import {
   type NodeMouseHandler,
   type EdgeMouseHandler,
   type OnMove,
+  type PanelPosition,
   type Viewport,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
@@ -108,6 +109,7 @@ export function FlowCanvas({
   defaultViewport,
   onMoveEnd,
   minZoom = 0.3,
+  controlsPosition,
   children,
 }: {
   nodes: Node[];
@@ -134,6 +136,9 @@ export function FlowCanvas({
   onMoveEnd?: OnMove;
   /** The furthest zoom-out. Defaults to the historical 0.3. */
   minZoom?: number;
+  /** Where the zoom controls sit. Defaults to xyflow's bottom-left (every
+   *  historical caller); the graph lens moves them clear of its row gutter. */
+  controlsPosition?: PanelPosition;
   children?: ReactNode;
 }): ReactNode {
   return (
@@ -173,7 +178,10 @@ export function FlowCanvas({
         {...(onEdgeClick ? { onEdgeClick } : {})}
       >
         <Background color={t.line} gap={22} size={1} />
-        <Controls showInteractive={false} />
+        <Controls
+          showInteractive={false}
+          {...(controlsPosition !== undefined ? { position: controlsPosition } : {})}
+        />
         {children}
       </ReactFlow>
     </Box>
