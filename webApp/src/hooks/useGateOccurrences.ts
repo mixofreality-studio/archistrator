@@ -17,14 +17,22 @@
 import { useSyncExternalStore } from 'react';
 import { useQueryClient, type QueryClient } from '@tanstack/react-query';
 import type { ConstructionSessionState } from '../contracts/types';
-import { observeGate, occurrenceKey, withOccurrence, type GateOccurrence } from './gateOccurrences';
+import {
+  observeGate,
+  occurrenceKey,
+  withOccurrence,
+  type GateOccurrence,
+} from './gateOccurrences.ts';
 
 export type GateOccurrences = ReadonlyMap<string, GateOccurrence>;
 
-interface Store {
+/** One QueryClient's occurrence store (exported for useGateOccurrences.test.ts). */
+export interface GateOccurrenceStore {
   snapshot: GateOccurrences;
   listeners: Set<() => void>;
 }
+
+type Store = GateOccurrenceStore;
 
 const stores = new WeakMap<QueryClient, Store>();
 
@@ -43,7 +51,8 @@ interface CachedRead {
   state: { data: unknown; dataUpdatedAt: number };
 }
 
-function storeFor(client: QueryClient): Store {
+/** The client's store, created — and subscribed to its query cache — on first ask. */
+export function gateOccurrenceStoreFor(client: QueryClient): Store {
   const existing = stores.get(client);
   if (existing !== undefined) return existing;
   const store: Store = { snapshot: new Map(), listeners: new Set() };
@@ -85,7 +94,7 @@ function storeFor(client: QueryClient): Store {
 }
 
 export function useGateOccurrences(): GateOccurrences {
-  const store = storeFor(useQueryClient());
+  const store = gateOccurrenceStoreFor(useQueryClient());
   return useSyncExternalStore(
     (onChange) => {
       store.listeners.add(onChange);

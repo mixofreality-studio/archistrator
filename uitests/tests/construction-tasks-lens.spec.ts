@@ -14,11 +14,14 @@
  *    the session leaves the gate, says "did not land" when it does not, and tells a
  *    4xx rejection from a 5xx unknown outcome.
  *
- * SAFETY: every non-GET the browser CONTEXT makes is aborted before the page opens
- * (guardContext) — a context route, so a page's teardown `unrouteAll` cannot remove
- * it — unless a test answers that write itself. A request a test holds open is
- * released as an ABORT in teardown, before anything is unrouted (review I2). Nothing
- * reaches the server but GET reads.
+ * SAFETY: two layers, because neither alone closes review I2 (measured, round 2).
+ *  - guardContext: every non-GET no page route answers is aborted by a CONTEXT
+ *    route, registered before the page opens; a page's `unrouteAll` cannot remove it.
+ *  - abortHolds: a request a test HOLDS open is aborted in teardown BEFORE anything
+ *    is unrouted. This is the layer that closes I2: when `unrouteAll` removes a page
+ *    handler that is still holding a request, Playwright lets that request go on to
+ *    the network — past the context guard too.
+ * Nothing reaches the server but GET reads.
  */
 import { test, expect, type BrowserContext, type Page, type Route } from '@playwright/test';
 import { TESTID } from './support/testids.js';
@@ -52,12 +55,17 @@ interface Wire {
 let blocked: string[] = [];
 
 /**
- * Abort every non-GET/HEAD the browser context makes (review I2). A CONTEXT route,
- * not a page one: the page catch-all this replaces was removed by the teardown's
- * `unrouteAll`, and a request a page handler still held then went out. A test that
- * answers a write registers its own page route, which takes precedence; anything
- * it does not answer falls through to here. The merge round swaps this for
- * rewrite's shared `dispatchGuard` fixture (support/dispatchGuard.ts).
+ * Abort every non-GET/HEAD no page route answers (review I2). A CONTEXT route, not
+ * a page one: the page catch-all this replaces was itself removed by the teardown's
+ * `unrouteAll`. A test that answers a write registers its own page route, which
+ * takes precedence; anything it does not answer falls through to here.
+ *
+ * It does NOT catch a request a page handler is HOLDING when that handler is
+ * unrouted — Playwright sends such a request straight on (round 2 leak demo: guard
+ * alone, one POST reached the GET-only proxy). abortHolds is what closes that.
+ * The merge round swaps this for rewrite's shared `dispatchGuard` fixture
+ * (support/dispatchGuard.ts) — which, being a context route too, needs abortHolds
+ * alongside it just the same.
  */
 async function guardContext(context: BrowserContext): Promise<void> {
   await context.route('**/*', async (route) => {
@@ -73,6 +81,13 @@ async function guardContext(context: BrowserContext): Promise<void> {
 
 /** Teardown's release for every hold the current test opened: each ABORTS. */
 let holds: (() => Promise<void>)[] = [];
+
+/** Abort every request the current test still holds, and wait until each has —
+ *  what teardown does FIRST, while every route is still in place (review I2). */
+async function abortHolds(): Promise<void> {
+  for (const abortHeld of holds) await abortHeld();
+  holds = [];
+}
 
 /**
  * Hold requests open until the test releases them (review I2). `handle` answers
@@ -241,9 +256,9 @@ test.beforeEach(async ({ context, request }) => {
 });
 
 test.afterEach(async ({ page }) => {
-  // Held requests die as aborts FIRST, while every route is still in place (I2).
-  for (const abortHeld of holds) await abortHeld();
-  holds = [];
+  // Held requests die as aborts FIRST, while every route is still in place (I2):
+  // unrouting a handler that still holds one would send it on to the network.
+  await abortHolds();
   // The console re-reads the project every 10s (review I3), so a route handler can
   // be mid-fetch when a test ends; that is teardown, not a failure. The context
   // guard outlives this.
@@ -267,6 +282,35 @@ test('a write is aborted by the context guard, even once every page route is gon
   }, probe);
   expect(outcome).toBe('aborted');
   expect(blocked.filter((b) => b.endsWith(probe))).toEqual([`POST ${BASE}${probe}`]);
+});
+
+test('a write a test still holds when it ends is aborted by teardown, never let out (review I2)', async ({
+  page,
+}) => {
+  await openTasks(page);
+  // SAFETY: the probe path does not exist on the server; were it let out, it could
+  // only reach the GET-only proxy, which refuses it.
+  const probe = '/api/v1/__tasks-lens-hold-probe';
+  const hold = newHold();
+  let held = 0;
+  await page.route(`**${probe}`, (route) => {
+    held += 1;
+    return hold.handle(route, async () => {
+      await route.fulfill({ status: 200, json: {} });
+    });
+  });
+  const outcome = page.evaluate(async (url) => {
+    try {
+      return `status ${String((await fetch(url, { method: 'POST', body: '{}' })).status)}`;
+    } catch {
+      return 'aborted';
+    }
+  }, probe);
+  await expect.poll(() => held).toBe(1);
+  // Exactly what teardown does when a test fails with the request still held.
+  await abortHolds();
+  await page.unrouteAll({ behavior: 'ignoreErrors' });
+  expect(await outcome).toBe('aborted');
 });
 
 test('live: nothing is owed, and the lens says so without probing a session', async ({ page }) => {
@@ -969,4 +1013,10 @@ test('a 4xx is a rejection; a 5xx is an unknown outcome', async ({ page }) => {
   status = 500;
   await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
   await expect(flow).toContainText('Outcome unknown');
+  // A 5xx may have been delivered, so Approve waits for a session read REQUESTED
+  // after the failure — then, the gate still open, the human may decide again
+  // (review I1; round 2: a read counts from its request, not its arrival).
+  await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toBeEnabled({
+    timeout: 10_000,
+  });
 });
