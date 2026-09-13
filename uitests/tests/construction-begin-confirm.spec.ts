@@ -251,6 +251,9 @@ interface Harness {
   reads: number[];
   /** Timestamps of every project read answered with the project (not held). */
   served: number[];
+  /** The edit each served read carried (null: served as the server sent it), in
+   *  serve order: how a case knows a read carrying its edit has been served. */
+  servedEdits: (((wire: WireProject) => void) | null)[];
   /** While true, project reads are answered 503 in the browser. */
   holdReads: { on: boolean };
   /** When set, the real project read is served with this edit applied, in the
@@ -262,7 +265,14 @@ async function harness(
   page: Page,
   answer: (route: import('@playwright/test').Route) => Promise<void>
 ): Promise<Harness> {
-  const h: Harness = { trapped: [], reads: [], served: [], holdReads: { on: false }, edit: { fn: null } };
+  const h: Harness = {
+    trapped: [],
+    reads: [],
+    served: [],
+    servedEdits: [],
+    holdReads: { on: false },
+    edit: { fn: null },
+  };
   await page.route('**/execute-next-activity/**', async (route) => {
     h.trapped.push(route.request().url());
     await answer(route);
@@ -290,6 +300,7 @@ async function harness(
       }
     }
     h.served.push(Date.now());
+    h.servedEdits.push(edit);
   });
   return h;
 }
@@ -325,9 +336,8 @@ const SUCCESS = { status: 200, contentType: 'application/json', body: '{}' };
 /**
  * A harness whose dispatch SUCCEEDS, with the pump's pickup of PICKED showing in
  * every read from the answer on. The pickup lands with the answer here, so these
- * cases pin the in-flight state, not the gap before a first read shows it (the
- * fix-G report records that gap as a concern: the state is the authority, and
- * until a read shows the pickup there is nothing in flight to show).
+ * cases pin the in-flight state. The gap BEFORE a first read shows the pickup is
+ * pinned by the fix-H cases below, on the plain `harness` with a SUCCESS answer.
  */
 async function harnessPickingUp(page: Page): Promise<Harness> {
   const holder: { h?: Harness } = {};
@@ -1035,6 +1045,158 @@ test('a remount after a SUCCESSFUL dispatch still reads as running while work is
   };
   const begin = page.getByTestId(TESTID.constructionBegin);
   await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+// ---------------------------------------------------------------------------
+// Fix round H: after a SUCCESS, the same bounded hold covers the gap before the
+// pickup shows (fix-G report, concern 1). A success says the pump was started, not
+// that a read shows it yet; until one does, nothing is in flight by state. So
+// Begin/Resume stay "Construction running…" until a read requested after the
+// success shows work in flight, or 60s pass with no sign of it. (Until B1's
+// server-side "pump open" read.)
+//
+// SAFETY: as above. The dispatch is answered 200 in the browser; nothing is sent.
+// ---------------------------------------------------------------------------
+
+/** Wait until the success has SETTLED: its refresh read and one more are served. */
+async function awaitSettledSuccess(h: Harness): Promise<void> {
+  await expect.poll(() => h.trapped.length).toBe(1);
+  const at = h.served.length;
+  await expect
+    .poll(() => h.served.length, { timeout: 10_000, message: 'reads after the answer' })
+    .toBeGreaterThan(at + 1);
+}
+
+/**
+ * Serve `fn` as the read's edit, and wait until a read CARRYING it has been served.
+ * Reads land every ~2.5-3s (the 1.5s poll plus the fetch), so a case that swapped
+ * its edits faster than that could replace the pickup before any read showed it,
+ * and never exercise the pickup at all (measured while pinning fix H).
+ */
+async function serveEdit(h: Harness, fn: (wire: WireProject) => void): Promise<void> {
+  h.edit.fn = fn;
+  await expect
+    .poll(() => h.servedEdits.includes(fn), { timeout: 10_000, message: 'a read carrying the edit' })
+    .toBe(true);
+}
+
+test('a success, then a gap before the pickup: the button reads running throughout, and past the pickup', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  // The answer's refresh and the polls after it read NOTHING in flight: the gap.
+  // Nothing is pending by now, and the state shows no work, so only the hold says
+  // "running". It used to be an enabled "Begin construction" here.
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 3_000);
+
+  // 32s into the gap: past the watchdog's 30s. Still held, and still reading fast.
+  await page.clock.fastForward(32_000);
+  await expectRunning(page, 1_500);
+  const before = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 6_000, message: 'reads during the gap' })
+    .toBeGreaterThan(before + 1);
+
+  // The pickup shows. Running still, now by state: the pickup ended the hold.
+  await serveEdit(h, inConstruction(PICKED));
+  await expectRunning(page, 2_000);
+
+  // The work ends, still inside the success's 60s: nothing in flight, and no hold
+  // standing, because the pickup already ended it. Resume at once, not at 60s.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toBeEnabled();
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success whose pickup never shows holds Begin for 60s, then gives it back', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 1_500);
+
+  // The clock keeps real time between jumps, so the jumps leave margin: 50s here
+  // (plus the few real seconds above) is short of 60s, and 12s more is past it.
+  await page.clock.fastForward(50_000);
+  await expectRunning(page, 1_500);
+  // Past 60s since the success, with no read showing the pickup: the hold runs out.
+  await page.clock.fastForward(12_000);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  // A success is not a failure: nothing to alert about.
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a trip to /design and back during the gap keeps the hold, and its 60s still run from the success', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  // Settled before leaving: nothing is pending on return, and the state shows
+  // nothing in flight, so only the success in module memory can hold Begin.
+  await awaitSettledSuccess(h);
+  await expectRunning(page, 1_000);
+
+  await markDocument(page);
+  await awayToDesign(page);
+  await page.clock.fastForward(20_000);
+  await backToConsole(page);
+  await expectSameDocument(page);
+
+  await expectRunning(page, 1_500);
+  // The remounted console polls for the pickup.
+  const back = h.reads.length;
+  await expect
+    .poll(() => h.reads.length, { timeout: 8_000, message: 'reads after the remount' })
+    .toBeGreaterThan(back + 1);
+
+  // 20s away + 42s here: past 60s from the SUCCESS, not from the remount.
+  await page.clock.fastForward(42_000);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Begin construction/, { timeout: 10_000 });
+  await expect(begin).toBeEnabled();
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('a success picked up and finished well inside 60s gives Resume back with the next read, not at 60s', async ({
+  page,
+}) => {
+  await page.clock.install();
+  const h = await harness(page, (route) => route.fulfill(SUCCESS));
+  await openConsole(page);
+  await dispatchOnce(page);
+  await awaitSettledSuccess(h);
+
+  // The pickup shows: the hold has done its job, and the state decides from here.
+  await serveEdit(h, inConstruction(PICKED));
+  await expectRunning(page, 1_500);
+
+  // The work ends seconds after the success, far inside its 60s. Nothing is in
+  // flight, and the pickup already ended the hold (its record left memory), so
+  // Resume comes back with the next read. Kept, the record would hold it to 60s.
+  h.edit.fn = (wire) => {
+    wire.constructionStarted = true;
+  };
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 10_000 });
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });

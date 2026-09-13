@@ -62,9 +62,16 @@ export function useBeginConstruction(
      * change from "not started" can count as pump evidence.
      */
     onError?: (error: Error, atFailure: { constructionStarted: boolean | undefined }) => void;
+    /**
+     * Runs at the MUTATION level too, for the same reason, and BEFORE the refresh
+     * is requested: the console records the success in module memory from here,
+     * and only a read requested after that record may count as the pickup (fix H).
+     */
+    onSuccess?: () => void;
   }
 ): UseMutationResult<undefined, Error, string> {
   const onFailure = options?.onError;
+  const onDispatched = options?.onSuccess;
   const client = useQueryClient();
   // Refresh the project read so the just-dispatched activity (flipping to
   // in-construction) shows up; the console's cascade poll keeps it fresh. The
@@ -86,7 +93,10 @@ export function useBeginConstruction(
       throwUnlessOk(response, error);
       return undefined;
     },
-    onSuccess: refresh,
+    onSuccess: async () => {
+      onDispatched?.();
+      await refresh();
+    },
     // A FAILED dispatch refreshes exactly as a successful one does (fix-C review):
     // the server starts the pump before it answers and can still answer 5xx after
     // that, or the response can be dropped on the way. Only a fresh read can say

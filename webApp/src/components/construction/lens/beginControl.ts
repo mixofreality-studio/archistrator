@@ -177,26 +177,69 @@ export function anyRowInFlight(rows: ConstructionRows | undefined): boolean {
  */
 export function pumpEvidencedSince(
   at: number,
-  reads: {
-    /** When the shown project read was REQUESTED (0 where unknown), and what it said. */
-    projectRequestedAt: number;
+  reads: PickupReads & {
+    /** What the shown project read said about construction having started. */
     constructionStarted: boolean | undefined;
     /** What the read on screen at the failure said (BeginFailure.startedAtFailure). */
     startedAtFailure: boolean | undefined;
-    /** Whether that read shows any activity in flight (rowIsInFlight). */
-    rowsInFlight: boolean;
-    /** When the shown session read was REQUESTED, and its stage. Stage is
-     *  `undefined` when there is no probe, or the probe established that no
-     *  session exists. */
-    sessionRequestedAt: number;
-    sessionStage: ConstructionStage | undefined;
   }
 ): boolean {
-  const read = reads.projectRequestedAt > at;
   const newlyStarted = reads.startedAtFailure === false && reads.constructionStarted === true;
-  const started = read && (newlyStarted || reads.rowsInFlight);
+  const started = reads.projectRequestedAt > at && newlyStarted;
+  return started || pickupEvidencedSince(at, reads);
+}
+
+/** The reads the pump's evidence is judged from, each with when it was REQUESTED. */
+export interface PickupReads {
+  /** When the shown project read was REQUESTED (0 where unknown). */
+  projectRequestedAt: number;
+  /** Whether that read shows any activity in flight (rowIsInFlight). */
+  rowsInFlight: boolean;
+  /** When the shown session read was REQUESTED, and its stage. Stage is
+   *  `undefined` when there is no probe, or the probe established that no
+   *  session exists. */
+  sessionRequestedAt: number;
+  sessionStage: ConstructionStage | undefined;
+}
+
+/**
+ * Whether the reads since `at` show the pump PICKING WORK UP: the project read
+ * shows an activity in flight, or the probed session is live. Counted from reads
+ * requested after `at`, as pumpEvidencedSince is.
+ *
+ * `constructionStarted` is deliberately not evidence here. After a successful
+ * Resume it was already true before the dispatch (the fix-G review's I1 rule:
+ * evidence must have CHANGED after the dispatch), and even after a first Begin it
+ * says the pump started, not that any work is in flight yet (fix-G report,
+ * concern 1).
+ */
+export function pickupEvidencedSince(at: number, reads: PickupReads): boolean {
+  const picked = reads.projectRequestedAt > at && reads.rowsInFlight;
   const live = reads.sessionRequestedAt > at && sessionIsLive(reads.sessionStage);
-  return started || live;
+  return picked || live;
+}
+
+// ---------------------------------------------------------------------------
+// After a SUCCESSFUL dispatch: hold Begin until the pickup shows (fix-G report,
+// concern 1; orchestrator ruling, fix H).
+//
+// A success means the pump was started, not that a read shows it yet. Between the
+// answer and the first read that shows the pickup, nothing is in flight by state
+// and no failure hold stands, so an enabled Begin/Resume stood beside a pump that
+// had just been started. The same bounded hold as an unknown outcome covers that
+// gap: Begin/Resume stay "Construction running…" until a read requested after the
+// success shows work in flight (pickupEvidencedSince), or UNKNOWN_OUTCOME_HOLD_MS
+// pass with no sign of it. It stands until B1's server-side "pump open" read can
+// say directly whether the pump is running.
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether a successful dispatch still holds Begin for the pickup: it is recorded
+ * (the record leaves memory on evidence or when the hold expires), and no read
+ * since it shows the pickup.
+ */
+export function awaitingPickup(dispatched: { at: number } | null, reads: PickupReads): boolean {
+  return dispatched !== null && !pickupEvidencedSince(dispatched.at, reads);
 }
 
 /**
@@ -219,16 +262,22 @@ export function beginHoldFor(
 
 /**
  * Whether the button reads "Construction running…" (disabled): a dispatch is
- * pending, or the STATE shows construction in flight (constructionInFlight).
+ * pending, the STATE shows construction in flight (constructionInFlight), or a
+ * successful dispatch is still awaiting its pickup (awaitingPickup).
  *
  * It is decided the same way on every path: after a success, after an unknown
  * outcome, after a remount, and with no dispatch at all. No timer enters it
- * (fix-F review, root-cause ruling). The unknown-outcome hold sits on top of it
- * (beginControlFor's `awaitingPump`), so Begin and Resume are enabled only when
- * nothing is pending, nothing is in flight, and no hold stands.
+ * (fix-F review, root-cause ruling); the pickup hold is bounded by its record
+ * leaving memory, not by a timer read here. The unknown-outcome hold sits on top
+ * of it (beginControlFor's `awaitingPump`), so Begin and Resume are enabled only
+ * when nothing is pending, nothing is in flight, and no hold stands.
  */
-export function beginRunning(input: { pending: boolean; inFlight: boolean }): boolean {
-  return input.pending || input.inFlight;
+export function beginRunning(input: {
+  pending: boolean;
+  inFlight: boolean;
+  awaitingPickup: boolean;
+}): boolean {
+  return input.pending || input.inFlight || input.awaitingPickup;
 }
 
 /** The project poll while a Begin is fresh, pending or held: fast enough to animate the cascade. */
@@ -242,8 +291,9 @@ export const IN_FLIGHT_POLL_MS = 5000;
  * `cascading`, and that is ALL it does: it slows the poll, and never decides the
  * label or whether Begin is enabled.
  *
- *   - fast while a dispatch is pending, while a failure in memory still awaits the
- *     pump (so a remounted console polls for the evidence), or while cascading;
+ *   - fast while a dispatch is pending, while a failure or a success in memory
+ *     still awaits the pump (so a remounted console polls for the evidence), or
+ *     while cascading;
  *   - slow while the state shows work in flight, so "Construction running…" ends
  *     when the work does;
  *   - off otherwise.

@@ -1,18 +1,23 @@
 /**
- * The last failed Begin dispatch, per project, in MODULE memory (fix-E review I2).
+ * The last Begin dispatch's outcome, per project, in MODULE memory (fix-E review
+ * I2; fix H). Two records, one mechanism:
  *
- * It used to be component state, so a remount dropped it. After a 500, an in-app
- * trip to /design and back came back to a console with no failure, no hold and
- * no alert: Begin was offered again while the pump might be running. The failure,
- * its hold (`holdExpired`) and the alert's `dismissed` flag now live here, keyed by
- * projectId, the same way the deep-link memory survives a lens switch. The hold's
- * deadline is `at + UNKNOWN_OUTCOME_HOLD_MS`, so a remounted console re-arms its
- * timer for whatever is left, or expires the hold at once if it ran out while the
- * console was away.
+ *  - a FAILED dispatch (BeginFailure). It used to be component state, so a
+ *    remount dropped it. After a 500, an in-app trip to /design and back came back
+ *    to a console with no failure, no hold and no alert: Begin was offered again
+ *    while the pump might be running. The failure, its hold (`holdExpired`) and the
+ *    alert's `dismissed` flag live here, keyed by projectId, the same way the
+ *    deep-link memory survives a lens switch. The hold's deadline is
+ *    `at + UNKNOWN_OUTCOME_HOLD_MS`, so a remounted console re-arms its timer for
+ *    whatever is left, or expires the hold at once if it ran out while away.
+ *  - a SUCCESSFUL dispatch still awaiting its pickup (BeginDispatched, fix H). The
+ *    same bounded hold, for the same reason: a trip away and back during the gap
+ *    before the first read shows the pickup must not hand back an enabled Begin.
+ *    It leaves memory once the pickup shows, or when the hold runs out.
  *
- * It is written from the Begin mutation's own onError, not only from the
+ * Both are written from the Begin mutation's own callbacks, not only from the
  * console's, so an answer that lands while the console is unmounted is still
- * recorded. The console reads it through useBeginFailure (useSyncExternalStore).
+ * recorded. The console reads them through useSyncExternalStore.
  */
 import { useSyncExternalStore } from 'react';
 import type { DispatchOutcome } from './beginControl';
@@ -34,31 +39,57 @@ export interface BeginFailure {
   startedAtFailure: boolean | undefined;
 }
 
-const failures = new Map<string, BeginFailure>();
-const listeners = new Set<() => void>();
+/** A successful dispatch whose pickup no read has shown yet. */
+export interface BeginDispatched {
+  /** When the success was answered (ms since the epoch). */
+  at: number;
+}
+
+type Update<T> = T | null | ((current: T | null) => T | null);
+
+/** One keyed store: a value per project, a listener set, and a stable snapshot. */
+function projectMemory<T>(): {
+  read: (projectId: string) => T | null;
+  write: (projectId: string, next: Update<T>) => void;
+  subscribe: (listener: () => void) => () => void;
+} {
+  const values = new Map<string, T>();
+  const listeners = new Set<() => void>();
+  const read = (projectId: string): T | null => values.get(projectId) ?? null;
+  return {
+    read,
+    write: (projectId, next): void => {
+      const current = read(projectId);
+      const value =
+        typeof next === 'function' ? (next as (current: T | null) => T | null)(current) : next;
+      if (value === current) return;
+      if (value === null) values.delete(projectId);
+      else values.set(projectId, value);
+      for (const listener of listeners) listener();
+    },
+    subscribe: (listener) => {
+      listeners.add(listener);
+      return (): void => {
+        listeners.delete(listener);
+      };
+    },
+  };
+}
+
+const failures = projectMemory<BeginFailure>();
+const dispatches = projectMemory<BeginDispatched>();
 
 export function readBeginFailure(projectId: string): BeginFailure | null {
-  return failures.get(projectId) ?? null;
+  return failures.read(projectId);
 }
 
 /** Replace (or, with a function, update) one project's failure, and notify. */
-export function writeBeginFailure(
-  projectId: string,
-  next: BeginFailure | null | ((current: BeginFailure | null) => BeginFailure | null)
-): void {
-  const current = readBeginFailure(projectId);
-  const value = typeof next === 'function' ? next(current) : next;
-  if (value === current) return;
-  if (value === null) failures.delete(projectId);
-  else failures.set(projectId, value);
-  for (const listener of listeners) listener();
+export function writeBeginFailure(projectId: string, next: Update<BeginFailure>): void {
+  failures.write(projectId, next);
 }
 
 export function subscribeBeginFailures(listener: () => void): () => void {
-  listeners.add(listener);
-  return (): void => {
-    listeners.delete(listener);
-  };
+  return failures.subscribe(listener);
 }
 
 /** Whether a failure still holds Begin for the pump: an unknown outcome whose hold
@@ -69,4 +100,21 @@ export function failureAwaitsPump(failure: BeginFailure | null): boolean {
 
 export function useBeginFailure(projectId: string): BeginFailure | null {
   return useSyncExternalStore(subscribeBeginFailures, () => readBeginFailure(projectId));
+}
+
+export function readBeginDispatched(projectId: string): BeginDispatched | null {
+  return dispatches.read(projectId);
+}
+
+/** Replace (or, with a function, update) one project's awaited pickup, and notify. */
+export function writeBeginDispatched(projectId: string, next: Update<BeginDispatched>): void {
+  dispatches.write(projectId, next);
+}
+
+export function subscribeBeginDispatches(listener: () => void): () => void {
+  return dispatches.subscribe(listener);
+}
+
+export function useBeginDispatched(projectId: string): BeginDispatched | null {
+  return useSyncExternalStore(subscribeBeginDispatches, () => readBeginDispatched(projectId));
 }
