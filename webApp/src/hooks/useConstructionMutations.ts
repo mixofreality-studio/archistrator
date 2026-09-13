@@ -30,6 +30,12 @@ import { constructionSessionKey, constructionSessionsKey } from './useConstructi
 import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
 import { projectKey } from './useProject';
 
+/** What a successful Begin dispatch said: whether the pump started an activity
+ *  (`undefined` where the body did not say). */
+export interface BeginResult {
+  dispatched: boolean | undefined;
+}
+
 /** The mutation-cache key of one project's Begin dispatches. */
 export function beginConstructionKey(projectId: string): readonly unknown[] {
   return ['beginConstruction', projectId];
@@ -67,10 +73,12 @@ export function useBeginConstruction(
      * Runs at the MUTATION level too, for the same reason, and BEFORE the refresh
      * is requested: the console records the success in module memory from here,
      * and only a read requested after that record may count as the pickup (fix H).
+     * It gets what the pump said: `dispatched: false` is a quiet tick that started
+     * nothing (fix I).
      */
-    onSuccess?: () => void;
+    onSuccess?: (result: BeginResult) => void;
   }
-): UseMutationResult<undefined, Error, string> {
+): UseMutationResult<BeginResult, Error, string> {
   const onFailure = options?.onError;
   const onDispatched = options?.onSuccess;
   const client = useQueryClient();
@@ -84,18 +92,21 @@ export function useBeginConstruction(
       client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) }),
     ]);
   };
-  return useMutation<undefined, Error, string>({
+  return useMutation<BeginResult, Error, string>({
     mutationKey: beginConstructionKey(projectId),
     mutationFn: async (tickID) => {
-      const { error, response } = await apiClient.POST(
+      const { data, error, response } = await apiClient.POST(
         '/api/v1/construction/execute-next-activity/{projectID}',
         { params: { path: { projectID: projectId } }, body: { tickID } }
       );
       throwUnlessOk(response, error);
-      return undefined;
+      // The status decided success; the body only says whether the pump started
+      // anything. Read as optional: a 200 whose body omits it is not a "false".
+      const said: { dispatched?: boolean } | undefined = data;
+      return { dispatched: said?.dispatched };
     },
-    onSuccess: async () => {
-      onDispatched?.();
+    onSuccess: async (result) => {
+      onDispatched?.(result);
       await refresh();
     },
     // A FAILED dispatch refreshes exactly as a successful one does (fix-C review):

@@ -1610,3 +1610,72 @@ test('M3: switching in-app to a second project gives it its own Begin, even with
   await expect.poll(() => dispatched.length, { message: 'the second project dispatched' }).toBe(2);
   expect(dispatched[1]).toContain(`/execute-next-activity/${SECOND_PROJECT}`);
 });
+
+// ---------------------------------------------------------------------------
+// Fix I (fix-H review minors). SAFETY: as above; the dispatch is answered in the
+// browser, and nothing is sent.
+// ---------------------------------------------------------------------------
+
+/** The pump answered 200 and started nothing: its quiet tick, nothing eligible. */
+const NOTHING_DISPATCHED = {
+  status: 200,
+  contentType: 'application/json',
+  body: '{"dispatched":false}',
+};
+
+test('fix I: a 200 saying dispatched:false holds nothing, and says "Nothing to dispatch — no activity is eligible"', async ({
+  page,
+}) => {
+  const h = await harness(page, (route) => route.fulfill(NOTHING_DISPATCHED));
+  await openConsole(page);
+  await dispatchOnce(page);
+  await expect.poll(() => h.trapped.length).toBe(1);
+  await expect(page.getByTestId(TESTID.constructionBeginNote)).toHaveText(
+    'Nothing to dispatch — no activity is eligible'
+  );
+  // No success hold: the button is the read's again at once, not "Construction
+  // running…" for 60s, and it stays so.
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  await expect(begin).toHaveText(COMMITTED_LABEL, { timeout: 10_000 });
+  const until = Date.now() + 4_000;
+  while (Date.now() < until) {
+    await expect(begin).toBeEnabled({ timeout: 1 });
+    await expect(begin).toHaveText(COMMITTED_LABEL, { timeout: 1 });
+    await page.waitForTimeout(250);
+  }
+  // A quiet tick is not a failure.
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});
+
+test('fix I (mutant F): the success is recorded BEFORE its refresh, so the refresh read alone can show the pickup', async ({
+  page,
+}) => {
+  // Only the read served first after the dispatch — the success's own refresh —
+  // carries the pickup; every read after it shows the work already ended. Were the
+  // success recorded after its refresh, that read would predate the record and
+  // could never count as the pickup, and Begin would stay held for the full 60s.
+  const pickup = { shown: 0 };
+  const holder: { h?: Harness } = {};
+  const h = await harness(page, async (route) => {
+    if (holder.h !== undefined) {
+      holder.h.edit.fn = (wire) => {
+        pickup.shown += 1;
+        if (pickup.shown === 1) inConstruction(PICKED)(wire);
+        else wire.constructionStarted = true;
+      };
+    }
+    await route.fulfill(SUCCESS);
+  });
+  holder.h = h;
+  await openConsole(page);
+  await dispatchOnce(page);
+  const begin = page.getByTestId(TESTID.constructionBegin);
+  // Well inside the 60s hold, with no clock jump: the pickup was seen on the
+  // refresh, and the next read found nothing in flight.
+  await expect(begin).toHaveText(/Resume construction/, { timeout: 15_000 });
+  await expect(begin).toBeEnabled();
+  expect(pickup.shown, 'the pickup rode on one read, and later reads followed').toBeGreaterThan(1);
+  await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
+  expect(h.trapped).toHaveLength(1);
+});

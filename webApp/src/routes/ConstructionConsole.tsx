@@ -39,6 +39,7 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { projectKey, useProject } from '../hooks/useProject';
 import { useReadRequestedAt } from '../hooks/readRequestTimes';
+import { orderedNow } from '../utilities/orderedNow';
 import { TASKS_FRESHNESS_MS, useConstructionSessions } from '../hooks/useConstructionSessions';
 import { useMutationState, useQueryClient } from '@tanstack/react-query';
 import { useGateOccurrences } from '../hooks/useGateOccurrences';
@@ -100,6 +101,8 @@ import {
   anyRowInFlight,
   awaitingPickup,
   beginControlFor,
+  NOTHING_TO_DISPATCH,
+  pumpDispatched,
   beginHoldFor,
   beginRunning,
   constructionInFlight,
@@ -263,15 +266,17 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     onError: (err, atFailure) => {
       writeBeginFailure(projectId, {
         outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
-        at: Date.now(),
+        at: orderedNow(),
         dismissed: false,
         holdExpired: false,
         // Only a change from "not started" can be evidence (fix-G review I1).
         startedAtFailure: atFailure.constructionStarted,
       });
     },
-    onSuccess: () => {
-      writeBeginDispatched(projectId, { at: Date.now() });
+    onSuccess: (result) => {
+      // Only a pump that started work holds Begin for its pickup: a 200 saying
+      // `dispatched: false` started nothing (fix-H review minor, fix I).
+      if (pumpDispatched(result)) writeBeginDispatched(projectId, { at: orderedNow() });
     },
   });
   const submitPhaseDecision = useSubmitPhaseDecision(projectId);
@@ -315,6 +320,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   // (architect I1 ruling). The client guards here and in the dialog are UX
   // debouncing, so one press sends one request. `null` is "closed".
   const [beginTick, setBeginTick] = useState<string | null>(null);
+  // The last dispatch was answered 200 with `dispatched: false`: nothing was
+  // eligible, so it said so, and nothing is held (fix I). Cleared by the next Begin.
+  const [nothingToDispatch, setNothingToDispatch] = useState(false);
   // A ref, not only the pending flag: clicks delivered in one task all land before a
   // re-render could report the first as pending (pinned by the same-task triple
   // click in construction-begin-confirm.spec).
@@ -336,14 +344,18 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     lastProgressAtRef.current = Date.now();
     writeBeginFailure(projectId, null);
     writeBeginDispatched(projectId, null);
+    setNothingToDispatch(false);
     setCascading(true);
     begin.mutate(tickId, {
       // The fast poll runs its full window from the ANSWER: a dispatch pending past
       // the watchdog's 30s would otherwise come back to a slow poll, or none, just
       // as the pump picks its first activity up. Cadence only; the label is state's.
-      onSuccess: () => {
+      // A pump that dispatched nothing has no pickup to poll for: it says so.
+      onSuccess: (result) => {
         lastProgressAtRef.current = Date.now();
-        setCascading(true);
+        const started = pumpDispatched(result);
+        setNothingToDispatch(!started);
+        setCascading(started);
       },
       onError: () => {
         // The mutation's own onError has recorded the failure. A refusal started
@@ -1113,6 +1125,19 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               <Box component="span" sx={{ display: 'block' }}>
                 {beginFailureCopy.detail}
               </Box>
+            </Alert>
+          ) : null}
+
+          {nothingToDispatch ? (
+            <Alert
+              data-testid={UI_IDENTIFIERS.Construction.BEGIN_NOTE}
+              severity="info"
+              sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
+              onClose={() => {
+                setNothingToDispatch(false);
+              }}
+            >
+              {NOTHING_TO_DISPATCH}
             </Alert>
           ) : null}
 

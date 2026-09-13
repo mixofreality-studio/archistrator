@@ -297,6 +297,22 @@ export function pickupEvidencedSince(at: number, reads: PickupReads): boolean {
 // ---------------------------------------------------------------------------
 
 /**
+ * What the console says when the pump answered 200 but started nothing (fix-H
+ * review minor, fix I): no activity was eligible, so there is no pickup to wait for.
+ */
+export const NOTHING_TO_DISPATCH = 'Nothing to dispatch — no activity is eligible';
+
+/**
+ * Whether a 200 from execute-next-activity started work, so its pickup is worth
+ * holding Begin for. Only an explicit `dispatched: false` — the pump's quiet tick,
+ * nothing eligible — says it did not. Anything else is held: the hold is the safe
+ * direction, and a pump that did start must never stand beside an enabled Begin.
+ */
+export function pumpDispatched(result: { dispatched?: boolean | undefined } | undefined): boolean {
+  return result?.dispatched !== false;
+}
+
+/**
  * Whether a successful dispatch still holds Begin for the pickup: it is recorded
  * (the record leaves memory on evidence or when the hold expires), and no read
  * since it shows the pickup.

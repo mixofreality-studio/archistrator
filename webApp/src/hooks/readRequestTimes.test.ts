@@ -9,6 +9,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { QueryClient } from '@tanstack/react-query';
 import { readRequestedAt } from './readRequestTimes.ts';
+import { orderedNow } from '../utilities/orderedNow.ts';
 
 function deferred<T>(): { promise: Promise<T>; resolve: (value: T) => void } {
   let resolve: (value: T) => void = () => undefined;
@@ -35,8 +36,9 @@ void test('the shown read carries when its fetch BEGAN, not when it arrived', as
   answer.resolve('v1');
   await fetched;
   const requestedAt = readRequestedAt(client, key);
+  // The ordered clock may sit a microsecond past the wall clock's millisecond.
   assert.ok(
-    requestedAt >= before && requestedAt <= started,
+    requestedAt >= before && requestedAt < started + 1,
     `request time ${String(requestedAt)} is the fetch start`
   );
   const arrivedAt = client.getQueryState(key)?.dataUpdatedAt ?? 0;
@@ -94,6 +96,24 @@ void test('no request, no time: hand-written data, a read from before the store,
   assert.ok(readRequestedAt(client, gone) > 0);
   client.removeQueries({ queryKey: gone });
   assert.equal(readRequestedAt(client, gone), 0, 'a removed query forgets its time');
+});
+
+// Fix I: the Begin hold's records and every read's request share ONE ordered
+// clock, so a fetch started right after a record is strictly later than it —
+// the refresh a success requests can count as its pickup even in the same ms.
+void test('a fetch started right after a record is strictly later than it, even in the same millisecond', async () => {
+  const client = new QueryClient();
+  const key = ['project', 'ordered'];
+  readRequestedAt(client, key);
+  for (let i = 0; i < 50; i++) {
+    const recordedAt = orderedNow();
+    await client.fetchQuery({ queryKey: key, queryFn: () => Promise.resolve(i), staleTime: 0 });
+    const requestedAt = readRequestedAt(client, key);
+    assert.ok(
+      requestedAt > recordedAt,
+      `round ${String(i)}: the read requested after the record (${String(requestedAt)}) is not after it (${String(recordedAt)})`
+    );
+  }
 });
 
 void test('each QueryClient keeps its own times', async () => {

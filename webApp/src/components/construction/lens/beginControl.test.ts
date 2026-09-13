@@ -16,7 +16,9 @@ import {
   holdExpiredCopy,
   IN_FLIGHT_POLL_MS,
   newestLiveSession,
+  NOTHING_TO_DISPATCH,
   notStartedActivities,
+  pumpDispatched,
   pickupEvidencedSince,
   pumpEvidencedSince,
   UNKNOWN_OUTCOME_HOLD_MS,
@@ -589,4 +591,15 @@ void test('while held for the pump the button is disabled and names neither Begi
     assert.equal(c.disabled, true);
     assert.doesNotMatch(c.label, COMMITTED_WORDS);
   }
+});
+
+// Fix-H review minor, fix I: a 200 that dispatched nothing holds nothing.
+void test('a 200 holds Begin for its pickup unless the pump said dispatched: false', () => {
+  assert.equal(pumpDispatched({ dispatched: true }), true, 'it started an activity');
+  assert.equal(pumpDispatched({ dispatched: false }), false, 'a quiet tick: nothing eligible');
+  // A body that does not say is held: the safe direction.
+  assert.equal(pumpDispatched({ dispatched: undefined }), true, 'unsaid');
+  assert.equal(pumpDispatched({}), true, 'an empty body');
+  assert.equal(pumpDispatched(undefined), true, 'no body');
+  assert.equal(NOTHING_TO_DISPATCH, 'Nothing to dispatch — no activity is eligible');
 });

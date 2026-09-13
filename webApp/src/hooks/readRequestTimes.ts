@@ -32,6 +32,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import { hashKey, useQueryClient, type QueryClient } from '@tanstack/react-query';
+import { orderedNow } from '../utilities/orderedNow.ts';
 
 /** The fields of a cached query a shown-read listener may read. */
 export interface ShownRead {
@@ -74,7 +75,9 @@ export function readRequestStoreFor(client: QueryClient): Store {
     }
     if (event.type !== 'updated') return;
     if (event.action.type === 'fetch') {
-      store.fetchStartedAt.set(hash, Date.now());
+      // The ordered clock, shared with the Begin records: a fetch started just after
+      // a record is strictly later than it, even within one millisecond (fix I).
+      store.fetchStartedAt.set(hash, orderedNow());
       return;
     }
     if (event.action.type !== 'success') return;

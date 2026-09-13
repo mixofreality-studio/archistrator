@@ -216,6 +216,7 @@ export const TESTID = {
   constructionBegin: UI_IDENTIFIERS.Construction.BEGIN_BUTTON,
   /** The loud alert a failed Begin dispatch raises (fix-B review M3). */
   constructionBeginError: UI_IDENTIFIERS.Construction.BEGIN_ERROR,
+  constructionBeginNote: UI_IDENTIFIERS.Construction.BEGIN_NOTE,
   constructionBeginConfirm: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DIALOG,
   constructionBeginConfirmCancel: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_CANCEL,
   constructionBeginConfirmDispatch: UI_IDENTIFIERS.Construction.BEGIN_CONFIRM_DISPATCH,

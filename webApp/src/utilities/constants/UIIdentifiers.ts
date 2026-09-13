@@ -356,6 +356,8 @@ export const UI_IDENTIFIERS = {
     BEGIN_BUTTON: 'construction-begin',
     /** The alert a failed Begin dispatch raises — failures are loud (spec §6). */
     BEGIN_ERROR: 'construction-begin-error',
+    /** The note after a 200 that dispatched nothing ("Nothing to dispatch…"). */
+    BEGIN_NOTE: 'construction-begin-note',
     // The confirm step in front of Begin/Resume: it names what would be
     // dispatched before anything is (BeginConfirmDialog).
     BEGIN_CONFIRM_DIALOG: 'construction-begin-confirm',
