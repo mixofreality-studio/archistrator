@@ -316,6 +316,8 @@ test('a probe that fails is not an all-clear; "Couldn\'t check" holds through re
   await expect(unchecked).toContainText(couldnt, { timeout: 15_000 });
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).not.toContainText('Nothing needs');
+  // The TASKS badge cannot say "nothing" either: "?" while a probe is unchecked.
+  await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('?');
 
   // It HOLDS for 12s, through the probe's own re-ask: never "Checking…", never a
   // Retry that vanishes (designer re-check B1, which saw it blink every ~4s).
@@ -359,12 +361,15 @@ test('a probe still in flight reads "Checking…", never the all-clear', async (
     'Checking 1 in-flight activity…'
   );
   await expect(page.getByText('Nothing needs you.')).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('?');
   // Once the probe answers (a dormant-pump 404 — an established absence), it is clear.
   hold.release();
   await expect(page.getByTestId(TESTID.constructionTasksEmpty)).toContainText(
     'Nothing needs you.',
     { timeout: 10_000 }
   );
+  // …and so is the badge: nothing owed, nothing unchecked, no badge at all.
+  await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveCount(0);
 });
 
 test('a gate on an activity started after the page loaded appears without a reload (review I3)', async ({
@@ -591,10 +596,41 @@ test('a gate a policy rule opened offers "stop asking"; the summary replaces the
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking'))).toHaveText(
     'Stop asking me about this class of thing → review policy'
   );
+  // A Detailed Design gate is no risk-floor case: "stop asking" is not hedged.
+  await expect(
+    page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'stop-asking-hedge'))
+  ).toHaveCount(0);
   // A steer and a failure are not policy questions: nothing to turn off.
   await expect(
     page.getByTestId(TESTID.constructionTasksCell(`${TAKEOVER}:takeover`, 'stop-asking'))
   ).toHaveCount(0);
+});
+
+test('"stop asking" on a construction gate says the risk floor may still ask (round 2, designer)', async ({
+  page,
+}) => {
+  // The same preset, with the gate on Construction: the one phase the risk floor
+  // holds under every policy (a contract touching deploy, spend or schema).
+  await serveOwed(page, initialStages(), undefined, (wire) => {
+    wire.reviewPolicy = { gatedPhasesByType: {}, preset: 'checkpoints' };
+    const row = wire.ActivityConstruction?.[GATE];
+    if (row !== undefined) row['CurrentPhase'] = 'construction';
+  });
+  await openTasks(page);
+  // eslint-disable-next-line no-restricted-syntax -- the construction gate's key carries a ledger round this spec does not fix; the row is found by its reason and activity instead.
+  const row = page.locator(`[data-testid^="construction-tasks-row-${GATE}:"][data-reason="gate"]`);
+  await expect(row).toHaveCount(1);
+  const key = ((await row.getAttribute('data-testid')) ?? '').replace(
+    'construction-tasks-row-',
+    ''
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksCell(key, 'why'))).toContainText('Preset');
+  await expect(page.getByTestId(TESTID.constructionTasksCell(key, 'stop-asking'))).toHaveText(
+    'Stop asking me about this class of thing → review policy'
+  );
+  await expect(page.getByTestId(TESTID.constructionTasksCell(key, 'stop-asking-hedge'))).toHaveText(
+    '…the risk floor may still ask'
+  );
 });
 
 test('the TASKS toolbar names its own order and disables the list-only controls (designer P1-1)', async ({
@@ -607,11 +643,15 @@ test('the TASKS toolbar names its own order and disables the list-only controls 
   await expect(page.getByTestId(TESTID.constructionLensSort)).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionLensExpandToPhase)).toBeDisabled();
   await expect(page.getByLabel('Observed only')).toBeDisabled();
+  // …and LOOKS off: the same half-opacity mark as Expand (tasks round 2, designer).
+  const observedToggle = page.getByTestId(TESTID.constructionLensObservedOnlyToggle);
+  await expect(observedToggle).toHaveCSS('opacity', '0.5');
   // Back on the list, both come back and the Sort menu returns.
   await page.getByTestId(TESTID.constructionLensButton('list')).click();
   await expect(page.getByTestId(TESTID.constructionLensSort)).toBeVisible();
   await expect(page.getByTestId(TESTID.constructionLensSortRanked)).toHaveCount(0);
   await expect(page.getByLabel('Observed only')).toBeEnabled();
+  await expect(observedToggle).toHaveCSS('opacity', '1');
 });
 
 test('the list no longer mounts a phase-gate panel; the decision lives in the pane', async ({
@@ -651,6 +691,9 @@ test('[Review] opens the pane on the gate task, awaiting you; send back needs a 
   const sendBack = page.getByTestId(TESTID.constructionDetailAction('sendBack'));
   await expect(sendBack).toBeEnabled();
   await sendBack.click();
+  // While the composer is open its own send is the only one: the bar's Send back
+  // steps aside (tasks round 2, designer).
+  await expect(sendBack).toHaveCount(0);
   // Told before sending: the note rides the decision, but the redraft does not read
   // it yet (designer P0-1; delivery is follow-up B1).
   await expect(page.getByTestId(TESTID.constructionDetailDecisionCaption)).toHaveText(
@@ -678,11 +721,13 @@ test('[Review] opens the pane on the gate task, awaiting you; send back needs a 
   await expect(row).not.toContainText('Resumed');
   await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/^sent back$/i);
   await expect(page.getByTestId(TESTID.constructionDetailDecisionLead)).toContainText(
-    'You sent back this at'
+    /^You sent this back at \d\d:\d\d;/
   );
 });
 
 test('approve is confirmed by the resume, not the click', async ({ page }) => {
+  // The resumed row lingers ~30s before it leaves; the last check is after that.
+  test.setTimeout(90_000);
   const stages = initialStages();
   await serveOwed(page, stages);
   const sent: Record<string, unknown>[] = [];
@@ -744,8 +789,19 @@ test('approve is confirmed by the resume, not the click', async ({ page }) => {
   const run = page.getByTestId(TESTID.constructionDetailAction('run'));
   await expect(run).toBeDisabled();
   await expect(run).toHaveAttribute('data-reason', /not wired/i);
+  // In the operator's words — no ticket names in a tooltip (tasks round 2, designer).
+  await expect(run).not.toHaveAttribute('data-reason', /\bB\d\b/);
   // The badge drops the moment the gate clears; the row lingers with its evidence.
   await expect(page.getByTestId(TESTID.constructionLensTasksCount)).toHaveText('2');
+  // Once the linger is over the row leaves, and the pane — still on the gate task,
+  // which the ledger has no attempt for — says what the live workflow says of the
+  // activity, never UNKNOWN (tasks round 2, designer).
+  await expect(page.getByTestId(TESTID.constructionTasksRow(GATE_KEY))).toHaveCount(0, {
+    timeout: 45_000,
+  });
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(
+    /^activity running$/i
+  );
 });
 
 test('a decision on the wire survives a remount: Approve stays off, exactly one POST (review C1)', async ({
@@ -779,6 +835,10 @@ test('a decision on the wire survives a remount: Approve stays off, exactly one 
   await expect(page.getByTestId(TESTID.constructionTasksFlow(GATE_KEY))).toContainText(
     'Sending your approval'
   );
+  // Not "Decided" while the server has not accepted it: the gate still awaits you,
+  // and there is no "You approved this at…" lead yet (tasks round 2, designer).
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/^awaiting you$/i);
+  await expect(page.getByTestId(TESTID.constructionDetailDecisionLead)).toHaveCount(0);
   await approve.evaluate((el) => {
     (el as HTMLButtonElement).click();
   });

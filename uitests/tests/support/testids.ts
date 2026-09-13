@@ -243,6 +243,7 @@ export const TESTID = {
   constructionListTree: UI_IDENTIFIERS.Construction.LIST_TREE,
   constructionListHeader: UI_IDENTIFIERS.Construction.LIST_HEADER,
   constructionLensObservedOnly: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY,
+  constructionLensObservedOnlyToggle: UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY_TOGGLE,
   constructionLensExpandToPhase: UI_IDENTIFIERS.Construction.LENS_EXPAND_TO_PHASE,
   constructionDetailCollapseToggle: UI_IDENTIFIERS.Construction.DETAIL_COLLAPSE_TOGGLE,
   constructionListTitleCell: UI_IDENTIFIERS.Construction.listTitleCell,

@@ -282,16 +282,15 @@ export interface DecidedMark {
 }
 
 /**
- * The decision the pane reports as made: while the record is on the wire, waiting
- * for its resume, or resumed. Not for "did not land", a failure, an escalation or a
- * retired record — those say something louder, or nothing.
+ * The decision the pane reports as made: once the server has ACCEPTED it (waiting
+ * for its resume) and after it resumed. Not while it is still on the wire — the
+ * server may yet refuse it (tasks round 2, designer) — and not for "did not land",
+ * a failure, an escalation or a retired record: those say something louder, or
+ * nothing.
  */
 export function decidedFor(record: DecisionRecord, view: DecisionView): DecidedMark | undefined {
   if (record.decidedAt === undefined) return undefined;
-  const made =
-    view.kind === 'sending' ||
-    view.kind === 'awaitingResume' ||
-    (view.kind === 'resumed' && !view.escalated);
+  const made = view.kind === 'awaitingResume' || (view.kind === 'resumed' && !view.escalated);
   return made ? { decision: record.decision, at: record.decidedAt } : undefined;
 }
 
@@ -311,8 +310,8 @@ function hhmm(at: number): string {
  * the body would otherwise read "has not run" right under a decision just made.
  */
 export function decisionLeadFor(decided: DecidedMark): string {
-  const verb = decided.decision === 'approve' ? 'approved' : 'sent back';
-  return `You ${verb} this at ${hhmm(decided.at)}; gate decisions are not yet written to the task ledger.`;
+  const did = decided.decision === 'approve' ? 'approved this' : 'sent this back';
+  return `You ${did} at ${hhmm(decided.at)}; gate decisions are not yet written to the task ledger.`;
 }
 
 /** Send back carries the human's words into the redraft, so it needs some (spec §6):

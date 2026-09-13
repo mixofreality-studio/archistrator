@@ -30,8 +30,14 @@ import {
   shapeFor,
   slotsLineFor,
   retryLabel,
+  tasksBadgeFor,
   whyAffordanceFor,
+  FLOOR_MAY_STILL_ASK_LABEL,
+  FLOOR_MAY_STILL_ASK_TOOLTIP,
+  WAITING_UNKNOWN_TOOLTIP,
 } from './tasksLensCopy.ts';
+import { RUN_NOT_WIRED_REASON } from '../detail/detailPaneState.ts';
+import { REVIEW_ONLY_NOTE } from './owedChip.ts';
 
 function ranked(
   activityId: string,
@@ -101,6 +107,47 @@ void test('"stop asking" only where a policy rule opened the gate; the risk floo
   assert.equal(whyAffordanceFor(floorGate), 'cantTurnOff');
   assert.equal(whyAffordanceFor(ranked('S', [], { reason: 'takeover' })), undefined);
   assert.equal(whyAffordanceFor(ranked('F', [], { reason: 'failed' })), undefined);
+});
+
+void test('"stop asking" on a construction gate is hedged: the risk floor may still ask (round 2, designer)', () => {
+  const policy = { rule: 'Preset', riskFloor: false, tooltip: '' };
+  const onPhase = (lifecyclePhase: string, why = policy): RankedOwed =>
+    ranked('A', [], { why, gate: { lifecyclePhase } });
+  // The floor holds only a construction dispatch (EffectiveGate), under any policy.
+  assert.equal(whyAffordanceFor(onPhase('construction')), 'stopAskingFloorMayAsk');
+  for (const phase of ['detailed_design', 'integration', 'test_plan']) {
+    assert.equal(whyAffordanceFor(onPhase(phase)), 'stopAsking', phase);
+  }
+  // A gate the floor already opened is not turned off at all.
+  const floor = { rule: 'Risk floor', riskFloor: true, tooltip: '' };
+  assert.equal(whyAffordanceFor(onPhase('construction', floor)), 'cantTurnOff');
+  assert.equal(FLOOR_MAY_STILL_ASK_LABEL, '…the risk floor may still ask');
+  assert.match(FLOOR_MAY_STILL_ASK_TOOLTIP, /deploy, spend or schema/);
+});
+
+void test('the TASKS badge says "?" while a probe is unchecked — never blank (round 2, designer)', () => {
+  assert.equal(tasksBadgeFor(0, 0), undefined);
+  assert.deepEqual(tasksBadgeFor(3, 0), { text: '3', title: '3 decisions owed' });
+  assert.deepEqual(tasksBadgeFor(0, 1), {
+    text: '?',
+    title: '1 in-flight activity not checked yet',
+  });
+  assert.deepEqual(tasksBadgeFor(1, 2), {
+    text: '1?',
+    title: '1 decision owed · 2 in-flight activities not checked yet',
+  });
+});
+
+void test('what hover and the muted lines say carries no ticket names (round 2, designer)', () => {
+  for (const words of [
+    RUN_NOT_WIRED_REASON,
+    WAITING_UNKNOWN_TOOLTIP,
+    HEADLINE_TOOLTIP,
+    FLOOR_MAY_STILL_ASK_TOOLTIP,
+    REVIEW_ONLY_NOTE,
+  ]) {
+    assert.doesNotMatch(words, /\b[BQ]\d\b|\bP\d-\d\b|\bDC\d+\b/, words);
+  }
 });
 
 void test('Retry says it is retrying while a failed probe is asked again (designer re-check B1)', () => {

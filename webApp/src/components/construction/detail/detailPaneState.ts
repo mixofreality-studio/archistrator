@@ -15,6 +15,7 @@
 import type {
   ActivityBuildStatusRow,
   ConstructionRow,
+  ConstructionStage,
   EvidenceRefRow,
   TaskAttemptRow,
   RecordOriginRow,
@@ -472,9 +473,36 @@ export interface DetailAction {
 }
 
 /** Why Run is off: the console cannot start a task (follow-ups B1/B2 give it the
- *  verbs — retry with the operator's note delivered, and re-queue). */
+ *  verbs — retry with the operator's note delivered, and re-queue). The words say
+ *  that in the operator's terms: no ticket names in a tooltip (tasks round 2). */
 export const RUN_NOT_WIRED_REASON =
-  'Not wired yet — the pump starts work on its own; running a task from here arrives with follow-ups B1/B2.';
+  'Not wired yet — the pump starts work on its own; starting it from here comes later.';
+
+/** The session stages at which the activity's workflow is doing work. */
+const LIVE_RUNNING_STAGES: ReadonlySet<ConstructionStage> = new Set<ConstructionStage>([
+  'dispatching',
+  'pipelineRunning',
+  'reviewing',
+]);
+
+export const LIVE_RUNNING_LABEL = 'Activity running';
+
+/**
+ * The pane chip where the ledger cannot place the selection but the activity's live
+ * session can (tasks round 2, designer). After a decided gate's row lingers out,
+ * its gate task has no attempt yet (no live RecordTaskAttempt writer), and the chip
+ * read UNKNOWN beside an activity the workflow reports running. It now says what the
+ * workflow says — of the ACTIVITY, since nothing yet says it of the task.
+ */
+export function liveChipFor(
+  state: TaskDetailState,
+  liveStage: ConstructionStage | null | undefined
+): { label: string; state: TaskDetailState } | undefined {
+  if (state !== 'unknown' || liveStage === undefined || liveStage === null) return undefined;
+  return LIVE_RUNNING_STAGES.has(liveStage)
+    ? { label: LIVE_RUNNING_LABEL, state: 'running' }
+    : undefined;
+}
 
 /**
  * The run action, named for what is selected (designer re-check B2). It used to be

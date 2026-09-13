@@ -113,13 +113,23 @@ export const HEADLINE_TOOLTIP =
  * failure is not a policy question at all.
  */
 export function whyAffordanceFor(
-  item: Pick<RankedOwed, 'reason' | 'why'>
-): 'stopAsking' | 'cantTurnOff' | undefined {
+  item: Pick<RankedOwed, 'reason' | 'why' | 'gate'>
+): 'stopAsking' | 'stopAskingFloorMayAsk' | 'cantTurnOff' | undefined {
   if (item.reason !== 'gate') return undefined;
-  return item.why.riskFloor ? 'cantTurnOff' : 'stopAsking';
+  if (item.why.riskFloor) return 'cantTurnOff';
+  // The floor gates a CONSTRUCTION dispatch whose contract touches deploy, spend or
+  // schema, under every policy (EffectiveGate) — and the client cannot see that
+  // contract scan. So "stop asking" on a construction gate is hedged: turning the
+  // rule off may not stop this one (tasks round 2, designer).
+  return item.gate?.lifecyclePhase === 'construction' ? 'stopAskingFloorMayAsk' : 'stopAsking';
 }
 
 export const CANT_TURN_OFF_LABEL = 'Can’t be turned off';
+
+/** Said after "stop asking" where the risk floor could still hold the activity. */
+export const FLOOR_MAY_STILL_ASK_LABEL = '…the risk floor may still ask';
+export const FLOOR_MAY_STILL_ASK_TOOLTIP =
+  'Under every policy, a construction dispatch whose contract touches deploy, spend or schema still needs you. Turning this rule off may not stop this gate.';
 
 /** One line: what this project gates, and always the floor. */
 export function policySummaryFor(policy: ReviewPolicyView | undefined): string {
@@ -167,6 +177,27 @@ export function uncheckedErroredLine(n: number): string | undefined {
  *  (designer re-check B1), so a click is seen to do something. */
 export function retryLabel(retrying: boolean): string {
   return retrying ? 'Retrying…' : 'Retry';
+}
+
+/** The TASKS badge: its text, and what it means on hover. */
+export interface TasksBadge {
+  text: string;
+  title: string;
+}
+
+/**
+ * The TASKS badge (designer re-check): the owed count, and a "?" while some
+ * in-flight activity has not been checked — blank there read as "nothing is owed",
+ * which the lens itself refuses to say. Nothing at all only when nothing is owed
+ * AND every probe answered.
+ */
+export function tasksBadgeFor(owed: number, unchecked: number): TasksBadge | undefined {
+  const owedText = `${plural(owed, 'decision', 'decisions')} owed`;
+  if (unchecked === 0) return owed > 0 ? { text: String(owed), title: owedText } : undefined;
+  const notChecked = `${inFlight(unchecked)} not checked yet`;
+  return owed > 0
+    ? { text: `${String(owed)}?`, title: `${owedText} · ${notChecked}` }
+    : { text: '?', title: notChecked };
 }
 
 /**

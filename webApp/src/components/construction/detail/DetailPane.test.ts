@@ -17,6 +17,8 @@ import {
   detailActionsFor,
   RUN_NOT_WIRED_REASON,
   headerProvenanceChipsFor,
+  LIVE_RUNNING_LABEL,
+  liveChipFor,
   noAttemptStateFor,
   observedOnlyChipLabel,
   resolvePhaseTask,
@@ -83,6 +85,37 @@ void test('the run action is in every task state, off with its reason — never 
     detailActionsFor('awaitingHuman', RUN).map((a) => a.id),
     ['approve', 'sendBack', 'run']
   );
+  // Run's reason is in the operator's words: no ticket names (tasks round 2).
+  assert.doesNotMatch(RUN_NOT_WIRED_REASON, /\b[BQ]\d\b|follow-ups?\b/i);
+  assert.match(RUN_NOT_WIRED_REASON, /not wired/i);
+});
+
+void test('where the ledger cannot place the selection, the chip says what the live workflow says (round 2, designer)', () => {
+  // After a decided gate lingers out, its gate task has no attempt: unknown — but
+  // the activity's session reports it running.
+  for (const stage of ['dispatching', 'pipelineRunning', 'reviewing'] as const) {
+    assert.deepEqual(liveChipFor('unknown', stage), {
+      label: LIVE_RUNNING_LABEL,
+      state: 'running',
+    });
+  }
+  assert.equal(LIVE_RUNNING_LABEL, 'Activity running');
+  // No live claim where the workflow is not working, or where nothing was asked.
+  for (const stage of [
+    'exited',
+    'paused',
+    'unknown',
+    'awaitingApproval',
+    'awaitingTakeover',
+  ] as const) {
+    assert.equal(liveChipFor('unknown', stage), undefined, stage);
+  }
+  assert.equal(liveChipFor('unknown', null), undefined);
+  assert.equal(liveChipFor('unknown', undefined), undefined);
+  // A state the ledger CAN say is kept as it is.
+  for (const state of ['notStarted', 'running', 'passed', 'failed', 'awaitingHuman'] as const) {
+    assert.equal(liveChipFor(state, 'pipelineRunning'), undefined, state);
+  }
 });
 
 void test('offers approve and send-back only where a human decision is owed', () => {

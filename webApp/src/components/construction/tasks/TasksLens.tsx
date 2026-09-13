@@ -62,6 +62,8 @@ import {
   roundLabel,
   slotsLineFor,
   CANT_TURN_OFF_LABEL,
+  FLOOR_MAY_STILL_ASK_LABEL,
+  FLOOR_MAY_STILL_ASK_TOOLTIP,
   HEADLINE_TOOLTIP,
   SET_POLICY_LABEL,
   STOP_ASKING_LABEL,
@@ -467,15 +469,29 @@ function OwedRow({
             {item.why.rule}
           </Typography>
         </Tooltip>
-        {affordance === 'stopAsking' ? (
-          <Link
-            data-testid={cell('stop-asking')}
-            href={`/project/${projectId}/home`}
-            sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: 700, color: t.accent2 }}
-            underline="hover"
-          >
-            {STOP_ASKING_LABEL}
-          </Link>
+        {affordance === 'stopAsking' || affordance === 'stopAskingFloorMayAsk' ? (
+          <>
+            <Link
+              data-testid={cell('stop-asking')}
+              href={`/project/${projectId}/home`}
+              sx={{ fontFamily: t.mono, fontSize: 10.5, fontWeight: 700, color: t.accent2 }}
+              underline="hover"
+            >
+              {STOP_ASKING_LABEL}
+            </Link>
+            {/* A construction gate the risk floor could still hold (EffectiveGate):
+                turning the rule off may not stop it (tasks round 2, designer). */}
+            {affordance === 'stopAskingFloorMayAsk' ? (
+              <Tooltip title={FLOOR_MAY_STILL_ASK_TOOLTIP}>
+                <Typography
+                  data-testid={cell('stop-asking-hedge')}
+                  sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+                >
+                  {FLOOR_MAY_STILL_ASK_LABEL}
+                </Typography>
+              </Tooltip>
+            ) : null}
+          </>
         ) : affordance === 'cantTurnOff' ? (
           <Typography
             data-testid={cell('cant-turn-off')}

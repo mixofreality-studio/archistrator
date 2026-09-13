@@ -76,6 +76,7 @@ import {
 } from './useLensSelection';
 import { isToolbarStuck, lensGeometryVars, varsToWrite } from './lensGeometry';
 import { LIST_LENS_ONLY, RANKED_LABEL, toolbarForLens } from './toolbarForLens';
+import { tasksBadgeFor, type TasksBadge } from '../tasks/tasksLensCopy';
 
 // ---------------------------------------------------------------------------
 // Vocabulary
@@ -131,6 +132,9 @@ export interface ConstructionShellProps {
   lens: LensId;
   /** How many tasks owe a human a decision — the TASKS badge. 0 renders no badge. */
   tasksOwed: number;
+  /** In-flight activities whose session probe has not answered: the badge reads
+   *  "?" (or "N?") rather than a count that may be short (tasksBadgeFor). */
+  tasksUnchecked?: number;
   toolbar: ToolbarState;
   /** Live facet values from the dataset; an empty list renders just "All kinds". */
   kindOptions: readonly { value: string; label: string }[];
@@ -156,6 +160,7 @@ export interface ConstructionShellProps {
 export function ConstructionShell({
   lens,
   tasksOwed,
+  tasksUnchecked = 0,
   toolbar,
   kindOptions,
   layerOptions,
@@ -274,7 +279,12 @@ export function ConstructionShell({
           '&[data-stuck="true"]': { boxShadow: `0 3px 8px ${alpha(t.ink, 0.14)}` },
         }}
       >
-        <LensControl lens={lens} t={t} tasksOwed={tasksOwed} onLens={onLens} />
+        <LensControl
+          badge={tasksBadgeFor(tasksOwed, tasksUnchecked)}
+          lens={lens}
+          t={t}
+          onLens={onLens}
+        />
 
         <Box
           sx={{
@@ -435,7 +445,20 @@ export function ConstructionShell({
               : LIST_LENS_ONLY
           }
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, flexShrink: 0 }}>
+          {/* Visibly OFF where it does not apply (designer re-check): the same
+              half-opacity "not available" mark as Expand above — MUI's disabled
+              switch alone still read as a live toggle. */}
+          <Box
+            data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY_TOGGLE}
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.4,
+              flexShrink: 0,
+              opacity: controls.listControls ? 1 : 0.5,
+              cursor: controls.listControls ? 'default' : 'not-allowed',
+            }}
+          >
             <Switch
               checked={toolbar.observedOnly}
               data-testid={UI_IDENTIFIERS.Construction.LENS_OBSERVED_ONLY}
@@ -493,12 +516,13 @@ export function ConstructionShell({
 
 function LensControl({
   lens,
-  tasksOwed,
+  badge,
   t,
   onLens,
 }: {
   lens: LensId;
-  tasksOwed: number;
+  /** The TASKS badge (tasksBadgeFor); absent renders none. */
+  badge: TasksBadge | undefined;
   t: Tokens;
   onLens: (lens: LensId) => void;
 }): ReactElement {
@@ -545,8 +569,9 @@ function LensControl({
           value={id}
         >
           {LENS_LABEL[id]}
-          {id === 'tasks' && tasksOwed > 0 ? (
+          {id === 'tasks' && badge !== undefined ? (
             <Box
+              aria-label={badge.title}
               component="span"
               data-testid={UI_IDENTIFIERS.Construction.LENS_TASKS_COUNT}
               sx={{
@@ -559,8 +584,9 @@ function LensControl({
                 fontSize: 10.5,
                 fontWeight: 800,
               }}
+              title={badge.title}
             >
-              {tasksOwed}
+              {badge.text}
             </Box>
           ) : null}
         </ToggleButton>

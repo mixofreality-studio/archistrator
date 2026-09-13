@@ -74,6 +74,7 @@ import type {
   ArtifactModelEnvelope,
   ConstructionReviewSet,
   ConstructionRow,
+  ConstructionStage,
   ProjectStateWithGit,
   TaskAttemptRow,
 } from '../../../contracts/types';
@@ -94,6 +95,7 @@ import {
   detailActionsFor,
   evidencePointerFor,
   headerProvenanceChipsFor,
+  liveChipFor,
   observedOnlyChipLabel,
   provenanceNodeFor,
   resolvePhaseTask,
@@ -229,6 +231,10 @@ export interface DetailPaneProps {
   /** The next owed decision, offered in the drawer's footer below 1200px, where
    *  the TASKS table is hidden behind the drawer (designer P2). */
   nextDecision?: { label: string; onClick: () => void } | undefined;
+  /** The selected activity's live session stage (`null`: none exists; undefined:
+   *  not probed). Where the ledger cannot place the selection, the chip says what
+   *  the workflow says of the activity instead of UNKNOWN (liveChipFor). */
+  liveStage?: ConstructionStage | null | undefined;
   onClose: () => void;
 }
 
@@ -244,6 +250,7 @@ export function DetailPane({
   decision,
   owed,
   nextDecision,
+  liveStage,
   onClose,
 }: DetailPaneProps): ReactElement | null {
   const t = useTokens();
@@ -314,30 +321,43 @@ export function DetailPane({
     (): TaskDetailState => owedChip?.state ?? taskDetailStateFor(row, selection),
     [owedChip, row, selection]
   );
-  // Approve / Send back act only where a live decision backs them (and not while
-  // one is in flight); `run` keeps Stage B's invariant — present and enabled always.
-  // A steer-needed or failed activity offers nothing: review-only (PM must-hold).
-  const actions = useMemo(
-    () =>
-      reviewOnly
-        ? []
-        : detailActionsFor(state, runActionFor(row, selection)).map(
-            (a): DetailAction =>
-              a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
-          ),
-    [reviewOnly, state, row, selection, decisionLive, decision]
-  );
-  // After a decision, while its record lives, the chip says what was decided
-  // (designer P1-4): "Decided · approved" / "Sent back".
-  const decided = decisionApplies ? decision.decided : undefined;
-  const stateLabel = decided !== undefined ? decidedChipLabel(decided.decision) : owedChip?.label;
-  const chipState: TaskDetailState =
-    decided !== undefined ? (decided.decision === 'approve' ? 'passed' : 'running') : state;
-  const owedReason = reviewOnly ? owed?.sentence : undefined;
   // The send-back composer, open for one activity at a time — keyed by the
   // activity rather than reset in an effect, so selecting elsewhere closes it.
   const [composingFor, setComposingFor] = useState<string | null>(null);
   const [sendBackNote, setSendBackNote] = useState('');
+  const composing = decisionLive && composingFor === activityId;
+  // Approve / Send back act only where a live decision backs them (and not while
+  // one is in flight); `run` keeps Stage B's invariant — present and enabled always.
+  // A steer-needed or failed activity offers nothing: review-only (PM must-hold).
+  // While the composer is open, its own "Send back with this note" is the send:
+  // the bar's Send back steps aside (tasks round 2, designer).
+  const actions = useMemo(
+    () =>
+      reviewOnly
+        ? []
+        : detailActionsFor(state, runActionFor(row, selection))
+            .filter((a) => !(composing && a.id === 'sendBack'))
+            .map(
+              (a): DetailAction =>
+                a.id === 'run' ? a : { ...a, disabled: !decisionLive || decision.busy }
+            ),
+    [reviewOnly, state, row, selection, decisionLive, decision, composing]
+  );
+  // After a decision, while its record lives, the chip says what was decided
+  // (designer P1-4): "Decided · approved" / "Sent back". Where nothing is owed or
+  // decided and the ledger cannot place the selection, the activity's live state.
+  const decided = decisionApplies ? decision.decided : undefined;
+  const live =
+    decided === undefined && owedChip === undefined ? liveChipFor(state, liveStage) : undefined;
+  const stateLabel =
+    decided !== undefined ? decidedChipLabel(decided.decision) : (owedChip?.label ?? live?.label);
+  const chipState: TaskDetailState =
+    decided !== undefined
+      ? decided.decision === 'approve'
+        ? 'passed'
+        : 'running'
+      : (live?.state ?? state);
+  const owedReason = reviewOnly ? owed?.sentence : undefined;
   // Attempts "Observed only" set aside in whatever is selected — above zero, the
   // chip and the unknown card say so rather than calling the record absent (B1).
   const hiddenCount = useMemo(
@@ -380,7 +400,6 @@ export function DetailPane({
     if (id === 'approve') decision.onApprove();
     else if (id === 'sendBack') setComposingFor(activityId);
   };
-  const composing = decisionLive && composingFor === activityId;
   const actionBar = (
     <ActionBar
       actions={actions}

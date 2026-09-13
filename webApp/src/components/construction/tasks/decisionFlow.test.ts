@@ -321,8 +321,14 @@ void test('a send-back says its note was not delivered — before and after send
 
 void test('the pane says what was decided while the record lives, and when (designer P1-4)', () => {
   const r = rec({ sentAt: T0, decidedAt: T0 - 500 });
-  const inFlight = decidedFor(r, decisionViewFor(r, at('awaitingApproval'), T0 + 1_000));
-  assert.deepEqual(inFlight, { decision: 'approve', at: T0 - 500 });
+  const accepted = decidedFor(r, decisionViewFor(r, at('awaitingApproval'), T0 + 1_000));
+  assert.deepEqual(accepted, { decision: 'approve', at: T0 - 500 });
+  // Still on the wire, the server may yet refuse it: not "Decided" yet (round 2).
+  const onTheWire = rec({ decidedAt: T0 - 500 });
+  assert.equal(
+    decidedFor(onTheWire, decisionViewFor(onTheWire, at('awaitingApproval'), T0)),
+    undefined
+  );
   assert.ok(decidedFor(r, decisionViewFor(r, at('pipelineRunning'), T0 + 1_000)));
   // Louder states say their own thing; a retired record says nothing.
   assert.equal(
@@ -339,5 +345,8 @@ void test('the pane says what was decided while the record lives, and when (desi
     decisionLeadFor({ decision: 'approve', at: nine }),
     'You approved this at 09:05; gate decisions are not yet written to the task ledger.'
   );
-  assert.match(decisionLeadFor({ decision: 'sendBack', at: nine }), /^You sent back this at 09:05/);
+  assert.equal(
+    decisionLeadFor({ decision: 'sendBack', at: nine }),
+    'You sent this back at 09:05; gate decisions are not yet written to the task ledger.'
+  );
 });

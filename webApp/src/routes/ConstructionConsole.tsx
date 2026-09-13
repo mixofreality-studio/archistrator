@@ -757,6 +757,13 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
           />
         )}
         hiddenAttempts={evidenceView.hidden[selectedActivityId]}
+        // The selected activity's live stage, for a selection the ledger cannot
+        // place (liveChipFor): `null` where the probe established no session.
+        liveStage={
+          selectedActivityId in sessionsByActivity
+            ? (sessionsByActivity[selectedActivityId]?.stage ?? null)
+            : undefined
+        }
         nextDecision={nextDecision}
         owed={paneOwed}
         project={project}
@@ -963,6 +970,7 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               layerOptions={layerOptions}
               lens={lens}
               tasksOwed={tasksOwed}
+              tasksUnchecked={owedWork.unchecked.pending.length + owedWork.unchecked.errored.length}
               toolbar={toolbar}
               onExpandToCurrentPhase={() => {
                 setExpandToPhaseSignal((n) => n + 1);
