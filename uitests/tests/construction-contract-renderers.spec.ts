@@ -274,6 +274,25 @@ test('Code Review on an OBSERVED attempt not owed reads REVIEWED, sourced to its
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
+test('Code Review owed now over a RECONSTRUCTED attempt is still one line — never UNDER REVIEW', async ({
+  page,
+  dispatchGuard,
+}) => {
+  // The gate IS owed (the pane says so), but the attempt it would decide was
+  // reconstructed: nobody reviewed that commit, so no CODE frame may claim it.
+  await serveOwedGate(page, MANAGER, 'construction');
+  await open(page, `a=${MANAGER}&p=construction&k=codeReview`);
+  const review = page.getByTestId(TESTID.constructionDetailBodyReview);
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/AWAITING YOU/i);
+  await expect(review.getByTestId(TESTID.constructionCodeReviewNoView)).toHaveText(
+    'No code view in this stage.'
+  );
+  await expect(review.getByTestId(TESTID.constructionCodeReviewCommit)).toHaveCount(0);
+  expect(await roles(review)).toEqual(['REFERENCE']);
+  await expect(review).not.toContainText('UNDER REVIEW');
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
 test('Code Review owed now on an observed attempt reads UNDER REVIEW — never COMMITTED NOW', async ({
   page,
   dispatchGuard,
