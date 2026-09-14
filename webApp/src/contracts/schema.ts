@@ -1694,7 +1694,7 @@ export interface components {
       hasBuildEvidence: boolean;
       layer: string;
       layerBand: string;
-      /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it; then it names that dispatch's attempt. Omitted when there are none. */
+      /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it whole; then it names that dispatch's attempt. Delivery is at-least-once: when a note's delivery stamp cannot be written, the note stays pending and the next attempt carries it again, so an agent may see one note twice but never zero times, and never twice in the same attempt. When the pending notes exceed the 16 KiB one dispatch carries, the oldest wait for a later attempt so the newest arrives whole. A note recorded where no agent runs next (a merge-only retry, a takeover, or a finished activity) stays pending until the activity's next agent dispatch. Omitted when there are none. */
       operatorNotes?: null | components['schemas']['SystemDesignOperatorNote'][];
       /** @description Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
       pendingResume?: components['schemas']['SystemDesignPendingResume'];
@@ -1955,7 +1955,7 @@ export interface components {
        * @description When the delivery was recorded. Omitted while the note is pending.
        */
       deliveredAt?: null | string;
-      /** @description The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending, and always for a skip note, which nothing runs after. */
+      /** @description The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending (never set for a note the dispatch carried only in part), and always for a skip note, which nothing runs after. */
       deliveredToAttemptId?: string;
       /** @description The gate the note was written at: a lifecycle phase's wire name, "merge" or "takeover". Omitted when none applies. */
       gate?: string;

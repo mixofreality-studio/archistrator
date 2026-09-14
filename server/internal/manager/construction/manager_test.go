@@ -642,6 +642,13 @@ func TestSubmitPhaseDecision_SendBackRequiresFeedbackNotes(t *testing.T) {
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for SendBack with empty notes, got %s", got)
 	}
+	// M3: a whitespace-only note is an empty one, as it is for an override.
+	for _, blank := range []string{" ", "\n\t  \r\n", "\u00a0 "} {
+		err = m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: blank})
+		if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Fatalf("want ContractMisuse for SendBack with the whitespace-only note %q, got %s", blank, got)
+		}
+	}
 }
 
 func TestSubmitPhaseDecision_EmptyProjectID(t *testing.T) {
@@ -2485,6 +2492,13 @@ type fakeProjectState struct {
 
 	// resumed counts RecordOperatorResumed calls (B1.7).
 	resumed int
+
+	// stampConflicts, when >0, returns fwra.Conflict on the next N
+	// RecordOperatorNoteDelivered calls only (a stamp that cannot land, M4).
+	stampConflicts int
+	// afterConflict, when set, runs each time maybeConflict serves a Conflict — the
+	// concurrent write that caused it (I2: a new pause landing between two tries).
+	afterConflict func(*fakeProjectState)
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -2557,6 +2571,9 @@ func (f *fakeProjectState) maybeConflict() error {
 		// Advance the served head version so the re-read sees a newer value.
 		f.version++
 		f.project.Version = f.version
+		if f.afterConflict != nil {
+			f.afterConflict(f)
+		}
 		return fwra.New(fwra.Conflict, "stale version")
 	}
 	return nil
@@ -2648,6 +2665,12 @@ func (f *fakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.Pro
 func (f *fakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID, noteID, attemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.stampConflicts > 0 {
+		f.stampConflicts--
+		f.version++
+		f.project.Version = f.version
+		return 0, fwra.New(fwra.Conflict, "stale version (stamp)")
+	}
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
 	}
@@ -8443,38 +8466,261 @@ func TestFacade_OperatorNoteIsCappedAt4000Characters(t *testing.T) {
 			t.Errorf("%s: a refused note must not signal", name)
 		}
 	}
-	if operatorNoteRunes(strings.Repeat("é", maxOperatorNoteRunes-11), comments) != maxOperatorNoteRunes {
-		t.Fatal("the count is characters (runes) of the text plus the comments' text")
+	// M6: a comment's JSONPath counts too ("$.ops[0]" is 8 characters).
+	if operatorNoteRunes(strings.Repeat("é", maxOperatorNoteRunes-19), comments) != maxOperatorNoteRunes {
+		t.Fatal("the count is characters (runes) of the text plus each comment's text and JSONPath")
+	}
+	longPath := []AnchoredComment{{JSONPath: "$." + strings.Repeat("p", 3000), Text: "x"}}
+	for name, call := range map[string]func(m *constructionManager) error{
+		"send-back": func(m *constructionManager) error {
+			return m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: strings.Repeat("a", 1500), Comments: longPath})
+		},
+		"override": func(m *constructionManager) error {
+			return m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: strings.Repeat("a", 1500), Comments: longPath})
+		},
+	} {
+		fc := &fakeTemporalClient{}
+		if err := call(newTestConstructionManager(fc)); !isContractMisuse(err) || !strings.Contains(err.Error(), "paths included") {
+			t.Errorf("%s: a note over the cap only by its JSONPaths must be refused, got %v", name, err)
+		}
+		if fc.lastSignalName != "" {
+			t.Errorf("%s: a refused note must not signal", name)
+		}
+	}
+	// The rendered-bytes guard: under 4,000 characters, but over maxOperatorNoteBodyBytes
+	// once rendered (four-byte characters), so it could not reach the agent whole.
+	wide := strings.Repeat("😀", 3900)
+	if operatorNoteRunes(wide, nil) > maxOperatorNoteRunes || len(wide) <= maxOperatorNoteBodyBytes {
+		t.Fatal("the fixture must be under the character cap and over the byte cap")
+	}
+	for name, call := range map[string]func(m *constructionManager) error{
+		"send-back": func(m *constructionManager) error {
+			return m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: wide})
+		},
+		"override": func(m *constructionManager) error {
+			return m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: wide})
+		},
+	} {
+		fc := &fakeTemporalClient{}
+		if err := call(newTestConstructionManager(fc)); !isContractMisuse(err) || !strings.Contains(err.Error(), "bytes once rendered") {
+			t.Errorf("%s: a note too wide to render whole must be refused, got %v", name, err)
+		}
 	}
 	if maxOperatorNoteRunes != 4000 {
 		t.Fatalf("the ruled cap is 4,000 characters, got %d", maxOperatorNoteRunes)
 	}
 }
 
-// TestRenderOperatorNotes_HeadsEachNoteAndCapsAt16KiB: each note is headed by its id,
-// kind and gate, oldest first; the block is cut at 16 KiB on a rune boundary, marked.
-func TestRenderOperatorNotes_HeadsEachNoteAndCapsAt16KiB(t *testing.T) {
-	if renderOperatorNotes(nil) != "" {
-		t.Fatal("no notes render nothing")
+// TestRenderOperatorNotes_HeadsEachNote: each note is headed by its id, kind and gate,
+// oldest first, and a block that fits carries every note whole.
+func TestRenderOperatorNotes_HeadsEachNote(t *testing.T) {
+	if r := renderOperatorNotes(nil); r.block != "" || len(r.whole) != 0 || r.withheld != 0 {
+		t.Fatalf("no notes render nothing, got %+v", r)
 	}
-	one := renderOperatorNotes([]projectstate.OperatorNote{{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "tighten it",
-		Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}})
-	if one != "[operator note n1 — sendBack at detailed_design]\ntighten it\n  comment on $.ops[0]: name the failure" {
-		t.Fatalf("rendered = %q", one)
+	n1 := projectstate.OperatorNote{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "tighten it",
+		Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}
+	one := renderOperatorNotes([]projectstate.OperatorNote{n1})
+	if one.block != "[operator note n1 — sendBack at detailed_design]\ntighten it\n  comment on $.ops[0]: name the failure" {
+		t.Fatalf("rendered = %q", one.block)
 	}
+	if len(one.whole) != 1 || one.whole[0].NoteID != "n1" || one.withheld != 0 {
+		t.Fatalf("one note fits whole: %+v", one)
+	}
+	two := renderOperatorNotes([]projectstate.OperatorNote{n1, {NoteID: "n2", Kind: projectstate.NoteRetry, Text: "retry"}})
+	if !strings.HasPrefix(two.block, "[operator note n1") || !strings.HasSuffix(two.block, "[operator note n2 — retry]\nretry") || len(two.whole) != 2 {
+		t.Fatalf("two small notes ride whole, oldest first: %+v", two)
+	}
+}
+
+// TestRenderOperatorNotes_TheCapWithholdsTheOldest (I1): over 16 KiB the NEWEST notes
+// ride whole and the oldest are withheld — named by count, never cut — and only the
+// notes carried whole are reported for the delivery stamp.
+func TestRenderOperatorNotes_TheCapWithholdsTheOldest(t *testing.T) {
 	var many []projectstate.OperatorNote
 	for i := range 6 {
-		many = append(many, projectstate.OperatorNote{NoteID: fmt.Sprintf("n%d", i), Kind: projectstate.NoteRetry, Text: strings.Repeat("😀", 1000)})
+		many = append(many, projectstate.OperatorNote{NoteID: fmt.Sprintf("n%d", i), Kind: projectstate.NoteRetry, Text: strings.Repeat("😀", 900)})
 	}
-	out := renderOperatorNotes(many)
-	if len(out) > maxRenderedOperatorNotesBytes || !strings.HasSuffix(out, renderedNotesTruncated) {
-		t.Fatalf("a %d-byte block must be cut to %d and marked (len %d)", 6*4000, maxRenderedOperatorNotesBytes, len(out))
+	r := renderOperatorNotes(many)
+	if len(r.block) > maxRenderedOperatorNotesBytes {
+		t.Fatalf("the block is %d bytes, over the %d cap", len(r.block), maxRenderedOperatorNotesBytes)
 	}
-	if strings.ToValidUTF8(out, "\uFFFD") != out {
-		t.Fatal("the cut must fall on a rune boundary")
+	if r.withheld != 2 || len(r.whole) != 4 || r.whole[0].NoteID != "n2" || r.whole[3].NoteID != "n5" {
+		t.Fatalf("want n0 and n1 withheld and n2..n5 whole, got withheld=%d whole=%v", r.withheld, noteIDs(r.whole))
 	}
-	if !strings.HasPrefix(out, "[operator note n0 — retry]") {
-		t.Fatal("the oldest note comes first")
+	if !strings.HasPrefix(r.block, withheldNotesLine(2)+notesSeparator+"[operator note n2 — retry]") {
+		t.Fatalf("the block must open with the withheld count, then the oldest note it carries:\n%.300s", r.block)
+	}
+	for _, n := range r.whole {
+		if !strings.Contains(r.block, renderNoteSection(n)) {
+			t.Fatalf("note %s is not in the block whole", n.NoteID)
+		}
+	}
+	if strings.Contains(r.block, "[operator note n0") || strings.Contains(r.block, "[operator note n1") || strings.Contains(r.block, "truncated") {
+		t.Fatal("a withheld note is left out entirely, never cut")
+	}
+}
+
+// TestRenderOperatorNotes_TheWithheldLineCountsAndFits: the withheld line names how many
+// notes it withheld, and the four newest notes alone fit whole (the fit check counts the
+// withheld line and the separators too, so withholding never over-drops).
+func TestRenderOperatorNotes_TheWithheldLineCountsAndFits(t *testing.T) {
+	if withheldNotesLine(1) == withheldNotesLine(2) || !strings.Contains(withheldNotesLine(2), "2 older operator notes") {
+		t.Fatal("the withheld line names how many notes it withheld")
+	}
+	var four []projectstate.OperatorNote
+	for i := range 4 {
+		four = append(four, projectstate.OperatorNote{NoteID: fmt.Sprintf("n%d", i), Kind: projectstate.NoteRetry, Text: strings.Repeat("😀", 900)})
+	}
+	if exact := renderOperatorNotes(four); exact.withheld != 0 || len(exact.whole) != 4 {
+		t.Fatalf("the four newest alone fit whole: withheld=%d whole=%d", exact.withheld, len(exact.whole))
+	}
+}
+
+// TestRenderOperatorNotes_AnOversizedNoteIsCutAndNeverWhole: a note the block cannot
+// hold whole (only a signal that bypassed the façade) rides cut and marked, and is not
+// among the whole notes, so it is never stamped delivered.
+func TestRenderOperatorNotes_AnOversizedNoteIsCutAndNeverWhole(t *testing.T) {
+	big := projectstate.OperatorNote{NoteID: "big", Kind: projectstate.NoteRetry, Text: strings.Repeat("😀", 5000)}
+	for _, notes := range [][]projectstate.OperatorNote{{big}, {{NoteID: "old", Kind: projectstate.NoteRetry, Text: "old"}, big}} {
+		r := renderOperatorNotes(notes)
+		if len(r.whole) != 0 || r.withheld != len(notes)-1 {
+			t.Fatalf("an oversized note is never whole: %+v", r.whole)
+		}
+		if len(r.block) > maxRenderedOperatorNotesBytes || !strings.HasSuffix(r.block, renderedNotesTruncated) {
+			t.Fatalf("the block must be cut to the cap and marked (len %d)", len(r.block))
+		}
+		if strings.ToValidUTF8(r.block, "\uFFFD") != r.block {
+			t.Fatal("the cut must fall on a rune boundary")
+		}
+	}
+}
+
+func noteIDs(notes []projectstate.OperatorNote) []string {
+	var out []string
+	for _, n := range notes {
+		out = append(out, n.NoteID)
+	}
+	return out
+}
+
+// seededPendingNotes stores n pending retry notes of size bytes each on C-Orders.
+func seededPendingNotes(ps *fakeProjectState, n, size int) {
+	at := time.Date(2026, 9, 14, 9, 0, 0, 0, time.UTC)
+	var notes []projectstate.OperatorNote
+	for i := range n {
+		notes = append(notes, projectstate.OperatorNote{NoteID: fmt.Sprintf("C-Orders:note:seed:%d", i), Kind: projectstate.NoteRetry,
+			Text: fmt.Sprintf("note %d ", i) + strings.Repeat("x", size), RecordedAt: at})
+	}
+	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: notes}}
+}
+
+// Test_NoteDelivery_OnlyNotesCarriedWholeAreStamped (I1, the workflow): five pending
+// notes too big for one block — the first dispatch carries the four newest whole and
+// stamps only them; the withheld oldest stays pending and the NEXT dispatch carries it
+// and stamps it.
+func Test_NoteDelivery_OnlyNotesCarriedWholeAreStamped(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	seededPendingNotes(ps, 5, 3900)
+	pipe := newFakePipeline()
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	specs := submittedSpecs(pipe)
+	first, second := specs[0].DispatchInputs[dispatchInputOperatorNote], specs[1].DispatchInputs[dispatchInputOperatorNote]
+	if !strings.HasPrefix(first, withheldNotesLine(1)) || strings.Contains(first, "note 0 ") || !strings.Contains(first, "note 4 ") {
+		t.Fatalf("the first dispatch must withhold the oldest and carry the newest:\n%.200s", first)
+	}
+	if !strings.Contains(second, "note 0 ") || strings.Contains(second, "note 4 ") {
+		t.Fatalf("the second dispatch must carry exactly the withheld note:\n%.200s", second)
+	}
+	if carriedNotes(specs) != 2 {
+		t.Fatalf("exactly two dispatches carry notes, got %d", carriedNotes(specs))
+	}
+	a1 := projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseRequirements), 1)
+	if len(ps.delivered) != 5 {
+		t.Fatalf("want five stamps (four, then the withheld one), got %+v", ps.delivered)
+	}
+	for i, d := range ps.delivered[:4] {
+		if d.attemptID != a1 || d.noteID != fmt.Sprintf("C-Orders:note:seed:%d", i+1) {
+			t.Fatalf("stamp %d = %+v: the first attempt stamps only notes 1..4", i, d)
+		}
+	}
+	if last := ps.delivered[4]; last.noteID != "C-Orders:note:seed:0" || last.attemptID == a1 {
+		t.Fatalf("the withheld note is stamped to the NEXT attempt, got %+v", last)
+	}
+}
+
+// Test_NoteDelivery_AFailedStampLeavesTheNotePendingAndTheRunGoesOn (M4): the stamp
+// cannot land after the submit dispatched the job; the run does not fail, the note stays
+// pending, and the next dispatch carries it again (at-least-once) and stamps it there.
+func Test_NoteDelivery_AFailedStampLeavesTheNotePendingAndTheRunGoesOn(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	seededPendingNotes(ps, 1, 10)
+	ps.stampConflicts = maxMutateConflictAttempts
+	pipe := newFakePipeline()
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed stamp must not fail the run: %v", err)
+	}
+	specs := submittedSpecs(pipe)
+	if carriedNotes(specs[:2]) != 2 || carriedNotes(specs) != 2 {
+		t.Fatalf("the note rides the first dispatch and, unstamped, the next one too; carried=%d", carriedNotes(specs))
+	}
+	if specs[1].DispatchInputs["phase"] != projectstate.MethodPhaseDetailedDesign.String() {
+		t.Fatalf("the fixture's second dispatch is detailed_design, got %q", specs[1].DispatchInputs["phase"])
+	}
+	a2 := projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign), 1)
+	if len(ps.delivered) != 1 || ps.delivered[0].attemptID != a2 {
+		t.Fatalf("the note is stamped once, to the second dispatch's attempt %s: %+v", a2, ps.delivered)
+	}
+}
+
+// Test_NoteDelivery_NeverCarriedTwiceIntoTheSameAttempt (M4): a note already carried
+// into an attempt is not carried into it again, while another attempt still carries it.
+func Test_NoteDelivery_NeverCarriedTwiceIntoTheSameAttempt(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := newFakePipeline()
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe)
+	note := projectstate.OperatorNote{NoteID: "C-Orders:note:x:1", Kind: projectstate.NoteRetry, Text: "carry me"}
+	env.ExecuteWorkflow(func(ctx workflow.Context) error {
+		ctx = workflow.WithActivityOptions(ctx, recordActivityOptions())
+		in := constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()}
+		st := &constructState{pendingNotes: []projectstate.OperatorNote{note}, carriedTo: map[string]string{note.NoteID: "C-Orders:construction:1"}}
+		hv := ps.project.Version
+		gf := &gitForward{}
+		if _, err := wf.submitCarryingNotes(ctx, in, projectstate.MethodPhaseConstruction, st, "C-Orders:construction:1", gf, &hv); err != nil {
+			return err
+		}
+		if _, err := wf.submitCarryingNotes(ctx, in, projectstate.MethodPhaseConstruction, st, "C-Orders:construction:2", gf, &hv); err != nil {
+			return err
+		}
+		return nil
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	specs := submittedSpecs(pipe)
+	if len(specs) != 2 {
+		t.Fatalf("want two submits, got %d", len(specs))
+	}
+	if _, ok := specs[0].DispatchInputs[dispatchInputOperatorNote]; ok {
+		t.Fatal("a note already carried into attempt 1 must not ride attempt 1 again")
+	}
+	if !strings.Contains(specs[1].DispatchInputs[dispatchInputOperatorNote], "carry me") {
+		t.Fatal("attempt 2 still carries the pending note")
+	}
+	if len(ps.delivered) != 1 || ps.delivered[0].attemptID != "C-Orders:construction:2" {
+		t.Fatalf("stamps = %+v", ps.delivered)
 	}
 }
 
@@ -8760,6 +9006,66 @@ func TestResumeProject_ConflictRetryThenGiveUp(t *testing.T) {
 			t.Errorf("%d conflicts: want %d landed writes, got %d", c.conflicts, c.writes, ps.resumed)
 		}
 	}
+}
+
+// TestResumeProject_ARetryReChecksThePause (I2): the first write conflicts because the
+// project moved; the retry re-reads and re-checks everything the first try was allowed
+// on. A new pause that landed in between is never cleared: nothing is written after the
+// conflict, no pump starts, and the new pause stands.
+func TestResumeProject_ARetryReChecksThePause(t *testing.T) {
+	cases := []struct {
+		name     string
+		moved    func(*fakeProjectState)
+		inFlight bool
+		wantMsg  string
+	}{
+		{"a new pause landed and is still being applied", func(f *fakeProjectState) { f.project.PauseReason = "second halt" }, true, "still being applied"},
+		{"a new pause landed and was relayed", func(f *fakeProjectState) { f.project.PauseReason = "second halt" }, false, "a new pause (second halt) landed"},
+		{"the same pause, now being re-applied", func(*fakeProjectState) {}, true, "still being applied"},
+		{"someone else resumed", func(f *fakeProjectState) { f.project.OperatorPaused, f.project.PauseReason = false, "" }, false, "not paused"},
+		{"the project left construction", func(f *fakeProjectState) { f.project.Phase = projectstate.PhaseProjectDesign }, false, "left construction"},
+	}
+	for _, c := range cases {
+		mc := &temporalmocks.Client{}
+		mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED), nil).Once()
+		second := enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED
+		if c.inFlight {
+			second = enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING
+		}
+		mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(second), nil).Maybe()
+		m, ps := resumeManager(mc, pausedProject())
+		ps.conflictFirst = 1
+		ps.afterConflict = c.moved
+		err := m.ResumeProject(testCtx(), "p-res")
+		if got := constructionErrorKind(err); got != fwmanager.FailedPrecondition || !strings.Contains(err.Error(), c.wantMsg) {
+			t.Errorf("%s: want FailedPrecondition saying %q, got %v", c.name, c.wantMsg, err)
+		}
+		if ps.resumed != 0 {
+			t.Errorf("%s: nothing may be written after the conflict, got %d resume write(s)", c.name, ps.resumed)
+		}
+		mc.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		if c.name != "someone else resumed" && c.name != "the project left construction" && (!ps.project.OperatorPaused || ps.project.PauseReason == "") {
+			t.Errorf("%s: the pause must stand, got paused=%v reason=%q", c.name, ps.project.OperatorPaused, ps.project.PauseReason)
+		}
+	}
+}
+
+// TestResumeProject_ARetryOnAnUnrelatedWriteStillResumes: a conflict from a write that
+// left the same pause standing and nothing in flight retries and resumes.
+func TestResumeProject_ARetryOnAnUnrelatedWriteStillResumes(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED), nil)
+	opts, input := resumeStartMatcher("p-res")
+	mc.On("ExecuteWorkflow", mock.Anything, opts, executionKindPump, input).Return(fakePumpRun{id: "p-res:nextActivity", runID: "run-1"}, nil).Once()
+	m, ps := resumeManager(mc, pausedProject())
+	ps.conflictFirst = 1
+	if err := m.ResumeProject(testCtx(), "p-res"); err != nil {
+		t.Fatalf("an unrelated concurrent write must not stop the resume: %v", err)
+	}
+	if ps.resumed != 1 || ps.project.OperatorPaused {
+		t.Fatalf("want one landed resume, got %d (paused=%v)", ps.resumed, ps.project.OperatorPaused)
+	}
+	mc.AssertNumberOfCalls(t, "DescribeWorkflowExecution", 2)
 }
 
 // TestExecuteNextActivity_PausedProjectIsRefusedBeforeAnyStart: Begin on a paused

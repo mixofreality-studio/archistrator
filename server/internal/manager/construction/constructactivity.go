@@ -1697,6 +1697,24 @@ const mergeGateKey = "merge"
 // activity and is stamped delivered to that dispatch's AttemptID (the key its episode
 // carries as TargetRef). Recording, carrying, stamping and the scaffold sync are all
 // behind ONE change id, so an execution is wholly old or wholly new.
+//
+// WHAT "DELIVERED" MEANS (B1 fix round, I1). Only a note the dispatch carried IN FULL is
+// stamped. When the pending notes exceed maxRenderedOperatorNotesBytes, the OLDEST are
+// withheld so the newest steer arrives whole; the block says how many were withheld, and
+// they stay pending for a later attempt.
+//
+// DELIVERY IS AT-LEAST-ONCE (M4). The stamp follows a successful submit, and is its own
+// write with its own bounded retry (noteStampRetryWindow). If it still fails, the run
+// goes on — the job is already dispatched — and the note stays pending, so the next
+// attempt carries it again: an agent may see one note twice, never zero times. A note
+// is never carried twice into the SAME attempt (constructState.carriedTo), and the store
+// refuses to stamp one note to two attempts.
+//
+// PENDING NOTES WITH NO DISPATCH AHEAD (M5). A retry whose phases are all complete (the
+// local merge only), a takeover the operator finishes by hand, and a skip start no agent
+// run, so their notes are kept and not stamped. They are neither expired nor dropped:
+// they stay pending on the activity (the console counts them), and ride the activity's
+// next agent dispatch if one ever comes (a re-queue). A skip note is never pending.
 // ---------------------------------------------------------------------------
 
 // changeOperatorNoteDelivery is the version marker gating note record/carry/stamp and
@@ -1704,9 +1722,22 @@ const mergeGateKey = "merge"
 const changeOperatorNoteDelivery = "operator-note-delivery"
 
 // maxRenderedOperatorNotesBytes caps the rendered notes block one dispatch carries, far
-// under GitHub's 65,535-character workflow_dispatch input cap. One note is capped at
-// maxOperatorNoteRunes by the façade, so only several pending notes can reach it.
+// under GitHub's 65,535-character workflow_dispatch input cap. The façade caps one note
+// (maxOperatorNoteRunes, and maxOperatorNoteBodyBytes once rendered), so one note always
+// fits whole: only several pending notes can reach the cap.
 const maxRenderedOperatorNotesBytes = 16 << 10
+
+// noteFramingReserveBytes is the room kept for one note's header line and the
+// withheld-notes line, so a note the façade accepted always fits the block whole.
+const noteFramingReserveBytes = 1 << 10
+
+// maxOperatorNoteBodyBytes caps one note's rendered body (its text and anchored comments,
+// as renderNoteBody writes them) at the façade.
+const maxOperatorNoteBodyBytes = maxRenderedOperatorNotesBytes - noteFramingReserveBytes
+
+// noteStampRetryWindow bounds the delivery stamp's own retry envelope (M4): attempts are
+// uncapped inside it, and past it the run goes on with the note still pending.
+const noteStampRetryWindow = 2 * time.Minute
 
 // noteFeedback is one note's operator text and anchored comments, from a send-back's
 // feedback or an override.
@@ -1802,9 +1833,12 @@ func noteComments(in []AnchoredComment) []projectstate.NoteComment {
 	return out
 }
 
-// submitCarryingNotes dispatches one agent job carrying every pending note, then — only
-// once the submit has succeeded — stamps each delivered to attemptID and clears the
-// queue. A failed submit leaves the notes pending for the next dispatch.
+// submitCarryingNotes dispatches one agent job carrying the pending notes, then — only
+// once the submit has succeeded — stamps delivered to attemptID each note the block
+// carried IN FULL, and drops those from the queue. A note the cap withheld, a note whose
+// stamp failed (at-least-once, see the section comment) and every note of a failed
+// submit stay pending for the next dispatch. A note already carried into attemptID is
+// never carried into it again.
 func (wf *workflows) submitCarryingNotes(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -1814,7 +1848,13 @@ func (wf *workflows) submitCarryingNotes(
 	gf *gitForward,
 	headVersion *projectstate.Version,
 ) (pipelineHandle, error) {
-	carried := state.pendingNotes
+	var carry []projectstate.OperatorNote
+	for _, n := range state.pendingNotes {
+		if state.carriedTo[n.NoteID] != attemptID {
+			carry = append(carry, n)
+		}
+	}
+	notes := renderOperatorNotes(carry)
 	handle, err := wf.submitPipeline(ctx, pipelineSpec{
 		ProjectID:    in.ProjectID,
 		ActivityID:   string(in.ActivityID),
@@ -1822,25 +1862,57 @@ func (wf *workflows) submitCarryingNotes(
 		Phase:        phase.String(),
 		Type:         in.Activity.Type,
 		Variant:      in.Activity.Variant,
-		OperatorNote: renderOperatorNotes(carried),
+		OperatorNote: notes.block,
 	})
 	if err != nil {
 		return pipelineHandle{}, err
 	}
-	for _, n := range carried {
-		v, serr := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-			return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
-				string(in.ActivityID), n.NoteID, attemptID, gf.cred.toProjectState())
-		})
-		if serr != nil {
-			return pipelineHandle{}, serr
+	delivered := map[string]bool{}
+	for _, n := range notes.whole {
+		if state.carriedTo == nil {
+			state.carriedTo = map[string]string{}
 		}
-		*headVersion = v
+		state.carriedTo[n.NoteID] = attemptID
+		if wf.stampNoteDelivered(ctx, in, n.NoteID, attemptID, gf, headVersion) {
+			delivered[n.NoteID] = true
+		}
 	}
-	if len(carried) > 0 {
-		state.pendingNotes = nil
+	var still []projectstate.OperatorNote
+	for _, n := range state.pendingNotes {
+		if !delivered[n.NoteID] {
+			still = append(still, n)
+		}
+	}
+	state.pendingNotes = still
+	if len(still) > 0 {
+		workflow.GetLogger(ctx).Info("operator notes stay pending after this dispatch",
+			"activityId", string(in.ActivityID), "attemptId", attemptID, "pending", len(still), "withheldByTheCap", notes.withheld)
 	}
 	return handle, nil
+}
+
+// stampNoteDelivered records noteID delivered to attemptID and reports whether the store
+// now says so. It never fails the run: the job is already dispatched. A stamp that still
+// fails after its retry window leaves the note pending (at-least-once); a stamp the store
+// refuses because the note was already delivered to another attempt means it is no
+// longer pending, so that reads as delivered.
+func (wf *workflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), noteID, attemptID, gf.cred.toProjectState())
+	})
+	if err == nil {
+		*headVersion = v
+		return true
+	}
+	if isRAContractMisuse(err) {
+		workflow.GetLogger(ctx).Warn("the store already holds this note as delivered to another attempt; it is not pending",
+			"activityId", string(in.ActivityID), "noteId", noteID, "attemptId", attemptID, "error", err.Error())
+		return true
+	}
+	workflow.GetLogger(ctx).Warn("the note rode the dispatch but its delivery stamp failed; it stays pending and the next attempt carries it again",
+		"activityId", string(in.ActivityID), "noteId", noteID, "attemptId", attemptID, "error", err.Error())
+	return false
 }
 
 // syncScaffoldBeforeDispatch converges the repo's seated managed scaffold (the construct
@@ -1868,36 +1940,99 @@ func (wf *workflows) syncScaffoldBeforeDispatch(ctx workflow.Context, in constru
 	return pipelineObservation{}, true
 }
 
+// renderedNotes is what one dispatch carries: the block, the notes it carries IN FULL
+// (the only ones stamped delivered), and how many older notes the cap withheld.
+type renderedNotes struct {
+	block    string
+	whole    []projectstate.OperatorNote
+	withheld int
+}
+
+// notesSeparator sits between two notes, and after the withheld-notes line.
+const notesSeparator = "\n\n"
+
 // renderOperatorNotes renders the pending notes as the one block a dispatch carries,
-// oldest first, each headed by its id, kind and gate; "" when there are none.
-func renderOperatorNotes(notes []projectstate.OperatorNote) string {
+// oldest first, each headed by its id, kind and gate. Within maxRenderedOperatorNotesBytes
+// it keeps the NEWEST notes whole and withholds the oldest, naming how many it withheld.
+// No notes render nothing.
+//
+// A single note the block cannot hold whole (only a signal that bypassed the façade's
+// maxOperatorNoteBodyBytes can carry one) is carried cut and marked, and is NOT among the
+// whole notes: it stays pending rather than be stamped delivered in part.
+func renderOperatorNotes(notes []projectstate.OperatorNote) renderedNotes {
 	if len(notes) == 0 {
-		return ""
+		return renderedNotes{}
+	}
+	sections := make([]string, len(notes))
+	for i, n := range notes {
+		sections[i] = renderNoteSection(n)
+	}
+	start, total := len(notes), 0
+	for i := len(notes) - 1; i >= 0; i-- {
+		add := len(sections[i])
+		if start < len(notes) {
+			add += len(notesSeparator)
+		}
+		framing := 0
+		if i > 0 {
+			framing = len(withheldNotesLine(i)) + len(notesSeparator)
+		}
+		if total+add+framing > maxRenderedOperatorNotesBytes {
+			break
+		}
+		total += add
+		start = i
 	}
 	var b strings.Builder
-	for i, n := range notes {
-		if i > 0 {
-			b.WriteString("\n\n")
+	if start == len(notes) {
+		last := len(notes) - 1
+		if last > 0 {
+			b.WriteString(withheldNotesLine(last) + notesSeparator)
 		}
-		fmt.Fprintf(&b, "[operator note %s — %s", n.NoteID, operatorNoteKindName(n.Kind))
-		if n.Gate != "" {
-			fmt.Fprintf(&b, " at %s", n.Gate)
-		}
-		b.WriteString("]\n")
-		b.WriteString(n.Text)
-		for _, c := range n.Comments {
-			fmt.Fprintf(&b, "\n  comment on %s: %s", c.JSONPath, c.Text)
-		}
+		b.WriteString(sections[last])
+		return renderedNotes{block: cutRenderedOperatorNotes(b.String()), withheld: last}
 	}
-	return capRenderedOperatorNotes(b.String())
+	if start > 0 {
+		b.WriteString(withheldNotesLine(start) + notesSeparator)
+	}
+	b.WriteString(strings.Join(sections[start:], notesSeparator))
+	return renderedNotes{block: b.String(), whole: notes[start:], withheld: start}
+}
+
+// renderNoteSection renders one note: its header line, then its body.
+func renderNoteSection(n projectstate.OperatorNote) string {
+	header := fmt.Sprintf("[operator note %s — %s", n.NoteID, operatorNoteKindName(n.Kind))
+	if n.Gate != "" {
+		header += " at " + n.Gate
+	}
+	return header + "]\n" + renderNoteBody(n.Text, n.Comments)
+}
+
+// renderNoteBody renders a note's text and its anchored comments — the part the façade
+// caps at maxOperatorNoteBodyBytes.
+func renderNoteBody(text string, comments []projectstate.NoteComment) string {
+	var b strings.Builder
+	b.WriteString(text)
+	for _, c := range comments {
+		fmt.Fprintf(&b, "\n  comment on %s: %s", c.JSONPath, c.Text)
+	}
+	return b.String()
+}
+
+// withheldNotesLine opens a block that withholds the n oldest pending notes.
+func withheldNotesLine(n int) string {
+	if n == 1 {
+		return "[1 older operator note is not shown: the notes exceed the 16 KiB one dispatch carries. It stays pending and rides a later attempt; every note is on the activity.]"
+	}
+	return fmt.Sprintf("[%d older operator notes are not shown: the notes exceed the 16 KiB one dispatch carries. They stay pending and ride a later attempt; every note is on the activity.]", n)
 }
 
 // renderedNotesTruncated ends a block cut at maxRenderedOperatorNotesBytes.
-const renderedNotesTruncated = "\n[truncated: the operator's notes exceed 16 KiB; the full notes are on the activity]"
+const renderedNotesTruncated = "\n[truncated: this operator note exceeds 16 KiB; it stays pending, and the full note is on the activity]"
 
-// capRenderedOperatorNotes cuts s to maxRenderedOperatorNotesBytes on a rune boundary,
+// cutRenderedOperatorNotes cuts s to maxRenderedOperatorNotesBytes on a rune boundary,
 // marking the cut.
-func capRenderedOperatorNotes(s string) string {
+func cutRenderedOperatorNotes(s string) string {
 	if len(s) <= maxRenderedOperatorNotesBytes {
 		return s
 	}

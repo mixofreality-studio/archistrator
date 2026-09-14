@@ -559,7 +559,7 @@ func (m *constructionManager) ResumeProject(rc fwm.Context, projectID ProjectID)
 	if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
 		return err
 	}
-	if err := m.recordResumed(ctx, projectID, proj.Version); err != nil {
+	if err := m.recordResumed(ctx, projectID, proj); err != nil {
 		return err
 	}
 	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
@@ -592,11 +592,15 @@ func (m *constructionManager) refuseWhilePauseInFlight(ctx context.Context, proj
 	return nil
 }
 
-// recordResumed writes RecordOperatorResumed at version, re-reading the version and
-// retrying on a Conflict (one idempotency key per call, so a retried transport write
-// dedupes).
-func (m *constructionManager) recordResumed(ctx context.Context, projectID ProjectID, version projectstate.Version) error {
+// recordResumed writes RecordOperatorResumed at seen's version, retrying on a Conflict
+// (one idempotency key per call, so a retried transport write dedupes). A Conflict means
+// the project moved, so every retry RE-CHECKS what the first try was allowed on (I2):
+// still in construction, still paused, the SAME pause the operator resumed (its reason
+// unchanged), and no pause being applied now. A pause that landed between two tries is
+// never cleared by a resume that did not see it.
+func (m *constructionManager) recordResumed(ctx context.Context, projectID ProjectID, seen projectstate.Project) error {
 	key := fwra.IdempotencyKey("resume:" + string(projectID) + ":" + uuid.NewString())
+	version := seen.Version
 	for range resumeConflictAttempts {
 		_, err := m.constructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), version, projectstate.RepoCredential{}, key)
 		if err == nil {
@@ -609,9 +613,34 @@ func (m *constructionManager) recordResumed(ctx context.Context, projectID Proje
 		if rerr != nil {
 			return newError(fwm.Infrastructure, rerr.Error())
 		}
+		// The façade's pinned order: still in construction, still paused, no pause being
+		// applied now, and only then the same pause.
+		if err := resumableStill(projectID, proj); err != nil {
+			return err
+		}
+		if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
+			return err
+		}
+		if proj.PauseReason != seen.PauseReason {
+			return newError(fwm.FailedPrecondition, fmt.Sprintf("a new pause (%s) landed while resuming — review it, then resume again", proj.PauseReason))
+		}
 		version = proj.Version
 	}
 	return newError(fwm.FailedPrecondition, "the project changed concurrently while resuming — retry")
+}
+
+// resumableStill re-checks, on a re-read, the first two preconditions ResumeProject
+// checked on its first read: the project is still in construction and still paused.
+// (recordResumed then re-checks the pause in flight, and that the pause is the one the
+// operator resumed: a different reason is a different pause the operator has not seen.)
+func resumableStill(projectID ProjectID, now projectstate.Project) error {
+	switch {
+	case now.Phase != projectstate.PhaseConstruction:
+		return newError(fwm.FailedPrecondition, fmt.Sprintf("project %s left construction while resuming, so there is no construction to resume", projectID))
+	case !now.OperatorPaused:
+		return newError(fwm.FailedPrecondition, "construction is not paused — there is nothing to resume")
+	}
+	return nil
 }
 
 // isRAConflict reports whether err is (or wraps) a ResourceAccess version Conflict.
@@ -658,8 +687,8 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	if strings.TrimSpace(override.Notes) == "" {
 		return newError(fwm.ContractMisuse, "an override requires non-empty notes — it is the operator's durable record of WHY the automatic path was steered")
 	}
-	if operatorNoteRunes(override.Notes, override.Comments) > maxOperatorNoteRunes {
-		return newError(fwm.ContractMisuse, fmt.Sprintf("an override's notes are at most %d characters, anchored comments included", maxOperatorNoteRunes))
+	if err := checkOperatorNoteSize("an override's notes", override.Notes, override.Comments); err != nil {
+		return err
 	}
 	view, err := m.activitySession(ctx, projectID, activityID)
 	if err != nil {
@@ -794,11 +823,14 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	if err := validatePhaseDecision(phase, decision); err != nil {
 		return err
 	}
-	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
+	// A whitespace-only note is an empty one (M3), as it is for an override.
+	if decision == PhaseSendBack && (feedback == nil || strings.TrimSpace(feedback.Notes) == "") {
 		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
 	}
-	if decision == PhaseSendBack && operatorNoteRunes(feedback.Notes, feedback.Comments) > maxOperatorNoteRunes {
-		return newError(fwm.ContractMisuse, fmt.Sprintf("a send-back note is at most %d characters, anchored comments included", maxOperatorNoteRunes))
+	if decision == PhaseSendBack {
+		if err := checkOperatorNoteSize("a send-back note", feedback.Notes, feedback.Comments); err != nil {
+			return err
+		}
 	}
 	view, err := m.activitySession(ctx, projectID, activityID)
 	if err != nil {
@@ -817,17 +849,31 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 }
 
 // maxOperatorNoteRunes caps one operator note — its text plus its anchored comments'
-// text — at the façade (plan B1.4): a send-back's feedback and an override's notes are
-// persisted on the activity and carried to the next agent attempt.
+// text and JSONPaths — at the façade (plan B1.4): a send-back's feedback and an
+// override's notes are persisted on the activity and carried to the next agent attempt.
 const maxOperatorNoteRunes = 4000
 
-// operatorNoteRunes counts a note's characters, its anchored comments' text included.
+// operatorNoteRunes counts a note's characters: its text, and each anchored comment's
+// text AND JSONPath (M6), since the rendered note carries both.
 func operatorNoteRunes(notes string, comments []AnchoredComment) int {
 	n := utf8.RuneCountInString(notes)
 	for _, c := range comments {
-		n += utf8.RuneCountInString(c.Text)
+		n += utf8.RuneCountInString(c.Text) + utf8.RuneCountInString(c.JSONPath)
 	}
 	return n
+}
+
+// checkOperatorNoteSize is the façade's size gate for one note, named by what: at most
+// maxOperatorNoteRunes characters, and at most maxOperatorNoteBodyBytes once rendered, so
+// the note always reaches the agent whole (the 16 KiB block keeps the newest note whole).
+func checkOperatorNoteSize(what, notes string, comments []AnchoredComment) error {
+	if operatorNoteRunes(notes, comments) > maxOperatorNoteRunes {
+		return newError(fwm.ContractMisuse, fmt.Sprintf("%s is at most %d characters, anchored comments and their paths included", what, maxOperatorNoteRunes))
+	}
+	if len(renderNoteBody(notes, noteComments(comments))) > maxOperatorNoteBodyBytes {
+		return newError(fwm.ContractMisuse, fmt.Sprintf("%s is at most %d bytes once rendered (anchored comments included); shorten it", what, maxOperatorNoteBodyBytes))
+	}
+	return nil
 }
 
 // activitySession reads one activity's session through the SAME Query GetSessionState
@@ -1753,6 +1799,27 @@ func appendEpisodeActivityOptions() workflow.ActivityOptions {
 	return o
 }
 
+// stampNoteDeliveredActivityOptions is the delivery stamp's preset (M4): the record
+// preset's per-attempt timeout, uncapped attempts inside noteStampRetryWindow, and
+// ContractMisuse terminal (the store refusing to stamp one note to two attempts).
+func stampNoteDeliveredActivityOptions() workflow.ActivityOptions {
+	o := recordActivityOptions()
+	o.ScheduleToCloseTimeout = noteStampRetryWindow
+	return o
+}
+
+// raContractMisuseErrType is the Type() an RA ContractMisuse surfaces as.
+var raContractMisuseErrType = fwm.RAErrType(fwra.ContractMisuse)
+
+// isRAContractMisuse reports whether err is (or wraps) an RA ContractMisuse.
+func isRAContractMisuse(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raContractMisuseErrType
+	}
+	return false
+}
+
 // raConflictErrType is the canonical Temporal Type() a head-state mutation Activity
 // surfaces when expectedVersion is stale; the workflow recovers with the bounded
 // re-read→re-apply loop (§6.5).
@@ -1842,8 +1909,11 @@ type constructState struct {
 	noteSeq int
 	// pendingNotes are the notes the next agent dispatch carries, oldest first: seeded
 	// from the row at start (projectstate.PendingOperatorNotes), appended to as notes are
-	// recorded, and cleared once a dispatch that carried them has been stamped.
+	// recorded, and each dropped once a dispatch carried it whole and it was stamped.
 	pendingNotes []projectstate.OperatorNote
+	// carriedTo names, per note id, the last attempt a dispatch carried the note into,
+	// so a note is never carried twice into the same attempt (M4).
+	carriedTo map[string]string
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -2004,8 +2074,10 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"constructionTransitionAccess.recordPhaseStarted":   recordActivityOptions(),
 		"constructionTransitionAccess.recordPhaseCompleted": recordActivityOptions(),
 		// B1.4: the operator note and its delivery stamp are head-state Record verbs.
-		"constructionTransitionAccess.recordOperatorNote":          recordActivityOptions(),
-		"constructionTransitionAccess.recordOperatorNoteDelivered": recordActivityOptions(),
+		"constructionTransitionAccess.recordOperatorNote": recordActivityOptions(),
+		// The delivery stamp has its own bounded envelope (M4): it follows a submit that
+		// already dispatched the job, so it retries rather than fail the run.
+		"constructionTransitionAccess.recordOperatorNoteDelivered": stampNoteDeliveredActivityOptions(),
 		// C.1.4: the managed-scaffold sync before a GitHub-venue dispatch is a rail verb.
 		"sourceControlAccess.syncManagedScaffold":            railActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
