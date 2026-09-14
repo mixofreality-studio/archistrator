@@ -299,9 +299,24 @@ async function harness(
     } else {
       // A poll read can still be in flight when the test ends. Only "the page has
       // closed" is ignored here; any other failure still fails the test.
-      try {
+      //
+      // The fetched body can be DISPOSED before json() reads it (observed under the
+      // page clock: "apiResponse.json: Response has been disposed", 1 in 5 even solo).
+      // The route is still unhandled then, and the read is an idempotent GET, so it is
+      // fetched ONCE more; a second disposal, or any other error, still fails.
+      const fetchWire = async () => {
         const response = await route.fetch();
-        const wire = (await response.json()) as WireProject;
+        return { response, wire: (await response.json()) as WireProject };
+      };
+      try {
+        let got: Awaited<ReturnType<typeof fetchWire>>;
+        try {
+          got = await fetchWire();
+        } catch (err) {
+          if (page.isClosed() || !/has been disposed/.test(String(err))) throw err;
+          got = await fetchWire();
+        }
+        const { response, wire } = got;
         edit(wire);
         await route.fulfill({ response, json: wire });
       } catch (err) {
