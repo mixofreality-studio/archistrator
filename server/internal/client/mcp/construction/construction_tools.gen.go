@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
+	"strings"
 
 	"github.com/google/jsonschema-go/jsonschema"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -228,6 +230,7 @@ func executeNextActivityOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[executeNextActivityOutput]())
 	return s
 }
 
@@ -237,6 +240,7 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getSessionStateOutput]())
 	return s
 }
 
@@ -246,6 +250,7 @@ func overrideActivityOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[overrideActivityOutput]())
 	return s
 }
 
@@ -255,6 +260,7 @@ func pauseProjectOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[pauseProjectOutput]())
 	return s
 }
 
@@ -264,6 +270,7 @@ func runReplanSweepOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[runReplanSweepOutput]())
 	return s
 }
 
@@ -273,6 +280,7 @@ func setReviewPolicyOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[setReviewPolicyOutput]())
 	return s
 }
 
@@ -282,6 +290,7 @@ func submitPhaseDecisionOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[submitPhaseDecisionOutput]())
 	return s
 }
 
@@ -291,6 +300,7 @@ func updateReviewPolicyOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[updateReviewPolicyOutput]())
 	return s
 }
 
@@ -300,6 +310,7 @@ func listEpisodesForActivityOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[listEpisodesForActivityOutput]())
 	return s
 }
 
@@ -309,7 +320,80 @@ func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getEpisodeTimelineOutput]())
 	return s
+}
+
+// contractFieldDescriptions is the contract's own property documentation,
+// keyed by the Go type modelgen emits for each documenting $def. modelgen
+// carries no description into those types, so the inferred output schema
+// would otherwise show an agent a field's shape but never the contract's
+// statement of when that field means nothing.
+var contractFieldDescriptions = map[reflect.Type]map[string]string{
+	reflect.TypeFor[mgr.ConstructionSessionView](): {
+		"attempt":          "The current supervision attempt, 1-based: a variance retry, an operator Retry and an escalation's re-dispatch each start the next one. 0 before the first attempt and on the project-level view.",
+		"attemptBudget":    "How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view.",
+		"awaitingGate":     "The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, \"merge\" for the local merge hold, or \"takeover\" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view.",
+		"awaitingSince":    "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.",
+		"awaitingUntil":    "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.",
+		"redraftExhausted": "True when the phase gate this activity is waiting at has spent its send-back budget (5 redrafts), so a further SendBack cannot redraft it: approve it, or steer the activity with OverrideActivity. Reset on entry to every gate.",
+	},
+}
+
+// describeContractFields stamps contractFieldDescriptions onto an inferred
+// schema, walking it in step with the Go type it was inferred from, so a
+// description lands only on the property the contract documents — wherever
+// that type appears in the output (a map value, a slice element, a field).
+// It runs LAST: relaxRawJSON may replace a node wholesale, and a description
+// written before that would be lost with it.
+func describeContractFields(s *jsonschema.Schema, t reflect.Type) {
+	if s == nil {
+		return
+	}
+	for t.Kind() == reflect.Pointer {
+		t = t.Elem()
+	}
+	k := t.Kind()
+	if k == reflect.Slice || k == reflect.Array {
+		describeContractFields(s.Items, t.Elem())
+		return
+	}
+	if k == reflect.Map {
+		describeContractFields(s.AdditionalProperties, t.Elem())
+		return
+	}
+	if k != reflect.Struct {
+		return
+	}
+	descs := contractFieldDescriptions[t]
+	for i := range t.NumField() {
+		f := t.Field(i)
+		name := jsonFieldName(f)
+		p, ok := s.Properties[name]
+		if name == "" || !ok {
+			continue
+		}
+		if d, ok := descs[name]; ok {
+			p.Description = d
+		}
+		describeContractFields(p, f.Type)
+	}
+}
+
+// jsonFieldName is the wire key encoding/json uses for a struct field ("" for
+// an unexported or json:"-" field, which no schema property stands for).
+func jsonFieldName(f reflect.StructField) string {
+	if !f.IsExported() {
+		return ""
+	}
+	name, _, _ := strings.Cut(f.Tag.Get("json"), ",")
+	switch name {
+	case "-":
+		return ""
+	case "":
+		return f.Name
+	}
+	return name
 }
 
 // enumSchemaPhaseDecision describes the PhaseDecision enum: its allowed values and their meanings.
