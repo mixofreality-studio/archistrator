@@ -11,8 +11,8 @@ import {
   type UseMutationResult,
   type QueryClient,
 } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
 import {
   artifactKindToOrdinal,
   reviewDecisionToOrdinal,
@@ -52,19 +52,19 @@ export function useRequestProjectArtifactDraft(
   projectId: string
 ): UseMutationResult<string, Error, RequestProjectDraftVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<string, Error, RequestProjectDraftVars>({
     mutationFn: async (vars) => {
-      const result = await apiClient.POST(
-        '/api/v1/project-design/request-artifact-draft/{projectID}',
+      const data = await ops.callForBody<OpResult<'projectDesignRequestArtifactDraft'>>(
+        'projectDesignRequestArtifactDraft',
         {
-          params: { path: { projectID: projectId } },
+          path: { projectID: projectId },
           body: {
             kind: artifactKindToOrdinal(vars.kind),
             ...(vars.feedback !== undefined ? { feedback: { notes: vars.feedback } } : {}),
-          },
+          } satisfies OpBody<'projectDesignRequestArtifactDraft'>,
         }
       );
-      const data = bodyUnlessError(result);
       return data;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -83,28 +83,25 @@ export function useSubmitProjectReviewDecision(
   projectId: string
 ): UseMutationResult<undefined, Error, ProjectReviewDecisionVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, ProjectReviewDecisionVars>({
     mutationFn: async (vars) => {
       const hasFeedback = vars.feedback !== undefined || vars.comments !== undefined;
-      const { error, response } = await apiClient.POST(
-        '/api/v1/project-design/submit-review-decision/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: {
-            kind: artifactKindToOrdinal(vars.kind),
-            decision: reviewDecisionToOrdinal(vars.decision),
-            ...(hasFeedback
-              ? {
-                  feedback: {
-                    notes: vars.feedback ?? '',
-                    ...(vars.comments !== undefined ? { comments: vars.comments } : {}),
-                  },
-                }
-              : {}),
-          },
-        }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('projectDesignSubmitReviewDecision', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          decision: reviewDecisionToOrdinal(vars.decision),
+          ...(hasFeedback
+            ? {
+                feedback: {
+                  notes: vars.feedback ?? '',
+                  ...(vars.comments !== undefined ? { comments: vars.comments } : {}),
+                },
+              }
+            : {}),
+        } satisfies OpBody<'projectDesignSubmitReviewDecision'>,
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -123,20 +120,17 @@ export function useSetProjectReviewCommentStatus(
   projectId: string
 ): UseMutationResult<undefined, Error, SetProjectReviewCommentStatusVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, SetProjectReviewCommentStatusVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/project-design/set-review-comment-status/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: {
-            kind: artifactKindToOrdinal(vars.kind),
-            commentID: vars.commentID,
-            status: vars.status,
-          },
-        }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('projectDesignSetReviewCommentStatus', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          commentID: vars.commentID,
+          status: vars.status,
+        } satisfies OpBody<'projectDesignSetReviewCommentStatus'>,
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -159,16 +153,16 @@ export function useAcknowledgeProjectStaleBasis(
   projectId: string
 ): UseMutationResult<undefined, Error, AcknowledgeProjectStaleVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, AcknowledgeProjectStaleVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/project-design/acknowledge-stale-basis/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: { kind: artifactKindToOrdinal(vars.kind), note: vars.note },
-        }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('projectDesignAcknowledgeStaleBasis', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          note: vars.note,
+        } satisfies OpBody<'projectDesignAcknowledgeStaleBasis'>,
+      });
       return undefined;
     },
     onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
@@ -180,12 +174,13 @@ export function useRequestSDPCommit(
   projectId: string
 ): UseMutationResult<string, Error, undefined> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<string, Error, undefined>({
     mutationFn: async () => {
-      const result = await apiClient.POST('/api/v1/project-design/request-sdp-commit/{projectID}', {
-        params: { path: { projectID: projectId } },
-      });
-      const data = bodyUnlessError(result);
+      const data = await ops.callForBody<OpResult<'projectDesignRequestSdpCommit'>>(
+        'projectDesignRequestSdpCommit',
+        { path: { projectID: projectId } }
+      );
       return data;
     },
     onSuccess: () => invalidateArtifact(client, projectId, SDP_REVIEW_KIND),
@@ -201,6 +196,7 @@ export function useSubmitSDPDecision(
   projectId: string
 ): UseMutationResult<undefined, Error, SDPDecisionVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, SDPDecisionVars>({
     mutationFn: async (vars) => {
       // optionID is a path param. On commit it names the chosen option; on rejectAll
@@ -210,19 +206,15 @@ export function useSubmitSDPDecision(
         vars.detail?.optionId !== undefined && vars.detail.optionId.length > 0
           ? vars.detail.optionId
           : 'none';
-      const { error, response } = await apiClient.POST(
-        '/api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}',
-        {
-          params: { path: { projectID: projectId, optionID } },
-          body: {
-            decision: sdpDecisionToOrdinal(vars.decision),
-            ...(vars.detail?.feedback !== undefined
-              ? { feedback: { notes: vars.detail.feedback } }
-              : {}),
-          },
-        }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('projectDesignSubmitSdpDecision', {
+        path: { projectID: projectId, optionID },
+        body: {
+          decision: sdpDecisionToOrdinal(vars.decision),
+          ...(vars.detail?.feedback !== undefined
+            ? { feedback: { notes: vars.detail.feedback } }
+            : {}),
+        } satisfies OpBody<'projectDesignSubmitSdpDecision'>,
+      });
       return undefined;
     },
     onSuccess: () => invalidateArtifact(client, projectId, SDP_REVIEW_KIND),
@@ -239,16 +231,16 @@ export function useAdvanceToConstruction(
   projectId: string
 ): UseMutationResult<ProjectPhaseAdvanceResponse, Error, boolean> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<ProjectPhaseAdvanceResponse, Error, boolean>({
     mutationFn: async (acknowledgeStale: boolean) => {
-      const result = await apiClient.POST(
-        '/api/v1/project-design/advance-to-construction/{projectID}',
+      const data = await ops.callForBody<OpResult<'projectDesignAdvanceToConstruction'>>(
+        'projectDesignAdvanceToConstruction',
         {
-          params: { path: { projectID: projectId } },
-          body: { acknowledgeStale },
+          path: { projectID: projectId },
+          body: { acknowledgeStale } satisfies OpBody<'projectDesignAdvanceToConstruction'>,
         }
       );
-      const data = bodyUnlessError(result);
       return {
         advanced: data.advanced,
         missingArtifacts: (data.missingArtifacts ?? []).map(projectArtifactKindFromOrdinal),

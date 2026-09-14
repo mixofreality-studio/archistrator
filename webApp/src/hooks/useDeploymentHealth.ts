@@ -27,8 +27,8 @@
  * rather than caching forever like useCapabilities does.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpResult } from '../api/opTypes';
 import type { HealthState } from '../contracts/types';
 import { deploymentHealthQueryEnabled } from './deploymentHealthEnabled';
 
@@ -55,14 +55,14 @@ export function useDeploymentHealth(
   operatedAppId: string,
   capabilityEnabled = true
 ): UseQueryResult<Record<string, HealthState>> {
+  const { ops } = useOpsClient();
   return useQuery<Record<string, HealthState>>({
     queryKey: deploymentHealthKey(operatedAppId),
     queryFn: async () => {
-      const result = await apiClient.GET(
-        '/api/v1/operations/query-deployment-health/{operatedAppID}',
-        { params: { path: { operatedAppID: operatedAppId } } }
+      const data = await ops.callForBody<OpResult<'operationsQueryDeploymentHealth'>>(
+        'operationsQueryDeploymentHealth',
+        { path: { operatedAppID: operatedAppId } }
       );
-      const data = bodyUnlessError(result);
       const byKey: Record<string, HealthState> = {};
       for (const node of data.Nodes ?? []) {
         if (node.Health === HEALTH_ORDINAL_HEALTHY) byKey[node.ModelKey] = 'Healthy';

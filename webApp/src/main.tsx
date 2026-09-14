@@ -19,15 +19,14 @@ import '@fontsource/jetbrains-mono/500.css';
 import '@fontsource/jetbrains-mono/700.css';
 import { createBrowserHistory } from '@tanstack/react-router';
 import { ApiError } from './contracts/errors';
-import { apiClient } from './api/client';
-import { restOpsClient } from './api/ops.gen';
+import { restOps } from './api/client';
 import { OpsClientProvider } from './api/opsContext';
 import { fetchCapabilities } from './hooks/useCapabilities';
 import { createAppRouter } from './routes/router';
 import './index.css';
 import App from './App';
 
-const ops = restOpsClient(apiClient);
+const ops = restOps;
 
 // Browser history is what createRouter defaulted to when the router was a module
 // singleton; the factory takes it explicitly so the preview shell can pass memory

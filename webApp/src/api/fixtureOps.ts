@@ -81,29 +81,31 @@ function fixtureFor(fixtures: FixtureOps, op: OpId): FixtureOp | undefined {
 }
 
 export function fixtureOpsClient(fixtures: FixtureOps, options: FixtureOpsOptions = {}): OpsClient {
-  return {
-    call<R = unknown>(op: OpId, params: OpParams = {}): Promise<R> {
-      const fixture = fixtureFor(fixtures, op);
-      if (fixture === undefined) {
-        options.onMiss?.(op, params);
-        return Promise.reject(new FixtureMissError(op));
-      }
-      if ('pending' in fixture) {
-        return new Promise<R>(() => {
-          // Never settles: the state under preview IS the loading state.
-        });
-      }
-      if ('error' in fixture) {
-        const { status, code, message } = fixture.error;
-        return Promise.reject(
-          new ApiError(
-            status,
-            code ?? 'internal',
-            message ?? `request failed with status ${String(status)}`
-          )
-        );
-      }
-      return Promise.resolve(structuredClone(fixture.result) as R);
-    },
+  const call = <R = unknown>(op: OpId, params: OpParams = {}): Promise<R> => {
+    const fixture = fixtureFor(fixtures, op);
+    if (fixture === undefined) {
+      options.onMiss?.(op, params);
+      return Promise.reject(new FixtureMissError(op));
+    }
+    if ('pending' in fixture) {
+      return new Promise<R>(() => {
+        // Never settles: the state under preview IS the loading state.
+      });
+    }
+    if ('error' in fixture) {
+      const { status, code, message } = fixture.error;
+      return Promise.reject(
+        new ApiError(
+          status,
+          code ?? 'internal',
+          message ?? `request failed with status ${String(status)}`
+        )
+      );
+    }
+    return Promise.resolve(structuredClone(fixture.result) as R);
   };
+  // A fixture's `result` is JSON, so it always carries a body: `callForBody`
+  // answers exactly as `call` does (the REST transport's empty-2xx refusal has
+  // no fixture equivalent).
+  return { call, callForBody: call };
 }

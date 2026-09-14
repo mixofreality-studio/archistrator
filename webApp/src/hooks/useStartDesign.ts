@@ -6,8 +6,8 @@
  * invalidate the project head-state so downstream reads refresh.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
 import { toResearchInputWire } from '../contracts/wire';
 import type { ResearchInput } from '../contracts/types';
 import { projectKey } from './useProject';
@@ -18,12 +18,13 @@ export function useStartSystemDesign(
   projectId: string
 ): UseMutationResult<string, Error, undefined> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<string, Error, undefined>({
     mutationFn: async () => {
-      const result = await apiClient.POST('/api/v1/system-design/start-system-design/{projectID}', {
-        params: { path: { projectID: projectId } },
-      });
-      const data = bodyUnlessError(result);
+      const data = await ops.callForBody<OpResult<'systemDesignStartSystemDesign'>>(
+        'systemDesignStartSystemDesign',
+        { path: { projectID: projectId } }
+      );
       return data;
     },
     onSuccess: () => {
@@ -41,16 +42,15 @@ export function useSetResearchInput(
   projectId: string
 ): UseMutationResult<undefined, Error, ResearchInput> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, ResearchInput>({
     mutationFn: async (research) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/system-design/set-research-input/{projectID}',
-        {
-          params: { path: { projectID: projectId } },
-          body: { research: toResearchInputWire(research) },
-        }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('systemDesignSetResearchInput', {
+        path: { projectID: projectId },
+        body: {
+          research: toResearchInputWire(research),
+        } satisfies OpBody<'systemDesignSetResearchInput'>,
+      });
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),

@@ -10,8 +10,8 @@
  * archistratorOperated — keeping create + choose atomic from the caller's view.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError, throwUnlessOk } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
 import { useUser } from '../utilities/auth/UserContext';
 import { projectsKey } from './useProjects';
 
@@ -28,20 +28,20 @@ export interface CreateProjectVars {
 export function useCreateProject(): UseMutationResult<string, Error, CreateProjectVars> {
   const queryClient = useQueryClient();
   const owner = useUser().sub;
+  const { ops } = useOpsClient();
   return useMutation<string, Error, CreateProjectVars>({
     mutationFn: async ({ name, operatingModel }: CreateProjectVars) => {
-      const result = await apiClient.POST('/api/v1/system-design/create-project', {
-        body: { name, owner },
-      });
-      const data = bodyUnlessError(result);
+      const data = await ops.callForBody<OpResult<'systemDesignCreateProject'>>(
+        'systemDesignCreateProject',
+        { body: { name, owner } satisfies OpBody<'systemDesignCreateProject'> }
+      );
       const projectId = data;
       // Born selfOperated; only issue the set call when the user chose otherwise.
       if (operatingModel !== 'selfOperated') {
-        const set = await apiClient.POST('/api/v1/system-design/set-operating-model/{projectID}', {
-          params: { path: { projectID: projectId } },
-          body: { model: operatingModel },
+        await ops.call('systemDesignSetOperatingModel', {
+          path: { projectID: projectId },
+          body: { model: operatingModel } satisfies OpBody<'systemDesignSetOperatingModel'>,
         });
-        throwUnlessOk(set.response, set.error);
       }
       return projectId;
     },
