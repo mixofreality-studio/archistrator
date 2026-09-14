@@ -5,8 +5,9 @@
  * what-if curve (a replica list). A 404 is surfaced without retry storms.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { ApiError, bodyUnlessError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
+import { ApiError } from '../contracts/errors';
 import { mapCostProjection } from '../contracts/wire';
 import type { CostProjection } from '../contracts/operationsTypes';
 
@@ -25,20 +26,20 @@ export function useCostProjection(
   points: readonly number[] = DEFAULT_WHATIF_POINTS,
   enabled = true
 ): UseQueryResult<CostProjection> {
+  const { ops } = useOpsClient();
   return useQuery<CostProjection>({
     queryKey: costProjectionKey(operatedAppId, points),
     queryFn: async () => {
-      const result = await apiClient.POST(
-        '/api/v1/operations/query-cost-projection/{operatedAppID}',
+      const data = await ops.callForBody<OpResult<'operationsQueryCostProjection'>>(
+        'operationsQueryCostProjection',
         {
-          params: { path: { operatedAppID: operatedAppId } },
+          path: { operatedAppID: operatedAppId },
           body: {
             requestID: crypto.randomUUID(),
             points: { points: points.map((replicas) => ({ replicas })) },
-          },
+          } satisfies OpBody<'operationsQueryCostProjection'>,
         }
       );
-      const data = bodyUnlessError(result);
       return mapCostProjection(operatedAppId, data);
     },
     enabled: enabled && operatedAppId.length > 0,

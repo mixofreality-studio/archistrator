@@ -13,8 +13,9 @@ import {
   type UseQueryOptions,
   type UseQueryResult,
 } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError } from '../contracts/errors';
+import type { OpsClient } from '../api/ops.gen';
+import { useOpsClient } from '../api/opsContext';
+import type { OpResult } from '../api/opTypes';
 import { mapConstructionSession } from '../contracts/wire';
 import type { ConstructionSessionState } from '../contracts/types';
 import { sessionProbeQueryFn } from './sessionPolling';
@@ -40,6 +41,8 @@ export function constructionSessionsKey(projectId: string): readonly unknown[] {
  *  probe the two ask for is fetched once). */
 export function sessionQueryOptions(
   queryClient: QueryClient,
+  /** The transport the probe rides (useOpsClient().ops). */
+  ops: OpsClient,
   projectId: string,
   activityId: string | undefined,
   enabled: boolean,
@@ -54,11 +57,10 @@ export function sessionQueryOptions(
     queryKey: key,
     queryFn: sessionProbeQueryFn<ConstructionSessionState>({
       fetch: async () => {
-        const result = await apiClient.GET(
-          '/api/v1/construction/get-session-state/{projectID}/{activityID}',
-          { params: { path: { projectID: projectId, activityID: activityId ?? '' } } }
+        const data = await ops.callForBody<OpResult<'constructionGetSessionState'>>(
+          'constructionGetSessionState',
+          { path: { projectID: projectId, activityID: activityId ?? '' } }
         );
-        const data = bodyUnlessError(result);
         return mapConstructionSession(data);
       },
       getCached: () => queryClient.getQueryData<ConstructionSessionState | null>(key),
@@ -95,5 +97,6 @@ export function useConstructionSession(
   enabled = true
 ): UseQueryResult<ConstructionSessionState | null> {
   const queryClient = useQueryClient();
-  return useQuery(sessionQueryOptions(queryClient, projectId, activityId, enabled));
+  const { ops } = useOpsClient();
+  return useQuery(sessionQueryOptions(queryClient, ops, projectId, activityId, enabled));
 }

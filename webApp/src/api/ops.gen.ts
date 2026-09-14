@@ -13,9 +13,13 @@
  * only on OpsClient/OpId — never on which transport is live — via
  * useOpsClient() (src/api/opsContext.tsx).
  *
+ * `tool` is the tool the SERVER registers for the op (camel(mgr) + operationId,
+ * read from the generated Go tool tables: scripts/mcp-tools.mjs), or null where
+ * it registers none; the MCP transport refuses a null tool loudly.
+ *
  * The composition routes (scripts/composition-routes.mjs) are bound here too,
- * with `tool: null`: they are mounted by the Go composition root, not a
- * manager contract, so they are REST-only.
+ * with `tool: null` and `composition: true`: they are mounted by the Go
+ * composition root, not a manager contract, so they are REST-only.
  */
 import type createClient from 'openapi-fetch';
 import type { paths } from '../contracts/schema';
@@ -25,23 +29,26 @@ import type { App } from '@modelcontextprotocol/ext-apps';
 // tsc's bundler moduleResolution, requires full specifiers). The type-only
 // imports above are erased entirely and never hit Node's resolver, so they
 // keep the extensionless convention the rest of the app uses.
-import { ApiError, throwUnlessOk, type WireError } from '../contracts/errors.ts';
+import { ApiError, bodyUnlessError, throwUnlessOk, type WireError } from '../contracts/errors.ts';
 
 export const OP_BINDINGS = {
   compositionGetCapabilities: {
     method: 'GET',
     path: '/api/v1/capabilities',
     tool: null,
+    composition: true,
   },
   compositionGetOperatedAppId: {
     method: 'GET',
     path: '/api/v1/projects/{projectID}/operated-app-id',
     tool: null,
+    composition: true,
   },
   compositionGetUserinfo: {
     method: 'GET',
     path: '/api/userinfo',
     tool: null,
+    composition: true,
   },
   constructionExecuteNextActivity: {
     method: 'POST',
@@ -171,7 +178,7 @@ export const OP_BINDINGS = {
   projectDesignRequestSdpCommit: {
     method: 'POST',
     path: '/api/v1/project-design/request-sdp-commit/{projectID}',
-    tool: 'projectDesignRequestSdpCommit',
+    tool: 'projectDesignRequestSDPCommit',
   },
   projectDesignSetReviewCommentStatus: {
     method: 'POST',
@@ -186,7 +193,7 @@ export const OP_BINDINGS = {
   projectDesignSubmitSdpDecision: {
     method: 'POST',
     path: '/api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}',
-    tool: 'projectDesignSubmitSdpDecision',
+    tool: 'projectDesignSubmitSDPDecision',
   },
   systemDesignAcknowledgeStaleBasis: {
     method: 'POST',
@@ -284,7 +291,17 @@ export interface OpParams {
 }
 
 export interface OpsClient {
+  /**
+   * The op's answer. The STATUS decides failure (throwUnlessOk): a non-2xx
+   * rejects with ApiError. A 2xx with no body resolves `undefined`, so use this
+   * for an op that returns nothing, or whose body the caller reads as optional.
+   */
   call<R = unknown>(op: OpId, params?: OpParams): Promise<R>;
+  /**
+   * The op's BODY (bodyUnlessError): as `call`, and a 2xx that carries no body
+   * where the op owes one rejects too, with ApiError(<status>, 'empty_body').
+   */
+  callForBody<R = unknown>(op: OpId, params?: OpParams): Promise<R>;
 }
 
 interface RestResult {
@@ -313,20 +330,23 @@ type RestFn = (
 type RestMethodMap = Record<'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE', RestFn>;
 
 export function restOpsClient(client: ReturnType<typeof createClient<paths>>): OpsClient {
+  const send = (op: OpId, params: OpParams): Promise<RestResult> => {
+    const binding = OP_BINDINGS[op];
+    const methods = client as unknown as RestMethodMap;
+    const fn = methods[binding.method];
+    return fn(binding.path, {
+      params: { path: params.path, query: params.query },
+      body: params.body,
+      // A composition route keeps the exact request its raw fetch used to send.
+      // /api/userinfo in particular needs `Accept: application/json`: the Envoy
+      // edge's denyRedirect rule answers such a probe with 401 instead of a 302
+      // to Keycloak (utilities/auth/UserContext.tsx).
+      ...('composition' in binding ? { headers: { Accept: 'application/json' } } : {}),
+    });
+  };
   return {
     async call<R = unknown>(op: OpId, params: OpParams = {}): Promise<R> {
-      const binding = OP_BINDINGS[op];
-      const methods = client as unknown as RestMethodMap;
-      const fn = methods[binding.method];
-      const { data, error, response } = await fn(binding.path, {
-        params: { path: params.path, query: params.query },
-        body: params.body,
-        // A composition route keeps the exact request its raw fetch used to send.
-        // /api/userinfo in particular needs `Accept: application/json`: the Envoy
-        // edge's denyRedirect rule answers such a probe with 401 instead of a 302
-        // to Keycloak (utilities/auth/UserContext.tsx).
-        ...(binding.tool === null ? { headers: { Accept: 'application/json' } } : {}),
-      });
+      const { data, error, response } = await send(op, params);
       // The STATUS decides, never the parsed body (fix-E review). openapi-fetch
       // returns `error: undefined` for an empty body, which is what a proxy's
       // 502/503/504 looks like, so testing `error` counted those as success. An
@@ -334,6 +354,16 @@ export function restOpsClient(client: ReturnType<typeof createClient<paths>>): O
       // "no session"; an empty-body 502 reads "request failed with status 502".
       throwUnlessOk(response, error as WireError | undefined);
       return data as R;
+    },
+    async callForBody<R = unknown>(op: OpId, params: OpParams = {}): Promise<R> {
+      const { data, error, response } = await send(op, params);
+      // The same status rule, and a 2xx with no body where one is owed is an
+      // error too (create-project's id, a GET a mapper reads).
+      return bodyUnlessError<R>({
+        ...(data === undefined ? {} : { data: data as R }),
+        error: error as WireError | undefined,
+        response,
+      });
     },
   };
 }
@@ -407,35 +437,41 @@ function assertNoArgCollision(
 }
 
 export function mcpOpsClient(app: App): OpsClient {
-  return {
-    async call<R = unknown>(op: OpId, params: OpParams = {}): Promise<R> {
-      const binding = OP_BINDINGS[op];
-      if (binding.tool === null) {
-        // A composition route is mounted by the Go composition root, never exposed
-        // as an MCP tool. Fail loudly rather than calling a tool that cannot exist.
-        throw new ApiError(501, 'no_mcp_tool', `${op} is a REST-only composition route`);
-      }
-      const pathArgs = (params.path ?? {}) as Record<string, unknown>;
-      const queryArgs = params.query ?? {};
-      const bodyArgs = (params.body ?? {}) as Record<string, unknown>;
-      assertNoArgCollision(op, pathArgs, queryArgs, bodyArgs);
-      const args = { ...pathArgs, ...queryArgs, ...bodyArgs };
-      const result = await app.callServerTool({ name: binding.tool, arguments: args });
-      if (result.isError === true) {
-        const status = isNotFoundToolError(result.content) ? 404 : 500;
-        const code = status === 404 ? 'not_found' : 'internal';
-        throw new ApiError(status, code, toolErrorMessage(result.content));
-      }
-      // Transport parity (T11 finding F-T11-4): mcpemit wraps every op result in
-      // a single-field envelope struct ({ "result": <value> }) for the MCP output
-      // schema, while the REST handler returns the bare value. Unwrap so both
-      // OpsClient transports hand hooks the identical shape. Void ops have no
-      // envelope and fall through to {}.
-      const sc = result.structuredContent as Record<string, unknown> | null | undefined;
-      if (sc !== null && sc !== undefined && typeof sc === 'object' && 'result' in sc) {
-        return sc['result'] as R;
-      }
-      return (sc ?? {}) as R;
-    },
+  const call = async <R = unknown>(op: OpId, params: OpParams = {}): Promise<R> => {
+    const binding = OP_BINDINGS[op];
+    if (binding.tool === null) {
+      // No MCP tool answers this op: a composition route (mounted by the Go
+      // composition root), or an OAS op the server registers no tool for. Fail
+      // loudly rather than calling a tool that cannot exist.
+      throw new ApiError(
+        501,
+        'no_mcp_tool',
+        `${op} has no MCP tool: ${binding.method} ${binding.path} is REST-only`
+      );
+    }
+    const pathArgs = (params.path ?? {}) as Record<string, unknown>;
+    const queryArgs = params.query ?? {};
+    const bodyArgs = (params.body ?? {}) as Record<string, unknown>;
+    assertNoArgCollision(op, pathArgs, queryArgs, bodyArgs);
+    const args = { ...pathArgs, ...queryArgs, ...bodyArgs };
+    const result = await app.callServerTool({ name: binding.tool, arguments: args });
+    if (result.isError === true) {
+      const status = isNotFoundToolError(result.content) ? 404 : 500;
+      const code = status === 404 ? 'not_found' : 'internal';
+      throw new ApiError(status, code, toolErrorMessage(result.content));
+    }
+    // Transport parity (T11 finding F-T11-4): mcpemit wraps every op result in
+    // a single-field envelope struct ({ "result": <value> }) for the MCP output
+    // schema, while the REST handler returns the bare value. Unwrap so both
+    // OpsClient transports hand hooks the identical shape. Void ops have no
+    // envelope and fall through to {}.
+    const sc = result.structuredContent as Record<string, unknown> | null | undefined;
+    if (sc !== null && sc !== undefined && typeof sc === 'object' && 'result' in sc) {
+      return sc['result'] as R;
+    }
+    return (sc ?? {}) as R;
   };
+  // A tool result is never bodiless: a void op's empty structuredContent is {}.
+  // So `callForBody` answers exactly as `call` does.
+  return { call, callForBody: call };
 }

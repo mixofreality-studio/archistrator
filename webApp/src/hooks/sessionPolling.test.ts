@@ -37,8 +37,9 @@ import {
 // fix-F review: an EMPTY-body 404 (Content-Length 0, openapi-fetch's
 // `error: undefined`) must still read as "no session". Both probe paths are
 // pinned through isNoSessionError, the one rule the probes and the poll read:
-// the construction probe (apiClient + bodyUnlessError) and the design probe
-// (the REST OpsClient).
+// the construction probe (the REST OpsClient's callForBody, which is
+// bodyUnlessError; it was apiClient + bodyUnlessError before preview P1b) and
+// the design probe (the REST OpsClient's call).
 const emptyResponse = (status: number): Response =>
   new Response(null, { status, headers: { 'content-length': '0' } });
 
@@ -63,6 +64,26 @@ void test('an EMPTY-body 404 is "no session" on the construction probe path (bod
   const bad = (): Promise<unknown> =>
     Promise.resolve().then(() => bodyUnlessError<unknown>({ response: emptyResponse(502) }));
   assert.equal(isNoSessionError(await rejectionOf(bad())), false);
+});
+
+void test('an EMPTY-body 404 is "no session" on the construction probe as it rides now (REST callForBody)', async () => {
+  const answer = (): Promise<{ data: undefined; error: undefined; response: Response }> =>
+    Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(404) });
+  const ops = restOpsClient({ GET: answer, POST: answer } as never);
+  const fetch = (): Promise<unknown> =>
+    ops.callForBody('constructionGetSessionState', { path: { projectID: 'p1', activityID: 'a1' } });
+  assert.equal(isNoSessionError(await rejectionOf(fetch())), true);
+  assert.equal(await sessionProbeQueryFn({ fetch, getCached: () => undefined })(), null);
+  // An empty-body 502 is not absence: it stays an error.
+  const bad = (): Promise<{ data: undefined; error: undefined; response: Response }> =>
+    Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(502) });
+  const failing = restOpsClient({ GET: bad, POST: bad } as never);
+  const err = await rejectionOf(
+    failing.callForBody('constructionGetSessionState', {
+      path: { projectID: 'p1', activityID: 'a1' },
+    })
+  );
+  assert.equal(isNoSessionError(err), false);
 });
 
 void test('an EMPTY-body 404 is "no session" on the design probe path (REST OpsClient)', async () => {

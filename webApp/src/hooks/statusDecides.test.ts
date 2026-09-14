@@ -11,9 +11,10 @@
  *
  * Behaviour is pinned where a browser reaches it (status-decides-outcome.spec,
  * construction-begin-confirm.spec) and on the shared helpers (errors.test.ts,
- * ops.test.ts). This pins the rest by reading the source: every apiClient call
- * in a hook is followed by throwUnlessOk or bodyUnlessError, and no hook decides
- * from the parsed body.
+ * ops.test.ts). Since preview P1b no hook holds a response at all: every call
+ * rides the OpsClient, whose REST transport applies throwUnlessOk (`call`) or
+ * bodyUnlessError (`callForBody`) to every answer, and api/opsSeam.test.ts keeps
+ * apiClient out of the hooks. This pins the rest by reading the source.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -28,20 +29,22 @@ void test('no hook decides success from the parsed error body', () => {
   for (const { file, source } of hooks) {
     assert.doesNotMatch(source, /error !== undefined/, file);
     assert.doesNotMatch(source, /toApiError\(/, `${file} builds its own ApiError`);
+    // The status helpers belong to the transport now: a hook calling one is
+    // holding a raw response it should not have.
+    assert.doesNotMatch(
+      source,
+      /\b(throwUnlessOk|bodyUnlessError)\(/,
+      `${file} checks a raw response`
+    );
   }
 });
 
-void test('every apiClient call in a hook is checked by its status', () => {
+void test('every hook reaches the server through the OpsClient', () => {
   let total = 0;
-  for (const { file, source } of hooks) {
-    const calls = source.match(/apiClient\.(GET|POST|PUT|PATCH|DELETE)\(/g)?.length ?? 0;
-    const checked = source.match(/\b(throwUnlessOk|bodyUnlessError)\(/g)?.length ?? 0;
-    assert.equal(checked, calls, `${file}: ${String(calls)} calls, ${String(checked)} checked`);
-    total += calls;
+  for (const { source } of hooks) {
+    total += source.match(/\bops\.(call|callForBody)\b/g)?.length ?? 0;
   }
-  // The sites the fix-E review listed, plus construction's five, plus the GETs.
-  // The floor only guards against this scan going blind. It dropped from 24 to 23
-  // when useProjects moved onto the OpsClient (preview P1): that call is still
-  // status-checked, by restOpsClient's throwUnlessOk, which ops.test.ts pins.
-  assert.ok(total >= 23, `found ${String(total)} apiClient calls`);
+  // The floor only guards against this scan going blind: 23 calls moved onto the
+  // OpsClient in preview P1b, beside the 16 that were already there.
+  assert.ok(total >= 39, `found ${String(total)} OpsClient calls`);
 });

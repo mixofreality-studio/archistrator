@@ -14,10 +14,12 @@ import {
   useQueryClient,
   type UseMutationResult,
 } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-// The status decides success, never the parsed body: an empty-body 5xx comes back
-// with `error: undefined` (throwUnlessOk, fix-D review I2).
-import { ApiError, throwUnlessOk } from '../contracts/errors';
+// Every call rides the OpsClient (preview P1b). The status decides success, never
+// the parsed body: an empty-body 5xx comes back with `error: undefined`, and the
+// REST transport's `call` applies throwUnlessOk (fix-D review I2).
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
+import { ApiError } from '../contracts/errors';
 import { overrideKindToOrdinal, phaseDecisionToOrdinal } from '../contracts/wire';
 import type {
   OverrideKind,
@@ -82,6 +84,7 @@ export function useBeginConstruction(
   const onFailure = options?.onError;
   const onDispatched = options?.onSuccess;
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   // Refresh the project read so the just-dispatched activity (flipping to
   // in-construction) shows up; the console's cascade poll keeps it fresh. The
   // session probes are re-read too: a dispatch may have just created a session
@@ -95,11 +98,13 @@ export function useBeginConstruction(
   return useMutation<BeginResult, Error, string>({
     mutationKey: beginConstructionKey(projectId),
     mutationFn: async (tickID) => {
-      const { data, error, response } = await apiClient.POST(
-        '/api/v1/construction/execute-next-activity/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { tickID } }
+      const data = await ops.call<OpResult<'constructionExecuteNextActivity'> | undefined>(
+        'constructionExecuteNextActivity',
+        {
+          path: { projectID: projectId },
+          body: { tickID } satisfies OpBody<'constructionExecuteNextActivity'>,
+        }
       );
-      throwUnlessOk(response, error);
       // The status decided success; the body only says whether the pump started
       // anything. Read as optional: a 200 whose body omits it is not a "false".
       const said: { dispatched?: boolean } | undefined = data;
@@ -133,13 +138,13 @@ export function usePauseConstruction(
   projectId: string
 ): UseMutationResult<undefined, Error, string> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, string>({
     mutationFn: async (reason) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/pause-project/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { reason } }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('constructionPauseProject', {
+        path: { projectID: projectId },
+        body: { reason } satisfies OpBody<'constructionPauseProject'>,
+      });
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ['constructionSession', projectId] }),
@@ -166,22 +171,19 @@ export function useOverrideActivity(
   projectId: string
 ): UseMutationResult<undefined, Error, OverrideActivityVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, OverrideActivityVars>({
     mutationFn: async (vars) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/override-activity/{projectID}/{activityID}',
-        {
-          params: { path: { projectID: projectId, activityID: vars.activityId } },
-          body: {
-            override: {
-              kind: overrideKindToOrdinal(vars.kind),
-              notes: vars.notes ?? '',
-              ...(vars.comments && vars.comments.length > 0 ? { comments: vars.comments } : {}),
-            },
+      await ops.call('constructionOverrideActivity', {
+        path: { projectID: projectId, activityID: vars.activityId },
+        body: {
+          override: {
+            kind: overrideKindToOrdinal(vars.kind),
+            notes: vars.notes ?? '',
+            ...(vars.comments && vars.comments.length > 0 ? { comments: vars.comments } : {}),
           },
-        }
-      );
-      throwUnlessOk(response, error);
+        } satisfies OpBody<'constructionOverrideActivity'>,
+      });
       return undefined;
     },
     onSuccess: (_data, vars) =>
@@ -235,22 +237,19 @@ export function useSubmitPhaseDecision(
   projectId: string
 ): UseMutationResult<PhaseDecisionAnswer, PhaseDecisionFailure, SubmitPhaseDecisionVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<PhaseDecisionAnswer, PhaseDecisionFailure, SubmitPhaseDecisionVars>({
     mutationKey: phaseDecisionMutationKey(projectId),
     mutationFn: async (vars) => {
       try {
-        const { error, response } = await apiClient.POST(
-          '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
-          {
-            params: { path: { projectID: projectId, activityID: vars.activityId } },
-            body: {
-              phase: vars.phase,
-              decision: phaseDecisionToOrdinal(vars.decision),
-              ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
-            },
-          }
-        );
-        throwUnlessOk(response, error);
+        await ops.call('constructionSubmitPhaseDecision', {
+          path: { projectID: projectId, activityID: vars.activityId },
+          body: {
+            phase: vars.phase,
+            decision: phaseDecisionToOrdinal(vars.decision),
+            ...(vars.feedback !== undefined ? { feedback: vars.feedback } : {}),
+          } satisfies OpBody<'constructionSubmitPhaseDecision'>,
+        });
         return { answeredAt: Date.now() };
       } catch (e) {
         throw new PhaseDecisionFailure(e, Date.now());
@@ -275,13 +274,13 @@ export function useSetReviewPolicy(
   projectId: string
 ): UseMutationResult<undefined, Error, ReviewPreset> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<undefined, Error, ReviewPreset>({
     mutationFn: async (preset) => {
-      const { error, response } = await apiClient.POST(
-        '/api/v1/construction/set-review-policy/{projectID}',
-        { params: { path: { projectID: projectId } }, body: { preset } }
-      );
-      throwUnlessOk(response, error);
+      await ops.call('constructionSetReviewPolicy', {
+        path: { projectID: projectId },
+        body: { preset } satisfies OpBody<'constructionSetReviewPolicy'>,
+      });
       return undefined;
     },
     onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
