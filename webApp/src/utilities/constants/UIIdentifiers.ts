@@ -365,6 +365,11 @@ export const UI_IDENTIFIERS = {
     BEGIN_CONFIRM_DIALOG: 'construction-begin-confirm',
     BEGIN_CONFIRM_CANCEL: 'construction-begin-confirm-cancel',
     BEGIN_CONFIRM_DISPATCH: 'construction-begin-confirm-dispatch',
+    // B1.7: a paused project offers Resume in Begin's place, with its status label.
+    RESUME_BUTTON: 'construction-resume',
+    PAUSED_LABEL: 'construction-paused-label',
+    RESUME_OUTCOME: 'construction-resume-outcome',
+    TASKS_PAUSED_LABEL: 'construction-tasks-paused-label',
     beginConfirmCandidate: (activityId: string) => `construction-begin-candidate-${activityId}`,
     // P1-9: the LIST's way back when the toolbar filtered every row away.
     LIST_CLEAR_FILTERS: 'construction-list-clear-filters',

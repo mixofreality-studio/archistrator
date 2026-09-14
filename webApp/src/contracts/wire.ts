@@ -734,6 +734,9 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     // Computed ONCE on the server (constructionStartedFor) and passed through as-is:
     // the SPA never re-derives it from rows or attempts.
     constructionStarted: w.constructionStarted,
+    // The recorded operator pause (B1.7), passed through as stored.
+    operatorPaused: w.operatorPaused,
+    ...(w.pauseReason !== undefined && w.pauseReason !== '' ? { pauseReason: w.pauseReason } : {}),
   };
 }
 

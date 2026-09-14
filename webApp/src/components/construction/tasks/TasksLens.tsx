@@ -119,6 +119,8 @@ export interface TasksLensProps {
   /** Rows a decision was just made on, lingering with their evidence line (spec
    *  §6: "lingers ~30s, then leaves") — shown, but no longer owed. */
   lingeringKeys?: ReadonlySet<string> | undefined;
+  /** The recorded operator pause (B1.7): the lens says so above everything else. */
+  paused?: { label: string; reason: string | undefined } | undefined;
 }
 
 export function TasksLens(props: TasksLensProps): ReactElement {
@@ -137,6 +139,30 @@ export function TasksLens(props: TasksLensProps): ReactElement {
       data-testid={UI_IDENTIFIERS.Construction.TASKS_LENS}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, containerType: 'inline-size' }}
     >
+      {props.paused !== undefined ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.TASKS_PAUSED_LABEL}
+          role="status"
+          sx={{
+            px: 1.75,
+            py: 1.1,
+            border: `1.5px solid ${t.line}`,
+            borderRadius: `${String(t.radius)}px`,
+            bgcolor: t.paperAlt,
+            fontFamily: t.mono,
+            fontSize: 12,
+            fontWeight: 700,
+          }}
+          title={props.paused.reason}
+        >
+          {props.paused.label}
+          {props.paused.reason !== undefined ? (
+            <Box component="span" sx={{ fontWeight: 400, opacity: 0.75, ml: 1 }}>
+              ({props.paused.reason})
+            </Box>
+          ) : null}
+        </Box>
+      ) : null}
       {banner !== undefined ? (
         <Box
           data-testid={UI_IDENTIFIERS.Construction.TASKS_POLICY_BANNER}

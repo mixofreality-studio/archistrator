@@ -128,11 +128,9 @@ export function useBeginConstruction(
 
 /**
  * Pause the project's construction (pause-project). NO CALLER TODAY, KEPT ON
- * PURPOSE: the Interventions tab that pressed it was retired (Task 13), and its
- * rebuild is B1's (plan-B1-B2.md; plan-B1-B2-amendment.md §B: "if we have pause
- * we should have resume"). This is the natural client for that control, and B1's
- * resume-project hook belongs beside it. Delete it only if B1 lands without a
- * pause control.
+ * PURPOSE: the Interventions tab that pressed it was retired (Task 13). B1 rebuilt
+ * the way BACK (useResumeConstruction, below) because a paused project otherwise has
+ * none; the pause control itself is still to be rebuilt. This is its natural client.
  */
 export function usePauseConstruction(
   projectId: string
@@ -149,6 +147,34 @@ export function usePauseConstruction(
     },
     onSuccess: () => client.invalidateQueries({ queryKey: ['constructionSession', projectId] }),
   });
+}
+
+/**
+ * Resume the project's paused construction (resume-project, B1.7): the server clears
+ * the recorded pause and starts or joins the pump without waiting for it. Rides the
+ * OpsClient like every other call. Success re-reads the project (its operatorPaused
+ * flips) and every construction session.
+ */
+export function useResumeConstruction(
+  projectId: string
+): UseMutationResult<undefined, Error, undefined> {
+  const client = useQueryClient();
+  const { ops } = useOpsClient();
+  return useMutation<undefined, Error, undefined>({
+    mutationFn: async () => {
+      await ops.call('constructionResumeProject', { path: { projectID: projectId } });
+      return undefined;
+    },
+    onSuccess: async () => {
+      await client.invalidateQueries({ queryKey: projectKey(projectId) });
+      await client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) });
+    },
+  });
+}
+
+/** The HTTP status a failed mutation carries, or `undefined` when no response arrived. */
+export function failureStatusOf(err: unknown): number | undefined {
+  return err instanceof ApiError ? err.status : undefined;
 }
 
 export interface OverrideActivityVars {

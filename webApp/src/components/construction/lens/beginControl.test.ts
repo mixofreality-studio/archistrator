@@ -19,7 +19,11 @@ import {
   newestLiveSession,
   NOTHING_TO_DISPATCH,
   notStartedActivities,
+  PAUSED_LABEL,
+  pausedControlFor,
   pumpDispatched,
+  resumeOutcomeCopy,
+  resumeOutcomeFor,
   pickupEvidencedSince,
   pumpEvidencedSince,
   UNKNOWN_OUTCOME_HOLD_MS,
@@ -611,4 +615,98 @@ void test('a 200 holds Begin for its pickup unless the pump said dispatched: fal
   assert.equal(pumpDispatched({}), true, 'an empty body');
   assert.equal(pumpDispatched(undefined), true, 'no body');
   assert.equal(NOTHING_TO_DISPATCH, 'Nothing to dispatch — no activity is eligible');
+});
+
+// ---------------------------------------------------------------------------
+// B1.7 — a paused project offers Resume in Begin's place.
+// ---------------------------------------------------------------------------
+
+void test('a project whose pause is not recorded gets no Resume control (Begin renders as before)', () => {
+  for (const operatorPaused of [undefined, false]) {
+    assert.equal(
+      pausedControlFor({ operatorPaused, pauseReason: 'x', projectLoading: false, pending: false }),
+      undefined
+    );
+  }
+});
+
+void test('a paused project offers Resume with the founder’s words and the operator’s reason', () => {
+  const c = pausedControlFor({
+    operatorPaused: true,
+    pauseReason: ' operator halt ',
+    projectLoading: false,
+    pending: false,
+  });
+  assert.deepEqual(c, {
+    label: 'Resume construction',
+    statusLabel: 'Paused — Resume to continue',
+    reason: 'operator halt',
+    disabled: false,
+    busy: false,
+  });
+  assert.equal(PAUSED_LABEL, 'Paused — Resume to continue');
+  const noReason = pausedControlFor({
+    operatorPaused: true,
+    pauseReason: '  ',
+    projectLoading: false,
+    pending: false,
+  });
+  assert.equal(noReason?.reason, undefined);
+});
+
+void test('Resume is disabled (and busy) while a resume is in flight, and disabled while loading', () => {
+  assert.deepEqual(
+    pick(
+      pausedControlFor({
+        operatorPaused: true,
+        pauseReason: undefined,
+        projectLoading: false,
+        pending: true,
+      })
+    ),
+    { disabled: true, busy: true }
+  );
+  assert.deepEqual(
+    pick(
+      pausedControlFor({
+        operatorPaused: true,
+        pauseReason: undefined,
+        projectLoading: true,
+        pending: false,
+      })
+    ),
+    { disabled: true, busy: false }
+  );
+});
+
+function pick(
+  c: ReturnType<typeof pausedControlFor>
+): { disabled: boolean; busy: boolean } | undefined {
+  return c === undefined ? undefined : { disabled: c.disabled, busy: c.busy };
+}
+
+void test('a resume outcome follows Begin’s status rule: only a 4xx is a refusal', () => {
+  assert.deepEqual(resumeOutcomeFor(409, 'construction is not paused'), {
+    kind: 'rejected',
+    message: 'construction is not paused',
+  });
+  assert.deepEqual(resumeOutcomeFor(500, 'boom'), { kind: 'unknown', message: 'boom' });
+  assert.deepEqual(resumeOutcomeFor(undefined, ''), {
+    kind: 'unknown',
+    message: 'no reason given',
+  });
+});
+
+void test('the resume copy says what happened, and never claims a refused resume landed', () => {
+  assert.match(
+    resumeOutcomeCopy({ kind: 'resumed' }).headline,
+    /^Resumed — construction continues within 30 seconds/
+  );
+  const refused = resumeOutcomeCopy({
+    kind: 'rejected',
+    message: 'a pause is still being applied — retry in a moment',
+  });
+  assert.match(refused.headline, /^Resume refused: a pause is still being applied/);
+  assert.match(refused.detail, /still paused/);
+  assert.match(resumeOutcomeCopy({ kind: 'unknown', message: 'x' }).headline, /^Outcome unknown/);
 });

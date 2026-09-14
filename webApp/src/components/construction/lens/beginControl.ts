@@ -426,3 +426,80 @@ export function notStartedActivities(
     })
     .sort((a, b) => a.activityId.localeCompare(b.activityId));
 }
+
+// ---------------------------------------------------------------------------
+// A PAUSED project (plan B1.7; founder ruling 2026-09-13: "Begin on a paused project
+// REFUSES — Paused — Resume to continue"). While the operator's pause is recorded the
+// server refuses Begin, so the console offers Resume in Begin's place: it clears the
+// pause and starts the pump. The label is the founder's words.
+// ---------------------------------------------------------------------------
+
+/** The status label a paused project carries, in the console and the Tasks lens. */
+export const PAUSED_LABEL = 'Paused — Resume to continue';
+
+export interface PausedControl {
+  label: string;
+  /** The status the console and the Tasks lens show beside the control. */
+  statusLabel: string;
+  /** The operator's reason, for the label's tooltip; absent when none was given. */
+  reason: string | undefined;
+  disabled: boolean;
+  busy: boolean;
+}
+
+/**
+ * The Resume control for a paused project, or `undefined` when the project is not
+ * paused (or its read is not in): the Begin control then renders as before.
+ */
+export function pausedControlFor(input: {
+  operatorPaused: boolean | undefined;
+  pauseReason: string | undefined;
+  projectLoading: boolean;
+  /** A resume request is in flight. */
+  pending: boolean;
+}): PausedControl | undefined {
+  if (input.operatorPaused !== true) return undefined;
+  const reason = input.pauseReason?.trim();
+  return {
+    label: 'Resume construction',
+    statusLabel: PAUSED_LABEL,
+    reason: reason !== undefined && reason !== '' ? reason : undefined,
+    disabled: input.pending || input.projectLoading,
+    busy: input.pending,
+  };
+}
+
+/** What a resume said: it landed, the server refused it, or no clean answer arrived. */
+export type ResumeOutcome =
+  | { kind: 'resumed' }
+  | { kind: 'rejected'; message: string }
+  | { kind: 'unknown'; message: string };
+
+/** The same status rule as Begin's (dispatchOutcomeFor): only a 4xx is a refusal. */
+export function resumeOutcomeFor(status: number | undefined, message: string): ResumeOutcome {
+  const d = dispatchOutcomeFor(status, message);
+  return d.kind === 'rejected'
+    ? { kind: 'rejected', message: d.message }
+    : { kind: 'unknown', message: d.message };
+}
+
+/** The words for one resume outcome (drafts pending the PM's copy ruling). */
+export function resumeOutcomeCopy(outcome: ResumeOutcome): { headline: string; detail: string } {
+  switch (outcome.kind) {
+    case 'resumed':
+      return {
+        headline: 'Resumed — construction continues within 30 seconds.',
+        detail: 'The pause is cleared and the pump is starting.',
+      };
+    case 'rejected':
+      return {
+        headline: `Resume refused: ${outcome.message}.`,
+        detail: 'The server refused the request, so construction is still paused.',
+      };
+    case 'unknown':
+      return {
+        headline: 'Outcome unknown — the resume may have landed; the console will show it.',
+        detail: `The request got no clean answer (${outcome.message}).`,
+      };
+  }
+}

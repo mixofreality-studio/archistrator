@@ -1129,6 +1129,14 @@ export type ProjectStateWithGit = ProjectState & {
    * so a hand-built fixture need not invent it. Decides Begin versus Resume.
    */
   constructionStarted?: boolean;
+  /**
+   * The operator's RECORDED construction pause (get-project's operatorPaused, B1.7).
+   * While it holds, every pump honours it and Begin is refused, so the console offers
+   * Resume in Begin's place. Optional only so a hand-built fixture need not invent it.
+   */
+  operatorPaused?: boolean;
+  /** The reason the operator gave for the pause; absent when there is none. */
+  pauseReason?: string;
 };
 
 /** Lookup helper — undefined for not-yet-branched activities (honest-empty). */

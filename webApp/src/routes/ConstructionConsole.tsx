@@ -81,8 +81,10 @@ import { contractJoinFor } from '../contracts/serviceContracts';
 import { gitFor } from '../contracts/types';
 import {
   phaseDecisionFilters,
+  failureStatusOf,
   useBeginConstruction,
   useBeginConstructionPending,
+  useResumeConstruction,
   useSubmitPhaseDecision,
 } from '../hooks/useConstructionMutations';
 
@@ -97,6 +99,10 @@ import {
   type BeginControl,
   beginControlFor,
   beginHoldFor,
+  pausedControlFor,
+  resumeOutcomeCopy,
+  resumeOutcomeFor,
+  type ResumeOutcome,
   beginRunning,
   consolePollMs,
   dispatchOutcomeCopy,
@@ -737,6 +743,31 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   useEffect(() => {
     beginControlRef.current = beginControl;
   }, [beginControl]);
+
+  // --- A paused project (B1.7) ------------------------------------------------
+  // While the operator's pause is recorded the server refuses Begin, so Resume takes
+  // Begin's place: it clears the pause and starts the pump (resume-project, through
+  // the ops client). The label is the founder's words.
+  const resume = useResumeConstruction(projectId);
+  const pausedControl = pausedControlFor({
+    operatorPaused: project?.operatorPaused,
+    pauseReason: project?.pauseReason,
+    projectLoading,
+    pending: resume.isPending,
+  });
+  const [resumeOutcome, setResumeOutcome] = useState<ResumeOutcome | null>(null);
+  const onResume = (): void => {
+    setResumeOutcome(null);
+    resume.mutate(undefined, {
+      onSuccess: () => {
+        setResumeOutcome({ kind: 'resumed' });
+      },
+      onError: (err) => {
+        setResumeOutcome(resumeOutcomeFor(failureStatusOf(err), err.message));
+      },
+    });
+  };
+  const resumeCopy = resumeOutcome !== null ? resumeOutcomeCopy(resumeOutcome) : undefined;
   const dispatchCandidates = useMemo(
     () => notStartedActivities(project?.constructionRows, titleForId),
     [project, titleForId]
@@ -1026,15 +1057,23 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
         counts: emptyCounts,
         // The header's own Begin/Resume (its label is the server's
         // constructionStarted), opening the same confirm step — never a dispatch.
+        // A paused project's control is Resume (B1.7): Begin would be refused.
         ...(project?.operating !== true
           ? {
-              resume: {
-                label: beginControl.label,
-                disabled: beginControl.disabled,
-                onClick: (): void => {
-                  setBeginTick(crypto.randomUUID());
-                },
-              },
+              resume:
+                pausedControl !== undefined
+                  ? {
+                      label: pausedControl.label,
+                      disabled: pausedControl.disabled,
+                      onClick: onResume,
+                    }
+                  : {
+                      label: beginControl.label,
+                      disabled: beginControl.disabled,
+                      onClick: (): void => {
+                        setBeginTick(crypto.randomUUID());
+                      },
+                    },
             }
           : {}),
       }}
@@ -1043,6 +1082,11 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       // Just-decided rows first, lingering in place with their evidence line.
       items={[...lingering, ...visibleOwed]}
       lingeringKeys={lingeringKeys}
+      paused={
+        pausedControl !== undefined
+          ? { label: pausedControl.statusLabel, reason: pausedControl.reason }
+          : undefined
+      }
       policy={project?.reviewPolicy}
       projectId={projectId}
       selection={selection}
@@ -1098,7 +1142,45 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               // Operating (Task 14): once construction is fully complete the
               // begin/resume button is hidden entirely — not relabeled, since there
               // is nothing left to begin or resume.
-              project?.operating !== true ? (
+              project?.operating !== true && pausedControl !== undefined ? (
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+                  <Box
+                    component="span"
+                    data-testid={UI_IDENTIFIERS.Construction.PAUSED_LABEL}
+                    role="status"
+                    sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700 }}
+                    title={pausedControl.reason}
+                  >
+                    {pausedControl.statusLabel}
+                  </Box>
+                  <Button
+                    data-testid={UI_IDENTIFIERS.Construction.RESUME_BUTTON}
+                    disabled={pausedControl.disabled}
+                    size="small"
+                    startIcon={
+                      pausedControl.busy ? (
+                        <CircularProgress color="inherit" size={14} />
+                      ) : (
+                        <PlayArrowRoundedIcon />
+                      )
+                    }
+                    sx={{
+                      fontFamily: t.mono,
+                      fontWeight: 700,
+                      fontSize: 12,
+                      textTransform: 'none',
+                      color: t.bg,
+                      bgcolor: t.accent,
+                      px: 1.75,
+                      '&:hover': { bgcolor: t.accent2 },
+                    }}
+                    variant="contained"
+                    onClick={onResume}
+                  >
+                    {pausedControl.label}
+                  </Button>
+                </Box>
+              ) : project?.operating !== true ? (
                 <>
                   <Button
                     data-testid={UI_IDENTIFIERS.Construction.BEGIN_BUTTON}
@@ -1178,6 +1260,25 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
               }}
             >
               {NOTHING_TO_DISPATCH}
+            </Alert>
+          ) : null}
+
+          {resumeOutcome !== null && resumeCopy !== undefined ? (
+            <Alert
+              data-outcome={resumeOutcome.kind}
+              data-testid={UI_IDENTIFIERS.Construction.RESUME_OUTCOME}
+              severity={resumeOutcome.kind === 'resumed' ? 'success' : 'error'}
+              sx={{ mb: 2, fontFamily: t.mono, fontSize: 12 }}
+              onClose={() => {
+                setResumeOutcome(null);
+              }}
+            >
+              <Box component="span" sx={{ display: 'block', fontWeight: 700 }}>
+                {resumeCopy.headline}
+              </Box>
+              <Box component="span" sx={{ display: 'block' }}>
+                {resumeCopy.detail}
+              </Box>
             </Alert>
           ) : null}
 
