@@ -59,6 +59,21 @@ async function open(page: Page, query: string, width = 1600, height = 950): Prom
   ).toBeVisible({ timeout: 15_000 });
 }
 
+/**
+ * constructionManager's op count in the state this run is SERVED — the summary and the
+ * canvas caption count what the server holds, and that differs by corpus (the live
+ * corpus and the seeded HEAD need not carry the same contract). A GET, never a write.
+ */
+async function managerOpCount(page: Page): Promise<number> {
+  const res = await page.request.get(`${BASE}/api/v1/system-design/get-project/archistrator`);
+  expect(res.ok()).toBe(true);
+  const body = (await res.json()) as { ServiceContracts?: Record<string, { Ops?: unknown[] }> };
+  const n = body.ServiceContracts?.constructionManager?.Ops?.length ?? 0;
+  // The summary shows five ops and folds the rest into "+N more", so the case needs more.
+  expect(n).toBeGreaterThan(5);
+  return n;
+}
+
 function pane(page: Page): Locator {
   return page.getByTestId(TESTID.constructionDetailBody);
 }
@@ -175,8 +190,9 @@ test('a bare click is the summary card — no canvas — and opens Detailed Desi
   const body = pane(page);
   const summary = body.getByTestId(TESTID.constructionContractSummary);
   await expect(summary).toBeVisible();
-  await expect(summary).toContainText('10 ops');
-  await expect(summary).toContainText('+5 more');
+  const ops = await managerOpCount(page);
+  await expect(summary).toContainText(`${String(ops)} ops`);
+  await expect(summary).toContainText(`+${String(ops - 5)} more`);
   await expect(body.getByTestId(TESTID.serviceContractRoot)).toHaveCount(0);
   expect(await roles(body)).toEqual(['COMMITTED NOW']);
 
@@ -1378,7 +1394,10 @@ test('S4: before an op is expanded the interface sits at the top of a canvas its
   expect(i !== null && f !== null && f.height - i.height <= 40, 'no empty band below the node').toBe(true);
   // One "Click an op" in the whole focus view.
   await expect(focus.getByText(/Click an op/)).toHaveCount(1);
-  await expect(canvas.getByTestId(TESTID.serviceContractCodeCanvasCaption)).toContainText('10 ops');
+  const ops = await managerOpCount(page);
+  await expect(canvas.getByTestId(TESTID.serviceContractCodeCanvasCaption)).toContainText(
+    `${String(ops)} ops`
+  );
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
