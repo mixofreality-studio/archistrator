@@ -15,14 +15,19 @@
  *
  * In dev mode there is no edge; the server injects a dev principal, so the same
  * probe returns 200 with that principal — no special-casing needed here.
+ *
+ * The probe itself is INJECTED (`fetchUser`), never fetched here: App.tsx passes
+ * hooks/useUserInfo.ts's OpsClient call, so the probe rides the same transport
+ * seam as every other request and a preview's fixture transport can answer it
+ * (design-renderer-data.md §2′.0 P2). A 401 arrives as the transport's ApiError.
  */
-import { createContext, useContext, useEffect, useState, type ReactNode } from 'react';
+import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import CircularProgress from '@mui/material/CircularProgress';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
 import Typography from '@mui/material/Typography';
-import { config } from '../config';
+import { ApiError } from '../../contracts/errors';
 import { UI_IDENTIFIERS } from '../constants/UIIdentifiers';
 import type { UserInfo } from './userInfo';
 
@@ -40,7 +45,14 @@ export function useUser(): UserInfo {
   return ctx.user;
 }
 
-export function UserProvider({ children }: { children: ReactNode }): ReactNode {
+export function UserProvider({
+  fetchUser,
+  children,
+}: {
+  /** The session probe: resolves the user, or rejects (an ApiError carries the status). */
+  fetchUser: () => Promise<UserInfo>;
+  children: ReactNode;
+}): ReactNode {
   const [user, setUser] = useState<UserInfo | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -50,26 +62,28 @@ export function UserProvider({ children }: { children: ReactNode }): ReactNode {
   // and the retry handler resets that state itself before calling load(). This
   // keeps the effect free of synchronous setState (react-hooks/set-state-in-effect)
   // — every setState below runs in an async continuation after `await`.
-  const load = async (): Promise<void> => {
+  // It is memoized on `fetchUser` (App passes a stable useCallback), so the mount
+  // effect below still probes exactly once per transport.
+  const load = useCallback(async (): Promise<void> => {
     try {
-      const res = await fetch(`${config.apiBaseUrl}/api/userinfo`, {
-        headers: { Accept: 'application/json' },
-      });
-      if (!res.ok) {
-        if (res.status === 401) {
-          // No/expired edge session — reload so the edge issues the OIDC redirect.
-          window.location.reload();
-          return;
-        }
-        throw new Error(`Failed to load user info: ${String(res.status)} ${res.statusText}`);
-      }
-      setUser((await res.json()) as UserInfo);
+      setUser(await fetchUser());
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Unknown error');
+      if (err instanceof ApiError && err.status === 401) {
+        // No/expired edge session — reload so the edge issues the OIDC redirect.
+        window.location.reload();
+        return;
+      }
+      setError(
+        err instanceof ApiError
+          ? `Failed to load user info: ${String(err.status)} ${err.message}`
+          : err instanceof Error
+            ? err.message
+            : 'Unknown error'
+      );
     } finally {
       setLoading(false);
     }
-  };
+  }, [fetchUser]);
 
   const retry = (): void => {
     setLoading(true);
@@ -79,9 +93,9 @@ export function UserProvider({ children }: { children: ReactNode }): ReactNode {
 
   useEffect(() => {
     // Probe once on mount.
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- load() only setStates in an async continuation (after `await fetch`), so there is no synchronous cascading render; the rule's heuristic can't see past the await
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- load() only setStates in an async continuation (after `await fetchUser()`), so there is no synchronous cascading render; the rule's heuristic can't see past the await
     void load();
-  }, []);
+  }, [load]);
 
   if (loading) {
     return (

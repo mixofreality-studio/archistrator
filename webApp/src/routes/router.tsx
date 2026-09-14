@@ -16,9 +16,15 @@
  * to its derived default step.
  *
  * Each route component is a self-contained screen export (no local component
- * definitions here) so fast-refresh stays happy alongside the `router` export.
+ * definitions here) so fast-refresh stays happy alongside the router factory.
  */
-import { createRootRoute, createRoute, createRouter, Outlet } from '@tanstack/react-router';
+import {
+  createRootRouteWithContext,
+  createRoute,
+  createRouter,
+  Outlet,
+  type RouterHistory,
+} from '@tanstack/react-router';
 import { ProjectsLanding } from './ProjectsLanding';
 import { HomeBase } from './HomeBase';
 import { SystemDesignScreen, ProjectDesignScreen } from './DesignExperience';
@@ -30,9 +36,19 @@ import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
 import { operationsBeforeLoad } from './operationsGuard';
 import { validateLensSearch } from '../components/construction/lens/useLensSelection';
-import { fetchCapabilities } from '../hooks/useCapabilities';
+import type { Capabilities } from '../utilities/capabilities';
 
-const rootRoute = createRootRoute({ component: Outlet });
+/**
+ * What the shell that builds the router hands every route. The operations guard
+ * runs in `beforeLoad`, outside React, so it cannot reach the OpsClient context;
+ * the shell passes the capabilities read bound to ITS transport instead (main.tsx
+ * the REST client, previewShell the fixture client).
+ */
+export interface AppRouterContext {
+  readonly fetchCapabilities: () => Promise<Capabilities>;
+}
+
+const rootRoute = createRootRouteWithContext<AppRouterContext>()({ component: Outlet });
 
 const landingRoute = createRoute({
   getParentRoute: () => rootRoute,
@@ -103,7 +119,7 @@ const operationsRoute = createRoute({
   // OperationsConsoleScreen an explicit error state via context instead, so a
   // cloud operator mid-incident sees why, not a silent bounce to the catalog.
   // See operationsGuard.ts.
-  beforeLoad: () => operationsBeforeLoad(fetchCapabilities),
+  beforeLoad: ({ context }) => operationsBeforeLoad(context.fetchCapabilities),
 });
 
 const changeRequestsRoute = createRoute({
@@ -143,10 +159,24 @@ const routeTree = rootRoute.addChildren([
   teamRoute,
 ]);
 
-export const router = createRouter({ routeTree });
+/**
+ * The router FACTORY (design-renderer-data.md §2′.5 item 2). It used to be a
+ * module singleton on browser history. main.tsx now passes createBrowserHistory(),
+ * which is exactly what createRouter defaulted to, so the browser SPA is
+ * unchanged; the preview shell passes a memory history seeded at the fixture's
+ * route, so a preview never reads or writes the page URL.
+ */
+/** The router createRouter builds over this route tree (its defaults, any history). */
+export type AppRouter = ReturnType<
+  typeof createRouter<typeof routeTree, 'never', false, RouterHistory>
+>;
+
+export function createAppRouter(history: RouterHistory, context: AppRouterContext): AppRouter {
+  return createRouter({ routeTree, history, context });
+}
 
 declare module '@tanstack/react-router' {
   interface Register {
-    router: typeof router;
+    router: AppRouter;
   }
 }

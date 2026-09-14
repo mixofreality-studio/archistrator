@@ -17,9 +17,18 @@
  * The read is pure — the same project always answers the same id, and the answer does
  * not depend on anything being deployed yet — so it is cached for the session like
  * useCapabilities, not polled.
+ *
+ * The route is a composition-root route, bound in OP_BINDINGS as
+ * `compositionGetOperatedAppId` (scripts/composition-routes.mjs), so it rides the
+ * OpsClient and a preview's fixture transport can answer it.
  */
 import { useQuery } from '@tanstack/react-query';
-import { fetchOperatedAppId } from '../api/client.ts';
+import { useOpsClient } from '../api/opsContext';
+
+/** The wire shape GET /api/v1/projects/{projectId}/operated-app-id answers. */
+export interface OperatedAppIdResponse {
+  readonly operatedAppId: string;
+}
 
 export function operatedAppIdKey(projectId: string): readonly unknown[] {
   return ['operatedAppId', projectId];
@@ -32,9 +41,13 @@ export function operatedAppIdKey(projectId: string): readonly unknown[] {
  *   — the same "dormant" input every consumer already treats as nothing to query.
  */
 export function useOperatedAppId(projectId: string): string | undefined {
+  const { ops } = useOpsClient();
   const { data } = useQuery({
     queryKey: operatedAppIdKey(projectId),
-    queryFn: () => fetchOperatedAppId(projectId),
+    queryFn: () =>
+      ops.call<OperatedAppIdResponse>('compositionGetOperatedAppId', {
+        path: { projectID: projectId },
+      }),
     enabled: projectId !== '',
     staleTime: Number.POSITIVE_INFINITY,
   });
