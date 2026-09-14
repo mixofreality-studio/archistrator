@@ -88,8 +88,14 @@ test('Detailed Design shows the full contract on Code, and the evidence line and
   await expect(body.getByTestId(TESTID.constructionArtifactSource)).toHaveText(
     'serviceContracts.constructionManager · current · no revision history recorded'
   );
-  // A reconstructed attempt gets the one sentence, and no authorship is claimed.
-  await expect(body.getByTestId(TESTID.constructionArtifactReconstructedNote)).toHaveText(
+  // A reconstructed attempt gets the one sentence — in the provenance note, after
+  // the basis (S3: above the frame it pushed the first op under the action bar) —
+  // and no authorship is claimed.
+  await expect(
+    body
+      .getByTestId(TESTID.constructionDetailProvenanceNote)
+      .getByTestId(TESTID.constructionArtifactReconstructedNote)
+  ).toHaveText(
     'The contract below is the one committed today. Nothing recorded links it to this attempt — the attempt was reconstructed, and the contract has no revision history.'
   );
   await expect(body).not.toContainText('written by attempt');
@@ -212,6 +218,9 @@ test('Code Review on a RECONSTRUCTED attempt: one line, no CODE frame; the contr
   expect(await roles(review)).toEqual(['REFERENCE']);
   await expect(review).not.toContainText('COMMITTED NOW');
   await expect(review.getByTestId(TESTID.constructionDetailVerdict)).toBeVisible();
+  // "The contract below is the one committed today" would name a contract this
+  // body does not show, so the note carries no such sentence here.
+  await expect(page.getByTestId(TESTID.constructionArtifactReconstructedNote)).toHaveCount(0);
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -408,7 +417,7 @@ test('an owed gate over a RECONSTRUCTED attempt never reads UNDER REVIEW', async
 // The Component tab: the architecture's own relationships
 // ---------------------------------------------------------------------------
 
-test('the Component tab draws the architecture’s neighbours, and a neighbour click moves the selection', async ({
+test('S3: the pane’s Component tab lists callers and callees as text rows; a row moves the selection and Back returns', async ({
   page,
   dispatchGuard,
 }) => {
@@ -416,14 +425,25 @@ test('the Component tab draws the architecture’s neighbours, and a neighbour c
   const body = pane(page);
   await body.getByTestId(TESTID.serviceContractTabComponent).click();
   await expect(page).toHaveURL(/[?&]av=component/);
-  const flow = body.getByTestId(TESTID.serviceContractComponentFlow);
-  await expect(flow).toBeVisible();
-  expect(Number(await flow.getAttribute('data-edge-count'))).toBeGreaterThan(1);
-  await expect(flow.getByTestId(TESTID.archC4Node('construction-manager'))).toBeVisible();
-  const neighbour = flow.getByTestId(TESTID.archC4Node('review-engine'));
-  await expect(neighbour).toBeVisible();
+  const view = body.getByTestId(TESTID.serviceContractComponentFlow);
+  await expect(view).toHaveAttribute('data-mode', 'list');
+  expect(Number(await view.getAttribute('data-edge-count'))).toBeGreaterThan(1);
+  // Text, not a canvas: the diagram fit to 0.31 in the pane.
+  await expect(view.getByTestId(TESTID.archC4Node('review-engine'))).toHaveCount(0);
+  // eslint-disable-next-line no-restricted-syntax -- a structural assertion: no xyflow canvas exists in the pane at all
+  await expect(body.locator('.react-flow')).toHaveCount(0);
+  await expect(view).toContainText('CALLED BY');
+  await expect(view).toContainText('CALLS');
+  const row = view.getByTestId(TESTID.serviceContractNeighbourRow('review-engine'));
+  await expect(row).toContainText('ReviewEngine');
+  // Where it goes, said at its end.
+  await expect(row).toContainText(`→ ${ENGINE}`);
+  const px = await row.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+  expect(px, 'a neighbour row reads at pane size').toBeGreaterThanOrEqual(11);
+  // "Open diagram in focus view" stays.
+  await expect(view.getByTestId(TESTID.serviceContractOpenFocus)).toBeVisible();
 
-  await neighbour.click();
+  await row.click();
   await expect(page).toHaveURL(new RegExp(`[?&]a=${ENGINE}(&|$)`));
   await expect(page).toHaveURL(/[?&]k=detailedDesign/);
   await expect(page).toHaveURL(/[?&]av=component/);
@@ -431,26 +451,71 @@ test('the Component tab draws the architecture’s neighbours, and a neighbour c
     'data-component-id',
     'review-engine'
   );
+  // A jump to another activity PUSHES a history entry: Back returns to where we were.
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`[?&]a=${MANAGER}(&|$)`));
+  await expect(pane(page).getByTestId(TESTID.serviceContractComponentFlow)).toHaveAttribute(
+    'data-component-id',
+    'construction-manager'
+  );
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('S3: the focus view draws the Component diagram; a neighbour click hops, no toolbar survives, and Back returns', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component&focus=1`, 1600);
+  const focus = page.getByTestId(TESTID.constructionFocusView);
+  const flow = focus.getByTestId(TESTID.serviceContractComponentFlow);
+  await expect(flow).toHaveAttribute('data-mode', 'canvas');
+  await expect(flow.getByTestId(TESTID.archC4Node('construction-manager'))).toBeVisible();
+  const neighbour = flow.getByTestId(TESTID.archC4Node('review-engine'));
+  await expect(neighbour).toBeVisible();
+
+  await neighbour.click();
+  await expect(page).toHaveURL(new RegExp(`[?&]a=${ENGINE}(&|$)`));
+  await expect(page).toHaveURL(/[?&]focus=1/);
+  await expect(focus.getByTestId(TESTID.serviceContractComponentFlow)).toHaveAttribute(
+    'data-component-id',
+    'review-engine'
+  );
   // Polish 9: the clicked node's Comment toolbar does not survive the hop.
   await page.waitForTimeout(600);
   // eslint-disable-next-line no-restricted-syntax -- xyflow's NodeToolbar portal carries no testid; counting its generated class is the only structural check
   expect(await page.locator('.react-flow__node-toolbar').count()).toBe(0);
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`[?&]a=${MANAGER}(&|$)`));
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('the Component view draws no utility: they are one muted line instead', async ({
+test('the Component view shows no utility: they are one muted line, "Utilities it uses"', async ({
   page,
   dispatchGuard,
 }) => {
+  const utilities = ['logging', 'diagnostics', 'message-bus', 'security'];
   await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component`);
-  const flow = pane(page).getByTestId(TESTID.serviceContractComponentFlow);
+  const view = pane(page).getByTestId(TESTID.serviceContractComponentFlow);
+  await expect(view.getByTestId(TESTID.serviceContractNeighbourRow('review-engine'))).toBeVisible();
+  for (const utility of utilities) {
+    await expect(view.getByTestId(TESTID.serviceContractNeighbourRow(utility))).toHaveCount(0);
+  }
+  const line = view.getByTestId(TESTID.serviceContractUtilitiesLine);
+  await expect(line).toHaveText(/^Utilities it uses: /);
+  await expect(line).toContainText('Logging');
+
+  // …and the focus view's diagram draws none either.
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component&focus=1`, 1600);
+  const flow = page
+    .getByTestId(TESTID.constructionFocusView)
+    .getByTestId(TESTID.serviceContractComponentFlow);
   await expect(flow.getByTestId(TESTID.archC4Node('review-engine'))).toBeVisible();
-  for (const utility of ['logging', 'diagnostics', 'message-bus', 'security']) {
+  for (const utility of utilities) {
     await expect(flow.getByTestId(TESTID.archC4Node(utility))).toHaveCount(0);
   }
-  const line = flow.getByTestId(TESTID.serviceContractUtilitiesLine);
-  await expect(line).toHaveText(/^Utilities any component may use: /);
-  await expect(line).toContainText('Logging');
+  await expect(flow.getByTestId(TESTID.serviceContractUtilitiesLine)).toHaveText(
+    /^Utilities it uses: /
+  );
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -569,6 +634,13 @@ test('an engine’s Test Plan: reached through its manager, never "untested", an
     .getByTestId(TESTID.constructionScenarioPicker);
   await expect(picker).toContainText('STP-UC3');
   await expect(picker).not.toContainText('STP-UC1');
+  // A jump to another activity PUSHES a history entry: Back returns to this Test Plan.
+  await page.goBack();
+  await expect(page).toHaveURL(new RegExp(`[?&]a=${ENGINE}(&|$)`));
+  await expect(page).toHaveURL(/[?&]k=stp(&|$)/);
+  await expect(
+    pane(page).getByTestId(TESTID.constructionCoverageReachedRow('STP-UC3'))
+  ).toBeVisible();
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -759,24 +831,37 @@ test('B1: the pane lists the Code tab as HTML signatures — ≥ 11px at every w
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('B1: at 1280×800 the first op is above the fold, under a condensed provenance note', async ({
+test('B1/S3: at 1280×800 and 1366×768 the first op is above the action bar; the "committed today" sentence is in the note’s disclosure', async ({
   page,
   dispatchGuard,
 }) => {
-  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280, 800);
-  const body = pane(page);
-  // The note is condensed in the pane — still there, basis one click away.
-  await expect(body.getByTestId(TESTID.constructionDetailProvenanceNote)).toHaveAttribute(
-    'data-condensed',
-    'true'
-  );
-  const first = await body.getByTestId(TESTID.serviceContractOpSignature).first().boundingBox();
-  const bar = await page.getByTestId(TESTID.constructionDetailActionBar).first().boundingBox();
-  expect(first).not.toBeNull();
-  expect(bar).not.toBeNull();
-  if (first === null || bar === null) return;
-  expect(first.y + first.height, 'the first op ends above the action bar').toBeLessThanOrEqual(bar.y);
-  expect(first.y + first.height).toBeLessThanOrEqual(800);
+  for (const [width, height] of [
+    [1280, 800],
+    [1366, 768],
+  ] as const) {
+    await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, width, height);
+    const body = pane(page);
+    // The note is condensed in the pane — still there, basis one click away.
+    const note = body.getByTestId(TESTID.constructionDetailProvenanceNote);
+    await expect(note).toHaveAttribute('data-condensed', 'true');
+    // The sentence rides the basis, folded, not above the frame.
+    const sentence = note.getByTestId(TESTID.constructionArtifactReconstructedNote);
+    await expect(sentence).toHaveCount(1);
+    await expect(sentence).toBeHidden();
+    const first = await body.getByTestId(TESTID.serviceContractOpSignature).first().boundingBox();
+    const bar = await page.getByTestId(TESTID.constructionDetailActionBar).first().boundingBox();
+    expect(first).not.toBeNull();
+    expect(bar).not.toBeNull();
+    if (first === null || bar === null) return;
+    expect(
+      first.y + first.height,
+      `the first op ends above the action bar at ${String(width)}×${String(height)}`
+    ).toBeLessThanOrEqual(bar.y);
+    expect(first.y + first.height).toBeLessThanOrEqual(height);
+    // One click away.
+    await note.getByTestId(TESTID.constructionDetailProvenanceDisclosure).click();
+    await expect(sentence).toBeVisible();
+  }
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -798,22 +883,87 @@ test('B1: an op row expands inline into its request, response and error tables',
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('B1: "Open diagram in focus view" draws the canvas there, and expanding an op never fits below 0.9', async ({
+/** The share of each expanded struct card that lands on the code canvas's frame. */
+async function cardsOnCanvas(canvas: Locator): Promise<number[]> {
+  return canvas
+    .getByTestId(TESTID.serviceContractCodeCanvasFrame)
+    .evaluate((frame, cardId) => {
+      const f = frame.getBoundingClientRect();
+      return Array.from(frame.querySelectorAll(`[data-testid="${cardId}"]`)).map((card) => {
+        const b = card.getBoundingClientRect();
+        const w = Math.max(0, Math.min(b.right, f.right) - Math.max(b.left, f.left));
+        const h = Math.max(0, Math.min(b.bottom, f.bottom) - Math.max(b.top, f.top));
+        return (w * h) / (b.width * b.height);
+      });
+    }, TESTID.serviceContractStructCard);
+}
+
+/** The code canvas's zoom, off xyflow's viewport transform. */
+async function canvasScale(canvas: Locator): Promise<number> {
+  // eslint-disable-next-line no-restricted-syntax -- the zoom lives on xyflow's generated viewport transform
+  const transform = await canvas.locator('.react-flow__viewport').getAttribute('style');
+  return Number(/scale\(([0-9.]+)\)/.exec(transform ?? '')?.[1] ?? '0');
+}
+
+test('N1: at 1280 and 1366 the focus view lists — the widest expansion does not fit — and the list expands inline', async ({
   page,
   dispatchGuard,
 }) => {
-  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280);
+  for (const width of [1280, 1366]) {
+    await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&focus=1`, width);
+    const focus = page.getByTestId(TESTID.constructionFocusView);
+    await expect(focus.getByTestId(TESTID.serviceContractSignatureList)).toBeVisible();
+    await expect(focus.getByTestId(TESTID.serviceContractCodeCanvas)).toHaveCount(0);
+    await expect(focus.getByTestId(TESTID.serviceContractCanvasNeedsRoom)).toContainText(
+      'The code diagram needs 1344px of width'
+    );
+    // S2 drew the canvas here and the expanded structs landed 0% / 22% on it.
+    // The list shows the same structs, inline, all of them.
+    await focus.getByTestId(TESTID.serviceContractOpRow(0)).click();
+    const structs = focus.getByTestId(TESTID.serviceContractOpStructs);
+    await expect(structs).toContainText('PumpResult');
+    await expect(structs).toBeInViewport();
+  }
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('N1: with room for the canvas, "Open diagram in focus view" draws it, and an expanded op’s struct cards land ≥ 90% on it at ≥ 0.9', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1760);
   await pane(page).getByTestId(TESTID.serviceContractOpenFocus).click();
   const focus = page.getByTestId(TESTID.constructionFocusView);
-  const canvas = focus.getByTestId(TESTID.serviceContractCodeCanvas);
+  let canvas = focus.getByTestId(TESTID.serviceContractCodeCanvas);
   await expect(canvas).toBeVisible();
   // eslint-disable-next-line no-restricted-syntax -- the op rows live inside xyflow's node; data-op is their only handle
   await canvas.locator('[data-op]').first().click();
-  await page.waitForTimeout(900);
-  // eslint-disable-next-line no-restricted-syntax -- the zoom lives on xyflow's generated viewport transform
-  const transform = await canvas.locator('.react-flow__viewport').getAttribute('style');
-  const scale = Number(/scale\(([0-9.]+)\)/.exec(transform ?? '')?.[1] ?? '0');
-  expect(scale, `the expanded fit's zoom (${transform ?? ''})`).toBeGreaterThanOrEqual(0.899);
+  // ExecuteNextActivity: ProjectID, string → PumpResult, fwm.Error.
+  await expect(canvas.getByTestId(TESTID.serviceContractStructCard)).toHaveCount(4);
+  await expect.poll(() => canvasScale(canvas), { message: 'the fit settles at 0.9' }).toBeCloseTo(0.9, 2);
+  await expect
+    .poll(async () => Math.min(...(await cardsOnCanvas(canvas))), {
+      message: 'every struct card lands ≥ 90% on the canvas',
+    })
+    .toBeGreaterThanOrEqual(0.9);
+  // S3: the primitive and alias params are one row each; only PumpResult is a struct.
+  await expect(canvas.getByTestId(TESTID.serviceContractParamRow)).toHaveCount(3);
+  expect(await canvas.getByTestId(TESTID.serviceContractStructName).allInnerTexts()).toEqual([
+    'PumpResult',
+  ]);
+
+  // A tall expansion (6 cards): the canvas grows to hold it rather than clip it.
+  await open(page, 'a=C-autoscaler-engine&p=detailed_design&k=detailedDesign&focus=1', 1760);
+  canvas = page.getByTestId(TESTID.constructionFocusView).getByTestId(TESTID.serviceContractCodeCanvas);
+  // eslint-disable-next-line no-restricted-syntax -- the op rows live inside xyflow's node; data-op is their only handle
+  await canvas.locator('[data-op]').first().click();
+  await expect(canvas.getByTestId(TESTID.serviceContractStructCard)).toHaveCount(6);
+  await expect
+    .poll(async () => Math.min(...(await cardsOnCanvas(canvas))), {
+      message: 'every card of the tall expansion lands ≥ 90% on the canvas',
+    })
+    .toBeGreaterThanOrEqual(0.9);
+  expect(await canvasScale(canvas)).toBeGreaterThanOrEqual(0.899);
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -826,9 +976,48 @@ test('B1: a focus view too narrow for the canvas lists the signatures and says w
     const focus = page.getByTestId(TESTID.constructionFocusView);
     await expect(focus.getByTestId(TESTID.serviceContractSignatureList)).toBeVisible();
     await expect(focus.getByTestId(TESTID.serviceContractCodeCanvas)).toHaveCount(0);
-    await expect(focus).toContainText('The code diagram needs 900px of width');
+    await expect(focus).toContainText('The code diagram needs 1344px of width');
     await expect(focus.getByTestId(TESTID.serviceContractOpenFocus)).toHaveCount(0);
   }
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('S3: a primitive or alias param is one row in the list, never a struct with its type as a header', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280);
+  const body = pane(page);
+  await body.getByTestId(TESTID.serviceContractOpRow(0)).click();
+  const structs = body.getByTestId(TESTID.serviceContractOpStructs);
+  // ExecuteNextActivity(projectID: ProjectID, tickID: string) → (PumpResult, fwm.Error)
+  const params = structs.getByTestId(TESTID.serviceContractParamRow);
+  await expect(params).toHaveCount(3);
+  await expect(params.nth(0)).toContainText('projectID');
+  await expect(params.nth(1)).toContainText('tickID');
+  await expect(params.nth(1)).toContainText('string');
+  await expect(params.nth(2)).toContainText('fault');
+  // The only header is the one real struct's.
+  expect(await structs.getByTestId(TESTID.serviceContractStructName).allInnerTexts()).toEqual([
+    'PumpResult',
+  ]);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('S3: below 600px the focus rail condenses its note, the "committed today" sentence inside the disclosure', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=designReview&focus=1`, 500);
+  const rail = page.getByTestId(TESTID.constructionFocusView).getByTestId(TESTID.constructionFocusRail);
+  const note = rail.getByTestId(TESTID.constructionDetailProvenanceNote);
+  await expect(note).toHaveAttribute('data-condensed', 'true');
+  const sentence = note.getByTestId(TESTID.constructionArtifactReconstructedNote);
+  await expect(sentence).toBeHidden();
+  await note.getByTestId(TESTID.constructionDetailProvenanceDisclosure).click();
+  await expect(sentence).toBeVisible();
+  // The verdict still judges the artifact from the rail.
+  await expect(rail.getByTestId(TESTID.constructionDetailVerdict)).toHaveCount(1);
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -883,20 +1072,23 @@ test('polish 3: with the focus view open the pane body is unmounted and no DOM i
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('polish 3: two canvases on one page — the graph lens and the pane — share no DOM id', async ({
+test('polish 3: two canvases on one page — the graph lens and the focus view — share no DOM id', async ({
   page,
   dispatchGuard,
 }) => {
-  // The graph lens is a React Flow canvas; the pane's Component tab is another.
-  // With xyflow's default instance id both minted `pattern-1`, `react-flow__node-desc-1`, ….
+  // The graph lens is a React Flow canvas; the focus view's Component tab is
+  // another (S3: the pane lists, so the focus view is where it draws). With
+  // xyflow's default instance id both minted `pattern-1`, `react-flow__node-desc-1`, ….
   await page.setViewportSize({ width: 1600, height: 950 });
   await gotoApp(
     page,
-    `/project/archistrator/construction?lens=graph&a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component`
+    `/project/archistrator/construction?lens=graph&a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component&focus=1`
   );
-  await expect(pane(page).getByTestId(TESTID.serviceContractComponentFlow)).toBeVisible({
-    timeout: 15_000,
-  });
+  await expect(
+    page
+      .getByTestId(TESTID.constructionFocusView)
+      .getByTestId(TESTID.serviceContractComponentFlow)
+  ).toHaveAttribute('data-mode', 'canvas', { timeout: 15_000 });
   // eslint-disable-next-line no-restricted-syntax -- counting xyflow's own root class: the assertion is that two canvases exist
   await expect.poll(() => page.locator('.react-flow').count()).toBeGreaterThanOrEqual(2);
   const dupes = await page.evaluate(() => {
