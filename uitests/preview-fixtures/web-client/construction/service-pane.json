@@ -16132,7 +16132,12 @@
        "mayAmend": false
       }
      ]
-    }
+    },
+    "awaitingGate": "detailed_design",
+    "awaitingSince": "2026-09-13T12:00:00Z",
+    "redraftExhausted": false,
+    "attempt": 1,
+    "attemptBudget": 10
    }
   },
   "constructionSubmitPhaseDecision": {
