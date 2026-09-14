@@ -1395,6 +1395,23 @@ test('S4: the autoscaler’s "returns" labels sit clear of the interface node', 
   await expect.poll(() => overlap(labels.nth(0), iface), { message: '"returns" clear of the interface' }).toBe(0);
   expect(await overlap(labels.nth(1), iface), '"returns error" clear of the interface').toBe(0);
   expect(await overlap(labels.nth(0), labels.nth(1)), 'the two labels apart').toBe(0);
+  // Each label rides its OWN edge, at its own card's height — S3's sat at the
+  // path's middle, on the shared turn, where the other edge crossed it.
+  const rides = await canvas.evaluate((el, cardId) => {
+    const labelsIn = Array.from(el.querySelectorAll('.react-flow__edge-text'));
+    return Array.from(el.querySelectorAll(`[data-testid="${cardId}"][data-role="output"]`)).map((card) => {
+      const c = card.getBoundingClientRect();
+      const isErr = card.getAttribute('data-struct')?.endsWith('Error') === true;
+      const label = labelsIn.find((l) => l.textContent === (isErr ? 'returns error' : 'returns'));
+      const r = label?.getBoundingClientRect();
+      const mid = r === undefined ? -1 : (r.top + r.bottom) / 2;
+      return { card: card.getAttribute('data-struct'), atItsCard: mid >= c.top && mid <= c.bottom };
+    });
+  }, TESTID.serviceContractStructCard);
+  expect(rides).toEqual([
+    { card: 'Decision', atItsCard: true },
+    { card: 'fweng.Error', atItsCard: true },
+  ]);
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
