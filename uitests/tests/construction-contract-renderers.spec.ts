@@ -50,8 +50,8 @@ test.beforeEach(async ({ request }) => {
   await skipUnlessConstructionArtifacts(request, BASE);
 });
 
-async function open(page: Page, query: string, width = 1600): Promise<void> {
-  await page.setViewportSize({ width, height: 950 });
+async function open(page: Page, query: string, width = 1600, height = 950): Promise<void> {
+  await page.setViewportSize({ width, height });
   await gotoApp(page, `/project/archistrator/construction?lens=list&${query}`);
   // Below 600px the modal drawer covers the whole list; wait for the pane instead.
   await expect(
@@ -197,20 +197,95 @@ test('a construction task carries the contract as a one-line REFERENCE, never as
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
-test('Code Review shows the commit under review; the contract is only its REFERENCE', async ({
+test('Code Review on a RECONSTRUCTED attempt: one line, no CODE frame; the contract only as REFERENCE', async ({
   page,
   dispatchGuard,
 }) => {
   await open(page, `a=${MANAGER}&p=construction&k=codeReview`);
   const review = page.getByTestId(TESTID.constructionDetailBodyReview);
   await expect(review).toBeVisible();
-  const commit = review.getByTestId(TESTID.constructionCodeReviewCommit);
-  await expect(commit).toContainText(/[0-9a-f]{40}/);
-  await expect(commit).toContainText('No code view in this stage.');
-  // The backfilled review is not owed, so nothing reads UNDER REVIEW — and the
-  // contract is REFERENCE, never the thing under code review.
-  expect(await roles(review)).toEqual(['COMMITTED NOW', 'REFERENCE']);
+  // B3: a reconstructed attempt reviewed nothing anyone watched. No frame claims it did.
+  await expect(review.getByTestId(TESTID.constructionCodeReviewNoView)).toHaveText(
+    'No code view in this stage.'
+  );
+  await expect(review.getByTestId(TESTID.constructionCodeReviewCommit)).toHaveCount(0);
+  expect(await roles(review)).toEqual(['REFERENCE']);
+  await expect(review).not.toContainText('COMMITTED NOW');
   await expect(review.getByTestId(TESTID.constructionDetailVerdict)).toBeVisible();
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+/**
+ * Rewrite the project READ (GET responses only): each mutator edits the wire's
+ * activity rows before the SPA sees them. One handler, so several edits compose.
+ */
+async function serveRead(
+  page: Page,
+  mutate: (rows: Record<string, Record<string, unknown>>) => void
+): Promise<void> {
+  await page.route('**/system-design/get-project/archistrator**', async (route) => {
+    const response = await route.fetch();
+    const wire = (await response.json()) as {
+      ActivityConstruction?: Record<string, Record<string, unknown>>;
+    };
+    mutate(wire.ActivityConstruction ?? {});
+    await route.fulfill({ response, json: wire });
+  });
+}
+
+const SHA = '98eeae5806ed1ad2631accdb82cc9bfe73545882';
+
+/** An OBSERVED Code Review attempt on `row`, pointing at SHA. */
+function observedCodeReview(row: Record<string, unknown>, id: string): void {
+  const attempts = (row['attempts'] as Record<string, unknown>[] | undefined) ?? [];
+  row['attempts'] = [
+    ...attempts.filter((a) => a['task'] !== 'codeReview'),
+    {
+      attemptId: `${id}:codeReview:1`,
+      task: 'codeReview',
+      phase: 'construction',
+      attempt: 1,
+      actor: 'human',
+      outcome: 'passed',
+      evidence: { kind: 'git', ref: SHA },
+      provenance: { origin: 'observed' },
+    },
+  ];
+}
+
+test('Code Review on an OBSERVED attempt not owed reads REVIEWED, sourced to its commit and attempt', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await serveRead(page, (rows) => {
+    const row = rows[MANAGER];
+    if (row === undefined) throw new Error(`no row ${MANAGER} in the read`);
+    observedCodeReview(row, MANAGER);
+  });
+  await open(page, `a=${MANAGER}&p=construction&k=codeReview`);
+  const review = page.getByTestId(TESTID.constructionDetailBodyReview);
+  await expect(review.getByTestId(TESTID.constructionCodeReviewCommit)).toContainText(SHA);
+  await expect.poll(() => roles(review)).toEqual(['REVIEWED', 'REFERENCE']);
+  await expect(review.getByTestId(TESTID.constructionArtifactSource).first()).toHaveText(
+    `evidence · git ${SHA} · attempt 1`
+  );
+  await expect(review.getByTestId(TESTID.constructionCodeReviewNoView)).toHaveCount(0);
+  await expect(review).not.toContainText('COMMITTED NOW');
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('Code Review owed now on an observed attempt reads UNDER REVIEW — never COMMITTED NOW', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await serveOwedGate(page, NOT_STARTED, 'construction', (row) => {
+    observedCodeReview(row, NOT_STARTED);
+  });
+  await open(page, `a=${NOT_STARTED}&p=construction&k=codeReview`);
+  const review = page.getByTestId(TESTID.constructionDetailBodyReview);
+  await expect.poll(() => roles(review)).toEqual(['UNDER REVIEW', 'REFERENCE']);
+  await expect(review.getByTestId(TESTID.constructionCodeReviewCommit)).toContainText(SHA);
+  await expect(review).not.toContainText('COMMITTED NOW');
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -220,6 +295,16 @@ test('Code Review shows the commit under review; the contract is only its REFERE
 
 /** Fake a live gate on `activityId`'s Detailed Design — GET responses only. */
 async function serveOwedDesignGate(page: Page, activityId: string): Promise<void> {
+  await serveOwedGate(page, activityId, 'detailed_design');
+}
+
+/** Fake a live gate on `activityId` at `phase`, plus an optional row edit — GET only. */
+async function serveOwedGate(
+  page: Page,
+  activityId: string,
+  phase: string,
+  edit?: (row: Record<string, unknown>) => void
+): Promise<void> {
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as {
@@ -235,8 +320,9 @@ async function serveOwedDesignGate(page: Page, activityId: string): Promise<void
       hasBuildEvidence: true,
       startedAt: '2026-09-12T20:00:00Z',
       BuildStatus: BUILD_IN_REVIEW,
-      CurrentPhase: 'detailed_design',
+      CurrentPhase: phase,
     });
+    edit?.(row);
     await route.fulfill({ response, json: wire });
   });
   await page.route('**/get-session-state/archistrator/**', async (route: Route) => {
@@ -326,6 +412,26 @@ test('the Component tab draws the architecture’s neighbours, and a neighbour c
     'data-component-id',
     'review-engine'
   );
+  // Polish 9: the clicked node's Comment toolbar does not survive the hop.
+  await page.waitForTimeout(600);
+  // eslint-disable-next-line no-restricted-syntax -- xyflow's NodeToolbar portal carries no testid; counting its generated class is the only structural check
+  expect(await page.locator('.react-flow__node-toolbar').count()).toBe(0);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('the Component view draws no utility: they are one muted line instead', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component`);
+  const flow = pane(page).getByTestId(TESTID.serviceContractComponentFlow);
+  await expect(flow.getByTestId(TESTID.archC4Node('review-engine'))).toBeVisible();
+  for (const utility of ['logging', 'diagnostics', 'message-bus', 'security']) {
+    await expect(flow.getByTestId(TESTID.archC4Node(utility))).toHaveCount(0);
+  }
+  const line = flow.getByTestId(TESTID.serviceContractUtilitiesLine);
+  await expect(line).toHaveText(/^Utilities any component may use: /);
+  await expect(line).toContainText('Logging');
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -409,6 +515,9 @@ test('a manager’s Test Plan: no component plan recorded, direct system coverag
   await expect(empty).toContainText('NO COMPONENT TEST PLAN RECORDED');
   // The stp attempt was reconstructed, so the backfill clause is there.
   await expect(empty).toContainText('backfilled with no plan behind them');
+  // "is not recorded" — the console reads project state, not what anyone wrote (polish 7).
+  await expect(empty).toContainText('is not recorded.');
+  await expect(empty).not.toContainText('has not been written');
   const direct = body.getByTestId(TESTID.constructionTestCoverageDirect);
   await expect(direct).toContainText('These are not this component’s own tests.');
   await expect(direct.getByTestId(TESTID.constructionScenarioPicker)).toBeVisible();
@@ -430,8 +539,36 @@ test('an engine’s Test Plan: reached through its manager, never "untested", an
     'These are designed call chains, not tests.'
   );
   await expect(body).not.toContainText(/untested/i);
+  // Where it goes, said at its end (polish 6).
+  await expect(row).toContainText('→ N-STP');
   await row.click();
   await expect(page).toHaveURL(/[?&]a=N-STP(&|$)/);
+  // B2: at THIS row's scenario, not the plan's first (STP-UC1).
+  await expect(page).toHaveURL(/[?&]sc=STP-UC3(&|$)/);
+  const picker = page
+    .getByTestId(TESTID.constructionTestPlanView)
+    .getByTestId(TESTID.constructionScenarioPicker);
+  await expect(picker).toContainText('STP-UC3');
+  await expect(picker).not.toContainText('STP-UC1');
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('the scenario deep link opens N-STP at that scenario, and a pick writes it back', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, 'a=N-STP&sc=STP-UC4');
+  const plan = page.getByTestId(TESTID.constructionTestPlanView);
+  const picker = plan.getByTestId(TESTID.constructionScenarioPicker);
+  await expect(picker).toContainText('STP-UC4');
+  // A pick is written back to the link (a replace), so a poll or a reload keeps it.
+  await picker.click();
+  await page.getByRole('option', { name: /^STP-UC2 · / }).click();
+  await expect(page).toHaveURL(/[?&]sc=STP-UC2(&|$)/);
+  await expect(picker).toContainText('STP-UC2');
+  // A scenario the plan does not hold is ignored: the first one shows, never nothing.
+  await open(page, 'a=N-STP&sc=STP-UC9');
+  await expect(page.getByTestId(TESTID.constructionTestPlanView).getByTestId(TESTID.constructionScenarioPicker)).toContainText('STP-UC1');
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
@@ -577,6 +714,210 @@ test('with no surface recorded the frontend renderer says so, and frames nothing
   const empty = pane(page).getByTestId(TESTID.constructionFrontendNoSurfaces);
   await expect(empty).toContainText('NO SURFACES RECORDED');
   await expect(empty).toContainText('the console does not guess routes');
+  expect(await iframesIn(page.getByTestId(TESTID.constructionDetailBody))).toBe(0);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+// ---------------------------------------------------------------------------
+// Renderers S2 — the designer's check on S1 (B1–B3 and polish 1–9)
+// ---------------------------------------------------------------------------
+
+test('B1: the pane lists the Code tab as HTML signatures — ≥ 11px at every width, no canvas', async ({
+  page,
+  dispatchGuard,
+}) => {
+  for (const width of [1100, 1280, 1366, 1600]) {
+    await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, width);
+    const body = pane(page);
+    await expect(body.getByTestId(TESTID.serviceContractSignatureList)).toBeVisible();
+    await expect(body.getByTestId(TESTID.serviceContractCodeCanvas)).toHaveCount(0);
+    const first = body.getByTestId(TESTID.serviceContractOpSignature).first();
+    await expect(first).toContainText('ExecuteNextActivity(');
+    const px = await first.evaluate((el) => parseFloat(getComputedStyle(el).fontSize));
+    expect(px, `signature font at ${String(width)}`).toBeGreaterThanOrEqual(11);
+    await expect(body.getByTestId(TESTID.serviceContractOpenFocus)).toBeVisible();
+  }
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('B1: at 1280×800 the first op is above the fold, under a condensed provenance note', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280, 800);
+  const body = pane(page);
+  // The note is condensed in the pane — still there, basis one click away.
+  await expect(body.getByTestId(TESTID.constructionDetailProvenanceNote)).toHaveAttribute(
+    'data-condensed',
+    'true'
+  );
+  const first = await body.getByTestId(TESTID.serviceContractOpSignature).first().boundingBox();
+  const bar = await page.getByTestId(TESTID.constructionDetailActionBar).first().boundingBox();
+  expect(first).not.toBeNull();
+  expect(bar).not.toBeNull();
+  if (first === null || bar === null) return;
+  expect(first.y + first.height, 'the first op ends above the action bar').toBeLessThanOrEqual(bar.y);
+  expect(first.y + first.height).toBeLessThanOrEqual(800);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('B1: an op row expands inline into its request, response and error tables', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280);
+  const body = pane(page);
+  const row = body.getByTestId(TESTID.serviceContractOpRow(0));
+  await expect(row).toHaveAttribute('aria-expanded', 'false');
+  await row.click();
+  await expect(row).toHaveAttribute('aria-expanded', 'true');
+  const structs = body.getByTestId(TESTID.serviceContractOpStructs);
+  await expect(structs).toHaveCount(1);
+  for (const label of ['REQUEST', 'RESPONSE', 'ERROR']) await expect(structs).toContainText(label);
+  await expect(structs).toContainText('PumpResult');
+  await expect(structs).toContainText('fwm.Error');
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('B1: "Open diagram in focus view" draws the canvas there, and expanding an op never fits below 0.9', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280);
+  await pane(page).getByTestId(TESTID.serviceContractOpenFocus).click();
+  const focus = page.getByTestId(TESTID.constructionFocusView);
+  const canvas = focus.getByTestId(TESTID.serviceContractCodeCanvas);
+  await expect(canvas).toBeVisible();
+  // eslint-disable-next-line no-restricted-syntax -- the op rows live inside xyflow's node; data-op is their only handle
+  await canvas.locator('[data-op]').first().click();
+  await page.waitForTimeout(900);
+  // eslint-disable-next-line no-restricted-syntax -- the zoom lives on xyflow's generated viewport transform
+  const transform = await canvas.locator('.react-flow__viewport').getAttribute('style');
+  const scale = Number(/scale\(([0-9.]+)\)/.exec(transform ?? '')?.[1] ?? '0');
+  expect(scale, `the expanded fit's zoom (${transform ?? ''})`).toBeGreaterThanOrEqual(0.899);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('B1: a focus view too narrow for the canvas lists the signatures and says why', async ({
+  page,
+  dispatchGuard,
+}) => {
+  for (const width of [1100, 500]) {
+    await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign&focus=1`, width);
+    const focus = page.getByTestId(TESTID.constructionFocusView);
+    await expect(focus.getByTestId(TESTID.serviceContractSignatureList)).toBeVisible();
+    await expect(focus.getByTestId(TESTID.serviceContractCodeCanvas)).toHaveCount(0);
+    await expect(focus).toContainText('The code diagram needs 900px of width');
+    await expect(focus.getByTestId(TESTID.serviceContractOpenFocus)).toHaveCount(0);
+  }
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 1: the focus rail carries the provenance note, the "nothing links it" sentence and the verdict', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=designReview&focus=1`, 1280);
+  const focus = page.getByTestId(TESTID.constructionFocusView);
+  const rail = focus.getByTestId(TESTID.constructionFocusRail);
+  await expect(rail.getByTestId(TESTID.constructionDetailProvenanceNote)).toBeVisible();
+  await expect(rail.getByTestId(TESTID.constructionDetailProvenanceNote)).not.toHaveAttribute(
+    'data-condensed',
+    'true'
+  );
+  await expect(rail.getByTestId(TESTID.constructionArtifactReconstructedNote)).toBeVisible();
+  await expect(rail.getByTestId(TESTID.constructionDetailVerdict)).toBeVisible();
+  // The artifact column is the artifact alone.
+  const rootBox = await focus.getByTestId(TESTID.serviceContractRoot).boundingBox();
+  const railBox = await rail.boundingBox();
+  expect(rootBox !== null && railBox !== null && rootBox.x > railBox.x + railBox.width - 1).toBe(true);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 3: with the focus view open the pane body is unmounted and no DOM id repeats', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=designReview&av=component&focus=1`, 1600);
+  const focus = page.getByTestId(TESTID.constructionFocusView);
+  await expect(focus.getByTestId(TESTID.serviceContractComponentFlow)).toBeVisible();
+  await expect(page.getByTestId(TESTID.constructionFocusPlaceholder)).toHaveText(
+    'Showing in focus view.'
+  );
+  // One artifact, one note, one verdict on the page — not a second copy under the layer.
+  for (const id of [
+    TESTID.serviceContractRoot,
+    TESTID.constructionDetailProvenanceNote,
+    TESTID.constructionDetailVerdict,
+    TESTID.constructionArtifactFrame,
+  ]) {
+    await expect(page.getByTestId(id)).toHaveCount(1);
+  }
+  const dupes = await page.evaluate(() => {
+    const seen = new Map<string, number>();
+    for (const el of Array.from(document.querySelectorAll('[id]'))) {
+      seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id);
+  });
+  expect(dupes).toEqual([]);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 4: entering the focus view lands on its heading, and no tooltip shows', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${MANAGER}&p=detailed_design&k=detailedDesign`, 1280);
+  await pane(page).getByTestId(TESTID.constructionArtifactFocus).click();
+  const heading = page.getByTestId(TESTID.constructionFocusHeading);
+  await expect(heading).toBeVisible();
+  await expect
+    .poll(() => heading.evaluate((el) => document.activeElement === el))
+    .toBe(true);
+  await page.waitForTimeout(800);
+  await expect(page.getByRole('tooltip')).toHaveCount(0);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 5: in the narrow pane more than three cases are a dropdown', async ({
+  page,
+  dispatchGuard,
+}) => {
+  for (const width of [1100, 1600]) {
+    await open(page, 'a=N-STP&sc=STP-UC3', width);
+    const plan = page.getByTestId(TESTID.constructionTestPlanView);
+    // STP-UC3 carries 5 cases: no chips, one picker.
+    const picker = plan.getByTestId(TESTID.constructionCasePicker);
+    await expect(picker).toBeVisible();
+    // eslint-disable-next-line no-restricted-syntax -- a structural assertion: no case chip exists at all (the menu's items mount only when it opens)
+    await expect(plan.locator('[data-testid^="construction-case-chip-"]')).toHaveCount(0);
+    await expect(plan.getByTestId(TESTID.constructionActiveCase)).toBeVisible();
+  }
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 7: the SPA Flows task speaks of flows, not stubbed callees', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${SPA}&p=test_plan&k=stp`, 1280);
+  const empty = pane(page).getByTestId(TESTID.constructionComponentTestPlanEmpty);
+  await expect(empty).toContainText('flow plan');
+  await expect(empty).toContainText('is not recorded.');
+  await expect(empty).not.toContainText(/callees|stubbed|has not been written/);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
+test('polish 8: SPA Construction says NO SURFACES RECORDED, naming web-client, even Not started', async ({
+  page,
+  dispatchGuard,
+}) => {
+  await open(page, `a=${SPA}&p=construction&k=construction`, 1280);
+  await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText('NOT STARTED');
+  const empty = pane(page).getByTestId(TESTID.constructionFrontendNoSurfaces);
+  await expect(empty).toContainText('NO SURFACES RECORDED');
+  await expect(empty).toContainText("web-client's UI design records no surfaces");
   expect(await iframesIn(page.getByTestId(TESTID.constructionDetailBody))).toBe(0);
   expect(dispatchGuard.blocked).toEqual([]);
 });
