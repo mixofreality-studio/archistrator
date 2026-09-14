@@ -8576,6 +8576,28 @@ func TestRenderOperatorNotes_TheWithheldLineCountsAndFits(t *testing.T) {
 	}
 }
 
+// TestRenderOperatorNotes_TheWithheldLineCountsTowardTheCap: the two newest notes fill
+// the block to 10 bytes short of the cap, so they fit together only if the withheld
+// line is forgotten. It is counted: the newest note rides alone, both older notes are
+// withheld, and the block stays within the cap.
+func TestRenderOperatorNotes_TheWithheldLineCountsTowardTheCap(t *testing.T) {
+	head := len(renderNoteSection(projectstate.OperatorNote{NoteID: "n1", Kind: projectstate.NoteRetry}))
+	n2 := projectstate.OperatorNote{NoteID: "n2", Kind: projectstate.NoteRetry, Text: strings.Repeat("b", 8000-head)}
+	n1 := projectstate.OperatorNote{NoteID: "n1", Kind: projectstate.NoteRetry,
+		Text: strings.Repeat("a", maxRenderedOperatorNotesBytes-10-len(notesSeparator)-8000-head)}
+	n0 := projectstate.OperatorNote{NoteID: "n0", Kind: projectstate.NoteRetry, Text: "oldest"}
+	if got := len(renderNoteSection(n1)) + len(notesSeparator) + len(renderNoteSection(n2)); got != maxRenderedOperatorNotesBytes-10 {
+		t.Fatalf("fixture: the two newest notes take %d bytes, want the cap minus 10", got)
+	}
+	r := renderOperatorNotes([]projectstate.OperatorNote{n0, n1, n2})
+	if len(r.block) > maxRenderedOperatorNotesBytes {
+		t.Fatalf("the block is %d bytes, over the %d cap: the withheld line was not counted", len(r.block), maxRenderedOperatorNotesBytes)
+	}
+	if r.withheld != 2 || len(r.whole) != 1 || r.whole[0].NoteID != "n2" {
+		t.Fatalf("want n2 alone, n0 and n1 withheld; got whole=%v withheld=%d", noteIDs(r.whole), r.withheld)
+	}
+}
+
 // TestRenderOperatorNotes_AnOversizedNoteIsCutAndNeverWhole: a note the block cannot
 // hold whole (only a signal that bypassed the façade) rides cut and marked, and is not
 // among the whole notes, so it is never stamped delivered.
