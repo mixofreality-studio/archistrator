@@ -1043,6 +1043,7 @@ func (wf *workflows) runAttempt(
 		// FAILURE in head-state (so the activity is no longer stuck Running) before exit.
 		return attemptDone, wf.failVarianceExhausted(ctx, in, headVersion, state, startedCred)
 	}
+	state.attempt = attempt + 1
 
 	// --- Step 1: dispatch (the former per-activity worker-class cast is retired). The
 	// handOffEngine is gone: agent-class selection collapsed to the platform's single
@@ -1465,13 +1466,15 @@ func (wf *workflows) awaitPhaseDecision(
 ) (bool, error) {
 	ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
 	redraft := 0
+	activityType := in.Activity.activityTypeName()
+	state.enterPhaseGate(ctx, phase.String(), redraft)
 	for {
-		state.stage = StageAwaitingApproval
 		sig := receivePhaseDecision(ctx, ch, phase.String())
 		switch sig.Decision {
 		case PhaseDecisionUnknown:
 			// zero-value sentinel, not a real decision — ignore and keep awaiting, same as default.
 		case PhaseApprove:
+			state.leaveHumanStage(ctx, activityType, gateOutcomeApproved)
 			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 		case PhaseSendBack:
 			redraft++
@@ -1479,18 +1482,105 @@ func (wf *workflows) awaitPhaseDecision(
 				// Exhausted the human-paced redraft budget. Do NOT fail the activity and do
 				// NOT re-enter the variance loop — keep awaiting the human, surfacing that
 				// redrafting is spent (mirrors systemdesign's anti-wedge staging).
-				state.redraftExhausted = true
+				// DEFENSIVE since B1.3: SubmitPhaseDecision refuses a SendBack while
+				// redraftExhausted, so only a signal that bypassed the façade lands here.
 				workflow.GetLogger(ctx).Warn("phase redraft budget exhausted; keep awaiting human decision",
-					"activityId", in.ActivityID, "phase", phase.String(), "exhausted", state.redraftExhausted)
+					"activityId", in.ActivityID, "phase", phase.String())
+				state.leaveHumanStage(ctx, activityType, gateOutcomeSentBackExhausted)
+				state.enterPhaseGate(ctx, phase.String(), redraft)
 				continue
 			}
+			state.leaveHumanStage(ctx, activityType, gateOutcomeSentBack)
 			state.stage = StagePipelineRunning
 			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
 				return false, e
 			}
+			state.enterPhaseGate(ctx, phase.String(), redraft)
 		default:
 			// Unknown decision: ignore and keep awaiting the human.
 		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// The human stage (B1.2; ruled: workflow.Now, no GetVersion). Every place the workflow
+// waits for a person — a phase gate, the local merge hold, an escalation — enters and
+// leaves through ONE pair of helpers, so the session view, the construction_gate_wait
+// metric and the construction.gate.decided log line cannot disagree about which gate,
+// which occurrence, or how long it waited. Assignments, workflow.Now, the metrics handler
+// and the workflow logger emit NO commands, so this needs no version gate: every replay
+// fixture under testdata/replay/ replays unchanged, and a query served by replay
+// rebuilds the original awaitingSince.
+// ---------------------------------------------------------------------------
+
+// takeoverGateKey is the awaitingGate an escalation waits at (the operator steers with
+// OverrideActivity; no phase decision closes it).
+const takeoverGateKey = "takeover"
+
+// The closed outcome vocabulary a human stage ends in (the metric's outcome tag and the
+// log line's). An override adds its kind: "override:retry", "override:skip", ….
+const (
+	gateOutcomeApproved          = "approved"
+	gateOutcomeSentBack          = "sentBack"
+	gateOutcomeSentBackExhausted = "sentBackExhausted"
+	gateOutcomeTimedOut          = "timedOut"
+	gateOutcomeOverridePrefix    = "override:"
+)
+
+// gateMetrics is the handler the gate-wait timer records through: the workflow's own
+// metrics handler, which the SDK suppresses on replay (the OTel handler the composition
+// root wires). A package-level seam only so a test can capture what is recorded — SDK
+// v1.44's test environment exposes no metrics hook.
+var gateMetrics = workflow.GetMetricsHandler
+
+// enterPhaseGate enters a phase approval gate after redrafts SendBack redrafts: the gate
+// has no budget left once a further SendBack could not redraft it.
+func (s *constructState) enterPhaseGate(ctx workflow.Context, key string, redrafts int) {
+	s.redraftExhausted = redrafts+1 >= maxPhaseRedrafts
+	s.enterHumanStage(ctx, StageAwaitingApproval, key, 0)
+}
+
+// enterHumanStage starts one occurrence of a human stage: the stage, the gate it waits
+// at, the occurrence identity (workflow.Now), and — when wait > 0 — when it gives up.
+func (s *constructState) enterHumanStage(ctx workflow.Context, stage ConstructionStage, gate string, wait time.Duration) {
+	s.stage = stage
+	s.awaitingGate = gate
+	s.awaitingSince = workflow.Now(ctx)
+	s.awaitingUntil = nil
+	if wait > 0 {
+		until := s.awaitingSince.Add(wait)
+		s.awaitingUntil = &until
+	}
+}
+
+// leaveHumanStage ends the current occurrence: it records the construction_gate_wait
+// timer (tags: the gate CLASS, the outcome and the activity type — never the activity
+// id, which would make the series unbounded) and the construction.gate.decided log line
+// (the dependable surface while the prod OTLP export is an open earmark), then clears
+// the awaiting fields.
+func (s *constructState) leaveHumanStage(ctx workflow.Context, activityType, outcome string) {
+	waited := workflow.Now(ctx).Sub(s.awaitingSince)
+	gateMetrics(ctx).WithTags(map[string]string{
+		"gate":          humanGateClass(s.awaitingGate),
+		"outcome":       outcome,
+		"activity_type": activityType,
+	}).Timer("construction_gate_wait").Record(waited)
+	workflow.GetLogger(ctx).Info("construction.gate.decided",
+		"projectId", string(s.projectID), "activityId", string(s.activityID),
+		"gate", s.awaitingGate, "outcome", outcome,
+		"waitedMs", waited.Milliseconds(), "awaitingSince", s.awaitingSince)
+	s.awaitingGate, s.awaitingSince, s.awaitingUntil = "", time.Time{}, nil
+}
+
+// humanGateClass is the bounded gate tag: phase, merge or takeover.
+func humanGateClass(gate string) string {
+	switch gate {
+	case mergeGateKey:
+		return "merge"
+	case takeoverGateKey:
+		return takeoverGateKey
+	default:
+		return "phase"
 	}
 }
 
@@ -1601,11 +1691,13 @@ func (wf *workflows) runLocalMergeStep(
 	// The Task-7 gate, consulted at MethodPhaseConstruction: this is what makes
 	// vibes auto-merge, checkpoints/full hold, and the risk floor hold ALWAYS.
 	if policy.EffectiveGate(in.Activity.activityTypeName(), projectstate.MethodPhaseConstruction, state.floorTouched) {
-		state.stage = StageAwaitingApproval
+		state.redraftExhausted = false
+		state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateKey, 0)
 		ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
 		for {
 			sig := receivePhaseDecision(ctx, ch, mergeGateKey)
 			if sig.Decision == PhaseApprove {
+				state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeApproved)
 				break
 			}
 			// SendBack has no redraft meaning for a merge: the façade refuses it
@@ -1789,9 +1881,11 @@ func (wf *workflows) handleVariance(
 		// by EscalationWaitTimeout. On timeout (no operator answered the escalation), the
 		// activity terminally FAILS (head-state reflects EscalationTimedOut) instead of
 		// hanging forever waiting for an override that never comes.
-		state.stage = StageAwaitingTakeover
+		state.redraftExhausted = false
+		state.enterHumanStage(ctx, StageAwaitingTakeover, takeoverGateKey, wf.EscalationWaitTimeout)
 		sig, got := wf.awaitOverrideBounded(ctx, overrideCh)
 		if !got {
+			state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeTimedOut)
 			_ = failReason // underlying cause is carried in detail below; the terminal reason is EscalationTimedOut
 			v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
 				"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")", startedCred)
@@ -1802,6 +1896,7 @@ func (wf *workflows) handleVariance(
 			state.stage = StageExited
 			return true, nil
 		}
+		state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeOverridePrefix+strings.ToLower(overrideKindName(sig.Override.Kind)))
 		return wf.executeOverride(ctx, in, sig.Override, headVersion, state, gitOn, startedCred)
 	default:
 		// intervention.VarianceDirective has no Unknown sentinel (VarianceRetry is its

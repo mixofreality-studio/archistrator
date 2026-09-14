@@ -758,7 +758,7 @@ export interface components {
       awaitingUntil?: string;
       pipelinePhase?: components['schemas']['ConstructionPipelinePhase'];
       projectId: components['schemas']['ConstructionProjectID'];
-      /** @description True when the phase gate this activity is waiting at has spent its send-back budget (5 redrafts), so a further SendBack cannot redraft it: approve it, or steer the activity with OverrideActivity. Reset on entry to every gate. */
+      /** @description True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation. */
       redraftExhausted: boolean;
       reviewSet?: components['schemas']['ConstructionReviewSet'];
       stage: components['schemas']['ConstructionConstructionStage'];

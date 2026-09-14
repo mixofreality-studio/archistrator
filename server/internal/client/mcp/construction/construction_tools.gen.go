@@ -336,7 +336,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"awaitingGate":     "The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, \"merge\" for the local merge hold, or \"takeover\" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view.",
 		"awaitingSince":    "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.",
 		"awaitingUntil":    "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.",
-		"redraftExhausted": "True when the phase gate this activity is waiting at has spent its send-back budget (5 redrafts), so a further SendBack cannot redraft it: approve it, or steer the activity with OverrideActivity. Reset on entry to every gate.",
+		"redraftExhausted": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation.",
 	},
 }
 

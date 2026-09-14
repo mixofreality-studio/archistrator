@@ -1492,10 +1492,27 @@ type constructState struct {
 	// non-git execution where no head-state completion record exists to re-read.
 	completedPhases map[projectstate.ActivityMethodPhase]bool
 
-	// redraftExhausted records that a gated phase burned its human-paced SendBack
-	// redraft budget. It does NOT fail the activity or re-enter the variance loop — the
-	// gate keeps awaiting the human; the flag surfaces that redrafting is spent.
+	// redraftExhausted reports that the phase gate the workflow is waiting at can take no
+	// further SendBack redraft: its human-paced budget (maxPhaseRedrafts) is spent. It does
+	// NOT fail the activity or re-enter the variance loop — the gate keeps awaiting the
+	// human; the flag surfaces that redrafting is spent. RECOMPUTED on entry to every gate
+	// (B1.2): it used to be set once and never reset, so it leaked into every later gate of
+	// the same run (plan G5).
 	redraftExhausted bool
+
+	// awaitingGate / awaitingSince / awaitingUntil describe the human stage the workflow is
+	// in right now (B1.2): which gate (a lifecycle phase's wire name, mergeGateKey or
+	// takeoverGateKey), when THIS occurrence of it began, and — for an escalation with a
+	// bounded wait — when it gives up. awaitingSince is workflow.Now, so a query served by
+	// replay rebuilds the original time, and a redraft re-entering its gate starts a new
+	// occurrence. Written only by enterHumanStage and cleared only by leaveHumanStage.
+	awaitingGate  string
+	awaitingSince time.Time
+	awaitingUntil *time.Time
+
+	// attempt is the current supervision attempt, 1-based (set by runAttempt); 0 before
+	// the first attempt.
+	attempt int
 
 	// reviewContracts is the per-execution set of contract identifiers captured from
 	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
@@ -1532,14 +1549,26 @@ type constructState struct {
 
 func (s *constructState) view() (ConstructionSessionView, error) {
 	aid := s.activityID
-	return ConstructionSessionView{
-		ProjectID:     s.projectID,
-		ActivityID:    &aid,
-		Stage:         s.stage,
-		PipelinePhase: s.pipelinePhase,
-		ReviewSet:     s.reviewSet,
-		Variance:      s.variance,
-	}, nil
+	v := ConstructionSessionView{
+		ProjectID:        s.projectID,
+		ActivityID:       &aid,
+		Stage:            s.stage,
+		PipelinePhase:    s.pipelinePhase,
+		ReviewSet:        s.reviewSet,
+		Variance:         s.variance,
+		RedraftExhausted: s.redraftExhausted,
+		Attempt:          int64(s.attempt),
+		AttemptBudget:    maxVarianceAttempts,
+	}
+	if s.awaitingGate != "" {
+		gate, since := s.awaitingGate, s.awaitingSince
+		v.AwaitingGate, v.AwaitingSince = &gate, &since
+		if s.awaitingUntil != nil {
+			until := *s.awaitingUntil
+			v.AwaitingUntil = &until
+		}
+	}
+	return v, nil
 }
 
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.

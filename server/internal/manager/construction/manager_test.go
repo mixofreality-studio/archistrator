@@ -7310,3 +7310,285 @@ func Test_Pump_LedgerPartialResume_DefaultVersion_KeepsTheOldSelection(t *testin
 		t.Fatalf("DefaultVersion must keep the old choice, O; got %v", got)
 	}
 }
+
+// ===========================================================================
+// B1.2 — THE SESSION VIEW REPORTS THE HUMAN STAGE (plan B1.2).
+// ===========================================================================
+
+func b12View(t *testing.T, env *testsuite.TestWorkflowEnvironment) ConstructionSessionView {
+	t.Helper()
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("query session state: %v", err)
+	}
+	var v ConstructionSessionView
+	if err := enc.Get(&v); err != nil {
+		t.Fatalf("decode session view: %v", err)
+	}
+	return v
+}
+
+func b12Gate(v ConstructionSessionView) string {
+	if v.AwaitingGate == nil {
+		return ""
+	}
+	return *v.AwaitingGate
+}
+
+func b12Decide(env *testsuite.TestWorkflowEnvironment, key string, d PhaseDecision) func() {
+	return func() {
+		sig := phaseDecisionSignal{Phase: key, Decision: d}
+		if d == PhaseSendBack {
+			sig.Feedback = &ReviewFeedback{Notes: "redraft it"}
+		}
+		env.SignalWorkflow(signalPhaseDecision, sig)
+	}
+}
+
+func b12Run(env *testsuite.TestWorkflowEnvironment) {
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+}
+
+// A phase gate names itself and its occurrence; a redraft re-enters as a NEW occurrence;
+// the decision clears the awaiting fields.
+func Test_SessionView_PhaseGate_ReportsTheOccurrenceAndClearsOnDecision(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	start := env.Now()
+	var atGate, afterRedraft ConstructionSessionView
+	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseSendBack), 30*time.Second)
+	env.RegisterDelayedCallback(func() { afterRedraft = b12View(t, env) }, 45*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 60*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if atGate.Stage != StageAwaitingApproval || b12Gate(atGate) != "detailed_design" {
+		t.Fatalf("at the gate: stage=%v gate=%q, want awaitingApproval at detailed_design", atGate.Stage, b12Gate(atGate))
+	}
+	if atGate.AwaitingSince == nil || !atGate.AwaitingSince.Equal(start) {
+		t.Fatalf("awaitingSince = %v, want the gate's entry time %v", atGate.AwaitingSince, start)
+	}
+	if atGate.AwaitingUntil != nil {
+		t.Fatalf("an approval gate has no deadline, got awaitingUntil %v", atGate.AwaitingUntil)
+	}
+	if atGate.RedraftExhausted || atGate.Attempt != 1 || atGate.AttemptBudget != maxVarianceAttempts {
+		t.Fatalf("exhausted=%v attempt=%d/%d, want false, 1/%d", atGate.RedraftExhausted, atGate.Attempt, atGate.AttemptBudget, maxVarianceAttempts)
+	}
+	if afterRedraft.AwaitingSince == nil || !afterRedraft.AwaitingSince.Equal(start.Add(30*time.Second)) {
+		t.Fatalf("after the redraft awaitingSince = %v, want the re-entry time %v (a new occurrence)", afterRedraft.AwaitingSince, start.Add(30*time.Second))
+	}
+	if done := b12View(t, env); done.AwaitingGate != nil || done.AwaitingSince != nil || done.AwaitingUntil != nil {
+		t.Fatalf("the decision must clear the awaiting fields, got gate=%v since=%v until=%v", done.AwaitingGate, done.AwaitingSince, done.AwaitingUntil)
+	}
+}
+
+// An escalation waits at "takeover"; its deadline is since+wait when the wait is bounded
+// and absent when it waits indefinitely; the operator's Retry starts the next attempt.
+func Test_SessionView_Escalation_ReportsTakeoverAndItsDeadline(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		wait time.Duration
+	}{{"bounded wait", time.Hour}, {"waits indefinitely", 0}} {
+		t.Run(c.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+			wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{directive: intervention.VarianceEscalate}, Review: &fakeReview{}, EscalationWaitTimeout: c.wait})
+			registerConstruct(env, wf, ps, newFakePipelineFailingOnce("detailed_design"))
+			start := env.Now()
+			var at ConstructionSessionView
+			env.RegisterDelayedCallback(func() { at = b12View(t, env) }, time.Minute)
+			env.RegisterDelayedCallback(func() {
+				env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{Kind: OverrideRetry, Notes: "retry it"}})
+			}, 2*time.Minute)
+			b12Run(env)
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			b12CheckEscalation(t, at, start, c.wait)
+			if done := b12View(t, env); done.AwaitingGate != nil || done.Attempt != 2 {
+				t.Fatalf("after the Retry gate=%v attempt=%d, want cleared and attempt 2", done.AwaitingGate, done.Attempt)
+			}
+		})
+	}
+}
+
+// b12CheckEscalation asserts the view an escalation reports while it waits.
+func b12CheckEscalation(t *testing.T, at ConstructionSessionView, start time.Time, wait time.Duration) {
+	t.Helper()
+	if at.Stage != StageAwaitingTakeover || b12Gate(at) != takeoverGateKey || at.AwaitingSince == nil || !at.AwaitingSince.Equal(start) {
+		t.Fatalf("at the escalation: stage=%v gate=%q since=%v, want awaitingTakeover at takeover since %v", at.Stage, b12Gate(at), at.AwaitingSince, start)
+	}
+	switch {
+	case wait > 0 && (at.AwaitingUntil == nil || !at.AwaitingUntil.Equal(start.Add(wait))):
+		t.Fatalf("awaitingUntil = %v, want %v", at.AwaitingUntil, start.Add(wait))
+	case wait == 0 && at.AwaitingUntil != nil:
+		t.Fatalf("an indefinite wait has no deadline, got %v", at.AwaitingUntil)
+	}
+	if at.Attempt != 1 || at.RedraftExhausted {
+		t.Fatalf("at the escalation attempt=%d exhausted=%v, want 1 and false", at.Attempt, at.RedraftExhausted)
+	}
+}
+
+// The redraft budget reads spent once a further SendBack could not redraft (after four
+// redrafts, not three), and the NEXT gate starts with a fresh budget (plan G5: the flag
+// used to leak into every later gate).
+func Test_SessionView_RedraftBudget_SpentAfterFourAndResetAtTheNextGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	var afterThree, afterFour, nextGate ConstructionSessionView
+	for i := 1; i <= 4; i++ {
+		env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseSendBack), time.Duration(30*i)*time.Second)
+	}
+	env.RegisterDelayedCallback(func() { afterThree = b12View(t, env) }, 105*time.Second)
+	env.RegisterDelayedCallback(func() { afterFour = b12View(t, env) }, 135*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 150*time.Second)
+	env.RegisterDelayedCallback(func() { nextGate = b12View(t, env) }, 165*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "construction", PhaseApprove), 180*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, mergeGateKey, PhaseApprove), 200*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if afterThree.RedraftExhausted {
+		t.Fatalf("after three redrafts one remains, but the view says the budget is spent")
+	}
+	if !afterFour.RedraftExhausted || b12Gate(afterFour) != "detailed_design" {
+		t.Fatalf("after four redrafts gate=%q exhausted=%v, want detailed_design and spent", b12Gate(afterFour), afterFour.RedraftExhausted)
+	}
+	if b12Gate(nextGate) != "construction" || nextGate.RedraftExhausted {
+		t.Fatalf("at the next gate gate=%q exhausted=%v, want construction with a fresh budget", b12Gate(nextGate), nextGate.RedraftExhausted)
+	}
+}
+
+// The local merge hold is addressable: it reports awaitingGate "merge".
+func Test_SessionView_MergeHold_ReportsTheMergeGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseConstruction))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	start := env.Now()
+	var hold ConstructionSessionView
+	env.RegisterDelayedCallback(b12Decide(env, "construction", PhaseApprove), 20*time.Second)
+	env.RegisterDelayedCallback(func() { hold = b12View(t, env) }, 40*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, mergeGateKey, PhaseApprove), 60*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if hold.Stage != StageAwaitingApproval || b12Gate(hold) != mergeGateKey || hold.AwaitingUntil != nil || hold.RedraftExhausted {
+		t.Fatalf("at the merge hold: stage=%v gate=%q until=%v exhausted=%v", hold.Stage, b12Gate(hold), hold.AwaitingUntil, hold.RedraftExhausted)
+	}
+	if hold.AwaitingSince == nil || !hold.AwaitingSince.Equal(start.Add(20*time.Second)) {
+		t.Fatalf("merge hold awaitingSince = %v, want %v", hold.AwaitingSince, start.Add(20*time.Second))
+	}
+}
+
+// A variance retry starts the next supervision attempt.
+func Test_SessionView_Attempt_CountsAVarianceRetry(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseIntegration))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipelineFailingOnce("test_plan"))
+	var at ConstructionSessionView
+	env.RegisterDelayedCallback(func() { at = b12View(t, env) }, 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "integration", PhaseApprove), 40*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if b12Gate(at) != "integration" || at.Attempt != 2 || at.AttemptBudget != maxVarianceAttempts {
+		t.Fatalf("gate=%q attempt=%d/%d, want integration at attempt 2/%d", b12Gate(at), at.Attempt, at.AttemptBudget, maxVarianceAttempts)
+	}
+}
+
+// recordingMetrics captures what gateMetrics records (the SDK test environment has no
+// metrics hook).
+type recordingMetrics struct {
+	mu     sync.Mutex
+	timers []recordedTimer
+}
+
+type recordedTimer struct {
+	name  string
+	tags  map[string]string
+	value time.Duration
+}
+
+type recordingMetricsHandler struct {
+	rec  *recordingMetrics
+	tags map[string]string
+}
+
+func (h recordingMetricsHandler) WithTags(tags map[string]string) client.MetricsHandler {
+	merged := maps.Clone(h.tags)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, tags)
+	return recordingMetricsHandler{rec: h.rec, tags: merged}
+}
+
+func (h recordingMetricsHandler) Counter(name string) client.MetricsCounter {
+	return client.MetricsNopHandler.Counter(name)
+}
+
+func (h recordingMetricsHandler) Gauge(name string) client.MetricsGauge {
+	return client.MetricsNopHandler.Gauge(name)
+}
+
+func (h recordingMetricsHandler) Timer(name string) client.MetricsTimer {
+	return recordingMetricsTimer{h: h, name: name}
+}
+
+type recordingMetricsTimer struct {
+	h    recordingMetricsHandler
+	name string
+}
+
+func (t recordingMetricsTimer) Record(d time.Duration) {
+	t.h.rec.mu.Lock()
+	defer t.h.rec.mu.Unlock()
+	t.h.rec.timers = append(t.h.rec.timers, recordedTimer{name: t.name, tags: t.h.tags, value: d})
+}
+
+// The gate-wait timer is recorded ONCE, when the human stage ends, with exactly the
+// bounded tag set (never the activity id) and the time the gate actually waited.
+func Test_GateWaitMetric_RecordedOnLeaveWithBoundedTags(t *testing.T) {
+	rec := &recordingMetrics{}
+	orig := gateMetrics
+	gateMetrics = func(workflow.Context) client.MetricsHandler { return recordingMetricsHandler{rec: rec} }
+	t.Cleanup(func() { gateMetrics = orig })
+
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var waits []recordedTimer
+	for _, r := range rec.timers {
+		if r.name == "construction_gate_wait" {
+			waits = append(waits, r)
+		}
+	}
+	if len(waits) != 1 {
+		t.Fatalf("want one construction_gate_wait record, got %+v", rec.timers)
+	}
+	want := map[string]string{"gate": "phase", "outcome": gateOutcomeApproved, "activity_type": "service"}
+	if !maps.Equal(waits[0].tags, want) {
+		t.Fatalf("tags = %v, want exactly %v", waits[0].tags, want)
+	}
+	if waits[0].value != 30*time.Second {
+		t.Fatalf("recorded wait = %v, want the 30s the gate waited", waits[0].value)
+	}
+}
