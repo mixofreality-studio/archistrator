@@ -3495,7 +3495,40 @@ func constructionRowsToContract(
 			Layer:         layer,
 			LayerBand:     band,
 			PendingResume: pendingResumeFor(id, r, meta, resolved, rows, activityMeta, plan),
+			OperatorNotes: operatorNotesToContract(r.OperatorNotes),
 		}
+	}
+	return out
+}
+
+// operatorNotesToContract maps a row's stored operator notes onto the wire as they are:
+// recorded order, and the delivery stamp only where the store holds one. Nothing is
+// derived.
+func operatorNotesToContract(notes []projectstate.OperatorNote) []OperatorNote {
+	if len(notes) == 0 {
+		return nil
+	}
+	out := make([]OperatorNote, 0, len(notes))
+	for _, n := range notes {
+		v := OperatorNote{
+			NoteID:      n.NoteID,
+			Kind:        OperatorNoteKind(int(n.Kind)),
+			Text:        n.Text,
+			RecordedAt:  n.RecordedAt,
+			DeliveredAt: n.DeliveredAt,
+		}
+		if n.Gate != "" {
+			g := n.Gate
+			v.Gate = &g
+		}
+		if n.DeliveredToAttemptID != "" {
+			a := n.DeliveredToAttemptID
+			v.DeliveredToAttemptID = &a
+		}
+		for _, c := range n.Comments {
+			v.Comments = append(v.Comments, NoteComment{JSONPath: c.JSONPath, Text: c.Text})
+		}
+		out = append(out, v)
 	}
 	return out
 }

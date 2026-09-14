@@ -15615,11 +15615,44 @@
                 "null"
               ],
               "$ref": "#/$defs/FlaggedVariance"
+            },
+            "awaitingGate": {
+              "type": "string",
+              "description": "The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, \"merge\" for the local merge hold, or \"takeover\" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view."
+            },
+            "awaitingSince": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is."
+            },
+            "awaitingUntil": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely."
+            },
+            "redraftExhausted": {
+              "type": "boolean",
+              "description": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation."
+            },
+            "attempt": {
+              "type": "integer",
+              "description": "The current supervision attempt, 1-based: a variance retry, an operator Retry and an escalation's re-dispatch each start the next one. 0 before the first attempt and on the project-level view."
+            },
+            "attemptBudget": {
+              "type": "integer",
+              "description": "How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view."
             }
           },
           "required": [
             "projectId",
-            "stage"
+            "stage",
+            "redraftExhausted",
+            "attempt",
+            "attemptBudget"
           ],
           "additionalProperties": false
         },
@@ -16367,6 +16400,87 @@
           ],
           "x-go-base": "int"
         },
+        "NoteComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath",
+              "description": "Where the comment is anchored in the artifact under review, as a JSONPath."
+            },
+            "text": {
+              "type": "string",
+              "description": "The comment, verbatim."
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "OperatorNoteInput": {
+          "type": "object",
+          "properties": {
+            "noteId": {
+              "type": "string",
+              "x-go-name": "NoteID",
+              "description": "The caller's deterministic id for this note. Recording the same id again with identical content changes nothing; with different content it is refused."
+            },
+            "kind": {
+              "$ref": "#/$defs/OperatorNoteKind",
+              "description": "Why the note was written."
+            },
+            "gate": {
+              "type": "string",
+              "description": "The gate the note was written at: a lifecycle phase's wire name, \"merge\" or \"takeover\"; empty when none applies."
+            },
+            "text": {
+              "type": "string",
+              "description": "The operator's note, verbatim. Must not be blank."
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NoteComment"
+              },
+              "description": "Anchored comments that ride with the note."
+            }
+          },
+          "required": [
+            "noteId",
+            "kind",
+            "gate",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "OperatorNoteKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "x-enum-varnames": [
+            "OperatorNoteKindUnknown",
+            "NoteSendBack",
+            "NoteRetry",
+            "NoteTakeover",
+            "NoteReassign",
+            "NoteSkip",
+            "NoteRequeue"
+          ],
+          "x-go-base": "int",
+          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue (re-queueing a failed activity). 0 is the unknown sentinel and is refused."
+        },
         "ProjectID": {
           "type": "string"
         },
@@ -16805,6 +16919,102 @@
                 "name": "payload",
                 "schema": {
                   "x-go-type": "PhaseArtifactPayload"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordOperatorNote",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "note",
+                "schema": {
+                  "$ref": "#/$defs/OperatorNoteInput"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordOperatorNoteDelivered",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "noteID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "attemptID",
+                "schema": {
+                  "type": "string"
                 }
               },
               {
@@ -26766,6 +26976,16 @@
             "pendingResume": {
               "$ref": "#/$defs/PendingResume",
               "description": "Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done."
+            },
+            "operatorNotes": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/OperatorNote"
+              },
+              "description": "Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it; then it names that dispatch's attempt. Omitted when there are none."
             }
           },
           "required": [
@@ -27687,8 +27907,111 @@
           ],
           "additionalProperties": false
         },
+        "NoteComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath",
+              "description": "Where the comment is anchored in the artifact under review, as a JSONPath."
+            },
+            "text": {
+              "type": "string",
+              "description": "The comment, verbatim."
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text"
+          ],
+          "additionalProperties": false
+        },
         "OperatingModel": {
           "type": "string"
+        },
+        "OperatorNote": {
+          "type": "object",
+          "properties": {
+            "noteId": {
+              "type": "string",
+              "x-go-name": "NoteID",
+              "description": "The note's id."
+            },
+            "kind": {
+              "$ref": "#/$defs/OperatorNoteKind",
+              "description": "Why the note was written."
+            },
+            "gate": {
+              "type": "string",
+              "description": "The gate the note was written at: a lifecycle phase's wire name, \"merge\" or \"takeover\". Omitted when none applies."
+            },
+            "text": {
+              "type": "string",
+              "description": "The operator's note, verbatim."
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NoteComment"
+              },
+              "description": "Anchored comments that rode with the note. Omitted when there are none."
+            },
+            "recordedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the store recorded the note (server clock)."
+            },
+            "deliveredToAttemptId": {
+              "type": "string",
+              "x-go-name": "DeliveredToAttemptID",
+              "description": "The AttemptID (\"\u003cactivityId\u003e:\u003ctask\u003e:\u003cn\u003e\", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending, and always for a skip note, which nothing runs after."
+            },
+            "deliveredAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the delivery was recorded. Omitted while the note is pending."
+            }
+          },
+          "required": [
+            "noteId",
+            "kind",
+            "text",
+            "recordedAt"
+          ],
+          "additionalProperties": false
+        },
+        "OperatorNoteKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "x-enum-varnames": [
+            "OperatorNoteKindUnknown",
+            "OperatorNoteKindSendBack",
+            "OperatorNoteKindRetry",
+            "OperatorNoteKindTakeover",
+            "OperatorNoteKindReassign",
+            "OperatorNoteKindSkip",
+            "OperatorNoteKindRequeue"
+          ],
+          "x-go-base": "int",
+          "description": "Why an operator wrote a note: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered), 6 requeue."
         },
         "OwnerScope": {
           "type": "string"

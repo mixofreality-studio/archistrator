@@ -482,6 +482,17 @@ func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, 
 // child workflow {projectId}:{activityId}. The operator's steer is fed through the
 // SAME decide→execute machinery as the automatic variance path. SYNC: returns once
 // the signal is durably enqueued.
+//
+// PRECHECK (B1.3): after the ContractMisuse checks, the op reads the activity's session
+// (the Query GetSessionState serves; no session is NotFound) and refuses with
+// FailedPrecondition unless the activity is awaiting a takeover. The workflow buffers
+// override signals, so an override sent at any other time used to be consumed by the
+// activity's NEXT escalation — a steer applied to a situation the operator never saw
+// (plan G7). This is honesty at the façade, not a lock: the residual check-then-act
+// window is milliseconds, and draining a stale buffered override inside the workflow
+// is a command change that is EARMARKED behind its own GetVersion. During a rolling
+// deploy a view served by an old worker carries no awaitingGate; the refusal is then
+// transient and fails safe.
 func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -501,6 +512,15 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	}
 	if strings.TrimSpace(override.Notes) == "" {
 		return newError(fwm.ContractMisuse, "an override requires non-empty notes — it is the operator's durable record of WHY the automatic path was steered")
+	}
+	view, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		return err
+	}
+	if view.Stage != StageAwaitingTakeover {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf(
+			"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitPhaseDecision",
+			activityID, sessionStageName(view.Stage)))
 	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
@@ -568,6 +588,16 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 // ("merge") — the local merge hold (runLocalMergeStep) suspends on the same
 // signal, and this op is the ONLY operator path that releases it. The merge gate
 // takes Approve only (see validatePhaseDecision).
+//
+// PRECHECK (B1.3), in a pinned order: the ContractMisuse checks first (ids, then
+// validatePhaseDecision, then SendBack notes); then the activity's session is read
+// (no session is NotFound); then the op refuses with FailedPrecondition unless the
+// session is awaiting approval at exactly this gate (awaitingGate), and refuses a
+// SendBack at a gate whose redraft budget is spent (redraftExhausted) — never a silent
+// no-op presenting as success. Nothing is signalled on any refusal. The workflow still
+// matches decisions by key, so this is honesty, not safety: a stale decision cannot
+// close the wrong gate either way. During a rolling deploy a view served by an old
+// worker carries no awaitingGate; the refusal is then transient and fails safe.
 func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -582,6 +612,13 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
 		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
 	}
+	view, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		return err
+	}
+	if err := precheckPhaseDecision(view, activityID, phase, decision); err != nil {
+		return err
+	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
 	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
@@ -589,6 +626,55 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// activitySession reads one activity's session through the SAME Query GetSessionState
+// serves, with its error mapping: no session is NotFound, any other query fault is
+// Infrastructure.
+func (m *constructionManager) activitySession(ctx context.Context, projectID ProjectID, activityID ActivityID) (ConstructionSessionView, error) {
+	return m.GetSessionState(fwm.Context{Context: ctx}, projectID, &activityID)
+}
+
+// precheckPhaseDecision is SubmitPhaseDecision's FailedPrecondition gate over the
+// activity's session view (B1.3).
+func precheckPhaseDecision(v ConstructionSessionView, activityID ActivityID, key string, decision PhaseDecision) error {
+	gate := "no gate"
+	if v.AwaitingGate != nil {
+		gate = *v.AwaitingGate
+	}
+	if v.Stage != StageAwaitingApproval || gate != key {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf("activity %s is at %s/%s, not awaiting %s",
+			activityID, sessionStageName(v.Stage), gate, key))
+	}
+	if decision == PhaseSendBack && v.RedraftExhausted {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf(
+			"the redraft budget for %s is spent — approve, or steer with OverrideActivity", key))
+	}
+	return nil
+}
+
+// sessionStageName is a ConstructionStage's wire word, for refusal messages. A free
+// function so the generated enum stays pure data (same rule as overrideKindName).
+func sessionStageName(s ConstructionStage) string {
+	switch s {
+	case StageDispatching:
+		return "dispatching"
+	case StagePipelineRunning:
+		return "pipelineRunning"
+	case StageReviewing:
+		return "reviewing"
+	case StageAwaitingTakeover:
+		return "awaitingTakeover"
+	case StagePaused:
+		return "paused"
+	case StageExited:
+		return "exited"
+	case StageAwaitingApproval:
+		return "awaitingApproval"
+	case ConstructionStageUnknown:
+		return "unknown"
+	}
+	return "unknown"
 }
 
 // SetReviewPolicy — op 2.8 (local-merge-and-policy Commit 2). Sets the project's
@@ -951,16 +1037,38 @@ type pumpSelection struct {
 	BlockedFailureReason projectstate.FailureReason
 }
 
+// eligibilityRule is which activities the pump's selection may pick. It is chosen by the
+// pump's GetVersion(changeLedgerPartialResume) — never by the selection itself — so a
+// pump replaying a history recorded under the old rule re-selects exactly what it chose
+// then (architect (D), D.2).
+type eligibilityRule int
+
+const (
+	// eligibleNotStarted is the pre-D1 rule: only an activity whose effective state is
+	// NotStarted (isActivityNotStarted).
+	eligibleNotStarted eligibilityRule = iota
+	// eligibleDispatchable is architect (D), D.1.2: also an integration-pending row, one no
+	// pump wrote whose ledger holds some phases complete (isActivityDispatchable).
+	eligibleDispatchable
+)
+
+// changeLedgerPartialResume is the ONE change id guarding D1 in both workflows: the pump's
+// widened selection and the construct workflow's ledger-aware start seed. A v1 pump only
+// ever starts a v1 child, so every execution is wholly old or wholly new.
+const changeLedgerPartialResume = "ledger-partial-resume"
+
 // nextEligibleActivity resolves the next eligible construction activity for a project
-// from its head-state. An activity is eligible iff it is NotStarted and every dep is
-// satisfied, both read through projectstate.EffectiveConstructionPhase (the stored
-// state where the pump wrote it, the attempt ledger where it did not; see
-// isActivityNotStarted) — an activity dependency requires a Done record, a milestone dependency is
-// satisfied DERIVEDLY (it never has a Done record of its own; see projectstate.AllDepsSatisfied /
-// projectstate.MilestonesByID). Iteration is ActivityList declaration order; the first eligible
-// activity in that order is chosen (the candidate-list name tie-break below is
-// currently unreachable, since declIdx is already unique per activity).
-func nextEligibleActivity(proj projectstate.Project) pumpSelection {
+// from its head-state. An activity is eligible iff the rule admits it (eligibleUnder) and
+// every dep is satisfied, both read through projectstate.EffectiveConstructionPhase (the
+// stored state where the pump wrote it, the attempt ledger where it did not) — an activity
+// dependency requires a Done record, a milestone dependency is satisfied DERIVEDLY (it
+// never has a Done record of its own; see projectstate.AllDepsSatisfied /
+// projectstate.MilestonesByID). The dependency rule gates the activity's whole remaining
+// lifecycle: a row resuming at Integration waits on exactly what a fresh row would.
+// Iteration is ActivityList declaration order; the first eligible activity in that order
+// is chosen (the candidate-list name tie-break below is currently unreachable, since
+// declIdx is already unique per activity).
+func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpSelection {
 	// Committed Network+ActivityList alone are not authorization to build: the
 	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
 	// an option) is what moves the project into PhaseConstruction. Selecting work
@@ -1007,7 +1115,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
-		if !isActivityNotStarted(name, item, proj.ActivityConstruction) {
+		if !eligibleUnder(rule, name, item, proj.ActivityConstruction) {
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
@@ -1130,6 +1238,34 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 		return nil, nil, false
 	}
 	return network, activityList, true
+}
+
+// eligibleUnder applies the pump's eligibility rule to one activity.
+func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+	if rule == eligibleDispatchable {
+		return isActivityDispatchable(activityID, item, status)
+	}
+	return isActivityNotStarted(activityID, item, status)
+}
+
+// isActivityDispatchable is the D1 eligibility (architect (D), D.1.2): the activity has
+// no construction row, or no pump wrote its row (projectstate.PumpWroteRow is false) and
+// its effective state is NotStarted or Running. A row no pump wrote that reads Running is,
+// by construction, a ledger-partial row: its recorded phases are complete except some it
+// has not run, so it is resumed at its first incomplete phase (loadReviewSnapshot's
+// ledger-aware seed). A pump-written row never qualifies — RecordActivityStarted, the
+// child's first durable write, makes PumpWroteRow true, so a row leaves this set before
+// the pump can look again — and neither does a Done or Failed one.
+func isActivityDispatchable(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+	s, exists := status[activityID]
+	if !exists {
+		return true
+	}
+	if projectstate.PumpWroteRow(s) {
+		return false
+	}
+	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
+	return effective == projectstate.ActivityConstructionNotStarted || effective == projectstate.ActivityConstructionRunning
 }
 
 // isActivityNotStarted reports whether the activity has not started: it has no
@@ -1285,8 +1421,9 @@ type wfDeps struct {
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
-	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) pumpSelection
+	// project from its head-state (the Manager's own pure selection), under the
+	// eligibility rule the pump's GetVersion chose.
+	NextEligibleActivity func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 
 	// InterventionPolicy is the project's committed policy snapshot the Manager feeds
 	// the interventionEngine by value, typed DIRECTLY as the Engine's own published
@@ -1315,7 +1452,7 @@ type workflows struct {
 	RailEnabled bool
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity  func(proj projectstate.Project) pumpSelection
+	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }
@@ -1441,10 +1578,27 @@ type constructState struct {
 	// non-git execution where no head-state completion record exists to re-read.
 	completedPhases map[projectstate.ActivityMethodPhase]bool
 
-	// redraftExhausted records that a gated phase burned its human-paced SendBack
-	// redraft budget. It does NOT fail the activity or re-enter the variance loop — the
-	// gate keeps awaiting the human; the flag surfaces that redrafting is spent.
+	// redraftExhausted reports that the phase gate the workflow is waiting at can take no
+	// further SendBack redraft: its human-paced budget (maxPhaseRedrafts) is spent. It does
+	// NOT fail the activity or re-enter the variance loop — the gate keeps awaiting the
+	// human; the flag surfaces that redrafting is spent. RECOMPUTED on entry to every gate
+	// (B1.2): it used to be set once and never reset, so it leaked into every later gate of
+	// the same run (plan G5).
 	redraftExhausted bool
+
+	// awaitingGate / awaitingSince / awaitingUntil describe the human stage the workflow is
+	// in right now (B1.2): which gate (a lifecycle phase's wire name, mergeGateKey or
+	// takeoverGateKey), when THIS occurrence of it began, and — for an escalation with a
+	// bounded wait — when it gives up. awaitingSince is workflow.Now, so a query served by
+	// replay rebuilds the original time, and a redraft re-entering its gate starts a new
+	// occurrence. Written only by enterHumanStage and cleared only by leaveHumanStage.
+	awaitingGate  string
+	awaitingSince time.Time
+	awaitingUntil *time.Time
+
+	// attempt is the current supervision attempt, 1-based (set by runAttempt); 0 before
+	// the first attempt.
+	attempt int
 
 	// reviewContracts is the per-execution set of contract identifiers captured from
 	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
@@ -1466,7 +1620,9 @@ type constructState struct {
 	mergeCompleted bool
 
 	// taskAttempts counts, per Figure A-1 task (MethodTask), how many times a pipeline
-	// has been dispatched for that task's phase on this activity — the join key
+	// has been dispatched for that task's phase on this activity — seeded at start from
+	// the row's attempt ledger (loadReviewSnapshot, v1 of changeLedgerPartialResume), so
+	// a new run's AttemptIDs continue the ledger's instead of colliding with them — the join key
 	// projectstate.AttemptID needs to attribute an episode to the (activity, task,
 	// attempt) it was actually burned on (Task 10, constructactivity.go). It counts
 	// across BOTH the outer variance-retry loop and a gated phase's human-paced redraft
@@ -1479,14 +1635,26 @@ type constructState struct {
 
 func (s *constructState) view() (ConstructionSessionView, error) {
 	aid := s.activityID
-	return ConstructionSessionView{
-		ProjectID:     s.projectID,
-		ActivityID:    &aid,
-		Stage:         s.stage,
-		PipelinePhase: s.pipelinePhase,
-		ReviewSet:     s.reviewSet,
-		Variance:      s.variance,
-	}, nil
+	v := ConstructionSessionView{
+		ProjectID:        s.projectID,
+		ActivityID:       &aid,
+		Stage:            s.stage,
+		PipelinePhase:    s.pipelinePhase,
+		ReviewSet:        s.reviewSet,
+		Variance:         s.variance,
+		RedraftExhausted: s.redraftExhausted,
+		Attempt:          int64(s.attempt),
+		AttemptBudget:    maxVarianceAttempts,
+	}
+	if s.awaitingGate != "" {
+		gate, since := s.awaitingGate, s.awaitingSince
+		v.AwaitingGate, v.AwaitingSince = &gate, &since
+		if s.awaitingUntil != nil {
+			until := *s.awaitingUntil
+			v.AwaitingUntil = &until
+		}
+	}
+	return v, nil
 }
 
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.

@@ -2,6 +2,10 @@
 
 package sdk
 
+import (
+	"time"
+)
+
 type ActivityID string
 
 type ActivityOverride struct {
@@ -21,12 +25,18 @@ type ConstructionReviewFeedback struct {
 }
 
 type ConstructionSessionView struct {
-	ProjectID     ProjectID         `json:"projectId"`
-	ActivityID    *ActivityID       `json:"activityId,omitempty"`
-	Stage         ConstructionStage `json:"stage"`
-	PipelinePhase *PipelinePhase    `json:"pipelinePhase,omitempty"`
-	ReviewSet     *ReviewSet        `json:"reviewSet,omitempty"`
-	Variance      *FlaggedVariance  `json:"variance,omitempty"`
+	ProjectID        ProjectID         `json:"projectId"`
+	ActivityID       *ActivityID       `json:"activityId,omitempty"`
+	Stage            ConstructionStage `json:"stage"`
+	PipelinePhase    *PipelinePhase    `json:"pipelinePhase,omitempty"`
+	ReviewSet        *ReviewSet        `json:"reviewSet,omitempty"`
+	Variance         *FlaggedVariance  `json:"variance,omitempty"`
+	AwaitingGate     *string           `json:"awaitingGate,omitempty"`
+	AwaitingSince    *time.Time        `json:"awaitingSince,omitempty"`
+	AwaitingUntil    *time.Time        `json:"awaitingUntil,omitempty"`
+	RedraftExhausted bool              `json:"redraftExhausted"`
+	Attempt          int64             `json:"attempt"`
+	AttemptBudget    int64             `json:"attemptBudget"`
 }
 
 type ConstructionStage int

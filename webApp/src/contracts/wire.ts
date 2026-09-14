@@ -878,6 +878,15 @@ export function mapConstructionSession(
             },
           }
         : {}),
+      // The gate-occurrence fields (B1.2). Optional on the app type so a view served by
+      // an older server (none of these keys) maps to a view that simply lacks them — the
+      // three the contract requires are tested for PRESENCE, not nullness.
+      ...(w.awaitingGate != null ? { awaitingGate: w.awaitingGate } : {}),
+      ...(w.awaitingSince != null ? { awaitingSince: w.awaitingSince } : {}),
+      ...(w.awaitingUntil != null ? { awaitingUntil: w.awaitingUntil } : {}),
+      ...('redraftExhausted' in w ? { redraftExhausted: w.redraftExhausted } : {}),
+      ...('attempt' in w ? { attempt: w.attempt } : {}),
+      ...('attemptBudget' in w ? { attemptBudget: w.attemptBudget } : {}),
     },
   };
 }

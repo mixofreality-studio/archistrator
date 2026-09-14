@@ -740,8 +740,26 @@ export interface components {
     };
     ConstructionConstructionSessionView: {
       activityId?: components['schemas']['ConstructionActivityID'];
+      /** @description The current supervision attempt, 1-based: a variance retry, an operator Retry and an escalation's re-dispatch each start the next one. 0 before the first attempt and on the project-level view. */
+      attempt: number;
+      /** @description How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view. */
+      attemptBudget: number;
+      /** @description The gate this activity is waiting at, set only while stage is awaitingApproval or awaitingTakeover: a lifecycle phase's wire name (requirements, detailed_design, test_plan, construction or integration) for a phase approval gate, "merge" for the local merge hold, or "takeover" for an escalation. It is the key a decision must address. Omitted in every other stage and on the project-level view. */
+      awaitingGate?: string;
+      /**
+       * Format: date-time
+       * @description When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.
+       */
+      awaitingSince?: string;
+      /**
+       * Format: date-time
+       * @description When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.
+       */
+      awaitingUntil?: string;
       pipelinePhase?: components['schemas']['ConstructionPipelinePhase'];
       projectId: components['schemas']['ConstructionProjectID'];
+      /** @description True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation. */
+      redraftExhausted: boolean;
       reviewSet?: components['schemas']['ConstructionReviewSet'];
       stage: components['schemas']['ConstructionConstructionStage'];
       variance?: components['schemas']['ConstructionFlaggedVariance'];
@@ -1634,6 +1652,8 @@ export interface components {
       hasBuildEvidence: boolean;
       layer: string;
       layerBand: string;
+      /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it; then it names that dispatch's attempt. Omitted when there are none. */
+      operatorNotes?: null | components['schemas']['SystemDesignOperatorNote'][];
       /** @description Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
       pendingResume?: components['schemas']['SystemDesignPendingResume'];
       /** @description True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
@@ -1878,7 +1898,42 @@ export interface components {
       ordinal: number;
       section: string;
     };
+    SystemDesignNoteComment: {
+      /** @description Where the comment is anchored in the artifact under review, as a JSONPath. */
+      jsonPath: string;
+      /** @description The comment, verbatim. */
+      text: string;
+    };
     SystemDesignOperatingModel: string;
+    SystemDesignOperatorNote: {
+      /** @description Anchored comments that rode with the note. Omitted when there are none. */
+      comments?: null | components['schemas']['SystemDesignNoteComment'][];
+      /**
+       * Format: date-time
+       * @description When the delivery was recorded. Omitted while the note is pending.
+       */
+      deliveredAt?: null | string;
+      /** @description The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending, and always for a skip note, which nothing runs after. */
+      deliveredToAttemptId?: string;
+      /** @description The gate the note was written at: a lifecycle phase's wire name, "merge" or "takeover". Omitted when none applies. */
+      gate?: string;
+      /** @description Why the note was written. */
+      kind: components['schemas']['SystemDesignOperatorNoteKind'];
+      /** @description The note's id. */
+      noteId: string;
+      /**
+       * Format: date-time
+       * @description When the store recorded the note (server clock).
+       */
+      recordedAt: string;
+      /** @description The operator's note, verbatim. */
+      text: string;
+    };
+    /**
+     * @description Why an operator wrote a note: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered), 6 requeue.
+     * @enum {integer}
+     */
+    SystemDesignOperatorNoteKind: 0 | 1 | 2 | 3 | 4 | 5 | 6;
     SystemDesignOwnerScope: string;
     /** @description One unsatisfied direct dependency of an integration-pending row. */
     SystemDesignPendingDependency: {

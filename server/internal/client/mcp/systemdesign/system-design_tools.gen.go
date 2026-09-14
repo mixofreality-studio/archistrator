@@ -525,9 +525,24 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	reflect.TypeFor[mgr.ActivityConstructionStatus](): {
 		"BuildStatus":   "The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true.",
 		"Phase":         "The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true.",
+		"operatorNotes": "Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it; then it names that dispatch's attempt. Omitted when there are none.",
 		"pendingResume": "Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.",
 		"recorded":      "True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.",
 		"worstOrigin":   "The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed.",
+	},
+	reflect.TypeFor[mgr.NoteComment](): {
+		"jsonPath": "Where the comment is anchored in the artifact under review, as a JSONPath.",
+		"text":     "The comment, verbatim.",
+	},
+	reflect.TypeFor[mgr.OperatorNote](): {
+		"comments":             "Anchored comments that rode with the note. Omitted when there are none.",
+		"deliveredAt":          "When the delivery was recorded. Omitted while the note is pending.",
+		"deliveredToAttemptId": "The AttemptID (\"<activityId>:<task>:<n>\", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending, and always for a skip note, which nothing runs after.",
+		"gate":                 "The gate the note was written at: a lifecycle phase's wire name, \"merge\" or \"takeover\". Omitted when none applies.",
+		"kind":                 "Why the note was written.",
+		"noteId":               "The note's id.",
+		"recordedAt":           "When the store recorded the note (server clock).",
+		"text":                 "The operator's note, verbatim.",
 	},
 	reflect.TypeFor[mgr.PendingDependency](): {
 		"id":     "The dependency id as the network authors it: an activity id or a milestone id.",

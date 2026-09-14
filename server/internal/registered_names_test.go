@@ -100,6 +100,8 @@ var registeredTemporalNamesGolden = []string{
 	"constructionTransitionAccess.recordActivityExited",
 	"constructionTransitionAccess.recordActivityFailed",
 	"constructionTransitionAccess.recordChangeReviewed",
+	"constructionTransitionAccess.recordOperatorNote",
+	"constructionTransitionAccess.recordOperatorNoteDelivered",
 	"constructionTransitionAccess.recordOperatorPaused",
 	"constructionTransitionAccess.recordPhaseArtifactProduced",
 	"constructionTransitionAccess.recordPhaseCompleted",

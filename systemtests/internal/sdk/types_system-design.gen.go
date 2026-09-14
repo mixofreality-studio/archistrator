@@ -47,6 +47,7 @@ type ActivityConstructionStatus struct {
 	Layer            string                    `json:"layer"`
 	LayerBand        string                    `json:"layerBand"`
 	PendingResume    *PendingResume            `json:"pendingResume,omitempty"`
+	OperatorNotes    []OperatorNote            `json:"operatorNotes,omitempty"`
 }
 
 type ActivityGitStatus struct {
@@ -224,7 +225,35 @@ type GoField struct {
 	Note string `json:"Note"`
 }
 
+type NoteComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
 type OperatingModel string
+
+type OperatorNote struct {
+	NoteID               string           `json:"noteId"`
+	Kind                 OperatorNoteKind `json:"kind"`
+	Gate                 *string          `json:"gate,omitempty"`
+	Text                 string           `json:"text"`
+	Comments             []NoteComment    `json:"comments,omitempty"`
+	RecordedAt           time.Time        `json:"recordedAt"`
+	DeliveredToAttemptID *string          `json:"deliveredToAttemptId,omitempty"`
+	DeliveredAt          *time.Time       `json:"deliveredAt,omitempty"`
+}
+
+type OperatorNoteKind int
+
+const (
+	OperatorNoteKindUnknown  OperatorNoteKind = 0
+	OperatorNoteKindSendBack OperatorNoteKind = 1
+	OperatorNoteKindRetry    OperatorNoteKind = 2
+	OperatorNoteKindTakeover OperatorNoteKind = 3
+	OperatorNoteKindReassign OperatorNoteKind = 4
+	OperatorNoteKindSkip     OperatorNoteKind = 5
+	OperatorNoteKindRequeue  OperatorNoteKind = 6
+)
 
 type OwnerScope string
 
@@ -555,6 +584,28 @@ func FailureReasonName(v FailureReason) string {
 		return "FailureReasonDependencyCycle"
 	case FailureReasonActivityUnclassifiable:
 		return "FailureReasonActivityUnclassifiable"
+	default:
+		return ""
+	}
+}
+
+// OperatorNoteKindName returns the declared varname of a OperatorNoteKind value.
+func OperatorNoteKindName(v OperatorNoteKind) string {
+	switch v {
+	case OperatorNoteKindUnknown:
+		return "OperatorNoteKindUnknown"
+	case OperatorNoteKindSendBack:
+		return "OperatorNoteKindSendBack"
+	case OperatorNoteKindRetry:
+		return "OperatorNoteKindRetry"
+	case OperatorNoteKindTakeover:
+		return "OperatorNoteKindTakeover"
+	case OperatorNoteKindReassign:
+		return "OperatorNoteKindReassign"
+	case OperatorNoteKindSkip:
+		return "OperatorNoteKindSkip"
+	case OperatorNoteKindRequeue:
+		return "OperatorNoteKindRequeue"
 	default:
 		return ""
 	}

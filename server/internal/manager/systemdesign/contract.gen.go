@@ -72,6 +72,7 @@ type ActivityConstructionStatus struct {
 	Layer            string                    `json:"layer"`
 	LayerBand        string                    `json:"layerBand"`
 	PendingResume    *PendingResume            `json:"pendingResume,omitempty"`
+	OperatorNotes    []OperatorNote            `json:"operatorNotes,omitempty"`
 }
 
 type ActivityGitStatus struct {
@@ -351,7 +352,35 @@ type Location struct {
 	Section string `json:"section"`
 }
 
+type NoteComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
 type OperatingModel string
+
+type OperatorNote struct {
+	NoteID               string           `json:"noteId"`
+	Kind                 OperatorNoteKind `json:"kind"`
+	Gate                 *string          `json:"gate,omitempty"`
+	Text                 string           `json:"text"`
+	Comments             []NoteComment    `json:"comments,omitempty"`
+	RecordedAt           time.Time        `json:"recordedAt"`
+	DeliveredToAttemptID *string          `json:"deliveredToAttemptId,omitempty"`
+	DeliveredAt          *time.Time       `json:"deliveredAt,omitempty"`
+}
+
+type OperatorNoteKind int
+
+const (
+	OperatorNoteKindUnknown  OperatorNoteKind = 0
+	OperatorNoteKindSendBack OperatorNoteKind = 1
+	OperatorNoteKindRetry    OperatorNoteKind = 2
+	OperatorNoteKindTakeover OperatorNoteKind = 3
+	OperatorNoteKindReassign OperatorNoteKind = 4
+	OperatorNoteKindSkip     OperatorNoteKind = 5
+	OperatorNoteKindRequeue  OperatorNoteKind = 6
+)
 
 type OwnerScope string
 

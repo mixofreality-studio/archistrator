@@ -528,10 +528,35 @@ type NetworkSummary struct {
 	NearCriticalCount         int     `json:"nearCriticalCount"`
 }
 
+type NoteComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
 type Objective struct {
 	Number    int    `json:"number"`
 	Statement string `json:"statement"`
 }
+
+type OperatorNoteInput struct {
+	NoteID   string           `json:"noteId"`
+	Kind     OperatorNoteKind `json:"kind"`
+	Gate     string           `json:"gate"`
+	Text     string           `json:"text"`
+	Comments []NoteComment    `json:"comments,omitempty"`
+}
+
+type OperatorNoteKind int
+
+const (
+	OperatorNoteKindUnknown OperatorNoteKind = 0
+	NoteSendBack            OperatorNoteKind = 1
+	NoteRetry               OperatorNoteKind = 2
+	NoteTakeover            OperatorNoteKind = 3
+	NoteReassign            OperatorNoteKind = 4
+	NoteSkip                OperatorNoteKind = 5
+	NoteRequeue             OperatorNoteKind = 6
+)
 
 type OptionActivity struct {
 	ActivityID     string  `json:"activityId"`
@@ -914,6 +939,8 @@ type ConstructionTransitionAccess interface {
 	RecordPhaseCompleted(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, phase ActivityMethodPhase, artifactRef string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordServiceContractProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, component string, contract ServiceContract, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RecordPhaseArtifactProduced(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, mapKey string, payload PhaseArtifactPayload, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // DesignSessionAccess is the generated service-contract interface for this component.

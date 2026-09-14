@@ -541,6 +541,48 @@ export const HEALTH_STATE_APP_TO_ORDINAL: Readonly<Record<HealthState, number>> 
   healthy: 1,
   unhealthy: 2,
 };
+// --- OperatorNoteKind ----------------------------------------------------
+// Sources: SystemDesignOperatorNoteKind
+export const OPERATOR_NOTE_KIND_GO_VARNAMES = [
+  'OperatorNoteKindUnknown',
+  'OperatorNoteKindSendBack',
+  'OperatorNoteKindRetry',
+  'OperatorNoteKindTakeover',
+  'OperatorNoteKindReassign',
+  'OperatorNoteKindSkip',
+  'OperatorNoteKindRequeue',
+] as const;
+
+export type OperatorNoteKindGoVarname = (typeof OPERATOR_NOTE_KIND_GO_VARNAMES)[number];
+
+export const OPERATOR_NOTE_KIND_ORDINAL_TO_GO_VARNAME: readonly OperatorNoteKindGoVarname[] =
+  OPERATOR_NOTE_KIND_GO_VARNAMES;
+
+// NOTE: no existing hand-authored app-string table to verify against (unwired/new enum) — derived mechanically, unverified.
+export const OPERATOR_NOTE_KIND_APP_STRINGS = [
+  'unknown',
+  'sendBack',
+  'retry',
+  'takeover',
+  'reassign',
+  'skip',
+  'requeue',
+] as const;
+
+export type OperatorNoteKind = (typeof OPERATOR_NOTE_KIND_APP_STRINGS)[number];
+
+export const OPERATOR_NOTE_KIND_ORDINAL_TO_APP: readonly OperatorNoteKind[] =
+  OPERATOR_NOTE_KIND_APP_STRINGS;
+
+export const OPERATOR_NOTE_KIND_APP_TO_ORDINAL: Readonly<Record<OperatorNoteKind, number>> = {
+  unknown: 0,
+  sendBack: 1,
+  retry: 2,
+  takeover: 3,
+  reassign: 4,
+  skip: 5,
+  requeue: 6,
+};
 // --- OverrideKind --------------------------------------------------------
 // Sources: ConstructionOverrideKind
 export const OVERRIDE_KIND_GO_VARNAMES = [

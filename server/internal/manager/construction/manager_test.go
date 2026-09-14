@@ -4,9 +4,13 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -15,7 +19,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/temporalproto"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -23,6 +29,7 @@ import (
 	"go.temporal.io/sdk/converter"
 	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
@@ -51,6 +58,31 @@ type fakeTemporalClient struct {
 	lastWorkflowID string
 	lastSignalName string
 	lastSignalArg  any
+	// session is the view the session Query answers (B1.3's façade precheck reads it).
+	session ConstructionSessionView
+}
+
+// QueryWorkflow answers the session Query with the scripted view.
+func (f *fakeTemporalClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...any) (converter.EncodedValue, error) {
+	return encodedJSON{v: f.session}, nil
+}
+
+// encodedJSON satisfies converter.EncodedValue by a JSON round trip — how a real
+// Query answer reaches the façade.
+type encodedJSON struct{ v any }
+
+func (e encodedJSON) HasValue() bool { return true }
+func (e encodedJSON) Get(valuePtr any) error {
+	b, err := json.Marshal(e.v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, valuePtr)
+}
+
+// awaitingAt is the session view of an activity waiting at gate key.
+func awaitingAt(key string) ConstructionSessionView {
+	return ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: &key}
 }
 
 func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg any) error {
@@ -581,7 +613,7 @@ func Test_OverrideKind_String(t *testing.T) {
 // ---- SubmitPhaseDecision (op 2.6) -------------------------------------------
 
 func TestSubmitPhaseDecision_SignalsActivityWorkflowWithPhase(t *testing.T) {
-	fc := &fakeTemporalClient{}
+	fc := &fakeTemporalClient{session: awaitingAt("detailed_design")}
 	m := newTestConstructionManager(fc)
 	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
 		t.Fatalf("SubmitPhaseDecision: %v", err)
@@ -1544,7 +1576,7 @@ func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
 	// Deliberately nil: ServiceContracts must play no part in selection.
 	proj.ServiceContracts = nil
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1574,7 +1606,7 @@ func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
 				[]projectstate.ActivityItem{tc.item},
 				[]projectstate.NetworkDependency{{Activity: tc.item.Name, DependsOn: []string{}}},
 			)
-			sel := nextEligibleActivity(proj)
+			sel := nextEligibleActivity(proj, eligibleDispatchable)
 			if sel.Verdict != verdictDispatch {
 				t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 			}
@@ -1593,7 +1625,7 @@ func TestNextEligibleActivity_UnknownComponentIsBlocked(t *testing.T) {
 		}},
 		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
 	)
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictBlocked {
 		t.Fatalf("want verdictBlocked, got %v", sel.Verdict)
 	}
@@ -1629,7 +1661,7 @@ func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent, got %v", sel.Verdict)
 	}
@@ -1664,7 +1696,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 
 	// ---- Case 1: empty ActivityConstruction → A is eligible (no deps). ----
 	proj := base
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 1: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1679,7 +1711,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 2: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1695,7 +1727,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("case 3: expected verdictQuiescent, got %v", sel.Verdict)
 	}
@@ -1705,7 +1737,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 4: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1776,7 +1808,7 @@ func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispat
 	if a := proj.ActivityConstruction["A"]; a.Phase != projectstate.ActivityConstructionNotStarted || len(a.Phases) != 0 {
 		t.Fatalf("fixture must be the backfill shape (no stored phase fields), got phase=%v phases=%d", a.Phase, len(a.Phases))
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch of B, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1803,7 +1835,7 @@ func TestNextEligibleActivity_ExitedSkippedRowStillUnblocksItsDependents(t *test
 			Phases:      phases,
 		},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "B" {
 		t.Fatalf("want B dispatched behind a Skipped-exited A, got verdict=%v activity=%q (blocked=%q)",
 			sel.Verdict, sel.Activity.ActivityID, sel.BlockedReason)
@@ -1828,9 +1860,29 @@ func TestNextEligibleActivity_RejectedGateRowIsRunningNotDispatchedAndBlocks(t *
 	if got, _ := projectstate.EffectiveConstructionPhase(row, proj.ActivityList.Model.(*projectstate.ActivityList).Activities[0]); got != projectstate.ActivityConstructionRunning {
 		t.Fatalf("a ledger with a rejected latest gate must read Running, got %v", got)
 	}
-	sel := nextEligibleActivity(proj)
+	// The pre-D1 rule (a pump that recorded no ledger-partial-resume marker).
+	sel := nextEligibleActivity(proj, eligibleNotStarted)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (A running, B blocked on it), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
+	}
+}
+
+// Under the D1 rule the same row IS dispatched: no pump wrote it and it reads Running, so
+// it is a ledger-partial row and resumes at its first incomplete phase — Construction,
+// whose latest code review was rejected (App A: a failing review repeats the task). B
+// still waits: A is not Done.
+func TestNextEligibleActivity_RejectedGateRowResumesUnderTheLedgerPartialRule(t *testing.T) {
+	proj := ledgerChain()
+	attempts := passedLedger("A",
+		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
+	attempts = append(attempts,
+		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
+		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {ActivityID: "A", Attempts: attempts}}
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
+		t.Fatalf("want A dispatched to resume, got verdict=%v activity=%q", sel.Verdict, sel.Activity.ActivityID)
 	}
 }
 
@@ -1866,7 +1918,7 @@ func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch (M4 reached via its own dependsOn), got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1903,7 +1955,7 @@ func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (M4 not yet reached), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
 	}
@@ -1935,7 +1987,7 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch through M4->M3->A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1948,7 +2000,7 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (A not done, M3/M4 not reached), got %v", sel.Verdict)
 	}
@@ -1978,7 +2030,7 @@ func TestNextEligibleActivity_MilestoneCycleTerminates(t *testing.T) {
 			}),
 			SystemDesign: makeCommittedSystemDesign(nil),
 		}
-		done <- nextEligibleActivity(proj)
+		done <- nextEligibleActivity(proj, eligibleDispatchable)
 	}()
 
 	select {
@@ -2013,7 +2065,7 @@ func TestNextEligibleActivity_UnknownDependencyIdIsBlocked(t *testing.T) {
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictBlocked {
 		t.Fatalf("want verdictBlocked for an unresolvable dependency id, got %v", sel.Verdict)
 	}
@@ -2047,7 +2099,7 @@ func TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork(t *testi
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch for unrelated eligible activity A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -2067,7 +2119,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 		proj := projectstate.Project{
 			ActivityList: makeCommittedActivityList(activities),
 		}
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for uncommitted network, got %v", sel.Verdict)
 		}
@@ -2080,7 +2132,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 				{Activity: "A", DependsOn: []string{}},
 			}),
 		}
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for uncommitted activity list, got %v", sel.Verdict)
 		}
@@ -2088,7 +2140,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 
 	// Both uncommitted (zero-value project).
 	t.Run("both_uncommitted", func(t *testing.T) {
-		sel := nextEligibleActivity(projectstate.Project{})
+		sel := nextEligibleActivity(projectstate.Project{}, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for zero-value project, got %v", sel.Verdict)
 		}
@@ -2122,7 +2174,7 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := base
 			proj.Phase = tc.phase
-			if sel := nextEligibleActivity(proj); sel.Verdict != verdictQuiescent {
+			if sel := nextEligibleActivity(proj, eligibleDispatchable); sel.Verdict != verdictQuiescent {
 				t.Fatalf("expected verdictQuiescent before the construction seal (phase %v), got %v", tc.phase, sel.Verdict)
 			}
 		})
@@ -2131,7 +2183,7 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	t.Run("construction", func(t *testing.T) {
 		proj := base
 		proj.Phase = projectstate.PhaseConstruction
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
 			t.Fatalf("expected A eligible once sealed into construction, got verdict=%v id=%q", sel.Verdict, sel.Activity.ActivityID)
 		}
@@ -2171,7 +2223,7 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("expected C-PE to be eligible, got verdict=%v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -2206,7 +2258,7 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 			{ID: "comp-x", Name: "X", Layer: projectstate.LayerEngine},
 		}),
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -2514,6 +2566,24 @@ func (f *fakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.P
 }
 
 func (f *fakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ReviewPolicy, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.OperatorNoteInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _, _, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
@@ -3507,7 +3577,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
@@ -3545,7 +3615,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
@@ -3580,7 +3650,7 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictQuiescent}
 		},
 	})
@@ -3614,7 +3684,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictQuiescent} // network drained
 		},
 	})
@@ -3646,7 +3716,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	const reason = `activity C-TLM names component "todo-list-managr", which is not in the committed systemDesign — amend the committed activityList`
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{
 				Verdict:              verdictBlocked,
 				BlockedActivityID:    "C-TLM",
@@ -3828,7 +3898,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // an activity IS eligible — but the pause wins
 		},
 	})
@@ -3876,7 +3946,7 @@ func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // the frontier never drains on its own
 		},
 	})
@@ -3955,7 +4025,7 @@ func newPumpRig(sel pumpSelection, childRun, readDelay time.Duration, opts ...fu
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return sel
 		},
 	})
@@ -4166,7 +4236,7 @@ func runPumpsInWindow(ps *fakeProjectState, pid ProjectID) windowPumps {
 		return newWorkflows(wfDeps{
 			Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 			Review:       &fakeReview{},
-			NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 				return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 			},
 		})
@@ -5440,6 +5510,12 @@ func (c *envSignalClient) SignalWorkflow(_ context.Context, workflowID string, _
 	return c.env.SignalWorkflowByID(workflowID, signalName, arg)
 }
 
+// QueryWorkflow serves the façade's session read from the running test workflow, so the
+// B1.3 precheck runs against the real view.
+func (c *envSignalClient) QueryWorkflow(_ context.Context, _ string, _ string, queryType string, args ...any) (converter.EncodedValue, error) {
+	return c.env.QueryWorkflow(queryType, args...)
+}
+
 // Test_Construct_LocalMerge_ReleasedThroughFacade is the production path for the
 // merge hold: every approval — the three checkpoints phase gates AND the merge
 // gate — arrives via constructionManager.SubmitPhaseDecision, not a direct
@@ -6377,7 +6453,7 @@ func TestSubmitPhaseDecision_RejectsUnknownPhase(t *testing.T) {
 // canonical phases must all pass the new vocabulary gate.
 func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
 	for _, phase := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
-		m := newTestConstructionManager(&fakeTemporalClient{})
+		m := newTestConstructionManager(&fakeTemporalClient{session: awaitingAt(phase)})
 		if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil); err != nil {
 			t.Errorf("phase %q must be accepted, got %v", phase, err)
 		}
@@ -6389,7 +6465,7 @@ func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
 // operator path that releases it. Approve on "merge" must pass validation and
 // land on the per-activity workflow with the key intact.
 func TestSubmitPhaseDecision_MergeApproveSignalsActivityWorkflow(t *testing.T) {
-	fc := &fakeTemporalClient{}
+	fc := &fakeTemporalClient{session: awaitingAt(mergeGateKey)}
 	m := newTestConstructionManager(fc)
 	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseApprove, nil); err != nil {
 		t.Fatalf("SubmitPhaseDecision(merge, Approve): %v", err)
@@ -6439,7 +6515,7 @@ func TestSubmitPhaseDecision_UnknownGateKeyStillRejected(t *testing.T) {
 // but `required` is presence-only: an empty string satisfied it and left the
 // operator's steer with no durable record of why it happened.
 func TestOverrideActivity_RequiresNotes(t *testing.T) {
-	m := newTestConstructionManager(&fakeTemporalClient{})
+	m := newTestConstructionManager(&fakeTemporalClient{session: ConstructionSessionView{Stage: StageAwaitingTakeover}})
 	err := m.OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "  "})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for a blank override note, got %s", got)
@@ -6448,3 +6524,1295 @@ func TestOverrideActivity_RequiresNotes(t *testing.T) {
 		t.Fatalf("a noted override must be accepted: %v", err)
 	}
 }
+
+// ===========================================================================
+// B1.0 — THE WORKFLOW REPLAY HARNESS (plan-B1-B2.md §B1.0; amendment B.3 + D.4).
+//
+// Every history under testdata/replay/ was CAPTURED from a real Temporal dev server
+// running the workflow code as it stood when the fixture was taken (pre-b1/ and pre-d/
+// on the code BEFORE any B1 or D1 workflow change). Test_Replay_PreB1Histories_StayDeterministic
+// replays each one against the CURRENT code: a change that alters the command
+// sequence an in-flight execution already recorded fails here, instead of failing a
+// parked production workflow task after a deploy. A GetVersion guard is proven
+// load-bearing by removing it and watching the matching fixture fail.
+//
+// Capture and replay build the workflows receiver from the SAME rig, because the
+// workflow body branches on its deps (gitOn is GitStatus != nil; the escalation wait
+// arms a timer only when EscalationWaitTimeout > 0; the pump selects through
+// NextEligibleActivity). Re-capture a directory with
+//
+//	CONSTRUCT_HISTORY_CAPTURE=1 [CONSTRUCT_HISTORY_CAPTURE_DIR=<dir>] GOWORK=off \
+//	  go test ./internal/manager/construction/ -run '^TestCaptureConstructHistories$' -count=1
+//
+// It needs the `temporal` CLI on PATH (it starts an offline dev server through
+// testsuite.StartDevServer's ExistingPath, on its own port and namespace). NEVER
+// re-capture pre-* directories on changed code: they are the record of what already
+// ran.
+// ===========================================================================
+
+const (
+	replayProjectID  ProjectID  = "p-replay"
+	replayActivityID ActivityID = "C-Orders"
+)
+
+// replayRig is one scenario's workflows receiver plus the fakes behind its activities.
+type replayRig struct {
+	wf   *workflows
+	ps   *fakeProjectState
+	pipe agenticjob.AgenticJobAccess
+	bus  messagebus.MessageBus
+}
+
+// activities backs every generated activity from the rig's fakes, exactly as the
+// production worker registers them (RegisterWorker), so a capture runs the real
+// registration path.
+func (r replayRig) activities() genActivities {
+	full := fakeFullProjectState{r.ps}
+	bus := r.bus
+	if bus == nil {
+		bus = &recordingSignalBus{}
+	}
+	return genActivities{
+		ProjectState:           full,
+		Pipeline:               r.pipe,
+		ConstructionTransition: fakeConstructionTransition{r.ps},
+		GitStatus:              r.ps,
+		DesignSession:          projectstate.NewDesignSessionAccess(full),
+		MessageBus:             bus,
+		Episodes:               &fakeEpisodes{},
+	}
+}
+
+// replayScenario is one captured history: its fixture location, its rig, and how the
+// capture tool drives it. drive returns the execution to export, and open=true when the
+// execution is still running (or continues as new) and must be terminated after export.
+type replayScenario struct {
+	dir   string
+	name  string
+	rig   func() replayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, taskQueue string, r replayRig) (wfID, runID string, open bool)
+}
+
+func replayFixturePath(sc replayScenario) string {
+	return filepath.Join("testdata", "replay", sc.dir, sc.name+".json")
+}
+
+// replayRegistrations are the workflows a fixture can belong to, under their
+// registered names.
+func replayRegistrations(wf *workflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
+		{Name: executionKindConstructActivity, Fn: wf.ConstructActivityWorkflow},
+		{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+	}
+}
+
+// replayWorkflows builds the receiver with the production invoker option hook.
+func replayWorkflows(d wfDeps) *workflows {
+	d.Acts = genInvokers{Opts: activityOptions()}
+	if d.Review == nil {
+		d.Review = &fakeReview{}
+	}
+	return newWorkflows(d)
+}
+
+func replayGateRig(policy projectstate.ReviewPolicy) replayRig {
+	ps := newFakeProjectStateWithPolicy(policy)
+	ps.project.ID = projectstate.ProjectID(replayProjectID)
+	return replayRig{wf: replayWorkflows(gateDeps(ps)), ps: ps, pipe: newFakePipeline()}
+}
+
+func replayGatedOn(phases ...projectstate.ActivityMethodPhase) projectstate.ReviewPolicy {
+	return projectstate.ReviewPolicy{GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{"service": phases}}
+}
+
+// replayEscalateRig fails detailed_design's first dispatch into an Escalate directive.
+// gitOn follows GitStatus; wait is the escalation window (0 = wait forever, no timer).
+func replayEscalateRig(gitOn bool, wait time.Duration) replayRig {
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.project.ID = projectstate.ProjectID(replayProjectID)
+	d := wfDeps{Intervention: &fakeIntervention{directive: intervention.VarianceEscalate}, EscalationWaitTimeout: wait}
+	if gitOn {
+		d.GitStatus = ps
+	}
+	return replayRig{wf: replayWorkflows(d), ps: ps, pipe: newFakePipelineFailingOnce("detailed_design")}
+}
+
+// replayPumpRig serves proj to a pump that selects with the production rule.
+func replayPumpRig(proj projectstate.Project) replayRig {
+	proj.ID = projectstate.ProjectID(replayProjectID)
+	proj.Version = 1
+	ps := &fakeProjectState{project: proj}
+	return replayRig{
+		wf: replayWorkflows(wfDeps{
+			Intervention:         &fakeIntervention{directive: intervention.VarianceRetry},
+			NextEligibleActivity: nextEligibleActivity,
+		}),
+		ps:   ps,
+		pipe: newFakePipeline(),
+	}
+}
+
+// replayPartialLedgerPhases are the four service phases an integration-pending row's
+// ledger holds passed (architect (D), P1): everything but Integration.
+var replayPartialLedgerPhases = []projectstate.ActivityMethodPhase{
+	projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan,
+	projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction,
+}
+
+func replayScenarios() []replayScenario {
+	return []replayScenario{
+		{
+			dir: "pre-b1", name: "gate-sendback-redraft-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				before := replaySubmitted(r.pipe)
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{
+					Phase: "detailed_design", Decision: PhaseSendBack,
+					Feedback: &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}},
+				})
+				replayAwaitView(ctx, t, c, run.GetID(), "the redraft's gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == before+1
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "escalate-override-retry",
+			rig: func() replayRig { return replayEscalateRig(false, time.Hour) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the escalation", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingTakeover
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{
+					Kind: OverrideRetry, Notes: "the fixture server was down; retry",
+				}})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "escalate-override-skip",
+			rig: func() replayRig { return replayEscalateRig(true, 0) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the escalation", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingTakeover
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{
+					Kind: OverrideSkip, Notes: "built by hand; nothing to construct",
+				}})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "parked-at-gate",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				return run.GetID(), run.GetRunID(), true
+			},
+		},
+		{
+			dir: "pre-b1", name: "local-merge-hold-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseConstruction)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the construction gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "construction", Decision: PhaseApprove})
+				// All five phases dispatched and the merge job not yet: the merge hold.
+				replayAwaitView(ctx, t, c, run.GetID(), "the merge hold", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == 5
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: mergeGateKey, Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "supervision-pause-record-relay-cancel",
+			rig: func() replayRig {
+				ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(replayProjectID), Version: 2, Phase: 2}}
+				return replayRig{
+					wf: replayWorkflows(wfDeps{Intervention: &fakeIntervention{plan: intervention.PausePlan{
+						PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: true,
+					}}}),
+					ps: ps, pipe: newFakePipeline(), bus: &recordingSignalBus{},
+				}
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				id := pauseTargetWorkflowID(replayProjectID)
+				run, err := c.SignalWithStartWorkflow(ctx, id, signalOperatorPauseRequested,
+					operatorPauseSignal{ProjectID: replayProjectID, Reason: "operator halt"},
+					client.StartWorkflowOptions{ID: id, TaskQueue: tq}, executionKindProjectSupervision,
+					projectSupervisionInput{ProjectID: replayProjectID})
+				if err != nil {
+					t.Fatalf("signal-with-start supervision: %v", err)
+				}
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "pre-b1", name: "pump-operator-driven-over-recorded-pause",
+			rig: func() replayRig {
+				proj := ledgerChain()
+				proj.OperatorPaused = true
+				proj.PauseReason = "operator halt"
+				return replayPumpRig(proj)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				return replayRunPumpOnce(ctx, t, c, tq, pumpInput{ProjectID: replayProjectID, OperatorDriven: true})
+			},
+		},
+		{
+			// Architect (D), D.2: a pump that read a ledger-partial row whose dependencies
+			// were all Done, and chose ANOTHER activity (the pre-D1 rule only picks
+			// NotStarted). P is declared before O, so the widened rule would pick P.
+			dir: "pre-d", name: "pump-other-choice-with-partial-row-deps-done",
+			rig: func() replayRig { return replayPumpRig(replayPartialRowProject()) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				return replayRunPumpOnce(ctx, t, c, tq, pumpInput{ProjectID: replayProjectID})
+			},
+		},
+		{
+			// Architect (D), D.2: a construct run whose start snapshot read a row carrying a
+			// ledger and no stored phases. The pre-D1 seed reads the stored Phases only, so
+			// it walks all five phases.
+			dir: "pre-d", name: "construct-ledger-row-stored-seed",
+			rig: func() replayRig {
+				r := replayGateRig(projectstate.ReviewPolicy{})
+				r.ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+					string(replayActivityID): {ActivityID: string(replayActivityID), Attempts: passedLedger(string(replayActivityID), replayPartialLedgerPhases...)},
+				}
+				return r
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
+}
+
+// replayPartialRowProject is D (Done), P (integration-pending, depends on D) and O (not
+// started, depends on D), declared in that order.
+func replayPartialRowProject() projectstate.Project {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "D", Title: "D", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "P", Title: "P", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "O", Title: "O", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "D", DependsOn: []string{}},
+			{Activity: "P", DependsOn: []string{"D"}},
+			{Activity: "O", DependsOn: []string{"D"}},
+		},
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"D": {ActivityID: "D", Phase: projectstate.ActivityConstructionDone},
+		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
+	}
+	return proj
+}
+
+func replayStartConstruct(ctx context.Context, t *testing.T, c client.Client, tq string) client.WorkflowRun {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID: constructActivityWorkflowID(replayProjectID, replayActivityID), TaskQueue: tq,
+	}, executionKindConstructActivity, constructActivityInput{
+		ProjectID: replayProjectID, ActivityID: replayActivityID, Activity: sampleActivity(),
+	})
+	if err != nil {
+		t.Fatalf("start construct: %v", err)
+	}
+	return run
+}
+
+// replayRunPumpOnce starts the pump and returns once its FIRST run has closed (it
+// dispatched, waited for the child, and continued as new). The chain is still open.
+func replayRunPumpOnce(ctx context.Context, t *testing.T, c client.Client, tq string, in pumpInput) (string, string, bool) {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{ID: pumpWorkflowID(in.ProjectID), TaskQueue: tq}, executionKindPump, in)
+	if err != nil {
+		t.Fatalf("start pump: %v", err)
+	}
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		resp, derr := c.DescribeWorkflowExecution(ctx, run.GetID(), run.GetRunID())
+		if derr == nil && resp.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			return run.GetID(), run.GetRunID(), true
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("pump run %s never closed", run.GetRunID())
+	return "", "", false
+}
+
+func replayAwaitView(ctx context.Context, t *testing.T, c client.Client, wfID, what string, ok func(ConstructionSessionView) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", querySessionState); err == nil {
+			var v ConstructionSessionView
+			if enc.Get(&v) == nil && ok(v) {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never reached %s", wfID, what)
+}
+
+func replaySignal(ctx context.Context, t *testing.T, c client.Client, wfID, name string, arg any) {
+	t.Helper()
+	if err := c.SignalWorkflow(ctx, wfID, "", name, arg); err != nil {
+		t.Fatalf("signal %s to %s: %v", name, wfID, err)
+	}
+}
+
+func replayAwaitDone(ctx context.Context, t *testing.T, run client.WorkflowRun) {
+	t.Helper()
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("%s did not complete cleanly: %v", run.GetID(), err)
+	}
+}
+
+// replaySubmitted counts the pipeline submits a rig's fake has served.
+func replaySubmitted(pipe agenticjob.AgenticJobAccess) int {
+	switch p := pipe.(type) {
+	case *fakePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.submitted)
+	case *failOncePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return len(p.submitted)
+	default:
+		return -1
+	}
+}
+
+// replayExportHistory writes one run's full history in the CLI's JSON format, which is
+// what WorkflowReplayer.ReplayWorkflowHistoryFromJSONFile reads.
+func replayExportHistory(ctx context.Context, c client.Client, wfID, runID, path string) error {
+	it := c.GetWorkflowHistory(ctx, wfID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	var h historypb.History
+	for it.HasNext() {
+		ev, err := it.Next()
+		if err != nil {
+			return err
+		}
+		h.Events = append(h.Events, ev)
+	}
+	b, err := temporalproto.CustomJSONMarshalOptions{Indent: "  "}.Marshal(&h)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+// TestCaptureConstructHistories is the CAPTURE TOOL behind the replay fixtures (env-gated,
+// like derived-plan-write). See the section header for when, and when never, to run it.
+func TestCaptureConstructHistories(t *testing.T) {
+	if os.Getenv("CONSTRUCT_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set CONSTRUCT_HISTORY_CAPTURE=1 to (re)write testdata/replay/ fixtures")
+	}
+	only := os.Getenv("CONSTRUCT_HISTORY_CAPTURE_DIR")
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "b1-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	for i, sc := range replayScenarios() {
+		if only != "" && sc.dir != only {
+			continue
+		}
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			r := sc.rig()
+			tq := fmt.Sprintf("replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       replayRegistrations(r.wf),
+				ActivityOptions: activityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := replayExportHistory(ctx, c, wfID, runID, replayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", replayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// replayFixture replays one fixture against the current workflow code.
+func replayFixture(sc replayScenario) error {
+	rep := worker.NewWorkflowReplayer()
+	for _, reg := range replayRegistrations(sc.rig().wf) {
+		rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+	}
+	return rep.ReplayWorkflowHistoryFromJSONFile(nil, replayFixturePath(sc))
+}
+
+// Test_Replay_PreB1Histories_StayDeterministic replays every captured history against
+// the current code; each must replay with no non-determinism error. A missing fixture
+// fails (it never skips), and a fixture no scenario names fails too, so nothing under
+// testdata/replay/ can sit there unreplayed.
+func Test_Replay_PreB1Histories_StayDeterministic(t *testing.T) {
+	covered := map[string]bool{}
+	for _, sc := range replayScenarios() {
+		path := replayFixturePath(sc)
+		covered[path] = true
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with CONSTRUCT_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if err := replayFixture(sc); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "replay", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no replay fixtures found under testdata/replay")
+	}
+	for _, f := range files {
+		if !covered[f] {
+			t.Errorf("fixture %s has no replay scenario, so nothing replays it", f)
+		}
+	}
+}
+
+// ===========================================================================
+// D1 — INTEGRATION-PENDING ROWS, THE PUMP HALF (architect (D), D.1 / D.2 / D.4).
+// ===========================================================================
+
+// TestIsActivityDispatchable_Table is D.4's dispatchable table.
+func TestIsActivityDispatchable_Table(t *testing.T) {
+	item := projectstate.ActivityItem{Name: "A", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"}
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	storedPhases := func(completeFirst bool) []projectstate.PhaseCompletion {
+		out := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
+		for i, ph := range servicePhases {
+			out = append(out, projectstate.PhaseCompletion{Phase: ph, Completed: completeFirst && i == 0})
+		}
+		return out
+	}
+	cases := []struct {
+		name string
+		row  *projectstate.ActivityConstructionStatus
+		want bool
+	}{
+		{"absent", nil, true},
+		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityConstructionStatus{
+			Attempts: []projectstate.TaskAttempt{ledgerAttempt("A", projectstate.TaskSRS, 1, projectstate.OutcomePassed)}}, true},
+		{"ledger 4/5: integration-pending", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
+		{"ledger 5/5: Done", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", servicePhases...)}, false},
+		{"stored Running with StartedAt: a pump started it", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionRunning, StartedAt: &now}, false},
+		{"stored Failed", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionFailed, FailureReason: projectstate.PipelineFailed}, false},
+		{"stored Done-exited with incomplete phases", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionDone, BuildStatus: projectstate.BuildInReview, Phases: storedPhases(true)}, false},
+		{"stored phases plus a partial ledger: the pump wrote it", &projectstate.ActivityConstructionStatus{
+			Phases: storedPhases(false), Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status := map[string]projectstate.ActivityConstructionStatus{}
+			if c.row != nil {
+				r := *c.row
+				r.ActivityID = "A"
+				status["A"] = r
+			}
+			if got := isActivityDispatchable("A", item, status); got != c.want {
+				t.Fatalf("isActivityDispatchable = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// d1Project is D (built), P (integration-pending, depends on D), Q (depends on P) and O
+// (depends on D), declared in that order.
+func d1Project() projectstate.Project {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "D", Title: "D", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "P", Title: "P", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "Q", Title: "Q", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "O", Title: "O", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "D", DependsOn: []string{}},
+			{Activity: "P", DependsOn: []string{"D"}},
+			{Activity: "Q", DependsOn: []string{"P"}},
+			{Activity: "O", DependsOn: []string{"D"}},
+		},
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
+	}
+	return proj
+}
+
+func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
+	pick := func(proj projectstate.Project, rule eligibilityRule) string {
+		t.Helper()
+		sel := nextEligibleActivity(proj, rule)
+		if sel.Verdict != verdictDispatch {
+			return ""
+		}
+		return sel.Activity.ActivityID
+	}
+	doneD := func(proj projectstate.Project) projectstate.Project {
+		proj.ActivityConstruction["D"] = projectstate.ActivityConstructionStatus{ActivityID: "D", Phase: projectstate.ActivityConstructionDone}
+		return proj
+	}
+
+	// Its dependency is not Done: P is not selected (D is), and Q waits behind P.
+	if got := pick(d1Project(), eligibleDispatchable); got != "D" {
+		t.Fatalf("with D unbuilt, want D selected (P must wait on it), got %q", got)
+	}
+	// Its dependency is Done: P is selected, in declaration order ahead of O.
+	if got := pick(doneD(d1Project()), eligibleDispatchable); got != "P" {
+		t.Fatalf("with D Done, want the integration-pending P selected, got %q", got)
+	}
+	// The pre-D1 rule never picks P: it reads Running.
+	if got := pick(doneD(d1Project()), eligibleNotStarted); got != "O" {
+		t.Fatalf("under the pre-D1 rule, want O (P is not NotStarted), got %q", got)
+	}
+	// Once a pump started P (RecordActivityStarted: stored Running + StartedAt), a re-tick
+	// must not dispatch it again — O is next, and Q still waits on P.
+	started := doneD(d1Project())
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	p := started.ActivityConstruction["P"]
+	p.Phase, p.StartedAt = projectstate.ActivityConstructionRunning, &now
+	started.ActivityConstruction["P"] = p
+	if got := pick(started, eligibleDispatchable); got != "O" {
+		t.Fatalf("a P a pump has started must leave the dispatchable set, want O, got %q", got)
+	}
+	// A fully passed ledger is Done: never dispatched, and it satisfies Q.
+	full := doneD(d1Project())
+	full.ActivityConstruction["P"] = projectstate.ActivityConstructionStatus{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
+	if got := pick(full, eligibleDispatchable); got != "Q" {
+		t.Fatalf("with P Done by its ledger, want Q, got %q", got)
+	}
+}
+
+// The seed reads the REAL integration-pending row (C-billing-manager, verbatim from
+// project.json): the four phases its ledger passed, not Integration; every task at #1.
+func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "integration-pending-row.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row projectstate.ActivityConstructionStatus
+	if err := json.Unmarshal(b, &row); err != nil {
+		t.Fatal(err)
+	}
+	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	want := map[projectstate.ActivityMethodPhase]bool{
+		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true,
+		projectstate.MethodPhaseDetailedDesign: true, projectstate.MethodPhaseConstruction: true,
+	}
+	if !maps.Equal(state.completedPhases, want) {
+		t.Fatalf("completedPhases = %v, want %v", state.completedPhases, want)
+	}
+	for _, task := range []projectstate.MethodTask{
+		projectstate.TaskSRS, projectstate.TaskSRSReview, projectstate.TaskSTP, projectstate.TaskSTPReview,
+		projectstate.TaskDetailedDesign, projectstate.TaskDesignReview, projectstate.TaskConstruction, projectstate.TaskCodeReview,
+	} {
+		if state.taskAttempts[task] != 1 {
+			t.Errorf("taskAttempts[%s] = %d, want 1", task, state.taskAttempts[task])
+		}
+	}
+	if n := state.taskAttempts[projectstate.TaskIntegration]; n != 0 {
+		t.Errorf("taskAttempts[integration] = %d, want 0: the ledger holds no integration attempt", n)
+	}
+}
+
+// Where the ledger has decided, it overrules the stored slice both ways: the all-false
+// phases RecordPhaseStarted seeds do not undo the ledger's passed gates, and a rejected
+// Integration gate undoes a stored completion. Where it is silent, stored state stands.
+func TestSeedResumeFromLedger_LedgerOverrulesStoredWhereItDecided(t *testing.T) {
+	stored := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
+	for _, ph := range servicePhases {
+		stored = append(stored, projectstate.PhaseCompletion{Phase: ph, Completed: ph == projectstate.MethodPhaseIntegration})
+	}
+	attempts := passedLedger("A", projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
+	attempts = append(attempts, ledgerAttempt("A", projectstate.TaskTesting, 3, projectstate.OutcomeRejected))
+	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Phases: stored, Attempts: attempts}
+	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	want := map[projectstate.ActivityMethodPhase]bool{
+		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true, projectstate.MethodPhaseDetailedDesign: true,
+	}
+	if !maps.Equal(state.completedPhases, want) {
+		t.Fatalf("completedPhases = %v, want %v (construction undecided and stored false; integration rejected)", state.completedPhases, want)
+	}
+	if n := state.taskAttempts[projectstate.TaskTesting]; n != 3 {
+		t.Fatalf("taskAttempts[testing] = %d, want 3 (the ledger's highest)", n)
+	}
+}
+
+// d1ConstructRun runs one construct workflow for C-Orders whose row carries attempts,
+// gitOn with no PR rail (the local profile, so the merge job runs), and returns what it did.
+type d1Run struct {
+	agent  []agenticjob.PipelineSpec
+	merges []agenticjob.PipelineSpec
+	ps     *fakeProjectState
+	eps    *fakeEpisodes
+	order  []string
+	err    error
+}
+
+func d1ConstructRun(t *testing.T, attempts []projectstate.TaskAttempt, setup func(*testsuite.TestWorkflowEnvironment)) d1Run {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"C-Orders": {ActivityID: "C-Orders", Attempts: attempts},
+	}
+	pipe := newFakePipeline()
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe, eps)
+	var order []string
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		order = append(order, info.ActivityType.Name)
+	})
+	if setup != nil {
+		setup(env)
+	}
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	var agent []agenticjob.PipelineSpec
+	for _, s := range pipe.submitted {
+		if s.DispatchInputs[agenticjob.DispatchInputJobKey] != agenticjob.DispatchJobMerge {
+			agent = append(agent, s)
+		}
+	}
+	return d1Run{agent: agent, merges: mergeSubmits(pipe.submitted), ps: ps, eps: eps, order: order, err: env.GetWorkflowError()}
+}
+
+func (r d1Run) targetRefs() []string {
+	var out []string
+	for _, rec := range r.eps.records() {
+		out = append(out, rec.TargetRef)
+	}
+	return out
+}
+
+// D.4: the ledger-seeded child dispatches Integration only, records the activity started
+// BEFORE that dispatch, then merges and finalizes.
+func Test_Construct_IntegrationPendingRow_RunsOnlyIntegrationThenMergesAndFinalizes(t *testing.T) {
+	r := d1ConstructRun(t, passedLedger("C-Orders", replayPartialLedgerPhases...), nil)
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if len(r.agent) != 1 || r.agent[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want exactly one agent dispatch, for integration; got %d: %v", len(r.agent), r.agent)
+	}
+	if len(r.merges) != 1 {
+		t.Fatalf("want the local merge after integration, got %d merge submits", len(r.merges))
+	}
+	if len(r.ps.exited) != 1 || r.ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("want one Completed exit, got %v", r.ps.exited)
+	}
+	started := slices.Index(r.order, "gitActivityStatusAccess.recordActivityStarted")
+	submit := slices.Index(r.order, "agenticJobAccess.submitAgenticJob")
+	if started < 0 || submit < 0 || started > submit {
+		t.Fatalf("RecordActivityStarted (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
+	}
+	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:1"}) {
+		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:1]", got)
+	}
+}
+
+// D.1.3: a ledger that already holds integration#1 makes the next dispatch #2, never a
+// second #1.
+func Test_Construct_IntegrationPendingRow_AttemptContinuesTheLedger(t *testing.T) {
+	attempts := append(passedLedger("C-Orders", replayPartialLedgerPhases...),
+		ledgerAttempt("C-Orders", projectstate.TaskIntegration, 1, projectstate.OutcomeFailed))
+	r := d1ConstructRun(t, attempts, nil)
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:2"}) {
+		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:2]", got)
+	}
+}
+
+// DefaultVersion (an execution that seeded before D1): the stored-only seed, so the same
+// row walks all five phases, numbered from #1.
+func Test_Construct_LedgerPartialResume_DefaultVersion_KeepsTheStoredSeed(t *testing.T) {
+	r := d1ConstructRun(t, passedLedger("C-Orders", replayPartialLedgerPhases...), func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	})
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if len(r.agent) != 5 {
+		t.Fatalf("DefaultVersion must walk all five phases, got %d agent dispatches", len(r.agent))
+	}
+	if refs := r.targetRefs(); len(refs) != 5 || refs[0] != "C-Orders:srs:1" {
+		t.Fatalf("DefaultVersion must number from #1 with no ledger seed, got %v", refs)
+	}
+}
+
+// d1PumpRun runs one pump over replayPartialRowProject (D Done, P integration-pending, O
+// not started) and returns the agent dispatches its child made.
+func d1PumpRun(t *testing.T, setup func(*testsuite.TestWorkflowEnvironment)) []agenticjob.PipelineSpec {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	proj := replayPartialRowProject()
+	proj.ID, proj.Version = "p-d1", 1
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline()
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}, NextEligibleActivity: nextEligibleActivity})
+	registerPump(env, wf, ps, pipe)
+	if setup != nil {
+		setup(env)
+	}
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: "p-d1"})
+	return pipe.submitted
+}
+
+// End to end: the pump picks the integration-pending P (its dependency is Done) and its
+// child dispatches P's Integration phase only.
+func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) {
+	got := d1PumpRun(t, nil)
+	if len(got) != 1 || got[0].ActivityID != "P" || got[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want one dispatch, P's integration; got %v", got)
+	}
+}
+
+// DefaultVersion (a pump that recorded the pre-D1 selection): O, from its first phase.
+func Test_Pump_LedgerPartialResume_DefaultVersion_KeepsTheOldSelection(t *testing.T) {
+	got := d1PumpRun(t, func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	})
+	if len(got) == 0 || got[0].ActivityID != "O" {
+		t.Fatalf("DefaultVersion must keep the old choice, O; got %v", got)
+	}
+}
+
+// ===========================================================================
+// B1.2 — THE SESSION VIEW REPORTS THE HUMAN STAGE (plan B1.2).
+// ===========================================================================
+
+func b12View(t *testing.T, env *testsuite.TestWorkflowEnvironment) ConstructionSessionView {
+	t.Helper()
+	enc, err := env.QueryWorkflow(querySessionState)
+	if err != nil {
+		t.Fatalf("query session state: %v", err)
+	}
+	var v ConstructionSessionView
+	if err := enc.Get(&v); err != nil {
+		t.Fatalf("decode session view: %v", err)
+	}
+	return v
+}
+
+func b12Gate(v ConstructionSessionView) string {
+	if v.AwaitingGate == nil {
+		return ""
+	}
+	return *v.AwaitingGate
+}
+
+func b12Decide(env *testsuite.TestWorkflowEnvironment, key string, d PhaseDecision) func() {
+	return func() {
+		sig := phaseDecisionSignal{Phase: key, Decision: d}
+		if d == PhaseSendBack {
+			sig.Feedback = &ReviewFeedback{Notes: "redraft it"}
+		}
+		env.SignalWorkflow(signalPhaseDecision, sig)
+	}
+}
+
+func b12Run(env *testsuite.TestWorkflowEnvironment) {
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+}
+
+// A phase gate names itself and its occurrence; a redraft re-enters as a NEW occurrence;
+// the decision clears the awaiting fields.
+func Test_SessionView_PhaseGate_ReportsTheOccurrenceAndClearsOnDecision(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	start := env.Now()
+	var atGate, afterRedraft ConstructionSessionView
+	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseSendBack), 30*time.Second)
+	env.RegisterDelayedCallback(func() { afterRedraft = b12View(t, env) }, 45*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 60*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if atGate.Stage != StageAwaitingApproval || b12Gate(atGate) != "detailed_design" {
+		t.Fatalf("at the gate: stage=%v gate=%q, want awaitingApproval at detailed_design", atGate.Stage, b12Gate(atGate))
+	}
+	if atGate.AwaitingSince == nil || !atGate.AwaitingSince.Equal(start) {
+		t.Fatalf("awaitingSince = %v, want the gate's entry time %v", atGate.AwaitingSince, start)
+	}
+	if atGate.AwaitingUntil != nil {
+		t.Fatalf("an approval gate has no deadline, got awaitingUntil %v", atGate.AwaitingUntil)
+	}
+	if atGate.RedraftExhausted || atGate.Attempt != 1 || atGate.AttemptBudget != maxVarianceAttempts {
+		t.Fatalf("exhausted=%v attempt=%d/%d, want false, 1/%d", atGate.RedraftExhausted, atGate.Attempt, atGate.AttemptBudget, maxVarianceAttempts)
+	}
+	if afterRedraft.AwaitingSince == nil || !afterRedraft.AwaitingSince.Equal(start.Add(30*time.Second)) {
+		t.Fatalf("after the redraft awaitingSince = %v, want the re-entry time %v (a new occurrence)", afterRedraft.AwaitingSince, start.Add(30*time.Second))
+	}
+	if done := b12View(t, env); done.AwaitingGate != nil || done.AwaitingSince != nil || done.AwaitingUntil != nil {
+		t.Fatalf("the decision must clear the awaiting fields, got gate=%v since=%v until=%v", done.AwaitingGate, done.AwaitingSince, done.AwaitingUntil)
+	}
+}
+
+// An escalation waits at "takeover"; its deadline is since+wait when the wait is bounded
+// and absent when it waits indefinitely; the operator's Retry starts the next attempt.
+func Test_SessionView_Escalation_ReportsTakeoverAndItsDeadline(t *testing.T) {
+	for _, c := range []struct {
+		name string
+		wait time.Duration
+	}{{"bounded wait", time.Hour}, {"waits indefinitely", 0}} {
+		t.Run(c.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+			wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{directive: intervention.VarianceEscalate}, Review: &fakeReview{}, EscalationWaitTimeout: c.wait})
+			registerConstruct(env, wf, ps, newFakePipelineFailingOnce("detailed_design"))
+			start := env.Now()
+			var at ConstructionSessionView
+			env.RegisterDelayedCallback(func() { at = b12View(t, env) }, time.Minute)
+			env.RegisterDelayedCallback(func() {
+				env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{Kind: OverrideRetry, Notes: "retry it"}})
+			}, 2*time.Minute)
+			b12Run(env)
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			b12CheckEscalation(t, at, start, c.wait)
+			if done := b12View(t, env); done.AwaitingGate != nil || done.Attempt != 2 {
+				t.Fatalf("after the Retry gate=%v attempt=%d, want cleared and attempt 2", done.AwaitingGate, done.Attempt)
+			}
+		})
+	}
+}
+
+// b12CheckEscalation asserts the view an escalation reports while it waits.
+func b12CheckEscalation(t *testing.T, at ConstructionSessionView, start time.Time, wait time.Duration) {
+	t.Helper()
+	if at.Stage != StageAwaitingTakeover || b12Gate(at) != takeoverGateKey || at.AwaitingSince == nil || !at.AwaitingSince.Equal(start) {
+		t.Fatalf("at the escalation: stage=%v gate=%q since=%v, want awaitingTakeover at takeover since %v", at.Stage, b12Gate(at), at.AwaitingSince, start)
+	}
+	switch {
+	case wait > 0 && (at.AwaitingUntil == nil || !at.AwaitingUntil.Equal(start.Add(wait))):
+		t.Fatalf("awaitingUntil = %v, want %v", at.AwaitingUntil, start.Add(wait))
+	case wait == 0 && at.AwaitingUntil != nil:
+		t.Fatalf("an indefinite wait has no deadline, got %v", at.AwaitingUntil)
+	}
+	if at.Attempt != 1 || at.RedraftExhausted {
+		t.Fatalf("at the escalation attempt=%d exhausted=%v, want 1 and false", at.Attempt, at.RedraftExhausted)
+	}
+}
+
+// The redraft budget reads spent once a further SendBack could not redraft (after four
+// redrafts, not three), and the NEXT gate starts with a fresh budget (plan G5: the flag
+// used to leak into every later gate).
+func Test_SessionView_RedraftBudget_SpentAfterFourAndResetAtTheNextGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	var afterThree, afterFour, nextGate ConstructionSessionView
+	for i := 1; i <= 4; i++ {
+		env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseSendBack), time.Duration(30*i)*time.Second)
+	}
+	env.RegisterDelayedCallback(func() { afterThree = b12View(t, env) }, 105*time.Second)
+	env.RegisterDelayedCallback(func() { afterFour = b12View(t, env) }, 135*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 150*time.Second)
+	env.RegisterDelayedCallback(func() { nextGate = b12View(t, env) }, 165*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "construction", PhaseApprove), 180*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, mergeGateKey, PhaseApprove), 200*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if afterThree.RedraftExhausted {
+		t.Fatalf("after three redrafts one remains, but the view says the budget is spent")
+	}
+	if !afterFour.RedraftExhausted || b12Gate(afterFour) != "detailed_design" {
+		t.Fatalf("after four redrafts gate=%q exhausted=%v, want detailed_design and spent", b12Gate(afterFour), afterFour.RedraftExhausted)
+	}
+	if b12Gate(nextGate) != "construction" || nextGate.RedraftExhausted {
+		t.Fatalf("at the next gate gate=%q exhausted=%v, want construction with a fresh budget", b12Gate(nextGate), nextGate.RedraftExhausted)
+	}
+}
+
+// The local merge hold is addressable: it reports awaitingGate "merge".
+func Test_SessionView_MergeHold_ReportsTheMergeGate(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseConstruction))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	start := env.Now()
+	var hold ConstructionSessionView
+	env.RegisterDelayedCallback(b12Decide(env, "construction", PhaseApprove), 20*time.Second)
+	env.RegisterDelayedCallback(func() { hold = b12View(t, env) }, 40*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, mergeGateKey, PhaseApprove), 60*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if hold.Stage != StageAwaitingApproval || b12Gate(hold) != mergeGateKey || hold.AwaitingUntil != nil || hold.RedraftExhausted {
+		t.Fatalf("at the merge hold: stage=%v gate=%q until=%v exhausted=%v", hold.Stage, b12Gate(hold), hold.AwaitingUntil, hold.RedraftExhausted)
+	}
+	if hold.AwaitingSince == nil || !hold.AwaitingSince.Equal(start.Add(20*time.Second)) {
+		t.Fatalf("merge hold awaitingSince = %v, want %v", hold.AwaitingSince, start.Add(20*time.Second))
+	}
+}
+
+// A variance retry starts the next supervision attempt.
+func Test_SessionView_Attempt_CountsAVarianceRetry(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseIntegration))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipelineFailingOnce("test_plan"))
+	var at ConstructionSessionView
+	env.RegisterDelayedCallback(func() { at = b12View(t, env) }, 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "integration", PhaseApprove), 40*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if b12Gate(at) != "integration" || at.Attempt != 2 || at.AttemptBudget != maxVarianceAttempts {
+		t.Fatalf("gate=%q attempt=%d/%d, want integration at attempt 2/%d", b12Gate(at), at.Attempt, at.AttemptBudget, maxVarianceAttempts)
+	}
+}
+
+// recordingMetrics captures what gateMetrics records (the SDK test environment has no
+// metrics hook).
+type recordingMetrics struct {
+	mu     sync.Mutex
+	timers []recordedTimer
+}
+
+type recordedTimer struct {
+	name  string
+	tags  map[string]string
+	value time.Duration
+}
+
+type recordingMetricsHandler struct {
+	rec  *recordingMetrics
+	tags map[string]string
+}
+
+func (h recordingMetricsHandler) WithTags(tags map[string]string) client.MetricsHandler {
+	merged := maps.Clone(h.tags)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, tags)
+	return recordingMetricsHandler{rec: h.rec, tags: merged}
+}
+
+func (h recordingMetricsHandler) Counter(name string) client.MetricsCounter {
+	return client.MetricsNopHandler.Counter(name)
+}
+
+func (h recordingMetricsHandler) Gauge(name string) client.MetricsGauge {
+	return client.MetricsNopHandler.Gauge(name)
+}
+
+func (h recordingMetricsHandler) Timer(name string) client.MetricsTimer {
+	return recordingMetricsTimer{h: h, name: name}
+}
+
+type recordingMetricsTimer struct {
+	h    recordingMetricsHandler
+	name string
+}
+
+func (t recordingMetricsTimer) Record(d time.Duration) {
+	t.h.rec.mu.Lock()
+	defer t.h.rec.mu.Unlock()
+	t.h.rec.timers = append(t.h.rec.timers, recordedTimer{name: t.name, tags: t.h.tags, value: d})
+}
+
+// The gate-wait timer is recorded ONCE, when the human stage ends, with exactly the
+// bounded tag set (never the activity id) and the time the gate actually waited.
+func Test_GateWaitMetric_RecordedOnLeaveWithBoundedTags(t *testing.T) {
+	rec := &recordingMetrics{}
+	orig := gateMetrics
+	gateMetrics = func(workflow.Context) client.MetricsHandler { return recordingMetricsHandler{rec: rec} }
+	t.Cleanup(func() { gateMetrics = orig })
+
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var waits []recordedTimer
+	for _, r := range rec.timers {
+		if r.name == "construction_gate_wait" {
+			waits = append(waits, r)
+		}
+	}
+	if len(waits) != 1 {
+		t.Fatalf("want one construction_gate_wait record, got %+v", rec.timers)
+	}
+	want := map[string]string{"gate": "phase", "outcome": gateOutcomeApproved, "activity_type": "service"}
+	if !maps.Equal(waits[0].tags, want) {
+		t.Fatalf("tags = %v, want exactly %v", waits[0].tags, want)
+	}
+	if waits[0].value != 30*time.Second {
+		t.Fatalf("recorded wait = %v, want the 30s the gate waited", waits[0].value)
+	}
+}
+
+// ===========================================================================
+// B1.3 — FAÇADE PRECHECKS → FailedPrecondition (plan B1.3).
+// ===========================================================================
+
+// b13Mock is a STRICT client: it answers the session Query with view (or queryErr) and
+// expects SignalWorkflow only when signal is true — an unexpected call panics the test,
+// which is what proves a refusal never signals.
+func b13Mock(view ConstructionSessionView, queryErr error, signal bool) *temporalmocks.Client {
+	mc := &temporalmocks.Client{}
+	wfID := constructActivityWorkflowID("proj-1", "C-Orders")
+	if queryErr != nil {
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(nil, queryErr)
+	} else {
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(encodedJSON{v: view}, nil)
+	}
+	if signal {
+		mc.On("SignalWorkflow", mock.Anything, wfID, "", mock.Anything, mock.Anything).Return(nil)
+	}
+	return mc
+}
+
+func TestSubmitPhaseDecision_Precheck_RefusesWhatTheSessionIsNotAwaiting(t *testing.T) {
+	takeover := ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}
+	exhausted := awaitingAt("detailed_design")
+	exhausted.RedraftExhausted = true
+	oldWorker := ConstructionSessionView{Stage: StageAwaitingApproval} // served before B1.2: no awaitingGate
+	note := &ReviewFeedback{Notes: "redraft it"}
+	cases := []struct {
+		name     string
+		view     ConstructionSessionView
+		key      string
+		decision PhaseDecision
+		feedback *ReviewFeedback
+		mention  string
+	}{
+		{"a running pipeline", ConstructionSessionView{Stage: StagePipelineRunning}, "detailed_design", PhaseApprove, nil, "pipelineRunning/no gate"},
+		{"another phase's gate", awaitingAt("requirements"), "detailed_design", PhaseApprove, nil, "awaitingApproval/requirements"},
+		{"the merge hold, asked for a phase", awaitingAt(mergeGateKey), "construction", PhaseApprove, nil, "awaitingApproval/merge"},
+		{"an escalation", takeover, "detailed_design", PhaseApprove, nil, "awaitingTakeover/takeover"},
+		{"a view from an old worker", oldWorker, "detailed_design", PhaseApprove, nil, "no gate"},
+		// The stage is checked, not only the gate label: a view that names the gate while
+		// its stage is not awaiting approval is refused all the same.
+		{"a gate label on a stage that is not awaiting", ConstructionSessionView{Stage: StagePipelineRunning, AwaitingGate: ptrTo("detailed_design")}, "detailed_design", PhaseApprove, nil, "pipelineRunning/detailed_design"},
+		{"a send-back at a spent budget", exhausted, "detailed_design", PhaseSendBack, note, "spent"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mc := b13Mock(c.view, nil, false)
+			err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", c.key, c.decision, c.feedback)
+			e := asConstructionError(t, err)
+			if e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, c.mention) {
+				t.Fatalf("want FailedPrecondition naming %q, got %s %q", c.mention, e.Kind, e.Detail)
+			}
+			mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestSubmitPhaseDecision_Precheck_PassesAtTheAwaitedGate(t *testing.T) {
+	exhausted := awaitingAt("detailed_design")
+	exhausted.RedraftExhausted = true
+	cases := []struct {
+		name     string
+		view     ConstructionSessionView
+		key      string
+		decision PhaseDecision
+		feedback *ReviewFeedback
+	}{
+		{"approve at its gate", awaitingAt("detailed_design"), "detailed_design", PhaseApprove, nil},
+		{"send back with budget left", awaitingAt("detailed_design"), "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: "n"}},
+		{"approve at a spent budget", exhausted, "detailed_design", PhaseApprove, nil},
+		{"approve the merge hold", awaitingAt(mergeGateKey), mergeGateKey, PhaseApprove, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mc := b13Mock(c.view, nil, true)
+			if err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", c.key, c.decision, c.feedback); err != nil {
+				t.Fatalf("want the decision signalled, got %v", err)
+			}
+			mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+		})
+	}
+}
+
+// The check order is pinned: ContractMisuse never reads the session (the strict mock has
+// no Query expectation), then a missing session is NotFound, then the precheck; a query
+// fault is Infrastructure. None of them signals.
+func TestSubmitPhaseDecision_Precheck_OrderIsContractMisuseThenSessionThenPrecondition(t *testing.T) {
+	strict := &temporalmocks.Client{}
+	m := newTestConstructionManager(strict)
+	for name, call := range map[string]func() error{
+		"unknown gate key": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "merged", PhaseApprove, nil)
+		},
+		"send-back without note": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseSendBack, nil)
+		},
+		"merge send-back": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseSendBack, &ReviewFeedback{Notes: "n"})
+		},
+	} {
+		if got := asConstructionError(t, call()).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("%s: want ContractMisuse before any session read, got %s", name, got)
+		}
+	}
+	for name, c := range map[string]struct {
+		err  error
+		want fwmanager.Kind
+	}{
+		"no session":  {serviceerror.NewNotFound("workflow not found"), fwmanager.NotFound},
+		"query fault": {errors.New("frontend unavailable"), fwmanager.Infrastructure},
+	} {
+		mc := b13Mock(ConstructionSessionView{}, c.err, false)
+		err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil)
+		if got := asConstructionError(t, err).Kind; got != c.want {
+			t.Errorf("%s: want %s, got %s", name, c.want, got)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+}
+
+func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
+	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
+	for name, view := range map[string]ConstructionSessionView{
+		"a phase gate":       awaitingAt("detailed_design"),
+		"the merge hold":     awaitingAt(mergeGateKey),
+		"a running pipeline": {Stage: StagePipelineRunning},
+		"an exited activity": {Stage: StageExited},
+	} {
+		mc := b13Mock(view, nil, false)
+		err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
+		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, "not awaiting a takeover") {
+			t.Errorf("%s: want FailedPrecondition, got %s %q", name, e.Kind, e.Detail)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+	mc := b13Mock(ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}, nil, true)
+	if err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry); err != nil {
+		t.Fatalf("an override at a takeover must be signalled, got %v", err)
+	}
+	mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+	// ContractMisuse still comes first: blank notes never read the session.
+	strict := &temporalmocks.Client{}
+	if got := asConstructionError(t, newTestConstructionManager(strict).OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: " "})).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse before the session read, got %s", got)
+	}
+}
+
+// Plan G7, end to end through the façade: an override sent while the activity waits at
+// a PHASE gate is refused and never buffered, so the activity's later escalation still
+// waits for a fresh steer — before B1.3 the stray Retry was consumed by that escalation.
+func Test_Facade_StrayOverrideAtAGate_IsRefusedAndNotAppliedLater(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	deps.Intervention = &fakeIntervention{directive: intervention.VarianceEscalate}
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipelineFailingOnce("construction"))
+	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: constructActivityWorkflowID("p", "C-Orders")})
+	m := newTestConstructionManager(&envSignalClient{env: env})
+	var strayErr error
+	var atEscalation ConstructionSessionView
+	env.RegisterDelayedCallback(func() {
+		strayErr = m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: "stray"})
+	}, 20*time.Second)
+	env.RegisterDelayedCallback(func() {
+		if err := m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
+			t.Errorf("approve: %v", err)
+		}
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() { atEscalation = b12View(t, env) }, 60*time.Second)
+	env.RegisterDelayedCallback(func() {
+		if err := m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "built by hand"}); err != nil {
+			t.Errorf("override at the takeover: %v", err)
+		}
+	}, 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if e := asConstructionError(t, strayErr); e.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("the stray override: want FailedPrecondition, got %s", e.Kind)
+	}
+	if atEscalation.Stage != StageAwaitingTakeover {
+		t.Fatalf("the escalation must wait for a fresh steer, got stage %v (the stray Retry was applied)", atEscalation.Stage)
+	}
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeSkipped {
+		t.Fatalf("want the one Skip the operator sent at the takeover, got exits %v", ps.exited)
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }

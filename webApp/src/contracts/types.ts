@@ -1186,6 +1186,21 @@ export interface ConstructionSessionView {
   pipelinePhase?: number;
   reviewSet?: ConstructionReviewSet;
   variance?: FlaggedVariance;
+  /**
+   * The gate the activity is waiting at (a lifecycle phase's wire name, "merge" or
+   * "takeover"), set only while the stage is awaiting approval or a takeover.
+   */
+  awaitingGate?: string;
+  /** When THIS occurrence of the gate began (ISO date-time): the gate-occurrence identity. */
+  awaitingSince?: string;
+  /** When an escalation gives up (ISO date-time); absent for approval gates and unbounded waits. */
+  awaitingUntil?: string;
+  /** The gate's send-back budget is spent: approve, or steer with an override. */
+  redraftExhausted?: boolean;
+  /** The current supervision attempt, 1-based (0 before the first). */
+  attempt?: number;
+  /** How many supervision attempts the activity gets. */
+  attemptBudget?: number;
 }
 
 export interface ConstructionSessionState {

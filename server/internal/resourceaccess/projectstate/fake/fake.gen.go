@@ -20,6 +20,8 @@ type FakeConstructionTransitionAccess struct {
 	RecordPhaseCompletedFn          func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, phase projectstate.ActivityMethodPhase, artifactRef string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordServiceContractProducedFn func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, component string, contract projectstate.ServiceContract, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	RecordPhaseArtifactProducedFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorNoteFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	RecordOperatorNoteDeliveredFn   func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 func (f *FakeConstructionTransitionAccess) RecordChangeReviewed(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -83,6 +85,20 @@ func (f *FakeConstructionTransitionAccess) RecordPhaseArtifactProduced(rc fwra.C
 		panic("FakeConstructionTransitionAccess.RecordPhaseArtifactProducedFn not set")
 	}
 	return f.RecordPhaseArtifactProducedFn(rc, projectID, expectedVersion, activityID, mapKey, payload, cred, idempotencyKey)
+}
+
+func (f *FakeConstructionTransitionAccess) RecordOperatorNote(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordOperatorNoteFn == nil {
+		panic("FakeConstructionTransitionAccess.RecordOperatorNoteFn not set")
+	}
+	return f.RecordOperatorNoteFn(rc, projectID, expectedVersion, activityID, note, cred, idempotencyKey)
+}
+
+func (f *FakeConstructionTransitionAccess) RecordOperatorNoteDelivered(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+	if f.RecordOperatorNoteDeliveredFn == nil {
+		panic("FakeConstructionTransitionAccess.RecordOperatorNoteDeliveredFn not set")
+	}
+	return f.RecordOperatorNoteDeliveredFn(rc, projectID, expectedVersion, activityID, noteID, attemptID, cred, idempotencyKey)
 }
 
 var _ projectstate.ConstructionTransitionAccess = (*FakeConstructionTransitionAccess)(nil)
