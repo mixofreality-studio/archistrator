@@ -690,6 +690,110 @@ func TestRecordOperatorPaused_RoundTrip(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
+// B1.7: RecordOperatorResumed clears the recorded pause
+// --------------------------------------------------------------------------
+
+// TestRecordOperatorResumed_ClearsThePause: both fields are cleared, and the resumed
+// project encodes exactly as one that was never paused (both fields omitempty).
+func TestRecordOperatorResumed_ClearsThePause(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	ctx := context.Background()
+	never, err := EncodeProjectJSON(readProject(t, store, id, cred))
+	if err != nil {
+		t.Fatalf("encode the never-paused project: %v", err)
+	}
+	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "operator halt", cred, fwra.IdempotencyKey("wf:paused"))
+	if err != nil {
+		t.Fatalf("RecordOperatorPaused: %v", err)
+	}
+	v3, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:resumed"))
+	if err != nil {
+		t.Fatalf("RecordOperatorResumed: %v", err)
+	}
+	if v3 != v2+1 {
+		t.Fatalf("version = %d, want %d", v3, v2+1)
+	}
+	p := readProject(t, store, id, cred)
+	if p.OperatorPaused || p.PauseReason != "" {
+		t.Fatalf("after a resume OperatorPaused=%v PauseReason=%q, want false and empty", p.OperatorPaused, p.PauseReason)
+	}
+	resumed, err := EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode the resumed project: %v", err)
+	}
+	// Version and the audit trail move with every write; everything else must match.
+	if a, b := stripVolatile(t, never), stripVolatile(t, resumed); a != b {
+		t.Fatalf("a resumed project must encode as a never-paused one:\nnever  %s\nresumed %s", a, b)
+	}
+}
+
+// stripVolatile drops the members every write moves (version, updatedAt), so two
+// encodings compare on content.
+func stripVolatile(t *testing.T, raw []byte) string {
+	t.Helper()
+	var m map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &m); err != nil {
+		t.Fatalf("decode: %v", err)
+	}
+	delete(m, "version")
+	delete(m, "updatedAt")
+	if _, ok := m["operatorPaused"]; ok {
+		t.Fatalf("a cleared pause must omit operatorPaused, got %s", m["operatorPaused"])
+	}
+	if _, ok := m["pauseReason"]; ok {
+		t.Fatalf("a cleared pause must omit pauseReason, got %s", m["pauseReason"])
+	}
+	out, err := json.Marshal(m)
+	if err != nil {
+		t.Fatalf("re-encode: %v", err)
+	}
+	return string(out)
+}
+
+// TestRecordOperatorResumed_IdempotentUnderTheSameKey: a retried resume (same key) is
+// deduplicated, like every head-state record.
+func TestRecordOperatorResumed_IdempotentUnderTheSameKey(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	ctx := context.Background()
+	v2, err := store.RecordOperatorPaused(fwra.Context{Context: ctx}, id, v, "halt", cred, fwra.IdempotencyKey("wf:p"))
+	if err != nil {
+		t.Fatalf("pause: %v", err)
+	}
+	v3, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
+	if err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	again, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, id, v2, cred, fwra.IdempotencyKey("wf:r"))
+	if err != nil {
+		t.Fatalf("a replayed resume under the same key must dedupe, got %v", err)
+	}
+	if again != v3 {
+		t.Fatalf("the replayed resume returned version %d, want the original %d", again, v3)
+	}
+}
+
+// TestRecordOperatorResumed_NotPausedChangesNoField: the RA is an idempotent writer of
+// the cleared state; the façade owns the "not paused" precondition.
+func TestRecordOperatorResumed_NotPausedChangesNoField(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	if _, err := store.RecordOperatorResumed(fwra.Context{Context: context.Background()}, id, v, cred, fwra.IdempotencyKey("wf:r0")); err != nil {
+		t.Fatalf("resume of an unpaused project: %v", err)
+	}
+	if p := readProject(t, store, id, cred); p.OperatorPaused || p.PauseReason != "" {
+		t.Fatalf("an unpaused project must stay unpaused, got %v %q", p.OperatorPaused, p.PauseReason)
+	}
+}
+
+// TestRecordOperatorResumed_NoProjectIsNotFound: the resume requires an existing project.
+func TestRecordOperatorResumed_NoProjectIsNotFound(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	_, err := store.RecordOperatorResumed(fwra.Context{Context: ctx}, ProjectID(uuid.NewString()), 0, cred, fwra.IdempotencyKey("wf:r1"))
+	if k := kindOf(t, err); k != fwra.NotFound {
+		t.Fatalf("resume of an absent project kind = %v, want NotFound", k)
+	}
+}
+
+// --------------------------------------------------------------------------
 // STP 5: RecordPhaseStarted seeds Phases, sets CurrentPhase, coarse=Running
 // --------------------------------------------------------------------------
 

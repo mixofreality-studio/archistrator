@@ -269,6 +269,13 @@ func (a *genActivities) ConstructionTransitionRecordOperatorPaused(ctx context.C
 	return v, fwmanager.MapError(err)
 }
 
+// ConstructionTransitionRecordOperatorResumed wraps constructionTransitionAccess.recordOperatorResumed.
+// Registered as "constructionTransitionAccess.recordOperatorResumed".
+func (a *genActivities) ConstructionTransitionRecordOperatorResumed(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ConstructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, cred, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ConstructionTransitionRecordPhaseArtifactProduced wraps constructionTransitionAccess.recordPhaseArtifactProduced.
 // Registered as "constructionTransitionAccess.recordPhaseArtifactProduced".
 func (a *genActivities) ConstructionTransitionRecordPhaseArtifactProduced(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {

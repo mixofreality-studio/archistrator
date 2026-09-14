@@ -275,6 +275,18 @@ func internalToolCatalog() []InternalTool {
 			OutputSchema: json.RawMessage("{\"$defs\":{\"Version\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/Version\"}"),
 		},
 		{
+			Name:         "constructionTransitionRecordOperatorResumed",
+			Component:    "projectStateAccess",
+			Layer:        "ResourceAccess",
+			Operation:    "RecordOperatorResumed",
+			Params:       []string{"projectID", "expectedVersion", "cred", "idempotencyKey"},
+			ReadOnly:     false,
+			AgentHidden:  true,
+			Description:  "RecordOperatorResumed on the constructionTransitionAccess ResourceAccess contract (state-changing). Raw generated internal tool.",
+			InputSchema:  json.RawMessage("{\"$defs\":{\"ProjectID\":{\"type\":\"string\"},\"RepoCredential\":{\"type\":\"object\",\"properties\":{\"Bytes\":{\"type\":\"string\",\"contentEncoding\":\"base64\",\"x-go-type\":\"[]byte\"},\"ExpiresAt\":{\"type\":\"string\",\"format\":\"date-time\",\"x-go-import\":\"time\",\"x-go-type\":\"time.Time\"}},\"required\":[\"Bytes\",\"ExpiresAt\"],\"additionalProperties\":false},\"Version\":{\"type\":\"integer\"}},\"additionalProperties\":false,\"properties\":{\"cred\":{\"$ref\":\"#/$defs/RepoCredential\"},\"expectedVersion\":{\"$ref\":\"#/$defs/Version\"},\"idempotencyKey\":{\"x-go-type\":\"fwra.IdempotencyKey\"},\"projectID\":{\"$ref\":\"#/$defs/ProjectID\"}},\"required\":[\"projectID\",\"expectedVersion\",\"cred\",\"idempotencyKey\"],\"type\":\"object\"}"),
+			OutputSchema: json.RawMessage("{\"$defs\":{\"Version\":{\"type\":\"integer\"}},\"$ref\":\"#/$defs/Version\"}"),
+		},
+		{
 			Name:         "constructionTransitionRecordPhaseArtifactProduced",
 			Component:    "projectStateAccess",
 			Layer:        "ResourceAccess",

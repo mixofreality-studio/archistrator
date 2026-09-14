@@ -2478,6 +2478,9 @@ type fakeProjectState struct {
 	// notes / delivered record the operator-note verbs (B1.4), in call order.
 	notes     []noteCall
 	delivered []deliveredCall
+
+	// resumed counts RecordOperatorResumed calls (B1.7).
+	resumed int
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -2597,6 +2600,22 @@ func (f *fakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.P
 	f.project.OperatorPaused = true
 	f.project.PauseReason = reason
 	f.order.add("record")
+	return f.bump(), nil
+}
+
+// RecordOperatorResumed records a resume (B1.7): the recorded pause is cleared.
+func (f *fakeProjectState) RecordOperatorResumed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	f.resumed++
+	f.project.OperatorPaused = false
+	f.project.PauseReason = ""
+	if f.order != nil {
+		f.order.add("resume")
+	}
 	return f.bump(), nil
 }
 

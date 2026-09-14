@@ -2194,6 +2194,19 @@ func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
+// RecordOperatorResumed records the operator-resumed head-state transition (plan B1.7):
+// it clears Project.OperatorPaused and Project.PauseReason, so the project reads — and
+// encodes, both fields being omitempty — exactly as one that was never paused. Resuming a
+// project that is not paused changes no field: the construction Manager's façade owns the
+// "not paused" precondition, so the RA stays an idempotent writer of the cleared state.
+func (s *GitStore) RecordOperatorResumed(rc fwra.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.applyMutation(rc.Context, "RecordOperatorResumed", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		p.OperatorPaused = false
+		p.PauseReason = ""
+		return nil
+	})
+}
+
 // RecordReviewPolicy persists the per-project ReviewPolicy by setting
 // Project.ReviewPolicy = policy.
 func (s *GitStore) RecordReviewPolicy(rc fwra.Context, projectID ProjectID, expectedVersion Version, policy ReviewPolicy, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -5462,8 +5475,9 @@ type Project struct {
 	TestingState *TestingState `json:"testingState,omitempty"`
 
 	// OperatorPaused is set when an operator pauses the project's construction
-	// (RecordOperatorPaused). Cleared when construction resumes (not yet a verb in
-	// the v1 contract; the field is additive and defaults false).
+	// (RecordOperatorPaused) and cleared when the operator resumes it
+	// (RecordOperatorResumed, plan B1.7). Every construction pump honours it; the field
+	// is additive and defaults false.
 	OperatorPaused bool
 	// PauseReason is the operator-supplied reason for the pause. Empty when not paused.
 	PauseReason string

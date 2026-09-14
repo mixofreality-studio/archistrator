@@ -16745,6 +16745,39 @@
             "error": true
           },
           {
+            "name": "RecordOperatorResumed",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
             "name": "RecordReviewPolicy",
             "params": [
               {

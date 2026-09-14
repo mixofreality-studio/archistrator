@@ -272,6 +272,13 @@ func (i genInvokers) ConstructionTransitionRecordOperatorPaused(ctx workflow.Con
 	return out, err
 }
 
+// ConstructionTransitionRecordOperatorResumed invokes activity "constructionTransitionAccess.recordOperatorResumed".
+func (i genInvokers) ConstructionTransitionRecordOperatorResumed(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorResumed"), "constructionTransitionAccess.recordOperatorResumed", projectID, expectedVersion, cred).Get(ctx, &out)
+	return out, err
+}
+
 // ConstructionTransitionRecordPhaseArtifactProduced invokes activity "constructionTransitionAccess.recordPhaseArtifactProduced".
 func (i genInvokers) ConstructionTransitionRecordPhaseArtifactProduced(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, mapKey string, payload projectstate.PhaseArtifactPayload, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	var out projectstate.Version
