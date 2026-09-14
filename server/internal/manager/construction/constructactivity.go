@@ -6,6 +6,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
@@ -35,6 +36,9 @@ type pipelineSpec struct {
 	// command is by construction drawn from the same pair the phase profile came from.
 	Type    projectstate.ActivityType
 	Variant projectstate.TestingVariant
+	// OperatorNote is the rendered block of the operator notes this agent dispatch carries
+	// (renderOperatorNotes, plan B1.4); empty when none is pending.
+	OperatorNote string
 }
 
 // pipelineObservation is the Manager's neutral pipeline observation.
@@ -107,8 +111,21 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 		m["phase"] = spec.Phase
 		m["command"] = projectstate.CommandFor(spec.Type, spec.Variant, projectstate.ActivityMethodPhase(spec.Phase))
 	}
+	// The operator's steer rides ONLY when a note is pending (B1.4): every no-note
+	// dispatch's inputs stay byte-identical to before, so a seated workflow that predates
+	// the operator_note input still accepts them. Both arms read the same key: the
+	// GitHub arm passes it through as the construct workflow's input, the local arm
+	// stamps it into the aiarch-state rig.
+	if spec.OperatorNote != "" {
+		m[dispatchInputOperatorNote] = spec.OperatorNote
+	}
 	return m
 }
+
+// dispatchInputOperatorNote is the dispatch input carrying the operator's notes. Like the
+// other inputs it is a bare literal: the seated construct workflow template is the source
+// of truth for the wire key (agenticjob's own constant documents it on the RA side).
+const dispatchInputOperatorNote = "operator_note"
 
 // managerPipelinePhase maps the contract PipelinePhase onto the Manager-neutral
 // PipelinePhase (mapped here so a future re-order is safe). Moved workflow-side from the
@@ -1163,6 +1180,15 @@ func (wf *workflows) loadReviewSnapshot(
 			}
 		}
 	}
+	// OPERATOR-NOTE DELIVERY (plan B1.4). GetVersion is always called here, so a new
+	// execution records the marker before its first dispatch and an execution that
+	// recorded none stays wholly old: no note recorded, carried or stamped, and no
+	// scaffold sync. Notes still pending on the row (a re-queue's note, or one an
+	// earlier run recorded but never dispatched) ride this run's first agent dispatch.
+	state.noteDelivery = workflow.GetVersion(ctx, changeOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1
+	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok && state.noteDelivery {
+		state.pendingNotes = projectstate.PendingOperatorNotes(acs)
+	}
 	state.reviewContracts = snapshotContractKeys(snap)
 	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
 	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
@@ -1344,17 +1370,21 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 	// call is happening — the phase's first dispatch (walkPhases) or a gated phase's
 	// SendBack redraft (awaitPhaseDecision) both land here, which is exactly what makes
 	// a send-back render detailedDesign#1 → designReview#1 → detailedDesign#2.
+	//
+	// MANAGED-SCAFFOLD SYNC (amendment §C.1.4): on the GitHub venue the seated construct
+	// workflow is brought current BEFORE the dispatch, so a note never rides into a YAML
+	// that would reject it and every repo is re-seated automatically. A failed sync
+	// dispatches NOTHING and reads as a failed run (the intervention path, as a failed
+	// pipeline). Behind the operator-note-delivery version, like the note itself.
+	if state.noteDelivery {
+		if obs, ok := wf.syncScaffoldBeforeDispatch(ctx, in, gf); !ok {
+			return obs, nil
+		}
+	}
 	task := projectstate.AgentTaskFor(phase)
 	attempt := state.nextTaskAttempt(task)
 
-	handle, err := wf.submitPipeline(ctx, pipelineSpec{
-		ProjectID:   in.ProjectID,
-		ActivityID:  string(in.ActivityID),
-		ComponentID: in.Activity.ComponentID,
-		Phase:       phase.String(),
-		Type:        in.Activity.Type,
-		Variant:     in.Activity.Variant,
-	})
+	handle, err := wf.submitCarryingNotes(ctx, in, phase, state, projectstate.AttemptID(string(in.ActivityID), task, attempt), gf, headVersion)
 	if err != nil {
 		return pipelineObservation{}, err
 	}
@@ -1491,6 +1521,11 @@ func (wf *workflows) awaitPhaseDecision(
 				continue
 			}
 			state.leaveHumanStage(ctx, activityType, gateOutcomeSentBack)
+			// The send-back's feedback is the operator's note to the redraft (B1.4): kept on
+			// the activity, and carried by the redraft dispatch just below.
+			if e := wf.recordOperatorNote(ctx, in, state, headVersion, cred, projectstate.NoteSendBack, phase.String(), feedbackText(sig.Feedback)); e != nil {
+				return false, e
+			}
 			state.stage = StagePipelineRunning
 			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
 				return false, e
@@ -1655,6 +1690,244 @@ func (wf *workflows) completePhase(
 // alongside the five phases (Approve only), so the operator releases the merge
 // with SubmitPhaseDecision(projectID, activityID, mergeGateKey, Approve).
 const mergeGateKey = "merge"
+
+// ---------------------------------------------------------------------------
+// Operator notes (plan B1.4). A note is PENDING from the moment it is recorded until an
+// agent dispatch carries it: every pending note rides the NEXT agent dispatch of the
+// activity and is stamped delivered to that dispatch's AttemptID (the key its episode
+// carries as TargetRef). Recording, carrying, stamping and the scaffold sync are all
+// behind ONE change id, so an execution is wholly old or wholly new.
+// ---------------------------------------------------------------------------
+
+// changeOperatorNoteDelivery is the version marker gating note record/carry/stamp and
+// the managed-scaffold sync before a GitHub-venue dispatch.
+const changeOperatorNoteDelivery = "operator-note-delivery"
+
+// maxRenderedOperatorNotesBytes caps the rendered notes block one dispatch carries, far
+// under GitHub's 65,535-character workflow_dispatch input cap. One note is capped at
+// maxOperatorNoteRunes by the façade, so only several pending notes can reach it.
+const maxRenderedOperatorNotesBytes = 16 << 10
+
+// noteFeedback is one note's operator text and anchored comments, from a send-back's
+// feedback or an override.
+type noteFeedback struct {
+	text     string
+	comments []AnchoredComment
+}
+
+// feedbackText is a send-back's note; a nil feedback (a signal that bypassed the
+// façade) is an empty note, which recordOperatorNote skips.
+func feedbackText(f *ReviewFeedback) noteFeedback {
+	if f == nil {
+		return noteFeedback{}
+	}
+	return noteFeedback{text: f.Notes, comments: f.Comments}
+}
+
+// overrideNoteKind maps an override onto the note kind it records.
+func overrideNoteKind(k OverrideKind) (projectstate.OperatorNoteKind, bool) {
+	switch k {
+	case OverrideRetry:
+		return projectstate.NoteRetry, true
+	case OverrideTakeover:
+		return projectstate.NoteTakeover, true
+	case OverrideReassign:
+		return projectstate.NoteReassign, true
+	case OverrideSkip:
+		return projectstate.NoteSkip, true
+	case OverrideUnknown:
+		return projectstate.OperatorNoteKindUnknown, false
+	}
+	return projectstate.OperatorNoteKindUnknown, false
+}
+
+// operatorNoteID is a note's deterministic id: the activity, this run, and the run's
+// note sequence — replay-stable, and unique across runs of the same activity.
+func operatorNoteID(activityID ActivityID, runID string, seq int) string {
+	return fmt.Sprintf("%s:note:%s:%d", activityID, runID, seq)
+}
+
+// recordOperatorNote keeps one operator note on the activity and, when its kind is
+// delivered at all, queues it for the next agent dispatch. A no-op on an execution
+// without the operator-note-delivery marker, and for a blank note (only a signal that
+// bypassed the façade's checks can carry one).
+func (wf *workflows) recordOperatorNote(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	kind projectstate.OperatorNoteKind,
+	gate string,
+	fb noteFeedback,
+) error {
+	if !state.noteDelivery || strings.TrimSpace(fb.text) == "" {
+		return nil
+	}
+	state.noteSeq++
+	note := projectstate.OperatorNoteInput{
+		NoteID:   operatorNoteID(in.ActivityID, workflow.GetInfo(ctx).WorkflowExecution.RunID, state.noteSeq),
+		Kind:     kind,
+		Gate:     gate,
+		Text:     fb.text,
+		Comments: noteComments(fb.comments),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), note, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	recorded := projectstate.OperatorNote{
+		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text, Comments: note.Comments,
+		RecordedAt: workflow.Now(ctx),
+	}
+	// The RA's own rule decides what is pending (a skip note never is).
+	state.pendingNotes = append(state.pendingNotes,
+		projectstate.PendingOperatorNotes(projectstate.ActivityConstructionStatus{OperatorNotes: []projectstate.OperatorNote{recorded}})...)
+	return nil
+}
+
+// noteComments re-types a decision's anchored comments onto the note's.
+func noteComments(in []AnchoredComment) []projectstate.NoteComment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]projectstate.NoteComment, 0, len(in))
+	for _, c := range in {
+		out = append(out, projectstate.NoteComment{JSONPath: c.JSONPath, Text: c.Text})
+	}
+	return out
+}
+
+// submitCarryingNotes dispatches one agent job carrying every pending note, then — only
+// once the submit has succeeded — stamps each delivered to attemptID and clears the
+// queue. A failed submit leaves the notes pending for the next dispatch.
+func (wf *workflows) submitCarryingNotes(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	attemptID string,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) (pipelineHandle, error) {
+	carried := state.pendingNotes
+	handle, err := wf.submitPipeline(ctx, pipelineSpec{
+		ProjectID:    in.ProjectID,
+		ActivityID:   string(in.ActivityID),
+		ComponentID:  in.Activity.ComponentID,
+		Phase:        phase.String(),
+		Type:         in.Activity.Type,
+		Variant:      in.Activity.Variant,
+		OperatorNote: renderOperatorNotes(carried),
+	})
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	for _, n := range carried {
+		v, serr := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
+				string(in.ActivityID), n.NoteID, attemptID, gf.cred.toProjectState())
+		})
+		if serr != nil {
+			return pipelineHandle{}, serr
+		}
+		*headVersion = v
+	}
+	if len(carried) > 0 {
+		state.pendingNotes = nil
+	}
+	return handle, nil
+}
+
+// syncScaffoldBeforeDispatch converges the repo's seated managed scaffold (the construct
+// workflow among it) onto this server's template before a GitHub-venue dispatch. The
+// local venue has no seated workflow (gf is dormant), so it is a no-op there. ok=false
+// means the sync failed and nothing may be dispatched; obs is the failed run to report.
+func (wf *workflows) syncScaffoldBeforeDispatch(ctx workflow.Context, in constructActivityInput, gf *gitForward) (pipelineObservation, bool) {
+	if !gf.enabled {
+		return pipelineObservation{}, true
+	}
+	changed, err := wf.Acts.RailSyncManagedScaffold(ctx, gf.repoRef, gf.cred.toRail())
+	if err != nil {
+		workflow.GetLogger(ctx).Error("managed-scaffold sync failed; nothing was dispatched",
+			"activityId", string(in.ActivityID), "error", err.Error())
+		return pipelineObservation{
+			Phase: PipelineFailed,
+			Diagnostic: "managed-scaffold sync failed — the seated construct workflow could not be proven current, " +
+				"so nothing was dispatched: " + err.Error(),
+		}, false
+	}
+	if changed {
+		workflow.GetLogger(ctx).Info("managed scaffold drifted; re-seated the construct workflow before dispatch",
+			"activityId", string(in.ActivityID))
+	}
+	return pipelineObservation{}, true
+}
+
+// renderOperatorNotes renders the pending notes as the one block a dispatch carries,
+// oldest first, each headed by its id, kind and gate; "" when there are none.
+func renderOperatorNotes(notes []projectstate.OperatorNote) string {
+	if len(notes) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	for i, n := range notes {
+		if i > 0 {
+			b.WriteString("\n\n")
+		}
+		fmt.Fprintf(&b, "[operator note %s — %s", n.NoteID, operatorNoteKindName(n.Kind))
+		if n.Gate != "" {
+			fmt.Fprintf(&b, " at %s", n.Gate)
+		}
+		b.WriteString("]\n")
+		b.WriteString(n.Text)
+		for _, c := range n.Comments {
+			fmt.Fprintf(&b, "\n  comment on %s: %s", c.JSONPath, c.Text)
+		}
+	}
+	return capRenderedOperatorNotes(b.String())
+}
+
+// renderedNotesTruncated ends a block cut at maxRenderedOperatorNotesBytes.
+const renderedNotesTruncated = "\n[truncated: the operator's notes exceed 16 KiB; the full notes are on the activity]"
+
+// capRenderedOperatorNotes cuts s to maxRenderedOperatorNotesBytes on a rune boundary,
+// marking the cut.
+func capRenderedOperatorNotes(s string) string {
+	if len(s) <= maxRenderedOperatorNotesBytes {
+		return s
+	}
+	cut := maxRenderedOperatorNotesBytes - len(renderedNotesTruncated)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + renderedNotesTruncated
+}
+
+// operatorNoteKindName is a note kind's wire word, for the rendered block.
+func operatorNoteKindName(k projectstate.OperatorNoteKind) string {
+	switch k {
+	case projectstate.NoteSendBack:
+		return "sendBack"
+	case projectstate.NoteRetry:
+		return "retry"
+	case projectstate.NoteTakeover:
+		return "takeover"
+	case projectstate.NoteReassign:
+		return "reassign"
+	case projectstate.NoteSkip:
+		return "skip"
+	case projectstate.NoteRequeue:
+		return "requeue"
+	case projectstate.OperatorNoteKindUnknown:
+		return "unknown"
+	}
+	return "unknown"
+}
 
 // runLocalMergeStep runs the policy-gated local merge (see the section comment
 // above). Returns (mergeFailed, done, err) with walkPhases' loop-control
@@ -1921,6 +2194,15 @@ func (wf *workflows) executeOverride(
 	gitOn bool,
 	startedCred railCredEnvelope,
 ) (bool, error) {
+	// The override's notes are the operator's steer (B1.4): kept on the activity, and —
+	// for a retry, takeover or reassign — carried by the next agent dispatch. A skip's
+	// note is kept and never pending: nothing runs after a skip.
+	if kind, ok := overrideNoteKind(override.Kind); ok {
+		if err := wf.recordOperatorNote(ctx, in, state, headVersion, startedCred, kind, takeoverGateKey,
+			noteFeedback{text: override.Notes, comments: override.Comments}); err != nil {
+			return false, err
+		}
+	}
 	switch override.Kind {
 	case OverrideUnknown:
 		// zero-value sentinel, not a real override kind — same as any unmapped value.

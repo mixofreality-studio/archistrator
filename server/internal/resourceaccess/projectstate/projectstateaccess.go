@@ -7553,12 +7553,12 @@ type OperatorNote struct {
 	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
 }
 
-// pendingOperatorNotes returns the notes on r that an agent dispatch still owes, in
+// PendingOperatorNotes returns the notes on r that an agent dispatch still owes, in
 // recorded order: undelivered, of a kind that is delivered at all. A skip note never
-// is — nothing runs after a skip. (Unexported until its first caller outside this
-// package, the construction Manager's note delivery, lands; see the arch_test.go
-// allowlist rule.)
-func pendingOperatorNotes(r ActivityConstructionStatus) []OperatorNote {
+// is — nothing runs after a skip. The construction Manager seeds a run's pending notes
+// from it (the notes a re-queue or an earlier run left undelivered) and uses it as the
+// one rule for which recorded kinds ride the next agent dispatch (plan B1.4).
+func PendingOperatorNotes(r ActivityConstructionStatus) []OperatorNote {
 	var out []OperatorNote
 	for _, n := range r.OperatorNotes {
 		if n.DeliveredToAttemptID != "" {

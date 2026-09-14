@@ -63,6 +63,7 @@ import (
 	"sort"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/google/uuid"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -513,6 +514,9 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	if strings.TrimSpace(override.Notes) == "" {
 		return newError(fwm.ContractMisuse, "an override requires non-empty notes — it is the operator's durable record of WHY the automatic path was steered")
 	}
+	if operatorNoteRunes(override.Notes, override.Comments) > maxOperatorNoteRunes {
+		return newError(fwm.ContractMisuse, fmt.Sprintf("an override's notes are at most %d characters, anchored comments included", maxOperatorNoteRunes))
+	}
 	view, err := m.activitySession(ctx, projectID, activityID)
 	if err != nil {
 		return err
@@ -612,6 +616,9 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
 		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
 	}
+	if decision == PhaseSendBack && operatorNoteRunes(feedback.Notes, feedback.Comments) > maxOperatorNoteRunes {
+		return newError(fwm.ContractMisuse, fmt.Sprintf("a send-back note is at most %d characters, anchored comments included", maxOperatorNoteRunes))
+	}
 	view, err := m.activitySession(ctx, projectID, activityID)
 	if err != nil {
 		return err
@@ -626,6 +633,20 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// maxOperatorNoteRunes caps one operator note — its text plus its anchored comments'
+// text — at the façade (plan B1.4): a send-back's feedback and an override's notes are
+// persisted on the activity and carried to the next agent attempt.
+const maxOperatorNoteRunes = 4000
+
+// operatorNoteRunes counts a note's characters, its anchored comments' text included.
+func operatorNoteRunes(notes string, comments []AnchoredComment) int {
+	n := utf8.RuneCountInString(notes)
+	for _, c := range comments {
+		n += utf8.RuneCountInString(c.Text)
+	}
+	return n
 }
 
 // activitySession reads one activity's session through the SAME Query GetSessionState
@@ -1631,6 +1652,17 @@ type constructState struct {
 	// constructState.nextTaskAttempt so a state that never dispatches a pipeline
 	// (ProjectSupervisionWorkflow's) allocates nothing.
 	taskAttempts map[projectstate.MethodTask]int
+
+	// noteDelivery is true on an execution that recorded the operator-note-delivery
+	// marker (plan B1.4): only then are notes recorded, carried and stamped, and the
+	// managed scaffold synced before a GitHub-venue dispatch.
+	noteDelivery bool
+	// noteSeq numbers the notes this run records (operatorNoteID).
+	noteSeq int
+	// pendingNotes are the notes the next agent dispatch carries, oldest first: seeded
+	// from the row at start (projectstate.PendingOperatorNotes), appended to as notes are
+	// recorded, and cleared once a dispatch that carried them has been stamped.
+	pendingNotes []projectstate.OperatorNote
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -1782,14 +1814,19 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		// their generated registered names, preserving the identical timeout/retry scope.
 		// designSessionAccess.readProjectOnBranch is the whole-aggregate read the pump
 		// runs (branch "" ⇒ main) — the former ReadProjectActivity preset.
-		"designSessionAccess.readProjectOnBranch":            readProjectActivityOptions(),
-		"projectStateAccess.readProjectVersion":              readProjectActivityOptions(),
-		"constructionTransitionAccess.recordChangeReviewed":  recordActivityOptions(),
-		"constructionTransitionAccess.recordActivityExited":  recordActivityOptions(),
-		"constructionTransitionAccess.recordActivityFailed":  recordActivityOptions(),
-		"constructionTransitionAccess.recordOperatorPaused":  recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseStarted":    recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseCompleted":  recordActivityOptions(),
+		"designSessionAccess.readProjectOnBranch":           readProjectActivityOptions(),
+		"projectStateAccess.readProjectVersion":             readProjectActivityOptions(),
+		"constructionTransitionAccess.recordChangeReviewed": recordActivityOptions(),
+		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
+		"constructionTransitionAccess.recordActivityFailed": recordActivityOptions(),
+		"constructionTransitionAccess.recordOperatorPaused": recordActivityOptions(),
+		"constructionTransitionAccess.recordPhaseStarted":   recordActivityOptions(),
+		"constructionTransitionAccess.recordPhaseCompleted": recordActivityOptions(),
+		// B1.4: the operator note and its delivery stamp are head-state Record verbs.
+		"constructionTransitionAccess.recordOperatorNote":          recordActivityOptions(),
+		"constructionTransitionAccess.recordOperatorNoteDelivered": recordActivityOptions(),
+		// C.1.4: the managed-scaffold sync before a GitHub-venue dispatch is a rail verb.
+		"sourceControlAccess.syncManagedScaffold":            railActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),

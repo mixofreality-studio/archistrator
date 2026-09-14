@@ -624,7 +624,12 @@ var encapsulationAllowlistData = map[string][]string{
 		//
 		//	OperatorNote → the systemdesign Manager (operatorNotesToContract): the wire view
 		//	               of a row's notes.
+		//	PendingOperatorNotes → the construction Manager (loadReviewSnapshot and
+		//	               recordOperatorNote, plan B1.4): the one rule for which recorded
+		//	               notes ride the next agent dispatch. Total, side-effect-free over
+		//	               ActivityConstructionStatus — no resource, so no contract op.
 		"OperatorNote",
+		"PendingOperatorNotes",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the

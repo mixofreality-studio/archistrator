@@ -9771,7 +9771,7 @@ func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
 		{NoteID: "g", Kind: NoteRetry},
 	}}
 	var got []string
-	for _, n := range pendingOperatorNotes(r) {
+	for _, n := range PendingOperatorNotes(r) {
 		got = append(got, n.NoteID)
 	}
 	if want := []string{"a", "d", "e", "f", "g"}; !slices.Equal(got, want) {

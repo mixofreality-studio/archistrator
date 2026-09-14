@@ -1000,6 +1000,12 @@ type stubRail struct {
 	reviews   []sourcecontrol.ReviewSubmission
 	merges    int
 	credMints int
+
+	// syncs counts SyncManagedScaffold calls (B1.4 / C.1.4); syncErr, when set, fails
+	// every one; order, when set, receives "sync" on each.
+	syncs   int
+	syncErr error
+	order   *callLog
 }
 
 func (r *stubRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
@@ -1071,6 +1077,15 @@ func (r *stubRail) InstallAuthorizeApp(_ fwra.Context, _ sourcecontrol.AccountRe
 }
 
 func (r *stubRail) SyncManagedScaffold(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.RepoCredential) (bool, error) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.syncs++
+	if r.order != nil {
+		r.order.add("sync")
+	}
+	if r.syncErr != nil {
+		return false, r.syncErr
+	}
 	return false, nil
 }
 
@@ -1226,6 +1241,7 @@ func registerGenRail(env *testsuite.TestWorkflowEnvironment, rail sourcecontrol.
 	env.RegisterActivityWithOptions(acts.RailGetPullRequestStatus, activity.RegisterOptions{Name: "sourceControlAccess.getPullRequestStatus"})
 	env.RegisterActivityWithOptions(acts.RailPostReview, activity.RegisterOptions{Name: "sourceControlAccess.postReview"})
 	env.RegisterActivityWithOptions(acts.RailMergePullRequest, activity.RegisterOptions{Name: "sourceControlAccess.mergePullRequest"})
+	env.RegisterActivityWithOptions(acts.RailSyncManagedScaffold, activity.RegisterOptions{Name: "sourceControlAccess.syncManagedScaffold"})
 }
 
 // registerConstructGit registers the per-activity workflow + ALL activities including
@@ -2457,6 +2473,20 @@ type fakeProjectState struct {
 	// order, when set, receives "record" on every RecordOperatorPaused — a call-order
 	// log shared with the other fakes (callLog).
 	order *callLog
+
+	// notes / delivered record the operator-note verbs (B1.4), in call order.
+	notes     []noteCall
+	delivered []deliveredCall
+}
+
+// noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
+type noteCall struct {
+	activityID string
+	note       projectstate.OperatorNoteInput
+}
+
+type deliveredCall struct {
+	activityID, noteID, attemptID string
 }
 
 // phaseCompletedCall records one RecordPhaseCompleted transition (the gate's durable
@@ -2578,20 +2608,28 @@ func (f *fakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.Pro
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.OperatorNoteInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, note projectstate.OperatorNoteInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
 	}
+	f.notes = append(f.notes, noteCall{activityID: activityID, note: note})
+	if f.order != nil {
+		f.order.add("note")
+	}
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _, _, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID, noteID, attemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
 		return 0, err
+	}
+	f.delivered = append(f.delivered, deliveredCall{activityID: activityID, noteID: noteID, attemptID: attemptID})
+	if f.order != nil {
+		f.order.add("delivered")
 	}
 	return f.bump(), nil
 }
@@ -2941,6 +2979,8 @@ func registerGenConstructionTransition(env *testsuite.TestWorkflowEnvironment, p
 	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorPaused, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorPaused"})
 	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseStarted, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseStarted"})
 	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseCompleted, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseCompleted"})
+	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNote, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNote"})
+	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNoteDelivered, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNoteDelivered"})
 }
 
 // registerGenGitStatus registers the GENERATED gitActivityStatusAccess Record* activities
@@ -6565,6 +6605,9 @@ type replayRig struct {
 	ps   *fakeProjectState
 	pipe agenticjob.AgenticJobAccess
 	bus  messagebus.MessageBus
+	// rail backs the sourceControlAccess activities; a zero stub when the rig does not
+	// wire the PR rail (its activities are then never scheduled).
+	rail *stubRail
 }
 
 // activities backs every generated activity from the rig's fakes, exactly as the
@@ -6584,7 +6627,15 @@ func (r replayRig) activities() genActivities {
 		DesignSession:          projectstate.NewDesignSessionAccess(full),
 		MessageBus:             bus,
 		Episodes:               &fakeEpisodes{},
+		Rail:                   r.railOrStub(),
 	}
+}
+
+func (r replayRig) railOrStub() *stubRail {
+	if r.rail != nil {
+		return r.rail
+	}
+	return &stubRail{}
 }
 
 // replayScenario is one captured history: its fixture location, its rig, and how the
@@ -6664,7 +6715,14 @@ var replayPartialLedgerPhases = []projectstate.ActivityMethodPhase{
 	projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction,
 }
 
+// replayScenarios is every captured history: the pre-change set (never re-captured) and
+// the post-b1 set, captured from the B1.4 code so its versioned path is pinned too.
 func replayScenarios() []replayScenario {
+	return append(replayScenariosPreChange(), replayScenariosPostB1()...)
+}
+
+// replayScenariosPreChange are the histories captured on the code BEFORE B1/D1.
+func replayScenariosPreChange() []replayScenario {
 	return []replayScenario{
 		{
 			dir: "pre-b1", name: "gate-sendback-redraft-approve",
@@ -7820,3 +7878,557 @@ func Test_Facade_StrayOverrideAtAGate_IsRefusedAndNotAppliedLater(t *testing.T) 
 }
 
 func ptrTo[T any](v T) *T { return &v }
+
+// ===========================================================================
+// B1.4 — OPERATOR-NOTE DELIVERY (plan B1.4; amendment §C.1.4). A note is pending from
+// the moment it is recorded until an agent dispatch carries it; every pending note rides
+// the NEXT agent dispatch and is stamped delivered to that dispatch's AttemptID. On the
+// GitHub venue the managed scaffold is synced before every dispatch. All of it sits
+// behind the operator-note-delivery version.
+// ===========================================================================
+
+// replayScenariosPostB1 are captured from the B1.4 code (h1/h2 re-driven, plus a
+// rail-wired run whose history carries the managed-scaffold sync), so the versioned path
+// is pinned by replay too.
+func replayScenariosPostB1() []replayScenario {
+	return []replayScenario{
+		{
+			dir: "post-b1", name: "gate-sendback-redraft-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				before := replaySubmitted(r.pipe)
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{
+					Phase: "detailed_design", Decision: PhaseSendBack,
+					Feedback: &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}},
+				})
+				replayAwaitView(ctx, t, c, run.GetID(), "the redraft's gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == before+1
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "post-b1", name: "escalate-override-retry",
+			rig: func() replayRig { return replayEscalateRig(false, time.Hour) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the escalation", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingTakeover
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{
+					Kind: OverrideRetry, Notes: "the fixture server was down; retry",
+				}})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			dir: "post-b1", name: "rail-sync-before-each-dispatch",
+			rig: replayRailRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
+}
+
+// replayRailRig wires the PR rail (the GitHub venue): every dispatch is preceded by the
+// managed-scaffold sync.
+func replayRailRig() replayRig {
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.project.ID = projectstate.ProjectID(replayProjectID)
+	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, merged: true}
+	d := wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		GitStatus:    ps,
+		RailEnabled:  true,
+		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
+		},
+	}
+	return replayRig{wf: replayWorkflows(d), ps: ps, pipe: newFakePipeline(), rail: rail}
+}
+
+// submittedSpecs snapshots a pipeline double's submissions.
+func submittedSpecs(pipe agenticjob.AgenticJobAccess) []agenticjob.PipelineSpec {
+	switch p := pipe.(type) {
+	case *fakePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return append([]agenticjob.PipelineSpec(nil), p.submitted...)
+	case *failOncePipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return append([]agenticjob.PipelineSpec(nil), p.submitted...)
+	case *mergeConflictPipeline:
+		p.mu.Lock()
+		defer p.mu.Unlock()
+		return append([]agenticjob.PipelineSpec(nil), p.submitted...)
+	case orderedPipeline:
+		return submittedSpecs(p.fakePipeline)
+	case *noteRefusingPipeline:
+		return submittedSpecs(p.fakePipeline)
+	}
+	return nil
+}
+
+// phaseSpecs are the agent dispatches of one phase, in order.
+func phaseSpecs(specs []agenticjob.PipelineSpec, phase projectstate.ActivityMethodPhase) []agenticjob.PipelineSpec {
+	var out []agenticjob.PipelineSpec
+	for _, s := range specs {
+		if s.DispatchInputs["phase"] == phase.String() {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// carriedNotes counts the dispatches that carried an operator_note input.
+func carriedNotes(specs []agenticjob.PipelineSpec) int {
+	n := 0
+	for _, s := range specs {
+		if _, ok := s.DispatchInputs[dispatchInputOperatorNote]; ok {
+			n++
+		}
+	}
+	return n
+}
+
+func runNoteConstruct(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+}
+
+// Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped is the h1 shape: the store
+// holds one sendBack note; the redraft's dispatch carries it (text, comment, id); it is
+// stamped to detailedDesign#2; nothing else carries a note.
+func Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	pipe := newFakePipeline()
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	fb := &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseSendBack, Feedback: fb})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 60*time.Second)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	n := assertOneSendBackNote(t, ps, fb)
+	specs := submittedSpecs(pipe)
+	dd := phaseSpecs(specs, projectstate.MethodPhaseDetailedDesign)
+	if len(dd) != 2 {
+		t.Fatalf("want the draft and its redraft, got %d detailed_design dispatches", len(dd))
+	}
+	if _, ok := dd[0].DispatchInputs[dispatchInputOperatorNote]; ok {
+		t.Fatal("the first draft predates the note and must carry none")
+	}
+	got := dd[1].DispatchInputs[dispatchInputOperatorNote]
+	for _, want := range []string{n.note.NoteID, "sendBack at detailed_design", fb.Notes, "comment on $.ops[0]: name the failure"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the redraft's operator_note lacks %q:\n%s", want, got)
+		}
+	}
+	if c := carriedNotes(specs); c != 1 {
+		t.Fatalf("exactly one dispatch carries the note, got %d", c)
+	}
+	want := deliveredCall{activityID: "C-Orders", noteID: n.note.NoteID, attemptID: projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign), 2)}
+	if len(ps.delivered) != 1 || ps.delivered[0] != want {
+		t.Fatalf("delivery stamps = %+v, want [%+v]", ps.delivered, want)
+	}
+}
+
+// assertOneSendBackNote asserts the store holds exactly the send-back's note, verbatim.
+func assertOneSendBackNote(t *testing.T, ps *fakeProjectState, fb *ReviewFeedback) noteCall {
+	t.Helper()
+	if len(ps.notes) != 1 {
+		t.Fatalf("want one recorded note, got %+v", ps.notes)
+	}
+	n := ps.notes[0]
+	wantComment := projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "name the failure"}
+	switch {
+	case n.activityID != "C-Orders", n.note.Kind != projectstate.NoteSendBack, n.note.Gate != "detailed_design", n.note.Text != fb.Notes:
+		t.Fatalf("recorded note = %+v", n)
+	case len(n.note.Comments) != 1 || n.note.Comments[0] != wantComment:
+		t.Fatalf("recorded comments = %+v", n.note.Comments)
+	case !strings.HasPrefix(n.note.NoteID, "C-Orders:note:"):
+		t.Fatalf("note id = %q", n.note.NoteID)
+	}
+	return n
+}
+
+// noteEscalateRig fails detailed_design's first dispatch into an escalation that waits
+// for the operator (no timeout).
+func noteEscalateRig(t *testing.T, pipe agenticjob.AgenticJobAccess, policy projectstate.ReviewPolicy, gitOn bool) (*testsuite.TestWorkflowEnvironment, *fakeProjectState) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(policy)
+	d := wfDeps{Intervention: &fakeIntervention{directive: intervention.VarianceEscalate}, Review: &fakeReview{}}
+	if gitOn {
+		d.GitStatus = ps
+	}
+	registerConstruct(env, newWorkflows(d), ps, pipe)
+	return env, ps
+}
+
+func sendOverride(env *testsuite.TestWorkflowEnvironment, at time.Duration, kind OverrideKind, notes string) {
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{Override: ActivityOverride{Kind: kind, Notes: notes}})
+	}, at)
+}
+
+// Test_NoteDelivery_RetryNoteRidesTheFirstIncompletePhase is the h2 shape: the note
+// rides the first incomplete phase's agent dispatch after the retry.
+func Test_NoteDelivery_RetryNoteRidesTheFirstIncompletePhase(t *testing.T) {
+	pipe := newFakePipelineFailingOnce("detailed_design")
+	env, ps := noteEscalateRig(t, pipe, projectstate.ReviewPolicy{}, false)
+	sendOverride(env, 2*time.Minute, OverrideRetry, "the fixture server was down; retry")
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.notes) != 1 || ps.notes[0].note.Kind != projectstate.NoteRetry || ps.notes[0].note.Gate != takeoverGateKey {
+		t.Fatalf("want one retry note at the takeover, got %+v", ps.notes)
+	}
+	dd := phaseSpecs(submittedSpecs(pipe), projectstate.MethodPhaseDetailedDesign)
+	if len(dd) != 2 || !strings.Contains(dd[1].DispatchInputs[dispatchInputOperatorNote], "the fixture server was down; retry") {
+		t.Fatalf("the retried detailed_design dispatch must carry the note; dispatches=%d", len(dd))
+	}
+	want := projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign), 2)
+	if len(ps.delivered) != 1 || ps.delivered[0].attemptID != want || ps.delivered[0].noteID != ps.notes[0].note.NoteID {
+		t.Fatalf("delivery stamps = %+v, want the note stamped to %s", ps.delivered, want)
+	}
+}
+
+// Test_NoteDelivery_SkipNoteIsKeptAndNeverPending: nothing runs after a skip.
+func Test_NoteDelivery_SkipNoteIsKeptAndNeverPending(t *testing.T) {
+	pipe := newFakePipelineFailingOnce("detailed_design")
+	env, ps := noteEscalateRig(t, pipe, projectstate.ReviewPolicy{}, false)
+	sendOverride(env, 2*time.Minute, OverrideSkip, "built by hand; nothing to construct")
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.notes) != 1 || ps.notes[0].note.Kind != projectstate.NoteSkip {
+		t.Fatalf("want one skip note, got %+v", ps.notes)
+	}
+	if len(ps.delivered) != 0 || carriedNotes(submittedSpecs(pipe)) != 0 {
+		t.Fatalf("a skip note is never delivered: stamps=%+v", ps.delivered)
+	}
+}
+
+// Test_NoteDelivery_RetryWithOnlyTheMergeLeftRecordsAndNeverStamps: a Retry whose phases
+// are all complete re-runs only the local merge job, which is not an agent run, so the
+// note is kept on the activity, undelivered, with no stamp.
+func Test_NoteDelivery_RetryWithOnlyTheMergeLeftRecordsAndNeverStamps(t *testing.T) {
+	pipe := &mergeConflictPipeline{}
+	env, ps := noteEscalateRig(t, pipe, vibesPreset(), true)
+	sendOverride(env, time.Minute, OverrideRetry, "retry the merge after the rebase")
+	sendOverride(env, 2*time.Minute, OverrideSkip, "merged by hand")
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.notes) != 2 || ps.notes[0].note.Kind != projectstate.NoteRetry || ps.notes[1].note.Kind != projectstate.NoteSkip {
+		t.Fatalf("want the retry note then the skip note, got %+v", ps.notes)
+	}
+	if ps.notes[0].note.NoteID == ps.notes[1].note.NoteID {
+		t.Fatalf("two notes of one run must have distinct ids, both are %q", ps.notes[0].note.NoteID)
+	}
+	if len(ps.delivered) != 0 || carriedNotes(submittedSpecs(pipe)) != 0 {
+		t.Fatalf("no agent dispatch followed the retry, so nothing may be stamped or carried: %+v", ps.delivered)
+	}
+}
+
+// Test_NoteDelivery_DefaultVersionKeepsTheOldSequence: an execution without the marker
+// records, carries and stamps nothing — the pre-B1 command sequence.
+func Test_NoteDelivery_DefaultVersionKeepsTheOldSequence(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	pipe := newFakePipeline()
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	// Mocks follow registration (the test environment refuses the other order).
+	env.OnGetVersion(changeOperatorNoteDelivery, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseSendBack, Feedback: &ReviewFeedback{Notes: "redo it"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+	}, 60*time.Second)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(ps.notes) != 0 || len(ps.delivered) != 0 || carriedNotes(submittedSpecs(pipe)) != 0 {
+		t.Fatalf("DefaultVersion must record/stamp/carry nothing: notes=%+v stamps=%+v", ps.notes, ps.delivered)
+	}
+}
+
+// TestDispatchInputsFor_NoNoteIsByteIdentical: a no-note dispatch's inputs are exactly
+// the pre-B1 set; a note adds exactly one key.
+func TestDispatchInputsFor_NoNoteIsByteIdentical(t *testing.T) {
+	spec := pipelineSpec{ActivityID: "C-1", ComponentID: "comp", Phase: projectstate.MethodPhaseConstruction.String()}
+	plain := dispatchInputsFor(spec)
+	if len(plain) != 4 || plain["activity_id"] != "C-1" || plain["component_id"] != "comp" || plain["phase"] != "construction" || plain["command"] == "" {
+		t.Fatalf("no-note inputs = %v, want exactly activity_id/component_id/phase/command", plain)
+	}
+	spec.OperatorNote = "carry this"
+	withNote := dispatchInputsFor(spec)
+	if len(withNote) != 5 || withNote[dispatchInputOperatorNote] != "carry this" {
+		t.Fatalf("with a note, inputs = %v", withNote)
+	}
+	for k, v := range plain {
+		if withNote[k] != v {
+			t.Fatalf("the note changed input %q", k)
+		}
+	}
+}
+
+// Test_NoteDelivery_PendingNoteFromTheStoreRidesTheFirstDispatch: a note already pending
+// on the row (a re-queue's note, as B2 records it) rides this run's first agent dispatch
+// and is stamped; a skip note and an already-delivered note never ride.
+func Test_NoteDelivery_PendingNoteFromTheStoreRidesTheFirstDispatch(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: []projectstate.OperatorNote{
+		{NoteID: "C-Orders:note:reopen:1", Kind: projectstate.NoteRequeue, Text: "the flaky dependency is pinned now", RecordedAt: at},
+		{NoteID: "C-Orders:note:old:1", Kind: projectstate.NoteSkip, Text: "skip note", RecordedAt: at},
+		{NoteID: "C-Orders:note:done:1", Kind: projectstate.NoteRetry, Text: "already delivered", RecordedAt: at, DeliveredToAttemptID: "C-Orders:srs:1", DeliveredAt: &at},
+	}}}
+	pipe := newFakePipeline()
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	specs := submittedSpecs(pipe)
+	first := specs[0].DispatchInputs[dispatchInputOperatorNote]
+	if !strings.Contains(first, "the flaky dependency is pinned now") || strings.Contains(first, "skip note") || strings.Contains(first, "already delivered") {
+		t.Fatalf("the first dispatch must carry only the pending re-queue note:\n%s", first)
+	}
+	if carriedNotes(specs) != 1 {
+		t.Fatalf("only the first dispatch carries the store's note, got %d", carriedNotes(specs))
+	}
+	want := deliveredCall{activityID: "C-Orders", noteID: "C-Orders:note:reopen:1", attemptID: projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseRequirements), 1)}
+	if len(ps.delivered) != 1 || ps.delivered[0] != want {
+		t.Fatalf("stamps = %+v, want [%+v]", ps.delivered, want)
+	}
+}
+
+// noteRefusingPipeline refuses (ContractMisuse, terminal) any submit carrying a note.
+type noteRefusingPipeline struct{ *fakePipeline }
+
+func (p *noteRefusingPipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	if _, ok := spec.DispatchInputs[dispatchInputOperatorNote]; ok {
+		return "", fwra.New(fwra.ContractMisuse, "refused: a note-bearing dispatch")
+	}
+	return p.fakePipeline.SubmitAgenticJob(rc, spec)
+}
+
+// Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded: the stamp follows a SUCCESSFUL
+// submit only; a refused one leaves the note undelivered.
+func Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	pipe := &noteRefusingPipeline{newFakePipeline()}
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, pipe)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseSendBack, Feedback: &ReviewFeedback{Notes: "redo it"}})
+	}, 30*time.Second)
+	runNoteConstruct(t, env)
+	if env.GetWorkflowError() == nil {
+		t.Fatal("a refused redraft submit fails the run here")
+	}
+	if len(ps.notes) != 1 || len(ps.delivered) != 0 {
+		t.Fatalf("the note is kept but never stamped when its dispatch was refused: notes=%d stamps=%+v", len(ps.notes), ps.delivered)
+	}
+}
+
+// orderedPipeline logs "submit" before each dispatch into the shared call log.
+type orderedPipeline struct {
+	*fakePipeline
+	order *callLog
+}
+
+func (p orderedPipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	p.order.add("submit")
+	return p.fakePipeline.SubmitAgenticJob(rc, spec)
+}
+
+// noteGitRun runs one rail-wired (GitHub venue) activity with the sync and the submits
+// on one call log.
+func noteGitRun(t *testing.T, rail *stubRail, version *workflow.Version) (*testsuite.TestWorkflowEnvironment, *fakeProjectState, orderedPipeline) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true)
+	pipe := orderedPipeline{fakePipeline: newFakePipeline(), order: rail.order}
+	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
+	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, nil)
+	registerGenDesignSessionRead(env, ps)
+	registerGenProjectStateVersion(env, ps)
+	registerGenConstructionTransition(env, ps)
+	registerGenGitStatus(env, git)
+	registerGenRail(env, rail)
+	if version != nil {
+		env.OnGetVersion(changeOperatorNoteDelivery, workflow.DefaultVersion, 1).Return(*version)
+	}
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity()})
+	return env, ps, pipe
+}
+
+// Test_NoteDelivery_ScaffoldSyncPrecedesEveryGitHubDispatch: on the GitHub venue the
+// managed scaffold is synced immediately before every agent dispatch.
+func Test_NoteDelivery_ScaffoldSyncPrecedesEveryGitHubDispatch(t *testing.T) {
+	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, order: &callLog{}}
+	env, _, _ := noteGitRun(t, rail, nil)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	want := strings.Repeat("sync→submit→", 4) + "sync→submit"
+	if got := rail.order.String(); got != want {
+		t.Fatalf("call order = %s\nwant       %s", got, want)
+	}
+}
+
+// Test_NoteDelivery_NoSyncOnTheLocalVenue: the local venue has no seated workflow, so no
+// sync is ever issued there (a rail is registered only to catch one).
+func Test_NoteDelivery_NoSyncOnTheLocalVenue(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	rail := &stubRail{}
+	registerConstruct(env, newWorkflows(gateDeps(ps)), ps, newFakePipeline())
+	registerGenRail(env, rail)
+	runNoteConstruct(t, env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if rail.syncs != 0 {
+		t.Fatalf("the local venue must never sync, got %d", rail.syncs)
+	}
+}
+
+// Test_NoteDelivery_DefaultVersionNeverSyncs: the sync shares the change id, so an old
+// execution never issues it.
+func Test_NoteDelivery_DefaultVersionNeverSyncs(t *testing.T) {
+	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess}
+	dv := workflow.DefaultVersion
+	env, _, _ := noteGitRun(t, rail, &dv)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if rail.syncs != 0 {
+		t.Fatalf("DefaultVersion must not sync, got %d", rail.syncs)
+	}
+}
+
+// Test_NoteDelivery_FailedSyncDispatchesNothing: a sync that fails dispatches nothing and
+// reads as a failed run, so the variance path takes it (here, Retry until exhausted).
+func Test_NoteDelivery_FailedSyncDispatchesNothing(t *testing.T) {
+	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, syncErr: fwra.New(fwra.Auth, "the installation token was refused")}
+	env, ps, pipe := noteGitRun(t, rail, nil)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if n := len(submittedSpecs(pipe)); n != 0 {
+		t.Fatalf("a failed sync must dispatch nothing, got %d submits", n)
+	}
+	if rail.syncs != maxVarianceAttempts {
+		t.Fatalf("one sync per attempt, got %d", rail.syncs)
+	}
+	if len(ps.failed) != 1 || ps.failed[0].reason != projectstate.VarianceExhausted {
+		t.Fatalf("want the variance path to exhaust, got %+v", ps.failed)
+	}
+}
+
+func isContractMisuse(err error) bool {
+	var fe *fwmanager.Error
+	return errors.As(err, &fe) && fe.Kind == fwmanager.ContractMisuse
+}
+
+// TestFacade_OperatorNoteIsCappedAt4000Characters: a send-back's feedback and an
+// override's notes are at most 4,000 characters, anchored comments included —
+// ContractMisuse beyond, and nothing is signalled.
+func TestFacade_OperatorNoteIsCappedAt4000Characters(t *testing.T) {
+	over := strings.Repeat("é", maxOperatorNoteRunes+1)
+	withComment := strings.Repeat("a", maxOperatorNoteRunes-10)
+	comments := []AnchoredComment{{JSONPath: "$.ops[0]", Text: strings.Repeat("b", 11)}}
+	for name, call := range map[string]func(m *constructionManager) error{
+		"send-back text": func(m *constructionManager) error {
+			return m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: over})
+		},
+		"send-back comments": func(m *constructionManager) error {
+			return m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: withComment, Comments: comments})
+		},
+		"override text": func(m *constructionManager) error {
+			return m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: over})
+		},
+		"override comments": func(m *constructionManager) error {
+			return m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: withComment, Comments: comments})
+		},
+	} {
+		fc := &fakeTemporalClient{}
+		if err := call(newTestConstructionManager(fc)); !isContractMisuse(err) {
+			t.Errorf("%s over the cap: want ContractMisuse, got %v", name, err)
+		}
+		if fc.lastSignalName != "" {
+			t.Errorf("%s: a refused note must not signal", name)
+		}
+	}
+	if operatorNoteRunes(strings.Repeat("é", maxOperatorNoteRunes-11), comments) != maxOperatorNoteRunes {
+		t.Fatal("the count is characters (runes) of the text plus the comments' text")
+	}
+	if maxOperatorNoteRunes != 4000 {
+		t.Fatalf("the ruled cap is 4,000 characters, got %d", maxOperatorNoteRunes)
+	}
+}
+
+// TestRenderOperatorNotes_HeadsEachNoteAndCapsAt16KiB: each note is headed by its id,
+// kind and gate, oldest first; the block is cut at 16 KiB on a rune boundary, marked.
+func TestRenderOperatorNotes_HeadsEachNoteAndCapsAt16KiB(t *testing.T) {
+	if renderOperatorNotes(nil) != "" {
+		t.Fatal("no notes render nothing")
+	}
+	one := renderOperatorNotes([]projectstate.OperatorNote{{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "tighten it",
+		Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}})
+	if one != "[operator note n1 — sendBack at detailed_design]\ntighten it\n  comment on $.ops[0]: name the failure" {
+		t.Fatalf("rendered = %q", one)
+	}
+	var many []projectstate.OperatorNote
+	for i := range 6 {
+		many = append(many, projectstate.OperatorNote{NoteID: fmt.Sprintf("n%d", i), Kind: projectstate.NoteRetry, Text: strings.Repeat("😀", 1000)})
+	}
+	out := renderOperatorNotes(many)
+	if len(out) > maxRenderedOperatorNotesBytes || !strings.HasSuffix(out, renderedNotesTruncated) {
+		t.Fatalf("a %d-byte block must be cut to %d and marked (len %d)", 6*4000, maxRenderedOperatorNotesBytes, len(out))
+	}
+	if strings.ToValidUTF8(out, "\uFFFD") != out {
+		t.Fatal("the cut must fall on a rune boundary")
+	}
+	if !strings.HasPrefix(out, "[operator note n0 — retry]") {
+		t.Fatal("the oldest note comes first")
+	}
+}
