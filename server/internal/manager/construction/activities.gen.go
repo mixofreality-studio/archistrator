@@ -248,6 +248,20 @@ func (a *genActivities) ConstructionTransitionRecordChangeReviewed(ctx context.C
 	return v, fwmanager.MapError(err)
 }
 
+// ConstructionTransitionRecordOperatorNote wraps constructionTransitionAccess.recordOperatorNote.
+// Registered as "constructionTransitionAccess.recordOperatorNote".
+func (a *genActivities) ConstructionTransitionRecordOperatorNote(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ConstructionTransition.RecordOperatorNote(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, note, cred, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
+// ConstructionTransitionRecordOperatorNoteDelivered wraps constructionTransitionAccess.recordOperatorNoteDelivered.
+// Registered as "constructionTransitionAccess.recordOperatorNoteDelivered".
+func (a *genActivities) ConstructionTransitionRecordOperatorNoteDelivered(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ConstructionTransition.RecordOperatorNoteDelivered(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, noteID, attemptID, cred, genActivityIdempotencyKey(ctx))
+	return v, fwmanager.MapError(err)
+}
+
 // ConstructionTransitionRecordOperatorPaused wraps constructionTransitionAccess.recordOperatorPaused.
 // Registered as "constructionTransitionAccess.recordOperatorPaused".
 func (a *genActivities) ConstructionTransitionRecordOperatorPaused(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {

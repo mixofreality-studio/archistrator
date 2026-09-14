@@ -2858,6 +2858,13 @@ components:
                     type: string
                 layerBand:
                     type: string
+                operatorNotes:
+                    description: Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it; then it names that dispatch's attempt. Omitted when there are none.
+                    items:
+                        $ref: '#/components/schemas/SystemDesignOperatorNote'
+                    type:
+                        - "null"
+                        - array
                 pendingResume:
                     $ref: '#/components/schemas/SystemDesignPendingResume'
                     description: 'Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
@@ -3587,8 +3594,89 @@ components:
                 - ordinal
                 - section
             type: object
+        SystemDesignNoteComment:
+            additionalProperties: false
+            properties:
+                jsonPath:
+                    description: Where the comment is anchored in the artifact under review, as a JSONPath.
+                    type: string
+                    x-go-name: JSONPath
+                text:
+                    description: The comment, verbatim.
+                    type: string
+            required:
+                - jsonPath
+                - text
+            type: object
         SystemDesignOperatingModel:
             type: string
+        SystemDesignOperatorNote:
+            additionalProperties: false
+            properties:
+                comments:
+                    description: Anchored comments that rode with the note. Omitted when there are none.
+                    items:
+                        $ref: '#/components/schemas/SystemDesignNoteComment'
+                    type:
+                        - "null"
+                        - array
+                deliveredAt:
+                    description: When the delivery was recorded. Omitted while the note is pending.
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                deliveredToAttemptId:
+                    description: The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending, and always for a skip note, which nothing runs after.
+                    type: string
+                    x-go-name: DeliveredToAttemptID
+                gate:
+                    description: 'The gate the note was written at: a lifecycle phase''s wire name, "merge" or "takeover". Omitted when none applies.'
+                    type: string
+                kind:
+                    $ref: '#/components/schemas/SystemDesignOperatorNoteKind'
+                    description: Why the note was written.
+                noteId:
+                    description: The note's id.
+                    type: string
+                    x-go-name: NoteID
+                recordedAt:
+                    description: When the store recorded the note (server clock).
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+                text:
+                    description: The operator's note, verbatim.
+                    type: string
+            required:
+                - noteId
+                - kind
+                - text
+                - recordedAt
+            type: object
+        SystemDesignOperatorNoteKind:
+            description: 'Why an operator wrote a note: 1 sendBack (a phase gate''s SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered), 6 requeue.'
+            enum:
+                - 0
+                - 1
+                - 2
+                - 3
+                - 4
+                - 5
+                - 6
+            type: integer
+            x-enum-varnames:
+                - OperatorNoteKindUnknown
+                - OperatorNoteKindSendBack
+                - OperatorNoteKindRetry
+                - OperatorNoteKindTakeover
+                - OperatorNoteKindReassign
+                - OperatorNoteKindSkip
+                - OperatorNoteKindRequeue
+            x-go-base: int
         SystemDesignOwnerScope:
             type: string
         SystemDesignPendingDependency:

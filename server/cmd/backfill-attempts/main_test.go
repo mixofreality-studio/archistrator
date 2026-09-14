@@ -1174,9 +1174,9 @@ func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 	}
 	for id, row := range p.ActivityConstruction {
 		if row.Phase != projectstate.ActivityConstructionNotStarted || len(row.Phases) != 0 || row.StartedAt != nil ||
-			row.FailureReason != projectstate.FailureReasonUnknown || row.FailureDetail != "" {
-			t.Errorf("%s: backfill wrote pump-owned state: phase=%v phases=%v startedAt=%v failure=%v/%q",
-				id, row.Phase, row.Phases, row.StartedAt, row.FailureReason, row.FailureDetail)
+			row.FailureReason != projectstate.FailureReasonUnknown || row.FailureDetail != "" || len(row.OperatorNotes) != 0 {
+			t.Errorf("%s: backfill wrote pump-owned state: phase=%v phases=%v startedAt=%v failure=%v/%q notes=%v",
+				id, row.Phase, row.Phases, row.StartedAt, row.FailureReason, row.FailureDetail, row.OperatorNotes)
 		}
 	}
 

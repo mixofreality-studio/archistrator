@@ -2549,6 +2549,24 @@ func (f *fakeProjectState) RecordReviewPolicy(_ fwra.Context, _ projectstate.Pro
 	return f.bump(), nil
 }
 
+func (f *fakeProjectState) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.OperatorNoteInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
+func (f *fakeProjectState) RecordOperatorNoteDelivered(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _, _, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.bump(), nil
+}
+
 func (f *fakeProjectState) RecordPhaseStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityMethodPhase, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()

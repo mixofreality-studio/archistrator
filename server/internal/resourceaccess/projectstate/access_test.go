@@ -9567,3 +9567,214 @@ func TestGitStore_ListProjects_FailsOnACredentialThatCannotAuthenticate(t *testi
 		t.Fatalf("an empty cloud credential must fail the list with ContractMisuse; got %+v, %v", summaries, err)
 	}
 }
+
+// ---- Operator notes (plan B1.1) ------------------------------------------------------
+
+func operatorNoteInput(id string, kind OperatorNoteKind, text string) OperatorNoteInput {
+	return OperatorNoteInput{NoteID: id, Kind: kind, Gate: "detailed_design", Text: text}
+}
+
+func raKindOf(err error) fwra.Kind {
+	var e *fwra.Error
+	if errors.As(err, &e) {
+		return e.Kind
+	}
+	return fwra.Unknown
+}
+
+var noteClock = time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+
+func TestRecordOperatorNote_AppendsInRecordedOrder(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	store = store.WithClock(func() time.Time { return noteClock })
+	rc := fwra.Context{Context: context.Background()}
+	first := operatorNoteInput("C-A:note:r1:1", NoteSendBack, "tighten the error model")
+	first.Comments = []NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}
+	v, err := store.RecordOperatorNote(rc, id, v, "C-A", first, cred, fwra.IdempotencyKey("wf:note-1"))
+	if err != nil {
+		t.Fatalf("RecordOperatorNote(first): %v", err)
+	}
+	second := operatorNoteInput("C-A:note:r1:2", NoteRetry, "the fixture server was down")
+	second.Gate = "takeover"
+	if _, err := store.RecordOperatorNote(rc, id, v, "C-A", second, cred, fwra.IdempotencyKey("wf:note-2")); err != nil {
+		t.Fatalf("RecordOperatorNote(second): %v", err)
+	}
+	want := []OperatorNote{
+		{NoteID: first.NoteID, Kind: NoteSendBack, Gate: "detailed_design", Text: first.Text, Comments: first.Comments, RecordedAt: noteClock},
+		{NoteID: second.NoteID, Kind: NoteRetry, Gate: "takeover", Text: second.Text, RecordedAt: noteClock},
+	}
+	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; !reflect.DeepEqual(got, want) {
+		t.Fatalf("OperatorNotes = %+v, want %+v", got, want)
+	}
+}
+
+func TestRecordOperatorNote_OneIDNamesOneNote(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	rc := fwra.Context{Context: context.Background()}
+	n := operatorNoteInput("C-A:note:r1:1", NoteSendBack, "tighten the error model")
+	v, err := store.RecordOperatorNote(rc, id, v, "C-A", n, cred, fwra.IdempotencyKey("wf:a"))
+	if err != nil {
+		t.Fatalf("RecordOperatorNote: %v", err)
+	}
+	// The same note again under a NEW idempotency key (not a ledger replay): nothing appended.
+	v, err = store.RecordOperatorNote(rc, id, v, "C-A", n, cred, fwra.IdempotencyKey("wf:b"))
+	if err != nil {
+		t.Fatalf("re-recording identical content must succeed, got %v", err)
+	}
+	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; len(got) != 1 {
+		t.Fatalf("identical content appended a second note: %+v", got)
+	}
+	for name, changed := range map[string]OperatorNoteInput{
+		"text":     {NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: "something else"},
+		"kind":     {NoteID: n.NoteID, Kind: NoteRetry, Gate: n.Gate, Text: n.Text},
+		"gate":     {NoteID: n.NoteID, Kind: n.Kind, Gate: "integration", Text: n.Text},
+		"comments": {NoteID: n.NoteID, Kind: n.Kind, Gate: n.Gate, Text: n.Text, Comments: []NoteComment{{JSONPath: "$", Text: "x"}}},
+	} {
+		if _, err := store.RecordOperatorNote(rc, id, v, "C-A", changed, cred, fwra.IdempotencyKey("wf:c-"+name)); raKindOf(err) != fwra.ContractMisuse {
+			t.Errorf("same id, different %s: want ContractMisuse, got %v", name, err)
+		}
+	}
+	if got := readConstruction(t, store, id, cred, "C-A").OperatorNotes; len(got) != 1 || got[0].Text != n.Text {
+		t.Fatalf("a refused duplicate changed the note: %+v", got)
+	}
+}
+
+func TestRecordOperatorNote_RefusesMisuse(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	rc := fwra.Context{Context: context.Background()}
+	cases := map[string]struct {
+		activityID string
+		note       OperatorNoteInput
+	}{
+		"empty activityID":  {"", operatorNoteInput("n", NoteSendBack, "t")},
+		"empty noteId":      {"C-A", operatorNoteInput("", NoteSendBack, "t")},
+		"blank text":        {"C-A", operatorNoteInput("n", NoteSendBack, " \n\t")},
+		"unknown kind 0":    {"C-A", operatorNoteInput("n", OperatorNoteKindUnknown, "t")},
+		"kind out of range": {"C-A", operatorNoteInput("n", OperatorNoteKind(7), "t")},
+	}
+	for name, c := range cases {
+		if _, err := store.RecordOperatorNote(rc, id, v, c.activityID, c.note, cred, fwra.IdempotencyKey("wf:"+name)); raKindOf(err) != fwra.ContractMisuse {
+			t.Errorf("%s: want ContractMisuse, got %v", name, err)
+		}
+	}
+}
+
+func TestRecordOperatorNoteDelivered_StampsOnce(t *testing.T) {
+	store, id, v, cred := newConstructionStore(t)
+	store = store.WithClock(func() time.Time { return noteClock })
+	rc := fwra.Context{Context: context.Background()}
+	v, err := store.RecordOperatorNote(rc, id, v, "C-A", operatorNoteInput("n1", NoteSendBack, "tighten it"), cred, fwra.IdempotencyKey("wf:rec"))
+	if err != nil {
+		t.Fatalf("RecordOperatorNote: %v", err)
+	}
+	const attempt = "C-A:detailedDesign:2"
+	v, err = store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", attempt, cred, fwra.IdempotencyKey("wf:d1"))
+	if err != nil {
+		t.Fatalf("RecordOperatorNoteDelivered: %v", err)
+	}
+	got := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]
+	if got.DeliveredToAttemptID != attempt || got.DeliveredAt == nil || !got.DeliveredAt.Equal(noteClock) {
+		t.Fatalf("delivery stamp = %q at %v, want %q at %v", got.DeliveredToAttemptID, got.DeliveredAt, attempt, noteClock)
+	}
+	// Re-stamping the same attempt (a retried write under a new key) changes nothing.
+	later := store.WithClock(func() time.Time { return noteClock.Add(time.Hour) })
+	v, err = later.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", attempt, cred, fwra.IdempotencyKey("wf:d2"))
+	if err != nil {
+		t.Fatalf("re-stamping the same attempt must succeed, got %v", err)
+	}
+	if again := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]; !again.DeliveredAt.Equal(noteClock) {
+		t.Fatalf("re-stamping moved DeliveredAt to %v", again.DeliveredAt)
+	}
+	// A note is delivered once.
+	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "n1", "C-A:detailedDesign:3", cred, fwra.IdempotencyKey("wf:d3")); raKindOf(err) != fwra.ContractMisuse {
+		t.Fatalf("stamping a different attempt: want ContractMisuse, got %v", err)
+	}
+	if kept := readConstruction(t, store, id, cred, "C-A").OperatorNotes[0]; kept.DeliveredToAttemptID != attempt {
+		t.Fatalf("a refused re-stamp moved the delivery to %q", kept.DeliveredToAttemptID)
+	}
+	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-A", "no-such-note", attempt, cred, fwra.IdempotencyKey("wf:d4")); raKindOf(err) != fwra.NotFound {
+		t.Errorf("unknown note: want NotFound, got %v", err)
+	}
+	if _, err := store.RecordOperatorNoteDelivered(rc, id, v, "C-ZZ", "n1", attempt, cred, fwra.IdempotencyKey("wf:d5")); raKindOf(err) != fwra.NotFound {
+		t.Errorf("no such row: want NotFound, got %v", err)
+	}
+	for name, args := range map[string][3]string{
+		"empty activityID": {"", "n1", attempt}, "empty noteID": {"C-A", "", attempt}, "empty attemptID": {"C-A", "n1", ""},
+	} {
+		if _, err := store.RecordOperatorNoteDelivered(rc, id, v, args[0], args[1], args[2], cred, fwra.IdempotencyKey("wf:m-"+name)); raKindOf(err) != fwra.ContractMisuse {
+			t.Errorf("%s: want ContractMisuse, got %v", name, err)
+		}
+	}
+}
+
+// Notes survive the project.json codec and the Temporal envelope, and a row without
+// notes serializes with no operatorNotes key at all (byte-identical to before B1.1).
+func TestOperatorNotes_RoundTripAndOmittedWhenNone(t *testing.T) {
+	delivered := noteClock.Add(time.Minute)
+	notes := []OperatorNote{
+		{NoteID: "n1", Kind: NoteSendBack, Gate: "detailed_design", Text: "tighten it",
+			Comments: []NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}, RecordedAt: noteClock,
+			DeliveredToAttemptID: "C-A:detailedDesign:2", DeliveredAt: &delivered},
+		{NoteID: "n2", Kind: NoteSkip, Text: "built by hand", RecordedAt: noteClock},
+	}
+	p := Project{ID: ProjectID(uuid.NewString()), Version: 3, ActivityConstruction: map[string]ActivityConstructionStatus{
+		"C-A": {ActivityID: "C-A", OperatorNotes: notes},
+		"C-B": {ActivityID: "C-B", Phase: ActivityConstructionRunning},
+	}}
+	raw, err := EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("EncodeProjectJSON: %v", err)
+	}
+	decoded, _, err := DecodeProjectJSON(raw, p.ID)
+	if err != nil {
+		t.Fatalf("DecodeProjectJSON: %v", err)
+	}
+	if !reflect.DeepEqual(decoded.ActivityConstruction["C-A"].OperatorNotes, notes) {
+		t.Fatalf("codec round trip: %+v, want %+v", decoded.ActivityConstruction["C-A"].OperatorNotes, notes)
+	}
+	env, err := EncodeProject(p)
+	if err != nil {
+		t.Fatalf("EncodeProject: %v", err)
+	}
+	wireRaw, err := json.Marshal(env)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var wire ProjectEnvelope
+	if err := json.Unmarshal(wireRaw, &wire); err != nil {
+		t.Fatal(err)
+	}
+	fromWire, err := wire.Decode()
+	if err != nil {
+		t.Fatalf("Decode: %v", err)
+	}
+	if !reflect.DeepEqual(fromWire.ActivityConstruction["C-A"].OperatorNotes, notes) {
+		t.Fatalf("envelope round trip: %+v, want %+v", fromWire.ActivityConstruction["C-A"].OperatorNotes, notes)
+	}
+	rowB, err := json.Marshal(p.ActivityConstruction["C-B"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if bytes.Contains(rowB, []byte("operatorNotes")) {
+		t.Fatalf("a row without notes must omit the key, got %s", rowB)
+	}
+}
+
+func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
+	r := ActivityConstructionStatus{OperatorNotes: []OperatorNote{
+		{NoteID: "a", Kind: NoteSendBack},
+		{NoteID: "b", Kind: NoteSkip},
+		{NoteID: "c", Kind: NoteRetry, DeliveredToAttemptID: "X:srs:1"},
+		{NoteID: "d", Kind: NoteTakeover},
+		{NoteID: "e", Kind: NoteReassign},
+		{NoteID: "f", Kind: NoteRequeue},
+		{NoteID: "g", Kind: NoteRetry},
+	}}
+	var got []string
+	for _, n := range pendingOperatorNotes(r) {
+		got = append(got, n.NoteID)
+	}
+	if want := []string{"a", "d", "e", "f", "g"}; !slices.Equal(got, want) {
+		t.Fatalf("pending = %v, want %v (skip and delivered notes are never pending)", got, want)
+	}
+}

@@ -2079,6 +2079,111 @@ func (s *GitStore) RecordActivityFailed(rc fwra.Context, projectID ProjectID, ex
 	})
 }
 
+// RecordOperatorNote appends an operator's note to activityID's construction row
+// (plan B1.1), stamping RecordedAt from the server clock. NoteID is the caller's
+// deterministic id: recording the same id again with identical content appends nothing
+// (the version still advances, as it does for every applied mutation), and with
+// different content it is refused as ContractMisuse, because one id names one note.
+// Also ContractMisuse: an empty activityID or noteId, blank text, or a kind outside the
+// closed vocabulary. The row is upserted, like RecordActivityFailed's.
+func (s *GitStore) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	if err := validateOperatorNoteInput(activityID, note); err != nil {
+		return 0, err
+	}
+	now := s.now()
+	return s.applyMutation(rc.Context, "RecordOperatorNote", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		var refused error
+		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
+			for _, n := range cs.OperatorNotes {
+				if n.NoteID != note.NoteID {
+					continue
+				}
+				if !sameOperatorNote(n, note) {
+					refused = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+						"projectstate.RecordOperatorNote: note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
+				}
+				return
+			}
+			cs.OperatorNotes = append(cs.OperatorNotes, OperatorNote{
+				NoteID:     note.NoteID,
+				Kind:       note.Kind,
+				Gate:       note.Gate,
+				Text:       note.Text,
+				Comments:   slices.Clone(note.Comments),
+				RecordedAt: now,
+			})
+		})
+		return refused
+	})
+}
+
+// validateOperatorNoteInput is RecordOperatorNote's ContractMisuse gate.
+func validateOperatorNoteInput(activityID string, note OperatorNoteInput) error {
+	switch {
+	case activityID == "":
+		return fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNote: empty activityID")
+	case note.NoteID == "":
+		return fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNote: empty noteId")
+	case strings.TrimSpace(note.Text) == "":
+		return fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNote: blank note text")
+	}
+	switch note.Kind {
+	case NoteSendBack, NoteRetry, NoteTakeover, NoteReassign, NoteSkip, NoteRequeue:
+		return nil
+	case OperatorNoteKindUnknown:
+		return fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNote: unknown note kind 0")
+	}
+	return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RecordOperatorNote: unknown note kind %d", int(note.Kind)))
+}
+
+// sameOperatorNote reports whether a recorded note carries exactly the input's content
+// (RecordedAt and the delivery stamp are the store's, not the caller's).
+func sameOperatorNote(n OperatorNote, in OperatorNoteInput) bool {
+	return n.Kind == in.Kind && n.Gate == in.Gate && n.Text == in.Text && slices.Equal(n.Comments, in.Comments)
+}
+
+// RecordOperatorNoteDelivered stamps the note noteID on activityID's row as delivered to
+// the agent dispatch attemptID (projectstate.AttemptID), with DeliveredAt from the server
+// clock. A note is delivered once: re-stamping the same attempt is a no-op, and stamping
+// a different one is refused as ContractMisuse. No such row or note is NotFound; an empty
+// activityID, noteID or attemptID is ContractMisuse.
+func (s *GitStore) RecordOperatorNoteDelivered(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, noteID string, attemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	switch {
+	case activityID == "":
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty activityID")
+	case noteID == "":
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty noteID")
+	case attemptID == "":
+		return 0, fwra.New(fwra.ContractMisuse, "projectstate.RecordOperatorNoteDelivered: empty attemptID")
+	}
+	now := s.now()
+	return s.applyMutation(rc.Context, "RecordOperatorNoteDelivered", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		cs, ok := p.ActivityConstruction[activityID]
+		if !ok {
+			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no construction row for %s", activityID))
+		}
+		for i := range cs.OperatorNotes {
+			n := &cs.OperatorNotes[i]
+			if n.NoteID != noteID {
+				continue
+			}
+			switch n.DeliveredToAttemptID {
+			case attemptID:
+				return nil
+			case "":
+				t := now
+				n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
+				p.ActivityConstruction[activityID] = cs
+				return nil
+			default:
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+					"projectstate.RecordOperatorNoteDelivered: note %q on %s was already delivered to %s; a note is delivered once", noteID, activityID, n.DeliveredToAttemptID))
+			}
+		}
+		return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no note %q on %s", noteID, activityID))
+	})
+}
+
 // RecordOperatorPaused records the operator-paused head-state transition by
 // setting Project.OperatorPaused = true and Project.PauseReason = reason.
 func (s *GitStore) RecordOperatorPaused(rc fwra.Context, projectID ProjectID, expectedVersion Version, reason string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
@@ -7415,6 +7520,58 @@ type ActivityConstructionStatus struct {
 	// FailureDetail is the human-readable diagnostic captured alongside FailureReason
 	// (the pipeline's neutral diagnostic / a short escalation note). Empty otherwise.
 	FailureDetail string `json:"failureDetail,omitempty"`
+	// OperatorNotes is the APPEND-ONLY list of notes an operator recorded against this
+	// activity (RecordOperatorNote), in recorded order. omitempty keeps a row without
+	// notes byte-identical to one written before notes existed.
+	OperatorNotes []OperatorNote `json:"operatorNotes,omitempty"`
+}
+
+// OperatorNote is one note an operator recorded against an activity (plan B1.1): a
+// phase gate's SendBack feedback, or the reason given for an override. It is an ACTIVITY
+// fact, not an attempt one: it is written at a gate occurrence or an escalation and
+// delivered to the NEXT agent attempt, which does not exist yet when the note is
+// recorded. The delivery stamp names that attempt by its AttemptID — the same key its
+// episode carries as TargetRef — so the ledger join survives.
+type OperatorNote struct {
+	// NoteID is the caller's deterministic id; one id names one note.
+	NoteID string `json:"noteId"`
+	// Kind is why the note was written (the closed OperatorNoteKind vocabulary).
+	Kind OperatorNoteKind `json:"kind"`
+	// Gate is the gate it was written at: a lifecycle phase's wire name, "merge" or
+	// "takeover"; empty when none applies.
+	Gate string `json:"gate,omitempty"`
+	// Text is the operator's note, verbatim.
+	Text string `json:"text"`
+	// Comments are the anchored comments that rode with the note.
+	Comments []NoteComment `json:"comments,omitempty"`
+	// RecordedAt is the server clock when RecordOperatorNote committed.
+	RecordedAt time.Time `json:"recordedAt"`
+	// DeliveredToAttemptID is the AttemptID of the agent dispatch that carried the note;
+	// empty while it is pending.
+	DeliveredToAttemptID string `json:"deliveredToAttemptId,omitempty"`
+	// DeliveredAt is the server clock when that delivery was recorded; nil while pending.
+	DeliveredAt *time.Time `json:"deliveredAt,omitempty"`
+}
+
+// pendingOperatorNotes returns the notes on r that an agent dispatch still owes, in
+// recorded order: undelivered, of a kind that is delivered at all. A skip note never
+// is — nothing runs after a skip. (Unexported until its first caller outside this
+// package, the construction Manager's note delivery, lands; see the arch_test.go
+// allowlist rule.)
+func pendingOperatorNotes(r ActivityConstructionStatus) []OperatorNote {
+	var out []OperatorNote
+	for _, n := range r.OperatorNotes {
+		if n.DeliveredToAttemptID != "" {
+			continue
+		}
+		switch n.Kind {
+		case NoteSendBack, NoteRetry, NoteTakeover, NoteReassign, NoteRequeue:
+			out = append(out, n)
+		case NoteSkip, OperatorNoteKindUnknown:
+			// never delivered: nothing runs after a skip, and an unknown kind is never recorded.
+		}
+	}
+	return out
 }
 
 // phaseSetFor returns the seeded PhaseCompletion slice for an activity type/variant.

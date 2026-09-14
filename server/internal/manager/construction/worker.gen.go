@@ -43,6 +43,8 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordActivityExited, activity.RegisterOptions{Name: "constructionTransitionAccess.recordActivityExited"})
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordActivityFailed, activity.RegisterOptions{Name: "constructionTransitionAccess.recordActivityFailed"})
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordChangeReviewed, activity.RegisterOptions{Name: "constructionTransitionAccess.recordChangeReviewed"})
+	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNote, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNote"})
+	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNoteDelivered, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNoteDelivered"})
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorPaused, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorPaused"})
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseArtifactProduced, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseArtifactProduced"})
 	w.RegisterActivityWithOptions(acts.ConstructionTransitionRecordPhaseCompleted, activity.RegisterOptions{Name: "constructionTransitionAccess.recordPhaseCompleted"})

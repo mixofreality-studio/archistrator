@@ -616,6 +616,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"MilestonesByID",
 		"PumpWroteRow",
 		"ResolveDependencySatisfied",
+		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
+		// ActivityConstructionStatus.OperatorNotes, hand-written beside that row type like
+		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,
+		// OperatorNoteKind) is generated from the contract. Caller outside this package,
+		// verifiable by grep:
+		//
+		//	OperatorNote → the systemdesign Manager (operatorNotesToContract): the wire view
+		//	               of a row's notes.
+		"OperatorNote",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
 		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the

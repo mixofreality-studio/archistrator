@@ -78,6 +78,8 @@ const OUTPUT_NAMES = {
   ConstructionEpisodeOutcome: 'EpisodeOutcome',
   ProjectDesignEpisodeOutcome: 'EpisodeOutcome',
   SystemDesignEpisodeOutcome: 'EpisodeOutcome',
+  // operator notes on a construction row (plan B1.1); new/unwired, no hand table yet.
+  SystemDesignOperatorNoteKind: 'OperatorNoteKind',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
@@ -144,6 +146,7 @@ const UNVERIFIED_MECHANICAL = new Set([
   'PatchKind',
   'EpisodeKind',
   'EpisodeOutcome',
+  'OperatorNoteKind',
 ]);
 
 function splitWords(name) {

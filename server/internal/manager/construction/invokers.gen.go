@@ -251,6 +251,20 @@ func (i genInvokers) ConstructionTransitionRecordChangeReviewed(ctx workflow.Con
 	return out, err
 }
 
+// ConstructionTransitionRecordOperatorNote invokes activity "constructionTransitionAccess.recordOperatorNote".
+func (i genInvokers) ConstructionTransitionRecordOperatorNote(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNote"), "constructionTransitionAccess.recordOperatorNote", projectID, expectedVersion, activityID, note, cred).Get(ctx, &out)
+	return out, err
+}
+
+// ConstructionTransitionRecordOperatorNoteDelivered invokes activity "constructionTransitionAccess.recordOperatorNoteDelivered".
+func (i genInvokers) ConstructionTransitionRecordOperatorNoteDelivered(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, noteID string, attemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	var out projectstate.Version
+	err := workflow.ExecuteActivity(i.options(ctx, "constructionTransitionAccess.recordOperatorNoteDelivered"), "constructionTransitionAccess.recordOperatorNoteDelivered", projectID, expectedVersion, activityID, noteID, attemptID, cred).Get(ctx, &out)
+	return out, err
+}
+
 // ConstructionTransitionRecordOperatorPaused invokes activity "constructionTransitionAccess.recordOperatorPaused".
 func (i genInvokers) ConstructionTransitionRecordOperatorPaused(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, reason string, cred projectstate.RepoCredential) (projectstate.Version, error) {
 	var out projectstate.Version

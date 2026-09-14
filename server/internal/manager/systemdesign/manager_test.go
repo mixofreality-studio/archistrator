@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"reflect"
 	"slices"
 	"strings"
 	"sync"
@@ -11142,6 +11143,9 @@ func TestConstructionStartedFor(t *testing.T) {
 		{"a recorded failure detail", map[string]projectstate.ActivityConstructionStatus{
 			"C-a": {ActivityID: "C-a", FailureDetail: "pipeline cancelled"},
 		}, true},
+		{"operator notes only (plan B1.1: a note is not pump state)", map[string]projectstate.ActivityConstructionStatus{
+			"C-a": {ActivityID: "C-a", OperatorNotes: []projectstate.OperatorNote{{NoteID: "n", Kind: projectstate.NoteSendBack, Text: "x", RecordedAt: now}}},
+		}, false},
 		{"one observed attempt among backfilled ones", map[string]projectstate.ActivityConstructionStatus{
 			"C-a": {ActivityID: "C-a", Attempts: append(reconstructed(projectstate.OriginBackfilled),
 				projectstate.TaskAttempt{Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}})},
@@ -11368,5 +11372,61 @@ func TestConstructionRowsToContract_PendingResumeNeedsARunningLedger(t *testing.
 	}
 	if !slices.Equal(pr.WaitsOn, want) {
 		t.Errorf("C-waiter WaitsOn = %+v\nwant           %+v", pr.WaitsOn, want)
+	}
+}
+
+// Operator notes (plan B1.1) reach the wire row exactly as stored: recorded order, the
+// delivery stamp only where the store holds one, and nothing on a row with no notes.
+func TestConstructionRowsToContract_CarriesOperatorNotesAsStored(t *testing.T) {
+	recorded := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	delivered := recorded.Add(time.Minute)
+	rows := map[string]projectstate.ActivityConstructionStatus{
+		"C-BE": {ActivityID: "C-BE", OperatorNotes: []projectstate.OperatorNote{
+			{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "tighten it",
+				Comments:   []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}},
+				RecordedAt: recorded, DeliveredToAttemptID: "C-BE:detailedDesign:2", DeliveredAt: &delivered},
+			{NoteID: "n2", Kind: projectstate.NoteSkip, Text: "built by hand", RecordedAt: recorded},
+		}},
+		"C-XX": {ActivityID: "C-XX"},
+	}
+	meta := map[string]projectstate.ActivityItem{
+		"C-BE": {Name: "C-BE", WorkerClass: "junior-developer", Coding: true},
+		"C-XX": {Name: "C-XX", WorkerClass: "junior-developer", Coding: true},
+	}
+	got := constructionRowsToContract(rows, meta, nil, constructionPlan{})
+	gate, attempt := "detailed_design", "C-BE:detailedDesign:2"
+	want := []OperatorNote{
+		{NoteID: "n1", Kind: OperatorNoteKindSendBack, Gate: &gate, Text: "tighten it",
+			Comments:   []NoteComment{{JSONPath: "$.ops[0]", Text: "name the failure"}},
+			RecordedAt: recorded, DeliveredToAttemptID: &attempt, DeliveredAt: &delivered},
+		{NoteID: "n2", Kind: OperatorNoteKindSkip, Text: "built by hand", RecordedAt: recorded},
+	}
+	if !reflect.DeepEqual(got["C-BE"].OperatorNotes, want) {
+		t.Fatalf("OperatorNotes = %+v, want %+v", got["C-BE"].OperatorNotes, want)
+	}
+	if got["C-XX"].OperatorNotes != nil {
+		t.Fatalf("a row with no notes must carry none, got %+v", got["C-XX"].OperatorNotes)
+	}
+}
+
+// The wire kind is the RA kind's ordinal (operatorNotesToContract casts): the two
+// independently generated enums must agree value for value.
+func TestOperatorNoteKind_WireOrdinalsMatchTheStore(t *testing.T) {
+	pairs := []struct {
+		store projectstate.OperatorNoteKind
+		wire  OperatorNoteKind
+	}{
+		{projectstate.OperatorNoteKindUnknown, OperatorNoteKindUnknown},
+		{projectstate.NoteSendBack, OperatorNoteKindSendBack},
+		{projectstate.NoteRetry, OperatorNoteKindRetry},
+		{projectstate.NoteTakeover, OperatorNoteKindTakeover},
+		{projectstate.NoteReassign, OperatorNoteKindReassign},
+		{projectstate.NoteSkip, OperatorNoteKindSkip},
+		{projectstate.NoteRequeue, OperatorNoteKindRequeue},
+	}
+	for _, p := range pairs {
+		if int(p.store) != int(p.wire) {
+			t.Errorf("store kind %d maps to wire kind %d", p.store, p.wire)
+		}
 	}
 }
