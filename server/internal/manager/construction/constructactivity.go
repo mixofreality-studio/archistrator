@@ -334,9 +334,9 @@ func episodeRecordFor(ctx workflow.Context, obs pipelineObservation, idSeed, act
 // redrafts — both re-enter runPipeline for the SAME phase — so it is the single source
 // of the attempt number projectstate.AttemptID needs (Task 10). Lazily initialized so a
 // constructState built without ever dispatching a pipeline (ProjectSupervisionWorkflow's)
-// allocates nothing. workflow-local: rebuilt deterministically on replay, never
-// persisted — no durable per-task attempt ledger is written yet (see
-// projectstate.TaskAttempt, which lands ahead of its callers in this stage).
+// allocates nothing. workflow-local and rebuilt deterministically on replay; it starts
+// from the row's attempt ledger (seedResumeFromLedger), and no live writer appends to
+// that ledger yet.
 func (s *constructState) nextTaskAttempt(t projectstate.MethodTask) int {
 	if s.taskAttempts == nil {
 		s.taskAttempts = map[projectstate.MethodTask]int{}
@@ -1145,17 +1145,20 @@ func (wf *workflows) loadReviewSnapshot(
 		return reviewPolicy, srErr
 	}
 	reviewPolicy = snap.ReviewPolicy
+	// LEDGER-AWARE SEED (architect (D), D.1.3). The pump now dispatches an
+	// integration-pending row — one whose history lives in the attempt ledger alone — so
+	// the seed must read the row as the view does, or the run would redo phases the
+	// ledger records as passed. GetVersion (always called, same change id as the pump's
+	// selection) pins an execution that seeded from the stored Phases only to that seed.
+	ledgerSeed := workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) >= 1
 	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
-		// WRITER-MIGRATION EARMARK (Task 7a, architect ruling Q2, 2026-09-12): this resume
-		// guard reads the STORED Phases only. A row whose history lives in the attempt
-		// ledger alone (the backfill's rows) seeds nothing here, so a resumed execution
-		// would redo phases the ledger records as passed. Left as-is on purpose: the pump
-		// never dispatches such a row (projectstate.EffectiveConstructionPhase reads it as
-		// Done), and moving the writers, and this reader, onto the ledger is its own
-		// workstream.
-		for _, pc := range acs.Phases {
-			if pc.Completed {
-				state.completedPhases[pc.Phase] = true
+		if ledgerSeed {
+			seedResumeFromLedger(state, in.Activity, acs)
+		} else {
+			for _, pc := range acs.Phases {
+				if pc.Completed {
+					state.completedPhases[pc.Phase] = true
+				}
 			}
 		}
 	}
@@ -1166,6 +1169,36 @@ func (wf *workflows) loadReviewSnapshot(
 	// ServiceContract, which never touches the floor.
 	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
 	return reviewPolicy, nil
+}
+
+// seedResumeFromLedger seeds a run's start state from its activity's stored row, read the
+// way every other reader reads it (architect (D), D.1.3):
+//   - completedPhases from projectstate.ResolvePhaseCompletions over the activity's profile:
+//     the attempt ledger decides every phase it has decided (a passed gate completes the
+//     phase, a rejected one overrules a stored completion), and the stored Phases stand
+//     where the ledger is silent. It must stay ledger-aware after dispatch too:
+//     RecordPhaseStarted seeds the stored Phases all-false, which a stored-only seed on a
+//     later run would read as "nothing done".
+//   - taskAttempts from the highest attempt number the ledger records per task, so the
+//     next dispatch of a task is attempt n+1 and its AttemptID (the episode TargetRef)
+//     never collides with one the ledger already holds.
+//
+// Pure over values already in workflow history (the snapshot's recorded readProject).
+func seedResumeFromLedger(state *constructState, act constructionActivity, acs projectstate.ActivityConstructionStatus) {
+	profile := projectstate.ProfileFor(act.Type, act.Variant)
+	for _, pc := range projectstate.ResolvePhaseCompletions(profile, acs.Phases, acs.Attempts) {
+		if pc.Completed {
+			state.completedPhases[pc.Phase] = true
+		}
+	}
+	for _, a := range acs.Attempts {
+		if state.taskAttempts == nil {
+			state.taskAttempts = map[projectstate.MethodTask]int{}
+		}
+		if a.Attempt > state.taskAttempts[a.Task] {
+			state.taskAttempts[a.Task] = a.Attempt
+		}
+	}
 }
 
 // failVarianceExhausted records the terminal FAILURE in head-state when the supervision

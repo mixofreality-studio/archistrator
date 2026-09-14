@@ -5,10 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1549,7 +1551,7 @@ func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
 	// Deliberately nil: ServiceContracts must play no part in selection.
 	proj.ServiceContracts = nil
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1579,7 +1581,7 @@ func TestNextEligibleActivity_ComponentlessActivitiesDispatch(t *testing.T) {
 				[]projectstate.ActivityItem{tc.item},
 				[]projectstate.NetworkDependency{{Activity: tc.item.Name, DependsOn: []string{}}},
 			)
-			sel := nextEligibleActivity(proj)
+			sel := nextEligibleActivity(proj, eligibleDispatchable)
 			if sel.Verdict != verdictDispatch {
 				t.Fatalf("want verdictDispatch, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 			}
@@ -1598,7 +1600,7 @@ func TestNextEligibleActivity_UnknownComponentIsBlocked(t *testing.T) {
 		}},
 		[]projectstate.NetworkDependency{{Activity: "C-TLM", DependsOn: []string{}}},
 	)
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictBlocked {
 		t.Fatalf("want verdictBlocked, got %v", sel.Verdict)
 	}
@@ -1634,7 +1636,7 @@ func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent, got %v", sel.Verdict)
 	}
@@ -1669,7 +1671,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 
 	// ---- Case 1: empty ActivityConstruction → A is eligible (no deps). ----
 	proj := base
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 1: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1684,7 +1686,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 2: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1700,7 +1702,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("case 3: expected verdictQuiescent, got %v", sel.Verdict)
 	}
@@ -1710,7 +1712,7 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
 		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("case 4: expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -1781,7 +1783,7 @@ func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispat
 	if a := proj.ActivityConstruction["A"]; a.Phase != projectstate.ActivityConstructionNotStarted || len(a.Phases) != 0 {
 		t.Fatalf("fixture must be the backfill shape (no stored phase fields), got phase=%v phases=%d", a.Phase, len(a.Phases))
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch of B, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1808,7 +1810,7 @@ func TestNextEligibleActivity_ExitedSkippedRowStillUnblocksItsDependents(t *test
 			Phases:      phases,
 		},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "B" {
 		t.Fatalf("want B dispatched behind a Skipped-exited A, got verdict=%v activity=%q (blocked=%q)",
 			sel.Verdict, sel.Activity.ActivityID, sel.BlockedReason)
@@ -1833,9 +1835,29 @@ func TestNextEligibleActivity_RejectedGateRowIsRunningNotDispatchedAndBlocks(t *
 	if got, _ := projectstate.EffectiveConstructionPhase(row, proj.ActivityList.Model.(*projectstate.ActivityList).Activities[0]); got != projectstate.ActivityConstructionRunning {
 		t.Fatalf("a ledger with a rejected latest gate must read Running, got %v", got)
 	}
-	sel := nextEligibleActivity(proj)
+	// The pre-D1 rule (a pump that recorded no ledger-partial-resume marker).
+	sel := nextEligibleActivity(proj, eligibleNotStarted)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (A running, B blocked on it), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
+	}
+}
+
+// Under the D1 rule the same row IS dispatched: no pump wrote it and it reads Running, so
+// it is a ledger-partial row and resumes at its first incomplete phase — Construction,
+// whose latest code review was rejected (App A: a failing review repeats the task). B
+// still waits: A is not Done.
+func TestNextEligibleActivity_RejectedGateRowResumesUnderTheLedgerPartialRule(t *testing.T) {
+	proj := ledgerChain()
+	attempts := passedLedger("A",
+		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
+	attempts = append(attempts,
+		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
+		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {ActivityID: "A", Attempts: attempts}}
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
+		t.Fatalf("want A dispatched to resume, got verdict=%v activity=%q", sel.Verdict, sel.Activity.ActivityID)
 	}
 }
 
@@ -1871,7 +1893,7 @@ func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch (M4 reached via its own dependsOn), got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1908,7 +1930,7 @@ func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (M4 not yet reached), got %v activity=%q", sel.Verdict, sel.Activity.ActivityID)
 	}
@@ -1940,7 +1962,7 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 		},
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch through M4->M3->A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -1953,7 +1975,7 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
 		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
 	}
-	sel = nextEligibleActivity(proj)
+	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
 		t.Fatalf("want verdictQuiescent (A not done, M3/M4 not reached), got %v", sel.Verdict)
 	}
@@ -1983,7 +2005,7 @@ func TestNextEligibleActivity_MilestoneCycleTerminates(t *testing.T) {
 			}),
 			SystemDesign: makeCommittedSystemDesign(nil),
 		}
-		done <- nextEligibleActivity(proj)
+		done <- nextEligibleActivity(proj, eligibleDispatchable)
 	}()
 
 	select {
@@ -2018,7 +2040,7 @@ func TestNextEligibleActivity_UnknownDependencyIdIsBlocked(t *testing.T) {
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictBlocked {
 		t.Fatalf("want verdictBlocked for an unresolvable dependency id, got %v", sel.Verdict)
 	}
@@ -2052,7 +2074,7 @@ func TestNextEligibleActivity_DependencyDefectDoesNotBlockUnrelatedWork(t *testi
 		SystemDesign: makeCommittedSystemDesign(nil),
 	}
 
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("want verdictDispatch for unrelated eligible activity A, got %v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -2072,7 +2094,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 		proj := projectstate.Project{
 			ActivityList: makeCommittedActivityList(activities),
 		}
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for uncommitted network, got %v", sel.Verdict)
 		}
@@ -2085,7 +2107,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 				{Activity: "A", DependsOn: []string{}},
 			}),
 		}
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for uncommitted activity list, got %v", sel.Verdict)
 		}
@@ -2093,7 +2115,7 @@ func TestNextEligibleActivity_UncommittedSlots(t *testing.T) {
 
 	// Both uncommitted (zero-value project).
 	t.Run("both_uncommitted", func(t *testing.T) {
-		sel := nextEligibleActivity(projectstate.Project{})
+		sel := nextEligibleActivity(projectstate.Project{}, eligibleDispatchable)
 		if sel.Verdict != verdictQuiescent {
 			t.Fatalf("expected verdictQuiescent for zero-value project, got %v", sel.Verdict)
 		}
@@ -2127,7 +2149,7 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			proj := base
 			proj.Phase = tc.phase
-			if sel := nextEligibleActivity(proj); sel.Verdict != verdictQuiescent {
+			if sel := nextEligibleActivity(proj, eligibleDispatchable); sel.Verdict != verdictQuiescent {
 				t.Fatalf("expected verdictQuiescent before the construction seal (phase %v), got %v", tc.phase, sel.Verdict)
 			}
 		})
@@ -2136,7 +2158,7 @@ func TestNextEligibleActivity_RequiresConstructionPhase(t *testing.T) {
 	t.Run("construction", func(t *testing.T) {
 		proj := base
 		proj.Phase = projectstate.PhaseConstruction
-		sel := nextEligibleActivity(proj)
+		sel := nextEligibleActivity(proj, eligibleDispatchable)
 		if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
 			t.Fatalf("expected A eligible once sealed into construction, got verdict=%v id=%q", sel.Verdict, sel.Activity.ActivityID)
 		}
@@ -2176,7 +2198,7 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("expected C-PE to be eligible, got verdict=%v (blocked=%q)", sel.Verdict, sel.BlockedReason)
 	}
@@ -2211,7 +2233,7 @@ func TestNextEligibleActivity_HydratedFields(t *testing.T) {
 			{ID: "comp-x", Name: "X", Layer: projectstate.LayerEngine},
 		}),
 	}
-	sel := nextEligibleActivity(proj)
+	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
 		t.Fatalf("expected verdictDispatch, got %v", sel.Verdict)
 	}
@@ -3512,7 +3534,7 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
@@ -3550,7 +3572,7 @@ func Test_Pump_EligibleActivity_SurfacesSyncDispatchDecision(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 		},
 	})
@@ -3585,7 +3607,7 @@ func Test_Pump_DrainedNetwork_SurfacesQuiescentDecision(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictQuiescent}
 		},
 	})
@@ -3619,7 +3641,7 @@ func Test_Pump_DrainedNetwork_QuietNoContinueAsNew(t *testing.T) {
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictQuiescent} // network drained
 		},
 	})
@@ -3651,7 +3673,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	const reason = `activity C-TLM names component "todo-list-managr", which is not in the committed systemDesign — amend the committed activityList`
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{
 				Verdict:              verdictBlocked,
 				BlockedActivityID:    "C-TLM",
@@ -3833,7 +3855,7 @@ func Test_Pump_PauseSignal_HaltsCascade_NoDispatch(t *testing.T) {
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // an activity IS eligible — but the pause wins
 		},
 	})
@@ -3881,7 +3903,7 @@ func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()} // the frontier never drains on its own
 		},
 	})
@@ -3960,7 +3982,7 @@ func newPumpRig(sel pumpSelection, childRun, readDelay time.Duration, opts ...fu
 	wf := newWorkflows(wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		Review:       &fakeReview{},
-		NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 			return sel
 		},
 	})
@@ -4171,7 +4193,7 @@ func runPumpsInWindow(ps *fakeProjectState, pid ProjectID) windowPumps {
 		return newWorkflows(wfDeps{
 			Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 			Review:       &fakeReview{},
-			NextEligibleActivity: func(_ projectstate.Project) pumpSelection {
+			NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
 				return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
 			},
 		})
@@ -6952,5 +6974,321 @@ func Test_Replay_PreB1Histories_StayDeterministic(t *testing.T) {
 		if !covered[f] {
 			t.Errorf("fixture %s has no replay scenario, so nothing replays it", f)
 		}
+	}
+}
+
+// ===========================================================================
+// D1 — INTEGRATION-PENDING ROWS, THE PUMP HALF (architect (D), D.1 / D.2 / D.4).
+// ===========================================================================
+
+// TestIsActivityDispatchable_Table is D.4's dispatchable table.
+func TestIsActivityDispatchable_Table(t *testing.T) {
+	item := projectstate.ActivityItem{Name: "A", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"}
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	storedPhases := func(completeFirst bool) []projectstate.PhaseCompletion {
+		out := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
+		for i, ph := range servicePhases {
+			out = append(out, projectstate.PhaseCompletion{Phase: ph, Completed: completeFirst && i == 0})
+		}
+		return out
+	}
+	cases := []struct {
+		name string
+		row  *projectstate.ActivityConstructionStatus
+		want bool
+	}{
+		{"absent", nil, true},
+		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityConstructionStatus{
+			Attempts: []projectstate.TaskAttempt{ledgerAttempt("A", projectstate.TaskSRS, 1, projectstate.OutcomePassed)}}, true},
+		{"ledger 4/5: integration-pending", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
+		{"ledger 5/5: Done", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", servicePhases...)}, false},
+		{"stored Running with StartedAt: a pump started it", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionRunning, StartedAt: &now}, false},
+		{"stored Failed", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionFailed, FailureReason: projectstate.PipelineFailed}, false},
+		{"stored Done-exited with incomplete phases", &projectstate.ActivityConstructionStatus{
+			Phase: projectstate.ActivityConstructionDone, BuildStatus: projectstate.BuildInReview, Phases: storedPhases(true)}, false},
+		{"stored phases plus a partial ledger: the pump wrote it", &projectstate.ActivityConstructionStatus{
+			Phases: storedPhases(false), Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			status := map[string]projectstate.ActivityConstructionStatus{}
+			if c.row != nil {
+				r := *c.row
+				r.ActivityID = "A"
+				status["A"] = r
+			}
+			if got := isActivityDispatchable("A", item, status); got != c.want {
+				t.Fatalf("isActivityDispatchable = %v, want %v", got, c.want)
+			}
+		})
+	}
+}
+
+// d1Project is D (built), P (integration-pending, depends on D), Q (depends on P) and O
+// (depends on D), declared in that order.
+func d1Project() projectstate.Project {
+	proj := projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "D", Title: "D", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "P", Title: "P", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "Q", Title: "Q", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+			{Name: "O", Title: "O", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "D", DependsOn: []string{}},
+			{Activity: "P", DependsOn: []string{"D"}},
+			{Activity: "Q", DependsOn: []string{"P"}},
+			{Activity: "O", DependsOn: []string{"D"}},
+		},
+	)
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
+	}
+	return proj
+}
+
+func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
+	pick := func(proj projectstate.Project, rule eligibilityRule) string {
+		t.Helper()
+		sel := nextEligibleActivity(proj, rule)
+		if sel.Verdict != verdictDispatch {
+			return ""
+		}
+		return sel.Activity.ActivityID
+	}
+	doneD := func(proj projectstate.Project) projectstate.Project {
+		proj.ActivityConstruction["D"] = projectstate.ActivityConstructionStatus{ActivityID: "D", Phase: projectstate.ActivityConstructionDone}
+		return proj
+	}
+
+	// Its dependency is not Done: P is not selected (D is), and Q waits behind P.
+	if got := pick(d1Project(), eligibleDispatchable); got != "D" {
+		t.Fatalf("with D unbuilt, want D selected (P must wait on it), got %q", got)
+	}
+	// Its dependency is Done: P is selected, in declaration order ahead of O.
+	if got := pick(doneD(d1Project()), eligibleDispatchable); got != "P" {
+		t.Fatalf("with D Done, want the integration-pending P selected, got %q", got)
+	}
+	// The pre-D1 rule never picks P: it reads Running.
+	if got := pick(doneD(d1Project()), eligibleNotStarted); got != "O" {
+		t.Fatalf("under the pre-D1 rule, want O (P is not NotStarted), got %q", got)
+	}
+	// Once a pump started P (RecordActivityStarted: stored Running + StartedAt), a re-tick
+	// must not dispatch it again — O is next, and Q still waits on P.
+	started := doneD(d1Project())
+	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	p := started.ActivityConstruction["P"]
+	p.Phase, p.StartedAt = projectstate.ActivityConstructionRunning, &now
+	started.ActivityConstruction["P"] = p
+	if got := pick(started, eligibleDispatchable); got != "O" {
+		t.Fatalf("a P a pump has started must leave the dispatchable set, want O, got %q", got)
+	}
+	// A fully passed ledger is Done: never dispatched, and it satisfies Q.
+	full := doneD(d1Project())
+	full.ActivityConstruction["P"] = projectstate.ActivityConstructionStatus{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
+	if got := pick(full, eligibleDispatchable); got != "Q" {
+		t.Fatalf("with P Done by its ledger, want Q, got %q", got)
+	}
+}
+
+// The seed reads the REAL integration-pending row (C-billing-manager, verbatim from
+// project.json): the four phases its ledger passed, not Integration; every task at #1.
+func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
+	b, err := os.ReadFile(filepath.Join("testdata", "integration-pending-row.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var row projectstate.ActivityConstructionStatus
+	if err := json.Unmarshal(b, &row); err != nil {
+		t.Fatal(err)
+	}
+	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	want := map[projectstate.ActivityMethodPhase]bool{
+		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true,
+		projectstate.MethodPhaseDetailedDesign: true, projectstate.MethodPhaseConstruction: true,
+	}
+	if !maps.Equal(state.completedPhases, want) {
+		t.Fatalf("completedPhases = %v, want %v", state.completedPhases, want)
+	}
+	for _, task := range []projectstate.MethodTask{
+		projectstate.TaskSRS, projectstate.TaskSRSReview, projectstate.TaskSTP, projectstate.TaskSTPReview,
+		projectstate.TaskDetailedDesign, projectstate.TaskDesignReview, projectstate.TaskConstruction, projectstate.TaskCodeReview,
+	} {
+		if state.taskAttempts[task] != 1 {
+			t.Errorf("taskAttempts[%s] = %d, want 1", task, state.taskAttempts[task])
+		}
+	}
+	if n := state.taskAttempts[projectstate.TaskIntegration]; n != 0 {
+		t.Errorf("taskAttempts[integration] = %d, want 0: the ledger holds no integration attempt", n)
+	}
+}
+
+// Where the ledger has decided, it overrules the stored slice both ways: the all-false
+// phases RecordPhaseStarted seeds do not undo the ledger's passed gates, and a rejected
+// Integration gate undoes a stored completion. Where it is silent, stored state stands.
+func TestSeedResumeFromLedger_LedgerOverrulesStoredWhereItDecided(t *testing.T) {
+	stored := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
+	for _, ph := range servicePhases {
+		stored = append(stored, projectstate.PhaseCompletion{Phase: ph, Completed: ph == projectstate.MethodPhaseIntegration})
+	}
+	attempts := passedLedger("A", projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
+	attempts = append(attempts, ledgerAttempt("A", projectstate.TaskTesting, 3, projectstate.OutcomeRejected))
+	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Phases: stored, Attempts: attempts}
+	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
+	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
+	want := map[projectstate.ActivityMethodPhase]bool{
+		projectstate.MethodPhaseRequirements: true, projectstate.MethodPhaseTestPlan: true, projectstate.MethodPhaseDetailedDesign: true,
+	}
+	if !maps.Equal(state.completedPhases, want) {
+		t.Fatalf("completedPhases = %v, want %v (construction undecided and stored false; integration rejected)", state.completedPhases, want)
+	}
+	if n := state.taskAttempts[projectstate.TaskTesting]; n != 3 {
+		t.Fatalf("taskAttempts[testing] = %d, want 3 (the ledger's highest)", n)
+	}
+}
+
+// d1ConstructRun runs one construct workflow for C-Orders whose row carries attempts,
+// gitOn with no PR rail (the local profile, so the merge job runs), and returns what it did.
+type d1Run struct {
+	agent  []agenticjob.PipelineSpec
+	merges []agenticjob.PipelineSpec
+	ps     *fakeProjectState
+	eps    *fakeEpisodes
+	order  []string
+	err    error
+}
+
+func d1ConstructRun(t *testing.T, attempts []projectstate.TaskAttempt, setup func(*testsuite.TestWorkflowEnvironment)) d1Run {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"C-Orders": {ActivityID: "C-Orders", Attempts: attempts},
+	}
+	pipe := newFakePipeline()
+	eps := &fakeEpisodes{}
+	wf := newWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, pipe, eps)
+	var order []string
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		order = append(order, info.ActivityType.Name)
+	})
+	if setup != nil {
+		setup(env)
+	}
+	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+	var agent []agenticjob.PipelineSpec
+	for _, s := range pipe.submitted {
+		if s.DispatchInputs[agenticjob.DispatchInputJobKey] != agenticjob.DispatchJobMerge {
+			agent = append(agent, s)
+		}
+	}
+	return d1Run{agent: agent, merges: mergeSubmits(pipe.submitted), ps: ps, eps: eps, order: order, err: env.GetWorkflowError()}
+}
+
+func (r d1Run) targetRefs() []string {
+	var out []string
+	for _, rec := range r.eps.records() {
+		out = append(out, rec.TargetRef)
+	}
+	return out
+}
+
+// D.4: the ledger-seeded child dispatches Integration only, records the activity started
+// BEFORE that dispatch, then merges and finalizes.
+func Test_Construct_IntegrationPendingRow_RunsOnlyIntegrationThenMergesAndFinalizes(t *testing.T) {
+	r := d1ConstructRun(t, passedLedger("C-Orders", replayPartialLedgerPhases...), nil)
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if len(r.agent) != 1 || r.agent[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want exactly one agent dispatch, for integration; got %d: %v", len(r.agent), r.agent)
+	}
+	if len(r.merges) != 1 {
+		t.Fatalf("want the local merge after integration, got %d merge submits", len(r.merges))
+	}
+	if len(r.ps.exited) != 1 || r.ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("want one Completed exit, got %v", r.ps.exited)
+	}
+	started := slices.Index(r.order, "gitActivityStatusAccess.recordActivityStarted")
+	submit := slices.Index(r.order, "agenticJobAccess.submitAgenticJob")
+	if started < 0 || submit < 0 || started > submit {
+		t.Fatalf("RecordActivityStarted (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
+	}
+	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:1"}) {
+		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:1]", got)
+	}
+}
+
+// D.1.3: a ledger that already holds integration#1 makes the next dispatch #2, never a
+// second #1.
+func Test_Construct_IntegrationPendingRow_AttemptContinuesTheLedger(t *testing.T) {
+	attempts := append(passedLedger("C-Orders", replayPartialLedgerPhases...),
+		ledgerAttempt("C-Orders", projectstate.TaskIntegration, 1, projectstate.OutcomeFailed))
+	r := d1ConstructRun(t, attempts, nil)
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:2"}) {
+		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:2]", got)
+	}
+}
+
+// DefaultVersion (an execution that seeded before D1): the stored-only seed, so the same
+// row walks all five phases, numbered from #1.
+func Test_Construct_LedgerPartialResume_DefaultVersion_KeepsTheStoredSeed(t *testing.T) {
+	r := d1ConstructRun(t, passedLedger("C-Orders", replayPartialLedgerPhases...), func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	})
+	if r.err != nil {
+		t.Fatalf("workflow error: %v", r.err)
+	}
+	if len(r.agent) != 5 {
+		t.Fatalf("DefaultVersion must walk all five phases, got %d agent dispatches", len(r.agent))
+	}
+	if refs := r.targetRefs(); len(refs) != 5 || refs[0] != "C-Orders:srs:1" {
+		t.Fatalf("DefaultVersion must number from #1 with no ledger seed, got %v", refs)
+	}
+}
+
+// d1PumpRun runs one pump over replayPartialRowProject (D Done, P integration-pending, O
+// not started) and returns the agent dispatches its child made.
+func d1PumpRun(t *testing.T, setup func(*testsuite.TestWorkflowEnvironment)) []agenticjob.PipelineSpec {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	proj := replayPartialRowProject()
+	proj.ID, proj.Version = "p-d1", 1
+	ps := &fakeProjectState{project: proj}
+	pipe := newFakePipeline()
+	wf := newWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}, NextEligibleActivity: nextEligibleActivity})
+	registerPump(env, wf, ps, pipe)
+	if setup != nil {
+		setup(env)
+	}
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: "p-d1"})
+	return pipe.submitted
+}
+
+// End to end: the pump picks the integration-pending P (its dependency is Done) and its
+// child dispatches P's Integration phase only.
+func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) {
+	got := d1PumpRun(t, nil)
+	if len(got) != 1 || got[0].ActivityID != "P" || got[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want one dispatch, P's integration; got %v", got)
+	}
+}
+
+// DefaultVersion (a pump that recorded the pre-D1 selection): O, from its first phase.
+func Test_Pump_LedgerPartialResume_DefaultVersion_KeepsTheOldSelection(t *testing.T) {
+	got := d1PumpRun(t, func(env *testsuite.TestWorkflowEnvironment) {
+		env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	})
+	if len(got) == 0 || got[0].ActivityID != "O" {
+		t.Fatalf("DefaultVersion must keep the old choice, O; got %v", got)
 	}
 }

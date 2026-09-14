@@ -1,0 +1,138 @@
+{
+  "activityID": "C-billing-manager",
+  "phase": 0,
+  "attempts": [
+    {
+      "attemptId": "C-billing-manager:srs:1",
+      "task": "srs",
+      "phase": "requirements",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {},
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:srsReview:1",
+      "task": "srsReview",
+      "phase": "requirements",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {},
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:detailedDesign:1",
+      "task": "detailedDesign",
+      "phase": "detailed_design",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {
+        "kind": "contract",
+        "ref": "billingManager"
+      },
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:designReview:1",
+      "task": "designReview",
+      "phase": "detailed_design",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {
+        "kind": "contract",
+        "ref": "billingManager"
+      },
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:stp:1",
+      "task": "stp",
+      "phase": "test_plan",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {},
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:stpReview:1",
+      "task": "stpReview",
+      "phase": "test_plan",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {},
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:construction:1",
+      "task": "construction",
+      "phase": "construction",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {
+        "kind": "git",
+        "ref": "86e3d26b16355255f4bc5d195ff8765a478ceea1"
+      },
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    },
+    {
+      "attemptId": "C-billing-manager:codeReview:1",
+      "task": "codeReview",
+      "phase": "construction",
+      "attempt": 1,
+      "actor": "agent",
+      "outcome": "passed",
+      "evidence": {
+        "kind": "git",
+        "ref": "86e3d26b16355255f4bc5d195ff8765a478ceea1"
+      },
+      "provenance": {
+        "origin": "backfilled",
+        "generator": "cmd/backfill-attempts",
+        "generatedAt": "2026-09-13T16:24:23.791454Z",
+        "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
+      }
+    }
+  ]
+}

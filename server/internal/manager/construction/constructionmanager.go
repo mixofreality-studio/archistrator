@@ -951,16 +951,38 @@ type pumpSelection struct {
 	BlockedFailureReason projectstate.FailureReason
 }
 
+// eligibilityRule is which activities the pump's selection may pick. It is chosen by the
+// pump's GetVersion(changeLedgerPartialResume) — never by the selection itself — so a
+// pump replaying a history recorded under the old rule re-selects exactly what it chose
+// then (architect (D), D.2).
+type eligibilityRule int
+
+const (
+	// eligibleNotStarted is the pre-D1 rule: only an activity whose effective state is
+	// NotStarted (isActivityNotStarted).
+	eligibleNotStarted eligibilityRule = iota
+	// eligibleDispatchable is architect (D), D.1.2: also an integration-pending row, one no
+	// pump wrote whose ledger holds some phases complete (isActivityDispatchable).
+	eligibleDispatchable
+)
+
+// changeLedgerPartialResume is the ONE change id guarding D1 in both workflows: the pump's
+// widened selection and the construct workflow's ledger-aware start seed. A v1 pump only
+// ever starts a v1 child, so every execution is wholly old or wholly new.
+const changeLedgerPartialResume = "ledger-partial-resume"
+
 // nextEligibleActivity resolves the next eligible construction activity for a project
-// from its head-state. An activity is eligible iff it is NotStarted and every dep is
-// satisfied, both read through projectstate.EffectiveConstructionPhase (the stored
-// state where the pump wrote it, the attempt ledger where it did not; see
-// isActivityNotStarted) — an activity dependency requires a Done record, a milestone dependency is
-// satisfied DERIVEDLY (it never has a Done record of its own; see projectstate.AllDepsSatisfied /
-// projectstate.MilestonesByID). Iteration is ActivityList declaration order; the first eligible
-// activity in that order is chosen (the candidate-list name tie-break below is
-// currently unreachable, since declIdx is already unique per activity).
-func nextEligibleActivity(proj projectstate.Project) pumpSelection {
+// from its head-state. An activity is eligible iff the rule admits it (eligibleUnder) and
+// every dep is satisfied, both read through projectstate.EffectiveConstructionPhase (the
+// stored state where the pump wrote it, the attempt ledger where it did not) — an activity
+// dependency requires a Done record, a milestone dependency is satisfied DERIVEDLY (it
+// never has a Done record of its own; see projectstate.AllDepsSatisfied /
+// projectstate.MilestonesByID). The dependency rule gates the activity's whole remaining
+// lifecycle: a row resuming at Integration waits on exactly what a fresh row would.
+// Iteration is ActivityList declaration order; the first eligible activity in that order
+// is chosen (the candidate-list name tie-break below is currently unreachable, since
+// declIdx is already unique per activity).
+func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpSelection {
 	// Committed Network+ActivityList alone are not authorization to build: the
 	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
 	// an option) is what moves the project into PhaseConstruction. Selecting work
@@ -1007,7 +1029,7 @@ func nextEligibleActivity(proj projectstate.Project) pumpSelection {
 	var problemKind projectstate.FailureReason
 	for i, item := range activityList.Activities {
 		name := item.Name
-		if !isActivityNotStarted(name, item, proj.ActivityConstruction) {
+		if !eligibleUnder(rule, name, item, proj.ActivityConstruction) {
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
@@ -1130,6 +1152,34 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 		return nil, nil, false
 	}
 	return network, activityList, true
+}
+
+// eligibleUnder applies the pump's eligibility rule to one activity.
+func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+	if rule == eligibleDispatchable {
+		return isActivityDispatchable(activityID, item, status)
+	}
+	return isActivityNotStarted(activityID, item, status)
+}
+
+// isActivityDispatchable is the D1 eligibility (architect (D), D.1.2): the activity has
+// no construction row, or no pump wrote its row (projectstate.PumpWroteRow is false) and
+// its effective state is NotStarted or Running. A row no pump wrote that reads Running is,
+// by construction, a ledger-partial row: its recorded phases are complete except some it
+// has not run, so it is resumed at its first incomplete phase (loadReviewSnapshot's
+// ledger-aware seed). A pump-written row never qualifies — RecordActivityStarted, the
+// child's first durable write, makes PumpWroteRow true, so a row leaves this set before
+// the pump can look again — and neither does a Done or Failed one.
+func isActivityDispatchable(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+	s, exists := status[activityID]
+	if !exists {
+		return true
+	}
+	if projectstate.PumpWroteRow(s) {
+		return false
+	}
+	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
+	return effective == projectstate.ActivityConstructionNotStarted || effective == projectstate.ActivityConstructionRunning
 }
 
 // isActivityNotStarted reports whether the activity has not started: it has no
@@ -1285,8 +1335,9 @@ type wfDeps struct {
 	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// NextEligibleActivity resolves the next eligible construction activity for a
-	// project from its head-state (the Manager's own pure selection).
-	NextEligibleActivity func(proj projectstate.Project) pumpSelection
+	// project from its head-state (the Manager's own pure selection), under the
+	// eligibility rule the pump's GetVersion chose.
+	NextEligibleActivity func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 
 	// InterventionPolicy is the project's committed policy snapshot the Manager feeds
 	// the interventionEngine by value, typed DIRECTLY as the Engine's own published
@@ -1315,7 +1366,7 @@ type workflows struct {
 	RailEnabled bool
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
-	NextEligibleActivity  func(proj projectstate.Project) pumpSelection
+	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
 }
@@ -1466,7 +1517,9 @@ type constructState struct {
 	mergeCompleted bool
 
 	// taskAttempts counts, per Figure A-1 task (MethodTask), how many times a pipeline
-	// has been dispatched for that task's phase on this activity — the join key
+	// has been dispatched for that task's phase on this activity — seeded at start from
+	// the row's attempt ledger (loadReviewSnapshot, v1 of changeLedgerPartialResume), so
+	// a new run's AttemptIDs continue the ledger's instead of colliding with them — the join key
 	// projectstate.AttemptID needs to attribute an episode to the (activity, task,
 	// attempt) it was actually burned on (Task 10, constructactivity.go). It counts
 	// across BOTH the outer variance-retry loop and a gated phase's human-paced redraft

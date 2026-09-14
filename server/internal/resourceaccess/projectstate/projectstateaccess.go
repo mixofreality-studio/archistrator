@@ -8227,8 +8227,8 @@ func ResolvePhaseCompletions(
 //
 // Stamping the derived values into the stored fields was REJECTED: it would launder a
 // derivation into a record the pump appears to have written. Moving every writer onto
-// the ledger is its own workstream (see the earmark on constructactivity.go's resume
-// snapshot, which still reads the stored Phases).
+// the ledger is its own workstream. The construct workflow's resume seed reads the row
+// the same way (ResolvePhaseCompletions; constructactivity.go seedResumeFromLedger).
 func EffectiveConstructionPhase(r ActivityConstructionStatus, meta ActivityItem) (ActivityConstructionPhase, ActivityBuildStatus) {
 	if PumpWroteRow(r) || len(r.Attempts) == 0 {
 		return r.Phase, r.BuildStatus

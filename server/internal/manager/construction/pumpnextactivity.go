@@ -119,7 +119,10 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 		return PumpResult{Dispatched: false}, nil
 	}
 
-	sel := wf.nextEligible(proj)
+	// LEDGER-PARTIAL RESUME (architect (D), D.2). The widened rule can pick a different
+	// activity from the same recorded readProject result — a different child id — so the
+	// rule is version-gated: an execution that recorded the old choice replays it.
+	sel := wf.nextEligible(proj, pumpEligibilityRule(ctx))
 	switch sel.Verdict {
 	case verdictBlocked:
 		// LOUD, DURABLE, APP-VISIBLE (spec §4.3). The log line alone is the failure mode
@@ -315,13 +318,24 @@ func pumpPauseRequested(ch workflow.ReceiveChannel) (reason string, paused bool)
 	}
 }
 
+// pumpEligibilityRule is the selection rule this pump run uses: the pre-D1
+// eligibleNotStarted for an execution that recorded no changeLedgerPartialResume marker,
+// eligibleDispatchable otherwise. GetVersion is always called, so the marker is recorded
+// deterministically on every new run.
+func pumpEligibilityRule(ctx workflow.Context) eligibilityRule {
+	if workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) < 1 {
+		return eligibleNotStarted
+	}
+	return eligibleDispatchable
+}
+
 // nextEligible resolves the next selection via the injected helper. With no helper
 // wired it is a quiet tick.
-func (wf *workflows) nextEligible(proj projectstate.Project) pumpSelection {
+func (wf *workflows) nextEligible(proj projectstate.Project, rule eligibilityRule) pumpSelection {
 	if wf.NextEligibleActivity == nil {
 		return pumpSelection{Verdict: verdictQuiescent}
 	}
-	return wf.NextEligibleActivity(proj)
+	return wf.NextEligibleActivity(proj, rule)
 }
 
 // Shared workflow-context helper (used by 3 workflows); lives in its first caller's file per the file-layout standard.
