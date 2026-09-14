@@ -724,4 +724,11 @@ export const UI_IDENTIFIERS = {
     /** The panel header's count, plus the optional scope caption after it. */
     HEADER_COUNT: 'episodes-header-count',
   },
+  // The preview build's own chrome (src/previewShell/, design-renderer-data.md
+  // §2′.1): the loud banner a fixture miss or a blocked request raises, and the
+  // honest error page for a ?screen=&state= the build does not carry.
+  Preview: {
+    ALARM: 'preview-alarm',
+    ERROR_PAGE: 'preview-error-page',
+  },
 } as const;

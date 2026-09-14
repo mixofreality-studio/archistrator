@@ -9,7 +9,8 @@ export default [
   ...archWeb({
     tsconfigRootDir: import.meta.dirname,
     // src/contracts/schema.ts is generated from ../server/api/openapi.yaml — do not lint.
-    ignores: ['src/contracts/schema.ts'],
+    // dist-preview/ is the preview build's output (vite.preview.config.ts).
+    ignores: ['src/contracts/schema.ts', 'dist-preview'],
   }),
   {
     // A missing hook dependency is a stale-closure bug, not a style nit: the

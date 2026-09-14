@@ -1,0 +1,25 @@
+{
+ "route": "/",
+ "title": "Projects landing, the catalog read fails",
+ "note": "list-projects answers 503: the landing shows its ordinary error.",
+ "ops": {
+  "compositionGetUserinfo": {
+   "result": {
+    "kind": "user",
+    "sub": "dev-architect",
+    "preferred_username": "dev-architect",
+    "name": "Preview Architect",
+    "roles": [
+     "architect"
+    ]
+   }
+  },
+  "systemDesignListProjects": {
+   "error": {
+    "status": 503,
+    "code": "unavailable",
+    "message": "project-state repository unavailable"
+   }
+  }
+ }
+}

@@ -55,6 +55,36 @@ tests/support/testids.ts    data-testid contract, imported from the SPA's own UI
 tests/support/gating.ts     infra gating — serverReachable / liveDrafting (the UI requireStack)
 tests/support/flows.ts      reusable black-box flows (create project, enter design)
 scripts/seed-construction-state.sh  builds the dogfood-seeded project-state repo the construction specs need (§1b)
+tests/preview/preview-shell.spec.ts  the PREVIEW build: the real app over fixtures (see "The preview project" below)
+preview-fixtures/web-client/<screen>/<state>.json  test-local fixture data for the preview build (never recorded as design)
+```
+
+## The preview project
+
+The `preview` Playwright project drives the SAME archistrator app built in
+**preview mode** (`../webApp/vite.preview.config.ts`, design
+`.superpowers/sdd/2026-09-12-deterministic-activity-derivation/design-renderer-data.md`
+§2′): the real shell, router, hooks and components, booted over the **fixture
+transport** instead of REST. `?screen=<id>&state=<id>` picks one file under
+`preview-fixtures/web-client/`. No Go server, no network: the preview answers
+every call from the fixture, an unfixtured call fails loudly (a red preview
+alarm and `window.__ARCHISTRATOR_PREVIEW__.incidents`), and any other request is
+blocked in the page before it is sent.
+
+The fixtures here are **test-local data**. The designed fixtures of record will
+live in `../webApp/preview/fixtures/`, authored by the U-SPA-web-client Design
+phase; nothing here is ever recorded as design. Every fixture is validated
+against a JSON Schema generated from the server OAS
+(`../webApp/scripts/fixture-schema.mjs`), when the preview is built and in the
+webApp unit tests, so a fixture that drifts from the contract fails the build.
+
+By default the config builds the preview over these fixtures and serves it on
+`:5832`. To reuse a running one:
+
+```sh
+cd ../webApp && ARCHISTRATOR_PREVIEW_FIXTURES=../uitests/preview-fixtures npm run build:preview
+npx vite preview -c vite.preview.config.ts --port 5832 --strictPort   # (from ../webApp)
+UITESTS_PREVIEW_URL=http://localhost:5832 npx playwright test --project=preview
 ```
 
 ## Infra gating (mirrors systemtests)
@@ -127,6 +157,8 @@ package's own smoke rig boots is a dead end, which is exactly why the pure-UI
 | `UITESTS_SPA_URL` | `http://localhost:5173` | Where the managed SPA dev server binds / baseURL falls back to. |
 | `UITESTS_BASE_URL` | *(unset)* | Drive an **already-running** SPA (e.g. `vite preview` or a deployed origin). When set, the managed `webServer` is **skipped**. |
 | `UITESTS_LIVE_DRAFTING` | *(unset → `off`)* | Four values — `off` / `replay` / `WHEN_REQUIRED` / `live` (legacy `1`/`true` ⇒ `live`) — decide whether the live drafting specs run. See the STALE NOTICE under [Drafting modes](#drafting-modes-uitests_live_drafting): only `live`, against a REAL GitHub App + repo, is actually wired today. |
+| `UITESTS_PREVIEW_URL` | *(unset → `http://localhost:5832`, managed)* | Drive an **already-running** preview server for the `preview` project. When set, the managed preview build + server is **skipped**. |
+| `ARCHISTRATOR_PREVIEW_FIXTURES` | *(unset → `../webApp/preview/fixtures`)* | Read by `../webApp/vite.preview.config.ts`: the fixture root the preview bundles, relative to `../webApp`. The managed preview server sets it to `../uitests/preview-fixtures`. |
 | `ARCHISTRATOR_API_PROXY_TARGET` | *(unset → the SPA's own `http://localhost:8888` default)* | Passed through to the MANAGED SPA dev server (see `../webApp/vite.config.ts`) so its `/api` proxy targets a specific Go server instance instead of whatever happens to already be on `:8888`. Combine with a distinct `UITESTS_SPA_URL` port so the managed SPA doesn't collide with an unrelated dev server someone else already has running on `:5173`. |
 
 ## Running

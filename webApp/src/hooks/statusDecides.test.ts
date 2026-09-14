@@ -40,5 +40,8 @@ void test('every apiClient call in a hook is checked by its status', () => {
     total += calls;
   }
   // The sites the fix-E review listed, plus construction's five, plus the GETs.
-  assert.ok(total >= 24, `found ${String(total)} apiClient calls`);
+  // The floor only guards against this scan going blind. It dropped from 24 to 23
+  // when useProjects moved onto the OpsClient (preview P1): that call is still
+  // status-checked, by restOpsClient's throwUnlessOk, which ops.test.ts pins.
+  assert.ok(total >= 23, `found ${String(total)} apiClient calls`);
 });
