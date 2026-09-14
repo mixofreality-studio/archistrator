@@ -2552,3 +2552,48 @@ func TestGitLocal_NewRejectsEmptyRepoURL(t *testing.T) {
 	}()
 	_ = NewGitLocalSourceControlAccess("")
 }
+
+// archistratorConstructWorkflowPath is archistrator's OWN seated copy of the construct
+// workflow (the dogfood reference), relative to this package.
+const archistratorConstructWorkflowPath = "../../../../.github/workflows/aiarch-construct.yml"
+
+// TestArchistratorConstructWorkflowIsTheTemplateRendering is the drift gate for the
+// dogfood reference (amendment §C.1 item 5, finding H7). archistrator's own
+// .github/workflows/aiarch-construct.yml had drifted from the method-assets template
+// (no AIARCH_COMMAND, no step-tools step, shorter claude_args), and nothing compared the
+// two. It is now EXACTLY what the managed-scaffold sync would seat into this repo: the
+// construct workflow from ManagedScaffoldFiles, rendered with this repo's values (no App
+// slug is seated here) and the current StateMcpModulePin. A template change, or a pin
+// bump, therefore moves both in one commit.
+//
+// Regenerate with:
+//
+//	ARCHISTRATOR_WRITE_CONSTRUCT_WORKFLOW=1 GOWORK=off go test ./internal/resourceaccess/sourcecontrol/ -run TestArchistratorConstructWorkflowIsTheTemplateRendering
+func TestArchistratorConstructWorkflowIsTheTemplateRendering(t *testing.T) {
+	bundle, err := ManagedScaffoldFiles(RepoRef("acct|mixofreality-studio/archistrator"), "")
+	if err != nil {
+		t.Fatalf("ManagedScaffoldFiles: %v", err)
+	}
+	var want []byte
+	for _, f := range bundle {
+		if f.Path == ".github/workflows/aiarch-construct.yml" {
+			want = f.Content
+		}
+	}
+	if len(want) == 0 {
+		t.Fatal("the managed scaffold renders no .github/workflows/aiarch-construct.yml")
+	}
+	if os.Getenv("ARCHISTRATOR_WRITE_CONSTRUCT_WORKFLOW") == "1" {
+		if err := os.WriteFile(archistratorConstructWorkflowPath, want, 0o644); err != nil { //nolint:gosec // a repo file, deliberately world-readable like its siblings
+			t.Fatalf("write %s: %v", archistratorConstructWorkflowPath, err)
+		}
+	}
+	got, err := os.ReadFile(archistratorConstructWorkflowPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", archistratorConstructWorkflowPath, err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("%s has drifted from the method-assets template rendering (pin %s); regenerate it with "+
+			"ARCHISTRATOR_WRITE_CONSTRUCT_WORKFLOW=1 (see this test's doc)", archistratorConstructWorkflowPath, StateMcpModulePin)
+	}
+}

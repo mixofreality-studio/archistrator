@@ -17,6 +17,16 @@
 #      RunNamePrefix="aiarch-cp-"; ListRunsByName matches on this prefix.
 #      Wrong run-name = RA can never see its own dispatched run.
 #   3. workflow_dispatch-triggerable on the dispatch ref (main).
+#
+# SCRIPT-INJECTION POSTURE (archistrator B1, amendment §C; pinned by
+# construct_injection_test.go). This workflow carries FREE OPERATOR TEXT
+# (`operator_note`), so:
+#   - NO `${{ ... }}` expression is ever expanded inside a `run:` body. Every input
+#     and github.* value a script needs is mapped through that step's `env:`, where
+#     the runner assigns it as data and no shell ever parses it.
+#   - The ids that still reach `prompt:` and a step output (activity_id,
+#     component_id, command) are validated by the FIRST step, before any use.
+#   - The MCP config is built by `jq -n --arg ...` from env, never a heredoc of JSON.
 name: aiarch-construct
 
 # (2) Run-name is the idempotency anchor. EXACT prefix required.
@@ -53,6 +63,15 @@ on:
         description: "assigned worker class (ignored by this single-shot workflow)"
         required: false
         type: string
+      # The operator's steer for THIS attempt (a send-back, retry or re-queue note).
+      # Free text: it is never validated as an id and never reaches a script, the
+      # prompt or an output — only the aiarch-state MCP server's env, which serves it
+      # to the agent (system-prompt instructions + the get_operator_notes tool). The
+      # dispatching server omits it when no note is pending.
+      operator_note:
+        description: "operator steer for this attempt, delivered to the agent through the aiarch-state MCP server, never the prompt (readers of this repo can see it in the run's inputs)"
+        required: false
+        type: string
 
 permissions:
   contents: write
@@ -78,6 +97,44 @@ jobs:
     timeout-minutes: 25
 
     steps:
+      # FIRST: prove the ids are ids before anything uses them. activity_id,
+      # component_id and command still reach `prompt:` and a step output below, so a
+      # value that is not a plain id fails the job here. The values are read from
+      # env and never echoed (echoing one would hand it to the runner's
+      # workflow-command parser).
+      - name: Validate dispatch inputs
+        env:
+          ACTIVITY_ID: ${{ inputs.activity_id }}
+          COMPONENT_ID: ${{ inputs.component_id }}
+          COMMAND: ${{ inputs.command }}
+        run: |
+          # valid VALUE ERE: a whole-line match, and a value holding a newline is never
+          # an id (grep matches per line). No bash double-bracket test here: this file
+          # is a Go template whose action delimiter is the double square bracket. grep reads
+          # all of its input (no -q), so pipefail cannot race a SIGPIPE.
+          valid() {
+            case "$1" in *$'\n'*) return 1 ;; esac
+            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
+          }
+          id_re='[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}'
+          command_re='[a-z0-9][a-z0-9-]{0,63}'
+          ok=1
+          if ! valid "${ACTIVITY_ID}" "${id_re}"; then
+            echo "::error::activity_id is not a valid activity id"
+            ok=0
+          fi
+          if ! valid "${COMPONENT_ID}" "${id_re}"; then
+            echo "::error::component_id is not a valid component id"
+            ok=0
+          fi
+          if ! valid "${COMMAND}" "${command_re}"; then
+            echo "::error::command is not a valid command slug"
+            ok=0
+          fi
+          if [ "${ok}" != 1 ]; then
+            exit 1
+          fi
+
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -97,16 +154,17 @@ jobs:
       # SAME rail the DESIGN workflow wires (aiarch-design.yml.tmpl). It runs in the
       # CONSTRUCT job mode (component/activity ambient context), exposing the composed
       # construction verbs (recordServiceContract/recordPhaseArtifact/recordTestingState +
-      # publishDraft) plus the non-hidden read-only + Engine raw generated tools the
-      # per-mode set exposes — so a construction agent records its phase artifact through
-      # validated tools instead of hand-editing project.json.
+      # publishDraft, and get_operator_notes) plus the non-hidden read-only + Engine raw
+      # generated tools the per-mode set exposes — so a construction agent records its
+      # phase artifact through validated tools instead of hand-editing project.json.
       #
       # DELIVERY: this workflow is SEATED into an APP repo, which has NO archistrator
       # server source to build from, so it `go install <module>@<pin>` the published
       # binary via GOPROXY — the SAME way the design workflow and the seated go.mod
       # scaffold obtain their platform modules. The managed-scaffold sync re-renders this
-      # file (and its pin) whenever the server release moves it, so a run can never
-      # install a binary the dispatching server's validators reject.
+      # file (and its pin) whenever the server release moves it, and construction runs
+      # that sync before every dispatch, so a run can never install a binary the
+      # dispatching server's validators reject.
       # -----------------------------------------------------------------------
       - name: Obtain the aiarch-state MCP server
         id: statemcp
@@ -133,34 +191,60 @@ jobs:
       # committed .claude copy in a legacy repo cannot shadow the current generation.
       # Working-tree only: no git state is touched and nothing here is committed.
       - name: Materialize the .claude prompt surface (runtime-rendered, not repo-committed)
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_COMMAND: ${{ inputs.command }}
         run: |
-          "${{ steps.statemcp.outputs.bin }}" seat-assets --dest .
+          "${MCP_BIN}" seat-assets --dest . --command "${AIARCH_COMMAND}"
 
       # The MCP config claude-code-action passes to the Claude CLI (--mcp-config). The
       # ambient CONSTRUCTION context (project id, job mode, component id, activity id,
-      # target branch, state root) is baked in as env on the MCP server process from the
-      # dispatch inputs + the repo name. The agent supplies NONE of these.
+      # target branch, state root, command) is baked in as env on the MCP server
+      # process from the dispatch inputs + the repo name, and the operator's note rides
+      # beside it when the dispatch carries one. The agent supplies NONE of these.
+      # jq builds the JSON from --arg values, so no value — the note least of all —
+      # can break the document or reach a shell.
       - name: Write the aiarch-state MCP config
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_PROJECT_ID: ${{ github.event.repository.name }}
+          AIARCH_COMPONENT_ID: ${{ inputs.component_id }}
+          AIARCH_ACTIVITY_ID: ${{ inputs.activity_id }}
+          AIARCH_STATE_ROOT: ${{ github.workspace }}
+          AIARCH_COMMAND: ${{ inputs.command }}
+          AIARCH_OPERATOR_NOTE: ${{ inputs.operator_note }}
         run: |
-          cat > "${RUNNER_TEMP}/aiarch-mcp.json" <<EOF
-          {
-            "mcpServers": {
-              "aiarch-state": {
-                "command": "${MCP_BIN}",
-                "env": {
-                  "AIARCH_PROJECT_ID": "${{ github.event.repository.name }}",
-                  "AIARCH_JOB_MODE": "construct",
-                  "AIARCH_COMPONENT_ID": "${{ inputs.component_id }}",
-                  "AIARCH_ACTIVITY_ID": "${{ inputs.activity_id }}",
-                  "AIARCH_TARGET_BRANCH": "activity/${{ inputs.activity_id }}",
-                  "AIARCH_STATE_ROOT": "${{ github.workspace }}"
-                }
-              }
-            }
-          }
-          EOF
+          jq -n \
+            --arg bin "${MCP_BIN}" \
+            --arg project "${AIARCH_PROJECT_ID}" \
+            --arg component "${AIARCH_COMPONENT_ID}" \
+            --arg activity "${AIARCH_ACTIVITY_ID}" \
+            --arg root "${AIARCH_STATE_ROOT}" \
+            --arg command "${AIARCH_COMMAND}" \
+            --arg note "${AIARCH_OPERATOR_NOTE}" \
+            '{mcpServers: {"aiarch-state": {command: $bin, env: ({
+                AIARCH_PROJECT_ID: $project,
+                AIARCH_JOB_MODE: "construct",
+                AIARCH_COMPONENT_ID: $component,
+                AIARCH_ACTIVITY_ID: $activity,
+                AIARCH_TARGET_BRANCH: ("activity/" + $activity),
+                AIARCH_STATE_ROOT: $root,
+                AIARCH_COMMAND: $command
+              } + (if $note == "" then {} else {AIARCH_OPERATOR_NOTE: $note} end))}}}' \
+            > "${RUNNER_TEMP}/aiarch-mcp.json"
+
+      # Resolve this step's built-in tool deny list from the SAME method-assets
+      # step manifest the local executor uses, so the two dispatch rails scope
+      # identically. Restating the list in YAML here is exactly the duplication
+      # that would drift. An unknown step prints an empty line, which degrades to
+      # the unscoped surface rather than failing the job.
+      - name: Resolve the step's built-in tool scope
+        id: steptools
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_COMMAND: ${{ inputs.command }}
+        run: |
+          echo "disallowed=$("${MCP_BIN}" step-tools --command "${AIARCH_COMMAND}" --disallowed)" >> "$GITHUB_OUTPUT"
 
       - name: Run construction step (claude-code-action)
         uses: anthropics/claude-code-action@v1
@@ -181,10 +265,11 @@ jobs:
           # --mcp-config wires the local aiarch-state MCP server (built above) into the
           # Claude CLI; --dangerously-skip-permissions auto-allows tool calls (incl. the
           # MCP tools) in the unattended runner.
-          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json"
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json --strict-mcp-config --setting-sources project --exclude-dynamic-system-prompt-sections --disallowedTools ${{ steps.steptools.outputs.disallowed }}"
           # Thin prompt: NO construction logic here. The intent lives entirely in the
           # per-(type,variant,phase) command under .claude/commands/, which pulls its
           # role agent + Method skill + the-method-project-state. The Manager computed
-          # `command`; the workflow just runs it against the component + activity ids.
+          # `command`; the workflow just runs it against the component + activity ids,
+          # which the first step validated. The operator note never rides here.
           prompt: |
             /${{ inputs.command }} ${{ inputs.component_id }} ${{ inputs.activity_id }}

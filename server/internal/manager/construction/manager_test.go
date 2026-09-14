@@ -823,9 +823,13 @@ func TestConstructWorkflowWiresStateMcp(t *testing.T) {
 	}
 
 	// Construct job mode (the construction session context is keyed by component/activity,
-	// not an artifact kind).
-	if !strings.Contains(body, `"AIARCH_JOB_MODE": "construct"`) {
+	// not an artifact kind). The config is built by `jq -n` from env — never a heredoc of
+	// JSON, which a free-text operator note could break (amendment §C.1).
+	if !strings.Contains(body, `AIARCH_JOB_MODE: "construct"`) {
 		t.Error("MCP config must set AIARCH_JOB_MODE to construct")
+	}
+	if !strings.Contains(body, "jq -n") || strings.Contains(body, "<<EOF") {
+		t.Error("the MCP config must be built with jq -n from env, never a heredoc")
 	}
 
 	// --mcp-config wires the server into the Claude CLI.
