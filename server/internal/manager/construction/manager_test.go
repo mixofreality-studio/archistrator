@@ -58,6 +58,31 @@ type fakeTemporalClient struct {
 	lastWorkflowID string
 	lastSignalName string
 	lastSignalArg  any
+	// session is the view the session Query answers (B1.3's façade precheck reads it).
+	session ConstructionSessionView
+}
+
+// QueryWorkflow answers the session Query with the scripted view.
+func (f *fakeTemporalClient) QueryWorkflow(_ context.Context, _ string, _ string, _ string, _ ...any) (converter.EncodedValue, error) {
+	return encodedJSON{v: f.session}, nil
+}
+
+// encodedJSON satisfies converter.EncodedValue by a JSON round trip — how a real
+// Query answer reaches the façade.
+type encodedJSON struct{ v any }
+
+func (e encodedJSON) HasValue() bool { return true }
+func (e encodedJSON) Get(valuePtr any) error {
+	b, err := json.Marshal(e.v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(b, valuePtr)
+}
+
+// awaitingAt is the session view of an activity waiting at gate key.
+func awaitingAt(key string) ConstructionSessionView {
+	return ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: &key}
 }
 
 func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string, _ string, signalName string, arg any) error {
@@ -588,7 +613,7 @@ func Test_OverrideKind_String(t *testing.T) {
 // ---- SubmitPhaseDecision (op 2.6) -------------------------------------------
 
 func TestSubmitPhaseDecision_SignalsActivityWorkflowWithPhase(t *testing.T) {
-	fc := &fakeTemporalClient{}
+	fc := &fakeTemporalClient{session: awaitingAt("detailed_design")}
 	m := newTestConstructionManager(fc)
 	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
 		t.Fatalf("SubmitPhaseDecision: %v", err)
@@ -5485,6 +5510,12 @@ func (c *envSignalClient) SignalWorkflow(_ context.Context, workflowID string, _
 	return c.env.SignalWorkflowByID(workflowID, signalName, arg)
 }
 
+// QueryWorkflow serves the façade's session read from the running test workflow, so the
+// B1.3 precheck runs against the real view.
+func (c *envSignalClient) QueryWorkflow(_ context.Context, _ string, _ string, queryType string, args ...any) (converter.EncodedValue, error) {
+	return c.env.QueryWorkflow(queryType, args...)
+}
+
 // Test_Construct_LocalMerge_ReleasedThroughFacade is the production path for the
 // merge hold: every approval — the three checkpoints phase gates AND the merge
 // gate — arrives via constructionManager.SubmitPhaseDecision, not a direct
@@ -6422,7 +6453,7 @@ func TestSubmitPhaseDecision_RejectsUnknownPhase(t *testing.T) {
 // canonical phases must all pass the new vocabulary gate.
 func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
 	for _, phase := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
-		m := newTestConstructionManager(&fakeTemporalClient{})
+		m := newTestConstructionManager(&fakeTemporalClient{session: awaitingAt(phase)})
 		if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", phase, PhaseApprove, nil); err != nil {
 			t.Errorf("phase %q must be accepted, got %v", phase, err)
 		}
@@ -6434,7 +6465,7 @@ func TestSubmitPhaseDecision_AcceptsEveryCanonicalPhase(t *testing.T) {
 // operator path that releases it. Approve on "merge" must pass validation and
 // land on the per-activity workflow with the key intact.
 func TestSubmitPhaseDecision_MergeApproveSignalsActivityWorkflow(t *testing.T) {
-	fc := &fakeTemporalClient{}
+	fc := &fakeTemporalClient{session: awaitingAt(mergeGateKey)}
 	m := newTestConstructionManager(fc)
 	if err := m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseApprove, nil); err != nil {
 		t.Fatalf("SubmitPhaseDecision(merge, Approve): %v", err)
@@ -6484,7 +6515,7 @@ func TestSubmitPhaseDecision_UnknownGateKeyStillRejected(t *testing.T) {
 // but `required` is presence-only: an empty string satisfied it and left the
 // operator's steer with no durable record of why it happened.
 func TestOverrideActivity_RequiresNotes(t *testing.T) {
-	m := newTestConstructionManager(&fakeTemporalClient{})
+	m := newTestConstructionManager(&fakeTemporalClient{session: ConstructionSessionView{Stage: StageAwaitingTakeover}})
 	err := m.OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "  "})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for a blank override note, got %s", got)
@@ -7592,3 +7623,196 @@ func Test_GateWaitMetric_RecordedOnLeaveWithBoundedTags(t *testing.T) {
 		t.Fatalf("recorded wait = %v, want the 30s the gate waited", waits[0].value)
 	}
 }
+
+// ===========================================================================
+// B1.3 — FAÇADE PRECHECKS → FailedPrecondition (plan B1.3).
+// ===========================================================================
+
+// b13Mock is a STRICT client: it answers the session Query with view (or queryErr) and
+// expects SignalWorkflow only when signal is true — an unexpected call panics the test,
+// which is what proves a refusal never signals.
+func b13Mock(view ConstructionSessionView, queryErr error, signal bool) *temporalmocks.Client {
+	mc := &temporalmocks.Client{}
+	wfID := constructActivityWorkflowID("proj-1", "C-Orders")
+	if queryErr != nil {
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(nil, queryErr)
+	} else {
+		mc.On("QueryWorkflow", mock.Anything, wfID, "", querySessionState).Return(encodedJSON{v: view}, nil)
+	}
+	if signal {
+		mc.On("SignalWorkflow", mock.Anything, wfID, "", mock.Anything, mock.Anything).Return(nil)
+	}
+	return mc
+}
+
+func TestSubmitPhaseDecision_Precheck_RefusesWhatTheSessionIsNotAwaiting(t *testing.T) {
+	takeover := ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}
+	exhausted := awaitingAt("detailed_design")
+	exhausted.RedraftExhausted = true
+	oldWorker := ConstructionSessionView{Stage: StageAwaitingApproval} // served before B1.2: no awaitingGate
+	note := &ReviewFeedback{Notes: "redraft it"}
+	cases := []struct {
+		name     string
+		view     ConstructionSessionView
+		key      string
+		decision PhaseDecision
+		feedback *ReviewFeedback
+		mention  string
+	}{
+		{"a running pipeline", ConstructionSessionView{Stage: StagePipelineRunning}, "detailed_design", PhaseApprove, nil, "pipelineRunning/no gate"},
+		{"another phase's gate", awaitingAt("requirements"), "detailed_design", PhaseApprove, nil, "awaitingApproval/requirements"},
+		{"the merge hold, asked for a phase", awaitingAt(mergeGateKey), "construction", PhaseApprove, nil, "awaitingApproval/merge"},
+		{"an escalation", takeover, "detailed_design", PhaseApprove, nil, "awaitingTakeover/takeover"},
+		{"a view from an old worker", oldWorker, "detailed_design", PhaseApprove, nil, "no gate"},
+		// The stage is checked, not only the gate label: a view that names the gate while
+		// its stage is not awaiting approval is refused all the same.
+		{"a gate label on a stage that is not awaiting", ConstructionSessionView{Stage: StagePipelineRunning, AwaitingGate: ptrTo("detailed_design")}, "detailed_design", PhaseApprove, nil, "pipelineRunning/detailed_design"},
+		{"a send-back at a spent budget", exhausted, "detailed_design", PhaseSendBack, note, "spent"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mc := b13Mock(c.view, nil, false)
+			err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", c.key, c.decision, c.feedback)
+			e := asConstructionError(t, err)
+			if e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, c.mention) {
+				t.Fatalf("want FailedPrecondition naming %q, got %s %q", c.mention, e.Kind, e.Detail)
+			}
+			mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		})
+	}
+}
+
+func TestSubmitPhaseDecision_Precheck_PassesAtTheAwaitedGate(t *testing.T) {
+	exhausted := awaitingAt("detailed_design")
+	exhausted.RedraftExhausted = true
+	cases := []struct {
+		name     string
+		view     ConstructionSessionView
+		key      string
+		decision PhaseDecision
+		feedback *ReviewFeedback
+	}{
+		{"approve at its gate", awaitingAt("detailed_design"), "detailed_design", PhaseApprove, nil},
+		{"send back with budget left", awaitingAt("detailed_design"), "detailed_design", PhaseSendBack, &ReviewFeedback{Notes: "n"}},
+		{"approve at a spent budget", exhausted, "detailed_design", PhaseApprove, nil},
+		{"approve the merge hold", awaitingAt(mergeGateKey), mergeGateKey, PhaseApprove, nil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			mc := b13Mock(c.view, nil, true)
+			if err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", c.key, c.decision, c.feedback); err != nil {
+				t.Fatalf("want the decision signalled, got %v", err)
+			}
+			mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+		})
+	}
+}
+
+// The check order is pinned: ContractMisuse never reads the session (the strict mock has
+// no Query expectation), then a missing session is NotFound, then the precheck; a query
+// fault is Infrastructure. None of them signals.
+func TestSubmitPhaseDecision_Precheck_OrderIsContractMisuseThenSessionThenPrecondition(t *testing.T) {
+	strict := &temporalmocks.Client{}
+	m := newTestConstructionManager(strict)
+	for name, call := range map[string]func() error{
+		"unknown gate key": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "merged", PhaseApprove, nil)
+		},
+		"send-back without note": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseSendBack, nil)
+		},
+		"merge send-back": func() error {
+			return m.SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", mergeGateKey, PhaseSendBack, &ReviewFeedback{Notes: "n"})
+		},
+	} {
+		if got := asConstructionError(t, call()).Kind; got != fwmanager.ContractMisuse {
+			t.Errorf("%s: want ContractMisuse before any session read, got %s", name, got)
+		}
+	}
+	for name, c := range map[string]struct {
+		err  error
+		want fwmanager.Kind
+	}{
+		"no session":  {serviceerror.NewNotFound("workflow not found"), fwmanager.NotFound},
+		"query fault": {errors.New("frontend unavailable"), fwmanager.Infrastructure},
+	} {
+		mc := b13Mock(ConstructionSessionView{}, c.err, false)
+		err := newTestConstructionManager(mc).SubmitPhaseDecision(testCtx(), "proj-1", "C-Orders", "detailed_design", PhaseApprove, nil)
+		if got := asConstructionError(t, err).Kind; got != c.want {
+			t.Errorf("%s: want %s, got %s", name, c.want, got)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+}
+
+func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
+	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
+	for name, view := range map[string]ConstructionSessionView{
+		"a phase gate":       awaitingAt("detailed_design"),
+		"the merge hold":     awaitingAt(mergeGateKey),
+		"a running pipeline": {Stage: StagePipelineRunning},
+		"an exited activity": {Stage: StageExited},
+	} {
+		mc := b13Mock(view, nil, false)
+		err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
+		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, "not awaiting a takeover") {
+			t.Errorf("%s: want FailedPrecondition, got %s %q", name, e.Kind, e.Detail)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+	mc := b13Mock(ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}, nil, true)
+	if err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry); err != nil {
+		t.Fatalf("an override at a takeover must be signalled, got %v", err)
+	}
+	mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+	// ContractMisuse still comes first: blank notes never read the session.
+	strict := &temporalmocks.Client{}
+	if got := asConstructionError(t, newTestConstructionManager(strict).OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: " "})).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse before the session read, got %s", got)
+	}
+}
+
+// Plan G7, end to end through the façade: an override sent while the activity waits at
+// a PHASE gate is refused and never buffered, so the activity's later escalation still
+// waits for a fresh steer — before B1.3 the stray Retry was consumed by that escalation.
+func Test_Facade_StrayOverrideAtAGate_IsRefusedAndNotAppliedLater(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	deps.Intervention = &fakeIntervention{directive: intervention.VarianceEscalate}
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipelineFailingOnce("construction"))
+	env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: constructActivityWorkflowID("p", "C-Orders")})
+	m := newTestConstructionManager(&envSignalClient{env: env})
+	var strayErr error
+	var atEscalation ConstructionSessionView
+	env.RegisterDelayedCallback(func() {
+		strayErr = m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: "stray"})
+	}, 20*time.Second)
+	env.RegisterDelayedCallback(func() {
+		if err := m.SubmitPhaseDecision(testCtx(), "p", "C-Orders", "detailed_design", PhaseApprove, nil); err != nil {
+			t.Errorf("approve: %v", err)
+		}
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() { atEscalation = b12View(t, env) }, 60*time.Second)
+	env.RegisterDelayedCallback(func() {
+		if err := m.OverrideActivity(testCtx(), "p", "C-Orders", ActivityOverride{Kind: OverrideSkip, Notes: "built by hand"}); err != nil {
+			t.Errorf("override at the takeover: %v", err)
+		}
+	}, 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if e := asConstructionError(t, strayErr); e.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("the stray override: want FailedPrecondition, got %s", e.Kind)
+	}
+	if atEscalation.Stage != StageAwaitingTakeover {
+		t.Fatalf("the escalation must wait for a fresh steer, got stage %v (the stray Retry was applied)", atEscalation.Stage)
+	}
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeSkipped {
+		t.Fatalf("want the one Skip the operator sent at the takeover, got exits %v", ps.exited)
+	}
+}
+
+func ptrTo[T any](v T) *T { return &v }

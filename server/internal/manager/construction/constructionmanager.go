@@ -482,6 +482,17 @@ func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, 
 // child workflow {projectId}:{activityId}. The operator's steer is fed through the
 // SAME decide→execute machinery as the automatic variance path. SYNC: returns once
 // the signal is durably enqueued.
+//
+// PRECHECK (B1.3): after the ContractMisuse checks, the op reads the activity's session
+// (the Query GetSessionState serves; no session is NotFound) and refuses with
+// FailedPrecondition unless the activity is awaiting a takeover. The workflow buffers
+// override signals, so an override sent at any other time used to be consumed by the
+// activity's NEXT escalation — a steer applied to a situation the operator never saw
+// (plan G7). This is honesty at the façade, not a lock: the residual check-then-act
+// window is milliseconds, and draining a stale buffered override inside the workflow
+// is a command change that is EARMARKED behind its own GetVersion. During a rolling
+// deploy a view served by an old worker carries no awaitingGate; the refusal is then
+// transient and fails safe.
 func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -501,6 +512,15 @@ func (m *constructionManager) OverrideActivity(rc fwm.Context, projectID Project
 	}
 	if strings.TrimSpace(override.Notes) == "" {
 		return newError(fwm.ContractMisuse, "an override requires non-empty notes — it is the operator's durable record of WHY the automatic path was steered")
+	}
+	view, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		return err
+	}
+	if view.Stage != StageAwaitingTakeover {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf(
+			"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitPhaseDecision",
+			activityID, sessionStageName(view.Stage)))
 	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
@@ -568,6 +588,16 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 // ("merge") — the local merge hold (runLocalMergeStep) suspends on the same
 // signal, and this op is the ONLY operator path that releases it. The merge gate
 // takes Approve only (see validatePhaseDecision).
+//
+// PRECHECK (B1.3), in a pinned order: the ContractMisuse checks first (ids, then
+// validatePhaseDecision, then SendBack notes); then the activity's session is read
+// (no session is NotFound); then the op refuses with FailedPrecondition unless the
+// session is awaiting approval at exactly this gate (awaitingGate), and refuses a
+// SendBack at a gate whose redraft budget is spent (redraftExhausted) — never a silent
+// no-op presenting as success. Nothing is signalled on any refusal. The workflow still
+// matches decisions by key, so this is honesty, not safety: a stale decision cannot
+// close the wrong gate either way. During a rolling deploy a view served by an old
+// worker carries no awaitingGate; the refusal is then transient and fails safe.
 func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -582,6 +612,13 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 	if decision == PhaseSendBack && (feedback == nil || feedback.Notes == "") {
 		return newError(fwm.ContractMisuse, "SendBack requires non-empty feedback notes")
 	}
+	view, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		return err
+	}
+	if err := precheckPhaseDecision(view, activityID, phase, decision); err != nil {
+		return err
+	}
 
 	wfID := constructActivityWorkflowID(projectID, activityID)
 	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
@@ -589,6 +626,55 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwm.Context, projectID Proj
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// activitySession reads one activity's session through the SAME Query GetSessionState
+// serves, with its error mapping: no session is NotFound, any other query fault is
+// Infrastructure.
+func (m *constructionManager) activitySession(ctx context.Context, projectID ProjectID, activityID ActivityID) (ConstructionSessionView, error) {
+	return m.GetSessionState(fwm.Context{Context: ctx}, projectID, &activityID)
+}
+
+// precheckPhaseDecision is SubmitPhaseDecision's FailedPrecondition gate over the
+// activity's session view (B1.3).
+func precheckPhaseDecision(v ConstructionSessionView, activityID ActivityID, key string, decision PhaseDecision) error {
+	gate := "no gate"
+	if v.AwaitingGate != nil {
+		gate = *v.AwaitingGate
+	}
+	if v.Stage != StageAwaitingApproval || gate != key {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf("activity %s is at %s/%s, not awaiting %s",
+			activityID, sessionStageName(v.Stage), gate, key))
+	}
+	if decision == PhaseSendBack && v.RedraftExhausted {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf(
+			"the redraft budget for %s is spent — approve, or steer with OverrideActivity", key))
+	}
+	return nil
+}
+
+// sessionStageName is a ConstructionStage's wire word, for refusal messages. A free
+// function so the generated enum stays pure data (same rule as overrideKindName).
+func sessionStageName(s ConstructionStage) string {
+	switch s {
+	case StageDispatching:
+		return "dispatching"
+	case StagePipelineRunning:
+		return "pipelineRunning"
+	case StageReviewing:
+		return "reviewing"
+	case StageAwaitingTakeover:
+		return "awaitingTakeover"
+	case StagePaused:
+		return "paused"
+	case StageExited:
+		return "exited"
+	case StageAwaitingApproval:
+		return "awaitingApproval"
+	case ConstructionStageUnknown:
+		return "unknown"
+	}
+	return "unknown"
 }
 
 // SetReviewPolicy — op 2.8 (local-merge-and-policy Commit 2). Sets the project's

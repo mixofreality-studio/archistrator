@@ -51,11 +51,11 @@ var mcpOpDocs = map[string]map[string]string{
 		"GetEpisodeTimeline":      "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.",
 		"GetSessionState":         "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.",
 		"ListEpisodesForActivity": "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.",
-		"OverrideActivity":        "Manually override one activity's state (e.g. force-complete, reopen, or reassign) — an operator escape hatch outside the normal construction pump.",
+		"OverrideActivity":        "Steer one construction activity that is waiting at an escalation (session stage awaitingTakeover): retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition while the activity is not awaiting a takeover.",
 		"PauseProject":            "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.",
 		"RunReplanSweep":          "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.",
 		"SetReviewPolicy":         "Set the project's construction review-policy preset: vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit + construction dispatch + merge), or full (approval at every step). Any other preset value is rejected.",
-		"SubmitPhaseDecision":     "Record a review verdict (approve or send-back) for one construction phase of an activity. Send-back should carry feedback; approve advances the activity's lifecycle.",
+		"SubmitPhaseDecision":     "Record a review verdict (approve or send-back) for the gate an activity is waiting at: a lifecycle phase, or \"merge\" for the local merge hold (approve only). Send-back must carry feedback notes. Refused as FailedPrecondition unless the activity's session is awaiting exactly that gate, and for a send-back at a gate whose redraft budget is spent.",
 		"UpdateReviewPolicy":      "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.",
 	},
 	"OperationsManager": {
