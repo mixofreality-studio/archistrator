@@ -588,6 +588,10 @@ export const UI_IDENTIFIERS = {
     FOCUS_HEADING: 'construction-focus-heading',
     /** The rail's own content under the header: the note, the sentence, the verdict. */
     FOCUS_RAIL: 'construction-focus-rail',
+    /** Collapse / show the focus view's side panel (per viewer, remembered). */
+    FOCUS_RAIL_TOGGLE: 'construction-focus-rail-toggle',
+    /** The verdict as one chip in the focus header while the side panel is collapsed. */
+    FOCUS_VERDICT_CHIP: 'construction-focus-verdict-chip',
     /** The pane's body while the focus view is open: unmounted, one line instead. */
     FOCUS_PLACEHOLDER: 'construction-focus-placeholder',
     /** Code Review on a reconstructed (or unreviewed) attempt: one line, no CODE frame. */
@@ -631,6 +635,14 @@ export const UI_IDENTIFIERS = {
     OPEN_FOCUS: 'service-contract-open-focus',
     /** The focus view's list form, when the window leaves no room for the canvas. */
     CANVAS_NEEDS_ROOM: 'service-contract-canvas-needs-room',
+    /** The needs-room note's "collapse the side panel" — the canvas then has room. */
+    CANVAS_NEEDS_ROOM_COLLAPSE: 'service-contract-canvas-needs-room-collapse',
+    /** The code canvas's one caption, above it. */
+    CODE_CANVAS_CAPTION: 'service-contract-code-canvas-caption',
+    /** The code canvas's «interface» node. */
+    CODE_INTERFACE_NODE: 'service-contract-code-interface',
+    /** One field row of a real struct's table in the list. */
+    FIELD_ROW: 'service-contract-field-row',
     /** The canvas itself (ContractCodeFlow), drawn in the focus view only. */
     CODE_CANVAS: 'service-contract-code-canvas',
     /** The utilities a component may reach, as one line in place of their nodes. */

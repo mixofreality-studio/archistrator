@@ -23,6 +23,14 @@
  * The diagram REMOUNTS per component (polish 9): a neighbour click moves the
  * selection, and a kept instance left the clicked node focused, so its Comment
  * toolbar stayed up — over an edge — on the new view.
+ *
+ * THE FRAMES FOR A MISSING CONTRACT AND A RESOURCE (designer check on renderers
+ * S3). They drew a 358px canvas (640 in focus) at 1.12–1.23 for a two-node fact,
+ * with no op name on the edge and no way to the neighbour's activity. So: the
+ * pane lists here too (the 500px drawer included); a row and an edge say the
+ * call (`EvaluateDesignHealth(…)`) and a row ends `→ <activity>`; a Resource's
+ * callers read REACHED BY, with no empty CALLS side; and the canvas never draws
+ * past 1.0, as tall as the drawing and no taller (FlowCanvas `fitToContent`).
  */
 import { useMemo, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -38,6 +46,8 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { PerspectiveFlow } from '../flow/PerspectiveFlow';
 import {
+  callsOf,
+  edgeCallLabel,
   neighbourRowsFor,
   utilityNeighbours,
   withoutUtilities,
@@ -47,10 +57,13 @@ import {
 export const RELATIONSHIPS_CAPTION =
   'From the committed architecture (system · relationships) — who calls this component and whom it calls.';
 
+/** The canvas's least height: one row of nodes and its gutters. */
+const CANVAS_MIN_HEIGHT = 180;
+
 export function ComponentRelationshipsView({
   systemEnvelope,
   componentId,
-  height = 420,
+  height = 640,
   onFocusComponent,
   isNavigable,
   destinationOf,
@@ -58,10 +71,12 @@ export function ComponentRelationshipsView({
   testId = UI_IDENTIFIERS.ServiceContract.COMPONENT_FLOW,
   mode = 'canvas',
   onOpenFocus,
+  variant = 'component',
 }: {
   systemEnvelope: ArtifactModelEnvelope | undefined;
   /** The slot-5 component id (kebab) — the join's own, never re-derived from a name. */
   componentId: string;
+  /** The canvas's greatest height; it is as tall as the drawing up to this. */
   height?: number | undefined;
   /** Move the selection onto a neighbour; absent, a neighbour click does nothing. */
   onFocusComponent?: ((componentId: string) => void) | undefined;
@@ -79,6 +94,11 @@ export function ComponentRelationshipsView({
   mode?: 'canvas' | 'list';
   /** The list's "Open diagram in focus view"; absent inside the focus view. */
   onOpenFocus?: (() => void) | undefined;
+  /**
+   * `reachedBy` for a Resource (WHO REACHES IT): its callers read REACHED BY, and
+   * the CALLS side — always empty for a Resource — is not drawn.
+   */
+  variant?: 'component' | 'reachedBy';
 }): ReactNode {
   const t = useTokens();
   const full = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
@@ -155,25 +175,29 @@ export function ComponentRelationshipsView({
         <>
           <NeighbourList
             destinationOf={destinationOf}
-            label="CALLED BY"
+            label={variant === 'reachedBy' ? 'REACHED BY' : 'CALLED BY'}
             navigable={navigable}
             rows={rows.callers}
             t={t}
             onFocusComponent={onFocusComponent}
           />
-          <NeighbourList
-            destinationOf={destinationOf}
-            label="CALLS"
-            navigable={navigable}
-            rows={rows.callees}
-            t={t}
-            onFocusComponent={onFocusComponent}
-          />
+          {variant === 'reachedBy' && rows.callees.length === 0 ? null : (
+            <NeighbourList
+              destinationOf={destinationOf}
+              label="CALLS"
+              navigable={navigable}
+              rows={rows.callees}
+              t={t}
+              onFocusComponent={onFocusComponent}
+            />
+          )}
         </>
       ) : (
         <PerspectiveFlow
           componentId={componentId}
-          height={height}
+          edgeLabel={edgeCallLabel}
+          fitMaxZoom={1}
+          fitToContent={{ minHeight: CANVAS_MIN_HEIGHT, maxHeight: height }}
           key={componentId}
           view={view}
           {...(onFocusComponent !== undefined ? { onFocusComponent } : {})}
@@ -236,18 +260,21 @@ function NeighbourList({
           }}
         >
           {rows.map((row, i) => {
+            // The calls, each as `Name(…)`, said once across the edges' labels.
+            const calls = [...new Set(row.operations.flatMap(callsOf))];
             const content = (
               <>
                 <Box component="span" sx={{ fontWeight: 700, color: t.ink }}>
                   {row.name}
                 </Box>
                 <Box component="span" sx={{ color: t.muted }}>{` · ${row.layer}`}</Box>
-                {row.operations.length > 0 ? (
+                {calls.length > 0 ? (
                   <Box
                     component="span"
+                    data-calls=""
                     sx={{ display: 'block', color: t.muted, fontSize: 11, wordBreak: 'break-word' }}
                   >
-                    {row.operations.join(' · ')}
+                    {calls.join(' · ')}
                   </Box>
                 ) : null}
               </>

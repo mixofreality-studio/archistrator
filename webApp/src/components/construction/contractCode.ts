@@ -50,28 +50,24 @@ export const CODE_MIN_ZOOM = 0.9;
 export const CODE_CANVAS_GUTTER = 14;
 
 /** The canvas frame's two 1.5px borders. */
-const CODE_CANVAS_BORDERS = 3;
+export const CODE_CANVAS_BORDERS = 3;
+
+/** The code canvas's least height: an interface with one op, and its gutters. */
+export const CODE_CANVAS_MIN_HEIGHT = 160;
 
 /**
  * Below this many pixels of column width the code diagram cannot show the widest
  * expansion at CODE_MIN_ZOOM; list instead. 1458 × 0.9 → 1313, plus the gutters
- * and the frame: 1344 (a focus window of about 1712px).
+ * and the frame: 1344 — a focus window of about 1712px with the side panel open,
+ * 1392 with it collapsed (focusRail.ts).
+ *
+ * The canvas HEIGHT is no longer guessed (S3 grew it from a base of 380 + 40 per
+ * op): it is the drawing's height at its zoom (flow/fitContent.ts), so an
+ * unexpanded interface sits at the top of a canvas its own size, and a tall
+ * request column (10 params on RecordActivityBranchOpened) still lands on it.
  */
 export const CODE_CANVAS_MIN_WIDTH =
   Math.ceil(CODE_EXPANDED_WIDTH * CODE_MIN_ZOOM) + 2 * CODE_CANVAS_GUTTER + CODE_CANVAS_BORDERS;
-
-/**
- * The canvas height a drawing needs: its measured height at CODE_MIN_ZOOM plus
- * the gutters and the frame, never below the caller's base height. The canvas
- * GROWS to it on expand, so a tall request column (10 params on
- * RecordActivityBranchOpened) lands on the canvas rather than past its edge.
- */
-export function codeCanvasHeightFor(boundsHeight: number, baseHeight: number): number {
-  return Math.max(
-    baseHeight,
-    Math.ceil(boundsHeight * CODE_MIN_ZOOM) + 2 * CODE_CANVAS_GUTTER + CODE_CANVAS_BORDERS
-  );
-}
 
 export type CodeTabMode = 'canvas' | 'list';
 

@@ -155,7 +155,7 @@ import { ScenarioLinkContext, type ScenarioLink } from '../renderers/scenarioLin
 import { AbsentBody } from './bodies/AbsentBody';
 import { ArtifactBody, ArtifactStateFrame } from './bodies/ArtifactBody';
 import { ProvenanceNote } from './bodies/ProvenanceNote';
-import { ReviewBody, ReviewVerdict } from './bodies/ReviewBody';
+import { ReviewBody, ReviewVerdict, ReviewVerdictChip } from './bodies/ReviewBody';
 import { UnknownBody } from './bodies/UnknownBody';
 import { hiddenInScope } from '../list/observedOnly';
 import { pendingChipLabel, pendingSentence } from '../list/pendingResume.ts';
@@ -819,6 +819,10 @@ export function DetailPane({
     <FocusView
       open
       actionBar={actionBar}
+      // With the rail collapsed, a review's verdict rides the header as a chip.
+      collapsedSummary={
+        bodyKind === 'review' ? <ReviewVerdictChip reviewSet={reviewSet} row={row} /> : undefined
+      }
       header={
         <DetailHeader
           breadcrumb={breadcrumb}

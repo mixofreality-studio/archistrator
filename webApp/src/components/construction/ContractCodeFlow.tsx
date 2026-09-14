@@ -40,11 +40,15 @@ import {
 import {
   ReactFlow,
   Background,
+  BaseEdge,
   MarkerType,
   Handle,
   Position,
+  getSmoothStepPath,
   useReactFlow,
+  useStore,
   type Edge,
+  type EdgeProps,
   type Node,
   type NodeProps,
 } from '@xyflow/react';
@@ -60,8 +64,12 @@ import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { flowInstanceId } from '../flow/flowInstanceId.ts';
+import { fitToWidth } from '../flow/fitContent.ts';
+import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import {
-  codeCanvasHeightFor,
+  CODE_CANVAS_BORDERS,
+  CODE_CANVAS_GUTTER,
+  CODE_CANVAS_MIN_HEIGHT,
   CODE_IFACE_W,
   CODE_INPUT_GAP,
   CODE_MIN_ZOOM,
@@ -82,14 +90,15 @@ function makeEdge(
   edge: { source: string; target: string; sourceHandle?: string; targetHandle?: string },
   label: string,
   t: Tokens,
-  isError = false
+  isError = false,
+  type: 'smoothstep' | 'returns' = 'smoothstep'
 ): Edge {
   const stroke = isError ? t.dangerFg : t.ink;
   return {
     id: `${edge.source}:${edge.sourceHandle ?? ''}-${edge.target}:${edge.targetHandle ?? ''}`,
     ...edge,
     label,
-    type: 'smoothstep',
+    type,
     style: { stroke, strokeWidth: 1.5, strokeDasharray: isError ? '6 3' : undefined },
     labelStyle: { fontFamily: t.mono, fontSize: 9, fontWeight: 700, fill: stroke },
     labelBgStyle: { fill: t.paper, fillOpacity: 0.96 },
@@ -122,6 +131,7 @@ function InterfaceNode({ data }: NodeProps): ReactNode {
       <Handle position={Position.Left} style={{ opacity: 0 }} type="target" />
       <Handle position={Position.Right} style={{ opacity: 0 }} type="source" />
       <Box
+        data-testid={UI_IDENTIFIERS.ServiceContract.CODE_INTERFACE_NODE}
         sx={{
           width: CODE_IFACE_W,
           boxSizing: 'border-box',
@@ -446,31 +456,90 @@ function StructCard({
 
 const nodeTypes = { iface: InterfaceNode, column: ColumnNode };
 
-/** Every fit — on mount and on expand — stops at CODE_MIN_ZOOM (designer check B1). */
-const FIT_OPTIONS = { padding: 0.12, minZoom: CODE_MIN_ZOOM, maxZoom: 1 } as const;
+/**
+ * How far past the interface's right edge a `returns` edge turns toward its
+ * card: close to the interface, so the edge's LABEL rides the long last segment
+ * into the card — clear of the interface's border and of the other edges' turns.
+ */
+const RETURNS_TURN = 20;
+
+/**
+ * An interface → response / error edge (designer check on renderers S3). As a
+ * plain smoothstep its label sat at the path's middle — on the shared vertical
+ * turn, against the interface node's border, and on top of the "returns error"
+ * label beside it. Here the turn is RETURNS_TURN past the interface, and the
+ * label is centred on the last segment, at its own card's height.
+ */
+function ReturnsEdge({
+  id,
+  sourceX,
+  sourceY,
+  targetX,
+  targetY,
+  sourcePosition,
+  targetPosition,
+  label,
+  style,
+  markerEnd,
+  labelStyle,
+  labelBgStyle,
+  labelBgPadding,
+  labelBgBorderRadius,
+}: EdgeProps): ReactNode {
+  const turnX = sourceX + RETURNS_TURN;
+  const [path] = getSmoothStepPath({
+    sourceX,
+    sourceY,
+    sourcePosition,
+    targetX,
+    targetY,
+    targetPosition,
+    centerX: turnX,
+    borderRadius: 5,
+  });
+  return (
+    <BaseEdge
+      labelShowBg
+      id={id}
+      label={label}
+      labelX={(turnX + targetX) / 2}
+      labelY={targetY}
+      path={path}
+      {...(style !== undefined ? { style } : {})}
+      {...(markerEnd !== undefined ? { markerEnd } : {})}
+      {...(labelStyle !== undefined ? { labelStyle } : {})}
+      {...(labelBgStyle !== undefined ? { labelBgStyle } : {})}
+      {...(labelBgPadding !== undefined ? { labelBgPadding } : {})}
+      {...(labelBgBorderRadius !== undefined ? { labelBgBorderRadius } : {})}
+    />
+  );
+}
+
+const edgeTypes = { returns: ReturnsEdge };
 
 /** Frames to wait, at most, for React Flow to measure newly added nodes. */
 const MEASURE_FRAMES = 30;
 
-// Re-frames the canvas whenever `dep` changes so the input | interface | output
-// columns come into view (fitView only runs once on mount otherwise). Lives as a
-// child of <ReactFlow> so it can use the flow hooks. It waits until React Flow
-// has MEASURED every node (a new column is added unmeasured, and bounds taken
-// then are the interface's alone), then GROWS the canvas to the drawing's height
-// at CODE_MIN_ZOOM — the resize re-runs it — and fits, clamped at CODE_MIN_ZOOM,
-// so a drawing is never shrunk to an unreadable size.
-function FitViewOnChange({
+// Re-frames the canvas whenever `dep` changes (an op expands or collapses) or its
+// width does. Lives as a child of <ReactFlow> so it can use the flow hooks. It
+// waits until React Flow has MEASURED every node (a new column is added
+// unmeasured, and bounds taken then are the interface's alone), then sizes the
+// canvas to the drawing (fitContent.fitToWidth) — the zoom by the width, never
+// below CODE_MIN_ZOOM nor past 1.0, the drawing TOP-aligned, the canvas as tall
+// as the drawing — and places it. The resize re-runs it; the next pass places.
+// Before any op is expanded the canvas is the interface's own height, so the node
+// no longer floats in a box sized for its expansion (designer check on S3).
+function FrameOnChange({
   dep,
   height,
-  baseHeight,
   onHeight,
 }: {
   dep: string | null;
   height: number;
-  baseHeight: number;
   onHeight: (height: number) => void;
 }): null {
-  const { fitView, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
+  const { setViewport, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
+  const paneWidth = useStore((s) => s.width);
   useEffect(() => {
     let raf = 0;
     let frames = 0;
@@ -480,17 +549,28 @@ function FitViewOnChange({
         const m = getInternalNode(n.id)?.measured;
         return (m?.width ?? 0) === 0 || (m?.height ?? 0) === 0;
       });
-      if (unmeasured && frames < MEASURE_FRAMES) {
+      if ((unmeasured || paneWidth === 0) && frames < MEASURE_FRAMES) {
         frames += 1;
         raf = requestAnimationFrame(step);
         return;
       }
-      const need = codeCanvasHeightFor(getNodesBounds(nodes).height, baseHeight);
-      if (need !== height) {
-        onHeight(need);
+      const fit = fitToWidth({
+        paneWidth,
+        bounds: getNodesBounds(nodes),
+        minZoom: CODE_MIN_ZOOM,
+        maxZoom: 1,
+        gutter: CODE_CANVAS_GUTTER,
+        frame: CODE_CANVAS_BORDERS,
+        minHeight: CODE_CANVAS_MIN_HEIGHT,
+      });
+      if (fit.height !== height) {
+        onHeight(fit.height);
         return;
       }
-      void fitView({ ...FIT_OPTIONS, duration: 300 });
+      void setViewport(
+        { x: fit.x, y: fit.y, zoom: fit.zoom },
+        { duration: prefersReducedMotion() ? 0 : 250 }
+      );
     };
     raf = requestAnimationFrame(() => {
       raf = requestAnimationFrame(step);
@@ -498,7 +578,7 @@ function FitViewOnChange({
     return (): void => {
       cancelAnimationFrame(raf);
     };
-  }, [dep, height, baseHeight, onHeight, fitView, getNodes, getNodesBounds, getInternalNode]);
+  }, [dep, height, paneWidth, onHeight, setViewport, getNodes, getNodesBounds, getInternalNode]);
   return null;
 }
 
@@ -509,17 +589,15 @@ function FitViewOnChange({
 export function ContractCodeFlow({
   component,
   ops,
-  height: baseHeight = 420,
   t,
 }: {
   component: string;
   ops: ContractOp[];
-  /** The canvas's least height; it grows to fit an expansion. */
-  height?: number;
   t: Tokens;
 }): ReactNode {
   const [activeOp, setActiveOp] = useState<string | null>(null);
-  const [height, setHeight] = useState(baseHeight);
+  // The canvas is the drawing's own height (FrameOnChange), from its least.
+  const [height, setHeight] = useState(CODE_CANVAS_MIN_HEIGHT);
   const { setAnchor } = useComments();
   // Its own React Flow id: two canvases on one page (the pane and the focus view,
   // or two diagrams) would otherwise share xyflow's default `1` in every DOM id.
@@ -621,7 +699,8 @@ export function ContractCodeFlow({
               { source: 'iface', target: 'col-out', targetHandle: cardHandle('output', i) },
               isErr ? 'returns error' : 'returns',
               t,
-              isErr
+              isErr,
+              'returns'
             )
           );
         });
@@ -632,15 +711,25 @@ export function ContractCodeFlow({
   }, [component, ops, activeOp, t, toggleOp, commentOp]);
 
   const activeMethod = ops.find((o) => o.signature === activeOp);
+  const count = `${String(ops.length)} op${ops.length !== 1 ? 's' : ''}`;
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75, minWidth: 0 }}>
-      {/* The legend, above the canvas: nothing sits over the cards. */}
-      <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.45 }}>
+      {/* The ONE caption, above the canvas: what it draws, and what a click does.
+          (S3 said "Click an op to expand" twice — here and in the tab above.)
+          Nothing sits over the cards. */}
+      <Typography
+        data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS_CAPTION}
+        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.45 }}
+      >
         <Box component="span" sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em' }}>
           C4 · CODE LEVEL (GO)
         </Box>
-        {' · '}
+        {' · The '}
+        <b>«interface»</b>
+        {' surface for '}
+        <b>{component}</b>
+        {` — ${count}. `}
         {activeMethod !== undefined ? (
           <>
             <b>{activeMethod.signature.split('(')[0]}</b> · request (left) → interface (middle) →
@@ -663,9 +752,8 @@ export function ContractCodeFlow({
         }}
       >
         <ReactFlow
-          fitView
+          edgeTypes={edgeTypes}
           edges={edges}
-          fitViewOptions={FIT_OPTIONS}
           id={rfId}
           maxZoom={1.5}
           minZoom={0.3}
@@ -676,12 +764,7 @@ export function ContractCodeFlow({
           proOptions={{ hideAttribution: true }}
           onNodeClick={onNodeClick}
         >
-          <FitViewOnChange
-            baseHeight={baseHeight}
-            dep={activeOp}
-            height={height}
-            onHeight={setHeight}
-          />
+          <FrameOnChange dep={activeOp} height={height} onHeight={setHeight} />
           <Background color={t.line} gap={22} size={1} />
         </ReactFlow>
       </Box>

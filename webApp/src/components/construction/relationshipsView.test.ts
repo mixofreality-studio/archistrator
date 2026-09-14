@@ -3,7 +3,15 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { C4Component, C4View } from '../../contracts/adapters.ts';
-import { neighbourRowsFor, utilityNeighbours, withoutUtilities } from './relationshipsView.ts';
+import {
+  callsOf,
+  EDGE_LABEL_MAX,
+  edgeCallLabel,
+  neighbourRowsFor,
+  shortCallLabel,
+  utilityNeighbours,
+  withoutUtilities,
+} from './relationshipsView.ts';
 
 function comp(id: string, name: string, layer: string): C4Component {
   return {
@@ -83,6 +91,47 @@ void test('the pane lists callers and callees as rows, with their operations, an
     ['construction-manager']
   );
   assert.deepEqual(engine.callees, []);
+});
+
+void test('a relationship label reads as its calls: the op name, then (…)', () => {
+  assert.equal(
+    shortCallLabel('EvaluateDesignHealth(project, systemModel) → findings'),
+    'EvaluateDesignHealth(…)'
+  );
+  assert.equal(
+    shortCallLabel('pauseProject | overrideActivity'),
+    'pauseProject · overrideActivity'
+  );
+  assert.equal(
+    shortCallLabel(
+      'getInstallationToken(repo) → RepoCredential | openBranch(repo, sessionBranch, cred) → BranchRef'
+    ),
+    'getInstallationToken(…) · openBranch(…)'
+  );
+  // Alternatives split at the top level only: the slash inside the parens stays.
+  assert.equal(
+    shortCallLabel(
+      'ComputeCharge(cycleUsage, terms) → {chargeAmount} / RecomputeCharge (dispute/refund correction)'
+    ),
+    'ComputeCharge(…) · RecomputeCharge(…)'
+  );
+  // Prose is kept as written; repeats are said once.
+  assert.deepEqual(callsOf('readProject / stage·commit typed model / readProject'), [
+    'readProject',
+    'stage·commit typed model',
+  ]);
+  assert.equal(shortCallLabel(''), '');
+});
+
+void test('an edge label is cut at the limit with an ellipsis; the rows say all of it', () => {
+  const long = 'readProject / stage·commit·reject·withdraw typed artifact model / advancePhase';
+  const edge = edgeCallLabel(long);
+  assert.equal(edge.length, EDGE_LABEL_MAX);
+  assert.ok(edge.endsWith('…'));
+  assert.equal(
+    edgeCallLabel('EvaluateDesignHealth(project) → findings'),
+    'EvaluateDesignHealth(…)'
+  );
 });
 
 void test('a focal utility keeps itself', () => {

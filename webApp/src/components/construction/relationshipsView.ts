@@ -6,6 +6,53 @@
  */
 import type { C4View } from '../../contracts/adapters';
 
+/**
+ * The operations one relationship label names, each as the call it is —
+ * `EvaluateDesignHealth(project, systemModel) → findings` reads
+ * `EvaluateDesignHealth(…)` (designer check on renderers S3: the op name on the
+ * edge and the rows). A label lists alternatives with ` | ` or ` / `; they split
+ * at the top level only, so `RecomputeCharge (dispute/refund correction)` stays
+ * one. A part that is prose, not a call, is kept as written.
+ */
+export function callsOf(label: string): string[] {
+  const parts: string[] = [];
+  let depth = 0;
+  let cur = '';
+  for (const ch of label) {
+    if (ch === '(' || ch === '{' || ch === '[') depth += 1;
+    else if (ch === ')' || ch === '}' || ch === ']') depth = Math.max(0, depth - 1);
+    if (depth === 0 && (ch === '|' || ch === '/')) {
+      parts.push(cur);
+      cur = '';
+      continue;
+    }
+    cur += ch;
+  }
+  parts.push(cur);
+  const out: string[] = [];
+  for (const p of parts) {
+    const s = p.trim();
+    const call = /^([A-Za-z_][\w.]*)\s*\(/.exec(s);
+    const named = call !== null ? `${call[1] ?? ''}(…)` : s;
+    if (named.length > 0 && !out.includes(named)) out.push(named);
+  }
+  return out;
+}
+
+/** A label's calls on one line: `ComputeCharge(…) · RecomputeCharge(…)`. */
+export function shortCallLabel(label: string): string {
+  return callsOf(label).join(' · ');
+}
+
+/** The most an edge label says on the canvas; the rows below it say all of it. */
+export const EDGE_LABEL_MAX = 44;
+
+/** The label an edge carries: the calls, cut at EDGE_LABEL_MAX with an ellipsis. */
+export function edgeCallLabel(label: string): string {
+  const short = shortCallLabel(label);
+  return short.length <= EDGE_LABEL_MAX ? short : `${short.slice(0, EDGE_LABEL_MAX - 1)}…`;
+}
+
 function isUtility(layer: string): boolean {
   return layer === 'utility';
 }

@@ -51,7 +51,9 @@ import { ContractSignatureList } from './ContractSignatureList';
 import { ComponentRelationshipsView } from './ComponentRelationshipsView';
 import { ContractRevisionHistory } from './ContractRevisionHistory';
 import { facetsEmptyCopy } from './serviceContractCopy.ts';
-import { CODE_CANVAS_MIN_WIDTH, codeTabModeFor } from './contractCode.ts';
+import { codeTabModeFor } from './contractCode.ts';
+import { needsRoomCopy } from './focusRail.ts';
+import { useFocusRail } from './FocusRailContext.ts';
 import { useElementWidth } from './useElementWidth';
 
 export type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
@@ -181,6 +183,7 @@ function CodePane({
 }): ReactNode {
   const ops = c.ops ?? [];
   const [measure, width] = useElementWidth();
+  const rail = useFocusRail();
   if (ops.length === 0) {
     return (
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
@@ -193,35 +196,35 @@ function CodePane({
   return (
     <Box data-code-mode={mode} ref={measure} sx={{ minWidth: 0 }}>
       {mode === 'canvas' ? (
-        <>
-          <Typography
-            sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
-          >
-            The <b>«interface»</b> surface for <b>{c.component}</b> — {count}. Click an op to expand
-            its request / response structs.
-          </Typography>
-          <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
-            <ContractCodeFlow
-              component={c.component}
-              height={380 + ops.length * 40}
-              ops={ops}
-              t={t}
-            />
-          </Box>
-        </>
+        // The canvas carries the one caption itself (ContractCodeFlow).
+        <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
+          <ContractCodeFlow component={c.component} ops={ops} t={t} />
+        </Box>
       ) : (
         // The list: one row for the op count and "Open diagram in focus view", so
-        // the first op sits above the fold at 1280×800 (designer check B1).
+        // the first op sits above the fold at 1280×800 (designer check B1). In the
+        // focus view, the window the diagram needs — and, with the side panel
+        // open, the other way to get it: collapse the panel (focusRail.ts).
         <ContractSignatureList
           component={c.component}
           count={count}
-          needsRoomNote={
+          needsRoom={
             inFocus
-              ? `The code diagram needs ${String(CODE_CANVAS_MIN_WIDTH)}px of width; widen the window to draw it. The signatures are listed instead.`
+              ? needsRoomCopy({
+                  railOpen: rail?.collapsed !== true,
+                  collapsible: rail?.collapsible === true,
+                })
               : undefined
           }
           ops={ops}
           t={t}
+          onCollapseRail={
+            rail !== undefined
+              ? (): void => {
+                  rail.setCollapsed(true);
+                }
+              : undefined
+          }
           onOpenFocus={inFocus ? undefined : onOpenFocus}
         />
       )}

@@ -19,6 +19,7 @@ import { useState, type ReactElement } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
+import Link from '@mui/material/Link';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
@@ -30,6 +31,7 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { opStructsFor, paramOf, type ResolvedStruct } from './contractCode.ts';
+import type { NeedsRoomCopy } from './focusRail.ts';
 
 export function ContractSignatureList({
   component,
@@ -37,7 +39,8 @@ export function ContractSignatureList({
   t,
   count,
   onOpenFocus,
-  needsRoomNote,
+  needsRoom,
+  onCollapseRail,
 }: {
   component: string;
   ops: ContractOp[];
@@ -46,8 +49,13 @@ export function ContractSignatureList({
   count: string;
   /** Open the focus view, where the diagram draws. Absent inside the focus view. */
   onOpenFocus?: (() => void) | undefined;
-  /** In the focus view with no room for the canvas: say why it is a list. */
-  needsRoomNote?: string | undefined;
+  /**
+   * In the focus view with no room for the canvas: the window it needs, and the
+   * other way to get there (focusRail.needsRoomCopy) — actionable, not a shrug.
+   */
+  needsRoom?: NeedsRoomCopy | undefined;
+  /** Collapse the focus view's side panel — the note's "collapse the side panel". */
+  onCollapseRail?: (() => void) | undefined;
 }): ReactElement {
   const { setAnchor, enabled } = useComments();
   const [open, setOpen] = useState<ReadonlySet<number>>(() => new Set());
@@ -90,12 +98,33 @@ export function ContractSignatureList({
           {`«interface» · ${count} · open one for its request, response and error`}
         </Typography>
       </Box>
-      {needsRoomNote !== undefined ? (
+      {needsRoom !== undefined ? (
         <Typography
           data-testid={UI_IDENTIFIERS.ServiceContract.CANVAS_NEEDS_ROOM}
           sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, lineHeight: 1.45 }}
         >
-          {needsRoomNote}
+          {needsRoom.action === 'collapse' && onCollapseRail !== undefined ? (
+            <>
+              {`${needsRoom.lead} — or `}
+              <Link
+                component="button"
+                data-testid={UI_IDENTIFIERS.ServiceContract.CANVAS_NEEDS_ROOM_COLLAPSE}
+                sx={{
+                  font: 'inherit',
+                  verticalAlign: 'baseline',
+                  color: t.accent2,
+                  fontWeight: 700,
+                  '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
+                }}
+                underline="always"
+                onClick={onCollapseRail}
+              >
+                collapse the side panel
+              </Link>
+            </>
+          ) : (
+            needsRoom.text
+          )}
         </Typography>
       ) : null}
       <Box
@@ -359,8 +388,15 @@ function ParamTable({ params, t }: { params: GoField[]; t: Tokens }): ReactEleme
   );
 }
 
+/**
+ * A struct's fields. The name column is as narrow as its longest name (width 1%,
+ * no wrap), so the type sits beside it rather than far right in a 100% table;
+ * the note column exists only when some field has a note (designer check on
+ * renderers S3 — PumpResult's types were stranded at the right edge).
+ */
 function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): ReactElement {
   const cell = cellSx(t);
+  const hasNotes = struct.fields.some((f) => f.note !== undefined && f.note.length > 0);
   return (
     <Box sx={{ mb: 0.5, minWidth: 0 }}>
       <Typography
@@ -381,16 +417,25 @@ function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): Reac
         <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%' }}>
           <Box component="tbody">
             {struct.fields.map((f) => (
-              <Box component="tr" key={f.name}>
-                <Box component="td" sx={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap' }}>
+              <Box
+                component="tr"
+                data-testid={UI_IDENTIFIERS.ServiceContract.FIELD_ROW}
+                key={f.name}
+              >
+                <Box
+                  component="td"
+                  sx={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap', width: '1%' }}
+                >
                   {f.name}
                 </Box>
                 <Box component="td" sx={{ ...cell, color: t.muted }}>
                   {f.type}
                 </Box>
-                <Box component="td" sx={{ ...cell, fontFamily: t.body, color: t.muted }}>
-                  {f.note ?? ''}
-                </Box>
+                {hasNotes ? (
+                  <Box component="td" sx={{ ...cell, fontFamily: t.body, color: t.muted }}>
+                    {f.note ?? ''}
+                  </Box>
+                ) : null}
               </Box>
             ))}
           </Box>

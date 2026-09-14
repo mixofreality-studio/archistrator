@@ -44,8 +44,10 @@ import type { Tokens } from '../../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
 import { CommentableList } from '../../../comments/CommentableList';
 import { RoleAvatar } from '../../../RoleAvatar';
+import { useFocusRail } from '../../FocusRailContext.ts';
 import { ArtifactRender, type ArtifactBodyProps } from './ArtifactBody';
 import {
+  compactVerdictLabel,
   producedNoteAnchorPath,
   reviewerAnchorPath,
   reviewVerdictFor,
@@ -78,6 +80,62 @@ export function ReviewBody({
 
       <ReviewVerdict reviewSet={reviewSet} row={artifact.row} />
     </Box>
+  );
+}
+
+/**
+ * The verdict as ONE CHIP — the focus view's header carries it while the side
+ * panel is collapsed, so a Design Review's verdict stays reachable with the rail
+ * gone (designer check on renderers S3). It says what is recorded
+ * (compactVerdictLabel), the full statement on hover, and a click opens the
+ * rail, where the verdict block is.
+ */
+export function ReviewVerdictChip({
+  row,
+  reviewSet,
+}: {
+  row: ReviewBodyProps['row'];
+  reviewSet: ConstructionReviewSet | undefined;
+}): ReactElement {
+  const t = useTokens();
+  const rail = useFocusRail();
+  const verdict = reviewVerdictFor(row, reviewSet);
+  const label = compactVerdictLabel(verdict);
+  return (
+    <Tooltip title={verdict.statement}>
+      <Box
+        aria-label={`${label} — show the verdict in the side panel`}
+        component="button"
+        data-testid={UI_IDENTIFIERS.Construction.FOCUS_VERDICT_CHIP}
+        sx={{
+          display: 'inline-flex',
+          alignItems: 'center',
+          maxWidth: '100%',
+          px: 1,
+          py: 0.25,
+          borderRadius: 99,
+          border: `1px solid ${t.line}`,
+          bgcolor: t.paper,
+          color: t.ink,
+          fontFamily: t.mono,
+          fontSize: 9.5,
+          fontWeight: 700,
+          letterSpacing: '0.06em',
+          whiteSpace: 'nowrap',
+          overflow: 'hidden',
+          textOverflow: 'ellipsis',
+          cursor: 'pointer',
+          '&:hover': { bgcolor: t.paperAlt },
+          '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 1 },
+        }}
+        type="button"
+        onClick={() => {
+          rail?.setCollapsed(false);
+        }}
+      >
+        {label}
+      </Box>
+    </Tooltip>
   );
 }
 
