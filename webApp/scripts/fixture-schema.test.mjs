@@ -4,9 +4,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUNDLE_MARKERS } from './bundle-markers.mjs';
 import {
   SURFACE,
   buildFixtureSchema,
@@ -77,4 +79,20 @@ void test('it rejects an ambiguous or malformed answer', () => {
 void test('it rejects a fixture without an absolute route', () => {
   assert.equal(validate({ route: 'project/x', ops: {} }), false);
   assert.equal(validate({ ops: {} }), false);
+});
+
+void test('a fixture whose text carries a bundle marker is refused', () => {
+  // Fixtures are bundled into the preview; a marker in their text would keep the
+  // preview bundle check green with the marked code gone (P1 mutant M2c).
+  for (const marker of BUNDLE_MARKERS) {
+    const root = mkdtempSync(join(tmpdir(), 'preview-fixtures-'));
+    mkdirSync(join(root, SURFACE, 'landing'), { recursive: true });
+    writeFileSync(
+      join(root, SURFACE, 'landing', 'resting.json'),
+      JSON.stringify({ route: '/', note: `mentions ${marker}`, ops: {} })
+    );
+    const { errors } = validateFixtureTree(root, { validate });
+    assert.equal(errors.length, 1, marker);
+    assert.match(errors[0], /bundle marker/);
+  }
 });

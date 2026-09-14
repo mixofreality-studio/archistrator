@@ -1,7 +1,7 @@
 {
  "route": "/project/archistrator/construction",
  "title": "Construction console with its project read deliberately unfixtured",
- "note": "TEST-ONLY: get-project has no fixture, so the preview must fail LOUDLY (FixtureMissError + the preview alarm). A designed state would never omit it.",
+ "note": "TEST-ONLY: get-project has no fixture, so the preview must fail LOUDLY (a fixture-miss error and the preview alarm). A designed state would never omit it.",
  "ops": {
   "compositionGetUserinfo": {
    "result": {

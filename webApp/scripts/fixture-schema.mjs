@@ -30,6 +30,7 @@ import { dirname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import yaml from 'js-yaml';
 import Ajv from 'ajv';
+import { BUNDLE_MARKERS } from './bundle-markers.mjs';
 import { COMPOSITION_ROUTES } from './composition-routes.mjs';
 import { opBindings } from './op-bindings.mjs';
 
@@ -195,9 +196,20 @@ export function validateFixtureTree(root, { surface = SURFACE, validate } = {}) 
         continue;
       }
       files.push(path);
+      const text = readFileSync(path, 'utf8');
+      // Fixtures are bundled into the preview: a bundle marker in their text
+      // would satisfy check-prod-bundle's positive control on its own.
+      const marker = BUNDLE_MARKERS.find((m) => text.includes(m));
+      if (marker !== undefined) {
+        errors.push(
+          `${rel(path)}: contains the bundle marker "${marker}". Fixture data must not ` +
+            '(it would mask the preview bundle check; see scripts/bundle-markers.mjs)'
+        );
+        continue;
+      }
       let data;
       try {
-        data = JSON.parse(readFileSync(path, 'utf8'));
+        data = JSON.parse(text);
       } catch (err) {
         errors.push(`${rel(path)}: not JSON (${err.message})`);
         continue;

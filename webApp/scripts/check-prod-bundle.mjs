@@ -18,16 +18,13 @@
 import { existsSync, readFileSync, readdirSync, statSync } from 'node:fs';
 import { dirname, extname, join, relative } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { BUNDLE_MARKERS } from './bundle-markers.mjs';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const webApp = join(here, '..');
 
-export const MARKERS = [
-  // The fixture transport's miss error (src/api/fixtureOps.ts sets this.name).
-  'FixtureMissError',
-  // The preview network guard's message prefix (src/previewShell/networkGuard.ts).
-  'archistrator-preview-network-guard',
-];
+// The markers, and why fixture data may never carry one: bundle-markers.mjs.
+const MARKERS = BUNDLE_MARKERS;
 
 const TEXT = new Set(['.js', '.mjs', '.cjs', '.html', '.css', '.json', '.map', '.txt']);
 
