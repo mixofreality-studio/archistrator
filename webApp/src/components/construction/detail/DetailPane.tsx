@@ -1590,8 +1590,16 @@ function ActionBar({
           );
           // A disabled button fires no pointer events, so its reason hangs off a
           // wrapper: the operator learns WHY, not just that it is off.
+          //
+          // The reason must never take a click meant for something else. When Send
+          // back opens its composer the bar's Send back steps aside, the disabled Run
+          // slides under the pointer, and its tooltip — flipped above the bar, with
+          // no room below — sat over "Send back with this note" and swallowed the
+          // click. So the tooltip is not interactive (pointer events pass through
+          // it), and it opens to the RIGHT, beside the button row, never over the
+          // composer above it.
           return a.reason !== undefined ? (
-            <Tooltip key={a.id} title={a.reason}>
+            <Tooltip disableInteractive key={a.id} placement="right" title={a.reason}>
               <Box component="span" sx={{ display: 'inline-flex' }}>
                 {button}
               </Box>

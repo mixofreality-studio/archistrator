@@ -254,33 +254,42 @@ export function ScenarioBrowser({
                 <Select
                   data-testid={UI_IDENTIFIERS.Construction.CASE_PICKER}
                   inputProps={{ 'aria-label': 'Case' }}
+                  // Plain text in the box, so the selected case's chip is not drawn twice.
+                  renderValue={(id: string) => {
+                    const c = cases.find((x) => x.id === id);
+                    return c !== undefined ? `${c.kind} · ${c.title}` : '';
+                  }}
                   sx={{ fontFamily: t.mono, fontSize: 12 }}
                   value={activeCase?.id ?? ''}
                   onChange={(e) => {
                     setSelectedCaseId(e.target.value);
                   }}
                 >
-                  {cases.map((c) => (
-                    <MenuItem
-                      data-case-ink={caseKindInk(c.kind, mode)}
-                      data-testid={UI_IDENTIFIERS.Construction.caseChip(c.id)}
-                      key={c.id}
-                      sx={{ fontFamily: t.mono, fontSize: 12, gap: 1 }}
-                      value={c.id}
-                    >
-                      <Box
-                        component="span"
-                        sx={{
-                          width: 8,
-                          height: 8,
-                          borderRadius: '50%',
-                          flexShrink: 0,
-                          bgcolor: kindColor(c.kind, mode, t),
-                        }}
-                      />
-                      {`${c.kind} · ${c.title}`}
-                    </MenuItem>
-                  ))}
+                  {cases.map((c) => {
+                    const col = kindColor(c.kind, mode, t);
+                    return (
+                      // Each option IS the case chip — the same ink, border and test
+                      // id as the chip row — so the ink reads the same either way.
+                      <MenuItem key={c.id} sx={{ py: 0.5 }} value={c.id}>
+                        <Chip
+                          data-case-ink={caseKindInk(c.kind, mode)}
+                          data-testid={UI_IDENTIFIERS.Construction.caseChip(c.id)}
+                          label={`${c.kind} · ${c.title}`}
+                          size="small"
+                          sx={{
+                            maxWidth: 420,
+                            fontFamily: t.mono,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            bgcolor: t.paperAlt,
+                            color: t.ink,
+                            border: `1.5px solid ${col}`,
+                          }}
+                        />
+                      </MenuItem>
+                    );
+                  })}
                 </Select>
               </FormControl>
             </Box>
