@@ -116,6 +116,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/construction/resume-project/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['ResumeProject'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/construction/run-replan-sweep/{projectID}': {
     parameters: {
       query?: never;
@@ -2021,6 +2037,10 @@ export interface components {
       /** @description True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
       constructionStarted: boolean;
       operatingModel: components['schemas']['SystemDesignOperatingModel'];
+      /** @description True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead. */
+      operatorPaused: boolean;
+      /** @description The reason the operator gave when pausing construction. Omitted when construction is not paused. */
+      pauseReason?: string;
       reviewPolicy?: components['schemas']['SystemDesignReviewPolicyView'];
       testingState?: components['schemas']['SystemDesignTestingStateView'];
     };
@@ -2733,6 +2753,89 @@ export interface operations {
         };
       };
     };
+    responses: {
+      /** @description no content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+    };
+  };
+  ResumeProject: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['ConstructionProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
     responses: {
       /** @description no content */
       204: {

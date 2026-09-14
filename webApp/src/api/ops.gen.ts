@@ -85,6 +85,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/construction/pause-project/{projectID}',
     tool: 'constructionPauseProject',
   },
+  constructionResumeProject: {
+    method: 'POST',
+    path: '/api/v1/construction/resume-project/{projectID}',
+    tool: 'constructionResumeProject',
+  },
   constructionRunReplanSweep: {
     method: 'POST',
     path: '/api/v1/construction/run-replan-sweep/{projectID}',

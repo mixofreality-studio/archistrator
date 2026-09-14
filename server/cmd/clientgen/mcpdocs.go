@@ -47,7 +47,8 @@ var mcpOpDocs = map[string]map[string]string{
 		"SubmitSDPDecision":       "Record management's decision on the SDP Review: commit one solution option (pass its optionID) or reject all options. Pass feedback to record the rationale.",
 	},
 	"ConstructionManager": {
-		"ExecuteNextActivity":     "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it.",
+		"ExecuteNextActivity":     "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it. Refused as FailedPrecondition while construction is paused: resume it with ResumeProject.",
+		"ResumeProject":           "Resume a project's paused construction: clear the recorded pause and start (or join) the construction pump, so construction continues within 30 seconds. Refused as FailedPrecondition unless the project is in construction with a recorded pause, and while a pause is still being applied (retry in a moment).",
 		"GetEpisodeTimeline":      "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.",
 		"GetSessionState":         "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.",
 		"GetPumpStatus":           "Report whether the project's one construction pump is running now (open), and when its current run started. A pump cascading between activities reads as open. It does not include the recorded pause or any activity's session; read those separately. Read-only.",

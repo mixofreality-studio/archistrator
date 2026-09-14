@@ -207,6 +207,11 @@ func (m loggingConstructionManager) GetSessionState(rc fwmanager.Context, projec
 	return v, logInfraError(m.log, "Construction.GetSessionState", string(projectID), err)
 }
 
+func (m loggingConstructionManager) ResumeProject(rc fwmanager.Context, projectID construction.ProjectID) error {
+	err := m.inner.ResumeProject(rc, projectID)
+	return logInfraError(m.log, "Construction.ResumeProject", string(projectID), err)
+}
+
 func (m loggingConstructionManager) GetPumpStatus(rc fwmanager.Context, projectID construction.ProjectID) (construction.PumpStatus, error) {
 	v, err := m.inner.GetPumpStatus(rc, projectID)
 	return v, logInfraError(m.log, "Construction.GetPumpStatus", string(projectID), err)

@@ -60,6 +60,16 @@ func (c *HTTPClient) ConstructionPauseProject(ctx context.Context, projectID Pro
 	return c.doRequest(ctx, http.MethodPost, path, ConstructionPauseProjectRequest{Reason: reason}, nil, http.StatusNoContent)
 }
 
+// ConstructionResumeProjectRequest is the JSON request body for ConstructionResumeProject.
+type ConstructionResumeProjectRequest struct {
+}
+
+// ConstructionResumeProject calls the ResumeProject operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionResumeProject(ctx context.Context, projectID ProjectID) error {
+	path := fmt.Sprintf("/api/v1/construction/resume-project/%s", projectID)
+	return c.doRequest(ctx, http.MethodPost, path, ConstructionResumeProjectRequest{}, nil, http.StatusNoContent)
+}
+
 // ConstructionRunReplanSweepRequest is the JSON request body for ConstructionRunReplanSweep.
 type ConstructionRunReplanSweepRequest struct {
 	TickID string `json:"tickID"`

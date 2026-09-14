@@ -309,6 +309,8 @@ type ProjectState struct {
 	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`
 	TestingState         *TestingStateView                     `json:"testingState,omitempty"`
 	ConstructionStarted  bool                                  `json:"constructionStarted"`
+	OperatorPaused       bool                                  `json:"operatorPaused"`
+	PauseReason          *string                               `json:"pauseReason,omitempty"`
 }
 
 type ProjectSummary struct {

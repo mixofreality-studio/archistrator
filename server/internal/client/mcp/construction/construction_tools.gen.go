@@ -27,11 +27,12 @@ type Handler struct {
 // explicit human description and an explicit input JSON Schema (enum values +
 // meanings, REST-matching optionality) so an agentic consumer needs no source.
 func (h *Handler) Register(srv *mcp.Server) {
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionExecuteNextActivity", Description: "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it.", InputSchema: executeNextActivityInputSchema(), OutputSchema: executeNextActivityOutputSchema()}, h.handleExecuteNextActivity)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionExecuteNextActivity", Description: "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it. Refused as FailedPrecondition while construction is paused: resume it with ResumeProject.", InputSchema: executeNextActivityInputSchema(), OutputSchema: executeNextActivityOutputSchema()}, h.handleExecuteNextActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetSessionState", Description: "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetPumpStatus", Description: "Report whether the project's one construction pump is running now (open), and when its current run started. A pump cascading between activities reads as open. It does not include the recorded pause or any activity's session; read those separately. Read-only.", InputSchema: getPumpStatusInputSchema(), OutputSchema: getPumpStatusOutputSchema()}, h.handleGetPumpStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "Steer one construction activity that is waiting at an escalation (session stage awaitingTakeover): retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition while the activity is not awaiting a takeover.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.", InputSchema: pauseProjectInputSchema(), OutputSchema: pauseProjectOutputSchema()}, h.handlePauseProject)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionResumeProject", Description: "Resume a project's paused construction: clear the recorded pause and start (or join) the construction pump, so construction continues within 30 seconds. Refused as FailedPrecondition unless the project is in construction with a recorded pause, and while a pause is still being applied (retry in a moment).", InputSchema: resumeProjectInputSchema(), OutputSchema: resumeProjectOutputSchema()}, h.handleResumeProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: runReplanSweepInputSchema(), OutputSchema: runReplanSweepOutputSchema()}, h.handleRunReplanSweep)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSetReviewPolicy", Description: "Set the project's construction review-policy preset: vibes (auto-approve everything short of the deploy/spend/schema risk floor), checkpoints (approval at the contract commit + construction dispatch + merge), or full (approval at every step). Any other preset value is rejected.", InputSchema: setReviewPolicyInputSchema(), OutputSchema: setReviewPolicyOutputSchema()}, h.handleSetReviewPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionSubmitPhaseDecision", Description: "Record a review verdict (approve or send-back) for the gate an activity is waiting at: a lifecycle phase, or \"merge\" for the local merge hold (approve only). Send-back must carry feedback notes. Refused as FailedPrecondition unless the activity's session is awaiting exactly that gate, and for a send-back at a gate whose redraft budget is spent.", InputSchema: submitPhaseDecisionInputSchema(), OutputSchema: submitPhaseDecisionOutputSchema()}, h.handleSubmitPhaseDecision)
@@ -80,6 +81,12 @@ type pauseProjectInput struct {
 }
 
 type pauseProjectOutput struct{}
+
+type resumeProjectInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+}
+
+type resumeProjectOutput struct{}
 
 type runReplanSweepInput struct {
 	ProjectID *mgr.ProjectID `json:"projectID,omitempty"`
@@ -179,6 +186,16 @@ func pauseProjectInputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	s.Required = []string{"projectID", "reason"}
+	return s
+}
+
+// resumeProjectInputSchema is the explicit MCP input schema for the ResumeProject operation.
+func resumeProjectInputSchema() *jsonschema.Schema {
+	s := objectSchema[resumeProjectInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID"}
 	return s
 }
 
@@ -290,6 +307,16 @@ func pauseProjectOutputSchema() *jsonschema.Schema {
 	relaxRawJSON(s)
 	allowNullMaps(s)
 	describeContractFields(s, reflect.TypeFor[pauseProjectOutput]())
+	return s
+}
+
+// resumeProjectOutputSchema is the explicit MCP output schema for the ResumeProject operation.
+func resumeProjectOutputSchema() *jsonschema.Schema {
+	s := objectSchema[resumeProjectOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[resumeProjectOutput]())
 	return s
 }
 
@@ -494,6 +521,17 @@ func (h *Handler) handlePauseProject(ctx context.Context, _ *mcp.CallToolRequest
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	if err := h.Manager.PauseProject(rc, in.ProjectID, in.Reason); err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	return nil, out, nil
+}
+
+// handleResumeProject is the MCP tool handler for the ResumeProject operation.
+func (h *Handler) handleResumeProject(ctx context.Context, _ *mcp.CallToolRequest, in resumeProjectInput) (*mcp.CallToolResult, resumeProjectOutput, error) {
+	var out resumeProjectOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	if err := h.Manager.ResumeProject(rc, in.ProjectID); err != nil {
 		return nil, out, mapManagerError(err)
 	}
 	return nil, out, nil

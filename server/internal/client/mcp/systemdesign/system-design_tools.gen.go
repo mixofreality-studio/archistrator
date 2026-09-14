@@ -554,6 +554,8 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	},
 	reflect.TypeFor[mgr.ProjectState](): {
 		"constructionStarted": "True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.",
+		"operatorPaused":      "True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead.",
+		"pauseReason":         "The reason the operator gave when pausing construction. Omitted when construction is not paused.",
 	},
 }
 

@@ -16,6 +16,7 @@ type FakeConstructionManager struct {
 	GetPumpStatusFn           func(rc fwm.Context, projectID construction.ProjectID) (construction.PumpStatus, error)
 	OverrideActivityFn        func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
 	PauseProjectFn            func(rc fwm.Context, projectID construction.ProjectID, reason string) error
+	ResumeProjectFn           func(rc fwm.Context, projectID construction.ProjectID) error
 	RunReplanSweepFn          func(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error)
 	SetReviewPolicyFn         func(rc fwm.Context, projectID construction.ProjectID, preset string) error
 	SubmitPhaseDecisionFn     func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error
@@ -57,6 +58,13 @@ func (f *FakeConstructionManager) PauseProject(rc fwm.Context, projectID constru
 		panic("FakeConstructionManager.PauseProjectFn not set")
 	}
 	return f.PauseProjectFn(rc, projectID, reason)
+}
+
+func (f *FakeConstructionManager) ResumeProject(rc fwm.Context, projectID construction.ProjectID) error {
+	if f.ResumeProjectFn == nil {
+		panic("FakeConstructionManager.ResumeProjectFn not set")
+	}
+	return f.ResumeProjectFn(rc, projectID)
 }
 
 func (f *FakeConstructionManager) RunReplanSweep(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error) {

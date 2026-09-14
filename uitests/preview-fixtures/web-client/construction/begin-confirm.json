@@ -15669,7 +15669,8 @@
      }
     },
     "ServiceContracts": {},
-    "constructionStarted": false
+    "constructionStarted": false,
+    "operatorPaused": false
    }
   }
  }

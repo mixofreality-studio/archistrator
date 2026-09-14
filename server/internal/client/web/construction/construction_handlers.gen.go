@@ -26,6 +26,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/v1/construction/get-pump-status/{projectID}", h.handleGetPumpStatus)
 	mux.HandleFunc("POST /api/v1/construction/override-activity/{projectID}/{activityID}", h.handleOverrideActivity)
 	mux.HandleFunc("POST /api/v1/construction/pause-project/{projectID}", h.handlePauseProject)
+	mux.HandleFunc("POST /api/v1/construction/resume-project/{projectID}", h.handleResumeProject)
 	mux.HandleFunc("POST /api/v1/construction/run-replan-sweep/{projectID}", h.handleRunReplanSweep)
 	mux.HandleFunc("POST /api/v1/construction/set-review-policy/{projectID}", h.handleSetReviewPolicy)
 	mux.HandleFunc("POST /api/v1/construction/submit-phase-decision/{projectID}/{activityID}", h.handleSubmitPhaseDecision)
@@ -191,6 +192,29 @@ func (h *Handler) handlePauseProject(w http.ResponseWriter, r *http.Request) {
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	if err := h.Manager.PauseProject(rc, projectID, req.Reason); err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// handleResumeProject binds POST /api/v1/construction/resume-project/{projectID} -> mgr.ResumeProject.
+func (h *Handler) handleResumeProject(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "resume-project"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	if err := h.Manager.ResumeProject(rc, projectID); err != nil {
 		writeManagerError(w, err)
 		return
 	}

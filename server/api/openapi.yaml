@@ -3848,6 +3848,12 @@ components:
                     type: boolean
                 operatingModel:
                     $ref: '#/components/schemas/SystemDesignOperatingModel'
+                operatorPaused:
+                    description: 'True while an operator''s pause of this project''s construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead.'
+                    type: boolean
+                pauseReason:
+                    description: The reason the operator gave when pausing construction. Omitted when construction is not paused.
+                    type: string
                 reviewPolicy:
                     $ref: '#/components/schemas/SystemDesignReviewPolicyView'
                 testingState:
@@ -3866,6 +3872,7 @@ components:
                 - ServiceContracts
                 - operatingModel
                 - constructionStarted
+                - operatorPaused
             type: object
         SystemDesignProjectSummary:
             additionalProperties: false
@@ -4844,6 +4851,62 @@ paths:
                                 - reason
                             type: object
                 required: true
+            responses:
+                "204":
+                    description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/resume-project/{projectID}:
+        post:
+            operationId: ResumeProject
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
             responses:
                 "204":
                     description: no content

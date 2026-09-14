@@ -213,11 +213,13 @@ func newConstructionManager(
 //     ALLOW_DUPLICATE_FAILED_ONLY — a quiet-completed pump must be restartable, or the
 //     project could never be pumped again after its first drain.
 //
-// OPERATOR-DRIVEN (I2 ruling, 2026-09-12): the pump this op starts carries
-// pumpInput.OperatorDriven, so it ignores the project's RECORDED pause without clearing
-// it — the deliberately ungated manual path (Task 11), and the de-facto resume. The
-// 30s sweep's pump leaves the flag false and honours the recorded pause. A call that
-// JOINS a running pump inherits that run's input.
+// PAUSED PROJECTS (plan B1.7; founder ruling 2026-09-13, "Begin on a paused project
+// refuses"): a recorded operator pause refuses this op with FailedPrecondition — "resume
+// it to continue" — BEFORE any pump is started. The pause is an operator decision; a
+// caller's Begin silently overriding it would be the same class of override the sweep
+// exclusion exists to prevent. ResumeProject is the one way back: it clears the record
+// and starts the pump. The pump this op starts no longer carries OperatorDriven, so it
+// honours the recorded pause like every other pump (pump-honors-recorded-pause v2).
 //
 // tickID is a CORRELATION id only (logged here); it no longer shapes the workflow id,
 // so it cannot fork a second pump. It stays a required, non-empty input (the contract
@@ -237,20 +239,60 @@ func (m *constructionManager) ExecuteNextActivity(rc fwm.Context, projectID Proj
 		return PumpResult{}, newError(fwm.ContractMisuse, "empty tickId")
 	}
 
+	if err := m.refuseWhilePaused(ctx, projectID); err != nil {
+		return PumpResult{}, err
+	}
+
 	wfID := pumpWorkflowID(projectID)
 	slog.Default().InfoContext(ctx, "construction pump: start-or-join",
 		"projectId", string(projectID), "workflowId", wfID, "tickId", tickID)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID, OperatorDriven: true})
+	we, err := m.startOrJoinPump(ctx, projectID)
 	if err != nil {
 		return PumpResult{}, mapStartError(err)
 	}
 	return m.awaitDispatchDecision(ctx, we, wfID)
+}
+
+// startOrJoinPump starts — or JOINS — the project's ONE pump (pumpWorkflowID) with the
+// policy pair the one-pump ruling fixes: USE_EXISTING joins a running pump (its
+// self-cascade included), ALLOW_DUPLICATE restarts one that closed. The shared start of
+// ExecuteNextActivity (which awaits the pump's decision) and ResumeProject (which does
+// not). The input carries no OperatorDriven: every new pump honours the recorded pause.
+func (m *constructionManager) startOrJoinPump(ctx context.Context, projectID ProjectID) (client.WorkflowRun, error) {
+	opts := client.StartWorkflowOptions{
+		ID:                       pumpWorkflowID(projectID),
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	}
+	return m.client.ExecuteWorkflow(ctx, opts, executionKindPump, pumpInput{ProjectID: projectID})
+}
+
+// refuseWhilePaused is ExecuteNextActivity's paused precheck (B1.7): a recorded pause
+// refuses Begin with FailedPrecondition, naming the operator's reason. A project that
+// does not exist cannot be paused (the pump's own read is the quiet tick then); any
+// other read fault is Infrastructure — Begin never dispatches past a pause it could
+// not rule out.
+func (m *constructionManager) refuseWhilePaused(ctx context.Context, projectID ProjectID) error {
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if isRANotFound(err) {
+			return nil
+		}
+		return newError(fwm.Infrastructure, "read the project before starting construction: "+err.Error())
+	}
+	if !proj.OperatorPaused {
+		return nil
+	}
+	return newError(fwm.FailedPrecondition, pausedDetail(proj.PauseReason))
+}
+
+// pausedDetail is the refusal a paused project gets from Begin.
+func pausedDetail(reason string) string {
+	if strings.TrimSpace(reason) == "" {
+		return "construction is paused — resume it to continue"
+	}
+	return fmt.Sprintf("construction is paused (%s) — resume it to continue", reason)
 }
 
 // pumpDispatchPollInterval paces the façade's poll of the pump's synchronous
@@ -477,6 +519,108 @@ func (m *constructionManager) PauseProject(rc fwm.Context, projectID ProjectID, 
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// ResumeProject — op 2.10 (plan B1.7; amendment §B.1). Clears the project's RECORDED
+// operator pause and starts (or joins) its pump. A write straight through the RA (the
+// SetReviewPolicy pattern): no supervision workflow is involved, because the pause
+// branch handles exactly one signal and exits.
+//
+// Refusals, in a PINNED order: ContractMisuse (empty id) → NotFound (no project) →
+// FailedPrecondition, not in construction → FailedPrecondition, not paused (never a
+// silent no-op) → FailedPrecondition, a pause is still being applied (its supervision
+// run {p}:construction is RUNNING: the pause is recorded but not yet relayed, and a
+// resume now could be followed by a relay that stops the fresh pump). Nothing is
+// written on any refusal.
+//
+// The write (RecordOperatorResumed) is retried on a version Conflict up to
+// resumeConflictAttempts times, re-reading the version between tries. Then the pump is
+// started or joined WITHOUT awaiting its decision. If that start fails, the resume has
+// still landed: the record is clear, so the 30s sweep pumps the project. That is logged,
+// never returned as an error.
+func (m *constructionManager) ResumeProject(rc fwm.Context, projectID ProjectID) error {
+	ctx := rc.Context
+	if projectID == "" {
+		return newError(fwm.ContractMisuse, "empty projectId")
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if isRANotFound(err) {
+			return newError(fwm.NotFound, err.Error())
+		}
+		return newError(fwm.Infrastructure, err.Error())
+	}
+	if proj.Phase != projectstate.PhaseConstruction {
+		return newError(fwm.FailedPrecondition, fmt.Sprintf("project %s is not in construction, so there is no construction to resume", projectID))
+	}
+	if !proj.OperatorPaused {
+		return newError(fwm.FailedPrecondition, "construction is not paused — there is nothing to resume")
+	}
+	if err := m.refuseWhilePauseInFlight(ctx, projectID); err != nil {
+		return err
+	}
+	if err := m.recordResumed(ctx, projectID, proj.Version); err != nil {
+		return err
+	}
+	if _, err := m.startOrJoinPump(ctx, projectID); err != nil {
+		slog.Default().WarnContext(ctx, "construction resumed, but the pump did not start now; the 30-second sweep will start it",
+			"projectId", string(projectID), "error", err.Error())
+	}
+	return nil
+}
+
+// resumeConflictAttempts bounds ResumeProject's re-read → re-write loop on a version
+// Conflict before it answers "changed concurrently; retry".
+const resumeConflictAttempts = 3
+
+// refuseWhilePauseInFlight refuses a resume while the project's supervision run — the
+// pause branch, {p}:construction — is RUNNING (bounded by pumpRPCTimeout). No such run
+// is fine; any other describe fault is Infrastructure.
+func (m *constructionManager) refuseWhilePauseInFlight(ctx context.Context, projectID ProjectID) error {
+	dctx, cancel := context.WithTimeout(ctx, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, pauseTargetWorkflowID(projectID), "")
+	if err != nil {
+		if isNotFound(err) {
+			return nil
+		}
+		return newError(fwm.Infrastructure, "check whether a pause is still being applied: "+err.Error())
+	}
+	if info := resp.GetWorkflowExecutionInfo(); info != nil && info.GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return newError(fwm.FailedPrecondition, "a pause is still being applied — retry in a moment")
+	}
+	return nil
+}
+
+// recordResumed writes RecordOperatorResumed at version, re-reading the version and
+// retrying on a Conflict (one idempotency key per call, so a retried transport write
+// dedupes).
+func (m *constructionManager) recordResumed(ctx context.Context, projectID ProjectID, version projectstate.Version) error {
+	key := fwra.IdempotencyKey("resume:" + string(projectID) + ":" + uuid.NewString())
+	for range resumeConflictAttempts {
+		_, err := m.constructionTransition.RecordOperatorResumed(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), version, projectstate.RepoCredential{}, key)
+		if err == nil {
+			return nil
+		}
+		if !isRAConflict(err) {
+			return newError(fwm.Infrastructure, err.Error())
+		}
+		proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+		if rerr != nil {
+			return newError(fwm.Infrastructure, rerr.Error())
+		}
+		version = proj.Version
+	}
+	return newError(fwm.FailedPrecondition, "the project changed concurrently while resuming — retry")
+}
+
+// isRAConflict reports whether err is (or wraps) a ResourceAccess version Conflict.
+func isRAConflict(err error) bool {
+	var fe *fwra.Error
+	if errors.As(err, &fe) {
+		return fe.Kind == fwra.Conflict
+	}
+	return false
 }
 
 // OverrideActivity — op 2.4. Temporal Signal (operatorOverride) to the per-activity

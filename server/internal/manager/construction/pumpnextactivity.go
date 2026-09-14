@@ -20,14 +20,14 @@ import (
 // pumpInput is the start (and ContinueAsNew) payload for PumpNextActivityWorkflow.
 type pumpInput struct {
 	ProjectID ProjectID
-	// OperatorDriven marks a pump the OPERATOR started. It is set ONLY by
-	// ExecuteNextActivity (Begin / MCP) — the deliberately ungated manual path (Task
-	// 11): an operator-driven pump IGNORES the project's RECORDED pause, neither
-	// honouring nor clearing it, and that is the de-facto resume. The zero value — the
-	// 30s PumpSweepWorkflow fan-out, and any pre-change execution's input — HONOURS the
-	// recorded pause: fail-safe. Carried through ContinueAsNew (the whole `in`), so a
-	// Begin-started cascade keeps its mandate for every iteration, not only the first.
-	// Explicit pause SIGNALS are honoured regardless of this flag.
+	// OperatorDriven is RETIRED for new pumps (plan B1.7). It marked a pump the operator
+	// started (Begin), which used to ignore the RECORDED pause — the de-facto resume
+	// before ResumeProject existed. No caller sets it any more, and a pump on
+	// pump-honors-recorded-pause v2 ignores it: the recorded pause binds every pump, and
+	// ResumeProject clears it. The field stays only so that an in-flight pump's
+	// ContinueAsNew input and a history recorded at v1 still decode and replay (v1 keeps
+	// its exemption). Retire it with the version markers after the drain. Explicit pause
+	// SIGNALS are honoured regardless.
 	OperatorDriven bool
 }
 
@@ -84,11 +84,11 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	//      otherwise be lost.
 	// The signal checks are honoured regardless of OperatorDriven: an explicit pause
 	// always wins. Separately, between readProject and nextEligible, the RECORDED-pause
-	// gate (I2 ruling) quiets a sweep-started pump on a project whose pause is already
-	// recorded. A paused pump goes quiet WITHOUT ContinueAsNew. The resume path is a
-	// fresh ExecuteNextActivity (Begin): it starts a new pump under the same id with
-	// OperatorDriven set, and that pump IGNORES the recorded pause (without clearing it
-	// — the deliberately ungated manual path; see pumpsweep.go).
+	// gate quiets a pump on a project whose pause is already recorded — every pump since
+	// plan B1.7 (v2; the I2 ruling's v1 exempted operator-started pumps). A paused pump
+	// goes quiet WITHOUT ContinueAsNew. The resume path is ResumeProject: it clears the
+	// recorded pause and starts or joins the pump. Begin on a paused project is refused
+	// at the façade.
 	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
 	if reason, paused := pumpPausedAtRunStart(ctx, pauseCh); paused {
 		logger.Info("pump cascade paused by operator signal — going quiet without continue-as-new",
@@ -111,7 +111,8 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// the pause before relaying it, so a pump the sweep (re)starts inside the
 	// relay window — or any time before an operator resumes — sees the recorded pause
 	// here and goes quiet, BEFORE nextEligible: no dispatch, no ContinueAsNew, and no
-	// blocked-activity failure record. An operator-driven pump (Begin) skips it.
+	// blocked-activity failure record. At v2 it binds EVERY pump (plan B1.7); v1's
+	// operator-driven exemption survives only for histories that recorded it.
 	if pumpHonorsRecordedPause(ctx, in, proj) {
 		logger.Info("pump honours the recorded operator pause — going quiet without continue-as-new",
 			"projectId", string(in.ProjectID), "reason", proj.PauseReason)
@@ -237,8 +238,8 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 			"projectId", string(in.ProjectID), "activityId", string(dispatchedActivity), "reason", reason)
 		return PumpResult{Dispatched: true, ActivityID: &dispatchedActivity}, nil
 	}
-	// The WHOLE input rides ContinueAsNew — OperatorDriven included — or a Begin-started
-	// cascade on a project with a recorded pause would stop after its first activity.
+	// The WHOLE input rides ContinueAsNew, so a cascade recorded at v1 keeps the
+	// OperatorDriven mandate it started with.
 	return PumpResult{}, workflow.NewContinueAsNewError(ctx, executionKindPump, in)
 }
 
@@ -255,15 +256,24 @@ func pumpPausedBehindGate(ctx workflow.Context, changeID string, ch workflow.Rec
 	return pumpPauseRequested(ch)
 }
 
+// changePumpHonorsRecordedPause versions the recorded-pause gate. Bumped to 2 by plan
+// B1.7 (the semantics changed, not in place: local histories recorded v1).
+const changePumpHonorsRecordedPause = "pump-honors-recorded-pause"
+
 // pumpHonorsRecordedPause reports whether this run must go quiet on the project's
-// RECORDED pause: only a pump the operator did NOT start (the sweep; the zero value)
-// honours it. GetVersion pins pre-change executions to the old sequence (no gate) —
-// always called, so the marker is recorded deterministically on every new run.
+// RECORDED pause. GetVersion is always called, so a new run records v2:
+//   - DefaultVersion (pre-I2 executions): no gate;
+//   - v1 (I2 ruling): only a pump the operator did NOT start honours it;
+//   - v2 (B1.7): every pump honours it — ResumeProject is the one way back.
 func pumpHonorsRecordedPause(ctx workflow.Context, in pumpInput, proj projectstate.Project) bool {
-	if workflow.GetVersion(ctx, "pump-honors-recorded-pause", workflow.DefaultVersion, 1) < 1 {
+	switch workflow.GetVersion(ctx, changePumpHonorsRecordedPause, workflow.DefaultVersion, 2) {
+	case workflow.DefaultVersion:
 		return false
+	case 1:
+		return !in.OperatorDriven && proj.OperatorPaused
+	default:
+		return proj.OperatorPaused
 	}
-	return !in.OperatorDriven && proj.OperatorPaused
 }
 
 // pumpPausedAtRunStart is pause check 1, with the decode change version-gated. The

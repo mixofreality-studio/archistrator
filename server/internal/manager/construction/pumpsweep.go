@@ -25,16 +25,12 @@ import (
 //
 // OPERATOR PAUSE (fix round 1, Task 7c live-firing review): a project with
 // OperatorPaused=true is EXCLUDED from the fan-out — the sweep must not
-// override an operator's PauseProject call every 30s. The sweep starts its
-// child with pumpInput.OperatorDriven left FALSE, so even a pump it starts
-// inside the pause's relay window honours the RECORDED pause at the pump's own
-// recorded-pause gate (pumpnextactivity.go; I2 ruling, 2026-09-12). The MANUAL
-// ExecuteNextActivity path (constructionManager.md §2.1, the founder/operator
-// clicking "Begin"/driving construction directly) is the ungated one: it sets
-// OperatorDriven, so its pump ignores the recorded pause without clearing it —
-// the de-facto RESUME mechanism today (no dedicated "resume" verb exists). The
-// product question of a real resume verb is routed to the Task 11 founder
-// gate, not decided here.
+// override an operator's PauseProject call every 30s. A pump it starts inside
+// the pause's relay window still honours the RECORDED pause at the pump's own
+// recorded-pause gate (pumpnextactivity.go), which since plan B1.7 binds EVERY
+// pump. The one way back is ResumeProject: it clears the record, so the next
+// sweep tick (or the resume's own start-or-join) pumps the project again. Begin
+// (ExecuteNextActivity) on a paused project is refused at the façade.
 // ===========================================================================
 
 // pumpSweepInput is the start payload for PumpSweepWorkflow — platform-wide, no

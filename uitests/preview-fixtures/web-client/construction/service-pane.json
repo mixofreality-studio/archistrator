@@ -16111,7 +16111,8 @@
       "Revisions": null
      }
     },
-    "constructionStarted": true
+    "constructionStarted": true,
+    "operatorPaused": false
    }
   },
   "constructionGetSessionState": {

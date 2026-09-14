@@ -206,6 +206,7 @@ type ConstructionManager interface {
 	GetPumpStatus(rc fwm.Context, projectID ProjectID) (PumpStatus, error)
 	OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error
 	PauseProject(rc fwm.Context, projectID ProjectID, reason string) error
+	ResumeProject(rc fwm.Context, projectID ProjectID) error
 	RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error)
 	SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error
 	SubmitPhaseDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error

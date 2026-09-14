@@ -97,7 +97,10 @@ func (f *fakeTemporalClient) SignalWorkflow(_ context.Context, workflowID string
 // constructionManager (all other deps nil — only used for pre-Temporal checks
 // and signal dispatch tests).
 func newTestConstructionManager(c client.Client) *constructionManager {
-	return newConstructionManager(c, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	// A default project in construction and NOT paused: Begin reads it for the paused
+	// precheck (B1.7), and every other façade op ignores it.
+	ps := &fakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, 0, "", nil)
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -182,9 +185,10 @@ func Test_ExecuteNextActivity_DifferentTickIDs_SameProjectSingularPump(t *testin
 				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING &&
 				o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
 		}),
-		// I2: Begin/MCP is the operator-driven path — the pump it starts ignores the
-		// recorded pause. A façade that dropped OperatorDriven matches nothing here.
-		executionKindPump, pumpInput{ProjectID: pid, OperatorDriven: true}).
+		// B1.7: Begin no longer marks its pump operator-driven — the recorded pause binds
+		// every pump (pump-honors-recorded-pause v2). A façade still setting it matches
+		// nothing here.
+		executionKindPump, pumpInput{ProjectID: pid}).
 		Run(func(args mock.Arguments) {
 			startedIDs = append(startedIDs, args.Get(1).(client.StartWorkflowOptions).ID)
 		}).
@@ -4416,10 +4420,13 @@ func Test_PauseRace_PumpsReadingInsideTheRelayWindow_GoQuiet(t *testing.T) {
 	}
 }
 
-// I2 test 4. An OPERATOR-driven pump (Begin) ignores the recorded pause — the Task 11
-// ungated manual path, now enforced in the pump — and dispatches as usual.
+// I2 test 4, PINNED AT v1. An execution that recorded pump-honors-recorded-pause v1 keeps
+// the I2 semantics: an OPERATOR-driven pump (Begin, before B1.7) ignores the recorded
+// pause and dispatches as usual. v2 removes the exemption
+// (Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump).
 func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.Version(1))
 
 	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
 	if !isContinueAsNew(err) {
@@ -4455,7 +4462,7 @@ func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
 // dispatches even with the pause recorded.
 func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
-	rig.env.OnGetVersion("pump-honors-recorded-pause", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.DefaultVersion)
 
 	_, err := rig.run(t)
 	if !isContinueAsNew(err) {
@@ -7949,6 +7956,15 @@ func replayScenariosPostB1() []replayScenario {
 			},
 		},
 		{
+			// B1.7: at pump-honors-recorded-pause v2 the recorded pause binds EVERY pump —
+			// here one started operator-driven (a pre-B1.7 caller's input) goes quiet.
+			dir: "post-b17", name: "pump-recorded-pause-binds-every-pump",
+			rig: replayPausedPumpRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				return replayRunPumpOnce(ctx, t, c, tq, pumpInput{ProjectID: replayProjectID, OperatorDriven: true})
+			},
+		},
+		{
 			dir: "post-b1", name: "rail-sync-before-each-dispatch",
 			rig: replayRailRig,
 			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
@@ -7958,6 +7974,15 @@ func replayScenariosPostB1() []replayScenario {
 			},
 		},
 	}
+}
+
+// replayPausedPumpRig serves a project whose pause is RECORDED to a pump that selects
+// with the production rule.
+func replayPausedPumpRig() replayRig {
+	proj := ledgerChain()
+	proj.OperatorPaused = true
+	proj.PauseReason = "operator halt"
+	return replayPumpRig(proj)
 }
 
 // replayRailRig wires the PR rail (the GitHub venue): every dispatch is preceded by the
@@ -8557,4 +8582,212 @@ func TestGetPumpStatus_EmptyProjectIsContractMisuse(t *testing.T) {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}
 	mc.AssertNotCalled(t, "DescribeWorkflowExecution", mock.Anything, mock.Anything, mock.Anything)
+}
+
+// ===========================================================================
+// B1.7 — RESUME (plan-B1-B2 amendment §B): the recorded pause binds every pump,
+// Begin on a paused project is refused, and ResumeProject is the one way back.
+// ===========================================================================
+
+// Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump: at v2 even a pump started
+// operator-driven (a pre-B1.7 caller's input) honours the recorded pause.
+func Test_Pump_V2_RecordedPauseBindsAnOperatorDrivenPump(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+	res, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	if err != nil {
+		t.Fatalf("a paused project's pump must go quiet (no ContinueAsNew), got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("at v2 the recorded pause binds every pump, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
+// Test_Pump_PauseThenResumeThenTheNextTickDispatches is the pause → resume → dispatch
+// chain at the pump: with the pause recorded the tick is quiet; once ResumeProject's
+// verb has cleared it, the next tick dispatches.
+func Test_Pump_PauseThenResumeThenTheNextTickDispatches(t *testing.T) {
+	paused := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
+	if res, err := paused.run(t); err != nil || res.Dispatched || *paused.childStarts != 0 {
+		t.Fatalf("paused: want a quiet tick, got %+v err=%v starts=%d", res, err, *paused.childStarts)
+	}
+	if _, err := (fakeConstructionTransition{paused.ps}).RecordOperatorResumed(fwra.Context{Context: context.Background()},
+		projectstate.ProjectID(paused.pid), paused.ps.project.Version, projectstate.RepoCredential{}, "resume"); err != nil {
+		t.Fatalf("resume: %v", err)
+	}
+	next := newCascadingPumpRig(10*time.Minute, 0, func(p *projectstate.Project) { *p = paused.ps.project })
+	if _, err := next.run(t); !isContinueAsNew(err) || *next.childStarts != 1 {
+		t.Fatalf("after the resume the next tick must dispatch, got err=%v starts=%d", err, *next.childStarts)
+	}
+}
+
+// pausedProject is a project in construction whose pause is recorded.
+func pausedProject() projectstate.Project {
+	return projectstate.Project{ID: "p-res", Phase: projectstate.PhaseConstruction, OperatorPaused: true, PauseReason: "operator halt", Version: 7}
+}
+
+// resumeManager wires a façade over mc and a fake store serving proj.
+func resumeManager(mc client.Client, proj projectstate.Project) (*constructionManager, *fakeProjectState) {
+	ps := &fakeProjectState{project: proj, version: proj.Version}
+	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, 0, "", nil), ps
+}
+
+func constructionErrorKind(err error) fwmanager.Kind {
+	var fe *fwmanager.Error
+	if errors.As(err, &fe) {
+		return fe.Kind
+	}
+	return fwmanager.Unknown
+}
+
+// TestResumeProject_RefusalsInTheirPinnedOrder: ContractMisuse → NotFound → not in
+// construction → not paused → a pause still being applied. Nothing is written, nothing
+// is started, nothing is signalled on any refusal.
+func TestResumeProject_RefusalsInTheirPinnedOrder(t *testing.T) {
+	notConstruction := pausedProject()
+	notConstruction.Phase = projectstate.PhaseProjectDesign
+	notPaused := pausedProject()
+	notPaused.OperatorPaused, notPaused.PauseReason = false, ""
+	// Every later refusal is armed in every case (a missing project, a pause in flight),
+	// so a refusal that is dropped falls through to the NEXT one — which says something
+	// else. The message pins which refusal answered, not just its kind.
+	notConstructionNotPaused := notConstruction
+	notConstructionNotPaused.OperatorPaused = false
+	cases := []struct {
+		name     string
+		id       ProjectID
+		proj     projectstate.Project
+		notFound bool
+		inFlight bool
+		want     fwmanager.Kind
+		wantMsg  string
+	}{
+		{"empty id beats a missing project", "", pausedProject(), true, true, fwmanager.ContractMisuse, "empty projectId"},
+		{"no project", "p-res", pausedProject(), true, true, fwmanager.NotFound, ""},
+		{"not in construction beats not paused", "p-res", notConstructionNotPaused, false, true, fwmanager.FailedPrecondition, "not in construction"},
+		{"not paused beats a pause in flight", "p-res", notPaused, false, true, fwmanager.FailedPrecondition, "not paused"},
+		{"a pause still being applied", "p-res", pausedProject(), false, true, fwmanager.FailedPrecondition, "still being applied"},
+	}
+	for _, c := range cases {
+		mc := &temporalmocks.Client{}
+		if c.inFlight {
+			mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING), nil).Maybe()
+		}
+		m, ps := resumeManager(mc, c.proj)
+		ps.notFound = c.notFound
+		err := m.ResumeProject(testCtx(), c.id)
+		if got := constructionErrorKind(err); got != c.want {
+			t.Errorf("%s: want %s, got %v", c.name, c.want, err)
+		}
+		if c.wantMsg != "" && (err == nil || !strings.Contains(err.Error(), c.wantMsg)) {
+			t.Errorf("%s: want the refusal that says %q, got %v", c.name, c.wantMsg, err)
+		}
+		if ps.resumed != 0 {
+			t.Errorf("%s: a refusal must write nothing", c.name)
+		}
+		mc.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	}
+}
+
+// resumeStartMatcher matches exactly the one start ResumeProject may make: the
+// project's one pump id, the one-pump policy pair, and an input with NO OperatorDriven.
+func resumeStartMatcher(pid ProjectID) (any, any) {
+	return mock.MatchedBy(func(o client.StartWorkflowOptions) bool {
+			return o.ID == pumpWorkflowID(pid) &&
+				o.WorkflowIDConflictPolicy == enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING &&
+				o.WorkflowIDReusePolicy == enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE
+		}),
+		pumpInput{ProjectID: pid}
+}
+
+// TestResumeProject_RecordsOnceThenStartsOrJoinsThePump: exactly one RA write, then one
+// start-or-join of the pump (USE_EXISTING + ALLOW_DUPLICATE, not operator-driven), and no
+// wait on its decision; the pause is cleared.
+func TestResumeProject_RecordsOnceThenStartsOrJoinsThePump(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("no supervision run"))
+	opts, input := resumeStartMatcher("p-res")
+	mc.On("ExecuteWorkflow", mock.Anything, opts, executionKindPump, input).Return(fakePumpRun{id: "p-res:nextActivity", runID: "run-1"}, nil).Once()
+	m, ps := resumeManager(mc, pausedProject())
+	if err := m.ResumeProject(testCtx(), "p-res"); err != nil {
+		t.Fatalf("ResumeProject: %v", err)
+	}
+	if ps.resumed != 1 || ps.project.OperatorPaused || ps.project.PauseReason != "" {
+		t.Fatalf("want one resume write that clears the pause, got resumed=%d paused=%v reason=%q", ps.resumed, ps.project.OperatorPaused, ps.project.PauseReason)
+	}
+	mc.AssertExpectations(t)
+	mc.AssertNotCalled(t, "QueryWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+	mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestResumeProject_AFailedStartStillResumes: once the record is written the resume has
+// landed — the 30s sweep pumps the project — so a failed start is logged, never
+// returned.
+func TestResumeProject_AFailedStartStillResumes(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED), nil)
+	opts, input := resumeStartMatcher("p-res")
+	mc.On("ExecuteWorkflow", mock.Anything, opts, executionKindPump, input).Return(nil, serviceerror.NewUnavailable("frontend down"))
+	m, ps := resumeManager(mc, pausedProject())
+	if err := m.ResumeProject(testCtx(), "p-res"); err != nil {
+		t.Fatalf("a failed pump start after the record must not fail the resume, got %v", err)
+	}
+	if ps.resumed != 1 {
+		t.Fatalf("the resume must be recorded, got %d writes", ps.resumed)
+	}
+}
+
+// TestResumeProject_ConflictRetryThenGiveUp: a version Conflict is re-read and retried;
+// past resumeConflictAttempts it answers FailedPrecondition "changed concurrently".
+func TestResumeProject_ConflictRetryThenGiveUp(t *testing.T) {
+	for _, c := range []struct {
+		conflicts int
+		want      fwmanager.Kind
+		writes    int
+	}{{resumeConflictAttempts - 1, fwmanager.Unknown, 1}, {resumeConflictAttempts, fwmanager.FailedPrecondition, 0}} {
+		mc := &temporalmocks.Client{}
+		mc.On("DescribeWorkflowExecution", mock.Anything, "p-res:construction", "").Return(describeStatus(enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED), nil)
+		opts, input := resumeStartMatcher("p-res")
+		mc.On("ExecuteWorkflow", mock.Anything, opts, executionKindPump, input).Return(fakePumpRun{id: "p-res:nextActivity", runID: "run-1"}, nil).Maybe()
+		m, ps := resumeManager(mc, pausedProject())
+		ps.conflictFirst = c.conflicts
+		err := m.ResumeProject(testCtx(), "p-res")
+		if got := constructionErrorKind(err); got != c.want {
+			t.Errorf("%d conflicts: want kind %s, got %v", c.conflicts, c.want, err)
+		}
+		if ps.resumed != c.writes {
+			t.Errorf("%d conflicts: want %d landed writes, got %d", c.conflicts, c.writes, ps.resumed)
+		}
+	}
+}
+
+// TestExecuteNextActivity_PausedProjectIsRefusedBeforeAnyStart: Begin on a paused
+// project answers FailedPrecondition naming the reason, and starts nothing (founder
+// ruling 2026-09-13).
+func TestExecuteNextActivity_PausedProjectIsRefusedBeforeAnyStart(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	m, _ := resumeManager(mc, pausedProject())
+	_, err := m.ExecuteNextActivity(testCtx(), "p-res", "t1")
+	if got := constructionErrorKind(err); got != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for Begin on a paused project, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "paused (operator halt)") || !strings.Contains(err.Error(), "resume it to continue") {
+		t.Fatalf("the refusal must name the pause and the way back, got %q", err.Error())
+	}
+	mc.AssertNotCalled(t, "ExecuteWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything)
+}
+
+// TestExecuteNextActivity_NoProjectStillStartsThePump: a project that does not exist
+// cannot be paused, so Begin proceeds (the pump's own read is the quiet tick).
+func TestExecuteNextActivity_NoProjectStillStartsThePump(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	opts, input := resumeStartMatcher("p-res")
+	mc.On("ExecuteWorkflow", mock.Anything, opts, executionKindPump, input).Return(nil, serviceerror.NewUnavailable("frontend down")).Once()
+	m, ps := resumeManager(mc, pausedProject())
+	ps.notFound = true
+	if _, err := m.ExecuteNextActivity(testCtx(), "p-res", "t1"); constructionErrorKind(err) == fwmanager.FailedPrecondition {
+		t.Fatalf("a missing project must not read as paused, got %v", err)
+	}
+	mc.AssertExpectations(t)
 }

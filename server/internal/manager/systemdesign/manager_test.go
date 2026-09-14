@@ -11178,6 +11178,21 @@ func TestProjectStateToContract_CarriesConstructionStarted(t *testing.T) {
 	}
 }
 
+// TestProjectStateToContract_CarriesTheRecordedPause (B1.7): get-project carries the
+// recorded operator pause as stored — the console offers Resume in Begin's place while it
+// holds — and omits the reason when there is none.
+func TestProjectStateToContract_CarriesTheRecordedPause(t *testing.T) {
+	m := &systemDesignManager{}
+	paused := m.projectStateToContract(projectstate.Project{OperatorPaused: true, PauseReason: "operator halt"})
+	if !paused.OperatorPaused || paused.PauseReason == nil || *paused.PauseReason != "operator halt" {
+		t.Fatalf("a paused project reads OperatorPaused=%v PauseReason=%v", paused.OperatorPaused, paused.PauseReason)
+	}
+	running := m.projectStateToContract(projectstate.Project{})
+	if running.OperatorPaused || running.PauseReason != nil {
+		t.Fatalf("an unpaused project reads OperatorPaused=%v PauseReason=%v", running.OperatorPaused, running.PauseReason)
+	}
+}
+
 // pendingLedger is a backfill-shaped attempt ledger: every non-conditional task of each
 // named phase, attempt 1, passed.
 func pendingLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {

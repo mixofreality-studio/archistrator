@@ -3015,11 +3015,23 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
 		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
 		ConstructionStarted:  constructionStartedFor(p.ActivityConstruction),
+		// The recorded operator pause, passed through as stored (plan B1.7): the console
+		// offers Resume in Begin's place while it holds.
+		OperatorPaused:       p.OperatorPaused,
+		PauseReason:          pauseReasonToContract(p.PauseReason),
 		ConstructionProgress: m.constructionProgressToContract(p),
 		ServiceContracts:     serviceContractsToContract(p.ServiceContracts),
 		ReviewPolicy:         reviewPolicyToContract(p.ReviewPolicy),
 		TestingState:         testingStateToContract(p.TestingState),
 	}
+}
+
+// pauseReasonToContract is the pause reason on the wire: omitted when there is none.
+func pauseReasonToContract(reason string) *string {
+	if reason == "" {
+		return nil
+	}
+	return &reason
 }
 
 // testingStateToContract converts the head-state TestingState to the contract

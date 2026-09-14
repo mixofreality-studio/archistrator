@@ -61,6 +61,16 @@ func (c *MCPClient) ConstructionPauseProject(ctx context.Context, projectID Proj
 	return c.callTool(ctx, "constructionPauseProject", ConstructionPauseProjectInput{ProjectID: projectID, Reason: reason}, nil)
 }
 
+// ConstructionResumeProjectInput is the MCP tool-call argument object for constructionResumeProject.
+type ConstructionResumeProjectInput struct {
+	ProjectID ProjectID `json:"projectID"`
+}
+
+// ConstructionResumeProject calls the constructionResumeProject tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionResumeProject(ctx context.Context, projectID ProjectID) error {
+	return c.callTool(ctx, "constructionResumeProject", ConstructionResumeProjectInput{ProjectID: projectID}, nil)
+}
+
 // ConstructionRunReplanSweepInput is the MCP tool-call argument object for constructionRunReplanSweep.
 type ConstructionRunReplanSweepInput struct {
 	ProjectID ProjectID `json:"projectID"`
