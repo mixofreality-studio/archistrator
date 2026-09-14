@@ -864,6 +864,33 @@ test('polish 3: with the focus view open the pane body is unmounted and no DOM i
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
+test('polish 3: two canvases on one page — the graph lens and the pane — share no DOM id', async ({
+  page,
+  dispatchGuard,
+}) => {
+  // The graph lens is a React Flow canvas; the pane's Component tab is another.
+  // With xyflow's default instance id both minted `pattern-1`, `react-flow__node-desc-1`, ….
+  await page.setViewportSize({ width: 1600, height: 950 });
+  await gotoApp(
+    page,
+    `/project/archistrator/construction?lens=graph&a=${MANAGER}&p=detailed_design&k=detailedDesign&av=component`
+  );
+  await expect(pane(page).getByTestId(TESTID.serviceContractComponentFlow)).toBeVisible({
+    timeout: 15_000,
+  });
+  // eslint-disable-next-line no-restricted-syntax -- counting xyflow's own root class: the assertion is that two canvases exist
+  await expect.poll(() => page.locator('.react-flow').count()).toBeGreaterThanOrEqual(2);
+  const dupes = await page.evaluate(() => {
+    const seen = new Map<string, number>();
+    for (const el of Array.from(document.querySelectorAll('[id]'))) {
+      seen.set(el.id, (seen.get(el.id) ?? 0) + 1);
+    }
+    return [...seen.entries()].filter(([, n]) => n > 1).map(([id]) => id);
+  });
+  expect(dupes).toEqual([]);
+  expect(dispatchGuard.blocked).toEqual([]);
+});
+
 test('polish 4: entering the focus view lands on its heading, and no tooltip shows', async ({
   page,
   dispatchGuard,
