@@ -8,6 +8,10 @@
 // the pure-components DAG, and the XSS/fetch bans below have NOT yet been mirrored
 // back into archistrator-platform/framework-web-eslint-config. Task 12 earmark:
 // port this diff to the platform repo and re-vendor.
+// LOCAL DIVERGENCE (2026-09-13, preview P1, design-renderer-data.md §2′.5): the
+// previewShell element + its DAG row, and the retired UserContext.tsx fetch
+// exemption (the session probe now rides the OpsClient). Same earmark: port and
+// re-vendor with the P2 framework-web release.
 // Reusable strict ESLint flat config + layered import-boundary gate for
 // archistrator TS web apps. See the archistrator spec
 // docs/superpowers/specs/2026-07-04-ts-layer-enforcement-design.md.
@@ -36,6 +40,7 @@ export const ELEMENTS = [
   { type: 'routes', mode: 'full', pattern: 'src/App.tsx' },
   { type: 'containers', mode: 'folder', pattern: 'src/containers' },
   { type: 'mcpShell', mode: 'folder', pattern: 'src/mcpShell' },
+  { type: 'previewShell', mode: 'folder', pattern: 'src/previewShell' },
   { type: 'components', mode: 'folder', pattern: 'src/components' },
   { type: 'hooks', mode: 'folder', pattern: 'src/hooks' },
   { type: 'api', mode: 'folder', pattern: 'src/api' },
@@ -50,6 +55,7 @@ export const ELEMENTS = [
 // routes:     ['routes', 'containers', 'components', 'hooks', 'contracts', 'utilities']  // transitional: components/hooks until migration completes (see LEGACY_COMPONENTS_HOOKS_FILES below)
 // containers: ['containers', 'components', 'hooks', 'contracts', 'utilities']              // containers orchestrate: may reach both components (render) and hooks (IO)
 // mcpShell:   ['mcpShell', 'containers', 'api', 'contracts', 'utilities']                   // the MCP UI host talks to containers + the api layer directly
+// previewShell: ['previewShell', 'routes', 'containers', 'hooks', 'api', 'contracts', 'utilities'] // the preview entry boots the SAME App (routes) over the fixture transport (api); nothing imports it
 // components: ['components', 'contracts', 'utilities']                                      // pure — hooks/api REMOVED (Task 6)
 // hooks:      ['hooks', 'api', 'contracts', 'utilities']                                     // only hooks (and now mcpShell) may reach api
 // api:        ['api', 'contracts', 'utilities']
@@ -57,6 +63,7 @@ export const BOUNDARY_RULES = [
   { from: { type: 'routes' }, allow: { to: { type: ['routes', 'containers', 'components', 'hooks', 'contracts', 'utilities'] } } },
   { from: { type: 'containers' }, allow: { to: { type: ['containers', 'components', 'hooks', 'contracts', 'utilities'] } } },
   { from: { type: 'mcpShell' }, allow: { to: { type: ['mcpShell', 'containers', 'api', 'contracts', 'utilities'] } } },
+  { from: { type: 'previewShell' }, allow: { to: { type: ['previewShell', 'routes', 'containers', 'hooks', 'api', 'contracts', 'utilities'] } } },
   { from: { type: 'components' }, allow: { to: { type: ['components', 'contracts', 'utilities'] } } },
   { from: { type: 'hooks' }, allow: { to: { type: ['hooks', 'api', 'contracts', 'utilities'] } } },
   { from: { type: 'api' }, allow: { to: { type: ['api', 'contracts', 'utilities'] } } },
@@ -173,7 +180,7 @@ export default function archWeb({ tsconfigRootDir, ignores = [] } = {}) {
           node: { extensions: ['.ts', '.tsx', '.js', '.jsx'] },
         },
         // Entry/ambient files are not part of any layer.
-        'boundaries/ignore': ['src/main.tsx', 'src/vite-env.d.ts'],
+        'boundaries/ignore': ['src/main.tsx', 'src/vite-env.d.ts', 'src/index.css'],
         'boundaries/elements': ELEMENTS,
       },
       rules: {
@@ -200,16 +207,7 @@ export default function archWeb({ tsconfigRootDir, ignores = [] } = {}) {
       files: ['src/api/**/*.{ts,tsx}'],
       rules: { 'no-restricted-globals': 'off' },
     },
-    {
-      // BURN-DOWN EXEMPTION (tracked: plan Task 12 earmark "UserContext fetch relocation").
-      // UserContext.tsx is classified `utilities`, which the DAG bars from importing
-      // hooks/api — that classification, NOT any OpsClient limitation, is why its
-      // session probe can't use the api layer today. DAG-compliant fix (removes this
-      // exemption): move the probe into an api-layer helper (src/api/ is fetch-ban-
-      // exempt by design), expose it via a src/hooks/ hook, and mount the provider
-      // from a container. Do not add further files to this exemption.
-      files: ['src/utilities/auth/UserContext.tsx'],
-      rules: { 'no-restricted-globals': 'off' },
-    },
+    // (The UserContext.tsx fetch exemption is retired: the session probe is now an
+    // OpsClient call injected from hooks/useUserInfo.ts, so utilities fetches nothing.)
   );
 }
