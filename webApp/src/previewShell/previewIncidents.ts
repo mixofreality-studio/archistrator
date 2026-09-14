@@ -13,7 +13,7 @@
  * can write it.
  */
 
-export type PreviewIncidentKind = 'fixture-miss' | 'network-blocked';
+export type PreviewIncidentKind = 'fixture-miss' | 'network-blocked' | 'navigation-blocked';
 
 export interface PreviewIncident {
   readonly kind: PreviewIncidentKind;

@@ -90,4 +90,13 @@ export function installNetworkGuard(
       throw block('sendBeacon', describe(url));
     },
   });
+  // A second browsing context is a nested preview (or an exit from the fixture
+  // world); navigationGuard.ts refuses the link form, this the scripted form.
+  Object.defineProperty(target, 'open', {
+    configurable: true,
+    writable: true,
+    value: (url?: string | URL): never => {
+      throw block('window.open', url === undefined ? '(blank)' : describe(url));
+    },
+  });
 }

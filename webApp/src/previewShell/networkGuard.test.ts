@@ -17,6 +17,7 @@ interface FakeWindow {
   WebSocket: new (url: string) => unknown;
   EventSource: new (url: string) => unknown;
   navigator: { sendBeacon: (url: string) => boolean };
+  open: (url?: string) => unknown;
 }
 
 function guarded(): { win: FakeWindow; blocked: PreviewNetworkBlockedError[]; reached: string[] } {
@@ -49,6 +50,10 @@ function guarded(): { win: FakeWindow; blocked: PreviewNetworkBlockedError[]; re
         reached.push(`beacon ${url}`);
         return true;
       },
+    },
+    open: (url) => {
+      reached.push(`open ${String(url)}`);
+      return {};
     },
   };
   const blocked: PreviewNetworkBlockedError[] = [];
@@ -102,5 +107,16 @@ void test('sendBeacon throws and never sends', () => {
   const { win, blocked, reached } = guarded();
   assert.throws(() => win.navigator.sendBeacon('/beacon'), isBlocked('sendBeacon', '/beacon'));
   assert.equal(blocked.length, 1);
+  assert.deepEqual(reached, []);
+});
+
+void test('window.open throws: a preview never opens a second browsing context', () => {
+  const { win, blocked, reached } = guarded();
+  assert.throws(
+    () => win.open('/index.html?screen=a&state=b'),
+    isBlocked('window.open', '/index.html?screen=a&state=b')
+  );
+  assert.throws(() => win.open(), isBlocked('window.open', '(blank)'));
+  assert.equal(blocked.length, 2);
   assert.deepEqual(reached, []);
 });

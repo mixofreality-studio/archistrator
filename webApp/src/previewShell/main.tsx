@@ -7,8 +7,9 @@
  *     `transport: 'fixture'`, instead of restOpsClient;
  *   - the history: a memory history seeded at the fixture's route, so a preview
  *     never reads or writes the page URL, instead of browser history;
- *   - the network: installNetworkGuard (the FIRST import below) makes every other
- *     request throw, and PreviewAlarm shows every miss and blocked request.
+ *   - the network and navigation: installPreviewGuards (the FIRST import below)
+ *     makes every other request throw and refuses any second tab or window (a
+ *     nested preview), and PreviewAlarm shows every miss and refusal.
  *
  * `?screen=<id>&state=<id>` picks the fixture (fixtureRegistry.ts); an unknown or
  * missing pair renders an honest error page, never a guess. The QueryClient keeps
@@ -16,8 +17,8 @@
  *
  * Built by vite.preview.config.ts into dist-preview/, never dist/.
  */
-// FIRST: nothing may evaluate before the network guard is in place.
-import './installNetworkGuard';
+// FIRST: nothing may evaluate before the guards are in place.
+import './installPreviewGuards';
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';

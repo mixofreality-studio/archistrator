@@ -29,19 +29,24 @@ interface FixtureFile {
 }
 
 function fixture(screen: string, state: string): FixtureFile {
-  return JSON.parse(readFileSync(new URL(`${screen}/${state}.json`, FIXTURES), 'utf8')) as FixtureFile;
+  return JSON.parse(
+    readFileSync(new URL(`${screen}/${state}.json`, FIXTURES), 'utf8')
+  ) as FixtureFile;
 }
 
 interface Incident {
-  kind: 'fixture-miss' | 'network-blocked';
+  kind: 'fixture-miss' | 'network-blocked' | 'navigation-blocked';
   detail: string;
 }
 
 function incidents(page: Page): Promise<Incident[] | null> {
   return page.evaluate(
     () =>
-      (window as unknown as { __ARCHISTRATOR_PREVIEW__?: { incidents: Incident[] } })
-        .__ARCHISTRATOR_PREVIEW__?.incidents ?? null
+      (
+        window as unknown as {
+          __ARCHISTRATOR_PREVIEW__?: { incidents: Incident[] };
+        }
+      ).__ARCHISTRATOR_PREVIEW__?.incidents ?? null
   );
 }
 
@@ -54,7 +59,9 @@ function watchNetwork(page: Page): string[] {
   page.on('request', (req: Request) => {
     const url = new URL(req.url());
     const isBundle =
-      url.pathname === '/index.html' || url.pathname.startsWith('/assets/') || url.protocol === 'data:';
+      url.pathname === '/index.html' ||
+      url.pathname.startsWith('/assets/') ||
+      url.protocol === 'data:';
     if (!isBundle) offBundle.push(`${req.method()} ${req.url()}`);
   });
   return offBundle;
@@ -123,7 +130,8 @@ test.describe('preview shell: the real app over fixtures', () => {
   });
 
   test('landing · load-error: an error fixture reaches the real error UI', async ({ page }) => {
-    const message = fixture('landing', 'load-error').ops['systemDesignListProjects']?.error?.message;
+    const message = fixture('landing', 'load-error').ops['systemDesignListProjects']?.error
+      ?.message;
     expect(message).toBeTruthy();
     const offBundle = await openState(page, 'landing', 'load-error');
     await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
@@ -148,10 +156,12 @@ test.describe('preview shell: loud failures and closed doors', () => {
     const alarm = page.getByTestId(TESTID.previewAlarm);
     await expect(alarm).toBeVisible();
     await expect(alarm).toContainText('fixture-miss: systemDesignGetProject');
-    await expect.poll(() => incidents(page)).toContainEqual({
-      kind: 'fixture-miss',
-      detail: 'systemDesignGetProject',
-    });
+    await expect
+      .poll(() => incidents(page))
+      .toContainEqual({
+        kind: 'fixture-miss',
+        detail: 'systemDesignGetProject',
+      });
     expect(errors.some((e) => e.includes('fixture-miss: systemDesignGetProject'))).toBe(true);
     // A miss is not a silent network fallback: nothing left the page.
     expect(offBundle).toEqual([]);
@@ -185,7 +195,9 @@ test.describe('preview shell: loud failures and closed doors', () => {
       }
       return result;
     });
-    expect(outcome['fetch']).toMatch(/^PreviewNetworkBlockedError: archistrator-preview-network-guard: fetch /);
+    expect(outcome['fetch']).toMatch(
+      /^PreviewNetworkBlockedError: archistrator-preview-network-guard: fetch /
+    );
     expect(outcome['xhr']).toBe('PreviewNetworkBlockedError');
     expect(outcome['ws']).toBe('PreviewNetworkBlockedError');
 
@@ -214,6 +226,50 @@ test.describe('preview shell: loud failures and closed doors', () => {
         })
     );
     expect(violated).toBe('frame-src');
+    expect(offBundle).toEqual([]);
+  });
+
+  test('the nested preview is off in the pane: its "Open in a new tab" link is refused', async ({
+    page,
+    context,
+  }) => {
+    const opened: string[] = [];
+    context.on('page', (p) => opened.push(p.url()));
+    const offBundle = await openState(page, 'construction', 'built-surface-link');
+
+    // The REAL detail pane (FrontendArtifactView), rendering the fixture's ui-code route.
+    await expect(page.getByTestId(TESTID.constructionFrontendView)).toBeVisible();
+    const link = page.getByTestId(TESTID.constructionFrontendOpenLink);
+    await expect(link).toBeVisible();
+    await expect(link).toHaveAttribute('target', '_blank');
+
+    await link.click();
+    await expect(page.getByTestId(TESTID.previewAlarm)).toContainText('navigation-blocked:');
+    await expect
+      .poll(() => incidents(page))
+      .toEqual([
+        {
+          kind: 'navigation-blocked',
+          detail: expect.stringContaining(
+            '/project/archistrator/construction'
+          ) as unknown as string,
+        },
+      ]);
+
+    // The scripted form is refused too.
+    const scripted = await page.evaluate(() => {
+      try {
+        window.open('/index.html?screen=landing&state=resting');
+        return 'opened';
+      } catch (e) {
+        return e instanceof Error ? e.name : String(e);
+      }
+    });
+    expect(scripted).toBe('PreviewNetworkBlockedError');
+
+    // No second tab or window ever opened, and nothing left the page.
+    await page.waitForTimeout(500);
+    expect(opened).toEqual([]);
     expect(offBundle).toEqual([]);
   });
 
