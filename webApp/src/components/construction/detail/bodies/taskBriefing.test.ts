@@ -253,7 +253,13 @@ void test('no record lands on the unknown body — the majority path', () => {
 void test('a gate task with a record is a review; a work task is its artifact or its episodes', () => {
   const service = row({ kind: 'service', attempts: [rulingAttempt('srs')] });
   assert.equal(detailBodyFor(service, { task: 'designReview' }, 'passed'), 'review');
-  assert.equal(detailBodyFor(service, { task: 'detailedDesign' }, 'passed'), 'artifact');
+  // The contract is placed by artifactPlacement.ts: with a primary placement the
+  // task is its artifact; without one, its episodes.
+  assert.equal(
+    detailBodyFor(service, { task: 'detailedDesign' }, 'passed', undefined, true),
+    'artifact'
+  );
+  assert.equal(detailBodyFor(service, { task: 'detailedDesign' }, 'passed'), 'episode');
   // Deployment is CUT for this stage: no renderer, so it falls through to the
   // episode body rather than to an empty artifact frame.
   const deployment = row({ kind: 'deployment' });
@@ -273,7 +279,8 @@ void test('selectedTaskIsGate reads the generated profile, not the task name', (
 
 void test('the cut classifications resolve to no artifact renderer', () => {
   const inPhase = { task: 'detailedDesign' };
-  assert.equal(artifactRendererKeyFor(row({ kind: 'service' }), inPhase), 'service');
+  // The service contract is placed, not dispatched (artifactPlacement.ts).
+  assert.equal(artifactRendererKeyFor(row({ kind: 'service' }), inPhase), undefined);
   assert.equal(artifactRendererKeyFor(row({ kind: 'uiDesign' }), inPhase), 'uiDesign');
   assert.equal(
     artifactRendererKeyFor(row({ kind: 'testing', variant: 'plan' }), { task: 'construction' }),
@@ -292,8 +299,9 @@ void test('the cut classifications resolve to no artifact renderer', () => {
 
 void test('an artifact renderer is scoped to ITS OWN phase, never spread across the activity', () => {
   const service = row({ kind: 'service' });
-  // The frozen contract belongs to Detailed Design...
-  assert.equal(artifactRendererKeyFor(service, { task: 'detailedDesign' }), 'service');
+  // The contract is placed per phase by artifactPlacement.ts (its own tests pin
+  // that SRS never shows it); this dispatch resolves no service renderer at all.
+  assert.equal(artifactRendererKeyFor(service, { task: 'detailedDesign' }), undefined);
   // ...so SRS, a Requirements task, must NOT be captioned with it. The service
   // contract is not the SRS, and placing it there would claim it is.
   assert.equal(artifactRendererKeyFor(service, { task: 'srs' }), undefined);

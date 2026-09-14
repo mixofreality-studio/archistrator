@@ -33,7 +33,7 @@
  * pulls `toWire()` into the phase-decision feedback — so this is a matter of
  * arming the right anchors, not of building a pipe.
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -56,102 +56,129 @@ import {
 export interface ReviewBodyProps extends ArtifactBodyProps {
   /** The live reviewEngine set, when this activity is the one at a phase gate. */
   reviewSet?: ConstructionReviewSet | undefined;
+  /**
+   * The placed committed artifact (artifactPlacement.ts) — the SAME one the
+   * artifact body shows at this selection — above the verdict. Absent, the
+   * classification renderer dispatch answers as before.
+   */
+  artifactSlot?: ReactNode;
 }
 
-export function ReviewBody({ reviewSet, ...artifact }: ReviewBodyProps): ReactElement {
-  const t = useTokens();
-  const verdict = reviewVerdictFor(artifact.row, reviewSet);
-  const activityId = artifact.row?.activityId ?? '—';
-
+export function ReviewBody({
+  reviewSet,
+  artifactSlot,
+  ...artifact
+}: ReviewBodyProps): ReactElement {
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_BODY_REVIEW}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
     >
-      <ArtifactRender {...artifact} />
+      {artifactSlot ?? <ArtifactRender {...artifact} />}
 
-      <Box
-        data-testid={UI_IDENTIFIERS.Construction.DETAIL_VERDICT}
-        sx={{ pt: 1.25, borderTop: `1.5px solid ${t.line}` }}
+      <ReviewVerdict reviewSet={reviewSet} row={artifact.row} />
+    </Box>
+  );
+}
+
+/**
+ * The verdict block alone — the reviewer set and any surviving produced-record
+ * prose. Exported because the FOCUS VIEW's rail carries it beside the artifact
+ * (designer check on renderers S1, polish 1): a review opened full-viewport must
+ * still show what is known about the decision, not only the thing decided.
+ */
+export function ReviewVerdict({
+  row,
+  reviewSet,
+}: {
+  row: ReviewBodyProps['row'];
+  reviewSet: ConstructionReviewSet | undefined;
+}): ReactElement {
+  const t = useTokens();
+  const verdict = reviewVerdictFor(row, reviewSet);
+  const activityId = row?.activityId ?? '—';
+  return (
+    <Box
+      data-testid={UI_IDENTIFIERS.Construction.DETAIL_VERDICT}
+      sx={{ pt: 1.25, borderTop: `1.5px solid ${t.line}` }}
+    >
+      <Typography
+        sx={{
+          fontFamily: t.mono,
+          fontWeight: 700,
+          fontSize: 10,
+          letterSpacing: '0.08em',
+          color: t.muted,
+        }}
       >
+        VERDICT
+      </Typography>
+      <Tooltip title={verdict.detail}>
         <Typography
-          sx={{
-            fontFamily: t.mono,
-            fontWeight: 700,
-            fontSize: 10,
-            letterSpacing: '0.08em',
-            color: t.muted,
-          }}
+          sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5, mt: 0.5 }}
         >
-          VERDICT
+          {verdict.statement}
         </Typography>
-        <Tooltip title={verdict.detail}>
+      </Tooltip>
+
+      {verdict.reviewers.length > 0 ? (
+        <Box sx={{ mt: 1.25 }}>
+          <BlockLabel t={t} text={`Reviewer set · ${String(verdict.reviewers.length)}`} />
+          <CommentableList
+            ariaLabel="Reviewer set"
+            gap={0.5}
+            getAnchor={(reviewer: ReviewerRow, index) => ({
+              kind: 'node',
+              label: reviewer.role,
+              source: `Construction · ${activityId} review`,
+              jsonPath: reviewerAnchorPath(activityId, index),
+              anchorText: `${reviewer.role} — ${reviewer.perspective}`,
+            })}
+            getKey={(reviewer: ReviewerRow, index) => `${reviewer.role}-${String(index)}`}
+            getLabel={(reviewer: ReviewerRow) => reviewer.role}
+            getLabelKind={() => 'reviewer'}
+            items={verdict.reviewers}
+            renderItem={(reviewer: ReviewerRow) => <ReviewerLine reviewer={reviewer} t={t} />}
+          />
+        </Box>
+      ) : null}
+
+      {verdict.notes.length > 0 ? (
+        <Box sx={{ mt: 1.5 }}>
+          {/* The stamp is not decoration: it is the whole claim this block is
+              allowed to make. A produced-record note is prose that survived,
+              not a verdict that was recorded. */}
           <Typography
-            sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.5, mt: 0.5 }}
+            data-testid={UI_IDENTIFIERS.Construction.DETAIL_VERDICT_STAMP}
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 9.5,
+              letterSpacing: '0.06em',
+              color: t.ink,
+              mb: 0.75,
+            }}
           >
-            {verdict.statement}
+            {verdict.stamp}
           </Typography>
-        </Tooltip>
-
-        {verdict.reviewers.length > 0 ? (
-          <Box sx={{ mt: 1.25 }}>
-            <BlockLabel t={t} text={`Reviewer set · ${String(verdict.reviewers.length)}`} />
-            <CommentableList
-              ariaLabel="Reviewer set"
-              gap={0.5}
-              getAnchor={(reviewer: ReviewerRow, index) => ({
-                kind: 'node',
-                label: reviewer.role,
-                source: `Construction · ${activityId} review`,
-                jsonPath: reviewerAnchorPath(activityId, index),
-                anchorText: `${reviewer.role} — ${reviewer.perspective}`,
-              })}
-              getKey={(reviewer: ReviewerRow, index) => `${reviewer.role}-${String(index)}`}
-              getLabel={(reviewer: ReviewerRow) => reviewer.role}
-              getLabelKind={() => 'reviewer'}
-              items={verdict.reviewers}
-              renderItem={(reviewer: ReviewerRow) => <ReviewerLine reviewer={reviewer} t={t} />}
-            />
-          </Box>
-        ) : null}
-
-        {verdict.notes.length > 0 ? (
-          <Box sx={{ mt: 1.5 }}>
-            {/* The stamp is not decoration: it is the whole claim this block is
-                allowed to make. A produced-record note is prose that survived,
-                not a verdict that was recorded. */}
-            <Typography
-              data-testid={UI_IDENTIFIERS.Construction.DETAIL_VERDICT_STAMP}
-              sx={{
-                fontFamily: t.mono,
-                fontWeight: 700,
-                fontSize: 9.5,
-                letterSpacing: '0.06em',
-                color: t.ink,
-                mb: 0.75,
-              }}
-            >
-              {verdict.stamp}
-            </Typography>
-            <CommentableList
-              ariaLabel="Produced-record notes"
-              gap={0.5}
-              getAnchor={(note: ReconstructedNote) => ({
-                kind: 'text',
-                label: note.title,
-                source: `Construction · ${activityId} produced record`,
-                jsonPath: producedNoteAnchorPath(activityId, note.index),
-                anchorText: note.text,
-              })}
-              getKey={(note: ReconstructedNote) => `note-${String(note.index)}`}
-              getLabel={(note: ReconstructedNote) => note.title}
-              getLabelKind={() => 'produced record'}
-              items={verdict.notes}
-              renderItem={(note: ReconstructedNote) => <NoteLine note={note} t={t} />}
-            />
-          </Box>
-        ) : null}
-      </Box>
+          <CommentableList
+            ariaLabel="Produced-record notes"
+            gap={0.5}
+            getAnchor={(note: ReconstructedNote) => ({
+              kind: 'text',
+              label: note.title,
+              source: `Construction · ${activityId} produced record`,
+              jsonPath: producedNoteAnchorPath(activityId, note.index),
+              anchorText: note.text,
+            })}
+            getKey={(note: ReconstructedNote) => `note-${String(note.index)}`}
+            getLabel={(note: ReconstructedNote) => note.title}
+            getLabelKind={() => 'produced record'}
+            items={verdict.notes}
+            renderItem={(note: ReconstructedNote) => <NoteLine note={note} t={t} />}
+          />
+        </Box>
+      ) : null}
     </Box>
   );
 }

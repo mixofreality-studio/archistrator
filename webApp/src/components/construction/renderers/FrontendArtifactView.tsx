@@ -8,21 +8,28 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ProducedArtifactRow } from '../../../contracts/types';
 import type { Tokens } from '../../../utilities/theme/themes';
 import type { ArtifactRendererProps } from '../artifactRenderers';
+import { NO_SURFACES_LABEL, noSurfacesSentence } from './frontendSurfacesCopy.ts';
 
 /**
- * FrontendArtifactView — the Artifacts-tab renderer for FRONTEND (U-SPA*) activities.
+ * FrontendArtifactView — the renderer for FRONTEND (U-SPA*) activities.
  *
  * Renders two kind-specific produced artifacts (see server DeriveProduced):
  *   - `ui-design` — the UI-design CONCEPT, its `note` shown as structured prose
  *     (personas / screens / layout / flows). Multiple paragraphs supported.
- *   - `ui-code`   — the built UI. Its `source` carries the SPA preview ROUTE (a
- *     "/project/..." path); for this dogfooded project the built UI is the running
- *     app, so the route is framed as a LIVE same-origin iframe with an "open" link.
- *     A screenshot image path (.png/.jpg/.svg/.webp) is supported as a fallback.
+ *   - `ui-code`   — the built UI. Its `source` carries the SPA ROUTE (a
+ *     "/project/..." path), offered as an "Open in a new tab" link. A screenshot
+ *     image path (.png/.jpg/.svg/.webp) is shown inline.
  *
- * Tolerates OLD stub data: if no ui-design/ui-code artifacts are present (e.g. a
- * legacy generic `code` stub or an empty produced[]), it degrades to an honest
- * "no UI artifacts yet" note rather than breaking.
+ * NO LIVE IFRAME. The app refuses to be framed (CSP `frame-ancestors 'none'` +
+ * `X-Frame-Options: DENY`, commit a4130340), so a same-origin frame of a route
+ * can only ever render the browser's refusal page. It was also only honest for
+ * the dogfood project, where the project being viewed IS the app serving the
+ * console. A sandboxed mock (`srcdoc`, opaque origin) replaces it with the SPA
+ * slice (architect design-renderer-data §2.3); until then the route opens in a
+ * tab of its own.
+ *
+ * With no ui-design or ui-code record, the designer's §5.5 empty state says so:
+ * the console never guesses routes.
  */
 
 const IMAGE_RE = /\.(png|jpe?g|svg|webp|gif)$/i;
@@ -98,51 +105,43 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
             color: t.ink,
           }}
         >
-          UI PREVIEW
+          BUILT SURFACE
         </Typography>
         <Typography sx={{ fontFamily: t.body, fontWeight: 700, fontSize: 13, color: t.ink }}>
           {art.title}
         </Typography>
-        <Box sx={{ flexGrow: 1 }} />
-        {hasRoute ? (
-          <Button
-            component="a"
-            endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
-            href={source}
-            rel="noreferrer"
-            size="small"
-            sx={{
-              py: 0.25,
-              fontFamily: t.mono,
-              fontSize: 11,
-              textTransform: 'none',
-              color: t.accent,
-            }}
-            target="_blank"
-          >
-            Open {source}
-          </Button>
-        ) : null}
       </Box>
 
       {hasRoute ? (
-        <Box
-          sx={{
-            mt: 1,
-            border: `1.5px solid ${t.line}`,
-            borderRadius: 1,
-            overflow: 'hidden',
-            bgcolor: t.paperAlt,
-            height: 480,
-          }}
-        >
-          <Box
-            component="iframe"
-            data-testid={UI_IDENTIFIERS.Construction.FRONTEND_PREVIEW_FRAME}
-            src={source}
-            sx={{ width: '100%', height: '100%', border: 0, display: 'block' }}
-            title={`Live preview · ${source}`}
-          />
+        <Box sx={{ mt: 1, display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+          <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
+            {source}
+          </Typography>
+          <Box>
+            <Button
+              component="a"
+              data-testid={UI_IDENTIFIERS.Construction.FRONTEND_OPEN_LINK}
+              endIcon={<OpenInNewIcon sx={{ fontSize: 14 }} />}
+              href={source}
+              rel="noreferrer"
+              size="small"
+              sx={{
+                py: 0.25,
+                fontFamily: t.mono,
+                fontSize: 11,
+                textTransform: 'none',
+                color: t.accent,
+              }}
+              target="_blank"
+              variant="outlined"
+            >
+              Open in a new tab
+            </Button>
+          </Box>
+          <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
+            The running app, not a design-time mock. It is not framed here: the app refuses to be
+            framed, and a framed route would only show that refusal.
+          </Typography>
         </Box>
       ) : hasImage ? (
         <Box sx={{ mt: 1 }}>
@@ -157,8 +156,7 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
         <Typography
           sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, mt: 0.75, fontStyle: 'italic' }}
         >
-          No preview route recorded yet — the ui-code artifact carries a &quot;/project/…&quot; SPA
-          route (or a screenshot path) that frames here once backfilled.
+          No route is recorded on this ui-code artifact, so there is nothing to open.
         </Typography>
       )}
     </Paper>
@@ -166,7 +164,24 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
 }
 
 export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNode {
-  const produced = vm.row.produced ?? [];
+  return <FrontendSurfaces componentId={undefined} produced={vm.row.produced ?? []} t={t} />;
+}
+
+/**
+ * The SPA's built surfaces from its produced records, or the §5.5 absence. The
+ * pane places this on the Construction task WHATEVER the attempt state (a Not
+ * started row included): no surface is recorded either way, and the empty state
+ * says so rather than an unknown body that never mentions surfaces.
+ */
+export function FrontendSurfaces({
+  produced,
+  componentId,
+  t,
+}: {
+  produced: readonly ProducedArtifactRow[];
+  componentId: string | undefined;
+  t: Tokens;
+}): ReactNode {
   const designs = produced.filter((a) => a.kind === 'ui-design');
   const codes = produced.filter((a) => a.kind === 'ui-code');
 
@@ -185,13 +200,26 @@ export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNod
       ))}
 
       {!hasUiArtifacts ? (
-        <Paper sx={{ p: 1.5 }}>
-          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted, lineHeight: 1.5 }}>
-            No UI artifacts recorded yet for this surface. A frontend activity records a ui-design
-            concept and a ui-code preview (a live SPA route) once construction produces them; this
-            legacy entry predates that shape.
+        // The designer's §5.5: a real gap (awaiting ink on the label), calm copy.
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.FRONTEND_NO_SURFACES}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}
+        >
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 10,
+              letterSpacing: '0.08em',
+              color: t.awaitingFg,
+            }}
+          >
+            {NO_SURFACES_LABEL}
           </Typography>
-        </Paper>
+          <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
+            {noSurfacesSentence(componentId)}
+          </Typography>
+        </Box>
       ) : null}
     </Box>
   );

@@ -1,4 +1,4 @@
-import { type ReactNode, useState } from 'react';
+import { type ReactNode, useContext, useState } from 'react';
 import Box from '@mui/material/Box';
 import Chip from '@mui/material/Chip';
 import Typography from '@mui/material/Typography';
@@ -12,6 +12,9 @@ import type { Tokens } from '../../../utilities/theme/themes';
 import { DynamicViewFlow, type StepDetail, type StepStatus } from '../../flow/DynamicViewFlow';
 import { useComments, testScenarioStepAnchor } from '../../comments/CommentContext';
 import { caseKindInk, stepStatusFor, type CaseInk, type ScenarioMode } from './scenarioInk.ts';
+import { useElementWidth } from '../useElementWidth';
+import { ScenarioLinkContext } from './scenarioLink';
+import { activeScenarioId, casesAsDropdown } from './scenarioSelection.ts';
 
 export type { ScenarioMode } from './scenarioInk.ts';
 
@@ -119,24 +122,36 @@ function caseToDynamic(
  * case), then a case (happy / negative / boundary). The selected case renders as the
  * shared layered step-through, with each call's concrete inputs → expected surfaced
  * in the step caption. Mirrors the architecture dynamic-view selector.
+ *
+ * `linked` makes the scenario follow the URL's `sc` deep link (scenarioLink.ts):
+ * the plan's own browser on N-STP takes it, so a component's "reached through"
+ * row opens at the scenario it names. A coverage browser inside another
+ * component's pane keeps its own local pick.
+ *
+ * In the narrow pane the scenario picker takes the width it is given rather than
+ * a fixed 360px, and more than three cases go into a dropdown (they wrapped to
+ * four lines as chips) — designer check, polish 5.
  */
 export function ScenarioBrowser({
   scenarios,
   mode,
   t,
   statusChip,
+  linked = false,
 }: {
   scenarios: TestScenarioView[];
   mode: ScenarioMode;
   t: Tokens;
   statusChip?: (s: TestScenarioView) => ReactNode;
+  linked?: boolean;
 }): ReactNode {
   const { setAnchor } = useComments();
+  const link = useContext(ScenarioLinkContext);
+  const deepLink = linked ? link : undefined;
+  const [measure, width] = useElementWidth();
   const [selectedId, setSelectedId] = useState<string>('');
   const [selectedCaseId, setSelectedCaseId] = useState<string>('');
-  const activeId = scenarios.some((s) => s.id === selectedId)
-    ? selectedId
-    : (scenarios[0]?.id ?? '');
+  const activeId = activeScenarioId(scenarios, [deepLink?.scenarioId, selectedId]);
   const active = scenarios.find((s) => s.id === activeId);
   const cases = active?.cases ?? [];
   const activeCase = cases.find((c) => c.id === selectedCaseId) ?? cases[0];
@@ -157,22 +172,28 @@ export function ScenarioBrowser({
       : undefined;
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}>
+    <Box
+      data-active-scenario={activeId}
+      ref={measure}
+      sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
+    >
       {/* scenario dropdown selector — mirrors the architecture view picker */}
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
         <Typography
           sx={{ fontFamily: t.mono, fontSize: 10, letterSpacing: '0.08em', color: t.muted }}
         >
           SCENARIO
         </Typography>
-        <FormControl size="small" sx={{ minWidth: 360 }}>
+        <FormControl size="small" sx={{ flex: '1 1 auto', minWidth: 0, maxWidth: 520 }}>
           <Select
             data-testid={UI_IDENTIFIERS.Construction.SCENARIO_PICKER}
+            inputProps={{ 'aria-label': 'Scenario' }}
             sx={{ fontFamily: t.mono, fontSize: 13 }}
             value={activeId}
             onChange={(e) => {
               setSelectedId(e.target.value);
               setSelectedCaseId('');
+              deepLink?.onScenarioChange(e.target.value);
             }}
           >
             {scenarios.map((s) => (
@@ -213,8 +234,66 @@ export function ScenarioBrowser({
             </Box>
           ) : null}
 
-          {/* case selector — pick happy / negative / boundary */}
-          {cases.length > 0 ? (
+          {/* case selector — pick happy / negative / boundary. A dropdown past three
+              cases in the narrow pane; chips otherwise. */}
+          {cases.length > 0 && casesAsDropdown(cases.length, width) ? (
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0, mt: 0.25 }}>
+              <Typography
+                sx={{
+                  flexShrink: 0,
+                  whiteSpace: 'nowrap',
+                  fontFamily: t.mono,
+                  fontSize: 10,
+                  letterSpacing: '0.08em',
+                  color: t.muted,
+                }}
+              >
+                CASE · {cases.length}
+              </Typography>
+              <FormControl size="small" sx={{ flex: '1 1 auto', minWidth: 0 }}>
+                <Select
+                  data-testid={UI_IDENTIFIERS.Construction.CASE_PICKER}
+                  inputProps={{ 'aria-label': 'Case' }}
+                  // Plain text in the box, so the selected case's chip is not drawn twice.
+                  renderValue={(id: string) => {
+                    const c = cases.find((x) => x.id === id);
+                    return c !== undefined ? `${c.kind} · ${c.title}` : '';
+                  }}
+                  sx={{ fontFamily: t.mono, fontSize: 12 }}
+                  value={activeCase?.id ?? ''}
+                  onChange={(e) => {
+                    setSelectedCaseId(e.target.value);
+                  }}
+                >
+                  {cases.map((c) => {
+                    const col = kindColor(c.kind, mode, t);
+                    return (
+                      // Each option IS the case chip — the same ink, border and test
+                      // id as the chip row — so the ink reads the same either way.
+                      <MenuItem key={c.id} sx={{ py: 0.5 }} value={c.id}>
+                        <Chip
+                          data-case-ink={caseKindInk(c.kind, mode)}
+                          data-testid={UI_IDENTIFIERS.Construction.caseChip(c.id)}
+                          label={`${c.kind} · ${c.title}`}
+                          size="small"
+                          sx={{
+                            maxWidth: 420,
+                            fontFamily: t.mono,
+                            fontSize: 10,
+                            fontWeight: 700,
+                            cursor: 'pointer',
+                            bgcolor: t.paperAlt,
+                            color: t.ink,
+                            border: `1.5px solid ${col}`,
+                          }}
+                        />
+                      </MenuItem>
+                    );
+                  })}
+                </Select>
+              </FormControl>
+            </Box>
+          ) : cases.length > 0 ? (
             <Box
               sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}
             >

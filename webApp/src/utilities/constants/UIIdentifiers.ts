@@ -246,6 +246,8 @@ export const UI_IDENTIFIERS = {
     // count since the Design Health step retired).
     findingEdge: (from: string, to: string) => `arch-finding-edge-${from}-${to}`,
     findingNode: (componentId: string) => `arch-finding-node-${componentId}`,
+    /** One C4 component card in any PerspectiveFlow/architecture canvas. */
+    c4Node: (componentId: string) => `arch-c4-node-${componentId}`,
     FINDING_COUNT: 'arch-finding-count',
     // Task 6 (call-chain rollout): the per-view CC verdict roll-up (viewVerdict),
     // rendered beside DYNAMIC_PICKER — "15/15 realized · CC clean" / "0/7
@@ -343,7 +345,10 @@ export const UI_IDENTIFIERS = {
     SYSTEM_TEST_VIEW: 'construction-system-test-view',
     TEST_PLAN_VIEW: 'construction-test-plan-view',
     FRONTEND_VIEW: 'construction-frontend-view',
-    FRONTEND_PREVIEW_FRAME: 'construction-frontend-preview-frame',
+    // No live preview iframe: the app refuses to be framed (a4130340). A built
+    // surface's route opens in a new tab; with none recorded, the §5.5 empty state.
+    FRONTEND_OPEN_LINK: 'construction-frontend-open-link',
+    FRONTEND_NO_SURFACES: 'construction-frontend-no-surfaces',
     SCENARIO_PICKER: 'construction-scenario-picker',
     caseChip: (caseId: string) => `construction-case-chip-${caseId}`,
     /** The selected case's "what this proves / expected outcome" box (its left
@@ -541,6 +546,52 @@ export const UI_IDENTIFIERS = {
     // structured verdict exists to present.
     DETAIL_VERDICT: 'construction-detail-verdict',
     DETAIL_VERDICT_STAMP: 'construction-detail-verdict-stamp',
+    // The ARTIFACT FRAME (designer renderers-placement §1): every committed
+    // artifact in the pane mounts in one frame whose ROLE label (UNDER REVIEW /
+    // COMMITTED NOW / REFERENCE) and SOURCE line say what it is. It never carries
+    // the provenance hatch — that belongs to the attempt, above it.
+    ARTIFACT_FRAME: 'construction-artifact-frame',
+    ARTIFACT_ROLE: 'construction-artifact-role',
+    ARTIFACT_SOURCE: 'construction-artifact-source',
+    ARTIFACT_FOCUS: 'construction-artifact-focus',
+    /** The one sentence between a reconstructed attempt's note and the frame. */
+    ARTIFACT_RECONSTRUCTED_NOTE: 'construction-artifact-reconstructed-note',
+    /** A not-started / unknown selection showing an artifact: its state, in one line. */
+    ARTIFACT_STATE_LINE: 'construction-artifact-state-line',
+    /** The unknown body's briefing, collapsed under the artifact. */
+    ARTIFACT_ABOUT_TASK: 'construction-artifact-about-task',
+    CONTRACT_SUMMARY: 'construction-contract-summary',
+    CONTRACT_SUMMARY_OPEN: 'construction-contract-summary-open',
+    CONTRACT_REFERENCE: 'construction-contract-reference',
+    CONTRACT_REFERENCE_OPEN: 'construction-contract-reference-open',
+    /** A missing contract (a real gap) versus none by design — two ids, two sentences. */
+    CONTRACT_GAP: 'construction-contract-gap',
+    CONTRACT_BY_DESIGN: 'construction-contract-by-design',
+    CONTRACT_UNRESOLVED: 'construction-contract-unresolved',
+    WHO_REACHES_IT: 'construction-who-reaches-it',
+    CODE_REVIEW_COMMIT: 'construction-code-review-commit',
+    SRS_UNREADABLE: 'construction-srs-unreadable',
+    COMPONENT_TEST_PLAN: 'construction-component-test-plan',
+    COMPONENT_TEST_PLAN_EMPTY: 'construction-component-test-plan-empty',
+    TEST_COVERAGE: 'construction-test-coverage',
+    TEST_COVERAGE_DIRECT: 'construction-test-coverage-direct',
+    coverageReachedRow: (scenarioId: string) => `construction-test-coverage-reached-${scenarioId}`,
+    USE_CASE_FLOWS_LINK: 'construction-use-case-flows-link',
+    // The FOCUS view (designer §3): the artifact full-viewport over the console,
+    // the invariant header and action bar in a rail beside it, the lens mounted
+    // underneath. Driven by `&focus=1`.
+    FOCUS_VIEW: 'construction-focus-view',
+    FOCUS_CLOSE: 'construction-focus-close',
+    /** The focus region's heading — where focus lands on entry (polish 4). */
+    FOCUS_HEADING: 'construction-focus-heading',
+    /** The rail's own content under the header: the note, the sentence, the verdict. */
+    FOCUS_RAIL: 'construction-focus-rail',
+    /** The pane's body while the focus view is open: unmounted, one line instead. */
+    FOCUS_PLACEHOLDER: 'construction-focus-placeholder',
+    /** Code Review on a reconstructed (or unreviewed) attempt: one line, no CODE frame. */
+    CODE_REVIEW_NO_VIEW: 'construction-code-review-no-view',
+    /** The narrow scenario browser's case dropdown (more than 3 cases). */
+    CASE_PICKER: 'construction-case-picker',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per
@@ -562,7 +613,26 @@ export const UI_IDENTIFIERS = {
     TAB_FACETS: 'service-contract-tab-facets',
     REVISION_HISTORY: 'service-contract-revision-history',
     revisionRow: (rev: string) => `service-contract-revision-${rev}`,
+    /** The Component tab's relationships view (PerspectiveFlow over system.relationships). */
     COMPONENT_FLOW: 'service-contract-component-flow',
+    /** The status chip — rendered only when a contract records a status. */
+    STATUS_CHIP: 'service-contract-status-chip',
+    FACETS_EMPTY: 'service-contract-facets-empty',
+    // The Code tab below 900px (designer check B1): every op as an HTML row, 12px
+    // mono and wrapping, each expanding inline into its request / response / error
+    // tables. The canvas draws in the focus view only.
+    SIGNATURE_LIST: 'service-contract-signature-list',
+    opRow: (index: number) => `service-contract-op-${String(index)}`,
+    OP_SIGNATURE: 'service-contract-op-signature',
+    OP_STRUCTS: 'service-contract-op-structs',
+    /** "Open diagram in focus view" at the top of the list. */
+    OPEN_FOCUS: 'service-contract-open-focus',
+    /** The focus view's list form, when the window leaves no room for the canvas. */
+    CANVAS_NEEDS_ROOM: 'service-contract-canvas-needs-room',
+    /** The canvas itself (ContractCodeFlow), drawn in the focus view only. */
+    CODE_CANVAS: 'service-contract-code-canvas',
+    /** The utilities a component may reach, as one line in place of their nodes. */
+    UTILITIES_LINE: 'service-contract-utilities-line',
   },
   Operations: {
     ROOT: 'operations-console',
@@ -653,5 +723,12 @@ export const UI_IDENTIFIERS = {
     TIMELINE_FILTER: 'episode-timeline-filter',
     /** The panel header's count, plus the optional scope caption after it. */
     HEADER_COUNT: 'episodes-header-count',
+  },
+  // The preview build's own chrome (src/previewShell/, design-renderer-data.md
+  // §2′.1): the loud banner a fixture miss or a blocked request raises, and the
+  // honest error page for a ?screen=&state= the build does not carry.
+  Preview: {
+    ALARM: 'preview-alarm',
+    ERROR_PAGE: 'preview-error-page',
   },
 } as const;

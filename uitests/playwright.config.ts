@@ -49,6 +49,18 @@ const SPA_PORT = new URL(SPA_URL).port || '5173';
 // already be running on the default :8888 — needed to test against a
 // specific, known-good server without disturbing an unrelated one.
 
+// ── The PREVIEW target ───────────────────────────────────────────────────────
+// The `preview` project (tests/preview/) drives the SAME app built in PREVIEW
+// MODE (webApp/vite.preview.config.ts): the real components over the fixture
+// transport, fed this package's test-local fixtures (./preview-fixtures), served
+// statically. It needs no Go server and no network, so it runs deterministically
+// wherever it runs. Default: this config builds the preview and serves it on
+// UITESTS_PREVIEW_URL's port (5832). Set UITESTS_PREVIEW_URL to drive an
+// already-running preview server instead; the managed one is then skipped.
+const PREVIEW_URL = process.env.UITESTS_PREVIEW_URL ?? 'http://localhost:5832';
+const managePreview = process.env.UITESTS_PREVIEW_URL === undefined;
+const PREVIEW_PORT = new URL(PREVIEW_URL).port || '5832';
+
 export default defineConfig({
   testDir: './tests',
   fullyParallel: false,
@@ -81,28 +93,55 @@ export default defineConfig({
     },
     {
       name: 'chromium',
+      testIgnore: /preview\//,
       use: { ...devices['Desktop Chrome'] },
       dependencies: ['seed-shared-project'],
     },
+    {
+      // The preview build (see "The PREVIEW target" above). Its own baseURL; no
+      // server, so no seed dependency.
+      name: 'preview',
+      testMatch: /preview\/.*\.spec\.ts$/,
+      use: { ...devices['Desktop Chrome'], baseURL: PREVIEW_URL },
+    },
   ],
-  ...(manageSpa
-    ? {
-        webServer: {
-          // Boot the real SPA. It proxies /api → the Go server on :8888 (or
-          // ARCHISTRATOR_API_PROXY_TARGET, when set), which MUST already be up
-          // in dev mode (see README "Running"). We do NOT start the Go server
-          // here — it needs provisioned Postgres.
-          command: `npm run dev -- --port ${SPA_PORT} --strictPort`,
-          cwd: '../webApp',
-          url: SPA_URL,
-          timeout: 120_000,
-          reuseExistingServer: !process.env.CI,
-          stdout: 'pipe',
-          stderr: 'pipe',
-          env: process.env.ARCHISTRATOR_API_PROXY_TARGET
-            ? { ARCHISTRATOR_API_PROXY_TARGET: process.env.ARCHISTRATOR_API_PROXY_TARGET }
-            : {},
-        },
-      }
-    : {}),
+  webServer: [
+    ...(manageSpa
+      ? [
+          {
+            // Boot the real SPA. It proxies /api → the Go server on :8888 (or
+            // ARCHISTRATOR_API_PROXY_TARGET, when set), which MUST already be up
+            // in dev mode (see README "Running"). We do NOT start the Go server
+            // here — it needs provisioned Postgres.
+            command: `npm run dev -- --port ${SPA_PORT} --strictPort`,
+            cwd: '../webApp',
+            url: SPA_URL,
+            timeout: 120_000,
+            reuseExistingServer: !process.env.CI,
+            stdout: 'pipe' as const,
+            stderr: 'pipe' as const,
+            env: process.env.ARCHISTRATOR_API_PROXY_TARGET
+              ? { ARCHISTRATOR_API_PROXY_TARGET: process.env.ARCHISTRATOR_API_PROXY_TARGET }
+              : {},
+          },
+        ]
+      : []),
+    ...(managePreview
+      ? [
+          {
+            // Build the preview over this package's fixtures, then serve it.
+            // `build:preview` validates every fixture against the OAS-generated
+            // schema and fails on the first drift.
+            command: `npm run build:preview && npx vite preview -c vite.preview.config.ts --port ${PREVIEW_PORT} --strictPort`,
+            cwd: '../webApp',
+            url: PREVIEW_URL,
+            timeout: 180_000,
+            reuseExistingServer: !process.env.CI,
+            stdout: 'pipe' as const,
+            stderr: 'pipe' as const,
+            env: { ARCHISTRATOR_PREVIEW_FIXTURES: '../uitests/preview-fixtures' },
+          },
+        ]
+      : []),
+  ],
 });

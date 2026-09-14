@@ -16,7 +16,7 @@
  * SAFETY: every execute-next-activity request is TRAPPED and ABORTED by page.route
  * before the page opens. Nothing here presses Run, Begin or Retry.
  */
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
@@ -305,6 +305,14 @@ for (const width of [1280, 1366, 1600]) {
   });
 }
 
+/** Open the narrow browser's case dropdown, when it has one, so its chips mount. */
+async function openCasesIfPicker(page: Page, scope: Locator): Promise<void> {
+  const picker = scope.getByTestId(TESTID.constructionCasePicker);
+  if ((await picker.count()) === 0) return;
+  await picker.click();
+  await expect(page.getByTestId(TESTID.constructionCaseChip('STP-UC1-N1'))).toBeVisible();
+}
+
 test('a never-run N-IT names its targets in neutral ink; N-STP’s plan keeps its red', async ({
   page,
 }) => {
@@ -312,6 +320,10 @@ test('a never-run N-IT names its targets in neutral ink; N-STP’s plan keeps it
   const view = page.getByTestId(TESTID.constructionSystemTestView);
   await expect(view).toBeVisible();
   await expect(view).toContainText('not run');
+  // In the narrow pane STP-UC1's four cases are a dropdown (renderers S2, polish
+  // 5), and each option is the case chip itself: open it so the chips exist. The
+  // menu is a portal, so the chips are read page-wide (their ids are unique).
+  await openCasesIfPicker(page, view);
   const inks = async (): Promise<{
     chip: Record<string, string | null>;
     chipBorder: string;
@@ -324,7 +336,7 @@ test('a never-run N-IT names its targets in neutral ink; N-STP’s plan keeps it
         const root = document.querySelector(`[data-testid="${viewId}"]`);
         if (root === null) throw new Error('no system test view');
         const chip = (id: string): HTMLElement | null =>
-          root.querySelector<HTMLElement>(`[data-testid="${id}"]`);
+          document.querySelector<HTMLElement>(`[data-testid="${id}"]`);
         const neg = chip(negId);
         const target = root.querySelector<HTMLElement>('[data-step-status]');
         // The view's own muted headline is the neutral ink to compare against.
@@ -353,12 +365,14 @@ test('a never-run N-IT names its targets in neutral ink; N-STP’s plan keeps it
   await openList(page, '&a=N-STP');
   const plan = page.getByTestId(TESTID.constructionTestPlanView);
   await expect(plan).toBeVisible();
+  await openCasesIfPicker(page, plan);
   const planInk = await page.evaluate(
     ({ planId, negId }) => {
       const root = document.querySelector(`[data-testid="${planId}"]`);
       return {
         negative:
-          root?.querySelector(`[data-testid="${negId}"]`)?.getAttribute('data-case-ink') ?? null,
+          document.querySelector(`[data-testid="${negId}"]`)?.getAttribute('data-case-ink') ??
+          null,
         target: root?.querySelector('[data-step-status]')?.getAttribute('data-step-status') ?? null,
       };
     },

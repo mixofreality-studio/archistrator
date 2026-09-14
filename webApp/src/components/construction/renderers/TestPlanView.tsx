@@ -49,7 +49,8 @@ export function TestPlanView({ project, t }: ArtifactRendererProps): ReactNode {
         generated bindings). At plan time every call is a red target; the platform generates the
         harness from this plan, and N-IT runs it against the real build to turn them green.
       </Typography>
-      <ScenarioBrowser mode="plan" scenarios={scenarios} t={t} />
+      {/* The plan's own browser follows the `sc` deep link (scenarioLink.ts). */}
+      <ScenarioBrowser linked mode="plan" scenarios={scenarios} t={t} />
     </Box>
   );
 }

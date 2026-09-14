@@ -45,9 +45,31 @@ export interface LensSelection {
   attempt?: number;
 }
 
+/**
+ * Which view of the selected activity's artifact is showing (`av`), and whether
+ * it is open full-viewport in the FOCUS view (`focus=1`) — the designer's §3
+ * deep links. In the URL for the same reason selection is: the 1.5s poll's
+ * remount cannot reset a tab or close the focus view.
+ */
+export const ARTIFACT_VIEW_IDS = ['code', 'component', 'dynamic', 'facets'] as const;
+export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
+
+export interface ArtifactViewState {
+  view?: ArtifactViewId;
+  focus?: true;
+  /**
+   * A system test plan scenario (`sc`) — how a component's "reached through"
+   * coverage row opens N-STP AT that scenario, not at its first (designer check
+   * on renderers S1, B2). The scenario browser's store reads it.
+   */
+  scenario?: string;
+}
+
 export interface LensState {
   lens: LensId;
   selection: LensSelection;
+  /** Present only when a view or the focus view is set — absent is the default. */
+  artifact?: ArtifactViewState;
 }
 
 /**
@@ -61,6 +83,18 @@ export interface LensSearchParams {
   p?: string;
   k?: string;
   n?: number;
+  av?: ArtifactViewId;
+  focus?: 1;
+  sc?: string;
+}
+
+function isArtifactViewId(value: unknown): value is ArtifactViewId {
+  return typeof value === 'string' && (ARTIFACT_VIEW_IDS as readonly string[]).includes(value);
+}
+
+/** `focus=1` (string or number) is on; anything else is off. */
+function focusOf(value: unknown): true | undefined {
+  return value === 1 || value === '1' ? true : undefined;
 }
 
 function isLensId(value: unknown): value is LensId {
@@ -91,6 +125,15 @@ export function parseLensSearch(search: Record<string, unknown>): LensState {
   const lifecyclePhase = nonEmpty(search['p']);
   const task = nonEmpty(search['k']);
   const attempt = attemptOf(search['n']);
+  const view = isArtifactViewId(search['av']) ? search['av'] : undefined;
+  // The artifact's view belongs to a selected activity; without one it is junk.
+  const focus = activityId !== undefined ? focusOf(search['focus']) : undefined;
+  const scenario = activityId !== undefined ? nonEmpty(search['sc']) : undefined;
+  const artifact: ArtifactViewState = {
+    ...(view !== undefined && activityId !== undefined ? { view } : {}),
+    ...(focus !== undefined ? { focus } : {}),
+    ...(scenario !== undefined ? { scenario } : {}),
+  };
   return {
     lens: isLensId(rawLens) ? rawLens : 'list',
     selection: {
@@ -99,6 +142,7 @@ export function parseLensSearch(search: Record<string, unknown>): LensState {
       ...(task !== undefined ? { task } : {}),
       ...(attempt !== undefined ? { attempt } : {}),
     },
+    ...(Object.keys(artifact).length > 0 ? { artifact } : {}),
   };
 }
 
@@ -110,13 +154,17 @@ export function parseLensSearch(search: Record<string, unknown>): LensState {
  * the address bar — so dropping `lens=list` would quietly rewrite a shared deep
  * link, which is the exact failure this whole shape exists to prevent.
  */
-export function serializeLensSearch({ lens, selection }: LensState): LensSearchParams {
+export function serializeLensSearch({ lens, selection, artifact }: LensState): LensSearchParams {
+  const withActivity = selection.activityId !== undefined;
   return {
     lens,
     ...(selection.activityId !== undefined ? { a: selection.activityId } : {}),
     ...(selection.lifecyclePhase !== undefined ? { p: selection.lifecyclePhase } : {}),
     ...(selection.task !== undefined ? { k: selection.task } : {}),
     ...(selection.attempt !== undefined ? { n: selection.attempt } : {}),
+    ...(withActivity && artifact?.view !== undefined ? { av: artifact.view } : {}),
+    ...(withActivity && artifact?.focus === true ? { focus: 1 as const } : {}),
+    ...(withActivity && artifact?.scenario !== undefined ? { sc: artifact.scenario } : {}),
   };
 }
 
@@ -137,10 +185,34 @@ const routeApi = getRouteApi('/project/$projectId/construction');
 
 export interface LensSelectionApi extends LensState {
   setLens: (lens: LensId) => void;
-  /** Replace the selection wholesale (a shallower click clears what is below it). */
-  select: (selection: LensSelection) => void;
+  /**
+   * Replace the selection wholesale (a shallower click clears what is below it).
+   * The artifact view (`av`, `focus`) survives only while the ACTIVITY stays the
+   * same — choosing an attempt from inside the focus view must not close it —
+   * unless `artifact` is passed, which replaces it.
+   */
+  select: (selection: LensSelection, artifact?: ArtifactViewState) => void;
+  /** Show another view of the selected artifact (the contract's tab). */
+  setArtifactView: (view: ArtifactViewId) => void;
+  /** Show another system test plan scenario (`sc`), replacing the URL entry. */
+  setScenario: (scenario: string) => void;
+  /**
+   * Open or close the focus view. Opening adds a HISTORY entry, so browser Back
+   * closes it (§3); closing replaces, and the caller decides whether to go back.
+   */
+  setFocus: (on: boolean) => void;
   /** Drop the selection, keeping the lens. */
   clear: () => void;
+}
+
+/** The artifact view a new selection keeps: the old one iff the activity is the same. */
+export function artifactKeptFor(
+  prev: LensState,
+  next: LensSelection,
+  explicit?: ArtifactViewState
+): ArtifactViewState | undefined {
+  if (explicit !== undefined) return explicit;
+  return prev.selection.activityId === next.activityId ? prev.artifact : undefined;
 }
 
 export function useLensSelection(): LensSelectionApi {
@@ -151,32 +223,70 @@ export function useLensSelection(): LensSelectionApi {
 
   // `replace: true` — lens/selection changes are a glance, not a navigation. A
   // history entry per click would make Back useless for leaving the console.
+  // The one exception is OPENING the focus view (setFocus), which Back closes.
   const push = useCallback(
-    (next: LensState): void => {
-      void navigate({ search: serializeLensSearch(next), replace: true });
+    (next: LensState, opts?: { history: boolean }): void => {
+      void navigate({ search: serializeLensSearch(next), replace: opts?.history !== true });
     },
     [navigate]
   );
 
   const setLens = useCallback(
     (lens: LensId): void => {
-      push({ lens, selection: state.selection });
+      push({ ...state, lens });
     },
-    [push, state.selection]
+    [push, state]
   );
 
   const select = useCallback(
-    (selection: LensSelection): void => {
-      push({ lens: state.lens, selection });
+    (selection: LensSelection, artifact?: ArtifactViewState): void => {
+      const kept = artifactKeptFor(state, selection, artifact);
+      push({ lens: state.lens, selection, ...(kept !== undefined ? { artifact: kept } : {}) });
     },
-    [push, state.lens]
+    [push, state]
+  );
+
+  const setArtifactView = useCallback(
+    (view: ArtifactViewId): void => {
+      push({ ...state, artifact: { ...state.artifact, view } });
+    },
+    [push, state]
+  );
+
+  const setScenario = useCallback(
+    (scenario: string): void => {
+      push({ ...state, artifact: { ...state.artifact, scenario } });
+    },
+    [push, state]
+  );
+
+  const setFocus = useCallback(
+    (on: boolean): void => {
+      const rest: ArtifactViewState = { ...state.artifact };
+      delete rest.focus;
+      push(
+        { ...state, artifact: on ? { ...rest, focus: true } : rest },
+        { history: on && state.artifact?.focus !== true }
+      );
+    },
+    [push, state]
   );
 
   const clear = useCallback((): void => {
     push({ lens: state.lens, selection: {} });
   }, [push, state.lens]);
 
-  return { lens: state.lens, selection: state.selection, setLens, select, clear };
+  return {
+    lens: state.lens,
+    selection: state.selection,
+    ...(state.artifact !== undefined ? { artifact: state.artifact } : {}),
+    setLens,
+    select,
+    setArtifactView,
+    setScenario,
+    setFocus,
+    clear,
+  };
 }
 
 // ---------------------------------------------------------------------------

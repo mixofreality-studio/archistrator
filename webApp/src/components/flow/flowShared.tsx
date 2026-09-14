@@ -5,7 +5,7 @@
  * (colours, node/edge factories, the layer vocabulary) live in ./flowLayout so
  * this module exports only components.
  */
-import { useEffect, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, type CSSProperties, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
@@ -27,6 +27,7 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
+import { flowInstanceId } from './flowInstanceId.ts';
 
 /** The shared layer-colour legend Panel (only the layers actually present). */
 export function LayerLegend({
@@ -146,6 +147,9 @@ export function FlowCanvas({
   edgesFocusable?: boolean;
   children?: ReactNode;
 }): ReactNode {
+  // Its own React Flow id (flowInstanceId.ts): every instance defaulting to `1`
+  // duplicated xyflow's DOM ids whenever two canvases shared the page.
+  const rfId = flowInstanceId(useId());
   return (
     <Box
       sx={{
@@ -164,6 +168,7 @@ export function FlowCanvas({
         // is exactly the reader's own pan/zoom, which a fit would throw away.
         fitView={defaultViewport === undefined}
         fitViewOptions={{ padding: 0.15 }}
+        id={rfId}
         maxZoom={1.4}
         minZoom={minZoom}
         {...(defaultViewport !== undefined ? { defaultViewport } : {})}

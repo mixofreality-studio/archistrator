@@ -14,7 +14,7 @@
  * SAFETY: the shared dispatch guard (support/dispatchGuard) aborts every non-GET
  * before any navigation. Nothing here presses Run, Begin or Retry.
  */
-import type { Page } from '@playwright/test';
+import type { Locator, Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './support/gating.js';
@@ -32,6 +32,22 @@ async function openList(page: Page, suffix: string): Promise<void> {
   await expect(page.getByTestId(TESTID.constructionListRow('C-billing-engine'))).toBeVisible({
     timeout: 15_000,
   });
+}
+
+/**
+ * Select a case. In the narrow pane more than three cases are a dropdown
+ * (renderers S2, polish 5): open it, then pick the option — its menu is a portal,
+ * so the option is found on the page, by the same case test id the chip carries.
+ * Where the cases are chips, click the chip.
+ */
+async function pickCase(page: Page, scope: Locator, caseId: string): Promise<void> {
+  const picker = scope.getByTestId(TESTID.constructionCasePicker);
+  if ((await picker.count()) > 0) {
+    await picker.click();
+    await page.getByTestId(TESTID.constructionCaseChip(caseId)).click();
+    return;
+  }
+  await scope.getByTestId(TESTID.constructionCaseChip(caseId)).click();
 }
 
 // ---------------------------------------------------------------------------
@@ -137,7 +153,7 @@ test('M3: on a never-run N-IT the active NEGATIVE case’s EXPECT and border are
 }) => {
   await openList(page, '&a=N-IT');
   const nit = page.getByTestId(TESTID.constructionSystemTestView);
-  await nit.getByTestId(TESTID.constructionCaseChip('STP-UC1-N1')).click();
+  await pickCase(page, nit, 'STP-UC1-N1');
   await expect(nit.getByTestId(TESTID.constructionActiveCase)).toHaveAttribute('data-case-ink', 'neutral');
   await expect(nit.getByTestId(TESTID.constructionCaseExpect)).toBeVisible();
   const never = await viewInk(page, TESTID.constructionSystemTestView);
@@ -147,7 +163,7 @@ test('M3: on a never-run N-IT the active NEGATIVE case’s EXPECT and border are
   // N-STP's plan: the same negative case in danger ink, so neither is the neutral.
   await openList(page, '&a=N-STP');
   const plan = page.getByTestId(TESTID.constructionTestPlanView);
-  await plan.getByTestId(TESTID.constructionCaseChip('STP-UC1-N1')).click();
+  await pickCase(page, plan, 'STP-UC1-N1');
   await expect(plan.getByTestId(TESTID.constructionActiveCase)).toHaveAttribute('data-case-ink', 'danger');
   const planned = await viewInk(page, TESTID.constructionTestPlanView);
   expect(planned.activeBorder).not.toBe(planned.neutral);

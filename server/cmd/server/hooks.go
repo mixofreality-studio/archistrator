@@ -100,6 +100,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/fs"
 	"log/slog"
 	"net/http"
 	"net/url"
@@ -141,6 +142,11 @@ import (
 // appHooks implements the generated Hooks interface. Built once by newAppHooks.
 type appHooks struct {
 	logger *slog.Logger
+	// embeddedSPA overrides the build-tag-gated spaFS seam (spa_embed.go /
+	// spa_stub.go) that ExtraMounts mounts on the local profile; nil means
+	// spaFS. Set only by tests, which need an SPA to mount without a
+	// `localdist` build.
+	embeddedSPA func() (fs.FS, bool)
 	// config is the resolved *Config the no-arg hooks (repo resolvers,
 	// construction-transition ports, repoBase, escalation/mode scalars) close over —
 	// the generated Hooks signatures for those seams take no cfg argument.
@@ -556,7 +562,24 @@ func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 // config.gen.go from project.json's deployment model, which does not yet declare
 // these two settings): read directly here, mirroring config_adapter.go's pattern
 // of hand env reads for composition-root-only values (envSecret, devPrincipal).
+//
+// Every route, including the generated surface main.gen.go bound to root at "/"
+// before this hook runs, is registered on an INNER mux. denyFramingOnEveryPath
+// (framedenial.go) then binds that mux to root behind the anti-framing wrap, so
+// every response carries frame-ancestors 'none' and X-Frame-Options: DENY. Add
+// new routes in mountRoutes, never on root directly.
 func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
+	routes := http.NewServeMux()
+	if generated, pat := root.Handler(&http.Request{Method: http.MethodGet, URL: &url.URL{Path: "/"}}); pat != "" {
+		routes.Handle("/", generated)
+	}
+	h.mountRoutes(routes, cfg, dev, validator, managers)
+	denyFramingOnEveryPath(root, routes)
+}
+
+// mountRoutes is ExtraMounts' route table; root here is the inner mux
+// ExtraMounts wraps, already carrying the generated surface at "/".
+func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers) {
 	// F-QA2-46: the generated handlers' writeManagerError writes every 5xx with zero
 	// server-side logging, and the manager logging wrap above only sees
 	// Infrastructure-kind *manager.Error values — so a client-visible 503 (e.g. a
@@ -598,7 +621,11 @@ func (h *appHooks) ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConf
 		web.AuthMiddleware(dev, validator)(h.handleOperatedAppID()))
 
 	if resolveProfile(cfg) == "local" {
-		mountSPA(root, h.logger)
+		spaSource := spaFS
+		if h.embeddedSPA != nil {
+			spaSource = h.embeddedSPA
+		}
+		mountSPA(root, h.logger, spaSource)
 
 		// D9: the local profile holds no deployment credential and must not
 		// APPEAR to operate — not a disabled console, not a simulated one. Hiding

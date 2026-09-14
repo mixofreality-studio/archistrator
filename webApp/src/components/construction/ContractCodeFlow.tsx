@@ -11,10 +11,16 @@
  * input/output type names and renders them as struct nodes with empty fields +
  * a muted note "(fields not detailed in this contract)". Type names are always
  * present in the signature — so clicking always expands something real.
+ *
+ * FOCUS VIEW ONLY (designer check B1). The pane lists the signatures instead
+ * (ContractSignatureList); see contractCode.ts for why. And a fit here never
+ * zooms out past CODE_MIN_ZOOM: an expanded op wider than the canvas is PANNED
+ * to, not shrunk to an unreadable size.
  */
 import {
   useCallback,
   useEffect,
+  useId,
   useMemo,
   useState,
   type MouseEvent as ReactMouseEvent,
@@ -44,69 +50,13 @@ import type { Tokens } from '../../utilities/theme/themes';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-
-// ---------------------------------------------------------------------------
-// Signature parser — derive fallback struct names from an op signature string.
-//
-// Recognises patterns such as:
-//   foo(intent: DesignPhaseIntent) → DesignPhaseAck
-//   bar(ctx: Context, cmd: BuildCommand) → (BuildResult, error)
-//   baz() → error
-//
-// Returns { inputNames, outputNames } as string arrays (possibly empty when
-// the signature can't be parsed, but op.inputs/outputs will cover that case).
-// ---------------------------------------------------------------------------
-
-function parseSignature(sig: string): { inputNames: string[]; outputNames: string[] } {
-  // Extract input types: content inside the outermost parens after the func name.
-  const parenMatch = /\(([^)]*)\)/.exec(sig);
-  const inputNames: string[] = [];
-  const parenContent = parenMatch?.[1] ?? '';
-  if (parenContent.trim().length > 0) {
-    // Each param looks like "name: Type" or just "Type".
-    for (const param of parenContent.split(',')) {
-      const colonIdx = param.indexOf(':');
-      const typePart = colonIdx >= 0 ? param.slice(colonIdx + 1) : param;
-      const name = typePart.trim().replace(/^\*/, '').replace(/\[\]/, '');
-      if (name.length > 0 && name !== 'ctx' && name !== 'context.Context') {
-        inputNames.push(name);
-      }
-    }
-  }
-
-  // Extract output types: everything after → or after the closing paren if the
-  // signature uses Go's bare return style.
-  const arrowIdx = sig.indexOf('→');
-  const outputNames: string[] = [];
-  if (arrowIdx >= 0) {
-    let returnPart = sig.slice(arrowIdx + 1).trim();
-    // Strip surrounding parens if present: "(Foo, error)" → "Foo, error"
-    if (returnPart.startsWith('(') && returnPart.endsWith(')')) {
-      returnPart = returnPart.slice(1, -1);
-    }
-    for (const part of returnPart.split(',')) {
-      const name = part.trim().replace(/^\*/, '').replace(/\[\]/, '');
-      if (name.length > 0) {
-        outputNames.push(name);
-      }
-    }
-  }
-
-  return { inputNames, outputNames };
-}
-
-/** Build ContractStruct[] for display — real data or signature-derived fallback. */
-function resolveStructs(
-  structs: ContractStruct[] | undefined,
-  fallbackNames: string[]
-): ContractStruct[] {
-  if (structs !== undefined && structs.length > 0) return structs;
-  return fallbackNames.map((name): ContractStruct & { _fallback?: boolean } => ({
-    name,
-    fields: [],
-    _fallback: true,
-  }));
-}
+import { flowInstanceId } from '../flow/flowInstanceId.ts';
+import {
+  CODE_MIN_ZOOM,
+  isErrorStructName,
+  parseSignature,
+  resolveStructs,
+} from './contractCode.ts';
 
 // ---------------------------------------------------------------------------
 // Edge helper
@@ -327,11 +277,7 @@ interface StructNodeData {
 function StructNode({ data }: NodeProps): ReactNode {
   const t = useTokens();
   const d = data as StructNodeData;
-  // Detect error structs by name convention ("error", "Error", ending in "Error", "Err")
-  const isErr =
-    /^error$/i.test(d.struct.name) ||
-    d.struct.name.endsWith('Error') ||
-    d.struct.name.endsWith('Err');
+  const isErr = isErrorStructName(d.struct.name);
   const color = isErr ? t.dangerFg : d.role === 'input' ? t.accent2 : t.committedDot;
   return (
     <>
@@ -432,18 +378,22 @@ function StructNode({ data }: NodeProps): ReactNode {
 
 const nodeTypes = { iface: InterfaceNode, struct: StructNode };
 
+/** Every fit — on mount and on expand — stops at CODE_MIN_ZOOM (designer check B1). */
+const FIT_OPTIONS = { padding: 0.12, minZoom: CODE_MIN_ZOOM, maxZoom: 1 } as const;
+
 // Re-frames the canvas whenever `dep` changes so the input | interface | output
-// columns fit in view (fitView only runs once on mount otherwise). Lives as a
+// columns come into view (fitView only runs once on mount otherwise). Lives as a
 // child of <ReactFlow> so it can use the flow hooks. On expand the struct nodes
 // are added unmeasured; a double rAF waits for React Flow to lay out and measure
-// them before fitting, otherwise fitView frames stale bounds.
+// them before fitting, otherwise fitView frames stale bounds. The fit is clamped
+// at CODE_MIN_ZOOM, so a wider expansion is centred and panned, never shrunk.
 function FitViewOnChange({ dep }: { dep: string | null }): null {
   const { fitView } = useReactFlow();
   useEffect(() => {
     let raf2 = 0;
     const raf1 = requestAnimationFrame(() => {
       raf2 = requestAnimationFrame(() => {
-        void fitView({ padding: 0.2, duration: 300 });
+        void fitView({ ...FIT_OPTIONS, duration: 300 });
       });
     });
     return (): void => {
@@ -471,6 +421,9 @@ export function ContractCodeFlow({
 }): ReactNode {
   const [activeOp, setActiveOp] = useState<string | null>(null);
   const { setAnchor } = useComments();
+  // Its own React Flow id: two canvases on one page (the pane and the focus view,
+  // or two diagrams) would otherwise share xyflow's default `1` in every DOM id.
+  const rfId = flowInstanceId(useId());
 
   const toggleOp = useCallback((sig: string): void => {
     setActiveOp((cur) => (cur === sig ? null : sig));
@@ -546,8 +499,7 @@ export function ContractCodeFlow({
         // RIGHT — response struct(s)
         outputStructs.forEach((s, i) => {
           const id = `out-${s.name}-${String(i)}`;
-          const isErr =
-            /^error$/i.test(s.name) || s.name.endsWith('Error') || s.name.endsWith('Err');
+          const isErr = isErrorStructName(s.name);
           ns.push({
             id,
             type: 'struct',
@@ -579,7 +531,8 @@ export function ContractCodeFlow({
       <ReactFlow
         fitView
         edges={edges}
-        fitViewOptions={{ padding: 0.25 }}
+        fitViewOptions={FIT_OPTIONS}
+        id={rfId}
         maxZoom={1.5}
         minZoom={0.3}
         nodeTypes={nodeTypes}

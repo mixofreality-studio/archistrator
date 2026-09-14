@@ -131,7 +131,7 @@ func TestSPAHandlerServesFaviconFromRoot(t *testing.T) {
 func TestMountSPANoOpWhenBuiltWithoutLocaldistTag(t *testing.T) {
 	root := http.NewServeMux()
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
-	mountSPA(root, logger)
+	mountSPA(root, logger, spaFS)
 
 	rec := httptest.NewRecorder()
 	root.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/", nil))

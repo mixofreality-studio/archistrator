@@ -61,12 +61,12 @@ import (
 var healthLikePaths = []string{"/healthz", "/readyz"}
 
 // mountSPA registers the embedded local-profile SPA on root at the patterns
-// described above when this binary was built with the `localdist` tag
-// (spaFS, spa_embed.go, returns ok=true); it is a no-op otherwise (the
-// default/cloud build, spa_stub.go), so ExtraMounts (hooks.go) can call it
-// unconditionally and let the build tag decide.
-func mountSPA(root *http.ServeMux, logger *slog.Logger) {
-	fsys, ok := spaFS()
+// described above when source reports one — in production source is spaFS,
+// which returns ok=true only in a `localdist` build (spa_embed.go); it is a
+// no-op otherwise (the default/cloud build, spa_stub.go), so ExtraMounts
+// (hooks.go) can call it unconditionally and let the build tag decide.
+func mountSPA(root *http.ServeMux, logger *slog.Logger, source func() (fs.FS, bool)) {
+	fsys, ok := source()
 	if !ok {
 		logger.Info("embedded SPA not mounted — not a localdist build")
 		return

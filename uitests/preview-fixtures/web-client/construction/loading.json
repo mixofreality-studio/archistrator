@@ -1,0 +1,35 @@
+{
+ "route": "/project/archistrator/construction",
+ "title": "Construction console, loading",
+ "note": "The project read never answers: the console holds its loading state.",
+ "ops": {
+  "compositionGetUserinfo": {
+   "result": {
+    "kind": "user",
+    "sub": "dev-architect",
+    "preferred_username": "dev-architect",
+    "name": "Preview Architect",
+    "roles": [
+     "architect"
+    ]
+   }
+  },
+  "systemDesignGetProject": {
+   "pending": true
+  },
+  "systemDesignListProjects": {
+   "result": [
+    {
+     "ProjectID": "archistrator",
+     "Name": "Archistrator",
+     "Owner": "dev-architect",
+     "Phase": 2,
+     "PhaseName": "construction",
+     "CommittedCount": 16,
+     "TotalCount": 17,
+     "UpdatedAt": "2026-09-13T15:38:00Z"
+    }
+   ]
+  }
+ }
+}
