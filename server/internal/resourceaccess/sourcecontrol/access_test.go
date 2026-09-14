@@ -1603,7 +1603,9 @@ func TestReferencesGoTestGateAndStatePath(t *testing.T) {
 	// the DESIGN workflow (the seated go.mod/aiarch_method_test.go scaffold remains
 	// for the product repo's own CI), and the long-removed aiarch-validate container
 	// must stay gone.
-	if !strings.Contains(body, "${{ steps.statemcp.outputs.bin }} validate") {
+	// The binary's path reaches the script through env (the design workflow's
+	// script-injection posture: no `${{ }}` inside a run: body).
+	if !strings.Contains(body, `"${MCP_BIN}" validate`) || !strings.Contains(body, "MCP_BIN: ${{ steps.statemcp.outputs.bin }}") {
 		t.Error("workflow's required check must run the pinned binary's `validate` subcommand")
 	}
 	// SLOT-SCOPED severity: the validate step threads the job's ambient artifact —

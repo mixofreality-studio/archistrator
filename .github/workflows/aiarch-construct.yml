@@ -66,7 +66,7 @@ on:
       # The operator's steer for THIS attempt (a send-back, retry or re-queue note).
       # Free text: it is never validated as an id and never reaches a script, the
       # prompt or an output — only the aiarch-state MCP server's env, which serves it
-      # to the agent (system-prompt instructions + the get_operator_notes tool). The
+      # to the agent (system-prompt instructions + the getOperatorNotes tool). The
       # dispatching server omits it when no note is pending.
       operator_note:
         description: "operator steer for this attempt, delivered to the agent through the aiarch-state MCP server, never the prompt (readers of this repo can see it in the run's inputs)"
@@ -116,7 +116,10 @@ jobs:
             case "$1" in *$'\n'*) return 1 ;; esac
             printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
           }
-          id_re='[A-Za-z0-9][A-Za-z0-9._:/-]{0,127}'
+          # An id starts with a letter or digit, and a dot may only come directly
+          # before a non-dot id character, so `..` is refused anywhere (and so is a
+          # trailing dot).
+          id_re='[A-Za-z0-9]([.]?[A-Za-z0-9_:/-]){0,127}'
           command_re='[a-z0-9][a-z0-9-]{0,63}'
           ok=1
           if ! valid "${ACTIVITY_ID}" "${id_re}"; then
@@ -154,7 +157,7 @@ jobs:
       # SAME rail the DESIGN workflow wires (aiarch-design.yml.tmpl). It runs in the
       # CONSTRUCT job mode (component/activity ambient context), exposing the composed
       # construction verbs (recordServiceContract/recordPhaseArtifact/recordTestingState +
-      # publishDraft, and get_operator_notes) plus the non-hidden read-only + Engine raw
+      # publishDraft, and getOperatorNotes) plus the non-hidden read-only + Engine raw
       # generated tools the per-mode set exposes — so a construction agent records its
       # phase artifact through validated tools instead of hand-editing project.json.
       #

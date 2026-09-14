@@ -150,6 +150,7 @@ require (
 tool github.com/alecthomas/go-check-sumtype/cmd/go-check-sumtype
 
 // NOT FOR RELEASE (B1 phase 2): builds against the UNRELEASED method-assets on the
-// local platform branch b1-operator-notes. The release replaces this whole block with
+// local platform branch b1-operator-notes (verified at 8661f09e, which merges platform
+// main 14bf6743). The release replaces this whole block with
 // `require .../method-assets v0.8.0` (see b1-phase2-report.md, RELEASE CHECKLIST).
 replace github.com/mixofreality-studio/archistrator-platform/method-assets => /private/tmp/claude-501/-Users-davidmarne-mixofrealitystudio-archistrator/908b515e-f017-4f7e-931f-e828bbdef72e/scratchpad/plat-wt/method-assets
