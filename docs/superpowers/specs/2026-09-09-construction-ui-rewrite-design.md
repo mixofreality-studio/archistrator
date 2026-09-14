@@ -313,7 +313,7 @@ do not touch `awaitPhaseDecision`); `ArtifactRef` (defer, then delete — supers
 > AttemptID. On the GitHub venue the same change id also syncs the managed scaffold before every
 > dispatch, so every repo is re-seated automatically and a note never rides into a construct
 > workflow that would reject it. The note reaches the agent through the aiarch-state MCP server on
-> both substrates (server instructions plus the `get_operator_notes` tool), never the prompt; the
+> both substrates (server instructions plus the `getOperatorNotes` tool), never the prompt; the
 > construct workflow expands no `${{ }}` inside any `run:` body and builds its MCP config with `jq`.
 >
 > Gate-verdict persistence (Approve notes, reviewer verdicts on the ledger) stays DEFERRED.

@@ -69,7 +69,7 @@ const (
 	// pending: the local executor puts it in the rig map, the GitHub workflow builds it
 	// into the MCP config with jq from the operator_note input. It is read VERBATIM
 	// and served two ways in construct mode: as the server's instructions (the
-	// agent's system prompt) and through the get_operator_notes tool. It never rides
+	// agent's system prompt) and through the getOperatorNotes tool. It never rides
 	// the prompt, whose positional slash-command arguments it would corrupt.
 	envOperatorNote = "AIARCH_OPERATOR_NOTE"
 )
