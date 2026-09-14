@@ -88,7 +88,7 @@ function rewriteRefs(node) {
 }
 
 function resultSchema(doc, opId, binding) {
-  if (binding.tool === null) return COMPOSITION_ROUTES[opId].result;
+  if (Object.hasOwn(COMPOSITION_ROUTES, opId)) return COMPOSITION_ROUTES[opId].result;
   const operation = doc.paths[binding.path][binding.method.toLowerCase()];
   const schema = operation.responses?.['200']?.content?.['application/json']?.schema;
   // A void op (204) has no body; its fixture's `result` is never read, so any value passes.

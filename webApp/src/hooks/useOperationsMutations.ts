@@ -20,8 +20,8 @@
  * button to wire.
  */
 import { useMutation, useQueryClient, type UseMutationResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpBody, OpResult } from '../api/opTypes';
 import type { components } from '../contracts/schema';
 import { REASON_DEPLOY_AFTER_CONSTRUCTION, PATCH_FULL_BUNDLE } from '../contracts/wire';
 import type { DeployResult, WithdrawResult } from '../contracts/operationsTypes';
@@ -50,16 +50,18 @@ export function useOperationAction(
   operatedAppId: string
 ): UseMutationResult<DeployResult, Error, OperationActionKind> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<DeployResult, Error, OperationActionKind>({
     mutationFn: async (kind) => {
-      const result = await apiClient.POST(
-        '/api/v1/operations/deploy-after-construction/{operatedAppID}',
+      const data = await ops.callForBody<OpResult<'operationsDeployAfterConstruction'>>(
+        'operationsDeployAfterConstruction',
         {
-          params: { path: { operatedAppID: operatedAppId } },
-          body: { change: changeFor(kind, crypto.randomUUID()) },
+          path: { operatedAppID: operatedAppId },
+          body: {
+            change: changeFor(kind, crypto.randomUUID()),
+          } satisfies OpBody<'operationsDeployAfterConstruction'>,
         }
       );
-      const data = bodyUnlessError(result);
       return {
         operatedAppId,
         published: data.published,
@@ -81,13 +83,19 @@ export function useWithdrawOperatedApp(
   operatedAppId: string
 ): UseMutationResult<WithdrawResult, Error, WithdrawVars> {
   const client = useQueryClient();
+  const { ops } = useOpsClient();
   return useMutation<WithdrawResult, Error, WithdrawVars>({
     mutationFn: async (vars) => {
-      const result = await apiClient.POST('/api/v1/operations/withdraw-system/{operatedAppID}', {
-        params: { path: { operatedAppID: operatedAppId } },
-        body: { changeID: crypto.randomUUID(), reason: { notes: vars.reason ?? '' } },
-      });
-      const data = bodyUnlessError(result);
+      const data = await ops.callForBody<OpResult<'operationsWithdrawSystem'>>(
+        'operationsWithdrawSystem',
+        {
+          path: { operatedAppID: operatedAppId },
+          body: {
+            changeID: crypto.randomUUID(),
+            reason: { notes: vars.reason ?? '' },
+          } satisfies OpBody<'operationsWithdrawSystem'>,
+        }
+      );
       return { operatedAppId, withdrawn: data.withdrawn };
     },
     onSuccess: () => client.invalidateQueries({ queryKey: operationsViewKey(operatedAppId) }),

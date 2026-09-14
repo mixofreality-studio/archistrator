@@ -13,6 +13,7 @@
  */
 import { useCallback } from 'react';
 import { useQueries, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
+import { useOpsClient } from '../api/opsContext';
 import type { ConstructionSessionState } from '../contracts/types';
 import { constructionSessionKey, sessionQueryOptions } from './useConstructionSession';
 import {
@@ -39,6 +40,7 @@ export function useConstructionSessions(
   activityIds: readonly string[]
 ): SessionProbes & { retryErrored: () => void } {
   const queryClient = useQueryClient();
+  const { ops } = useOpsClient();
   // `combine` re-runs whenever its reference changes, so it is keyed on the id
   // LIST's content: the route rebuilds the array on every 1.5s poll, and a fresh
   // reference each time would hand the owed-set derivation a new record per render.
@@ -56,7 +58,7 @@ export function useConstructionSessions(
   );
   const probes = useQueries({
     queries: activityIds.map((id) =>
-      sessionQueryOptions(queryClient, projectId, id, true, TASKS_FRESHNESS_MS)
+      sessionQueryOptions(queryClient, ops, projectId, id, true, TASKS_FRESHNESS_MS)
     ),
     combine,
   });

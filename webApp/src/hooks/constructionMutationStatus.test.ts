@@ -7,9 +7,14 @@
  * `error !== undefined` counted those as success. The Begin dispatch is pinned
  * end to end (construction-begin-confirm.spec, I2). The other four (pause,
  * override, phase decision, the review-policy preset) have no browser flow that
- * reaches them today, so this reads the hook's source and requires one
- * throwUnlessOk per POST. (The per-type review-policy write went with PolicyPanel,
- * its only caller, in the cleanup round.)
+ * reaches them today, so this reads the hook's source.
+ *
+ * Since preview P1b every one rides the OpsClient (`ops.call`), whose REST
+ * transport applies throwUnlessOk to every answer (ops.test.ts pins that). So
+ * this requires each of the five construction ops to be called through
+ * `ops.call` exactly once, and nothing to hold a raw response it could misread.
+ * (The per-type review-policy write went with PolicyPanel, its only caller, in
+ * the cleanup round.)
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,10 +22,22 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('./useConstructionMutations.ts', import.meta.url), 'utf8');
 
-void test('one throwUnlessOk per construction POST, and no success decided from the parsed body', () => {
-  const posts = source.match(/apiClient\.POST\(/g)?.length ?? 0;
-  const guarded = source.match(/throwUnlessOk\(response, error\);/g)?.length ?? 0;
-  assert.equal(posts, 5, 'the five construction mutations');
-  assert.equal(guarded, posts, 'every POST checks its status');
+const CONSTRUCTION_OPS = [
+  'constructionExecuteNextActivity',
+  'constructionPauseProject',
+  'constructionOverrideActivity',
+  'constructionSubmitPhaseDecision',
+  'constructionSetReviewPolicy',
+] as const;
+
+void test('each construction mutation goes through ops.call, whose transport checks the status', () => {
+  // A type argument may nest (`ops.call<OpResult<'…'> | undefined>(`), so it is
+  // matched lazily up to the `>(` that opens the call.
+  const calls = [...source.matchAll(/\bops\.call(?:<[\s\S]*?>)?\(\s*'([A-Za-z]+)'/g)].map(
+    (m) => m[1]
+  );
+  assert.deepEqual([...calls].sort(), [...CONSTRUCTION_OPS].sort(), 'the five construction ops');
+  assert.doesNotMatch(source, /\bapiClient\b/, 'no raw client');
+  assert.doesNotMatch(source, /\bresponse\b\s*[,}]/, 'no raw response destructured');
   assert.doesNotMatch(source, /error !== undefined/);
 });

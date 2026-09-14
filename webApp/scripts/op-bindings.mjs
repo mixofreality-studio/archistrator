@@ -5,11 +5,20 @@
  * implementation, so a fixture can never name an op the transport cannot bind.
  *
  * Every server OAS path has the mechanical shape
- * `/api/v1/<mgr>/<op>[/{param}...]`; opId = camel(mgr) + Pascal(op), which is
- * also the server's MCP tool name. The hand-declared composition routes
- * (composition-routes.mjs) are bound beside them with `tool: null`.
+ * `/api/v1/<mgr>/<op>[/{param}...]`; opId = camel(mgr) + Pascal(op).
+ *
+ * The MCP tool is named the way the SERVER names it (mcpemit:
+ * `toolName := mgrPrefix + op.Name`): camel(mgr) + the OAS operationId. That is
+ * the opId for every op but two: `/project-design/request-sdp-commit` is tool
+ * `projectDesignRequestSDPCommit`, not `…RequestSdpCommit` (preview P1b). An op
+ * the server registers no tool for (mcp-tools.mjs) is bound `tool: null`, so the
+ * MCP transport refuses it loudly.
+ *
+ * The hand-declared composition routes (composition-routes.mjs) are bound beside
+ * them with `tool: null` and `composition: true`.
  */
 import { COMPOSITION_ROUTES } from './composition-routes.mjs';
+import { loadMcpTools } from './mcp-tools.mjs';
 
 // openapi-fetch's client exposes one method per HTTP verb (GET/POST/PUT/PATCH/
 // DELETE); the server OAS currently only uses GET and POST, but all five are
@@ -40,8 +49,10 @@ function sortedByOpId(bindings) {
  * Derive the {method, path, tool} binding for every operation in the OAS.
  * opId = camel(mgr) + Pascal(op); duplicate opIds (a derivation collision)
  * abort the build rather than silently overwriting one binding with another.
+ * `tool` is camel(mgr) + operationId when `mcpTools` (the server's registered
+ * tool names) has it, and null when it does not.
  */
-export function deriveBindings(doc) {
+export function deriveBindings(doc, mcpTools) {
   const paths = doc.paths ?? {};
   const bindings = {};
   for (const [pathTemplate, methods] of Object.entries(paths)) {
@@ -62,7 +73,16 @@ export function deriveBindings(doc) {
             'mgr/op derivation collided with an earlier binding'
         );
       }
-      bindings[opId] = { method: method.toUpperCase(), path: pathTemplate, tool: opId };
+      const operationId = methods[method].operationId;
+      if (typeof operationId !== 'string' || operationId.length === 0) {
+        throw new Error(`gen-ops: ${method.toUpperCase()} ${pathTemplate} has no operationId`);
+      }
+      const tool = camelCase(mgr) + operationId;
+      bindings[opId] = {
+        method: method.toUpperCase(),
+        path: pathTemplate,
+        tool: mcpTools.has(tool) ? tool : null,
+      };
     }
   }
   // Sort by opId so the emitted table's order is stable across regenerations
@@ -72,8 +92,10 @@ export function deriveBindings(doc) {
 
 /**
  * Bind the hand-declared composition routes beside the OAS ops. `tool: null`
- * marks a route with no MCP tool. A composition opId that collides with a
- * derived one aborts the build, as a derived collision does.
+ * marks a route with no MCP tool; `composition: true` marks it as mounted by the
+ * Go composition root (the REST transport sends it `Accept: application/json`).
+ * A composition opId that collides with a derived one aborts the build, as a
+ * derived collision does.
  */
 export function withCompositionRoutes(bindings) {
   const merged = { ...bindings };
@@ -81,12 +103,15 @@ export function withCompositionRoutes(bindings) {
     if (opId in merged) {
       throw new Error(`gen-ops: composition route "${opId}" collides with a derived OAS binding`);
     }
-    merged[opId] = { method: route.method, path: route.path, tool: null };
+    merged[opId] = { method: route.method, path: route.path, tool: null, composition: true };
   }
   return sortedByOpId(merged);
 }
 
-/** Every binding the OpsClient carries: the OAS ops plus the composition routes. */
-export function opBindings(doc) {
-  return withCompositionRoutes(deriveBindings(doc));
+/**
+ * Every binding the OpsClient carries: the OAS ops plus the composition routes.
+ * `mcpTools` defaults to the server's registered tools (mcp-tools.mjs).
+ */
+export function opBindings(doc, mcpTools = loadMcpTools()) {
+  return withCompositionRoutes(deriveBindings(doc, mcpTools));
 }

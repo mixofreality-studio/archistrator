@@ -7,8 +7,9 @@
  * awaiting state.
  */
 import { useQuery, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { ApiError, bodyUnlessError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpResult } from '../api/opTypes';
+import { ApiError } from '../contracts/errors';
 import { mapOperationsView } from '../contracts/wire';
 import type { OperationsView } from '../contracts/operationsTypes';
 
@@ -23,19 +24,17 @@ export function useOperationsView(
   operatedAppId: string,
   enabled = true
 ): UseQueryResult<OperationsView> {
+  const { ops } = useOpsClient();
   return useQuery<OperationsView>({
     queryKey: operationsViewKey(operatedAppId),
     queryFn: async () => {
-      const result = await apiClient.GET(
-        '/api/v1/operations/query-operated-system-view/{operatedAppID}',
+      const data = await ops.callForBody<OpResult<'operationsQueryOperatedSystemView'>>(
+        'operationsQueryOperatedSystemView',
         {
-          params: {
-            path: { operatedAppID: operatedAppId },
-            query: { requestID: crypto.randomUUID() },
-          },
+          path: { operatedAppID: operatedAppId },
+          query: { requestID: crypto.randomUUID() },
         }
       );
-      const data = bodyUnlessError(result);
       return mapOperationsView(data);
     },
     enabled: enabled && operatedAppId.length > 0,

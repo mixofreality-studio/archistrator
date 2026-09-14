@@ -146,6 +146,103 @@ test.describe('preview shell: the real app over fixtures', () => {
   });
 });
 
+/**
+ * Preview P1b: the construction hooks that used to call apiClient directly (the
+ * session probe, Begin, the phase decision) now ride the OpsClient, so the
+ * preview answers them from fixtures instead of the network guard refusing them.
+ * Each case below is a state P1 could not show.
+ */
+test.describe('preview shell: the construction detail, Begin and the owed gate (P1b)', () => {
+  const GATE = 'C-billing-state-access';
+
+  test('construction · service-pane: the real pane shows the service contract and the live session', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'construction', 'service-pane');
+    const pane = page.getByTestId(TESTID.constructionDetailPane);
+    await expect(pane).toBeVisible();
+    // The session fixture (awaiting approval) reached the pane through the
+    // migrated session probe: that is what makes the gate "awaiting you".
+    await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/awaiting you/i);
+    const contract = pane.getByTestId(TESTID.serviceContractRoot);
+    await expect(contract).toBeVisible();
+    await expect(contract).toContainText('billingStateAccess');
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('construction · service-pane: Approve runs the real mutation over the fixture transport; its 409 reads "Rejected"', async ({
+    page,
+  }) => {
+    const data = fixture('construction', 'service-pane');
+    expect(data.ops['constructionSubmitPhaseDecision']?.error?.message).toBeTruthy();
+    const offBundle = await openState(page, 'construction', 'service-pane');
+    await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
+    // A 4xx is a rejection (the same mapping construction-tasks-lens.spec pins on REST).
+    await expect(page.getByTestId(TESTID.constructionDetailDecisionFlow)).toContainText('Rejected');
+    // The fixture answered it: not a miss, not a blocked request, nothing sent.
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('construction · begin-confirm: Begin opens the real confirm; Cancel closes it and dispatches nothing', async ({
+    page,
+  }) => {
+    const data = fixture('construction', 'begin-confirm');
+    // A dispatch from this state must be LOUD: execute-next-activity has no fixture.
+    expect(data.ops['constructionExecuteNextActivity']).toBeUndefined();
+    const project = data.ops['systemDesignGetProject']?.result as {
+      ActivityConstruction: Record<string, { ActivityID: string; recorded: boolean }>;
+    };
+    const unrecorded = Object.values(project.ActivityConstruction)
+      .filter((r) => !r.recorded)
+      .map((r) => r.ActivityID)
+      .sort();
+    expect(unrecorded.length).toBeGreaterThan(0);
+
+    const offBundle = await openState(page, 'construction', 'begin-confirm');
+    const begin = page.getByTestId(TESTID.constructionBegin);
+    await expect(begin).toHaveText(/Begin construction/);
+    await expect(begin).toBeEnabled();
+    await begin.click();
+    const dialog = page.getByTestId(TESTID.constructionBeginConfirm);
+    await expect(dialog).toBeVisible();
+    for (const id of unrecorded) {
+      await expect(page.getByTestId(TESTID.constructionBeginCandidate(id))).toBeVisible();
+    }
+    await expect(dialog.getByTestId(/^construction-begin-candidate-/)).toHaveCount(
+      unrecorded.length
+    );
+
+    await page.getByTestId(TESTID.constructionBeginConfirmCancel).click();
+    await expect(dialog).toBeHidden();
+    await expect(begin).toHaveText(/Begin construction/);
+    await page.waitForTimeout(300);
+    // Nothing dispatched: a dispatch would have been a fixture miss.
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('construction · owed-gate: the real TASKS lens owes exactly the fixture gate', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'construction', 'owed-gate');
+    await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible();
+    const row = page.getByTestId(TESTID.constructionTasksRow(`${GATE}:gate`));
+    await expect(row).toBeVisible();
+    await expect(row).toContainText('Design Review');
+    // The reviewers come from the session fixture, through the migrated probe.
+    await expect(row).toContainText('system-architect');
+    await expect(page.getByTestId(TESTID.constructionTasksHeadline)).toContainText('1 decision');
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+});
+
 test.describe('preview shell: loud failures and closed doors', () => {
   test('an unfixtured call fails LOUDLY: the alarm names the op', async ({ page }) => {
     const errors: string[] = [];

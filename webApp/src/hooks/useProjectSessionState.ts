@@ -5,8 +5,8 @@
  * Phase-2 TWIN of useSessionState.ts.
  */
 import { useQuery, useQueryClient, type UseQueryResult } from '@tanstack/react-query';
-import { apiClient } from '../api/client';
-import { bodyUnlessError } from '../contracts/errors';
+import { useOpsClient } from '../api/opsContext';
+import type { OpResult } from '../api/opTypes';
 import { artifactKindToOrdinal, mapProjectSessionState } from '../contracts/wire';
 import { PROJECT_TERMINAL_STAGES } from '../contracts/types';
 import type { ProjectArtifactKind, ProjectSessionState } from '../contracts/types';
@@ -33,18 +33,19 @@ export function useProjectSessionState(
   enabled: boolean
 ): UseQueryResult<ProjectSessionState | null> {
   const queryClient = useQueryClient();
+  const { ops } = useOpsClient();
   const key = projectSessionStateKey(projectId, kind);
   return useQuery<ProjectSessionState | null>({
     queryKey: key,
     queryFn: sessionProbeQueryFn<ProjectSessionState>({
       fetch: async () => {
-        const result = await apiClient.GET('/api/v1/project-design/get-session-state/{projectID}', {
-          params: {
+        const data = await ops.callForBody<OpResult<'projectDesignGetSessionState'>>(
+          'projectDesignGetSessionState',
+          {
             path: { projectID: projectId },
             query: { kind: artifactKindToOrdinal(kind) },
-          },
-        });
-        const data = bodyUnlessError(result);
+          }
+        );
         return mapProjectSessionState(data);
       },
       getCached: () => queryClient.getQueryData<ProjectSessionState | null>(key),
