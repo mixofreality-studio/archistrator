@@ -481,8 +481,16 @@ test('owed rows come from the live stage, risk floor first; a running in-review 
   );
   // No PR is recorded, so there is no GitHub link — never a dead one.
   await expect(page.getByTestId(TESTID.constructionTasksGitHub(GATE_KEY))).toHaveCount(0);
+  // The shape reads the activity's contract through the contract join
+  // (componentId → contractKey): billingStateAccess commits 6 ops.
+  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'shape'))).toHaveText(
+    'Contract · 6 ops'
+  );
   // An unknown shape says nothing before "no CI record": no "—" token (designer P2).
-  await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'shape'))).toHaveCount(0);
+  // design-health-engine commits no contract, so its row carries no shape at all.
+  await expect(
+    page.getByTestId(TESTID.constructionTasksCell(`${TAKEOVER}:takeover`, 'shape'))
+  ).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionTasksCell(GATE_KEY, 'ci'))).toHaveText(
     'no CI record'
   );
