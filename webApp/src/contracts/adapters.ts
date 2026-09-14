@@ -436,6 +436,24 @@ export function listDynamicViewsForComponent(
 }
 
 /**
+ * The use-case ids whose dynamic view calls `componentId` — the join a system
+ * test scenario's `useCase` is matched against to say which scenarios reach a
+ * component through its callers. Distinct, in view order; empty when absent.
+ */
+export function dynamicViewUseCaseIds(
+  envelope: ArtifactModelEnvelope | undefined,
+  componentId: string
+): string[] {
+  const model = narrow(envelope, 'system');
+  if (model === undefined || componentId.length === 0) return [];
+  const ids: string[] = [];
+  for (const v of model.dynamicViews ?? []) {
+    if (viewCallsComponent(v, componentId) && !ids.includes(v.useCaseId)) ids.push(v.useCaseId);
+  }
+  return ids;
+}
+
+/**
  * Resolves the System dynamic view that renders the given use case's call chain
  * (every dynamic view carries a useCaseId back-link). Returns the FIRST keyed
  * matching view's key — the ?view= deep-link target on the Architecture step —

@@ -97,6 +97,7 @@ export function C4Node({ data, selected }: NodeProps): ReactNode {
   // reachable via the hover-focus card below, per the house diagram convention.
   const card = (
     <Box
+      data-testid={UI_IDENTIFIERS.Architecture.c4Node(d.componentId)}
       sx={{
         width: 188,
         px: 1.5,

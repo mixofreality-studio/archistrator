@@ -35,7 +35,7 @@ import PlayArrowRoundedIcon from '@mui/icons-material/PlayArrowRounded';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 
 import type { ProjectArtifactModelEnvelope, ProjectStateWithGit } from '../contracts/types';
-import { slotStageFromOrdinal } from '../contracts/adapters';
+import { slotStageFromOrdinal, toC4View } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { projectKey, useProject } from '../hooks/useProject';
 import { useReadRequestedAt } from '../hooks/readRequestTimes';
@@ -77,7 +77,7 @@ import { owedMarksFor } from '../components/construction/tasks/owedChip';
 import { waitingActivityIds } from '../components/construction/list/pendingResume';
 import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { computeActivityStatuses } from '../contracts/constructionAdapters';
-import { contractForActivity } from '../contracts/serviceContracts';
+import { contractJoinFor } from '../contracts/serviceContracts';
 import { gitFor } from '../contracts/types';
 import {
   phaseDecisionFilters,
@@ -441,6 +441,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const activityListModel = useMemo(
     () => narrowProject(activityEnvelope, 'activityList'),
     [activityEnvelope]
+  );
+  // The contract join's inputs (contracts/serviceContracts.ts): the activity
+  // list's componentId → the system slot component's contractKey → the contract.
+  const contractJoinInput = useMemo(
+    () => ({
+      activities: activityListModel?.activities ?? undefined,
+      components: toC4View(paneSystemEnvelope).components,
+      contracts: project?.serviceContracts,
+    }),
+    [activityListModel, paneSystemEnvelope, project?.serviceContracts]
   );
   const titleForId = useMemo((): ((id: string) => string | undefined) => {
     const items = activityListModel?.activities ?? [];
@@ -885,7 +895,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   };
 
   const shapeOf = (item: RankedOwed): string => {
-    const contract = contractForActivity(project, item.activityId);
+    const join = contractJoinFor(contractJoinInput, item.activityId);
+    const contract = join.kind === 'contract' ? join.contract : undefined;
     const scenarios = project?.testingState?.systemTestPlan?.scenarios?.length;
     const isPlan = viewRows?.[item.activityId]?.variant === 'plan';
     return shapeFor(item.kind, {
@@ -967,6 +978,9 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const detailPane =
     selectedActivityId !== null ? (
       <DetailPane
+        // The committed activity list — the first hop of the contract join
+        // (activity → componentId → contractKey → contract).
+        activities={activityListModel?.activities ?? undefined}
         activityTitle={titleForId(selectedActivityId)}
         // The pane is in the pure `components` layer and may not reach into
         // hooks, so the EPISODE body's queries are handed down from here as a

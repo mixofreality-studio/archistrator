@@ -33,7 +33,7 @@
  * pulls `toWire()` into the phase-decision feedback — so this is a matter of
  * arming the right anchors, not of building a pipe.
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Tooltip from '@mui/material/Tooltip';
 import Typography from '@mui/material/Typography';
@@ -56,9 +56,19 @@ import {
 export interface ReviewBodyProps extends ArtifactBodyProps {
   /** The live reviewEngine set, when this activity is the one at a phase gate. */
   reviewSet?: ConstructionReviewSet | undefined;
+  /**
+   * The placed committed artifact (artifactPlacement.ts) — the SAME one the
+   * artifact body shows at this selection — above the verdict. Absent, the
+   * classification renderer dispatch answers as before.
+   */
+  artifactSlot?: ReactNode;
 }
 
-export function ReviewBody({ reviewSet, ...artifact }: ReviewBodyProps): ReactElement {
+export function ReviewBody({
+  reviewSet,
+  artifactSlot,
+  ...artifact
+}: ReviewBodyProps): ReactElement {
   const t = useTokens();
   const verdict = reviewVerdictFor(artifact.row, reviewSet);
   const activityId = artifact.row?.activityId ?? '—';
@@ -68,7 +78,7 @@ export function ReviewBody({ reviewSet, ...artifact }: ReviewBodyProps): ReactEl
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_BODY_REVIEW}
       sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, minWidth: 0 }}
     >
-      <ArtifactRender {...artifact} />
+      {artifactSlot ?? <ArtifactRender {...artifact} />}
 
       <Box
         data-testid={UI_IDENTIFIERS.Construction.DETAIL_VERDICT}

@@ -1,20 +1,22 @@
 /**
  * ServiceContractView — the 4-tab C4 navigator for a SERVICE activity's contract.
  *
- * Props: { contract: ServiceContract } — fed by real data from
- * contractForActivity() / contractForComponent().
+ * Props: the contract the activity → contract JOIN resolved (contracts/
+ * serviceContracts.ts: componentId → the component's contractKey), and that
+ * component's id.
  *
  * Structure:
- *   1. VolatilityCard  — stereotype banner + component name + FROZEN/IN-DESIGN chip + volatility text
- *   2. 4-tab ToggleButtonGroup  — Code / interface | Component view | Dynamic | Contract facets
+ *   1. VolatilityCard  — stereotype banner + component name + a status chip ONLY
+ *                        when the contract records one + volatility text
+ *   2. 4-tab ToggleButtonGroup  — Code | Component | Dynamic | Facets
  *   3. Active tab pane
- *   4. ContractRevisionHistory timeline
+ *   4. ContractRevisionHistory timeline, or one muted line when none is recorded
  *
  * Tabs:
- *   Code / interface   — ContractCodeFlow: «interface» box listing ops + stereotypes + notes
- *   Component view     — ContractComponentFlow: inbound above, focal centered, outbound below
- *   Dynamic            — honest note (per-op call-sequence data not in the contract)
- *   Contract facets    — ops table + dataContracts + errorModel + idempotency prose
+ *   Code       — ContractCodeFlow: «interface» box listing ops + stereotypes + notes
+ *   Component  — the committed architecture's relationships (PerspectiveFlow)
+ *   Dynamic    — the use-case dynamic views this component takes part in
+ *   Facets     — dataContracts + errorModel + idempotency prose + the ops table
  *
  * Honest-empty: omits tab content sections when their data is absent.
  */
@@ -45,10 +47,11 @@ import { listDynamicViewsForComponent, toC4View, toDynamicView } from '../../con
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { DynamicViewFlow } from '../flow/DynamicViewFlow';
 import { ContractCodeFlow } from './ContractCodeFlow';
-import { ContractComponentFlow } from './ContractComponentFlow';
+import { ComponentRelationshipsView } from './ComponentRelationshipsView';
 import { ContractRevisionHistory } from './ContractRevisionHistory';
+import { facetsEmptyCopy } from './serviceContractCopy.ts';
 
-type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
+export type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
 
 // ---------------------------------------------------------------------------
 // Layer accent helper
@@ -77,7 +80,10 @@ function layerColor(t: Tokens, layer: string): string {
 
 function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
   const lc = layerColor(t, c.layer);
-  const status = c.status ?? 'IN-DESIGN';
+  // No contract on the wire records a status. A default here used to paint an
+  // awaiting-coloured IN-DESIGN chip on all 29 — a claim nothing made. An absent
+  // or empty status renders no chip at all (designer §2.2, §5.8).
+  const status = c.status !== undefined && c.status.length > 0 ? c.status : undefined;
   return (
     <Paper sx={{ p: 0, overflow: 'hidden', borderTop: `4px solid ${lc}` }}>
       <Box sx={{ px: 2, py: 1.25, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${lc}` }}>
@@ -88,17 +94,20 @@ function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode 
             </Typography>
           ) : null}
           <Box sx={{ flexGrow: 1 }} />
-          <Chip
-            label={status}
-            size="small"
-            sx={{
-              height: 20,
-              fontSize: 9,
-              fontWeight: 700,
-              color: status === 'FROZEN' ? t.committedFg : t.awaitingFg,
-              bgcolor: status === 'FROZEN' ? t.committedBg : t.awaitingBg,
-            }}
-          />
+          {status !== undefined ? (
+            <Chip
+              data-testid={UI_IDENTIFIERS.ServiceContract.STATUS_CHIP}
+              label={status}
+              size="small"
+              sx={{
+                height: 20,
+                fontSize: 9,
+                fontWeight: 700,
+                color: status === 'FROZEN' ? t.committedFg : t.awaitingFg,
+                bgcolor: status === 'FROZEN' ? t.committedBg : t.awaitingBg,
+              }}
+            />
+          ) : null}
         </Box>
         <Typography
           sx={{
@@ -157,54 +166,48 @@ function CodePane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
   );
 }
 
-function ComponentPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
-  const inbound = c.inbound ?? [];
-  const outbound = c.outbound ?? [];
-  if (inbound.length === 0 && outbound.length === 0) {
+/**
+ * The Component tab: the architecture's own relationships (designer Q7), through
+ * the design page's PerspectiveFlow. The contract's `inbound`/`outbound` fields
+ * are empty for every committed contract, so they are no longer read (earmark E6).
+ */
+function ComponentPane({
+  componentId,
+  systemEnvelope,
+  onFocusComponent,
+  t,
+}: {
+  componentId: string | undefined;
+  systemEnvelope: ArtifactModelEnvelope | undefined;
+  onFocusComponent: ((componentId: string) => void) | undefined;
+  t: Tokens;
+}): ReactNode {
+  if (componentId === undefined) {
     return (
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
-        No inbound or outbound relationships defined in this contract.
+        This contract is not placed on a component of the committed architecture, so its
+        relationships cannot be drawn.
       </Typography>
     );
   }
   return (
-    <Box>
-      <Typography
-        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
-      >
-        Focal component centered; <b>inbound callers</b> connect from above, <b>outbound callees</b>{' '}
-        connect below. Built from the contract&apos;s own inbound/outbound fields — does not
-        cross-reference the system-design slot.
-      </Typography>
-      <ContractComponentFlow
-        component={c.component}
-        data-testid={UI_IDENTIFIERS.ServiceContract.COMPONENT_FLOW}
-        height={Math.max(300, 120 * (Math.max(inbound.length, outbound.length) + 2))}
-        inbound={inbound}
-        layer={c.layer}
-        outbound={outbound}
-        t={t}
-      />
-    </Box>
+    <ComponentRelationshipsView
+      componentId={componentId}
+      systemEnvelope={systemEnvelope}
+      onFocusComponent={onFocusComponent}
+    />
   );
 }
 
 function DynamicPane({
-  contract,
+  focalId,
   systemEnvelope,
   t,
 }: {
-  contract: ServiceContract;
+  focalId: string | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   t: Tokens;
 }): ReactNode {
-  // Resolve the component id (kebab-case) from the contract's camelCase component name.
-  const c4 = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
-  const focalId = useMemo(
-    () => resolveContractComponentId(contract.component, c4.components),
-    [contract.component, c4.components]
-  );
-
   // Find all dynamic views where this component participates.
   const matchingViews = useMemo(
     () => (focalId !== undefined ? listDynamicViewsForComponent(systemEnvelope, focalId) : []),
@@ -370,8 +373,11 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
           </Box>
         </Box>
       ) : (
-        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, fontStyle: 'italic' }}>
-          This contract declares no data/error/idempotency facets (Client layer).
+        <Typography
+          data-testid={UI_IDENTIFIERS.ServiceContract.FACETS_EMPTY}
+          sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, fontStyle: 'italic' }}
+        >
+          {facetsEmptyCopy(c.layer)}
         </Typography>
       )}
 
@@ -452,20 +458,47 @@ function FacetsPane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
 export function ServiceContractView({
   contract,
   systemEnvelope,
+  componentId,
+  view: controlledView,
+  onViewChange,
+  onFocusComponent,
 }: {
   contract: ServiceContract;
   systemEnvelope?: ArtifactModelEnvelope | undefined;
+  /**
+   * The slot-5 component id the contract JOIN placed it on (contracts/
+   * serviceContracts.ts). Preferred over a name-based resolution; absent, the
+   * Dynamic tab falls back to resolveContractComponentId.
+   */
+  componentId?: string | undefined;
+  /** Controlled tab (the pane holds it in the URL, `av`); uncontrolled when absent. */
+  view?: DiagramView | undefined;
+  onViewChange?: ((view: DiagramView) => void) | undefined;
+  /** The Component tab's neighbour click — moves the selection onto its activity. */
+  onFocusComponent?: ((componentId: string) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const c = contract;
   const ops = c.ops ?? [];
   const revisions = c.revisions ?? [];
 
-  const [view, setView] = useState<DiagramView>('code');
+  const [localView, setLocalView] = useState<DiagramView>('code');
+  const view = controlledView ?? localView;
+  const setView = (v: DiagramView): void => {
+    setLocalView(v);
+    onViewChange?.(v);
+  };
+
+  const c4 = useMemo(() => toC4View(systemEnvelope), [systemEnvelope]);
+  const focalId = useMemo(
+    () => componentId ?? resolveContractComponentId(c.component, c4.components),
+    [componentId, c.component, c4.components]
+  );
 
   return (
     <Box
       data-testid={UI_IDENTIFIERS.ServiceContract.ROOT}
+      data-view={view}
       sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
     >
       <VolatilityCard c={c} t={t} />
@@ -476,6 +509,7 @@ export function ServiceContractView({
           exclusive
           size="small"
           sx={{
+            flexWrap: 'wrap',
             '& .MuiToggleButton-root': {
               fontFamily: t.mono,
               fontSize: 11,
@@ -498,19 +532,19 @@ export function ServiceContractView({
           }}
         >
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_CODE} value="code">
-            <CodeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Code / interface
+            <CodeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Code
           </ToggleButton>
           <ToggleButton
             data-testid={UI_IDENTIFIERS.ServiceContract.TAB_COMPONENT}
             value="component"
           >
-            <AccountTreeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Component view
+            <AccountTreeIcon sx={{ fontSize: 15, mr: 0.6 }} /> Component
           </ToggleButton>
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_DYNAMIC} value="dynamic">
             <TimelineIcon sx={{ fontSize: 15, mr: 0.6 }} /> Dynamic
           </ToggleButton>
           <ToggleButton data-testid={UI_IDENTIFIERS.ServiceContract.TAB_FACETS} value="facets">
-            <ArticleOutlinedIcon sx={{ fontSize: 15, mr: 0.6 }} /> Contract facets
+            <ArticleOutlinedIcon sx={{ fontSize: 15, mr: 0.6 }} /> Facets
           </ToggleButton>
         </ToggleButtonGroup>
         <Box sx={{ flexGrow: 1 }} />
@@ -527,12 +561,30 @@ export function ServiceContractView({
 
       {/* active pane */}
       {view === 'code' && <CodePane c={c} t={t} />}
-      {view === 'component' && <ComponentPane c={c} t={t} />}
-      {view === 'dynamic' && <DynamicPane contract={c} systemEnvelope={systemEnvelope} t={t} />}
+      {view === 'component' && (
+        <ComponentPane
+          componentId={focalId}
+          systemEnvelope={systemEnvelope}
+          t={t}
+          onFocusComponent={onFocusComponent}
+        />
+      )}
+      {view === 'dynamic' && (
+        <DynamicPane focalId={focalId} systemEnvelope={systemEnvelope} t={t} />
+      )}
       {view === 'facets' && <FacetsPane c={c} t={t} />}
 
-      {/* revision history */}
-      <ContractRevisionHistory revisions={revisions} t={t} />
+      {/* revision history — with none recorded, one muted line, never an empty timeline */}
+      {revisions.length > 0 ? (
+        <ContractRevisionHistory revisions={revisions} t={t} />
+      ) : (
+        <Typography
+          data-testid={UI_IDENTIFIERS.ServiceContract.REVISION_HISTORY}
+          sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted }}
+        >
+          No revision history recorded.
+        </Typography>
+      )}
     </Box>
   );
 }

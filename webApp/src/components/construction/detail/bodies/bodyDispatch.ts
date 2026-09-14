@@ -85,12 +85,15 @@ export type ArtifactBodyKind =
  * lives rather than silently applying everywhere.
  */
 const ARTIFACT_PHASES: Record<ArtifactBodyKind, readonly LifecyclePhase[]> = {
-  // The frozen App-B contract is the Detailed Design phase's product.
-  service: ['detailed_design'],
+  // The service contract is placed by artifactPlacement.ts (the designer's
+  // per-phase table), which reads the contract JOIN rather than a phase alone:
+  // a missing contract and a contract by design need different bodies.
+  service: [],
   // A uiDesign activity's whole output is its Design Concept.
   uiDesign: ['detailed_design'],
-  // FrontendArtifactView renders BOTH the ui-design concept and the built ui-code.
-  frontend: ['detailed_design', 'construction'],
+  // FrontendArtifactView renders the built ui-code. The frontend's Detailed
+  // Design is its client contract, placed by artifactPlacement.ts.
+  frontend: ['construction'],
   // The STP is written in Plan Authoring and signed off in Plan Review.
   'testing:plan': ['construction', 'integration'],
   // SystemTestRunView renders the run: execution, then regression & sign-off.
@@ -221,12 +224,21 @@ export function detailBodyFor(
   row: ConstructionRow | undefined,
   selection: LensSelection,
   state: TaskDetailState,
-  project?: ProjectStateWithGit
+  project?: ProjectStateWithGit,
+  /**
+   * Whether artifactPlacement.ts placed a PRIMARY artifact here (a committed
+   * contract, its honest absence, the test plan body, the commit under review).
+   * A committed artifact outranks "no record" for every kind whose artifact
+   * resolves, exactly as the testing bypass below does — the contract is project
+   * state, not build evidence. Passed in rather than computed so this module
+   * stays free of the join's inputs.
+   */
+  primaryArtifact = false
 ): DetailBodyKind {
   if (absenceFor(row, selection) !== undefined) return 'absent';
 
   const testingArtifact = testingArtifactRendererKeyFor(row, selection, project);
-  if (testingArtifact !== undefined) {
+  if (testingArtifact !== undefined || primaryArtifact) {
     // A gate task still owes the review surface (artifact + verdict), exactly
     // as question 3 would decide for any other classification — this bypass
     // only removes question 2's block, it does not reorder question 3.
