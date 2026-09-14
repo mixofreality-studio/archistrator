@@ -8,6 +8,7 @@ import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import type { ProducedArtifactRow } from '../../../contracts/types';
 import type { Tokens } from '../../../utilities/theme/themes';
 import type { ArtifactRendererProps } from '../artifactRenderers';
+import { NO_SURFACES_LABEL, noSurfacesSentence } from './frontendSurfacesCopy.ts';
 
 /**
  * FrontendArtifactView — the renderer for FRONTEND (U-SPA*) activities.
@@ -48,10 +49,6 @@ function paragraphs(note: string): string[] {
     .map((s) => s.trim())
     .filter((s) => s.length > 0);
 }
-
-export const NO_SURFACES_LABEL = 'NO SURFACES RECORDED';
-export const NO_SURFACES_SENTENCE =
-  'This UI design records no surfaces, so there is nothing to preview. Surfaces are recorded with the UI design; the console does not guess routes.';
 
 function ConceptSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): ReactNode {
   const paras = paragraphs(art.note);
@@ -167,7 +164,24 @@ function PreviewSection({ art, t }: { art: ProducedArtifactRow; t: Tokens }): Re
 }
 
 export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNode {
-  const produced = vm.row.produced ?? [];
+  return <FrontendSurfaces componentId={undefined} produced={vm.row.produced ?? []} t={t} />;
+}
+
+/**
+ * The SPA's built surfaces from its produced records, or the §5.5 absence. The
+ * pane places this on the Construction task WHATEVER the attempt state (a Not
+ * started row included): no surface is recorded either way, and the empty state
+ * says so rather than an unknown body that never mentions surfaces.
+ */
+export function FrontendSurfaces({
+  produced,
+  componentId,
+  t,
+}: {
+  produced: readonly ProducedArtifactRow[];
+  componentId: string | undefined;
+  t: Tokens;
+}): ReactNode {
   const designs = produced.filter((a) => a.kind === 'ui-design');
   const codes = produced.filter((a) => a.kind === 'ui-code');
 
@@ -203,7 +217,7 @@ export function FrontendArtifactView({ vm, t }: ArtifactRendererProps): ReactNod
             {NO_SURFACES_LABEL}
           </Typography>
           <Typography sx={{ fontFamily: t.body, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
-            {NO_SURFACES_SENTENCE}
+            {noSurfacesSentence(componentId)}
           </Typography>
         </Box>
       ) : null}

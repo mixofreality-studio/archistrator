@@ -48,6 +48,8 @@ export function ComponentTestPlanBody({
   stpReconstructed,
   observedOnly,
   compact,
+  variant,
+  systemTestPlanId,
   onOpenSystemTestPlan,
   onOpenDynamic,
   onFocus,
@@ -60,7 +62,12 @@ export function ComponentTestPlanBody({
   observedOnly: boolean;
   /** Below 600px: no canvas — the direct scenarios collapse to a count. */
   compact: boolean;
-  onOpenSystemTestPlan?: (() => void) | undefined;
+  /** A service's own plan is scenarios; a client's (the SPA's Flows task) is flows. */
+  variant: 'service' | 'frontend';
+  /** The system test plan activity a reached-through row opens (N-STP). */
+  systemTestPlanId?: string | undefined;
+  /** Open the system test plan AT one scenario (the `sc` deep link, B2). */
+  onOpenSystemTestPlan?: ((scenarioId: string) => void) | undefined;
   /** Open the contract's Dynamic tab; absent when there is no contract to open. */
   onOpenDynamic?: (() => void) | undefined;
   onFocus?: (() => void) | undefined;
@@ -87,7 +94,7 @@ export function ComponentTestPlanBody({
     >
       <AbsenceStatement
         label={GAP_LABEL_NO_TEST_PLAN}
-        sentence={noTestPlanSentence(stpReconstructed)}
+        sentence={noTestPlanSentence(stpReconstructed, variant)}
         testId={UI_IDENTIFIERS.Construction.COMPONENT_TEST_PLAN_EMPTY}
         tone="gap"
       />
@@ -143,14 +150,25 @@ export function ComponentTestPlanBody({
                     {onOpenSystemTestPlan !== undefined ? (
                       <Link
                         component="button"
+                        data-scenario={row.scenario.id}
                         data-testid={UI_IDENTIFIERS.Construction.coverageReachedRow(
                           row.scenario.id
                         )}
                         sx={{ fontFamily: t.mono, fontSize: 11, color: t.ink, textAlign: 'left' }}
                         underline="hover"
-                        onClick={onOpenSystemTestPlan}
+                        onClick={() => {
+                          // THIS row's scenario, never the plan's first (B2).
+                          onOpenSystemTestPlan(row.scenario.id);
+                        }}
                       >
                         {reachedThroughLabel(row)}
+                        {/* Where the row goes, said at its end (polish 6). */}
+                        <Box
+                          component="span"
+                          sx={{ ml: 0.75, color: t.accent2, fontWeight: 700, whiteSpace: 'nowrap' }}
+                        >
+                          {`→ ${systemTestPlanId ?? 'the system test plan'}`}
+                        </Box>
                       </Link>
                     ) : (
                       <Typography

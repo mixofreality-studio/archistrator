@@ -582,6 +582,16 @@ export const UI_IDENTIFIERS = {
     // underneath. Driven by `&focus=1`.
     FOCUS_VIEW: 'construction-focus-view',
     FOCUS_CLOSE: 'construction-focus-close',
+    /** The focus region's heading — where focus lands on entry (polish 4). */
+    FOCUS_HEADING: 'construction-focus-heading',
+    /** The rail's own content under the header: the note, the sentence, the verdict. */
+    FOCUS_RAIL: 'construction-focus-rail',
+    /** The pane's body while the focus view is open: unmounted, one line instead. */
+    FOCUS_PLACEHOLDER: 'construction-focus-placeholder',
+    /** Code Review on a reconstructed (or unreviewed) attempt: one line, no CODE frame. */
+    CODE_REVIEW_NO_VIEW: 'construction-code-review-no-view',
+    /** The narrow scenario browser's case dropdown (more than 3 cases). */
+    CASE_PICKER: 'construction-case-picker',
   },
   // The GIT-FORWARD per-activity row cluster (U-SPA-GIT). The shared chrome the
   // construction tracker (and future CR/operations surfaces) render per
@@ -608,6 +618,21 @@ export const UI_IDENTIFIERS = {
     /** The status chip — rendered only when a contract records a status. */
     STATUS_CHIP: 'service-contract-status-chip',
     FACETS_EMPTY: 'service-contract-facets-empty',
+    // The Code tab below 900px (designer check B1): every op as an HTML row, 12px
+    // mono and wrapping, each expanding inline into its request / response / error
+    // tables. The canvas draws in the focus view only.
+    SIGNATURE_LIST: 'service-contract-signature-list',
+    opRow: (index: number) => `service-contract-op-${String(index)}`,
+    OP_SIGNATURE: 'service-contract-op-signature',
+    OP_STRUCTS: 'service-contract-op-structs',
+    /** "Open diagram in focus view" at the top of the list. */
+    OPEN_FOCUS: 'service-contract-open-focus',
+    /** The focus view's list form, when the window leaves no room for the canvas. */
+    CANVAS_NEEDS_ROOM: 'service-contract-canvas-needs-room',
+    /** The canvas itself (ContractCodeFlow), drawn in the focus view only. */
+    CODE_CANVAS: 'service-contract-code-canvas',
+    /** The utilities a component may reach, as one line in place of their nodes. */
+    UTILITIES_LINE: 'service-contract-utilities-line',
   },
   Operations: {
     ROOT: 'operations-console',

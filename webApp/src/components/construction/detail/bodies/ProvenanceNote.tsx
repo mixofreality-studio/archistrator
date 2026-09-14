@@ -56,6 +56,14 @@ export interface ProvenanceNoteProps {
   reading: ProvenanceReading;
   /** The selected attempt's evidence pointer; absent when no attempt exists. */
   evidence: EvidencePointer | undefined;
+  /**
+   * The pane above a committed artifact (designer check on renderers S1, B1):
+   * the note must not push the artifact below the fold. The grade and the one
+   * sentence stay in the open; the basis and the evidence fold into a disclosure
+   * — still in the DOM, one click away — and the focus view's rail carries the
+   * full note. Never dropped: the mark is the point of this component.
+   */
+  condensed?: boolean;
 }
 
 /**
@@ -67,19 +75,55 @@ export interface ProvenanceNoteProps {
  * about it), so a second block would restate it. Both return null: this note
  * exists to name the one grade a reader would otherwise mistake for fact.
  */
-export function ProvenanceNote({ reading, evidence }: ProvenanceNoteProps): ReactElement | null {
+export function ProvenanceNote({
+  reading,
+  evidence,
+  condensed = false,
+}: ProvenanceNoteProps): ReactElement | null {
   const t = useTokens();
   if (reading.origin !== 'backfilled' && reading.origin !== 'synthesized') return null;
 
+  const basisAndEvidence = (
+    <>
+      {reading.bases.length > 0 ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_BASIS}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}
+        >
+          {reading.bases.map((basis) => (
+            <Typography
+              key={basis}
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 10.5,
+                color: t.muted,
+                lineHeight: 1.5,
+                wordBreak: 'break-word',
+              }}
+            >
+              basis · {basis}
+            </Typography>
+          ))}
+        </Box>
+      ) : (
+        <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, lineHeight: 1.5 }}>
+          basis · none recorded on this attempt.
+        </Typography>
+      )}
+      <EvidenceLine evidence={evidence} t={t} />
+    </>
+  );
+
   return (
     <Box
+      data-condensed={condensed ? 'true' : undefined}
       data-provenance={reading.origin}
       data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_NOTE}
       sx={{
         display: 'flex',
         gap: 1.25,
-        mb: 1.5,
-        p: 1.25,
+        mb: condensed ? 1 : 1.5,
+        p: condensed ? 1 : 1.25,
         border: `1px solid ${t.line}`,
         borderRadius: `${String(t.radius)}px`,
         bgcolor: t.paperAlt,
@@ -110,38 +154,40 @@ export function ProvenanceNote({ reading, evidence }: ProvenanceNoteProps): Reac
           {`≈ ${GRADE_LABEL.reconstructed} · `}
           {provenanceSubGradeLabel(reading.origin).toUpperCase()}
         </Typography>
-        <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}>
-          This record was WRITTEN FROM the basis below, not observed. Its outcome is an assertion
-          about what the work must have been, not a report of what anyone watched happen.
-        </Typography>
-
-        {reading.bases.length > 0 ? (
-          <Box
-            data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_BASIS}
-            sx={{ display: 'flex', flexDirection: 'column', gap: 0.4 }}
-          >
-            {reading.bases.map((basis) => (
-              <Typography
-                key={basis}
+        {condensed ? (
+          <>
+            <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}>
+              Written from a basis, not observed.
+            </Typography>
+            <Box component="details" sx={{ minWidth: 0 }}>
+              <Box
+                component="summary"
                 sx={{
+                  cursor: 'pointer',
                   fontFamily: t.mono,
                   fontSize: 10.5,
+                  fontWeight: 700,
                   color: t.muted,
-                  lineHeight: 1.5,
-                  wordBreak: 'break-word',
+                  letterSpacing: '0.04em',
                 }}
               >
-                basis · {basis}
-              </Typography>
-            ))}
-          </Box>
+                Basis and evidence
+              </Box>
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.6, mt: 0.6 }}>
+                {basisAndEvidence}
+              </Box>
+            </Box>
+          </>
         ) : (
-          <Typography sx={{ fontFamily: t.mono, fontSize: 10.5, color: t.muted, lineHeight: 1.5 }}>
-            basis · none recorded on this attempt.
-          </Typography>
+          <>
+            <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}>
+              This record was WRITTEN FROM the basis below, not observed. Its outcome is an
+              assertion about what the work must have been, not a report of what anyone watched
+              happen.
+            </Typography>
+            {basisAndEvidence}
+          </>
         )}
-
-        <EvidenceLine evidence={evidence} t={t} />
       </Box>
     </Box>
   );

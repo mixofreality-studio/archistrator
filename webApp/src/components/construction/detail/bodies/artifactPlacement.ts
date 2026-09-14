@@ -49,6 +49,11 @@ export type Placement =
   | { kind: 'srsUnreadable' }
   /** Test Plan: the component's own plan (not recorded) + system test coverage. */
   | { kind: 'componentTestPlan' }
+  /**
+   * The SPA's Construction: its built surfaces, or NO SURFACES RECORDED — whatever
+   * the attempt state, a Not started row included (designer check, polish 8).
+   */
+  | { kind: 'frontendSurfaces' }
   /** Detailed Design where the committed data does not place the activity at all. */
   | { kind: 'contractUnresolved' };
 
@@ -61,6 +66,7 @@ const PRIMARY: ReadonlySet<PlacementKind> = new Set([
   'codeReview',
   'srsUnreadable',
   'componentTestPlan',
+  'frontendSurfaces',
   'contractUnresolved',
 ]);
 
@@ -120,8 +126,12 @@ export function placementFor(
     case 'test_plan':
       return join.kind === 'unresolved' ? NONE : { kind: 'componentTestPlan' };
     case 'construction':
-      // The frontend's construction body is its built-surface view (the SPA slice).
-      if (!service) return NONE;
+      // The frontend's Construction task (and the phase itself) is its built
+      // surfaces, said even when nothing has run; its review and client tests
+      // keep their ordinary bodies until the SPA slice.
+      if (!service) {
+        return task === undefined || task === 'construction' ? { kind: 'frontendSurfaces' } : NONE;
+      }
       if (task === 'codeReview') return { kind: 'codeReview' };
       return join.kind === 'contract'
         ? { kind: 'contractReference', line: REFERENCE_LINE_CONSTRUCTION }
@@ -181,7 +191,11 @@ export function focusTargetFor(
 ): FocusTarget | undefined {
   if (placement.kind === 'none' || join === undefined) return undefined;
   if (placement.kind === 'componentTestPlan') return 'testPlan';
-  if (placement.kind === 'srsUnreadable' || placement.kind === 'contractUnresolved')
+  if (
+    placement.kind === 'srsUnreadable' ||
+    placement.kind === 'contractUnresolved' ||
+    placement.kind === 'frontendSurfaces'
+  )
     return undefined;
   if (join.kind === 'contract') return 'contract';
   if (join.kind === 'missing' || join.kind === 'byDesign') return 'relationships';
@@ -199,12 +213,19 @@ export function focusRoleFor(placement: Placement, paneRole: ArtifactRole): Arti
 // The frame's role label (§1)
 // ---------------------------------------------------------------------------
 
-export type ArtifactRole = 'underReview' | 'committedNow' | 'reference';
+/**
+ * `reviewed` belongs to CODE alone: an observed Code Review attempt that is not
+ * owed now reviewed a commit, and says which (codeReviewFrameFor). Code is never
+ * COMMITTED NOW — there is no committed code artifact, only a commit an attempt
+ * pointed at.
+ */
+export type ArtifactRole = 'underReview' | 'committedNow' | 'reference' | 'reviewed';
 
 export const ROLE_LABEL: Record<ArtifactRole, string> = {
   underReview: 'UNDER REVIEW',
   committedNow: 'COMMITTED NOW',
   reference: 'REFERENCE',
+  reviewed: 'REVIEWED',
 };
 
 /**
@@ -273,6 +294,54 @@ export function reconstructedArtifactNote(scope: 'task' | 'wider', revisionCount
   return `The contract below is the one committed today. ${link}, ${history}.`;
 }
 
+// ---------------------------------------------------------------------------
+// Code Review's CODE block (designer check on renderers S1, B3)
+// ---------------------------------------------------------------------------
+
+/**
+ * What Code Review may say about the code:
+ *   - a RECONSTRUCTED attempt (or none, with nothing owed) reviewed nothing
+ *     anyone watched: no CODE frame at all, one line — "No code view in this
+ *     stage." A frame there claimed a review of a commit nobody reviewed;
+ *   - OWED NOW on an observed attempt (or before any attempt): UNDER REVIEW;
+ *   - OBSERVED and not owed: REVIEWED, sourced to the commit and the attempt,
+ *     `evidence · git <sha> · attempt N`.
+ * Never COMMITTED NOW: code is not committed project state here, a commit is
+ * evidence an attempt pointed at.
+ */
+export type CodeReviewFrame =
+  | { kind: 'noCodeView' }
+  | {
+      kind: 'frame';
+      role: 'underReview' | 'reviewed';
+      source: string;
+      /** The commit, in mono; undefined when the attempt recorded none. */
+      commit: string | undefined;
+    };
+
+export function codeReviewFrameFor(args: {
+  /** The selected Code Review attempt's origin; undefined when none is recorded. */
+  origin: RecordOriginRow | undefined;
+  /** The gate is owed now — the live workflow stands at it. */
+  owedNow: boolean;
+  evidence: { kind: string; ref: string } | undefined;
+  /** The selected attempt's 1-based number; undefined when none is recorded. */
+  attempt: number | undefined;
+}): CodeReviewFrame {
+  const reconstructed = args.origin === 'backfilled' || args.origin === 'synthesized';
+  if (reconstructed) return { kind: 'noCodeView' };
+  const observed = args.origin === 'observed';
+  if (!args.owedNow && !observed) return { kind: 'noCodeView' };
+  const ev = args.evidence;
+  const commit = ev !== undefined && ev.kind.length > 0 && ev.ref.length > 0 ? ev.ref : undefined;
+  const attempt = args.attempt !== undefined ? ` · attempt ${String(args.attempt)}` : '';
+  const source =
+    commit !== undefined && ev !== undefined
+      ? `evidence · ${ev.kind} ${commit}${attempt}`
+      : `evidence · no commit recorded${attempt}`;
+  return { kind: 'frame', role: args.owedNow ? 'underReview' : 'reviewed', source, commit };
+}
+
 export const NO_REVISION_HISTORY = 'No revision history recorded.';
 export const SRS_UNREADABLE = 'The SRS is not readable in this console yet.';
 export const NO_CODE_VIEW = 'No code view in this stage.';
@@ -336,10 +405,27 @@ export function byDesignSentence(componentKind: string): string {
 export const UNRESOLVED_SENTENCE =
   'The committed activity list and architecture do not place this activity on a component the console can read, so no contract can be joined to it. That is a gap in the data this view reads, not a statement about whether a contract exists.';
 
-/** §5.4 — the component's own test plan. The backfill clause only where it is true. */
-export function noTestPlanSentence(stpReconstructed: boolean): string {
+/**
+ * §5.4 — the component's own test plan. "Is not recorded", never "has not been
+ * written": the console reads project state, not whether anyone wrote one
+ * (designer check, polish 7). The backfill clause only where it is true. A
+ * client's plan is its FLOWS — the Flows task — never "callees stubbed".
+ */
+export function noTestPlanSentence(
+  stpReconstructed: boolean,
+  variant: 'service' | 'frontend' = 'service'
+): string {
+  if (variant === 'frontend') {
+    return (
+      "This client's own flow plan — the user flows a harness walks through its surfaces — is not recorded." +
+      (stpReconstructed
+        ? " The Flows tasks' done-records were backfilled with no plan behind them."
+        : '') +
+      ' System test coverage for this client is shown below; it is not a substitute.'
+    );
+  }
   return (
-    "This component's own test plan — scenarios where a harness drives its operations with its callees stubbed — has not been written." +
+    "This component's own test plan — scenarios where a harness drives its operations with its callees stubbed — is not recorded." +
     (stpReconstructed
       ? " The Test Plan tasks' done-records were backfilled with no plan behind them."
       : '') +

@@ -11,18 +11,25 @@ import type { ReactElement } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 
-import type { ArtifactModelEnvelope, ProjectStateWithGit } from '../../../../contracts/types';
+import type {
+  ArtifactModelEnvelope,
+  ProducedArtifactRow,
+  ProjectStateWithGit,
+  RecordOriginRow,
+} from '../../../../contracts/types';
 import type { ContractJoin } from '../../../../contracts/serviceContracts.ts';
 import { useTokens } from '../../../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../../../utilities/constants/UIIdentifiers';
 import type { ArtifactViewId } from '../../lens/useLensSelection';
 import { ComponentRelationshipsView } from '../../ComponentRelationshipsView';
 import { ServiceContractView } from '../../ServiceContractView';
+import { FrontendSurfaces } from '../../renderers/FrontendArtifactView';
 import { AbsenceStatement, ArtifactFrame } from './ArtifactFrame';
 import { ComponentTestPlanBody } from './ComponentTestPlanBody';
 import { ContractReferenceLine, ContractSummaryCard } from './ContractSummaryCard';
 import {
   byDesignSentence,
+  codeReviewFrameFor,
   contractSourceLine,
   GAP_LABEL_BY_DESIGN,
   GAP_LABEL_MISSING,
@@ -30,7 +37,6 @@ import {
   missingContractSentence,
   NO_CODE_VIEW,
   NO_COMMIT_RECORDED,
-  OBSERVED_ONLY_SOURCE_SUFFIX,
   reconstructedArtifactNote,
   relationshipsSourceLine,
   SRS_UNREADABLE,
@@ -63,9 +69,23 @@ export interface PlacementViewContext {
   onOpenDynamic: () => void;
   /** Open the focus view; undefined inside the focus view itself. */
   onFocus: (() => void) | undefined;
-  onOpenSystemTestPlan: (() => void) | undefined;
+  /** Rendered inside the focus view: the Code tab may draw its canvas. */
+  inFocus: boolean;
+  /** Open the system test plan AT one scenario (the `sc` deep link, B2). */
+  onOpenSystemTestPlan: ((scenarioId: string) => void) | undefined;
+  /** The system test plan activity's id (N-STP), named on the reached-through rows. */
+  systemTestPlanId: string | undefined;
+  /** Whether a neighbour's click goes anywhere (an activity builds it). */
+  isNavigable: (componentId: string) => boolean;
   /** The selected attempt's evidence pointer (Code Review's commit). */
   evidence: { kind: string; ref: string } | undefined;
+  /** The selected attempt's origin and number; undefined when none is recorded. */
+  attemptOrigin: RecordOriginRow | undefined;
+  attemptNumber: number | undefined;
+  /** The gate at this selection is owed now (the live workflow stands at it). */
+  gateOwedNow: boolean;
+  /** The row's produced records — the SPA's surfaces. */
+  produced: readonly ProducedArtifactRow[];
   /** The selected stp attempt was reconstructed (the §5.4 backfill clause). */
   stpReconstructed: boolean;
   /** Other activities whose contract is also missing (the §5.1 sentence). */
@@ -97,18 +117,8 @@ export function ArtifactPlacementView({
           ctx.observedOnly
         )
       : '';
-  const reconstructed =
-    ctx.reconstructedScope !== undefined && contractJoin !== undefined ? (
-      <Typography
-        data-testid={UI_IDENTIFIERS.Construction.ARTIFACT_RECONSTRUCTED_NOTE}
-        sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}
-      >
-        {reconstructedArtifactNote(
-          ctx.reconstructedScope,
-          contractJoin.contract.revisions?.length ?? 0
-        )}
-      </Typography>
-    ) : null;
+  // In the focus view the rail carries this sentence beside the artifact (polish 1).
+  const reconstructed = ctx.inFocus ? null : <ReconstructedArtifactNote ctx={ctx} />;
 
   switch (placement.kind) {
     case 'contractSummary':
@@ -212,36 +222,46 @@ export function ArtifactPlacementView({
         </Stack>
       );
 
-    case 'codeReview':
+    case 'codeReview': {
+      // B3: a reconstructed attempt reviewed nothing anyone watched — one line,
+      // no CODE frame. Owed on an observed attempt: UNDER REVIEW. Observed and not
+      // owed: REVIEWED, sourced to its commit and attempt. Never COMMITTED NOW.
+      const code = codeReviewFrameFor({
+        origin: ctx.attemptOrigin,
+        owedNow: ctx.gateOwedNow,
+        evidence: ctx.evidence,
+        attempt: ctx.attemptNumber,
+      });
       return (
         <Stack>
-          <ArtifactFrame
-            artifactRole={ctx.role}
-            source={
-              ctx.evidence !== undefined && ctx.evidence.ref.length > 0
-                ? `evidence · ${ctx.evidence.kind} ${ctx.evidence.ref} · the selected attempt${ctx.observedOnly ? OBSERVED_ONLY_SOURCE_SUFFIX : ''}`
-                : 'evidence · none recorded on the selected attempt'
-            }
-            title="CODE"
-          >
-            <Box data-testid={UI_IDENTIFIERS.Construction.CODE_REVIEW_COMMIT}>
-              {ctx.evidence !== undefined && ctx.evidence.ref.length > 0 ? (
-                <Typography
-                  sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink, wordBreak: 'break-all' }}
-                >
-                  {ctx.evidence.ref}
+          {code.kind === 'noCodeView' ? (
+            <Typography
+              data-testid={UI_IDENTIFIERS.Construction.CODE_REVIEW_NO_VIEW}
+              sx={{ fontFamily: t.body, fontSize: 12.5, color: t.muted }}
+            >
+              {NO_CODE_VIEW}
+            </Typography>
+          ) : (
+            <ArtifactFrame artifactRole={code.role} source={code.source} title="CODE">
+              <Box data-testid={UI_IDENTIFIERS.Construction.CODE_REVIEW_COMMIT}>
+                {code.commit !== undefined ? (
+                  <Typography
+                    sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink, wordBreak: 'break-all' }}
+                  >
+                    {code.commit}
+                  </Typography>
+                ) : (
+                  <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
+                    {NO_COMMIT_RECORDED}
+                  </Typography>
+                )}
+                {/* No [Open commit ↗]: the read carries no remote URL to derive one from. */}
+                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, mt: 0.5 }}>
+                  {NO_CODE_VIEW}
                 </Typography>
-              ) : (
-                <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
-                  {NO_COMMIT_RECORDED}
-                </Typography>
-              )}
-              {/* No [Open commit ↗]: the read carries no remote URL to derive one from. */}
-              <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted, mt: 0.5 }}>
-                {NO_CODE_VIEW}
-              </Typography>
-            </Box>
-          </ArtifactFrame>
+              </Box>
+            </ArtifactFrame>
+          )}
           {contractJoin !== undefined ? (
             <ContractSummaryCard
               artifactRole="reference"
@@ -253,6 +273,16 @@ export function ArtifactPlacementView({
             />
           ) : null}
         </Stack>
+      );
+    }
+
+    case 'frontendSurfaces':
+      return (
+        <FrontendSurfaces
+          componentId={'componentId' in join ? join.componentId : undefined}
+          produced={ctx.produced}
+          t={t}
+        />
       );
 
     case 'srsUnreadable':
@@ -284,6 +314,8 @@ export function ArtifactPlacementView({
           project={ctx.project}
           stpReconstructed={ctx.stpReconstructed}
           systemEnvelope={ctx.systemEnvelope}
+          systemTestPlanId={ctx.systemTestPlanId}
+          variant={ctx.activityKind === 'frontend' ? 'frontend' : 'service'}
           onFocus={ctx.onFocus}
           onOpenDynamic={contractJoin !== undefined ? ctx.onOpenDynamic : undefined}
           onOpenSystemTestPlan={ctx.onOpenSystemTestPlan}
@@ -310,11 +342,37 @@ function ContractFull({ ctx }: { ctx: PlacementViewContext }): ReactElement | nu
     <ServiceContractView
       componentId={join.componentId}
       contract={join.contract}
+      inFocus={ctx.inFocus}
+      isNavigable={ctx.isNavigable}
       systemEnvelope={ctx.systemEnvelope}
       view={ctx.view}
       onFocusComponent={ctx.onFocusComponent}
+      onOpenFocus={ctx.onFocus}
       onViewChange={ctx.onViewChange}
     />
+  );
+}
+
+/**
+ * The one sentence between a RECONSTRUCTED attempt and the contract (§4.2):
+ * the contract is today's, and nothing links it to the attempt. The pane puts it
+ * above the frame; the focus view's rail carries it (polish 1).
+ */
+export function ReconstructedArtifactNote({
+  ctx,
+}: {
+  ctx: PlacementViewContext;
+}): ReactElement | null {
+  const t = useTokens();
+  const join = ctx.join;
+  if (ctx.reconstructedScope === undefined || join?.kind !== 'contract') return null;
+  return (
+    <Typography
+      data-testid={UI_IDENTIFIERS.Construction.ARTIFACT_RECONSTRUCTED_NOTE}
+      sx={{ fontFamily: t.body, fontSize: 12, color: t.ink, lineHeight: 1.45 }}
+    >
+      {reconstructedArtifactNote(ctx.reconstructedScope, join.contract.revisions?.length ?? 0)}
+    </Typography>
   );
 }
 
@@ -352,6 +410,7 @@ function RelationshipsFrame({
         <ComponentRelationshipsView
           componentId={componentId}
           height={height ?? 360}
+          isNavigable={ctx.isNavigable}
           systemEnvelope={ctx.systemEnvelope}
           onFocusComponent={ctx.onFocusComponent}
           {...(caption !== undefined ? { caption } : {})}
@@ -383,7 +442,12 @@ export function FocusArtifact({
 }): ReactElement | null {
   const join = ctx.join;
   if (join === undefined) return null;
-  const inFocus: PlacementViewContext = { ...ctx, compact: false, onFocus: undefined };
+  const inFocus: PlacementViewContext = {
+    ...ctx,
+    compact: false,
+    onFocus: undefined,
+    inFocus: true,
+  };
   if (target === 'testPlan') {
     return <ArtifactPlacementView ctx={inFocus} placement={{ kind: 'componentTestPlan' }} />;
   }

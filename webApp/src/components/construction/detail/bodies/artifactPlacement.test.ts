@@ -13,6 +13,7 @@ import type { LensSelection } from '../../lens/useLensSelection.ts';
 import {
   artifactRoleFor,
   byDesignSentence,
+  codeReviewFrameFor,
   contractSourceLine,
   isPrimaryPlacement,
   missingContractSentence,
@@ -21,6 +22,7 @@ import {
   reconstructedArtifactNote,
   REFERENCE_LINE_CONSTRUCTION,
   REFERENCE_LINE_DESIGN,
+  ROLE_LABEL,
   type PlacementKind,
 } from './artifactPlacement.ts';
 import { detailBodyFor } from './bodyDispatch.ts';
@@ -128,9 +130,81 @@ void test('frontend: the client contract in Detailed Design; the SPA slice keeps
   assert.equal(at('frontend', CONTRACT, { task: 'detailedDesign' }), 'contractFull');
   assert.equal(at('frontend', CONTRACT, { task: 'designReview' }), 'contractFull');
   assert.equal(at('frontend', CONTRACT, { task: 'srsReview' }), 'none');
-  assert.equal(at('frontend', CONTRACT, { task: 'construction' }), 'none');
   assert.equal(at('frontend', CONTRACT, { task: 'codeReview' }), 'none');
   assert.equal(at('frontend', CONTRACT, { task: 'stp' }), 'componentTestPlan');
+});
+
+void test('frontend Construction is its surfaces whatever the attempt state (polish 8)', () => {
+  assert.equal(at('frontend', CONTRACT, { task: 'construction' }), 'frontendSurfaces');
+  assert.equal(at('frontend', CONTRACT, { lifecyclePhase: 'construction' }), 'frontendSurfaces');
+  assert.equal(at('frontend', CONTRACT, { task: 'testClient' }), 'none');
+  // A primary: a Not started row still says NO SURFACES RECORDED, not the unknown body.
+  assert.equal(isPrimaryPlacement({ kind: 'frontendSurfaces' }), true);
+  assert.equal(
+    detailBodyFor(
+      row('frontend'),
+      { activityId: 'X', task: 'construction' },
+      'notStarted',
+      undefined,
+      true
+    ),
+    'artifact'
+  );
+});
+
+void test('Code Review: reconstructed is one line; observed is REVIEWED; owed is UNDER REVIEW (B3)', () => {
+  const git = { kind: 'git', ref: 'a4421a8dbb9aac2f8d086fc8ce848ccf96914629' };
+  assert.deepEqual(
+    codeReviewFrameFor({ origin: 'backfilled', owedNow: false, evidence: git, attempt: 1 }),
+    { kind: 'noCodeView' }
+  );
+  // Even owed: a reconstructed attempt reviewed nothing anyone watched.
+  assert.deepEqual(
+    codeReviewFrameFor({ origin: 'synthesized', owedNow: true, evidence: git, attempt: 1 }),
+    { kind: 'noCodeView' }
+  );
+  assert.deepEqual(
+    codeReviewFrameFor({ origin: 'observed', owedNow: false, evidence: git, attempt: 2 }),
+    {
+      kind: 'frame',
+      role: 'reviewed',
+      source: 'evidence · git a4421a8dbb9aac2f8d086fc8ce848ccf96914629 · attempt 2',
+      commit: git.ref,
+    }
+  );
+  const owed = codeReviewFrameFor({ origin: 'observed', owedNow: true, evidence: git, attempt: 1 });
+  assert.equal(owed.kind === 'frame' ? owed.role : owed.kind, 'underReview');
+  // Owed before any attempt is recorded: the live gate's own, UNDER REVIEW.
+  const before = codeReviewFrameFor({
+    origin: undefined,
+    owedNow: true,
+    evidence: undefined,
+    attempt: undefined,
+  });
+  assert.deepEqual(before, {
+    kind: 'frame',
+    role: 'underReview',
+    source: 'evidence · no commit recorded',
+    commit: undefined,
+  });
+  // Nothing recorded and nothing owed: nothing was reviewed.
+  assert.deepEqual(
+    codeReviewFrameFor({
+      origin: undefined,
+      owedNow: false,
+      evidence: undefined,
+      attempt: undefined,
+    }),
+    { kind: 'noCodeView' }
+  );
+  // Code is never COMMITTED NOW.
+  for (const origin of ['observed', 'backfilled', 'synthesized', undefined] as const) {
+    for (const owedNow of [true, false]) {
+      const f = codeReviewFrameFor({ origin, owedNow, evidence: git, attempt: 1 });
+      assert.notEqual(f.kind === 'frame' ? f.role : 'none', 'committedNow');
+    }
+  }
+  assert.equal(ROLE_LABEL.reviewed, 'REVIEWED');
 });
 
 void test('no component, or no join: nothing is placed', () => {
@@ -239,4 +313,12 @@ void test('the backfill clause appears only where the stp attempt was reconstruc
   assert.match(noTestPlanSentence(true), /backfilled with no plan behind them/);
   assert.doesNotMatch(noTestPlanSentence(false), /backfilled/);
   assert.match(noTestPlanSentence(false), /it is not a substitute\.$/);
+  // "is not recorded", never "has not been written" (polish 7).
+  assert.match(noTestPlanSentence(false), /is not recorded\./);
+  assert.doesNotMatch(noTestPlanSentence(true), /has not been written/);
+  // The SPA's Flows variant speaks of flows, never of stubbed callees.
+  const flows = noTestPlanSentence(true, 'frontend');
+  assert.match(flows, /flow plan/);
+  assert.match(flows, /The Flows tasks' done-records were backfilled/);
+  assert.doesNotMatch(flows, /callees|stubbed|has not been written/);
 });

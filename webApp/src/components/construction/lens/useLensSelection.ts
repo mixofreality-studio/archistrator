@@ -57,6 +57,12 @@ export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
 export interface ArtifactViewState {
   view?: ArtifactViewId;
   focus?: true;
+  /**
+   * A system test plan scenario (`sc`) — how a component's "reached through"
+   * coverage row opens N-STP AT that scenario, not at its first (designer check
+   * on renderers S1, B2). The scenario browser's store reads it.
+   */
+  scenario?: string;
 }
 
 export interface LensState {
@@ -79,6 +85,7 @@ export interface LensSearchParams {
   n?: number;
   av?: ArtifactViewId;
   focus?: 1;
+  sc?: string;
 }
 
 function isArtifactViewId(value: unknown): value is ArtifactViewId {
@@ -121,9 +128,11 @@ export function parseLensSearch(search: Record<string, unknown>): LensState {
   const view = isArtifactViewId(search['av']) ? search['av'] : undefined;
   // The artifact's view belongs to a selected activity; without one it is junk.
   const focus = activityId !== undefined ? focusOf(search['focus']) : undefined;
+  const scenario = activityId !== undefined ? nonEmpty(search['sc']) : undefined;
   const artifact: ArtifactViewState = {
     ...(view !== undefined && activityId !== undefined ? { view } : {}),
     ...(focus !== undefined ? { focus } : {}),
+    ...(scenario !== undefined ? { scenario } : {}),
   };
   return {
     lens: isLensId(rawLens) ? rawLens : 'list',
@@ -155,6 +164,7 @@ export function serializeLensSearch({ lens, selection, artifact }: LensState): L
     ...(selection.attempt !== undefined ? { n: selection.attempt } : {}),
     ...(withActivity && artifact?.view !== undefined ? { av: artifact.view } : {}),
     ...(withActivity && artifact?.focus === true ? { focus: 1 as const } : {}),
+    ...(withActivity && artifact?.scenario !== undefined ? { sc: artifact.scenario } : {}),
   };
 }
 
@@ -184,6 +194,8 @@ export interface LensSelectionApi extends LensState {
   select: (selection: LensSelection, artifact?: ArtifactViewState) => void;
   /** Show another view of the selected artifact (the contract's tab). */
   setArtifactView: (view: ArtifactViewId) => void;
+  /** Show another system test plan scenario (`sc`), replacing the URL entry. */
+  setScenario: (scenario: string) => void;
   /**
    * Open or close the focus view. Opening adds a HISTORY entry, so browser Back
    * closes it (§3); closing replaces, and the caller decides whether to go back.
@@ -241,10 +253,17 @@ export function useLensSelection(): LensSelectionApi {
     [push, state]
   );
 
+  const setScenario = useCallback(
+    (scenario: string): void => {
+      push({ ...state, artifact: { ...state.artifact, scenario } });
+    },
+    [push, state]
+  );
+
   const setFocus = useCallback(
     (on: boolean): void => {
-      const view = state.artifact?.view;
-      const rest: ArtifactViewState = view !== undefined ? { view } : {};
+      const rest: ArtifactViewState = { ...state.artifact };
+      delete rest.focus;
       push(
         { ...state, artifact: on ? { ...rest, focus: true } : rest },
         { history: on && state.artifact?.focus !== true }
@@ -264,6 +283,7 @@ export function useLensSelection(): LensSelectionApi {
     setLens,
     select,
     setArtifactView,
+    setScenario,
     setFocus,
     clear,
   };

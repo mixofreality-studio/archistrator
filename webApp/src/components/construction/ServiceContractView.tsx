@@ -47,9 +47,12 @@ import { listDynamicViewsForComponent, toC4View, toDynamicView } from '../../con
 import { resolveContractComponentId } from '../../contracts/contractComponentId';
 import { DynamicViewFlow } from '../flow/DynamicViewFlow';
 import { ContractCodeFlow } from './ContractCodeFlow';
+import { ContractSignatureList } from './ContractSignatureList';
 import { ComponentRelationshipsView } from './ComponentRelationshipsView';
 import { ContractRevisionHistory } from './ContractRevisionHistory';
 import { facetsEmptyCopy } from './serviceContractCopy.ts';
+import { CODE_CANVAS_MIN_WIDTH, codeTabModeFor } from './contractCode.ts';
+import { useElementWidth } from './useElementWidth';
 
 export type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
 
@@ -78,7 +81,16 @@ function layerColor(t: Tokens, layer: string): string {
 // VolatilityCard
 // ---------------------------------------------------------------------------
 
-function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
+function VolatilityCard({
+  c,
+  t,
+  compact,
+}: {
+  c: ServiceContract;
+  t: Tokens;
+  /** The pane: tighter, so the contract's ops reach the fold. */
+  compact: boolean;
+}): ReactNode {
   const lc = layerColor(t, c.layer);
   // No contract on the wire records a status. A default here used to paint an
   // awaiting-coloured IN-DESIGN chip on all 29 — a claim nothing made. An absent
@@ -86,7 +98,14 @@ function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode 
   const status = c.status !== undefined && c.status.length > 0 ? c.status : undefined;
   return (
     <Paper sx={{ p: 0, overflow: 'hidden', borderTop: `4px solid ${lc}` }}>
-      <Box sx={{ px: 2, py: 1.25, bgcolor: t.paperAlt, borderBottom: `1.5px solid ${lc}` }}>
+      <Box
+        sx={{
+          px: 2,
+          py: compact ? 0.75 : 1.25,
+          bgcolor: t.paperAlt,
+          borderBottom: `1.5px solid ${lc}`,
+        }}
+      >
         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
           {c.stereotype !== undefined && c.stereotype.length > 0 ? (
             <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: lc, fontWeight: 700 }}>
@@ -144,8 +163,24 @@ function VolatilityCard({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode 
 // Tab panes
 // ---------------------------------------------------------------------------
 
-function CodePane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
+/**
+ * The Code tab. Below CODE_CANVAS_MIN_WIDTH (every pane width, and the focus view
+ * on a narrow window) it is the HTML signature list; the canvas draws in the
+ * focus view only (designer check B1, contractCode.ts).
+ */
+function CodePane({
+  c,
+  t,
+  inFocus,
+  onOpenFocus,
+}: {
+  c: ServiceContract;
+  t: Tokens;
+  inFocus: boolean;
+  onOpenFocus: (() => void) | undefined;
+}): ReactNode {
   const ops = c.ops ?? [];
+  const [measure, width] = useElementWidth();
   if (ops.length === 0) {
     return (
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
@@ -153,15 +188,43 @@ function CodePane({ c, t }: { c: ServiceContract; t: Tokens }): ReactNode {
       </Typography>
     );
   }
+  const mode = codeTabModeFor(width, inFocus);
+  const count = `${String(ops.length)} op${ops.length !== 1 ? 's' : ''}`;
   return (
-    <Box>
-      <Typography
-        sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
-      >
-        The <b>«interface»</b> surface for <b>{c.component}</b> — {ops.length} op
-        {ops.length !== 1 ? 's' : ''}. Click an op row to expand its request / response structs.
-      </Typography>
-      <ContractCodeFlow component={c.component} height={380 + ops.length * 40} ops={ops} t={t} />
+    <Box data-code-mode={mode} ref={measure} sx={{ minWidth: 0 }}>
+      {mode === 'canvas' ? (
+        <>
+          <Typography
+            sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
+          >
+            The <b>«interface»</b> surface for <b>{c.component}</b> — {count}. Click an op to expand
+            its request / response structs.
+          </Typography>
+          <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
+            <ContractCodeFlow
+              component={c.component}
+              height={380 + ops.length * 40}
+              ops={ops}
+              t={t}
+            />
+          </Box>
+        </>
+      ) : (
+        // The list: one row for the op count and "Open diagram in focus view", so
+        // the first op sits above the fold at 1280×800 (designer check B1).
+        <ContractSignatureList
+          component={c.component}
+          count={count}
+          needsRoomNote={
+            inFocus
+              ? `The code diagram needs ${String(CODE_CANVAS_MIN_WIDTH)}px of width; widen the window to draw it. The signatures are listed instead.`
+              : undefined
+          }
+          ops={ops}
+          t={t}
+          onOpenFocus={inFocus ? undefined : onOpenFocus}
+        />
+      )}
     </Box>
   );
 }
@@ -175,11 +238,13 @@ function ComponentPane({
   componentId,
   systemEnvelope,
   onFocusComponent,
+  isNavigable,
   t,
 }: {
   componentId: string | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   onFocusComponent: ((componentId: string) => void) | undefined;
+  isNavigable: ((componentId: string) => boolean) | undefined;
   t: Tokens;
 }): ReactNode {
   if (componentId === undefined) {
@@ -193,6 +258,7 @@ function ComponentPane({
   return (
     <ComponentRelationshipsView
       componentId={componentId}
+      isNavigable={isNavigable}
       systemEnvelope={systemEnvelope}
       onFocusComponent={onFocusComponent}
     />
@@ -462,6 +528,9 @@ export function ServiceContractView({
   view: controlledView,
   onViewChange,
   onFocusComponent,
+  inFocus = false,
+  onOpenFocus,
+  isNavigable,
 }: {
   contract: ServiceContract;
   systemEnvelope?: ArtifactModelEnvelope | undefined;
@@ -476,6 +545,12 @@ export function ServiceContractView({
   onViewChange?: ((view: DiagramView) => void) | undefined;
   /** The Component tab's neighbour click — moves the selection onto its activity. */
   onFocusComponent?: ((componentId: string) => void) | undefined;
+  /** Rendered inside the focus view: the Code tab may draw its canvas (with room). */
+  inFocus?: boolean | undefined;
+  /** Open the focus view — the signature list's "Open diagram in focus view". */
+  onOpenFocus?: (() => void) | undefined;
+  /** Whether a Component-tab neighbour's click goes anywhere (an activity builds it). */
+  isNavigable?: ((componentId: string) => boolean) | undefined;
 }): ReactNode {
   const t = useTokens();
   const c = contract;
@@ -499,9 +574,9 @@ export function ServiceContractView({
     <Box
       data-testid={UI_IDENTIFIERS.ServiceContract.ROOT}
       data-view={view}
-      sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}
+      sx={{ display: 'flex', flexDirection: 'column', gap: inFocus ? 2 : 1.25 }}
     >
-      <VolatilityCard c={c} t={t} />
+      <VolatilityCard c={c} compact={!inFocus} t={t} />
 
       {/* 4-tab selector */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -548,7 +623,14 @@ export function ServiceContractView({
           </ToggleButton>
         </ToggleButtonGroup>
         <Box sx={{ flexGrow: 1 }} />
-        <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
+        <Typography
+          sx={{
+            display: inFocus ? 'block' : 'none',
+            fontFamily: t.mono,
+            fontSize: 9.5,
+            color: t.muted,
+          }}
+        >
           {view === 'component'
             ? 'C4 · focused component view'
             : view === 'code'
@@ -560,10 +642,11 @@ export function ServiceContractView({
       </Box>
 
       {/* active pane */}
-      {view === 'code' && <CodePane c={c} t={t} />}
+      {view === 'code' && <CodePane c={c} inFocus={inFocus} t={t} onOpenFocus={onOpenFocus} />}
       {view === 'component' && (
         <ComponentPane
           componentId={focalId}
+          isNavigable={isNavigable}
           systemEnvelope={systemEnvelope}
           t={t}
           onFocusComponent={onFocusComponent}
