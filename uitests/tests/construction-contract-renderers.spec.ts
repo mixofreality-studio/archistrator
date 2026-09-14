@@ -1412,6 +1412,33 @@ test('S4: the autoscaler’s "returns" labels sit clear of the interface node', 
     { card: 'Decision', atItsCard: true },
     { card: 'fweng.Error', atItsCard: true },
   ]);
+  // And no edge's TURN runs through a label, its background included: the
+  // vertical runs of every edge path, sampled along it, stay out of the boxes.
+  const crossings = await canvas.evaluate((el) => {
+    const boxes = Array.from(el.querySelectorAll('.react-flow__edge-textwrapper'))
+      .filter((g) => g.textContent?.startsWith('returns') === true)
+      .map((g) => g.getBoundingClientRect());
+    let hits = 0;
+    for (const p of Array.from(el.querySelectorAll<SVGPathElement>('.react-flow__edge-path'))) {
+      const m = p.getScreenCTM();
+      if (m === null) continue;
+      const at = (s: number): { x: number; y: number } => {
+        const q = p.getPointAtLength(s);
+        return { x: m.a * q.x + m.c * q.y + m.e, y: m.b * q.x + m.d * q.y + m.f };
+      };
+      let prev = at(0);
+      for (let s = 1; s <= p.getTotalLength(); s += 1) {
+        const cur = at(s);
+        const vertical = Math.abs(cur.x - prev.x) < 0.2 && Math.abs(cur.y - prev.y) > 0.5;
+        if (vertical && boxes.some((b) => cur.x >= b.left && cur.x <= b.right && cur.y >= b.top && cur.y <= b.bottom)) {
+          hits += 1;
+        }
+        prev = cur;
+      }
+    }
+    return { labels: boxes.length, hits };
+  });
+  expect(crossings, 'no edge turns through a "returns" label').toEqual({ labels: 2, hits: 0 });
   expect(dispatchGuard.blocked).toEqual([]);
 });
 
