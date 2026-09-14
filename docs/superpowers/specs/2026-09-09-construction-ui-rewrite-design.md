@@ -295,6 +295,36 @@ False is disqualifying; unknown is shippable.
 do not touch `awaitPhaseDecision`); `ArtifactRef` (defer, then delete — superseded);
 `.phaseArtifacts` / `.activityGit` emptiness (renders as an honest "no artifact captured").
 
+> **Amendment 2026-09-14 (architect plan B1.6; tasks-lens Q2 + PM Q3 must-hold; plan-B1-B2
+> amendment §B, §C).** "Do not touch `awaitPhaseDecision`" is relaxed in two bounded ways.
+>
+> (1) **Metadata only, no GetVersion.** The gate, the merge hold and the escalation wait publish
+> `awaitingGate` / `awaitingSince` / `awaitingUntil` / `redraftExhausted` / `attempt` /
+> `attemptBudget` on the session view through ONE `constructState` helper using `workflow.Now`.
+> They emit no commands, and replay reconstructs them. The same helper emits the
+> `construction_gate_wait` metric and the `construction.gate.decided` log line at every
+> human-stage end.
+>
+> (2) **Operator-note persistence and delivery** (SendBack feedback, override notes, and later
+> re-queue notes) ARE command changes. They sit behind the `operator-note-delivery` GetVersion and
+> are proven by the replay fixtures under `testdata/replay/` (`pre-b1/` on the old code, `post-b1/`
+> on the new). A note is pending from the moment it is recorded until an agent dispatch carries it;
+> every pending note rides the next agent dispatch and is stamped delivered to that dispatch's
+> AttemptID. On the GitHub venue the same change id also syncs the managed scaffold before every
+> dispatch, so every repo is re-seated automatically and a note never rides into a construct
+> workflow that would reject it. The note reaches the agent through the aiarch-state MCP server on
+> both substrates (server instructions plus the `get_operator_notes` tool), never the prompt; the
+> construct workflow expands no `${{ }}` inside any `run:` body and builds its MCP config with `jq`.
+>
+> Gate-verdict persistence (Approve notes, reviewer verdicts on the ledger) stays DEFERRED.
+>
+> **Resume (B1.7).** The recorded operator pause binds EVERY pump (`pump-honors-recorded-pause`
+> v2; v1 kept the I2 operator-driven exemption for recorded histories). Begin on a paused project
+> is refused ("Paused — Resume to continue"; founder ruling 2026-09-13), and `ResumeProject`
+> clears the record and starts or joins the pump. Retry and Re-queue stay LOCKED in the UI until
+> the note-delivery verification run passes on both venues (founder ruling C, no local/deployed
+> split).
+
 **OVERRULED INTO SCOPE — the one thing that cannot wait.** `episodeRecordFor` stamps
 `TargetRef = string(in.ActivityID)` (`constructactivity.go:264`). Its caller `runPipeline` already
 has `phase` in hand and the redraft loop already has the attempt count. Change `TargetRef` to carry
@@ -613,6 +643,13 @@ project policy is exactly what this rewrite exists to stop.
 **Empty state is not a dead end.** Replace *"No interventions pending"* with **"Nothing needs you."**
 + `17 eligible · 3 in flight · 14 blocked` + `[ Resume construction ]`.
 
+> **Note 2026-09-14 (B1).** `awaitingSince` is the gate-occurrence identity: a decision record
+> keys on (activity, `awaitingGate`, `awaitingSince`), replacing the client-side epoch that counted
+> observed entries into awaitingApproval. The server answers "is the pump running" directly
+> (`GetPumpStatus`: open, runStartedAt), so "Construction running…" can read it instead of
+> inferring it from row states. A paused project shows Resume in Begin's place, with the label
+> "Paused — Resume to continue" in the console and the Tasks lens.
+
 ### 7.8 The shared detail surface
 
 Invariant header — breadcrumb · state chip · provenance chip · attempt selector · exit criterion +
@@ -701,6 +738,13 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    ux-reviewer before the next is started (per the founder's standing UI review loop).
 8. **Throughput metric captured** — time from agent-stop-at-gate to agent-resume (PM's acceptance
    metric), even if only instrumented.
+
+> **Note 2026-09-14 (B1).** Criterion 8's steer half is met on the server: the operator's note is
+> persisted on the activity and delivered to the next agent attempt on both substrates, the
+> session view carries the gate occurrence (`awaitingSince`), the gate the decision must name
+> (`awaitingGate`) and the attempt budget, and a stale decision is refused (FailedPrecondition). The
+> UI's Retry and Re-queue unlock only after the verification run proves the note reaches the model
+> on both venues.
 
 ## 10. Cut list
 
