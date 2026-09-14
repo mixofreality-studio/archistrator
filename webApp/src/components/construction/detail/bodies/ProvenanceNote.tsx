@@ -35,7 +35,7 @@
  * hatch is provenanceHatchFill, the one definition the list's rail draws from too,
  * and the badge's words are provenanceAxis's own (GRADE_LABEL, the sub-grade label).
  */
-import type { ReactElement } from 'react';
+import type { ReactElement, ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Typography from '@mui/material/Typography';
 import { alpha } from '@mui/material/styles';
@@ -64,6 +64,14 @@ export interface ProvenanceNoteProps {
    * full note. Never dropped: the mark is the point of this component.
    */
   condensed?: boolean;
+  /**
+   * The artifact's own honesty sentence ("The contract below is the one committed
+   * today…"), when the selection shows a committed contract. It belongs with the
+   * basis — it says what the basis does NOT link — so it sits after the basis and
+   * the evidence: inside the disclosure when condensed (designer recheck on S2:
+   * above the frame it pushed the first op under the action bar at 1366×768).
+   */
+  artifactNote?: ReactNode;
 }
 
 /**
@@ -79,6 +87,7 @@ export function ProvenanceNote({
   reading,
   evidence,
   condensed = false,
+  artifactNote,
 }: ProvenanceNoteProps): ReactElement | null {
   const t = useTokens();
   if (reading.origin !== 'backfilled' && reading.origin !== 'synthesized') return null;
@@ -111,6 +120,7 @@ export function ProvenanceNote({
         </Typography>
       )}
       <EvidenceLine evidence={evidence} t={t} />
+      {artifactNote}
     </>
   );
 
@@ -162,6 +172,7 @@ export function ProvenanceNote({
             <Box component="details" sx={{ minWidth: 0 }}>
               <Box
                 component="summary"
+                data-testid={UI_IDENTIFIERS.Construction.DETAIL_PROVENANCE_DISCLOSURE}
                 sx={{
                   cursor: 'pointer',
                   fontFamily: t.mono,

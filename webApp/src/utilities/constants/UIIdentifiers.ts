@@ -535,6 +535,8 @@ export const UI_IDENTIFIERS = {
     // six of the ten task rows on every widened activity.
     DETAIL_PROVENANCE_NOTE: 'construction-detail-provenance-note',
     DETAIL_PROVENANCE_BASIS: 'construction-detail-provenance-basis',
+    /** The condensed note's "Basis and evidence" disclosure (its <summary>). */
+    DETAIL_PROVENANCE_DISCLOSURE: 'construction-detail-provenance-disclosure',
     DETAIL_EVIDENCE: 'construction-detail-evidence',
     // The episode body's honesty caption (Task 9): episodes are activity-level
     // unless an episode's TargetRef is literally the selected attempt key.
@@ -633,6 +635,16 @@ export const UI_IDENTIFIERS = {
     CODE_CANVAS: 'service-contract-code-canvas',
     /** The utilities a component may reach, as one line in place of their nodes. */
     UTILITIES_LINE: 'service-contract-utilities-line',
+    /** One struct card of an expanded op on the canvas (data-struct, data-role). */
+    STRUCT_CARD: 'service-contract-struct-card',
+    /** The code canvas's own frame (the drawing area, under its legend). */
+    CODE_CANVAS_FRAME: 'service-contract-code-canvas-frame',
+    /** A real struct's name — a header over its fields (list and canvas). */
+    STRUCT_NAME: 'service-contract-struct-name',
+    /** A primitive or alias param: one row, `tickID  string` (list and canvas). */
+    PARAM_ROW: 'service-contract-param-row',
+    /** The pane's Component tab as text: one row per caller or callee. */
+    neighbourRow: (componentId: string) => `service-contract-neighbour-${componentId}`,
   },
   Operations: {
     ROOT: 'operations-console',

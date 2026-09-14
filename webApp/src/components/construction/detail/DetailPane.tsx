@@ -140,6 +140,7 @@ import {
   focusTargetFor,
   isPrimaryPlacement,
   placementFor,
+  showsCommittedContract,
   type NamedOperation,
   type Placement,
 } from './bodies/artifactPlacement.ts';
@@ -639,13 +640,15 @@ export function DetailPane({
             ? selection.lifecyclePhase
             : undefined;
         artifactViewStore.set(next, 'component');
+        // A jump to another activity is a navigation: it pushes, so Back returns.
         select(
           {
             activityId: next,
             ...(phase !== undefined ? { lifecyclePhase: phase } : {}),
             ...(task !== undefined ? { task } : {}),
           },
-          { view: 'component', ...(artifact?.focus === true ? { focus: true as const } : {}) }
+          { view: 'component', ...(artifact?.focus === true ? { focus: true as const } : {}) },
+          { history: true }
         );
       },
       onOpenDesign: (): void => {
@@ -661,12 +664,15 @@ export function DetailPane({
       onOpenSystemTestPlan:
         planRowId !== undefined
           ? (scenarioId): void => {
-              select({ activityId: planRowId }, { scenario: scenarioId });
+              // Another activity: pushes, so Back returns to this Test Plan.
+              select({ activityId: planRowId }, { scenario: scenarioId }, { history: true });
             }
           : undefined,
       systemTestPlanId: planRowId,
       isNavigable: (componentId): boolean =>
         activityForComponent(activities, componentId) !== undefined,
+      destinationOf: (componentId): string | undefined =>
+        activityForComponent(activities, componentId),
       evidence,
       attemptOrigin: selectedAttempt?.provenance.origin,
       attemptNumber: selectedAttempt?.attempt,
@@ -778,7 +784,14 @@ export function DetailPane({
           {decisionLeadFor(decided)}
         </Typography>
       ) : null}
-      <ProvenanceNote condensed={primary} evidence={evidence} reading={provenance} />
+      <ProvenanceNote
+        artifactNote={
+          <ReconstructedArtifactNote ctx={placementCtx} shown={showsCommittedContract(placement)} />
+        }
+        condensed={primary}
+        evidence={evidence}
+        reading={provenance}
+      />
       <Box sx={{ minWidth: 0 }} onKeyDown={onBodyKeyDown}>
         <DetailBody
           activityTitle={activityTitle}
@@ -830,10 +843,18 @@ export function DetailPane({
       rail={
         // What judges the artifact sits in the rail beside it (polish 1): the
         // attempt's full provenance note, the "nothing links it" sentence, and a
-        // review's verdict — which must appear in focus.
+        // review's verdict — which must appear in focus. Below 600px the rail
+        // stacks above the artifact, so the note condenses there as in the pane
+        // (designer recheck on S2), the sentence inside its disclosure.
         <>
-          <ProvenanceNote evidence={evidence} reading={provenance} />
-          <ReconstructedArtifactNote ctx={placementCtx} />
+          <ProvenanceNote
+            artifactNote={
+              <ReconstructedArtifactNote ctx={placementCtx} shown={focusTarget === 'contract'} />
+            }
+            condensed={modal}
+            evidence={evidence}
+            reading={provenance}
+          />
           {bodyKind === 'review' ? <ReviewVerdict reviewSet={reviewSet} row={row} /> : null}
         </>
       }

@@ -230,21 +230,29 @@ function CodePane({
 }
 
 /**
- * The Component tab: the architecture's own relationships (designer Q7), through
- * the design page's PerspectiveFlow. The contract's `inbound`/`outbound` fields
- * are empty for every committed contract, so they are no longer read (earmark E6).
+ * The Component tab: the architecture's own relationships (designer Q7). In the
+ * pane, callers and callees as text rows (the diagram fit to 0.31 there); the
+ * diagram — the design page's PerspectiveFlow — in the focus view only
+ * (designer recheck on S2). The contract's `inbound`/`outbound` fields are empty
+ * for every committed contract, so they are no longer read (earmark E6).
  */
 function ComponentPane({
   componentId,
   systemEnvelope,
   onFocusComponent,
   isNavigable,
+  destinationOf,
+  inFocus,
+  onOpenFocus,
   t,
 }: {
   componentId: string | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   onFocusComponent: ((componentId: string) => void) | undefined;
   isNavigable: ((componentId: string) => boolean) | undefined;
+  destinationOf: ((componentId: string) => string | undefined) | undefined;
+  inFocus: boolean;
+  onOpenFocus: (() => void) | undefined;
   t: Tokens;
 }): ReactNode {
   if (componentId === undefined) {
@@ -258,9 +266,12 @@ function ComponentPane({
   return (
     <ComponentRelationshipsView
       componentId={componentId}
+      destinationOf={destinationOf}
       isNavigable={isNavigable}
+      mode={inFocus ? 'canvas' : 'list'}
       systemEnvelope={systemEnvelope}
       onFocusComponent={onFocusComponent}
+      onOpenFocus={inFocus ? undefined : onOpenFocus}
     />
   );
 }
@@ -531,6 +542,7 @@ export function ServiceContractView({
   inFocus = false,
   onOpenFocus,
   isNavigable,
+  destinationOf,
 }: {
   contract: ServiceContract;
   systemEnvelope?: ArtifactModelEnvelope | undefined;
@@ -551,6 +563,8 @@ export function ServiceContractView({
   onOpenFocus?: (() => void) | undefined;
   /** Whether a Component-tab neighbour's click goes anywhere (an activity builds it). */
   isNavigable?: ((componentId: string) => boolean) | undefined;
+  /** The activity a Component-tab neighbour's row opens, named at the row's end. */
+  destinationOf?: ((componentId: string) => string | undefined) | undefined;
 }): ReactNode {
   const t = useTokens();
   const c = contract;
@@ -646,10 +660,13 @@ export function ServiceContractView({
       {view === 'component' && (
         <ComponentPane
           componentId={focalId}
+          destinationOf={destinationOf}
+          inFocus={inFocus}
           isNavigable={isNavigable}
           systemEnvelope={systemEnvelope}
           t={t}
           onFocusComponent={onFocusComponent}
+          onOpenFocus={onOpenFocus}
         />
       )}
       {view === 'dynamic' && (

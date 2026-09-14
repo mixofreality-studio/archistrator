@@ -23,9 +23,18 @@ import {
   REFERENCE_LINE_CONSTRUCTION,
   REFERENCE_LINE_DESIGN,
   ROLE_LABEL,
+  showsCommittedContract,
   type PlacementKind,
 } from './artifactPlacement.ts';
 import { detailBodyFor } from './bodyDispatch.ts';
+
+void test('the "committed today" sentence rides only a placement that shows the contract', () => {
+  assert.equal(showsCommittedContract({ kind: 'contractSummary' }), true);
+  assert.equal(showsCommittedContract({ kind: 'contractFull' }), true);
+  for (const kind of ['codeReview', 'componentTestPlan', 'none'] as const) {
+    assert.equal(showsCommittedContract({ kind }), false, kind);
+  }
+});
 
 function row(kind: ConstructionRow['kind']): ConstructionRow {
   return {

@@ -3,9 +3,11 @@
  * on renderers S1, B1).
  *
  * The code diagram cannot be read in the pane: its interface node is 560px and
- * an expanded op ~1100px, so in a 480–820px pane it fit to ~6px signatures and
- * re-fit to ~4px on expand. So below 900px the tab is this list instead: every
- * op, 12px mono, wrapping; a row expands INLINE into its request / response /
+ * an expanded op 1458px, so in a 480–820px pane it fit to ~6px signatures and
+ * re-fit to ~4px on expand. So below CODE_CANVAS_MIN_WIDTH (1344px — the pane
+ * always, and the focus view on any window under ~1712px, N1) the tab is this
+ * list instead: every op, 12px mono, wrapping; a row expands INLINE into its
+ * request / response /
  * error tables — the same structs the canvas draws as nodes, from the same
  * reading (contractCode.opStructsFor). "Open diagram in focus view" sits at the
  * top; the canvas draws there.
@@ -23,11 +25,11 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import ChevronRightRoundedIcon from '@mui/icons-material/ChevronRightRounded';
 import OpenInFullRoundedIcon from '@mui/icons-material/OpenInFullRounded';
 
-import type { ContractOp } from '../../contracts/types';
+import type { ContractOp, GoField } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
-import { opStructsFor, type ResolvedStruct } from './contractCode.ts';
+import { opStructsFor, paramOf, type ResolvedStruct } from './contractCode.ts';
 
 export function ContractSignatureList({
   component,
@@ -281,14 +283,49 @@ function StructGroup({
       {structs.length === 0 ? (
         <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>{empty}</Typography>
       ) : (
-        structs.map((s, i) => <StructTable key={`${s.name}-${String(i)}`} struct={s} t={t} />)
+        segmentsOf(structs).map((seg, i) =>
+          seg.kind === 'params' ? (
+            <ParamTable key={`params-${String(i)}`} params={seg.params} t={t} />
+          ) : (
+            <StructTable key={`${seg.struct.name}-${String(i)}`} struct={seg.struct} t={t} />
+          )
+        )
       )}
     </Box>
   );
 }
 
-function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): ReactElement {
-  const cell = {
+type Segment = { kind: 'params'; params: GoField[] } | { kind: 'struct'; struct: ResolvedStruct };
+
+/**
+ * The group's structs in order, with each run of primitive / alias params folded
+ * into one table (so their columns align): a param is one row, `tickID  string`,
+ * never a struct whose header repeats its type (designer recheck on S2).
+ */
+function segmentsOf(structs: ResolvedStruct[]): Segment[] {
+  const out: Segment[] = [];
+  for (const s of structs) {
+    const param = paramOf(s);
+    const last = out[out.length - 1];
+    if (param === undefined) out.push({ kind: 'struct', struct: s });
+    else if (last?.kind === 'params') last.params.push(param);
+    else out.push({ kind: 'params', params: [param] });
+  }
+  return out;
+}
+
+interface CellSx {
+  fontFamily: string;
+  fontSize: number;
+  color: string;
+  py: number;
+  pr: number;
+  verticalAlign: 'top';
+  wordBreak: 'break-word';
+}
+
+function cellSx(t: Tokens): CellSx {
+  return {
     fontFamily: t.mono,
     fontSize: 11.5,
     color: t.ink,
@@ -296,10 +333,40 @@ function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): Reac
     pr: 1.5,
     verticalAlign: 'top',
     wordBreak: 'break-word',
-  } as const;
+  };
+}
+
+function ParamTable({ params, t }: { params: GoField[]; t: Tokens }): ReactElement {
+  const cell = cellSx(t);
+  return (
+    <Box component="table" sx={{ borderCollapse: 'collapse', width: '100%', mb: 0.5 }}>
+      <Box component="tbody">
+        {params.map((p) => (
+          <Box component="tr" data-testid={UI_IDENTIFIERS.ServiceContract.PARAM_ROW} key={p.name}>
+            <Box
+              component="td"
+              sx={{ ...cell, fontWeight: 700, whiteSpace: 'nowrap', width: '1%' }}
+            >
+              {p.name}
+            </Box>
+            <Box component="td" sx={{ ...cell, color: t.muted }}>
+              {p.type}
+            </Box>
+          </Box>
+        ))}
+      </Box>
+    </Box>
+  );
+}
+
+function StructTable({ struct, t }: { struct: ResolvedStruct; t: Tokens }): ReactElement {
+  const cell = cellSx(t);
   return (
     <Box sx={{ mb: 0.5, minWidth: 0 }}>
-      <Typography sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}>
+      <Typography
+        data-testid={UI_IDENTIFIERS.ServiceContract.STRUCT_NAME}
+        sx={{ fontFamily: t.mono, fontSize: 12, fontWeight: 700, color: t.ink }}
+      >
         {struct.name}
       </Typography>
       {struct.fields.length === 0 ? (

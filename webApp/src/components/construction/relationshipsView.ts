@@ -23,6 +23,45 @@ export function withoutUtilities(view: C4View, focusId: string): C4View {
   };
 }
 
+/** One neighbour of the focal component, with the operations the edges carry. */
+export interface NeighbourRow {
+  id: string;
+  name: string;
+  layer: string;
+  /** The relationship labels (op names) between the two, in the architecture's order. */
+  operations: string[];
+}
+
+/**
+ * The pane's Component tab as TEXT (designer recheck on S2): who calls this
+ * component and whom it calls, one row per neighbour, utilities left out (they
+ * are the one line). Drawn in the pane, the same relationships fit to 0.31
+ * scale; the diagram draws in the focus view only.
+ */
+export function neighbourRowsFor(
+  view: C4View,
+  focusId: string
+): { callers: NeighbourRow[]; callees: NeighbourRow[] } {
+  const v = withoutUtilities(view, focusId);
+  const rows = (pick: (from: string, to: string) => string | undefined): NeighbourRow[] => {
+    const ops = new Map<string, string[]>();
+    for (const r of v.relationships) {
+      const other = pick(r.from, r.to);
+      if (other === undefined || other === focusId) continue;
+      const list = ops.get(other) ?? [];
+      if (r.label.length > 0 && !list.includes(r.label)) list.push(r.label);
+      ops.set(other, list);
+    }
+    return v.components
+      .filter((c) => ops.has(c.id))
+      .map((c) => ({ id: c.id, name: c.name, layer: c.layer, operations: ops.get(c.id) ?? [] }));
+  };
+  return {
+    callers: rows((from, to) => (to === focusId ? from : undefined)),
+    callees: rows((from, to) => (from === focusId ? to : undefined)),
+  };
+}
+
 /** The utilities the focal component's relationships reach, by name, in the architecture's order. */
 export function utilityNeighbours(view: C4View, focusId: string): string[] {
   const touched = new Set<string>();

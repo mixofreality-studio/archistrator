@@ -294,6 +294,15 @@ export function reconstructedArtifactNote(scope: 'task' | 'wider', revisionCount
   return `The contract below is the one committed today. ${link}, ${history}.`;
 }
 
+/**
+ * The placements that show the committed contract itself — the subject of the
+ * sentence above ("the contract below"). Anywhere else it would name a contract
+ * the selection does not show.
+ */
+export function showsCommittedContract(placement: Placement): boolean {
+  return placement.kind === 'contractSummary' || placement.kind === 'contractFull';
+}
+
 // ---------------------------------------------------------------------------
 // Code Review's CODE block (designer check on renderers S1, B3)
 // ---------------------------------------------------------------------------
