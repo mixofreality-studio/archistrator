@@ -51,7 +51,9 @@ import { ContractSignatureList } from './ContractSignatureList';
 import { ComponentRelationshipsView } from './ComponentRelationshipsView';
 import { ContractRevisionHistory } from './ContractRevisionHistory';
 import { facetsEmptyCopy } from './serviceContractCopy.ts';
-import { CODE_CANVAS_MIN_WIDTH, codeTabModeFor } from './contractCode.ts';
+import { codeTabModeFor } from './contractCode.ts';
+import { needsRoomCopy } from './focusRail.ts';
+import { useFocusRail } from './FocusRailContext.ts';
 import { useElementWidth } from './useElementWidth';
 
 export type DiagramView = 'code' | 'component' | 'dynamic' | 'facets';
@@ -181,6 +183,7 @@ function CodePane({
 }): ReactNode {
   const ops = c.ops ?? [];
   const [measure, width] = useElementWidth();
+  const rail = useFocusRail();
   if (ops.length === 0) {
     return (
       <Typography sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}>
@@ -193,35 +196,35 @@ function CodePane({
   return (
     <Box data-code-mode={mode} ref={measure} sx={{ minWidth: 0 }}>
       {mode === 'canvas' ? (
-        <>
-          <Typography
-            sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted, mb: 1, lineHeight: 1.45 }}
-          >
-            The <b>«interface»</b> surface for <b>{c.component}</b> — {count}. Click an op to expand
-            its request / response structs.
-          </Typography>
-          <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
-            <ContractCodeFlow
-              component={c.component}
-              height={380 + ops.length * 40}
-              ops={ops}
-              t={t}
-            />
-          </Box>
-        </>
+        // The canvas carries the one caption itself (ContractCodeFlow).
+        <Box data-testid={UI_IDENTIFIERS.ServiceContract.CODE_CANVAS}>
+          <ContractCodeFlow component={c.component} ops={ops} t={t} />
+        </Box>
       ) : (
         // The list: one row for the op count and "Open diagram in focus view", so
-        // the first op sits above the fold at 1280×800 (designer check B1).
+        // the first op sits above the fold at 1280×800 (designer check B1). In the
+        // focus view, the window the diagram needs — and, with the side panel
+        // open, the other way to get it: collapse the panel (focusRail.ts).
         <ContractSignatureList
           component={c.component}
           count={count}
-          needsRoomNote={
+          needsRoom={
             inFocus
-              ? `The code diagram needs ${String(CODE_CANVAS_MIN_WIDTH)}px of width; widen the window to draw it. The signatures are listed instead.`
+              ? needsRoomCopy({
+                  railOpen: rail?.collapsed !== true,
+                  collapsible: rail?.collapsible === true,
+                })
               : undefined
           }
           ops={ops}
           t={t}
+          onCollapseRail={
+            rail !== undefined
+              ? (): void => {
+                  rail.setCollapsed(true);
+                }
+              : undefined
+          }
           onOpenFocus={inFocus ? undefined : onOpenFocus}
         />
       )}
@@ -230,21 +233,29 @@ function CodePane({
 }
 
 /**
- * The Component tab: the architecture's own relationships (designer Q7), through
- * the design page's PerspectiveFlow. The contract's `inbound`/`outbound` fields
- * are empty for every committed contract, so they are no longer read (earmark E6).
+ * The Component tab: the architecture's own relationships (designer Q7). In the
+ * pane, callers and callees as text rows (the diagram fit to 0.31 there); the
+ * diagram — the design page's PerspectiveFlow — in the focus view only
+ * (designer recheck on S2). The contract's `inbound`/`outbound` fields are empty
+ * for every committed contract, so they are no longer read (earmark E6).
  */
 function ComponentPane({
   componentId,
   systemEnvelope,
   onFocusComponent,
   isNavigable,
+  destinationOf,
+  inFocus,
+  onOpenFocus,
   t,
 }: {
   componentId: string | undefined;
   systemEnvelope: ArtifactModelEnvelope | undefined;
   onFocusComponent: ((componentId: string) => void) | undefined;
   isNavigable: ((componentId: string) => boolean) | undefined;
+  destinationOf: ((componentId: string) => string | undefined) | undefined;
+  inFocus: boolean;
+  onOpenFocus: (() => void) | undefined;
   t: Tokens;
 }): ReactNode {
   if (componentId === undefined) {
@@ -258,9 +269,12 @@ function ComponentPane({
   return (
     <ComponentRelationshipsView
       componentId={componentId}
+      destinationOf={destinationOf}
       isNavigable={isNavigable}
+      mode={inFocus ? 'canvas' : 'list'}
       systemEnvelope={systemEnvelope}
       onFocusComponent={onFocusComponent}
+      onOpenFocus={inFocus ? undefined : onOpenFocus}
     />
   );
 }
@@ -531,6 +545,7 @@ export function ServiceContractView({
   inFocus = false,
   onOpenFocus,
   isNavigable,
+  destinationOf,
 }: {
   contract: ServiceContract;
   systemEnvelope?: ArtifactModelEnvelope | undefined;
@@ -551,6 +566,8 @@ export function ServiceContractView({
   onOpenFocus?: (() => void) | undefined;
   /** Whether a Component-tab neighbour's click goes anywhere (an activity builds it). */
   isNavigable?: ((componentId: string) => boolean) | undefined;
+  /** The activity a Component-tab neighbour's row opens, named at the row's end. */
+  destinationOf?: ((componentId: string) => string | undefined) | undefined;
 }): ReactNode {
   const t = useTokens();
   const c = contract;
@@ -646,10 +663,13 @@ export function ServiceContractView({
       {view === 'component' && (
         <ComponentPane
           componentId={focalId}
+          destinationOf={destinationOf}
+          inFocus={inFocus}
           isNavigable={isNavigable}
           systemEnvelope={systemEnvelope}
           t={t}
           onFocusComponent={onFocusComponent}
+          onOpenFocus={onOpenFocus}
         />
       )}
       {view === 'dynamic' && (

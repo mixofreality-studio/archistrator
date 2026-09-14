@@ -35,7 +35,8 @@ function build(
   view: C4View,
   componentId: string,
   t: Tokens,
-  overlays: StructureOverlays
+  overlays: StructureOverlays,
+  edgeLabel: ((label: string) => string) | undefined
 ): { nodes: Node[]; edges: Edge[] } {
   const { focus, inbound, outbound } = toPerspective(view, componentId);
   if (focus === undefined) return { nodes: [], edges: [] };
@@ -88,8 +89,10 @@ function build(
   });
   nodes.push(...decorativeNodes(layout));
 
-  // Plain directed arrows: no labels, and no lines to the Utilities bar (it just
-  // exists) — consistent with the static view.
+  // Plain directed arrows, and no lines to the Utilities bar (it just exists) —
+  // consistent with the static view. With `edgeLabel`, each edge says the call it
+  // carries (`EvaluateDesignHealth(…)`): the construction frames, where one edge
+  // is the whole fact (designer check on renderers S3).
   const edges: Edge[] = [];
   for (const [i, r] of rels.entries()) {
     if (!seen.has(r.from) || !seen.has(r.to)) continue;
@@ -101,8 +104,9 @@ function build(
     const id = slug ? `${r.from}-${r.to}-${slug}` : `${r.from}-${r.to}-${String(i)}`;
     const findings = overlays.edges.get(edgeOverlayKey(r.from, r.to));
     edges.push(
-      flowEdge(id, r.from, r.to, r.label, t, {
+      flowEdge(id, r.from, r.to, edgeLabel !== undefined ? edgeLabel(r.label) : r.label, t, {
         dashed: r.mode !== 'sync',
+        ...(edgeLabel !== undefined ? { showLabel: true } : {}),
         ...(findings !== undefined ? { findings } : {}),
       })
     );
@@ -117,11 +121,20 @@ export function PerspectiveFlow({
   height = 600,
   onFocusComponent,
   findings,
+  edgeLabel,
+  fitMaxZoom,
+  fitToContent,
 }: {
   view: C4View;
   /** The id of the component to focus on. */
   componentId: string;
   height?: number;
+  /** Show each edge's call, as this shortens it. Absent: plain arrows (the design page). */
+  edgeLabel?: (label: string) => string;
+  /** Cap the fit's zoom (FlowCanvas). */
+  fitMaxZoom?: number;
+  /** Size the canvas to the drawing (FlowCanvas); `height` is then ignored. */
+  fitToContent?: { minHeight: number; maxHeight: number };
   /** Re-point the perspective onto another component. When set, clicking a neighbour
    *  node re-focuses the view onto it. */
   onFocusComponent?: (componentId: string) => void;
@@ -138,8 +151,8 @@ export function PerspectiveFlow({
     [findings, view]
   );
   const { nodes, edges } = useMemo(
-    () => build(view, componentId, t, overlays),
-    [view, componentId, t, overlays]
+    () => build(view, componentId, t, overlays, edgeLabel),
+    [view, componentId, t, overlays, edgeLabel]
   );
 
   if (nodes.length === 0) {
@@ -169,6 +182,8 @@ export function PerspectiveFlow({
       nodes={nodes}
       t={t}
       {...(onNodeClick !== undefined ? { onNodeClick } : {})}
+      {...(fitMaxZoom !== undefined ? { fitMaxZoom } : {})}
+      {...(fitToContent !== undefined ? { fitToContent } : {})}
     />
   );
 }

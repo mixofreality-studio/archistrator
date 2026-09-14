@@ -5,13 +5,14 @@
  * (colours, node/edge factories, the layer vocabulary) live in ./flowLayout so
  * this module exports only components.
  */
-import { useEffect, useId, type CSSProperties, type ReactNode } from 'react';
+import { useEffect, useId, useState, type CSSProperties, type ReactNode } from 'react';
 import {
   ReactFlow,
   Background,
   Controls,
   Panel,
   useReactFlow,
+  useStore,
   type Edge,
   type Node,
   type NodeTypes,
@@ -28,6 +29,7 @@ import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
 import { flowInstanceId } from './flowInstanceId.ts';
+import { fitToWidth } from './fitContent.ts';
 
 /** The shared layer-colour legend Panel (only the layers actually present). */
 export function LayerLegend({
@@ -111,6 +113,8 @@ export function FlowCanvas({
   minZoom = 0.3,
   controlsStyle,
   edgesFocusable,
+  fitMaxZoom,
+  fitToContent,
   children,
 }: {
   nodes: Node[];
@@ -145,16 +149,33 @@ export function FlowCanvas({
    *  historical caller); a canvas whose edges carry no action passes false so
    *  the keyboard reaches its nodes without crossing every wire. */
   edgesFocusable?: boolean;
+  /** Cap every fit's zoom, the Controls' fit button included. Absent: xyflow's own. */
+  fitMaxZoom?: number;
+  /**
+   * Size the canvas to the drawing instead of fitting it into `height`
+   * (fitContent.ts): the zoom by the width alone, capped at `fitMaxZoom` (1.0 by
+   * default — never larger than drawn), the drawing top-aligned, and the canvas
+   * as tall as the drawing within these bounds. `height` is then ignored. Absent
+   * for every historical caller.
+   */
+  fitToContent?: { minHeight: number; maxHeight: number };
   children?: ReactNode;
 }): ReactNode {
   // Its own React Flow id (flowInstanceId.ts): every instance defaulting to `1`
   // duplicated xyflow's DOM ids whenever two canvases shared the page.
   const rfId = flowInstanceId(useId());
+  const [contentHeight, setContentHeight] = useState<number | undefined>(undefined);
+  const fitOptions = {
+    padding: 0.15,
+    ...(fitMaxZoom !== undefined ? { maxZoom: fitMaxZoom } : {}),
+  };
   return (
     <Box
+      data-canvas-height={fitToContent !== undefined ? String(contentHeight ?? 0) : undefined}
       sx={{
-        height,
+        height: fitToContent !== undefined ? (contentHeight ?? fitToContent.minHeight) : height,
         width: '100%',
+        ...(fitToContent !== undefined ? { boxSizing: 'border-box' } : {}),
         border: `1.5px solid ${t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         bgcolor: t.bg,
@@ -165,9 +186,10 @@ export function FlowCanvas({
         edgeTypes={edgeTypes}
         edges={edges}
         // Fit on mount ONLY when no viewport is being restored — a restored one
-        // is exactly the reader's own pan/zoom, which a fit would throw away.
-        fitView={defaultViewport === undefined}
-        fitViewOptions={{ padding: 0.15 }}
+        // is exactly the reader's own pan/zoom, which a fit would throw away —
+        // and not when the canvas sizes itself to the drawing (FitToContent).
+        fitView={defaultViewport === undefined && fitToContent === undefined}
+        fitViewOptions={fitOptions}
         id={rfId}
         maxZoom={1.4}
         minZoom={minZoom}
@@ -190,13 +212,107 @@ export function FlowCanvas({
       >
         <Background color={t.line} gap={22} size={1} />
         <Controls
+          fitViewOptions={fitOptions}
           showInteractive={false}
           {...(controlsStyle !== undefined ? { style: controlsStyle } : {})}
         />
+        {fitToContent !== undefined ? (
+          <FitToContent
+            height={contentHeight}
+            maxHeight={fitToContent.maxHeight}
+            maxZoom={fitMaxZoom ?? 1}
+            minHeight={fitToContent.minHeight}
+            minZoom={minZoom}
+            nodes={nodes}
+            onHeight={setContentHeight}
+          />
+        ) : null}
         {children}
       </ReactFlow>
     </Box>
   );
+}
+
+/** Frames, at most, to wait for React Flow to measure the nodes before a fit. */
+const MEASURE_FRAMES = 30;
+/** Clear space around a drawing fit to its content, in screen pixels. */
+const CONTENT_GUTTER = 24;
+/** The canvas frame's two 1.5px borders. */
+const CONTENT_FRAME = 3;
+
+/**
+ * FlowCanvas's `fitToContent`: once every node is measured, size the canvas to
+ * the drawing and place it (fitContent.fitToWidth) — the zoom by the width,
+ * capped, top-aligned. A height change re-runs it, and the next pass places.
+ */
+function FitToContent({
+  nodes,
+  height,
+  minHeight,
+  maxHeight,
+  minZoom,
+  maxZoom,
+  onHeight,
+}: {
+  nodes: Node[];
+  height: number | undefined;
+  minHeight: number;
+  maxHeight: number;
+  minZoom: number;
+  maxZoom: number;
+  onHeight: (height: number) => void;
+}): null {
+  const { setViewport, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
+  const paneWidth = useStore((s) => s.width);
+  useEffect(() => {
+    let raf = 0;
+    let frames = 0;
+    const step = (): void => {
+      const current = getNodes();
+      const unmeasured = current.some((n) => {
+        const m = getInternalNode(n.id)?.measured;
+        return (m?.width ?? 0) === 0 || (m?.height ?? 0) === 0;
+      });
+      if ((unmeasured || paneWidth === 0) && frames < MEASURE_FRAMES) {
+        frames += 1;
+        raf = requestAnimationFrame(step);
+        return;
+      }
+      const fit = fitToWidth({
+        paneWidth,
+        bounds: getNodesBounds(current),
+        minZoom,
+        maxZoom,
+        gutter: CONTENT_GUTTER,
+        frame: CONTENT_FRAME,
+        minHeight,
+        maxHeight,
+      });
+      if (fit.height !== height) {
+        onHeight(fit.height);
+        return;
+      }
+      void setViewport({ x: fit.x, y: fit.y, zoom: fit.zoom });
+    };
+    raf = requestAnimationFrame(step);
+    return (): void => {
+      cancelAnimationFrame(raf);
+    };
+  }, [
+    nodes,
+    height,
+    paneWidth,
+    minHeight,
+    maxHeight,
+    minZoom,
+    maxZoom,
+    onHeight,
+    setViewport,
+    getNodes,
+    getNodesBounds,
+    getInternalNode,
+  ]);
+  return null;
 }
 
 /**

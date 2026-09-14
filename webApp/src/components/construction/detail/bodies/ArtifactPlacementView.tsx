@@ -77,6 +77,8 @@ export interface PlacementViewContext {
   systemTestPlanId: string | undefined;
   /** Whether a neighbour's click goes anywhere (an activity builds it). */
   isNavigable: (componentId: string) => boolean;
+  /** The activity a neighbour's row opens (`C-review-engine`); undefined when none builds it. */
+  destinationOf: (componentId: string) => string | undefined;
   /** The selected attempt's evidence pointer (Code Review's commit). */
   evidence: { kind: string; ref: string } | undefined;
   /** The selected attempt's origin and number; undefined when none is recorded. */
@@ -117,14 +119,14 @@ export function ArtifactPlacementView({
           ctx.observedOnly
         )
       : '';
-  // In the focus view the rail carries this sentence beside the artifact (polish 1).
-  const reconstructed = ctx.inFocus ? null : <ReconstructedArtifactNote ctx={ctx} />;
+  // The "committed today" sentence is not rendered here: it rides the provenance
+  // note, after the basis (in its disclosure, in the pane), and the focus view's
+  // rail — see ReconstructedArtifactNote.
 
   switch (placement.kind) {
     case 'contractSummary':
       return contractJoin !== undefined ? (
         <Stack>
-          {reconstructed}
           <ContractSummaryCard
             artifactRole="committedNow"
             contract={contractJoin.contract}
@@ -150,7 +152,6 @@ export function ArtifactPlacementView({
       if (contractJoin === undefined) return null;
       return (
         <Stack>
-          {reconstructed}
           {ctx.compact ? (
             // Below 600px no canvas draws in the drawer: the summary, with Focus
             // as the primary action (§3).
@@ -213,11 +214,12 @@ export function ArtifactPlacementView({
             tone="byDesign"
           />
           <RelationshipsFrame
-            caption="From the committed architecture (system · relationships) — who reaches this resource."
+            caption={WHO_REACHES_CAPTION}
             componentId={join.componentId}
             ctx={ctx}
             testId={UI_IDENTIFIERS.Construction.WHO_REACHES_IT}
             title="WHO REACHES IT"
+            variant="reachedBy"
           />
         </Stack>
       );
@@ -342,6 +344,7 @@ function ContractFull({ ctx }: { ctx: PlacementViewContext }): ReactElement | nu
     <ServiceContractView
       componentId={join.componentId}
       contract={join.contract}
+      destinationOf={ctx.destinationOf}
       inFocus={ctx.inFocus}
       isNavigable={ctx.isNavigable}
       systemEnvelope={ctx.systemEnvelope}
@@ -355,17 +358,22 @@ function ContractFull({ ctx }: { ctx: PlacementViewContext }): ReactElement | nu
 
 /**
  * The one sentence between a RECONSTRUCTED attempt and the contract (§4.2):
- * the contract is today's, and nothing links it to the attempt. The pane puts it
- * above the frame; the focus view's rail carries it (polish 1).
+ * the contract is today's, and nothing links it to the attempt. It rides the
+ * provenance note after the basis — in the pane inside its "Basis and evidence"
+ * disclosure, so the first op clears the action bar at 1366×768 (designer
+ * recheck on S2); in the focus view's rail in the open (polish 1). `shown`: the
+ * selection shows the committed contract (the sentence says "below").
  */
 export function ReconstructedArtifactNote({
   ctx,
+  shown,
 }: {
   ctx: PlacementViewContext;
+  shown: boolean;
 }): ReactElement | null {
   const t = useTokens();
   const join = ctx.join;
-  if (ctx.reconstructedScope === undefined || join?.kind !== 'contract') return null;
+  if (!shown || ctx.reconstructedScope === undefined || join?.kind !== 'contract') return null;
   return (
     <Typography
       data-testid={UI_IDENTIFIERS.Construction.ARTIFACT_RECONSTRUCTED_NOTE}
@@ -376,22 +384,32 @@ export function ReconstructedArtifactNote({
   );
 }
 
+/** The WHO REACHES IT frame's caption — the pane's and the focus view's alike. */
+const WHO_REACHES_CAPTION =
+  'From the committed architecture (system · relationships) — who reaches this resource.';
+
+/**
+ * The COMPONENT frame of a missing contract and the WHO REACHES IT frame of a
+ * Resource — as the Component tab draws them (designer check on renderers S3):
+ * text rows in the pane, the 500px drawer included, each saying the call and the
+ * activity it opens, with "Open diagram in focus view"; the diagram in the focus
+ * view only.
+ */
 function RelationshipsFrame({
   componentId,
   ctx,
   title,
   caption,
   testId,
-  height,
+  variant,
 }: {
   componentId: string;
   ctx: PlacementViewContext;
   title: string;
   caption?: string;
   testId?: string;
-  height?: number;
+  variant?: 'component' | 'reachedBy';
 }): ReactElement {
-  const t = useTokens();
   return (
     <ArtifactFrame
       artifactRole="committedNow"
@@ -399,24 +417,18 @@ function RelationshipsFrame({
       title={title}
       onFocus={ctx.onFocus}
     >
-      {ctx.compact ? (
-        <Typography
-          data-testid={testId ?? UI_IDENTIFIERS.ServiceContract.COMPONENT_FLOW}
-          sx={{ fontFamily: t.body, fontSize: 12, color: t.muted }}
-        >
-          Open the focus view to see the relationships diagram.
-        </Typography>
-      ) : (
-        <ComponentRelationshipsView
-          componentId={componentId}
-          height={height ?? 360}
-          isNavigable={ctx.isNavigable}
-          systemEnvelope={ctx.systemEnvelope}
-          onFocusComponent={ctx.onFocusComponent}
-          {...(caption !== undefined ? { caption } : {})}
-          {...(testId !== undefined ? { testId } : {})}
-        />
-      )}
+      <ComponentRelationshipsView
+        componentId={componentId}
+        destinationOf={ctx.destinationOf}
+        isNavigable={ctx.isNavigable}
+        mode={ctx.inFocus ? 'canvas' : 'list'}
+        systemEnvelope={ctx.systemEnvelope}
+        onFocusComponent={ctx.onFocusComponent}
+        onOpenFocus={ctx.inFocus ? undefined : ctx.onFocus}
+        {...(caption !== undefined ? { caption } : {})}
+        {...(testId !== undefined ? { testId } : {})}
+        {...(variant !== undefined ? { variant } : {})}
+      />
     </ArtifactFrame>
   );
 }
@@ -467,12 +479,13 @@ export function FocusArtifact({
     );
   }
   if (target === 'relationships' && (join.kind === 'missing' || join.kind === 'byDesign')) {
+    // The same placement the pane shows — the gap or by-design statement above
+    // the diagram, and a Resource's "who reaches this resource" caption — so the
+    // focus view never says less than the pane (designer check on renderers S3).
     return (
-      <RelationshipsFrame
-        componentId={join.componentId}
+      <ArtifactPlacementView
         ctx={inFocus}
-        height={640}
-        title={join.kind === 'byDesign' ? 'WHO REACHES IT' : 'COMPONENT'}
+        placement={{ kind: join.kind === 'byDesign' ? 'byDesignSpec' : 'contractGap' }}
       />
     );
   }

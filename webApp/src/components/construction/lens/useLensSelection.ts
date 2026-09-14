@@ -191,7 +191,17 @@ export interface LensSelectionApi extends LensState {
    * same — choosing an attempt from inside the focus view must not close it —
    * unless `artifact` is passed, which replaces it.
    */
-  select: (selection: LensSelection, artifact?: ArtifactViewState) => void;
+  select: (
+    selection: LensSelection,
+    artifact?: ArtifactViewState,
+    /**
+     * `history: true` PUSHES an entry, so Back returns to where the reader was.
+     * For a jump to ANOTHER activity from inside an artifact — a neighbour hop, a
+     * "reached through" row (designer recheck on S2) — which is a navigation,
+     * not a glance.
+     */
+    opts?: { history?: boolean }
+  ) => void;
   /** Show another view of the selected artifact (the contract's tab). */
   setArtifactView: (view: ArtifactViewId) => void;
   /** Show another system test plan scenario (`sc`), replacing the URL entry. */
@@ -239,9 +249,16 @@ export function useLensSelection(): LensSelectionApi {
   );
 
   const select = useCallback(
-    (selection: LensSelection, artifact?: ArtifactViewState): void => {
+    (
+      selection: LensSelection,
+      artifact?: ArtifactViewState,
+      opts?: { history?: boolean }
+    ): void => {
       const kept = artifactKeptFor(state, selection, artifact);
-      push({ lens: state.lens, selection, ...(kept !== undefined ? { artifact: kept } : {}) });
+      push(
+        { lens: state.lens, selection, ...(kept !== undefined ? { artifact: kept } : {}) },
+        { history: opts?.history === true }
+      );
     },
     [push, state]
   );

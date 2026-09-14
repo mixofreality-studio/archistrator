@@ -137,6 +137,23 @@ export function reviewVerdictFor(
   };
 }
 
+/**
+ * The verdict as one chip, for the focus view's header when its side panel is
+ * collapsed (designer check on renderers S3): the Design Review's verdict must
+ * stay reachable with the rail gone. It says what is recorded, in the same terms
+ * as the statement — never a PASS/FAIL nothing recorded. The chip opens the rail.
+ */
+export function compactVerdictLabel(view: ReviewVerdictView): string {
+  switch (view.source) {
+    case 'reviewerSet':
+      return `VERDICT · ${String(view.reviewers.length)} asked · none recorded`;
+    case 'reconstructedNote':
+      return 'VERDICT · ≈ prose only';
+    case 'none':
+      return 'VERDICT · none recorded';
+  }
+}
+
 // ---------------------------------------------------------------------------
 // Comment anchors — item-granular, so a send-back carries per-item feedback
 // ---------------------------------------------------------------------------

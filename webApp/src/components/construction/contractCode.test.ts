@@ -7,12 +7,19 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type { ContractOp } from '../../contracts/types.ts';
+import { fitToWidth } from '../flow/fitContent.ts';
 import {
+  CODE_CANVAS_BORDERS,
+  CODE_CANVAS_GUTTER,
+  CODE_CANVAS_MIN_HEIGHT,
   CODE_CANVAS_MIN_WIDTH,
+  CODE_EXPANDED_WIDTH,
+  CODE_IFACE_W,
   CODE_MIN_ZOOM,
   codeTabModeFor,
   isErrorStructName,
   opStructsFor,
+  paramOf,
   parseSignature,
 } from './contractCode.ts';
 
@@ -23,18 +30,77 @@ void test('the pane always lists: no pane width draws the canvas', () => {
   }
 });
 
+void test('the canvas needs the widest expansion at 0.9, plus its gutters and frame (N1)', () => {
+  // request 224 + gap 300 + interface 560 + gap 150 + response 224.
+  assert.equal(CODE_EXPANDED_WIDTH, 1458);
+  // ⌈1458 × 0.9⌉ = 1313, + 2 × 14 gutter + 3 frame.
+  assert.equal(CODE_CANVAS_MIN_WIDTH, 1344);
+  assert.ok(CODE_CANVAS_MIN_WIDTH >= CODE_EXPANDED_WIDTH * CODE_MIN_ZOOM + 3);
+});
+
 void test('the focus view draws the canvas only with room for it', () => {
-  assert.equal(CODE_CANVAS_MIN_WIDTH, 900);
   assert.equal(codeTabModeFor(0, true), 'list', 'unmeasured lists');
-  assert.equal(codeTabModeFor(732, true), 'list', 'the focus column at a 1100 window');
   assert.equal(codeTabModeFor(476, true), 'list', 'the focus column at a 500 window');
-  assert.equal(codeTabModeFor(899, true), 'list');
-  assert.equal(codeTabModeFor(900, true), 'canvas');
-  assert.equal(codeTabModeFor(912, true), 'canvas', 'the focus column at a 1280 window');
+  assert.equal(codeTabModeFor(732, true), 'list', 'the focus column at a 1100 window');
+  // S2 drew here, and the expanded structs landed 0% / 22% on the canvas.
+  assert.equal(codeTabModeFor(912, true), 'list', 'the focus column at a 1280 window');
+  assert.equal(codeTabModeFor(998, true), 'list', 'the focus column at a 1366 window');
+  assert.equal(codeTabModeFor(1232, true), 'list', 'the focus column at a 1600 window');
+  assert.equal(codeTabModeFor(1343, true), 'list');
+  assert.equal(codeTabModeFor(1344, true), 'canvas');
+  assert.equal(codeTabModeFor(1392, true), 'canvas', 'the focus column at a 1760 window');
+});
+
+void test('a primitive or alias param is one row, never a struct with its type as a header', () => {
+  assert.deepEqual(paramOf({ name: 'string', fields: [{ name: 'tickID', type: 'string' }] }), {
+    name: 'tickID',
+    type: 'string',
+  });
+  assert.equal(
+    paramOf({ name: 'fwm.Error', fields: [{ name: 'fault', type: 'fwm.Error' }] })?.name,
+    'fault'
+  );
+  // A real struct — one field of another type, several fields, or none — stays a struct.
+  assert.equal(paramOf({ name: 'GetRequest', fields: [{ name: 'id', type: 'ID' }] }), undefined);
+  assert.equal(
+    paramOf({
+      name: 'PumpResult',
+      fields: [
+        { name: 'dispatched', type: 'bool' },
+        { name: 'ActivityID', type: 'ActivityID' },
+      ],
+    }),
+    undefined
+  );
+  assert.equal(paramOf({ name: 'string', fields: [] }), undefined);
 });
 
 void test('a fit never zooms the code diagram below 0.9', () => {
   assert.equal(CODE_MIN_ZOOM, 0.9);
+});
+
+void test('the canvas is the drawing’s height: an interface alone hugs it, an expansion grows it', () => {
+  const fit = (paneWidth: number, width: number, height: number): ReturnType<typeof fitToWidth> =>
+    fitToWidth({
+      paneWidth,
+      bounds: { x: 0, y: 0, width, height },
+      minZoom: CODE_MIN_ZOOM,
+      maxZoom: 1,
+      gutter: CODE_CANVAS_GUTTER,
+      frame: CODE_CANVAS_BORDERS,
+      minHeight: CODE_CANVAS_MIN_HEIGHT,
+    });
+  // Unexpanded, the 10-op interface (~400px) at 1.0, top-aligned: no floating in a 780px box.
+  const alone = fit(1389, CODE_IFACE_W, 400);
+  assert.equal(alone.zoom, 1);
+  assert.equal(alone.height, 400 + 2 * CODE_CANVAS_GUTTER + CODE_CANVAS_BORDERS);
+  // The widest expansion in the narrowest column that draws: ≥ 0.9, and a 10-param
+  // request column (~1400px) lands on a canvas grown to hold it.
+  const widest = fit(CODE_CANVAS_MIN_WIDTH - CODE_CANVAS_BORDERS, CODE_EXPANDED_WIDTH, 1400);
+  assert.ok(widest.zoom >= CODE_MIN_ZOOM, String(widest.zoom));
+  assert.ok(widest.height >= Math.ceil(1400 * widest.zoom) + 2 * CODE_CANVAS_GUTTER);
+  // The widest expansion fits across at that zoom: nothing past the frame.
+  assert.ok(CODE_EXPANDED_WIDTH * widest.zoom + 2 * CODE_CANVAS_GUTTER <= CODE_CANVAS_MIN_WIDTH);
 });
 
 void test('the signature names the request and the response, error apart', () => {

@@ -12,6 +12,7 @@ import type {
   ProducedArtifactRow,
 } from '../../../../contracts/types.ts';
 import {
+  compactVerdictLabel,
   producedNoteAnchorPath,
   reviewerAnchorPath,
   reviewVerdictFor,
@@ -48,6 +49,26 @@ const REVIEW_SET: ConstructionReviewSet = {
     { role: 'qa-engineer', perspective: 'Process health', mayAmend: false },
   ],
 };
+
+void test('the collapsed focus header’s verdict chip says what is recorded, never a grade', () => {
+  assert.equal(
+    compactVerdictLabel(reviewVerdictFor(row(), REVIEW_SET)),
+    'VERDICT · 2 asked · none recorded'
+  );
+  assert.equal(
+    compactVerdictLabel(
+      reviewVerdictFor(row({ produced: [produced({ note: 'merged' })] }), undefined)
+    ),
+    'VERDICT · ≈ prose only'
+  );
+  assert.equal(compactVerdictLabel(reviewVerdictFor(row(), undefined)), 'VERDICT · none recorded');
+  for (const v of [
+    reviewVerdictFor(row(), REVIEW_SET),
+    reviewVerdictFor(row({ produced: [produced({ note: 'Reviewed and passed.' })] }), undefined),
+  ]) {
+    assert.doesNotMatch(compactVerdictLabel(v), /PASS|FAIL|APPROVED/);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // The dropped signal — the single most important thing this body must not fake
