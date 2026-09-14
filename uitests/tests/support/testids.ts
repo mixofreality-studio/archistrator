@@ -31,6 +31,11 @@ export const TESTID = {
   loading: UI_IDENTIFIERS.Common.LOADING,
   errorAlert: UI_IDENTIFIERS.Common.ERROR_ALERT,
 
+  // The preview build's own chrome (webApp/src/previewShell/): the loud miss /
+  // blocked-request banner and the unknown-state error page.
+  previewAlarm: UI_IDENTIFIERS.Preview.ALARM,
+  previewErrorPage: UI_IDENTIFIERS.Preview.ERROR_PAGE,
+
   // Projects landing (route `/`)
   projectsLandingScreen: UI_IDENTIFIERS.ProjectsLanding.SCREEN,
   projectsGrid: UI_IDENTIFIERS.ProjectsLanding.GRID,
