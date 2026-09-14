@@ -591,11 +591,13 @@ export function ContractCodeFlow({
           draggable: false,
           selectable: false,
         });
+        // The call is named once, on the first edge: the edges converge on the
+        // interface, and a label per card stacked the same words there.
         inputStructs.forEach((_s, i) => {
           es.push(
             makeEdge(
               { source: 'col-in', sourceHandle: cardHandle('input', i), target: 'iface' },
-              call,
+              i === 0 ? call : '',
               t
             )
           );
