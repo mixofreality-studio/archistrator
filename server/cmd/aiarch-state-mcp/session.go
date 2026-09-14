@@ -64,6 +64,14 @@ const (
 	// session's STEP MANIFEST, which fixes the registered tool surface. The
 	// agent does not supply it; the dispatch stamps it.
 	envCommand = "AIARCH_COMMAND"
+	// envOperatorNote is the operator's steer for THIS construction attempt (a
+	// send-back, retry or re-queue note), stamped by the dispatch only when one is
+	// pending: the local executor puts it in the rig map, the GitHub workflow builds it
+	// into the MCP config with jq from the operator_note input. It is read VERBATIM
+	// and served two ways in construct mode: as the server's instructions (the
+	// agent's system prompt) and through the get_operator_notes tool. It never rides
+	// the prompt, whose positional slash-command arguments it would corrupt.
+	envOperatorNote = "AIARCH_OPERATOR_NOTE"
 )
 
 // statePathPrefix + projectFile mirror the projectstate git substrate's reserved
@@ -99,6 +107,12 @@ type Session struct {
 	// and the legacy mode-gated surface is used, which keeps hand-run sessions
 	// and any dispatch predating the manifest working unchanged.
 	Command string
+
+	// OperatorNote is the operator's steer for this construction attempt, VERBATIM from
+	// AIARCH_OPERATOR_NOTE (never trimmed or re-encoded: it is the operator's text).
+	// Empty (or whitespace-only) means no note is pending. Served only in construct
+	// mode (operatornotes.go).
+	OperatorNote string
 
 	// wroteState is set by any state-mutating verb (putDraftModel / setCritiqueVerdict /
 	// respondToReviewComment) so publishDraft can refuse a no-op publish (nothing drafted
@@ -154,6 +168,7 @@ func newSessionFromEnv(getenv func(string) string, wd string) (*Session, error) 
 		ComponentID:  strings.TrimSpace(getenv(envComponentID)),
 		ActivityID:   strings.TrimSpace(getenv(envActivityID)),
 		Command:      strings.TrimSpace(getenv(envCommand)),
+		OperatorNote: getenv(envOperatorNote),
 		git:          runGit,
 	}
 

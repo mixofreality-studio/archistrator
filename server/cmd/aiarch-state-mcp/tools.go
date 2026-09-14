@@ -69,12 +69,18 @@ type composedVerb struct {
 //     side-effect-free, so they are safe to expose in every mode. Raw WRITES and
 //     AgentHidden ops (e.g. raw CommitArtifact — merge authority stays with the
 //     server rail) are NEVER registered here; a composed verb is the write surface.
+//
+// OPERATOR NOTES (B1.4). In construct mode, a session carrying an operator note hands
+// it to the client as the server's Instructions — which a Claude client places in the
+// agent's system prompt — verbatim, with the instruction to act on it first. Every
+// other mode, and a construct session without a note, builds the server exactly as
+// before (nil options).
 func buildServer(s *Session) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{
 		Name:    "aiarch-state",
 		Title:   "aiarch project-state",
 		Version: "0.1.0",
-	}, nil)
+	}, serverOptions(s))
 
 	granted := grantedTools(s)
 	for _, v := range composedVerbs(s) {
@@ -300,6 +306,14 @@ func composedVerbs(s *Session) []composedVerb {
 				}
 				return "The testing artifact passed validation and was written. Call publishDraft to commit it.", nil
 			}))
+		}},
+		{name: getOperatorNotesTool, modes: construct, register: func(srv *mcp.Server) {
+			mcp.AddTool(srv, &mcp.Tool{
+				Name: getOperatorNotesTool,
+				Description: "Return the operator's notes for THIS attempt of the activity, verbatim — the steer an operator gave when they sent a phase back, retried an escalated activity, or re-queued a failed one. " +
+					"Call it FIRST. When it returns notes, act on them before anything else: they outrank the command's defaults. When there are none it says so.",
+				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
+			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.operatorNotesText(), nil }))
 		}},
 	}
 }

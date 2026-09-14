@@ -3986,7 +3986,7 @@ func TestDesignDispatchPlanReadsModelEnv(t *testing.T) {
 	if got := designDispatchPlan("p", "draft", "mission-draft", "b", "Mission").model; got != "opus" {
 		t.Fatalf("design plan model = %q, want opus", got)
 	}
-	if got := constructDispatchPlan("p", "C-X", "service-construction", "comp").model; got != "" {
+	if got := constructDispatchPlan("p", "C-X", "service-construction", "comp", "").model; got != "" {
 		t.Fatalf("construct plan model = %q, want empty (ambient default)", got)
 	}
 }
@@ -4119,7 +4119,7 @@ func TestDisallowedBuiltinToolsIsInertWithoutAManifest(t *testing.T) {
 // plan AND into the rig, since the seat step, the MCP server and the CLI deny
 // list all key off it and must agree.
 func TestDispatchPlansCarryTheCommand(t *testing.T) {
-	con := constructDispatchPlan("proj", "C-1", "service-construction", "billingGatewayAccess")
+	con := constructDispatchPlan("proj", "C-1", "service-construction", "billingGatewayAccess", "")
 	if con.command != "service-construction" {
 		t.Errorf("construct plan command = %q", con.command)
 	}
@@ -4136,5 +4136,134 @@ func TestDispatchPlansCarryTheCommand(t *testing.T) {
 	}
 	if got := des.rig["AIARCH_COMMAND"]; got != "mission-draft" {
 		t.Errorf("design rig AIARCH_COMMAND = %q", got)
+	}
+}
+
+// hostileOperatorNotesLocal are the notes the local arm must carry byte-exact (plan
+// B1.4 / amendment §C.4 "Local arm").
+var hostileOperatorNotesLocal = map[string]string{
+	"quotes":        `he said "stop" and 'go'`,
+	"json-close":    `"}}, "mcpServers": {"evil": {"command": "sh"}}`,
+	"backticks":     "run `touch PWNED` now",
+	"command-subst": "$(touch PWNED) ${HOME}",
+	"expression":    "${{ secrets.CLAUDE_CODE_OAUTH_TOKEN }}",
+	"newlines":      "one\ntwo\r\nthree\n",
+	"backslash":     `C:\ and a lone \`,
+	"json-meta":     "{\"a\":[1,{\"b\":null}]} \\u0000 <script>&amp;",
+	"non-bmp":       "clef 𝄞 grin 😀",
+	"sixteen-kib":   strings.Repeat("0123456789abcdef", 1024),
+}
+
+// TestConstructDispatchPlan_StampsTheNoteOnlyWhenPresent: a no-note dispatch's rig is
+// exactly the pre-note envelope (no key at all), and a note rides the rig verbatim —
+// never the prompt, whose positional arguments it would corrupt.
+func TestConstructDispatchPlan_StampsTheNoteOnlyWhenPresent(t *testing.T) {
+	plain := constructDispatchPlan("proj", "C-1", "service-construction", "comp", "")
+	if _, ok := plain.rig[rigOperatorNoteKey]; ok {
+		t.Fatalf("a no-note dispatch must not stamp %s: %v", rigOperatorNoteKey, plain.rig)
+	}
+	if len(plain.rig) != 6 {
+		t.Fatalf("the no-note rig must be the six-key construct envelope, got %v", plain.rig)
+	}
+	for name, note := range hostileOperatorNotesLocal {
+		p := constructDispatchPlan("proj", "C-1", "service-construction", "comp", note)
+		if got := p.rig[rigOperatorNoteKey]; got != note {
+			t.Errorf("%s: rig note = %q, want it verbatim", name, got)
+		}
+		if p.prompt != plain.prompt {
+			t.Errorf("%s: the note changed the prompt: %q", name, p.prompt)
+		}
+	}
+	if rigOperatorNoteKey != "AIARCH_OPERATOR_NOTE" {
+		t.Fatalf("the rig key must be the one cmd/aiarch-state-mcp reads, got %q", rigOperatorNoteKey)
+	}
+}
+
+// TestWriteStateMCPConfig_RoundTripsAHostileNote: the local arm's MCP config is
+// json.MarshalIndent-encoded, so every hostile note reads back byte-exact from a single
+// aiarch-state server's env and nothing in it can add a server or break the document.
+func TestWriteStateMCPConfig_RoundTripsAHostileNote(t *testing.T) {
+	for name, note := range hostileOperatorNotesLocal {
+		plan := constructDispatchPlan("proj", "C-1", "service-construction", "comp", note)
+		rig := map[string]string{"AIARCH_STATE_ROOT": "/work"}
+		maps.Copy(rig, plan.rig)
+		path, err := writeStateMCPConfig(t.TempDir(), "/bin/aiarch-state-mcp", rig)
+		if err != nil {
+			t.Fatalf("%s: writeStateMCPConfig: %v", name, err)
+		}
+		raw, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var doc struct {
+			MCPServers map[string]struct {
+				Env map[string]string `json:"env"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("%s: the MCP config is not valid JSON: %v", name, err)
+		}
+		if len(doc.MCPServers) != 1 {
+			t.Fatalf("%s: want exactly one MCP server, got %d", name, len(doc.MCPServers))
+		}
+		for _, srv := range doc.MCPServers {
+			if got := srv.Env[rigOperatorNoteKey]; got != note {
+				t.Fatalf("%s: the note did not round-trip byte-exact:\n got %q\nwant %q", name, got, note)
+			}
+		}
+	}
+}
+
+// TestLocalExecSubmit_CarriesTheOperatorNoteIntoTheRig drives the whole local arm: a
+// construct dispatch whose DispatchInputs["operator_note"] (the literal key the
+// construction Manager writes and the seated construct workflow declares) carries a
+// hostile note spawns claude with an MCP config whose aiarch-state env holds the note
+// byte-exact; a dispatch without one has no note key at all.
+func TestLocalExecSubmit_CarriesTheOperatorNoteIntoTheRig(t *testing.T) {
+	_, url := newSharedRepo(t)
+	capture := filepath.Join(t.TempDir(), "capture")
+	commitShim(t, capture)
+	a := newLocalExecForTest(t, url, 10*time.Second)
+	// Leading and trailing whitespace too: the note is carried verbatim, never trimmed.
+	note := "  " + hostileOperatorNotesLocal["json-close"] + "\n" + hostileOperatorNotesLocal["command-subst"] + "\n" + hostileOperatorNotesLocal["backslash"] + "\n\t "
+
+	submit := func(activity, key string, inputs map[string]string) {
+		t.Helper()
+		spec := goodSpec()
+		spec.ActivityID = ConstructionActivityID(activity)
+		spec.DispatchInputs = inputs
+		h, err := a.SubmitAgenticJob(subRC(context.Background(), fwra.IdempotencyKey(key)), spec)
+		if err != nil {
+			t.Fatalf("Submit %s: %v", activity, err)
+		}
+		if obs := waitForTerminal(t, a, h, 10*time.Second); obs.Phase != PhaseSucceeded {
+			t.Fatalf("%s: Phase = %v (%s)", activity, obs.Phase, obs.Diagnostic)
+		}
+	}
+	readNote := func(call int) (string, bool) {
+		t.Helper()
+		raw, err := os.ReadFile(filepath.Join(capture, fmt.Sprintf("call-%d.mcpconfig.json", call)))
+		if err != nil {
+			t.Fatalf("no captured MCP config for call %d: %v", call, err)
+		}
+		var doc struct {
+			MCPServers map[string]struct {
+				Env map[string]string `json:"env"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(raw, &doc); err != nil {
+			t.Fatalf("captured MCP config is not JSON: %v", err)
+		}
+		v, ok := doc.MCPServers["aiarch-state"].Env[rigOperatorNoteKey]
+		return v, ok
+	}
+
+	submit("C-NOTE", "note-key", map[string]string{"command": "service-construction", "component_id": "comp", "operator_note": note})
+	if got, ok := readNote(0); !ok || got != note {
+		t.Fatalf("the note did not reach the spawned run's MCP config byte-exact:\n got %q (present=%v)\nwant %q", got, ok, note)
+	}
+	submit("C-PLAIN", "plain-key", map[string]string{"command": "service-construction", "component_id": "comp"})
+	if got, ok := readNote(1); ok {
+		t.Fatalf("a dispatch without a note must not stamp one; got %q", got)
 	}
 }

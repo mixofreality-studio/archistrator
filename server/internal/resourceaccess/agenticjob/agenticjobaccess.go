@@ -1383,8 +1383,11 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 		return "", fwra.New(fwra.ContractMisuse, `SubmitAgenticJob: missing DispatchInputs["command"]`)
 	}
 	componentID := spec.DispatchInputs[dispatchInputComponentIDKey]
+	// The operator's steer for this attempt, when the Manager carried one (B1.4). It is
+	// passed through VERBATIM — never trimmed — and absent from the rig when empty.
+	operatorNote := spec.DispatchInputs[dispatchInputOperatorNoteKey]
 
-	return a.submitClaudeRun(rc, constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID))
+	return a.submitClaudeRun(rc, constructDispatchPlan(a.dispatchProjectID(spec), activityID, command, componentID, operatorNote))
 }
 
 // dispatchProjectID resolves the AIARCH_PROJECT_ID to stamp on a dispatch: the
@@ -1504,23 +1507,38 @@ type localDispatchPlan struct {
 // AIARCH_* rig (JOB_MODE=construct + component/activity), and the "/<command> <component>
 // <activity>" prompt — the exact shape aiarch-construct.yml's prompt step + MCP-config
 // env emit.
-func constructDispatchPlan(projectID, activityID, command, componentID string) localDispatchPlan {
+//
+// operatorNote is the operator's steer for this attempt (DispatchInputs["operator_note"],
+// plan B1.4). It is stamped into the rig as AIARCH_OPERATOR_NOTE ONLY when non-empty, so
+// a no-note dispatch's rig is exactly the pre-note envelope. The rig is exec env and
+// writeStateMCPConfig encodes it with json.MarshalIndent, so the note needs no quoting
+// here and can break neither the process env nor the MCP config (amendment §C, H10).
+// It never rides the prompt, whose positional arguments it would corrupt.
+func constructDispatchPlan(projectID, activityID, command, componentID, operatorNote string) localDispatchPlan {
 	branch := localBranchName(activityID)
+	rig := map[string]string{
+		"AIARCH_PROJECT_ID":    projectID,
+		"AIARCH_JOB_MODE":      "construct",
+		"AIARCH_COMPONENT_ID":  componentID,
+		"AIARCH_ACTIVITY_ID":   activityID,
+		"AIARCH_TARGET_BRANCH": branch,
+		"AIARCH_COMMAND":       command,
+	}
+	if operatorNote != "" {
+		rig[rigOperatorNoteKey] = operatorNote
+	}
 	return localDispatchPlan{
 		branch:        branch,
 		worktreeLabel: "activity-branch",
 		command:       command,
-		rig: map[string]string{
-			"AIARCH_PROJECT_ID":    projectID,
-			"AIARCH_JOB_MODE":      "construct",
-			"AIARCH_COMPONENT_ID":  componentID,
-			"AIARCH_ACTIVITY_ID":   activityID,
-			"AIARCH_TARGET_BRANCH": branch,
-			"AIARCH_COMMAND":       command,
-		},
-		prompt: "/" + command + " " + componentID + " " + activityID,
+		rig:           rig,
+		prompt:        "/" + command + " " + componentID + " " + activityID,
 	}
 }
+
+// rigOperatorNoteKey is the rig variable cmd/aiarch-state-mcp reads the note from
+// (its envOperatorNote).
+const rigOperatorNoteKey = "AIARCH_OPERATOR_NOTE"
 
 // designDispatchPlan builds the plan for a DESIGN dispatch, MIRRORING the seated
 // aiarch-design.yml draft job field-for-field:
@@ -1590,6 +1608,13 @@ const (
 	// dispatchInputComponentIDKey is the construct-arm component the run targets; stamped
 	// as AIARCH_COMPONENT_ID and appended to the construct prompt.
 	dispatchInputComponentIDKey = "component_id"
+	// dispatchInputOperatorNoteKey is the OPTIONAL construction input carrying the
+	// operator's steer for this attempt (plan B1.4), rendered by the construction Manager
+	// and set only when a note is pending. Like every dispatch input it rides the generic
+	// DispatchInputs (no contract change): the GitHub arm passes it through as the seated
+	// construct workflow's `operator_note` input; this local arm stamps it into the rig as
+	// AIARCH_OPERATOR_NOTE (constructDispatchPlan).
+	dispatchInputOperatorNoteKey = "operator_note"
 )
 
 // dispatch performs the synchronous prep (git-worktree-add the plan's branch, write
