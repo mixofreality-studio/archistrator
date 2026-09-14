@@ -207,6 +207,11 @@ func (m loggingConstructionManager) GetSessionState(rc fwmanager.Context, projec
 	return v, logInfraError(m.log, "Construction.GetSessionState", string(projectID), err)
 }
 
+func (m loggingConstructionManager) GetPumpStatus(rc fwmanager.Context, projectID construction.ProjectID) (construction.PumpStatus, error) {
+	v, err := m.inner.GetPumpStatus(rc, projectID)
+	return v, logInfraError(m.log, "Construction.GetPumpStatus", string(projectID), err)
+}
+
 func (m loggingConstructionManager) ListEpisodesForActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error) {
 	v, err := m.inner.ListEpisodesForActivity(rc, projectID, activityID)
 	return v, logInfraError(m.log, "Construction.ListEpisodesForActivity", string(projectID), err)

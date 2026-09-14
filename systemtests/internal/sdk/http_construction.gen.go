@@ -30,6 +30,14 @@ func (c *HTTPClient) ConstructionGetSessionState(ctx context.Context, projectID 
 	return out, err
 }
 
+// ConstructionGetPumpStatus calls the GetPumpStatus operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionGetPumpStatus(ctx context.Context, projectID ProjectID) (PumpStatus, error) {
+	path := fmt.Sprintf("/api/v1/construction/get-pump-status/%s", projectID)
+	var out PumpStatus
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}
+
 // ConstructionOverrideActivityRequest is the JSON request body for ConstructionOverrideActivity.
 type ConstructionOverrideActivityRequest struct {
 	Override ActivityOverride `json:"override"`

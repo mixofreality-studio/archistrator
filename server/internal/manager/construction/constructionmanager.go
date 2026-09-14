@@ -582,6 +582,43 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 	return view, nil
 }
 
+// GetPumpStatus — op 2.9 (plan B1.5). Reports whether the project's ONE construction
+// pump ({projectId}:nextActivity, pumpWorkflowID) has a RUNNING execution now. It
+// describes the pump id with an EMPTY run id, which reads the latest run — so a pump
+// cascading between activities (ContinueAsNew keeps the id) reads as open. No pump for
+// the project is {open:false} with no error; any other describe fault is Infrastructure.
+// The describe is bounded by pumpRPCTimeout, like the dispatch poll's describes.
+//
+// It is ONE fact on purpose. It does not fold in the recorded operator pause or any
+// activity's live session: the client combines them (a paused project's pump is not
+// open; an open pump can be between sessions). It is not the project-level
+// GetSessionState either: that targets the supervision execution ({p}:construction),
+// which is not the pump.
+func (m *constructionManager) GetPumpStatus(rc fwm.Context, projectID ProjectID) (PumpStatus, error) {
+	if projectID == "" {
+		return PumpStatus{}, newError(fwm.ContractMisuse, "empty projectId")
+	}
+	dctx, cancel := context.WithTimeout(rc.Context, pumpRPCTimeout)
+	defer cancel()
+	resp, err := m.client.DescribeWorkflowExecution(dctx, pumpWorkflowID(projectID), "")
+	if err != nil {
+		if isNotFound(err) {
+			return PumpStatus{Open: false}, nil
+		}
+		return PumpStatus{}, newError(fwm.Infrastructure, "describe the construction pump: "+err.Error())
+	}
+	info := resp.GetWorkflowExecutionInfo()
+	if info == nil || info.GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+		return PumpStatus{Open: false}, nil
+	}
+	status := PumpStatus{Open: true}
+	if ts := info.GetStartTime(); ts != nil {
+		started := ts.AsTime()
+		status.RunStartedAt = &started
+	}
+	return status, nil
+}
+
 // SubmitPhaseDecision — op 2.6. Temporal Signal (phaseDecision) to the
 // per-activity child workflow {projectId}:{activityId}. Delivers the operator's
 // phase-gated approve/send-back decision (and optional feedback) through the same

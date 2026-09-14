@@ -31,6 +31,7 @@ import (
 	"go.temporal.io/sdk/testsuite"
 	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
+	"google.golang.org/protobuf/types/known/timestamppb"
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
@@ -8431,4 +8432,110 @@ func TestRenderOperatorNotes_HeadsEachNoteAndCapsAt16KiB(t *testing.T) {
 	if !strings.HasPrefix(out, "[operator note n0 — retry]") {
 		t.Fatal("the oldest note comes first")
 	}
+}
+
+// ===========================================================================
+// B1.5 — GetPumpStatus (plan B1.5): is the project's one pump running now?
+// ===========================================================================
+
+// describeRunning is a RUNNING pump answer whose current run started at start.
+func describeRunning(start time.Time) *workflowservice.DescribeWorkflowExecutionResponse {
+	return &workflowservice.DescribeWorkflowExecutionResponse{WorkflowExecutionInfo: &workflowpb.WorkflowExecutionInfo{
+		Status: enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING, StartTime: timestamppb.New(start),
+	}}
+}
+
+// TestGetPumpStatus_RunningIsOpenWithTheCurrentRunsStart: the pump id is described with
+// an EMPTY run id (the latest run, so a cascade reads as open) and RUNNING is open.
+func TestGetPumpStatus_RunningIsOpenWithTheCurrentRunsStart(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	start := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, pumpWorkflowID(pid), "").Return(describeRunning(start), nil).Once()
+	got, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), pid)
+	if err != nil {
+		t.Fatalf("GetPumpStatus: %v", err)
+	}
+	if !got.Open || got.RunStartedAt == nil || !got.RunStartedAt.Equal(start) {
+		t.Fatalf("want open with runStartedAt %v, got %+v", start, got)
+	}
+	mc.AssertExpectations(t)
+}
+
+// TestGetPumpStatus_AClosedRunIsNotOpen: every status but RUNNING — a drained, paused,
+// failed or terminated pump — is not open, and carries no start.
+func TestGetPumpStatus_AClosedRunIsNotOpen(t *testing.T) {
+	for _, st := range []enumspb.WorkflowExecutionStatus{
+		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
+		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
+		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
+	} {
+		pid := ProjectID(uuid.NewString())
+		mc := &temporalmocks.Client{}
+		mc.On("DescribeWorkflowExecution", mock.Anything, pumpWorkflowID(pid), "").Return(describeStatus(st), nil)
+		got, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), pid)
+		if err != nil || got.Open || got.RunStartedAt != nil {
+			t.Errorf("%s: want {open:false}, nil; got %+v, %v", st, got, err)
+		}
+	}
+}
+
+// TestGetPumpStatus_NoPumpIsNotOpenAndNoError: a project whose pump never ran reads
+// {open:false} — not an error.
+func TestGetPumpStatus_NoPumpIsNotOpenAndNoError(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, pumpWorkflowID(pid), "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found for ID: "+pumpWorkflowID(pid)))
+	got, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), pid)
+	if err != nil || got.Open {
+		t.Fatalf("want {open:false}, nil; got %+v, %v", got, err)
+	}
+}
+
+// TestGetPumpStatus_OtherFaultsAreInfrastructure: any other describe fault is
+// Infrastructure, never a guessed "closed".
+func TestGetPumpStatus_OtherFaultsAreInfrastructure(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, pumpWorkflowID(pid), "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewUnavailable("frontend down"))
+	_, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), pid)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure, got %s", got)
+	}
+}
+
+// TestGetPumpStatus_AHungDescribeIsBounded: the describe is bounded by pumpRPCTimeout,
+// so a hung call returns Infrastructure promptly instead of hanging the read.
+func TestGetPumpStatus_AHungDescribeIsBounded(t *testing.T) {
+	old := pumpRPCTimeout
+	pumpRPCTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { pumpRPCTimeout = old })
+	pid := ProjectID(uuid.NewString())
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, pumpWorkflowID(pid), "").
+		Run(func(args mock.Arguments) { <-args.Get(0).(context.Context).Done() }).
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), context.DeadlineExceeded)
+	begin := time.Now()
+	_, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), pid)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.Infrastructure {
+		t.Fatalf("want Infrastructure for a hung describe, got %s", got)
+	}
+	if waited := time.Since(begin); waited > 2*time.Second {
+		t.Fatalf("the describe was not bounded: waited %s", waited)
+	}
+}
+
+// TestGetPumpStatus_EmptyProjectIsContractMisuse: nothing is described for an empty id.
+func TestGetPumpStatus_EmptyProjectIsContractMisuse(t *testing.T) {
+	mc := &temporalmocks.Client{}
+	_, err := newTestConstructionManager(mc).GetPumpStatus(testCtx(), "")
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %s", got)
+	}
+	mc.AssertNotCalled(t, "DescribeWorkflowExecution", mock.Anything, mock.Anything, mock.Anything)
 }

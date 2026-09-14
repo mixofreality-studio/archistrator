@@ -13,6 +13,7 @@ import (
 type FakeConstructionManager struct {
 	ExecuteNextActivityFn     func(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error)
 	GetSessionStateFn         func(rc fwm.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error)
+	GetPumpStatusFn           func(rc fwm.Context, projectID construction.ProjectID) (construction.PumpStatus, error)
 	OverrideActivityFn        func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error
 	PauseProjectFn            func(rc fwm.Context, projectID construction.ProjectID, reason string) error
 	RunReplanSweepFn          func(rc fwm.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error)
@@ -35,6 +36,13 @@ func (f *FakeConstructionManager) GetSessionState(rc fwm.Context, projectID cons
 		panic("FakeConstructionManager.GetSessionStateFn not set")
 	}
 	return f.GetSessionStateFn(rc, projectID, activityID)
+}
+
+func (f *FakeConstructionManager) GetPumpStatus(rc fwm.Context, projectID construction.ProjectID) (construction.PumpStatus, error) {
+	if f.GetPumpStatusFn == nil {
+		panic("FakeConstructionManager.GetPumpStatusFn not set")
+	}
+	return f.GetPumpStatusFn(rc, projectID)
 }
 
 func (f *FakeConstructionManager) OverrideActivity(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error {

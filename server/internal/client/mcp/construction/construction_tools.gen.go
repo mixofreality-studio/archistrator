@@ -29,6 +29,7 @@ type Handler struct {
 func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionExecuteNextActivity", Description: "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it.", InputSchema: executeNextActivityInputSchema(), OutputSchema: executeNextActivityOutputSchema()}, h.handleExecuteNextActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetSessionState", Description: "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.", InputSchema: getSessionStateInputSchema(), OutputSchema: getSessionStateOutputSchema()}, h.handleGetSessionState)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetPumpStatus", Description: "Report whether the project's one construction pump is running now (open), and when its current run started. A pump cascading between activities reads as open. It does not include the recorded pause or any activity's session; read those separately. Read-only.", InputSchema: getPumpStatusInputSchema(), OutputSchema: getPumpStatusOutputSchema()}, h.handleGetPumpStatus)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionOverrideActivity", Description: "Steer one construction activity that is waiting at an escalation (session stage awaitingTakeover): retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition while the activity is not awaiting a takeover.", InputSchema: overrideActivityInputSchema(), OutputSchema: overrideActivityOutputSchema()}, h.handleOverrideActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionPauseProject", Description: "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.", InputSchema: pauseProjectInputSchema(), OutputSchema: pauseProjectOutputSchema()}, h.handlePauseProject)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionRunReplanSweep", Description: "Run the re-plan sweep that detects scope or variance drift and re-derives the project network. With no projectID it sweeps every active project; tickID idempotently identifies the sweep.", InputSchema: runReplanSweepInputSchema(), OutputSchema: runReplanSweepOutputSchema()}, h.handleRunReplanSweep)
@@ -55,6 +56,14 @@ type getSessionStateInput struct {
 
 type getSessionStateOutput struct {
 	Result mgr.ConstructionSessionView `json:"result"`
+}
+
+type getPumpStatusInput struct {
+	ProjectID mgr.ProjectID `json:"projectID"`
+}
+
+type getPumpStatusOutput struct {
+	Result mgr.PumpStatus `json:"result"`
 }
 
 type overrideActivityInput struct {
@@ -136,6 +145,16 @@ func executeNextActivityInputSchema() *jsonschema.Schema {
 // getSessionStateInputSchema is the explicit MCP input schema for the GetSessionState operation.
 func getSessionStateInputSchema() *jsonschema.Schema {
 	s := objectSchema[getSessionStateInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID"}
+	return s
+}
+
+// getPumpStatusInputSchema is the explicit MCP input schema for the GetPumpStatus operation.
+func getPumpStatusInputSchema() *jsonschema.Schema {
+	s := objectSchema[getPumpStatusInput]()
 	fixUUIDStrings(s)
 	relaxRawJSON(s)
 	allowNullMaps(s)
@@ -244,6 +263,16 @@ func getSessionStateOutputSchema() *jsonschema.Schema {
 	return s
 }
 
+// getPumpStatusOutputSchema is the explicit MCP output schema for the GetPumpStatus operation.
+func getPumpStatusOutputSchema() *jsonschema.Schema {
+	s := objectSchema[getPumpStatusOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[getPumpStatusOutput]())
+	return s
+}
+
 // overrideActivityOutputSchema is the explicit MCP output schema for the OverrideActivity operation.
 func overrideActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[overrideActivityOutput]()
@@ -338,6 +367,10 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"awaitingUntil":    "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.",
 		"redraftExhausted": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation.",
 	},
+	reflect.TypeFor[mgr.PumpStatus](): {
+		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",
+		"runStartedAt": "When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.",
+	},
 }
 
 // describeContractFields stamps contractFieldDescriptions onto an inferred
@@ -424,6 +457,19 @@ func (h *Handler) handleGetSessionState(ctx context.Context, _ *mcp.CallToolRequ
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, in.ProjectID, in.ActivityID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleGetPumpStatus is the MCP tool handler for the GetPumpStatus operation.
+func (h *Handler) handleGetPumpStatus(ctx context.Context, _ *mcp.CallToolRequest, in getPumpStatusInput) (*mcp.CallToolResult, getPumpStatusOutput, error) {
+	var out getPumpStatusOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.GetPumpStatus(rc, in.ProjectID)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

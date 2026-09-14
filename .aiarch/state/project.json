@@ -15955,6 +15955,27 @@
           ],
           "additionalProperties": false
         },
+        "PumpStatus": {
+          "type": "object",
+          "description": "Whether the project's one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity's live session: a client combines them.",
+          "properties": {
+            "open": {
+              "type": "boolean",
+              "description": "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed)."
+            },
+            "runStartedAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open."
+            }
+          },
+          "required": [
+            "open"
+          ],
+          "additionalProperties": false
+        },
         "ReplanSweepResult": {
           "type": "object",
           "properties": {
@@ -16143,6 +16164,21 @@
             ],
             "result": {
               "$ref": "#/$defs/ConstructionSessionView"
+            },
+            "error": true
+          },
+          {
+            "name": "GetPumpStatus",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/PumpStatus"
             },
             "error": true
           },

@@ -158,6 +158,11 @@ type PumpResult struct {
 	ActivityID *ActivityID `json:"activityId,omitempty"`
 }
 
+type PumpStatus struct {
+	Open         bool       `json:"open"`
+	RunStartedAt *time.Time `json:"runStartedAt,omitempty"`
+}
+
 type ReplanSweepResult struct {
 	FlaggedVariances []FlaggedVariance `json:"flaggedVariances,omitempty"`
 }
@@ -198,6 +203,7 @@ type TimelineEvent struct {
 type ConstructionManager interface {
 	ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error)
 	GetSessionState(rc fwm.Context, projectID ProjectID, activityID *ActivityID) (ConstructionSessionView, error)
+	GetPumpStatus(rc fwm.Context, projectID ProjectID) (PumpStatus, error)
 	OverrideActivity(rc fwm.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error
 	PauseProject(rc fwm.Context, projectID ProjectID, reason string) error
 	RunReplanSweep(rc fwm.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error)

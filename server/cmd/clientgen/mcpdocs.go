@@ -50,6 +50,7 @@ var mcpOpDocs = map[string]map[string]string{
 		"ExecuteNextActivity":     "Advance construction by one tick: dispatch the next ready activity (or continue an in-flight one) along the project network. tickID correlates this request; the pump is one per project — a call while it runs joins it.",
 		"GetEpisodeTimeline":      "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.",
 		"GetSessionState":         "Return construction progress. With no activityID, the whole-network state; with an activityID, that one activity's detailed lifecycle, build, and review state. Read-only.",
+		"GetPumpStatus":           "Report whether the project's one construction pump is running now (open), and when its current run started. A pump cascading between activities reads as open. It does not include the recorded pause or any activity's session; read those separately. Read-only.",
 		"ListEpisodesForActivity": "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.",
 		"OverrideActivity":        "Steer one construction activity that is waiting at an escalation (session stage awaitingTakeover): retry it, skip it, take it over, or reassign it. Notes are required. Refused as FailedPrecondition while the activity is not awaiting a takeover.",
 		"PauseProject":            "Pause the construction pump for a project so no further activities dispatch until it is resumed. reason is recorded for the audit trail.",

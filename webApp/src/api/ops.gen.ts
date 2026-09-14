@@ -60,6 +60,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/construction/get-episode-timeline/{projectID}',
     tool: 'constructionGetEpisodeTimeline',
   },
+  constructionGetPumpStatus: {
+    method: 'GET',
+    path: '/api/v1/construction/get-pump-status/{projectID}',
+    tool: 'constructionGetPumpStatus',
+  },
   constructionGetSessionState: {
     method: 'GET',
     path: '/api/v1/construction/get-session-state/{projectID}/{activityID}',

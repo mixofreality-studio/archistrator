@@ -23,6 +23,7 @@ type Handler struct {
 func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/construction/execute-next-activity/{projectID}", h.handleExecuteNextActivity)
 	mux.HandleFunc("GET /api/v1/construction/get-session-state/{projectID}/{activityID}", h.handleGetSessionState)
+	mux.HandleFunc("GET /api/v1/construction/get-pump-status/{projectID}", h.handleGetPumpStatus)
 	mux.HandleFunc("POST /api/v1/construction/override-activity/{projectID}/{activityID}", h.handleOverrideActivity)
 	mux.HandleFunc("POST /api/v1/construction/pause-project/{projectID}", h.handlePauseProject)
 	mux.HandleFunc("POST /api/v1/construction/run-replan-sweep/{projectID}", h.handleRunReplanSweep)
@@ -110,6 +111,30 @@ func (h *Handler) handleGetSessionState(w http.ResponseWriter, r *http.Request) 
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.GetSessionState(rc, projectID, activityID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleGetPumpStatus binds GET /api/v1/construction/get-pump-status/{projectID} -> mgr.GetPumpStatus.
+func (h *Handler) handleGetPumpStatus(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "get-pump-status"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.GetPumpStatus(rc, projectID)
 	if err != nil {
 		writeManagerError(w, err)
 		return

@@ -28,6 +28,16 @@ func (c *MCPClient) ConstructionGetSessionState(ctx context.Context, projectID P
 	return mcpCallResult[ConstructionSessionView](c, ctx, "constructionGetSessionState", ConstructionGetSessionStateInput{ProjectID: projectID, ActivityID: activityID})
 }
 
+// ConstructionGetPumpStatusInput is the MCP tool-call argument object for constructionGetPumpStatus.
+type ConstructionGetPumpStatusInput struct {
+	ProjectID ProjectID `json:"projectID"`
+}
+
+// ConstructionGetPumpStatus calls the constructionGetPumpStatus tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionGetPumpStatus(ctx context.Context, projectID ProjectID) (PumpStatus, error) {
+	return mcpCallResult[PumpStatus](c, ctx, "constructionGetPumpStatus", ConstructionGetPumpStatusInput{ProjectID: projectID})
+}
+
 // ConstructionOverrideActivityInput is the MCP tool-call argument object for constructionOverrideActivity.
 type ConstructionOverrideActivityInput struct {
 	ProjectID  ProjectID        `json:"projectID"`

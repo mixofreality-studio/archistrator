@@ -92,6 +92,11 @@ type PumpResult struct {
 	ActivityID *ActivityID `json:"activityId,omitempty"`
 }
 
+type PumpStatus struct {
+	Open         bool       `json:"open"`
+	RunStartedAt *time.Time `json:"runStartedAt,omitempty"`
+}
+
 type ReplanSweepResult struct {
 	FlaggedVariances []FlaggedVariance `json:"flaggedVariances,omitempty"`
 }

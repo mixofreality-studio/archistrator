@@ -325,6 +325,22 @@ components:
             required:
                 - dispatched
             type: object
+        ConstructionPumpStatus:
+            additionalProperties: false
+            description: 'Whether the project''s one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity''s live session: a client combines them.'
+            properties:
+                open:
+                    description: True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).
+                    type: boolean
+                runStartedAt:
+                    description: When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.
+                    format: date-time
+                    type: string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - open
+            type: object
         ConstructionReplanSweepResult:
             additionalProperties: false
             properties:
@@ -4499,6 +4515,66 @@ paths:
                         application/json:
                             schema:
                                 $ref: '#/components/schemas/ConstructionEpisodeTimeline'
+                    description: success
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/get-pump-status/{projectID}:
+        get:
+            operationId: GetPumpStatus
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionPumpStatus'
                     description: success
                 "400":
                     content:

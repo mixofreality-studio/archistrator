@@ -36,6 +36,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/construction/get-pump-status/{projectID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['GetPumpStatus'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/construction/get-session-state/{projectID}/{activityID}': {
     parameters: {
       query?: never;
@@ -827,6 +843,16 @@ export interface components {
     ConstructionPumpResult: {
       activityId?: components['schemas']['ConstructionActivityID'];
       dispatched: boolean;
+    };
+    /** @description Whether the project's one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity's live session: a client combines them. */
+    ConstructionPumpStatus: {
+      /** @description True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed). */
+      open: boolean;
+      /**
+       * Format: date-time
+       * @description When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.
+       */
+      runStartedAt?: string;
     };
     ConstructionReplanSweepResult: {
       flaggedVariances?: null | components['schemas']['ConstructionFlaggedVariance'][];
@@ -2276,6 +2302,91 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['ConstructionEpisodeTimeline'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+    };
+  };
+  GetPumpStatus: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['ConstructionProjectID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionPumpStatus'];
         };
       };
       /** @description contract misuse */
