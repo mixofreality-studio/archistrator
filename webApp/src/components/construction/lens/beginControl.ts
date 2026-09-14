@@ -70,7 +70,9 @@ export function beginControlFor(input: {
     return { label: 'Construction state unavailable', disabled: true, busy: false, verb: 'Begin' };
   }
   return input.constructionStarted
-    ? { label: 'Resume construction', disabled: false, busy: false, verb: 'Resume' }
+    ? // "Continue", not "Resume": the pump dispatches the next activity. Clearing a
+      // recorded pause is the paused control's "Resume paused construction".
+      { label: 'Continue construction', disabled: false, busy: false, verb: 'Resume' }
     : { label: 'Begin construction', disabled: false, busy: false, verb: 'Begin' };
 }
 
@@ -461,7 +463,8 @@ export function pausedControlFor(input: {
   if (input.operatorPaused !== true) return undefined;
   const reason = input.pauseReason?.trim();
   return {
-    label: 'Resume construction',
+    // Distinct from Begin's "Continue construction": this one clears the pause.
+    label: 'Resume paused construction',
     statusLabel: PAUSED_LABEL,
     reason: reason !== undefined && reason !== '' ? reason : undefined,
     disabled: input.pending || input.projectLoading,

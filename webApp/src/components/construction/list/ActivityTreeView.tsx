@@ -146,6 +146,7 @@ import {
   type TreeExpansion,
 } from './searchExpansion.ts';
 import { pendingPhaseLine, pendingSentence } from './pendingResume.ts';
+import { pendingNoteLineFor, type PendingNoteLine } from './pendingNotes.ts';
 import {
   ACTIVITY_GRID_GAP_PX,
   activityGridColumns,
@@ -930,6 +931,10 @@ function ActivityRow({
         // name the phase ("Integration pending", activityChipLabel).
         chipLabel={owedChipLabel(mark)}
         chipTooltip={pendingSentence(node.row)}
+        // A note no agent has carried: the mark rides the slot, like ↻N, and its
+        // sentence rides the tooltip and accessible name (pendingNotes.ts).
+        noteLine={pendingNoteLineFor(node.row.pendingOperatorNotes, state)}
+        noteTestId={UI_IDENTIFIERS.Construction.listPendingNote(node.activityId)}
         retryCount={node.retryCount}
         state={state}
       />
@@ -1065,9 +1070,14 @@ function StateSlotView({
   retryCount,
   chipLabel,
   chipTooltip,
+  noteLine,
+  noteTestId,
 }: {
   state: RowState;
   retryCount: number;
+  /** The activity's pending operator notes, when any need saying (pendingNotes.ts). */
+  noteLine?: PendingNoteLine | undefined;
+  noteTestId?: string | undefined;
   /** The chip's own word: the owed set's ("Steer needed" is not "Awaiting you"), or
    *  an integration-pending row's ("Integration pending") — activityChipLabel. */
   chipLabel?: string | undefined;
@@ -1086,6 +1096,25 @@ function StateSlotView({
         <Tooltip title={`${String(retryCount)} retried task(s) in this activity`}>
           <Typography sx={{ fontFamily: t.mono, fontSize: 10, fontWeight: 700, color: t.muted }}>
             {`↻${String(retryCount)}`}
+          </Typography>
+        </Tooltip>
+      ) : null}
+      {noteLine !== undefined ? (
+        <Tooltip title={`${noteLine.text}. ${noteLine.tooltip}`}>
+          <Typography
+            aria-label={noteLine.text}
+            data-note-kind={noteLine.kind}
+            data-testid={noteTestId}
+            sx={{
+              fontFamily: t.mono,
+              fontSize: 10,
+              fontWeight: 700,
+              // Owed attention while work remains; history once the activity is done.
+              color: noteLine.kind === 'didNotStart' ? t.awaitingFg : t.muted,
+              whiteSpace: 'nowrap',
+            }}
+          >
+            {`✎${String(noteLine.count)}`}
           </Typography>
         </Tooltip>
       ) : null}

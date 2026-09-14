@@ -242,7 +242,7 @@ test('N5: Begin is disabled in EVERY committed frame until constructionStarted i
   expect(log.length, 'the observer saw the button').toBeGreaterThan(0);
   for (const entry of log) {
     const [label = '', flag] = entry.split('|');
-    if (/Begin construction|Resume construction/.test(label)) continue;
+    if (/Begin construction|Continue construction/.test(label)) continue;
     // Anything that is not the committed label is a disabled state.
     expect(flag, `"${label}" was ${flag ?? '?'}`).toBe('disabled');
   }

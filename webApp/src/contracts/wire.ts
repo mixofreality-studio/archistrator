@@ -505,6 +505,7 @@ export function mapConstructionRow(
   // and stays put on the server; making it 'synthesized' instead would tar every
   // empty-ledger row as fabricated, which is a different lie.
   const attempts = (w.attempts ?? []).map(mapTaskAttempt);
+  const pendingNotes = pendingOperatorNoteCount(w.operatorNotes);
   // layer/layerBand (task 11, construction-UI-rewrite stage A; read here in stage B —
   // this mapper predated that task). "" is LayerForActivity's own real return for a
   // row that draws in the project-wide band rather than the layer stack, so it is
@@ -543,7 +544,29 @@ export function mapConstructionRow(
     ...(classified && w.pendingResume !== undefined
       ? { pendingResume: mapPendingResume(w.pendingResume) }
       : {}),
+    // Dropped at zero, like its siblings: "no pending note" is ABSENT.
+    ...(pendingNotes > 0 ? { pendingOperatorNotes: pendingNotes } : {}),
   };
+}
+
+/** The skip kind (SystemDesignOperatorNoteKind 5): recorded, never delivered. */
+const OPERATOR_NOTE_KIND_SKIP = 5;
+
+/**
+ * How many of a row's operator notes are still PENDING: no dispatch has carried them
+ * (no deliveredToAttemptId) and they are of a kind that is delivered at all (a skip
+ * note never is — nothing runs after a skip). The server's own rule
+ * (projectstate.PendingOperatorNotes), read off the wire rather than re-invented.
+ */
+export function pendingOperatorNoteCount(
+  notes: Schemas['SystemDesignOperatorNote'][] | null | undefined
+): number {
+  let n = 0;
+  for (const note of notes ?? []) {
+    const delivered = note.deliveredToAttemptId !== undefined && note.deliveredToAttemptId !== '';
+    if (!delivered && note.kind !== OPERATOR_NOTE_KIND_SKIP) n++;
+  }
+  return n;
 }
 
 const PENDING_REASONS: readonly PendingDependencyReason[] = [

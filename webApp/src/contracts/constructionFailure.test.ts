@@ -167,3 +167,37 @@ void test('mapProjectState passes the server’s constructionStarted through', (
   });
   assert.equal(notStarted.constructionStarted, false);
 });
+
+void test('pending operator notes cross the wire as a count: undelivered, never a skip note', () => {
+  const at = '2026-09-14T10:00:00Z';
+  const state = mapProjectState(
+    wireProjectState({
+      'B-03': wireRow({
+        ActivityID: 'B-03',
+        operatorNotes: [
+          { noteId: 'n1', kind: 1, text: 'tighten it', recordedAt: at },
+          { noteId: 'n2', kind: 5, text: 'skip it', recordedAt: at },
+          {
+            noteId: 'n3',
+            kind: 2,
+            text: 'retry',
+            recordedAt: at,
+            deliveredToAttemptId: 'B-03:srs:1',
+            deliveredAt: at,
+          },
+        ],
+      }),
+      'B-04': wireRow({ ActivityID: 'B-04' }),
+      'B-05': wireRow({ ActivityID: 'B-05', operatorNotes: null }),
+    })
+  );
+  const b3 = state.constructionRows?.['B-03'];
+  const b4 = state.constructionRows?.['B-04'];
+  const b5 = state.constructionRows?.['B-05'];
+  assert.ok(b3 !== undefined && b4 !== undefined && b5 !== undefined, 'expected three mapped rows');
+  assert.equal(b3.pendingOperatorNotes, 1);
+  // Zero is ABSENT, like every other zero-valued field on the row.
+  assert.equal(b4.pendingOperatorNotes, undefined);
+  assert.equal(b5.pendingOperatorNotes, undefined);
+  assert.equal('pendingOperatorNotes' in b4, false);
+});

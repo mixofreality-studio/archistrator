@@ -811,6 +811,13 @@ export interface ConstructionRow {
    * because EV and percent-complete read it). Absent on every other row.
    */
   pendingResume?: PendingResumeRow;
+  /**
+   * How many of the activity's operator notes no agent dispatch has carried yet
+   * (server: operatorNotes without a deliveredToAttemptId, skip notes excluded — a
+   * skip note is never delivered). Absent when there are none, like every other
+   * zero-valued field here (wire.ts pendingOperatorNoteCount).
+   */
+  pendingOperatorNotes?: number;
 }
 
 /** Why one dependency of an integration-pending row is unsatisfied (server:

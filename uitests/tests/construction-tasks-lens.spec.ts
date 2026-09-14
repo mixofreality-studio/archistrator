@@ -1320,7 +1320,7 @@ test('a recorded failure is not work in flight: Begin stays offered beside it (m
   await openTasks(page);
   await expect(page.getByTestId(TESTID.constructionTasksRow(`${FAILED}:failed`))).toBeVisible();
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Begin construction|Resume construction/, { timeout: 10_000 });
+  await expect(begin).toHaveText(/Begin construction|Continue construction/, { timeout: 10_000 });
   await expect(begin).toBeEnabled();
   // Sampled: it never reads as running beside the stopped activity.
   for (let i = 0; i < 10; i++) {

@@ -29,7 +29,7 @@ import {
   UNKNOWN_OUTCOME_HOLD_MS,
 } from './beginControl.ts';
 
-const COMMITTED_WORDS = /Begin construction|Resume construction/;
+const COMMITTED_WORDS = /Begin construction|Continue construction|Resume paused construction/;
 
 void test('while the project is loading, the button is disabled and names neither Begin nor Resume', () => {
   for (const constructionStarted of [true, false, undefined]) {
@@ -45,7 +45,7 @@ void test('the label is the server’s constructionStarted: true is Resume, fals
     projectLoading: false,
     running: false,
   });
-  assert.equal(resume.label, 'Resume construction');
+  assert.equal(resume.label, 'Continue construction');
   assert.equal(resume.verb, 'Resume');
   assert.equal(resume.disabled, false);
   const begin = beginControlFor({
@@ -431,7 +431,7 @@ void test('a probe that keeps failing reads "Checking construction…", disabled
     running: false,
     probesFailing: false,
   });
-  assert.equal(settled.label, 'Resume construction');
+  assert.equal(settled.label, 'Continue construction');
   assert.equal(settled.disabled, false);
 });
 
@@ -638,7 +638,7 @@ void test('a paused project offers Resume with the founder’s words and the ope
     pending: false,
   });
   assert.deepEqual(c, {
-    label: 'Resume construction',
+    label: 'Resume paused construction',
     statusLabel: 'Paused — Resume to continue',
     reason: 'operator halt',
     disabled: false,
@@ -709,4 +709,21 @@ void test('the resume copy says what happened, and never claims a refused resume
   assert.match(refused.headline, /^Resume refused: a pause is still being applied/);
   assert.match(refused.detail, /still paused/);
   assert.match(resumeOutcomeCopy({ kind: 'unknown', message: 'x' }).headline, /^Outcome unknown/);
+});
+
+void test('the two resume actions never share a label: Continue dispatches, Resume paused clears the pause', () => {
+  const cont = beginControlFor({
+    constructionStarted: true,
+    projectLoading: false,
+    running: false,
+  });
+  const paused = pausedControlFor({
+    operatorPaused: true,
+    pauseReason: undefined,
+    projectLoading: false,
+    pending: false,
+  });
+  assert.equal(cont.label, 'Continue construction');
+  assert.equal(paused?.label, 'Resume paused construction');
+  assert.notEqual(cont.label, paused.label);
 });

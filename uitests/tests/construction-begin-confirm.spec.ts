@@ -34,7 +34,7 @@ import { requireServer, skipUnlessConstructionArtifacts, gotoApp } from './suppo
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
-const COMMITTED_LABEL = /Begin construction|Resume construction/;
+const COMMITTED_LABEL = /Begin construction|Continue construction/;
 
 test.beforeEach(async ({ request }) => {
   await requireServer(request, BASE);
@@ -665,7 +665,7 @@ test('I3: evidence lifts the hold: a read says construction started with nothing
   };
   await expect(alert).toBeHidden({ timeout: 10_000 });
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toHaveText(/Continue construction/);
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1226,7 +1226,7 @@ test('a success with an activity running reads as running at 45s; with nothing i
     wire.constructionStarted = true;
   };
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 12_000 });
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1287,7 +1287,7 @@ test('an evidenced failure leaves memory once nothing is in flight: the alert go
   };
   await expect(alert).toBeHidden({ timeout: 10_000 });
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toHaveText(/Continue construction/);
   await expect(begin).toBeEnabled();
 
   // A remount finds nothing in memory: no flash of the old alert, and no hold.
@@ -1300,7 +1300,7 @@ test('an evidenced failure leaves memory once nothing is in flight: the alert go
     expect(await alert.count(), 'the stale alert came back on remount').toBe(0);
     await page.waitForTimeout(150);
   }
-  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toHaveText(/Continue construction/);
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1337,7 +1337,7 @@ test('a remount after a SUCCESSFUL dispatch still reads as running while work is
     wire.constructionStarted = true;
   };
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 12_000 });
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1409,7 +1409,7 @@ test('a success, then a gap before the pickup: the button reads running througho
     wire.constructionStarted = true;
   };
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 12_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 12_000 });
   await expect(begin).toBeEnabled();
   await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);
   expect(h.trapped).toHaveLength(1);
@@ -1492,7 +1492,7 @@ test('a success picked up and finished well inside 60s gives Resume back with th
     wire.constructionStarted = true;
   };
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 10_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 10_000 });
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1546,7 +1546,7 @@ function alreadyStarted(wire: WireProject): void {
 async function openStartedConsole(page: Page): Promise<void> {
   await gotoApp(page, '/project/archistrator/construction?lens=list');
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 15_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 15_000 });
   await expect(begin).toBeEnabled();
 }
 
@@ -1602,7 +1602,7 @@ test('I1: on a project already started, with nothing changing, a Resume 500 hold
   await expect(alert).toHaveAttribute('data-hold', 'expired', { timeout: 10_000 });
   await expect(alert).toContainText('No sign the pump started. Begin again?');
   const begin = page.getByTestId(TESTID.constructionBegin);
-  await expect(begin).toHaveText(/Resume construction/);
+  await expect(begin).toHaveText(/Continue construction/);
   await expect(begin).toBeEnabled();
   expect(h.trapped).toHaveLength(1);
 });
@@ -1726,7 +1726,7 @@ test('fix I (mutant F): the success is recorded BEFORE its refresh, so the refre
   const begin = page.getByTestId(TESTID.constructionBegin);
   // Well inside the 60s hold, with no clock jump: the pickup was seen on the
   // refresh, and the next read found nothing in flight.
-  await expect(begin).toHaveText(/Resume construction/, { timeout: 15_000 });
+  await expect(begin).toHaveText(/Continue construction/, { timeout: 15_000 });
   await expect(begin).toBeEnabled();
   expect(pickup.shown, 'the pickup rode on one read, and later reads followed').toBeGreaterThan(1);
   await expect(page.getByTestId(TESTID.constructionBeginError)).toHaveCount(0);

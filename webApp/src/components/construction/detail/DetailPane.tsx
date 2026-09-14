@@ -159,6 +159,8 @@ import { ReviewBody, ReviewVerdict, ReviewVerdictChip } from './bodies/ReviewBod
 import { UnknownBody } from './bodies/UnknownBody';
 import { hiddenInScope } from '../list/observedOnly';
 import { pendingChipLabel, pendingSentence } from '../list/pendingResume.ts';
+import { activityRowState } from '../list/activityRowPresentation.ts';
+import { pendingNoteLineFor, type PendingNoteLine } from '../list/pendingNotes.ts';
 import {
   paneDecisionApplies,
   sendBackReady,
@@ -494,6 +496,12 @@ export function DetailPane({
   // own attempt is what a task selection is about.
   const pendingLine =
     selection.task === undefined && row !== undefined ? pendingSentence(row) : undefined;
+  // A note no agent has carried is about the ACTIVITY's next dispatch, so it reads
+  // the activity's state (not a selected task's) and shows whatever is selected.
+  const noteLine =
+    row !== undefined
+      ? pendingNoteLineFor(row.pendingOperatorNotes, activityRowState(row, owed?.mark))
+      : undefined;
   const chipState: TaskDetailState =
     decided !== undefined
       ? decided.decision === 'approve'
@@ -829,6 +837,7 @@ export function DetailPane({
           chipState={chipState}
           exitCriterion={meta.exitCriterion}
           hiddenCount={hiddenCount}
+          noteLine={noteLine}
           owedReason={owedReason}
           pendingLine={pendingLine}
           provenance={provenance}
@@ -883,6 +892,7 @@ export function DetailPane({
       collapsed={collapsed}
       exitCriterion={meta.exitCriterion}
       hiddenCount={hiddenCount}
+      noteLine={noteLine}
       owedReason={owedReason}
       pendingLine={pendingLine}
       provenance={provenance}
@@ -967,6 +977,7 @@ export function DetailPane({
           chipState={chipState}
           exitCriterion={meta.exitCriterion}
           hiddenCount={hiddenCount}
+          noteLine={noteLine}
           owedReason={owedReason}
           pendingLine={pendingLine}
           provenance={provenance}
@@ -1030,6 +1041,7 @@ function DetailPaneChrome({
   chipState,
   owedReason,
   pendingLine,
+  noteLine,
   onClose,
   onToggleCollapsed,
   onResizePointerDown,
@@ -1045,6 +1057,8 @@ function DetailPaneChrome({
   chipState: TaskDetailState;
   owedReason: string | undefined;
   pendingLine: string | undefined;
+  /** The activity's pending operator notes, when any need saying (pendingNotes.ts). */
+  noteLine: PendingNoteLine | undefined;
   provenance: ProvenanceReading;
   hiddenCount: number;
   taskSelected: boolean;
@@ -1130,6 +1144,7 @@ function DetailPaneChrome({
           chipState={chipState}
           exitCriterion={exitCriterion}
           hiddenCount={hiddenCount}
+          noteLine={noteLine}
           owedReason={owedReason}
           pendingLine={pendingLine}
           provenance={provenance}
@@ -1179,6 +1194,7 @@ function DetailHeader({
   chipState,
   owedReason,
   pendingLine,
+  noteLine,
   titleId = 'construction-detail-pane-title',
 }: {
   /** The breadcrumb's element id; the focus view's copy of the header takes its own. */
@@ -1193,6 +1209,8 @@ function DetailHeader({
   owedReason: string | undefined;
   /** An integration-pending activity's sentence (pendingResume.pendingSentence). */
   pendingLine: string | undefined;
+  /** The activity's pending operator notes, when any need saying (pendingNotes.ts). */
+  noteLine: PendingNoteLine | undefined;
   provenance: ProvenanceReading;
   /** Attempts "Observed only" hid in the selection (B1); 0 with the toggle off. */
   hiddenCount: number;
@@ -1341,6 +1359,28 @@ function DetailHeader({
         >
           {pendingLine}
         </Typography>
+      ) : null}
+
+      {/* "Note pending — the last dispatch did not start": the operator's note has
+          not reached an agent. The awaiting tone while work remains; muted once the
+          activity is done (pendingNotes.ts). */}
+      {noteLine !== undefined ? (
+        <Tooltip placement="bottom-start" title={noteLine.tooltip}>
+          <Typography
+            data-note-kind={noteLine.kind}
+            data-testid={UI_IDENTIFIERS.Construction.DETAIL_PENDING_NOTE}
+            sx={{
+              fontFamily: t.body,
+              fontSize: 12.5,
+              fontWeight: 600,
+              color: noteLine.kind === 'didNotStart' ? t.awaitingFg : t.muted,
+              lineHeight: 1.4,
+              mt: 1,
+            }}
+          >
+            {noteLine.text}
+          </Typography>
+        </Tooltip>
       ) : null}
 
       {/* Only when a phase applies: an "Exit: —" line with nothing after it said

@@ -41,6 +41,7 @@ import type { FloatBand } from '../../../contracts/projectAdapters';
 import { useTokens } from '../../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
+import type { PendingNoteLine } from '../list/pendingNotes.ts';
 import { bandTokens } from '../../project/bandTokens';
 import { KindBadge } from '../KindBadge';
 import type { LensSelection } from '../lens/useLensSelection';
@@ -122,6 +123,8 @@ export interface TasksLensProps {
   lingeringKeys?: ReadonlySet<string> | undefined;
   /** The recorded operator pause (B1.7): the lens says so above everything else. */
   paused?: { label: string; reason: string | undefined } | undefined;
+  /** An activity's pending operator notes, when any need saying (pendingNotes.ts). */
+  noteOf?: ((activityId: string) => PendingNoteLine | undefined) | undefined;
 }
 
 export function TasksLens(props: TasksLensProps): ReactElement {
@@ -283,6 +286,7 @@ function OwedTable({
   flowOf,
   decidedOf,
   lingeringKeys,
+  noteOf,
   projectId,
   onReview,
   t,
@@ -326,6 +330,7 @@ function OwedTable({
             item={item}
             key={item.key}
             lingering={lingeringKeys?.has(item.key) === true}
+            note={noteOf?.(item.activityId)}
             projectId={projectId}
             selected={isSelected(item, selection)}
             shape={shapeOf(item)}
@@ -354,11 +359,14 @@ function OwedRow({
   lingering,
   flow,
   decided,
+  note,
   projectId,
   t,
   onReview,
 }: {
   item: RankedOwed;
+  /** The activity's pending operator notes, when any need saying. */
+  note: PendingNoteLine | undefined;
   projectId: string;
   /** How a lingering row was decided. */
   decided: 'approve' | 'sendBack' | undefined;
@@ -462,6 +470,24 @@ function OwedRow({
         >
           {askFor(item)}
         </Typography>
+        {note !== undefined ? (
+          <Tooltip placement="bottom-start" title={note.tooltip}>
+            <Typography
+              data-note-kind={note.kind}
+              data-testid={UI_IDENTIFIERS.Construction.tasksPendingNote(key)}
+              sx={{
+                fontFamily: t.body,
+                fontSize: 12,
+                fontWeight: 600,
+                color: note.kind === 'didNotStart' ? t.awaitingFg : t.muted,
+                lineHeight: 1.4,
+                mt: 0.4,
+              }}
+            >
+              {note.text}
+            </Typography>
+          </Tooltip>
+        ) : null}
         <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 1.25, mt: 0.5, fontFamily: t.mono }}>
           {/* "—" says nothing a reader needs before "no CI record" (designer P2). */}
           {shape !== '—' ? (

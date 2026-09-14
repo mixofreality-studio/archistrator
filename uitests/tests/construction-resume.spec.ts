@@ -95,7 +95,7 @@ test('a paused project shows Resume in Begin’s place, with the founder’s lab
 
   const resume = page.getByTestId(TESTID.constructionResume);
   await expect(resume).toBeVisible();
-  await expect(resume).toHaveText('Resume construction');
+  await expect(resume).toHaveText('Resume paused construction');
   await expect(resume).toBeEnabled();
   await expect(page.getByTestId(TESTID.constructionBegin)).toHaveCount(0);
   const label = page.getByTestId(TESTID.constructionPausedLabel);

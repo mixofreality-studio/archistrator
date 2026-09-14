@@ -75,6 +75,8 @@ import {
 } from '../components/construction/tasks/tasksLensCopy';
 import { owedMarksFor } from '../components/construction/tasks/owedChip';
 import { waitingActivityIds } from '../components/construction/list/pendingResume';
+import { pendingNoteLineFor } from '../components/construction/list/pendingNotes';
+import { activityRowState } from '../components/construction/list/activityRowPresentation';
 import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { computeActivityStatuses } from '../contracts/constructionAdapters';
 import { contractJoinFor } from '../contracts/serviceContracts';
@@ -1082,6 +1084,12 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
       // Just-decided rows first, lingering in place with their evidence line.
       items={[...lingering, ...visibleOwed]}
       lingeringKeys={lingeringKeys}
+      noteOf={(id) => {
+        const row = project?.constructionRows?.[id];
+        return row !== undefined
+          ? pendingNoteLineFor(row.pendingOperatorNotes, activityRowState(row, owedMarks.get(id)))
+          : undefined;
+      }}
       paused={
         pausedControl !== undefined
           ? { label: pausedControl.statusLabel, reason: pausedControl.reason }

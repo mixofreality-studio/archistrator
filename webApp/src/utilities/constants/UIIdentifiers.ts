@@ -385,6 +385,12 @@ export const UI_IDENTIFIERS = {
     graphHoverPending: (activityId: string) => `construction-graph-hover-pending-${activityId}`,
     /** The pane's sentence for an integration-pending activity. */
     DETAIL_PENDING_RESUME: 'construction-detail-pending-resume',
+    /** An activity's pending operator notes: the list row's mark (pendingNotes.ts). */
+    listPendingNote: (activityId: string) => `construction-list-pending-note-${activityId}`,
+    /** The pane's pending-note line (pendingNotes.ts). */
+    DETAIL_PENDING_NOTE: 'construction-detail-pending-note',
+    /** A TASKS row's pending-note line (pendingNotes.ts). */
+    tasksPendingNote: (key: string) => `construction-tasks-pending-note-${key}`,
     /** The book's Figure A-1 task key, shown beside a task the profile renamed (P1-7). */
     listTaskBookKey: (nodeId: string) => `construction-list-task-book-key-${nodeId}`,
     // Stage D — the GRAPH lens: the architecture layer by layer, each component
