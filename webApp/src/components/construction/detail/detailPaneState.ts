@@ -29,7 +29,8 @@ import {
 } from '../lifecycleTemplates.gen.ts';
 import type { ProvenanceBearing, ProvenanceOrigin } from '../provenanceAxis.ts';
 import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
-import { REVIEW_ONLY_NOTE } from '../tasks/owedChip.ts';
+import { REVIEW_ONLY_NOTE, type OwedMark } from '../tasks/owedChip.ts';
+import { steerBarFor, type SteerActionId } from '../tasks/steerActions.ts';
 
 // ---------------------------------------------------------------------------
 // The beside-content (>= 1200px) layout contract.
@@ -495,7 +496,7 @@ export function selectionSummaryFor(
 // ---------------------------------------------------------------------------
 
 export interface DetailAction {
-  id: 'run' | 'approve' | 'sendBack';
+  id: 'run' | 'approve' | 'sendBack' | SteerActionId;
   label: string;
   disabled: boolean;
   /** Why a disabled action is disabled — said on hover, never left to guess. */
@@ -648,13 +649,27 @@ export function decisionActionState(
 }
 
 /**
- * The action bar on a REVIEW-ONLY selection: a steer-needed or failed activity,
- * until follow-up B1 delivers the operator's note to the next attempt (PM
- * must-hold). Run is still in the bar, because Run is always present (spec §7.8,
- * §9.3; tasks merge review I2 ruling). It is disabled, and its reason is the
- * review-only one. Nothing else is offered: no Approve or Send back, and never a
- * Retry, Re-queue or Skip.
+ * The action bar on a REVIEW-ONLY selection: a steer-needed or failed activity.
+ * Its steer actions come first (Retry… and Skip…, or Re-queue…; PM Q3), each as
+ * steerActions.ts says, which is disabled with its reason while they are locked.
+ * Run is still in the bar, last, because Run is always present (spec §7.8, §9.3;
+ * tasks merge review I2 ruling). It is disabled, with the review-only reason.
+ * Never Approve or Send back, and never the cut Takeover or Reassign.
  */
-export function reviewOnlyActionsFor(run: DetailAction): DetailAction[] {
-  return [{ ...run, disabled: true, reason: REVIEW_ONLY_NOTE }];
+export function reviewOnlyActionsFor(
+  run: DetailAction,
+  mark: Pick<OwedMark, 'reason'> | undefined
+): DetailAction[] {
+  const steer = mark !== undefined ? (steerBarFor(mark)?.actions ?? []) : [];
+  return [
+    ...steer.map(
+      (a): DetailAction => ({
+        id: a.id,
+        label: a.label,
+        disabled: a.disabled,
+        ...(a.reason !== undefined ? { reason: a.reason } : {}),
+      })
+    ),
+    { ...run, disabled: true, reason: REVIEW_ONLY_NOTE },
+  ];
 }

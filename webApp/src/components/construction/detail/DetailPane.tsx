@@ -462,21 +462,21 @@ export function DetailPane({
   // Approve / Send back act only where a live decision backs them (and not while
   // one is in flight). Run is present in every state, disabled with its reason
   // until the console can start the work (spec §7.8, §9.3).
-  // A steer-needed or failed activity is review-only (PM must-hold): Run alone,
-  // disabled with the review-only reason (tasks merge review I2 ruling).
+  // A steer-needed or failed activity is review-only: its locked steer actions,
+  // then Run, all disabled with their reasons (tasks merge review I2 ruling; PM Q3).
   // While the composer is open, its own "Send back with this note" is the send:
   // the bar's Send back steps aside (tasks round 2, designer).
   const actions = useMemo(
     () =>
       reviewOnly
-        ? reviewOnlyActionsFor(runActionFor(row, selection))
+        ? reviewOnlyActionsFor(runActionFor(row, selection), owed?.mark)
         : detailActionsFor(state, runActionFor(row, selection))
             .filter((a) => !(composing && a.id === 'sendBack'))
             .map(
               (a): DetailAction =>
                 a.id === 'run' ? a : { ...a, ...decisionActionState(decision, decisionApplies) }
             ),
-    [reviewOnly, state, row, selection, decision, decisionApplies, composing]
+    [reviewOnly, owed?.mark, state, row, selection, decision, decisionApplies, composing]
   );
   // After a decision, while its record lives, the chip says what was decided
   // (designer P1-4): "Decided · approved" / "Sent back". Where nothing is owed or

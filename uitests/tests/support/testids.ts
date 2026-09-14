@@ -332,6 +332,7 @@ export const TESTID = {
   constructionTasksRow: UI_IDENTIFIERS.Construction.tasksRow,
   constructionTasksCell: UI_IDENTIFIERS.Construction.tasksCell,
   constructionTasksReview: UI_IDENTIFIERS.Construction.tasksReview,
+  constructionTasksSteer: UI_IDENTIFIERS.Construction.tasksSteer,
   constructionTasksGitHub: UI_IDENTIFIERS.Construction.tasksGitHub,
   constructionTasksFlow: UI_IDENTIFIERS.Construction.tasksFlow,
   constructionLensTasksCount: UI_IDENTIFIERS.Construction.LENS_TASKS_COUNT,

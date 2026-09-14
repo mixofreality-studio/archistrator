@@ -522,11 +522,16 @@ test('folded beside the pane, WAITING reads on one line; the drawer offers the n
 });
 
 const REVIEW_ONLY =
-  'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.';
+  'Retry and re-queue unlock once a verification run shows your note reaching the agent. Until then, steer from GitHub or the MCP override_activity tool.';
 
-test('steer-needed and failed rows stay review-only: the pane says why, and Run is there but disabled with that reason', async ({
+test('steer-needed and failed rows show the PM’s steer actions LOCKED: disabled, with the reason, and nothing is sent', async ({
   page,
 }) => {
+  // Every write the page tries is recorded (the dispatch guard aborts it anyway).
+  const writes: string[] = [];
+  page.on('request', (r) => {
+    if (r.method() !== 'GET') writes.push(`${r.method()} ${r.url()}`);
+  });
   await serveOwed(page, initialStages());
   await openTasks(page);
   const takeoverRow = page.getByTestId(TESTID.constructionTasksRow(`${TAKEOVER}:takeover`));
@@ -539,9 +544,32 @@ test('steer-needed and failed rows stay review-only: the pane says why, and Run 
   await expect(failedRow).toContainText('run timed out — the provisioning pipeline ran past its');
   await expect(failedRow).toContainText('Failed');
   await expect(failedRow).not.toContainText('Stopped');
-  // Until follow-up B1 delivers the operator's note: no Retry, Re-queue or Skip,
-  // and never the cut Takeover / Reassign.
-  for (const name of [/^Retry/, /Re-queue/, /^Skip/, /Takeover/, /Reassign/]) {
+  // PM Q3: Retry… · Review · ⋯ Skip… on the steer, Re-queue… · Review on the
+  // failure — each disabled with the locked reason, Review the live primary, and
+  // never the cut Takeover / Reassign.
+  const steerKey = `${TAKEOVER}:takeover`;
+  const failedKey = `${FAILED}:failed`;
+  const locked = [
+    [TESTID.constructionTasksSteer(steerKey, 'retry'), 'Retry…'],
+    [TESTID.constructionTasksSteer(steerKey, 'skip'), 'Skip…'],
+    [TESTID.constructionTasksSteer(failedKey, 'requeue'), 'Re-queue…'],
+  ] as const;
+  for (const [id, label] of locked) {
+    const b = page.getByTestId(id);
+    await expect(b).toHaveText(new RegExp(`${label}$`));
+    await expect(b).toBeDisabled();
+    await expect(b).toHaveAttribute('data-reason', REVIEW_ONLY);
+    // A disabled button takes no click: forced, it still sends nothing.
+    await b.click({ force: true });
+  }
+  await expect(page.getByTestId(TESTID.constructionTasksSteer(failedKey, 'retry'))).toHaveCount(0);
+  await expect(page.getByTestId(TESTID.constructionTasksSteer(steerKey, 'requeue'))).toHaveCount(0);
+  for (const key of [steerKey, failedKey]) {
+    const review = page.getByTestId(TESTID.constructionTasksReview(key));
+    await expect(review).toBeEnabled();
+    await expect(review).toHaveAttribute('data-variant', 'contained');
+  }
+  for (const name of [/Takeover/, /Reassign/]) {
     await expect(page.getByRole('button', { name })).toHaveCount(0);
   }
 
@@ -557,6 +585,11 @@ test('steer-needed and failed rows stay review-only: the pane says why, and Run 
   await expect(run).toBeVisible();
   await expect(run).toBeDisabled();
   await expect(run).toHaveAttribute('data-reason', REVIEW_ONLY);
+  for (const id of ['retry', 'skip']) {
+    const b = page.getByTestId(TESTID.constructionDetailAction(id));
+    await expect(b).toBeDisabled();
+    await expect(b).toHaveAttribute('data-reason', REVIEW_ONLY);
+  }
   await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
   await expect(page.getByTestId(TESTID.constructionDetailAction('sendBack'))).toHaveCount(0);
 
@@ -570,9 +603,14 @@ test('steer-needed and failed rows stay review-only: the pane says why, and Run 
   await expect(run).toBeDisabled();
   await expect(run).toHaveAttribute('data-reason', REVIEW_ONLY);
   await expect(page.getByTestId(TESTID.constructionDetailAction('approve'))).toHaveCount(0);
-  for (const name of [/^Retry/, /Re-queue/, /^Skip/, /Takeover/, /Reassign/]) {
+  const requeue = page.getByTestId(TESTID.constructionDetailAction('requeue'));
+  await expect(requeue).toBeDisabled();
+  await expect(requeue).toHaveAttribute('data-reason', REVIEW_ONLY);
+  await expect(page.getByTestId(TESTID.constructionDetailAction('retry'))).toHaveCount(0);
+  for (const name of [/Takeover/, /Reassign/]) {
     await expect(page.getByRole('button', { name })).toHaveCount(0);
   }
+  expect(writes).toEqual([]);
 });
 
 test('the list lens reads the same owed set: "Awaiting me" is the gate, the steer and the failure', async ({

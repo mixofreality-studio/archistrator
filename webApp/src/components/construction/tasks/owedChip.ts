@@ -11,6 +11,7 @@
  * (designer P0-2), never "Stopped" in one and "Failed" in another.
  */
 import type { OwedItem, OwedReason } from './owedWork.ts';
+import { STEER_LOCKED_REASON } from './steerActions.ts';
 
 export interface OwedChip {
   /** Sentence case; the views uppercase it. */
@@ -52,15 +53,14 @@ export function owedMarksFor(
 }
 
 /**
- * Steer-needed and failed activities are REVIEW-ONLY until follow-up B1 persists
- * the operator's note and delivers it to the next attempt (the PM's must-hold): no
- * Retry, Re-queue or Skip. Run stays in the bar, because Run is always present, but
- * disabled with this line as its reason (tasks merge review I2 ruling;
+ * Steer-needed and failed activities are REVIEW-ONLY while the steer actions are
+ * locked (steerActions.ts, the PM's must-hold): Retry…, Skip… and Re-queue… are
+ * shown, disabled, with this line as their reason. Run stays in the bar, because Run
+ * is always present, disabled with the same reason (tasks merge review I2 ruling;
  * detailPaneState.reviewOnlyActionsFor). The pane also says so in this muted line
  * (designer P0-2, orchestrator ruling).
  */
-export const REVIEW_ONLY_NOTE =
-  'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.';
+export const REVIEW_ONLY_NOTE = STEER_LOCKED_REASON;
 
 /**
  * The owed chip the pane's selection carries, or none — the pane's AWAITING YOU

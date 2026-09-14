@@ -29,6 +29,7 @@ import {
   WIDE_PANE_SX,
 } from './detailPaneState.ts';
 import { REVIEW_ONLY_NOTE } from '../tasks/owedChip.ts';
+import { STEER_LOCKED_REASON } from '../tasks/steerActions.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -94,18 +95,34 @@ void test('the run action is in every task state, off with its reason — never 
 });
 
 // Tasks merge review I2 (ruling): Run is always present. On a review-only selection
-// (a steer or a failure) it is the only action, disabled with the review-only reason.
-void test('a review-only selection keeps Run, disabled with the review-only reason, and offers nothing else', () => {
-  const actions = reviewOnlyActionsFor({ ...RUN, disabled: false });
+// (a steer or a failure) it is last, behind the PM's steer actions (Q3), and while
+// those are locked every one of them is disabled with its reason.
+void test('a review-only selection shows its locked steer actions, then Run, all disabled with their reasons', () => {
+  const steer = reviewOnlyActionsFor({ ...RUN, disabled: false }, { reason: 'takeover' });
   assert.deepEqual(
-    actions.map((a) => a.id),
+    steer.map((a) => [a.id, a.label]),
+    [
+      ['retry', 'Retry…'],
+      ['skip', 'Skip…'],
+      ['run', RUN.label],
+    ]
+  );
+  const failed = reviewOnlyActionsFor({ ...RUN, disabled: false }, { reason: 'failed' });
+  assert.deepEqual(
+    failed.map((a) => [a.id, a.label]),
+    [
+      ['requeue', 'Re-queue…'],
+      ['run', RUN.label],
+    ]
+  );
+  for (const a of [...steer, ...failed]) {
+    assert.equal(a.disabled, true, `${a.id} is never enabled while locked`);
+    assert.equal(a.reason, a.id === 'run' ? REVIEW_ONLY_NOTE : STEER_LOCKED_REASON, a.id);
+  }
+  assert.deepEqual(
+    reviewOnlyActionsFor({ ...RUN, disabled: false }, undefined).map((a) => a.id),
     ['run']
   );
-  const run = actions[0];
-  assert.ok(run !== undefined);
-  assert.equal(run.disabled, true, 'a review-only Run is never enabled');
-  assert.equal(run.reason, REVIEW_ONLY_NOTE);
-  assert.equal(run.label, RUN.label, 'the label still names the selection');
 });
 
 void test('where the ledger cannot place the selection, the chip says what the live workflow says (round 2, designer)', () => {

@@ -67,6 +67,6 @@ void test('steer-needed and failed activities are review-only; a gate is not', (
   assert.equal(reviewOnlyFor(undefined, {}), false);
   assert.equal(
     REVIEW_ONLY_NOTE,
-    'Retry and re-queue arrive once your note reaches the agent. Until then, steer from GitHub or the MCP override_activity tool.'
+    'Retry and re-queue unlock once a verification run shows your note reaching the agent. Until then, steer from GitHub or the MCP override_activity tool.'
   );
 });

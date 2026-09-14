@@ -48,6 +48,7 @@ import { criticalBorderPx, floatPresentation } from '../list/activityRowPresenta
 import { taskDetailStateFill } from '../detail/detailPaneState.ts';
 import type { RankedOwed } from './owedRanking.ts';
 import { OWED_CHIP } from './owedChip.ts';
+import { steerBarFor, type SteerAction } from './steerActions.ts';
 import {
   allClearHeadlineFor,
   askFor,
@@ -379,6 +380,11 @@ function OwedRow({
   const ci = ciVerdictFor(git?.ciStatus);
   const affordance = whyAffordanceFor(item);
   const key = item.key;
+  // The PM's steer actions (Q3): Retry… · Review · ⋯ Skip… on a steer, Re-queue… ·
+  // Review on a failure. Locked, each is disabled with its reason, and Review stays
+  // the primary.
+  const steer = steerBarFor(item);
+  const reviewPrimary = steer === undefined || steer.reviewPrimary;
   const cell = (column: string): string => UI_IDENTIFIERS.Construction.tasksCell(key, column);
 
   return (
@@ -606,23 +612,36 @@ function OwedRow({
           gap: 0.5,
         }}
       >
-        <Button
-          data-testid={UI_IDENTIFIERS.Construction.tasksReview(key)}
-          size="small"
-          sx={{
-            fontFamily: t.mono,
-            fontWeight: 700,
-            fontSize: 11.5,
-            textTransform: 'none',
-            color: t.bg,
-            bgcolor: t.accent,
-            '&:hover': { bgcolor: t.accent2 },
-          }}
-          variant="contained"
-          onClick={onReview}
-        >
-          Review
-        </Button>
+        <Box sx={{ display: 'flex', flexWrap: 'wrap', justifyContent: 'flex-end', gap: 0.5 }}>
+          {steer?.actions
+            .filter((a) => !a.overflow)
+            .map((a) => (
+              <SteerButton action={a} key={a.id} rowKey={key} t={t} />
+            ))}
+          <Button
+            data-testid={UI_IDENTIFIERS.Construction.tasksReview(key)}
+            data-variant={reviewPrimary ? 'contained' : 'outlined'}
+            size="small"
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 11.5,
+              textTransform: 'none',
+              ...(reviewPrimary
+                ? { color: t.bg, bgcolor: t.accent, '&:hover': { bgcolor: t.accent2 } }
+                : { color: t.accent2, borderColor: t.line }),
+            }}
+            variant={reviewPrimary ? 'contained' : 'outlined'}
+            onClick={onReview}
+          >
+            Review
+          </Button>
+          {steer?.actions
+            .filter((a) => a.overflow)
+            .map((a) => (
+              <SteerButton action={a} key={a.id} rowKey={key} t={t} />
+            ))}
+        </Box>
         {git?.prUrl !== undefined ? (
           <Link
             data-testid={UI_IDENTIFIERS.Construction.tasksGitHub(key)}
@@ -658,6 +677,51 @@ function OwedRow({
         ) : null}
       </Box>
     </Box>
+  );
+}
+
+/**
+ * One steer action on a row. A disabled button fires no pointer events, so its
+ * reason hangs off a wrapper: the operator learns WHY it is off. No handler is
+ * wired while the actions are locked; the unlock wires the composers.
+ */
+function SteerButton({
+  action,
+  rowKey,
+  t,
+}: {
+  action: SteerAction;
+  rowKey: string;
+  t: Tokens;
+}): ReactElement {
+  const button = (
+    <Button
+      data-reason={action.reason}
+      data-testid={UI_IDENTIFIERS.Construction.tasksSteer(rowKey, action.id)}
+      disabled={action.disabled}
+      size="small"
+      startIcon={action.overflow ? <span aria-hidden="true">⋯</span> : undefined}
+      sx={{
+        fontFamily: t.mono,
+        fontWeight: 700,
+        fontSize: 11.5,
+        textTransform: 'none',
+        color: t.ink,
+        borderColor: t.line,
+      }}
+      variant={action.overflow ? 'text' : 'outlined'}
+    >
+      {action.label}
+    </Button>
+  );
+  return action.reason !== undefined ? (
+    <Tooltip disableInteractive placement="left" title={action.reason}>
+      <Box component="span" sx={{ display: 'inline-flex' }}>
+        {button}
+      </Box>
+    </Tooltip>
+  ) : (
+    button
   );
 }
 

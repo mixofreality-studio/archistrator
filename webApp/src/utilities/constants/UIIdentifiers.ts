@@ -442,6 +442,7 @@ export const UI_IDENTIFIERS = {
     tasksRow: (key: string) => `construction-tasks-row-${key}`,
     tasksCell: (key: string, column: string) => `construction-tasks-${column}-${key}`,
     tasksReview: (key: string) => `construction-tasks-review-${key}`,
+    tasksSteer: (key: string, action: string) => `construction-tasks-steer-${action}-${key}`,
     tasksGitHub: (key: string) => `construction-tasks-github-${key}`,
     tasksFlow: (key: string) => `construction-tasks-flow-${key}`,
     // The decision the shared pane carries for an owed gate (Stage C Task 5).
