@@ -351,7 +351,6 @@ export function codeReviewFrameFor(args: {
   return { kind: 'frame', role: args.owedNow ? 'underReview' : 'reviewed', source, commit };
 }
 
-export const NO_REVISION_HISTORY = 'No revision history recorded.';
 export const SRS_UNREADABLE = 'The SRS is not readable in this console yet.';
 export const NO_CODE_VIEW = 'No code view in this stage.';
 export const NO_COMMIT_RECORDED = 'No commit is recorded for this review.';
