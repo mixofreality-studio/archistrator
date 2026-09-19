@@ -151,10 +151,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		}
 	}
 	if ccCoverageCount != 0 {
-		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 0 (all 16 dynamic views are realized — matches the platform gate's inventory; investigate any drift, don't just re-pin)", ccCoverageCount)
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 0 (all 18 dynamic views are realized — matches the platform gate's inventory; investigate any drift, don't just re-pin)", ccCoverageCount)
 	}
 	if len(ccCoverageUseCases) != 0 {
-		t.Errorf("CC-COVERAGE fired across %d use cases, want 0 — all 16 committed use cases' dynamic views are realized (drive-system-design; batch 1's commit/execute/operate/bill; batch 2's manage-projects/track-weekly/replan/retry; batch 3's onboard/add-use-case/view-log/download/cost-projection/ask/send-back)", len(ccCoverageUseCases))
+		t.Errorf("CC-COVERAGE fired across %d use cases, want 0 — all 18 committed use cases' dynamic views are realized (drive-system-design; batch 1's commit/execute/operate/bill; batch 2's manage-projects/track-weekly/replan/retry; batch 3's onboard/add-use-case/view-log/download/cost-projection/ask/send-back; D0's resume/re-queue)", len(ccCoverageUseCases))
 	}
 	// NAMED-CULPRIT GUARDS (PoC + Tasks 8/9/10, F6/F7). With ccCoverageCount pinned
 	// at 0 these carry the WHOLE regression duty: a change that un-realizes one
@@ -180,6 +180,8 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		{"view-operating-cost-projection", "batch-3"},
 		{"ask-a-clarifying-question-during-review", "batch-3"},
 		{"send-back-change-requests-for-a-redraft", "batch-3"},
+		{"resume-paused-construction", "D0"},
+		{"requeue-a-failed-construction-activity", "D0"},
 	}
 	for _, v := range realizedViews {
 		if ccCoverageUseCases["useCase "+v.useCase] {

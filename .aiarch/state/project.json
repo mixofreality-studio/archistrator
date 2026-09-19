@@ -2228,7 +2228,7 @@
                   {
                     "id": "escalate-operator",
                     "kind": "action",
-                    "label": "Escalate to operator per intervention policy",
+                    "label": "Escalate to the operator; the operator's steer is kept on the activity and delivered to its next attempt",
                     "roleName": "Operator",
                     "linkedActorId": "operator"
                   },
@@ -4851,6 +4851,252 @@
               }
             },
             "rejectionReason": "Change-request review comments: the reviewer's send-back with anchored, approve-gating comments that drive a redraft - the rejection permutation of the Drive System Design review gate. Feedback is retained in the durable thread on the session branch and each comment is answered by the redraft; same session, same ledger, no business behaviour beyond the core review loop."
+          },
+          {
+            "useCase": {
+              "id": "resume-paused-construction",
+              "name": "Resume Paused Construction",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "execute-a-construction-activity",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "see-paused",
+                    "kind": "action",
+                    "label": "Operator sees construction is paused, and why",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "choose-resume",
+                    "kind": "action",
+                    "label": "Operator chooses to resume construction",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "pause-settled",
+                    "kind": "decision",
+                    "label": "Is the pause fully applied?",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "record-resume",
+                    "kind": "action",
+                    "label": "Record that construction is resumed; the pause is cleared",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "pump-fires",
+                    "kind": "timeEvent",
+                    "label": "Construction pump comes due",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "continue",
+                    "kind": "action",
+                    "label": "Construction continues with the next eligible activity",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "retry-later",
+                    "kind": "action",
+                    "label": "Tell the operator the pause is still being applied; try again",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "see-paused",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "see-paused",
+                    "to": "choose-resume",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "choose-resume",
+                    "to": "pause-settled",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "pause-settled",
+                    "to": "record-resume",
+                    "kind": "guardedFlow",
+                    "guard": "[yes]"
+                  },
+                  {
+                    "from": "pause-settled",
+                    "to": "retry-later",
+                    "kind": "guardedFlow",
+                    "guard": "[no]"
+                  },
+                  {
+                    "from": "record-resume",
+                    "to": "pump-fires",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "pump-fires",
+                    "to": "continue",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "continue",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "retry-later",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A paused project needs an explicit, recorded way back, and only an operator lifts a pause an operator set. Variation of Execute a Construction Activity: it clears the recorded pause and hands the work straight back to the same pump, with no business behaviour beyond the core construction loop."
+          },
+          {
+            "useCase": {
+              "id": "requeue-a-failed-construction-activity",
+              "name": "Re-queue a Failed Construction Activity",
+              "actors": [
+                {
+                  "id": "operator",
+                  "role": "Operator"
+                }
+              ],
+              "trigger": "clientAction",
+              "classification": "nonCore",
+              "variationOf": "execute-a-construction-activity",
+              "activity": {
+                "nodes": [
+                  {
+                    "id": "start",
+                    "kind": "start",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "review-failure",
+                    "kind": "action",
+                    "label": "Operator reviews why the activity failed",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "write-change",
+                    "kind": "action",
+                    "label": "Operator writes what changed since it failed",
+                    "roleName": "Operator",
+                    "linkedActorId": "operator"
+                  },
+                  {
+                    "id": "record-reopen",
+                    "kind": "action",
+                    "label": "Record the re-queue; the failure stays on record and the note is kept",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "pump-fires",
+                    "kind": "timeEvent",
+                    "label": "Construction pump comes due",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "resume-activity",
+                    "kind": "action",
+                    "label": "The activity resumes at its first incomplete phase; the note is delivered to its next attempt",
+                    "roleName": "",
+                    "linkedActorId": null
+                  },
+                  {
+                    "id": "end",
+                    "kind": "end",
+                    "label": "",
+                    "roleName": "",
+                    "linkedActorId": null
+                  }
+                ],
+                "edges": [
+                  {
+                    "from": "start",
+                    "to": "review-failure",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "review-failure",
+                    "to": "write-change",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "write-change",
+                    "to": "record-reopen",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "record-reopen",
+                    "to": "pump-fires",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "pump-fires",
+                    "to": "resume-activity",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  },
+                  {
+                    "from": "resume-activity",
+                    "to": "end",
+                    "kind": "controlFlow",
+                    "guard": ""
+                  }
+                ]
+              }
+            },
+            "rejectionReason": "A failed activity that the operator can explain is worth another attempt without losing the failure. Variation of Execute a Construction Activity: it reopens the same activity on the same pump, keeping the failure on record and carrying the operator's note into the next attempt; no business behaviour beyond the core construction loop."
           }
         ]
       },
@@ -6404,15 +6650,27 @@
                   },
                   {
                     "from": "construction-manager",
+                    "to": "source-control-access",
+                    "mode": "sync",
+                    "label": "syncManagedScaffold(repo, cred) — bring the seated construct workflow current before every dispatch"
+                  },
+                  {
+                    "from": "construction-manager",
                     "to": "agentic-job-access",
                     "mode": "sync",
-                    "label": "submitAgenticJob(agentic job: prompt, branch, contract, cred)"
+                    "label": "submitAgenticJob(agentic job: prompt, branch, contract, cred, operator note when one is pending)"
                   },
                   {
                     "from": "agentic-job-access",
                     "to": "construction-pipeline-runtime",
                     "mode": "sync",
                     "label": "dispatch GitHub Action running claude-code-action"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordOperatorNoteDelivered(activityId, noteId, attemptId) — the note rode this dispatch"
                   }
                 ]
               },
@@ -6498,6 +6756,12 @@
                     "mode": "sync",
                     "label": "overrideActivity(activityId, resolution) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
                     "alt": "s2"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordOperatorNote(activityId, note: retry | skip | takeover | reassign) — the operator's steer, kept on the activity"
                   }
                 ]
               },
@@ -8358,6 +8622,238 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "setReviewCommentStatusOnBranch(commentId, resolved) — comments closed; approve unblocked"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "resume-paused-construction",
+            "key": "var-resume-paused-construction",
+            "title": "Resume Paused Construction",
+            "steps": [
+              {
+                "activityNodeId": "see-paused",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "opens the construction console (paused, with the reason)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reads the paused project via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "choose-resume",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "chooses to resume construction",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "resumes construction via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "resumeProject(projectId)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "resumeProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "pause-settled",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → phase, operatorPaused"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-resume",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordOperatorResumed — clear the recorded pause"
+                  },
+                  {
+                    "from": "project-state-access",
+                    "to": "project-git-repo",
+                    "mode": "sync",
+                    "label": "commit guarded by git ref compare-and-swap"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "pump-fires",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → next eligible activity — driven by the resume's own start-or-join, or by the next 30s sweep tick"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "continue",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordActivityStarted(activityId, assigned agent)"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "retry-later",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "sees that the pause is still being applied; retries the resume",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "sees that the pause is still being applied via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "useCaseId": "requeue-a-failed-construction-activity",
+            "key": "var-requeue-failed-activity",
+            "title": "Re-queue a Failed Construction Activity",
+            "steps": [
+              {
+                "activityNodeId": "review-failure",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "reviews the failed activity and why it failed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "reviews the failed activity via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "write-change",
+                "calls": [
+                  {
+                    "from": "operator",
+                    "to": "web-client",
+                    "mode": "sync",
+                    "label": "writes what changed since the activity failed",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "operator",
+                    "to": "mcp-client",
+                    "mode": "sync",
+                    "label": "writes what changed via the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "reopenActivity(projectId, activityId, notes)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "construction-manager",
+                    "mode": "sync",
+                    "label": "reopenActivity(projectId, activityId, notes) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
+                    "alt": "s2"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "record-reopen",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → the activity's row (must be failed)"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordActivityReopened(activityId, note) — failure kept, note appended"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "pump-fires",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "readProject → next eligible activity — the next sweep tick picks up the reopened activity"
+                  }
+                ]
+              },
+              {
+                "activityNodeId": "resume-activity",
+                "calls": [
+                  {
+                    "from": "construction-manager",
+                    "to": "agentic-job-access",
+                    "mode": "sync",
+                    "label": "submitAgenticJob(agentic job: prompt, branch, contract, cred, operator note)"
+                  },
+                  {
+                    "from": "construction-manager",
+                    "to": "project-state-access",
+                    "mode": "sync",
+                    "label": "recordOperatorNoteDelivered(activityId, noteId, attemptId) — the note rode this dispatch"
                   }
                 ]
               }

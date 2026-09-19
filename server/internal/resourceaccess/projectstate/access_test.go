@@ -5586,8 +5586,9 @@ func TestSystem_StringEnums_CamelCase(t *testing.T) {
 
 // decodeCommittedProject reads and decodes THIS repo's own committed
 // .aiarch/state/project.json — shared by the tolerant-decode regressions below, each
-// of which needs the same live fixture (16 dynamic views, 16 realized — finally
-// simply true as of the Task-10 batch-3 landing (2026-08-01); the Task-8
+// of which needs the same live fixture (18 dynamic views, 18 realized — 16 as of
+// the Task-10 batch-3 landing (2026-08-01), plus the two nonCore variations the
+// D0 design amendment added on 2026-09-19; the Task-8
 // batch-1 design amendment (2026-08-01) put explicit TraceCall.Alt values on 12
 // of the calls across uc2/uc4's both-surface entry steps, the Task-9 batch-2
 // design amendment (2026-08-01) grew that to 52, and the Task-10 batch-3
@@ -5753,6 +5754,29 @@ var wantAltTally = map[altCallKey]string{
 	{"var-send-back-redraft", "re-review", "mcp-client", "system-design-manager"}:          "s2",
 	{"var-send-back-redraft", "close-comments", "web-client", "system-design-manager"}:     "s2",
 	{"var-send-back-redraft", "close-comments", "mcp-client", "system-design-manager"}:     "s2",
+	// D0 additions (2026-09-19, founder-approved design amendment): the two new
+	// nonCore variations of execute-a-construction-activity and their views —
+	// var-resume-paused-construction (see-paused 2, choose-resume 4, retry-later 2)
+	// and var-requeue-failed-activity (review-failure 2, write-change 4). Both
+	// enter construction-manager and construction-manager ONLY (Don't 6a /
+	// DV-SINGLE-MGR), which is why the paused read is drawn by the actor legs here
+	// and the getProject read stays on the views that already draw it. The
+	// operator-laned choose-resume / write-change steps carry BOTH legs (CC-ACTOR-
+	// LANE: a laned node's step must touch its actor). +14 entries, 114 total.
+	{"var-resume-paused-construction", "see-paused", "operator", "web-client"}:                "s1",
+	{"var-resume-paused-construction", "see-paused", "operator", "mcp-client"}:                "s1",
+	{"var-resume-paused-construction", "choose-resume", "operator", "web-client"}:             "s1",
+	{"var-resume-paused-construction", "choose-resume", "operator", "mcp-client"}:             "s1",
+	{"var-resume-paused-construction", "choose-resume", "web-client", "construction-manager"}: "s2",
+	{"var-resume-paused-construction", "choose-resume", "mcp-client", "construction-manager"}: "s2",
+	{"var-resume-paused-construction", "retry-later", "operator", "web-client"}:               "s1",
+	{"var-resume-paused-construction", "retry-later", "operator", "mcp-client"}:               "s1",
+	{"var-requeue-failed-activity", "review-failure", "operator", "web-client"}:               "s1",
+	{"var-requeue-failed-activity", "review-failure", "operator", "mcp-client"}:               "s1",
+	{"var-requeue-failed-activity", "write-change", "operator", "web-client"}:                 "s1",
+	{"var-requeue-failed-activity", "write-change", "operator", "mcp-client"}:                 "s1",
+	{"var-requeue-failed-activity", "write-change", "web-client", "construction-manager"}:     "s2",
+	{"var-requeue-failed-activity", "write-change", "mcp-client", "construction-manager"}:     "s2",
 }
 
 // TestCommittedProjectJSON_DynamicViewCalls_Alt is the tolerant-decode regression
@@ -5763,7 +5787,7 @@ var wantAltTally = map[altCallKey]string{
 // dynamic views now realized), rather than only asserting absence: a call
 // that never mentions "alt" must decode EXACTLY as it did before the field
 // existed (Alt reads back nil, not a zero-value string standing in for
-// absence), and a call that IS one of wantAltTally's 100 entries must decode
+// absence), and a call that IS one of wantAltTally's 114 entries must decode
 // to exactly its authored group value.
 func TestCommittedProjectJSON_DynamicViewCalls_Alt(t *testing.T) {
 	proj := decodeCommittedProject(t)
