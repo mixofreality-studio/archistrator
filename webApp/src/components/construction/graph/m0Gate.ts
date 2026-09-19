@@ -3,7 +3,8 @@
  * (PM Q4 ruling, binding copy).
  *
  * STATE comes from `project.phase` — the same gate the pump already applies
- * (constructionmanager.go:815-822): `construction` is PASSED, an earlier phase
+ * (`nextEligibleActivity`, server/internal/manager/construction/constructionmanager.go:1076):
+ * `construction` is PASSED, an earlier phase
  * is NOT PASSED, an unreadable phase is "—". It is never inferred from the SDP
  * review's contents.
  *
