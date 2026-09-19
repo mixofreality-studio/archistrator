@@ -102,6 +102,57 @@ test.describe('preview shell: the real app over fixtures', () => {
     await expect(page).toHaveTitle('Preview · construction · resting · fixture data');
   });
 
+  test('construction · unclassified-row: an activity the classifier refused to type renders UNCLASSIFIED with zero lifecycle sub-rows', async ({
+    page,
+  }) => {
+    interface Row {
+      ActivityID: string;
+      classified: boolean;
+      Phases: unknown[];
+    }
+    const project = fixture('construction', 'unclassified-row').ops['systemDesignGetProject']
+      ?.result as { ActivityConstruction: Record<string, Row> };
+    const rows = Object.values(project.ActivityConstruction);
+    // The fixture's whole point (spec §9 AC4): exactly one row the server could
+    // not type — ClassifyType's ok=false — carrying no phases on the wire.
+    const unknownIds = rows.filter((r) => !r.classified).map((r) => r.ActivityID);
+    expect(unknownIds).toEqual(['C-usage-access']);
+    const unknownId = unknownIds[0] ?? '';
+    expect(project.ActivityConstruction[unknownId]?.Phases).toEqual([]);
+    // A typed neighbour, as the control below.
+    const knownId = rows.find((r) => r.classified && r.Phases.length > 0)?.ActivityID ?? '';
+    expect(knownId).not.toEqual('');
+
+    const offBundle = await openState(page, 'construction', 'unclassified-row');
+    const unknown = page.getByTestId(TESTID.constructionListRow(unknownId));
+    await expect(unknown).toBeVisible();
+    // It says what it is, and never guesses a kind.
+    await expect(unknown).toContainText('UNCLASSIFIED');
+
+    // ArrowRight is the tree's expand gesture. Nothing opens: an unclassified
+    // activity has no phase and no task rows to open. The sub-row ids are the
+    // tree's own (`<activityId>::<phase>[::<task>]`).
+    await unknown.click();
+    await page.keyboard.press('ArrowRight');
+    await expect(
+      page.getByTestId(new RegExp(`^construction-list-row-${unknownId}::`))
+    ).toHaveCount(0);
+
+    // The control: the SAME gesture on a typed activity does open its lifecycle,
+    // so the count above measures the classification, not a dead keystroke.
+    const known = page.getByTestId(TESTID.constructionListRow(knownId));
+    await known.click();
+    await page.keyboard.press('ArrowRight');
+    await expect(
+      page.getByTestId(new RegExp(`^construction-list-row-${knownId}::`)).first()
+    ).toBeVisible();
+
+    // Incidents first: a miss names the op it missed, which a bare alarm count does not.
+    expect(await incidents(page)).toEqual([]);
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(offBundle).toEqual([]);
+  });
+
   test('construction · loading: a pending read holds the real loading state', async ({ page }) => {
     const offBundle = await openState(page, 'construction', 'loading');
     await expect(page.getByRole('progressbar').first()).toBeVisible();

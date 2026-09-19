@@ -714,6 +714,20 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    and carries ↻ only where the selection holds at least one attempt; a first run reads ▶.)
 4. **Unclassified is visible.** Activities whose type cannot be resolved render as Unclassified with
    **zero** lifecycle sub-rows.
+
+   (Evidence recorded 2026-09-19, final main review I2. The state is REACHABLE — `ClassifyType`
+   returns `ok=false` for any activity whose `workerClass`/`coding` pair matches no rule in
+   `ClassifyActivity` (`projectstateaccess.go:8228`), and the server then emits the row with
+   `classified=false` and every member that flag gates at its zero value
+   (`systemdesignmanager.go:3411-3466`) — but **no seeded run can show it**, because every activity
+   in the committed slot-9 list classifies today, and the server re-derives the type at read for
+   every stored row, so a fixture on the seeded server would be overwritten. The browser evidence
+   therefore lives in the PREVIEW lane, whose fixtures are the wire itself:
+   `uitests/preview-fixtures/web-client/construction/unclassified-row.json` carries one activity
+   with an unclassifiable plan item, and `tests/preview/preview-shell.spec.ts` drives it — the row
+   reads UNCLASSIFIED, the tree's expand gesture opens nothing under it, and the same gesture on a
+   typed neighbour does open its lifecycle, so the assertion discriminates. The unit pins stand
+   alongside it: `activityTree.test.ts:103`, `laneSpine.test.ts:126`.)
 5. **The join key holds.** Every `TaskAttempt` and every newly written `EpisodeRecord.TargetRef`
    carries `<activityId>:<task>:<n>`.
 6. **Selection survives the poll.** Selection and viewport are stable across the 1.5s cascade poll
