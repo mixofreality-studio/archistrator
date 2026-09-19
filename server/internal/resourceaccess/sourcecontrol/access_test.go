@@ -2599,3 +2599,210 @@ func TestArchistratorConstructWorkflowIsTheTemplateRendering(t *testing.T) {
 			"ARCHISTRATOR_WRITE_CONSTRUCT_WORKFLOW=1 (see this test's doc)", archistratorConstructWorkflowPath, StateMcpModulePin)
 	}
 }
+
+// archistratorDesignWorkflowPath is archistrator's OWN seated copy of the DESIGN
+// workflow (the dogfood reference), relative to this package.
+const archistratorDesignWorkflowPath = "../../../../.github/workflows/aiarch-design.yml"
+
+// TestArchistratorDesignWorkflowIsTheTemplateRendering is the construct gate's missing
+// twin. The construct workflow was regenerated from the template and gated; this file
+// was not, so archistrator's own repo kept serving the UNHARDENED design workflow — three
+// `run:` bodies expanding `${{ }}`, including the MCP config built by a heredoc over
+// inputs.artifact_kind / job_mode / target_branch — on a job holding contents:write,
+// id-token:write and the Claude token (B1 re-review, Important 1). Waiting for the
+// release to re-seat it left the exposure live; gating it here moves the seated file
+// with the template, in one commit, the way the construct file already moves.
+//
+// The design workflow templates only the App slug + the state-MCP pins (never the repo
+// coordinates), and archistrator seats no App slug, so the empty-slug rendering is what
+// this repo gets — the same bundle entry ManagedScaffoldFiles hands the birth seat.
+//
+// Regenerate with:
+//
+//	ARCHISTRATOR_WRITE_DESIGN_WORKFLOW=1 GOWORK=off go test ./internal/resourceaccess/sourcecontrol/ -run TestArchistratorDesignWorkflowIsTheTemplateRendering
+func TestArchistratorDesignWorkflowIsTheTemplateRendering(t *testing.T) {
+	bundle, err := ManagedScaffoldFiles(RepoRef("acct|mixofreality-studio/archistrator"), "")
+	if err != nil {
+		t.Fatalf("ManagedScaffoldFiles: %v", err)
+	}
+	var want []byte
+	for _, f := range bundle {
+		if f.Path == DesignWorkflowPath {
+			want = f.Content
+		}
+	}
+	if len(want) == 0 {
+		t.Fatalf("the managed scaffold renders no %s", DesignWorkflowPath)
+	}
+	if os.Getenv("ARCHISTRATOR_WRITE_DESIGN_WORKFLOW") == "1" {
+		if err := os.WriteFile(archistratorDesignWorkflowPath, want, 0o644); err != nil { //nolint:gosec // a repo file, deliberately world-readable like its siblings
+			t.Fatalf("write %s: %v", archistratorDesignWorkflowPath, err)
+		}
+	}
+	got, err := os.ReadFile(archistratorDesignWorkflowPath)
+	if err != nil {
+		t.Fatalf("read %s: %v", archistratorDesignWorkflowPath, err)
+	}
+	if string(got) != string(want) {
+		t.Fatalf("%s has drifted from the method-assets template rendering (pin %s); regenerate it with "+
+			"ARCHISTRATOR_WRITE_DESIGN_WORKFLOW=1 (see this test's doc)", archistratorDesignWorkflowPath, StateMcpModulePin)
+	}
+}
+
+// seatedWorkflowsDir is archistrator's OWN .github/workflows, relative to this package.
+// Every file in it is scanned — a workflow added later is covered with no edit here.
+const seatedWorkflowsDir = "../../../../.github/workflows"
+
+// seatedRunKeyLine matches a `run:` key, as a step field or as the step's own first key.
+var seatedRunKeyLine = regexp.MustCompile(`^(\s*)(- )?run:(.*)$`)
+
+// seatedRunBodies returns every `run:` SCRIPT in doc, in any shape YAML allows one to be
+// written: inline, quoted, a block scalar (`|`, `|-`, `|+`, `|2`) or a folded one (`>`,
+// `>-`). It keys on the `run:` field itself rather than on named steps, so an unnamed
+// step (`- run: …`) cannot slip past.
+//
+// A `run:` with NO scalar value is a mapping key, not a script — `defaults: { run: {
+// working-directory: … } }` is the common one — so it is not a body and is skipped;
+// including it would report a workflow's default working-directory as a script.
+func seatedRunBodies(doc string) []string {
+	lines := strings.Split(doc, "\n")
+	var bodies []string
+	for i := range lines {
+		m := seatedRunKeyLine.FindStringSubmatch(lines[i])
+		if m == nil {
+			continue
+		}
+		keyIndent := len(m[1]) + len(m[2])
+		val := strings.TrimSpace(m[3])
+		if val == "" {
+			continue // a `run:` mapping (e.g. defaults.run), not a script
+		}
+		if val[0] != '|' && val[0] != '>' {
+			bodies = append(bodies, val) // inline, quoted or not
+			continue
+		}
+		var body []string
+		for k := i + 1; k < len(lines); k++ {
+			l := lines[k]
+			if strings.TrimSpace(l) == "" {
+				body = append(body, "")
+				continue
+			}
+			if len(l)-len(strings.TrimLeft(l, " ")) <= keyIndent {
+				break
+			}
+			body = append(body, l)
+		}
+		bodies = append(bodies, strings.Join(body, "\n"))
+	}
+	return bodies
+}
+
+// seatedWorkflowDocs reads every seated workflow, keyed by file name.
+func seatedWorkflowDocs(t *testing.T) map[string]string {
+	t.Helper()
+	paths, err := filepath.Glob(filepath.Join(seatedWorkflowsDir, "*.yml"))
+	if err != nil {
+		t.Fatalf("glob %s: %v", seatedWorkflowsDir, err)
+	}
+	if len(paths) == 0 {
+		t.Fatalf("no seated workflows found under %s — this gate would pass vacuously", seatedWorkflowsDir)
+	}
+	docs := map[string]string{}
+	for _, p := range paths {
+		b, rerr := os.ReadFile(p) //nolint:gosec // a fixed repo-relative directory
+		if rerr != nil {
+			t.Fatalf("read %s: %v", p, rerr)
+		}
+		docs[filepath.Base(p)] = string(b)
+	}
+	return docs
+}
+
+// TestSeatedWorkflowsNeverExpandExpressionsInRunBodies is the structural gate over
+// archistrator's OWN seated workflows — the repo whose Actions hold contents:write,
+// id-token:write and the org Claude token.
+//
+// The script-injection class needs a `${{ … }}` inside a script: the runner pastes the
+// expression in as TEXT before any shell parses the body, so a dispatch input carrying
+// shell syntax EXECUTES. Values reach a script through the step's `env:` instead, where
+// the runner assigns them as data.
+//
+// ACTIONLINT DOES NOT CATCH THIS (confirmed by the B1 re-review: actionlint 1.7.12 with
+// shellcheck 0.10.0 passes the unhardened design workflow). method-assets' own gate
+// covers its TEMPLATES and their rendering; nothing covered the files seated HERE, which
+// is how the hardened design template shipped while this repo still served the heredoc
+// copy. This test is that cover.
+func TestSeatedWorkflowsNeverExpandExpressionsInRunBodies(t *testing.T) {
+	total := 0
+	for name, doc := range seatedWorkflowDocs(t) {
+		bodies := seatedRunBodies(doc)
+		if len(bodies) == 0 {
+			t.Errorf("%s: the reader found no run: bodies — every seated workflow has scripts", name)
+		}
+		for _, body := range bodies {
+			total++
+			if strings.Contains(body, "${{") {
+				t.Errorf("%s: a run: body expands a GitHub expression; move the value to the step's env: and "+
+					"read it as \"${VAR}\":\n%s", name, body)
+			}
+		}
+	}
+	// A floor, so a reader that silently stopped finding scripts cannot pass green.
+	if total < 30 {
+		t.Errorf("the reader found only %d run: bodies across the seated workflows; it has gone blind", total)
+	}
+}
+
+// TestSeatedRunBodyReaderSeesEveryRunShape keeps the gate above honest: every shape a
+// `run:` script can be written in — inline on a named or unnamed step, single- or
+// double-quoted, a literal block, a block with a chomping or INDENT indicator, and a
+// folded block — is found, with its expression intact. A reader that missed one shape
+// would pass the gate while that shape carried the injection.
+func TestSeatedRunBodyReaderSeesEveryRunShape(t *testing.T) {
+	doc := strings.Join([]string{
+		"jobs:",
+		"  a:",
+		"    defaults:",
+		"      run:", // a mapping, NOT a script — must not be read as a body
+		"        working-directory: server",
+		"    steps:",
+		"      - run: echo ${{ inputs.a }}",
+		"      - name: named inline",
+		"        run: echo ${{ inputs.b }}",
+		"      - name: double quoted",
+		`        run: "echo ${{ inputs.c }}"`,
+		"      - name: single quoted",
+		"        run: 'echo ${{ inputs.d }}'",
+		"      - name: literal block",
+		"        run: |",
+		"          echo ok",
+		"          echo ${{ inputs.e }}",
+		"      - name: literal block, strip",
+		"        run: |-",
+		"          echo ${{ inputs.f }}",
+		"      - name: literal block, keep",
+		"        run: |+",
+		"          echo ${{ inputs.g }}",
+		"      - name: literal block, indent indicator",
+		"        run: |2",
+		"          echo ${{ inputs.h }}",
+		"      - name: folded",
+		"        run: >",
+		"          echo ${{ inputs.i }}",
+		"      - name: folded, strip",
+		"        run: >-",
+		"          echo ${{ inputs.j }}",
+	}, "\n")
+
+	bodies := seatedRunBodies(doc)
+	const want = 10
+	if len(bodies) != want {
+		t.Fatalf("found %d run bodies, want %d: %q", len(bodies), want, bodies)
+	}
+	for _, b := range bodies {
+		if !strings.Contains(b, "${{") {
+			t.Errorf("the reader lost the expression in %q", b)
+		}
+	}
+}

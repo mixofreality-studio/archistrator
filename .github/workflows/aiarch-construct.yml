@@ -108,18 +108,26 @@ jobs:
           COMPONENT_ID: ${{ inputs.component_id }}
           COMMAND: ${{ inputs.command }}
         run: |
-          # valid VALUE ERE: a whole-line match, and a value holding a newline is never
-          # an id (grep matches per line). No bash double-bracket test here: this file
-          # is a Go template whose action delimiter is the double square bracket. grep reads
-          # all of its input (no -q), so pipefail cannot race a SIGPIPE.
+          # valid VALUE ERE: a whole-line match of at most 128 characters, and a value
+          # holding a newline is never an id (grep matches per line). The length bound
+          # lives here rather than in the ERE because the id shape below is recursive
+          # over `/`-separated segments. The character classes are ASCII-only, so a
+          # multibyte value is refused on shape before the count can matter. No bash
+          # double-bracket test here: this file is a Go template whose action delimiter
+          # is the double square bracket. grep reads all of its input (no -q), so
+          # pipefail cannot race a SIGPIPE.
           valid() {
             case "$1" in *$'\n'*) return 1 ;; esac
+            [ "${#1}" -le 128 ] || return 1
             printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
           }
-          # An id starts with a letter or digit, and a dot may only come directly
-          # before a non-dot id character, so `..` is refused anywhere (and so is a
-          # trailing dot).
-          id_re='[A-Za-z0-9]([.]?[A-Za-z0-9_:/-]){0,127}'
+          # An id is `/`-separated segments. A segment starts with a letter or digit and
+          # a dot may only come BETWEEN two id characters — the same "dot only between
+          # word characters" shape the design template's ref_re uses. So `..` anywhere,
+          # a segment that starts or ends with a dot (`C-PE.`, `.hidden`, `a./b`,
+          # `a/.b`, `a/./b`), a leading or trailing `/` and `//` are all refused.
+          id_seg='[A-Za-z0-9][A-Za-z0-9_:-]*([.][A-Za-z0-9_:-]+)*'
+          id_re="${id_seg}(/${id_seg})*"
           command_re='[a-z0-9][a-z0-9-]{0,63}'
           ok=1
           if ! valid "${ACTIVITY_ID}" "${id_re}"; then

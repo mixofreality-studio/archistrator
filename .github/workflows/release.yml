@@ -43,8 +43,17 @@ jobs:
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "Resolved version: $VERSION (source: $SOURCE_VERSION, tag: ${TAG_VERSION:-none}, bumped: ${BUMPED_VERSION})"
 
+      # NO `${{ }}` INSIDE A `run:` BODY, anywhere in this repo's workflows — the
+      # runner pastes an expression into the script as TEXT before any shell sees
+      # it, so a value carrying shell syntax executes. Every value a script needs
+      # comes through the step's `env:` instead, where it is assigned as data.
+      # Pinned by TestSeatedWorkflowsNeverExpandExpressionsInRunBodies
+      # (server/internal/resourceaccess/sourcecontrol); actionlint does not catch
+      # this class.
       - name: Update VERSION file
-        run: echo "${{ steps.version.outputs.version }}" > server/VERSION
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+        run: echo "${VERSION}" > server/VERSION
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -57,8 +66,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push server image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           docker buildx build \
             --platform linux/amd64 \
             -f server/Dockerfile \
@@ -68,13 +78,17 @@ jobs:
             .
 
       - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           git config user.name "aiarch-release-bot[bot]"
           git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
           git add server/VERSION
-          git diff --cached --quiet || git commit -m "release: archistrator-server v${{ steps.version.outputs.version }}"
-          git tag "archistrator-server-v${{ steps.version.outputs.version }}" 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "release: archistrator-server v${VERSION}"
+          git tag "archistrator-server-v${VERSION}" 2>/dev/null || true
           for i in 1 2 3; do
             git pull --rebase origin main
             git push origin main --tags && break
@@ -126,9 +140,11 @@ jobs:
           echo "Resolved version: $VERSION (source: $SOURCE_VERSION, tag: ${TAG_VERSION:-none}, bumped: ${BUMPED_VERSION})"
 
       - name: Update version in package.json
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           cd webApp
-          npm version "${{ steps.version.outputs.version }}" --no-git-tag-version --allow-same-version
+          npm version "${VERSION}" --no-git-tag-version --allow-same-version
 
       - name: Set up Docker Buildx
         uses: docker/setup-buildx-action@v3
@@ -141,8 +157,9 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build and push webapp image
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
-          VERSION="${{ steps.version.outputs.version }}"
           docker buildx build \
             --platform linux/amd64 \
             --build-arg VITE_API_BASE_URL= \
@@ -157,13 +174,17 @@ jobs:
             webApp/
 
       - name: Commit and push
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPOSITORY: ${{ github.repository }}
         run: |
           git config user.name "aiarch-release-bot[bot]"
           git config user.email "aiarch-release-bot[bot]@users.noreply.github.com"
-          git remote set-url origin "https://x-access-token:${{ secrets.GITHUB_TOKEN }}@github.com/${{ github.repository }}.git"
+          git remote set-url origin "https://x-access-token:${GH_TOKEN}@github.com/${REPOSITORY}.git"
           git add webApp/package.json webApp/package-lock.json
-          git diff --cached --quiet || git commit -m "release: archistrator-webapp v${{ steps.version.outputs.version }}"
-          git tag "archistrator-webapp-v${{ steps.version.outputs.version }}" 2>/dev/null || true
+          git diff --cached --quiet || git commit -m "release: archistrator-webapp v${VERSION}"
+          git tag "archistrator-webapp-v${VERSION}" 2>/dev/null || true
           for i in 1 2 3; do
             git pull --rebase origin main
             git push origin main --tags && break

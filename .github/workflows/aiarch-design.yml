@@ -59,6 +59,17 @@
 #
 #   3. The workflow MUST be `workflow_dispatch`-triggerable on the dispatch ref.
 #
+# SCRIPT-INJECTION POSTURE (archistrator B1 fix round, I3; pinned by
+# workflow_injection_test.go). Anyone holding only Actions:write can dispatch this
+# workflow with any input values, and the draft job holds contents:write,
+# id-token:write and the Claude token, so:
+#   - NO `${{ ... }}` expression is ever expanded inside a `run:` body. Every input
+#     and step output a script needs is mapped through that step's `env:`.
+#   - Every dispatch input (command, artifact_kind, job_mode, target_branch,
+#     prior_state_ref) is validated by the draft job's FIRST step, before any use;
+#     the always() verify step is gated on that validation passing.
+#   - The MCP config is built by `jq -n --arg ...` from env, never a heredoc of JSON.
+#
 # The DESIGN-job inputs (`artifact_kind`, `command`, `target_branch`,
 # `prior_state_ref`, `job_mode`) are the additive DispatchInputs the design Managers
 # (C-MSD-Δ / C-MPD-Δ) set on PipelineSpec. Their NAMES are a contract between
@@ -188,6 +199,65 @@ jobs:
   draft:
     runs-on: ubuntu-latest
     steps:
+      # FIRST: prove every dispatch input is the shape the server sends before anything
+      # uses it (archistrator B1 fix round, I3; pinned by workflow_injection_test.go).
+      # A caller that holds only Actions:write can dispatch this workflow with any input
+      # values, and the job holds contents:write, id-token:write and the Claude token, so
+      # an input that is not a plain value fails the job here. The values are read from
+      # env and never echoed (echoing one would hand it to the runner's workflow-command
+      # parser). Every later `run:` body takes its values from env too, never `${{ }}`.
+      - name: Validate dispatch inputs
+        id: inputs
+        env:
+          COMMAND: ${{ inputs.command }}
+          ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          JOB_MODE: ${{ inputs.job_mode }}
+          TARGET_BRANCH: ${{ inputs.target_branch }}
+          PRIOR_STATE_REF: ${{ inputs.prior_state_ref }}
+        run: |
+          # valid VALUE ERE: a whole-line match of at most 255 bytes, and a value holding
+          # a newline is never valid (grep matches per line). No bash double-bracket test
+          # here: this file is a Go template whose action delimiter is the double square
+          # bracket. grep reads all of its input (no -q), so pipefail cannot race a SIGPIPE.
+          valid() {
+            case "$1" in *$'\n'*) return 1 ;; esac
+            [ "${#1}" -le 255 ] || return 1
+            printf '%s' "$1" | grep -Ex -- "$2" > /dev/null
+          }
+          command_re='[a-z0-9][a-z0-9-]{0,63}'
+          kind_re='[A-Za-z][A-Za-z0-9]{0,63}'
+          mode_re='draft|critique|answer'
+          # A git ref: /-separated segments, each starting with a letter or digit, with a
+          # dot only BETWEEN two word characters, so `..`, a leading `-`, a leading or
+          # trailing `/` and `//` are all refused.
+          seg='[A-Za-z0-9][A-Za-z0-9_-]*([.][A-Za-z0-9_-]+)*'
+          ref_re="${seg}(/${seg})*"
+          ok=1
+          if ! valid "${COMMAND}" "${command_re}"; then
+            echo "::error::command is not a valid command slug"
+            ok=0
+          fi
+          if ! valid "${ARTIFACT_KIND}" "${kind_re}"; then
+            echo "::error::artifact_kind is not a valid artifact kind"
+            ok=0
+          fi
+          if ! valid "${JOB_MODE}" "${mode_re}"; then
+            echo "::error::job_mode must be draft, critique or answer"
+            ok=0
+          fi
+          if ! valid "${TARGET_BRANCH}" "${ref_re}"; then
+            echo "::error::target_branch is not a valid branch name"
+            ok=0
+          fi
+          # prior_state_ref is optional: empty means "the workflow ref".
+          if [ -n "${PRIOR_STATE_REF}" ] && ! valid "${PRIOR_STATE_REF}" "${ref_re}"; then
+            echo "::error::prior_state_ref is not a valid git ref"
+            ok=0
+          fi
+          if [ "${ok}" != 1 ]; then
+            exit 1
+          fi
+
       - name: Checkout prior committed state
         uses: actions/checkout@v4
         with:
@@ -345,8 +415,11 @@ jobs:
       # cannot shadow the current generation. Working-tree only: no git state is
       # touched and nothing here is committed.
       - name: Materialize the .claude prompt surface (runtime-rendered, not repo-committed)
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_COMMAND: ${{ inputs.command }}
         run: |
-          "${{ steps.statemcp.outputs.bin }}" seat-assets --dest .
+          "${MCP_BIN}" seat-assets --dest . --command "${AIARCH_COMMAND}"
 
       # Record the base commit the draft is built on — the REFRESHED session-branch tip (so
       # the post-claude guard measures whether CLAUDE advanced the branch beyond the refresh,
@@ -359,27 +432,48 @@ jobs:
       # ambient session context is baked in as env on the MCP server process from the
       # dispatch inputs + the per-project repo name (project id = repo name). The agent
       # supplies NONE of these — the ambient artifact_kind fixes the slot, so it can never
-      # infer the wrong one (the F68 fix, made structural).
+      # infer the wrong one (the F68 fix, made structural). jq builds the JSON from
+      # --arg values taken from env, so no value can break the document or reach a shell.
       - name: Write the aiarch-state MCP config
         env:
           MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_PROJECT_ID: ${{ github.event.repository.name }}
+          AIARCH_ARTIFACT_KIND: ${{ inputs.artifact_kind }}
+          AIARCH_JOB_MODE: ${{ inputs.job_mode }}
+          AIARCH_TARGET_BRANCH: ${{ inputs.target_branch }}
+          AIARCH_STATE_ROOT: ${{ github.workspace }}
+          AIARCH_COMMAND: ${{ inputs.command }}
         run: |
-          cat > "${RUNNER_TEMP}/aiarch-mcp.json" <<EOF
-          {
-            "mcpServers": {
-              "aiarch-state": {
-                "command": "${MCP_BIN}",
-                "env": {
-                  "AIARCH_PROJECT_ID": "${{ github.event.repository.name }}",
-                  "AIARCH_ARTIFACT_KIND": "${{ inputs.artifact_kind }}",
-                  "AIARCH_JOB_MODE": "${{ inputs.job_mode }}",
-                  "AIARCH_TARGET_BRANCH": "${{ inputs.target_branch }}",
-                  "AIARCH_STATE_ROOT": "${{ github.workspace }}"
-                }
-              }
-            }
-          }
-          EOF
+          jq -n \
+            --arg bin "${MCP_BIN}" \
+            --arg project "${AIARCH_PROJECT_ID}" \
+            --arg kind "${AIARCH_ARTIFACT_KIND}" \
+            --arg mode "${AIARCH_JOB_MODE}" \
+            --arg branch "${AIARCH_TARGET_BRANCH}" \
+            --arg root "${AIARCH_STATE_ROOT}" \
+            --arg command "${AIARCH_COMMAND}" \
+            '{mcpServers: {"aiarch-state": {command: $bin, env: {
+                AIARCH_PROJECT_ID: $project,
+                AIARCH_ARTIFACT_KIND: $kind,
+                AIARCH_JOB_MODE: $mode,
+                AIARCH_TARGET_BRANCH: $branch,
+                AIARCH_STATE_ROOT: $root,
+                AIARCH_COMMAND: $command
+              }}}}' \
+            > "${RUNNER_TEMP}/aiarch-mcp.json"
+
+      # Resolve this step's built-in tool deny list from the SAME method-assets
+      # step manifest the local executor uses, so the two dispatch rails scope
+      # identically. Restating the list in YAML here is exactly the duplication
+      # that would drift. An unknown step prints an empty line, which degrades to
+      # the unscoped surface rather than failing the job.
+      - name: Resolve the step's built-in tool scope
+        id: steptools
+        env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
+          AIARCH_COMMAND: ${{ inputs.command }}
+        run: |
+          echo "disallowed=$("${MCP_BIN}" step-tools --command "${AIARCH_COMMAND}" --disallowed)" >> "$GITHUB_OUTPUT"
 
       - name: Draft the typed Method artifact (claude-code-action)
         uses: anthropics/claude-code-action@v1
@@ -403,7 +497,7 @@ jobs:
           # tools) in the unattended runner — the trust boundary is NOT the tool prompt: it is
           # putDraftModel's in-loop codec+methodcheck validation, the branch + PR human gate,
           # and the REQUIRED `validate` (methodcheck) check that blocks merge (C-VCI).
-          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json"
+          claude_args: "--dangerously-skip-permissions --mcp-config ${{ runner.temp }}/aiarch-mcp.json --strict-mcp-config --setting-sources project --exclude-dynamic-system-prompt-sections --disallowedTools ${{ steps.steptools.outputs.disallowed }}"
           # Thin prompt: NO drafting logic here. The intent lives entirely in the
           # per-kind design command under .claude/commands/, which pulls its role
           # agent + Method skill + the-method-project-state (the doctrine that ALL
@@ -426,8 +520,11 @@ jobs:
       # 28724503360: guard false-negatived a successful draft+PR).
       # POSIX single-bracket tests only — the bash double-bracket test would collide
       # with the Go-template action delimiters this file is rendered through.
+      # It runs even when the claude step failed, but NEVER when input validation
+      # failed: target_branch becomes part of an API path here, and an unvalidated
+      # value must not reach it.
       - name: Verify claude pushed a commit to the target branch
-        if: always()
+        if: always() && steps.inputs.outcome == 'success'
         env:
           TARGET_BRANCH: ${{ inputs.target_branch }}
           BASE_SHA: ${{ steps.base.outputs.sha }}
@@ -506,6 +603,9 @@ jobs:
         # job's ambient artifact from the SAME dispatch input the draft job's MCP env
         # fixes the agent's slot with (threaded via env, never shell-interpolated), so
         # the in-loop putDraftModel verdict and this CI verdict scope identically.
+        # This job `needs: draft`, whose first step validated artifact_kind and
+        # target_branch, so it never runs on unvalidated inputs.
         env:
+          MCP_BIN: ${{ steps.statemcp.outputs.bin }}
           ARTIFACT_KIND: ${{ inputs.artifact_kind }}
-        run: ${{ steps.statemcp.outputs.bin }} validate --slot "${ARTIFACT_KIND}"
+        run: '"${MCP_BIN}" validate --slot "${ARTIFACT_KIND}"'
