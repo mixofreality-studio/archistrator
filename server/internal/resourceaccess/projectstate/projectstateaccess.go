@@ -571,16 +571,28 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		// via SetOperatingModel. Only pre-field legacy project.json documents are ever
 		// empty; those read as self-operated via OperatingModel.OrDefault.
 		p.OperatingModel = OperatingModelSelfOperated
-		// A fresh project defaults its review-policy sophistication dial to "vibes"
-		// (Task 7): behavior-preserving — an empty GatedPhasesByType already gated
-		// nothing (RequiresHuman's zero-value "pure vibes"), so this only makes the
-		// default explicit. project.json is FIRST MATERIALIZED here (not by
-		// `archistrator init`'s deliberately-empty .aiarch/state/ scaffold — see
-		// cmd/archistrator/init.go and docs/superpowers/sdd/task-7-report.md), so this
-		// is the one place the local-first funnel's default preset can be seeded
-		// unconditionally for every project, local or hosted.
-		preset := ReviewPresetVibes
-		p.ReviewPolicy.Preset = &preset
+		// A fresh project is born on the LEGACY/EXPLICIT review policy — Preset stays
+		// nil until a human chooses a dial value through SetReviewPolicy.
+		//
+		// It USED to be born "vibes" (Task 7, 2026-07-19), on the rationale that an
+		// empty GatedPhasesByType already gated nothing (RequiresHuman's zero-value
+		// "pure vibes"), so an explicit default "changes no dispatch decision". That
+		// rationale held for exactly one day. The design vibes autogate (2026-07-20)
+		// made the PRESET ITSELF mean "auto-approve every design artifact":
+		// coauthorartifact.go / coauthorphase2artifact.go set policyAutoApprove from
+		// Preset DIRECTLY, not through EffectiveGate. From then on, seeding the preset
+		// at BIRTH silently removed the human design gate from every project ever
+		// created — a co-author session auto-approved its own draft and committed it
+		// with approvedBy "policy:vibes", so the architect's approval, which is the
+		// Method's commit authority, was never asked for.
+		//
+		// Nil is behavior-IDENTICAL to vibes for CONSTRUCTION (EffectiveGate's default
+		// arm is RequiresHuman over an empty map — ungated, with the non-overridable
+		// deploy/spend/schema floor unchanged), and it restores the DESIGN gate. The
+		// local-first funnel's "vibes by default" is scoped to LOCAL mode (the plan's
+		// Task 7 is titled "Review-policy floor for local mode"), so it belongs to
+		// `archistrator init`'s scaffold — not to this one code path, which first
+		// materializes project.json for EVERY project, local or hosted.
 		return nil
 	})
 }
