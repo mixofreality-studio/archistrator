@@ -3,7 +3,13 @@
  * (Phase 1) and Project Design (Phase 2) co-author screens. Owns the chrome (NOT
  * the AppShell): an accent strip, a prominent ✕ close, the phase title, the enter
  * transition, an optional SlimSpine progress rail, the active-step body, and an
- * optional collapsible ChatRail for anchored comments.
+ * optional collapsible CommentMargin for anchored review threads.
+ *
+ * It also mounts the AnchorRegistryProvider around the content row, which is the
+ * ONE place that covers both halves of the margin's contract: the rows inside
+ * `children` enrol their anchors, and the `margin` beside them looks those anchors
+ * up. Mount it anywhere narrower and the registry hooks silently no-op — every
+ * card falls into the unplaced bucket and the margin just looks wrong.
  *
  * Extracted from DesignExperience.tsx so the two phase screens share one shell
  * rather than forking it.
@@ -19,6 +25,8 @@ import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 
 import { ThemeSwitcher } from '../ThemeSwitcher';
 import { SelectionPopover, type SelectionCommentSurface } from '../comments/SelectionPopover';
+import { AnchorRegistryProvider } from '../comments/AnchorRegistry';
+import { MARGIN_DRAWER_QUERY, MARGIN_WIDTH } from './CommentMargin';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
@@ -28,9 +36,9 @@ export function ExperienceChrome({
   projectName,
   onClose,
   spine,
-  chat,
-  chatOpen,
-  onOpenChat,
+  margin,
+  marginOpen,
+  onOpenMargin,
   commentSurface,
   children,
 }: {
@@ -39,9 +47,11 @@ export function ExperienceChrome({
   projectName?: string | undefined;
   onClose: () => void;
   spine?: ReactNode;
-  chat?: ReactNode;
-  chatOpen?: boolean | undefined;
-  onOpenChat?: (() => void) | undefined;
+  /** The comment margin for this surface. Omitted ⇒ no margin affordance at all. */
+  margin?: ReactNode;
+  /** Whether the margin is currently shown (drives the header's re-open toggle). */
+  marginOpen?: boolean | undefined;
+  onOpenMargin?: (() => void) | undefined;
   /**
    * Threaded into SelectionPopover. Omitted (the Phase-2 Project Design
    * experience, and any caller that hasn't migrated) → SelectionPopover falls
@@ -165,13 +175,13 @@ export function ExperienceChrome({
         <Box sx={{ flexGrow: 1 }} />
 
         <ThemeSwitcher />
-        {chatOpen === false && onOpenChat !== undefined && (
-          <Tooltip title="Open co-author chat">
+        {marginOpen === false && onOpenMargin !== undefined && (
+          <Tooltip title="Open comments">
             <IconButton
               data-testid={UI_IDENTIFIERS.Chat.TOGGLE}
               size="small"
               sx={{ border: `1.5px solid ${t.line}`, borderRadius: 1, color: t.ink }}
-              onClick={onOpenChat}
+              onClick={onOpenMargin}
             >
               <ChatBubbleOutlineIcon fontSize="small" />
             </IconButton>
@@ -197,20 +207,47 @@ export function ExperienceChrome({
         </Box>
       )}
 
-      {/* content row */}
-      <Box
-        component="main"
-        sx={{ flexGrow: 1, minHeight: 0, display: 'flex', alignItems: 'stretch' }}
-      >
-        {children}
-        {chat !== undefined && (
-          <Box
-            sx={{ width: 380, flexShrink: 0, height: '100%', borderLeft: `1.5px solid ${t.line}` }}
-          >
-            {chat}
-          </Box>
-        )}
-      </Box>
+      {/* content row — the single scope the anchor registry has to cover, because
+          the enrolling rows (children) and the looking-up margin are both in it. */}
+      <AnchorRegistryProvider>
+        <Box
+          component="main"
+          sx={{
+            flexGrow: 1,
+            minHeight: 0,
+            display: 'flex',
+            alignItems: 'stretch',
+            // The narrow-viewport drawer below is positioned against this row.
+            position: 'relative',
+          }}
+        >
+          {children}
+          {margin !== undefined && (
+            <Box
+              sx={{
+                width: MARGIN_WIDTH,
+                flexShrink: 0,
+                height: '100%',
+                borderLeft: `1.5px solid ${t.line}`,
+                // Below ~1100px the column would eat more of the reading area than
+                // the content can spare, so it lifts out of the flow and overlays
+                // the content as a drawer instead — same component, same toggle.
+                [MARGIN_DRAWER_QUERY]: {
+                  position: 'absolute',
+                  top: 0,
+                  right: 0,
+                  bottom: 0,
+                  zIndex: 4,
+                  width: 'min(340px, 92vw)',
+                  boxShadow: `-6px 0 18px ${t.shadowColor}`,
+                },
+              }}
+            >
+              {margin}
+            </Box>
+          )}
+        </Box>
+      </AnchorRegistryProvider>
     </Box>
   );
 }

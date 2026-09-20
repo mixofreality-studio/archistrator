@@ -296,8 +296,16 @@ export interface AnchoredComment {
   replyTo: string;
 }
 
-/** Server review-ledger comment status: open → addressed (by an agent response) → optionally waived. */
-export type ReviewCommentStatus = 'open' | 'addressed' | 'waived';
+/**
+ * Server review-ledger thread status. Derived, not set directly: a thread is
+ * `answered` iff its LAST utterance is agent-authored and `open` otherwise, so a
+ * queued human reply re-opens it by itself. `resolved` is the one sticky value —
+ * only the reviewer sets it, and it is what the old `waive` verb became.
+ *
+ * The legacy wire values `addressed`/`waived` map onto `answered`/`resolved` in
+ * {@link mapReviewComment}'s normalizer; nothing in the app speaks them.
+ */
+export type ReviewCommentStatus = 'open' | 'answered' | 'resolved';
 
 /**
  * Review-ledger comment type (question-comments, 2026-07-05). A `changeRequest` must be
@@ -340,10 +348,9 @@ export interface ReviewCommentView {
   status: ReviewCommentStatus;
   /**
    * DEPRECATED — superseded by `replies` (a thread's reply utterances). Still present
-   * on the wire for back-compat; never read or write it in new code. (Not tagged
-   * `@deprecated`: that flips on `@typescript-eslint/no-deprecated` project-wide,
-   * which would fail lint in ChatRail.tsx — the sole remaining reader, deleted by a
-   * later task — before this field's last caller is gone.)
+   * on the wire for back-compat; never read or write it in new code. Its last reader
+   * (ChatRail) is gone; the read-compat shim that synthesizes a first reply from it
+   * lives server-side, so nothing in the SPA consults this field any more.
    */
   response?: string;
   /** The reply utterances appended to this thread, oldest first. */

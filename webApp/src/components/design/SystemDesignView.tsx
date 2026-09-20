@@ -6,14 +6,18 @@
  * (`containers/SystemDesignContainer.tsx`) and, later, an MCP host (Task 9) can
  * both compose this same screen against two different data-and-comment substrates.
  *
- * Composition: ExperienceChrome (chrome + optional chat rail + SelectionPopover)
+ * Composition: ExperienceChrome (chrome + optional comment margin + SelectionPopover)
  * → SlimSpine (progress rail) → artifact header → StepBody (the active step's
  * content: research CTA / generating scene / committed panel / draft + gate).
  *
  * ── SPA-only optional surfaces ───────────────────────────────────────────────
- * `chat` is an opaque, pre-built ReactNode (the SPA container wires its own
- * ChatRail against CommentContext + review mutations); omitted, ExperienceChrome
- * renders no chat affordance at all. `commentSurface` carries the minimal bit of
+ * `margin` is an opaque, pre-built ReactNode FACTORY (the SPA container wires its
+ * own CommentMargin against CommentContext + review mutations); omitted,
+ * ExperienceChrome renders no margin affordance at all. It takes the artifact's
+ * scroll container, because that element is owned HERE (it is this screen's
+ * layout) while the margin that measures anchors against it is built by the
+ * container — a plain ReactNode could not carry it across that seam.
+ * `commentSurface` carries the minimal bit of
  * CommentContext state this pure screen itself needs (the local pending-comment
  * count that gates "Send back", and the anchor-arming callback SelectionPopover
  * uses); omitted, both default to "no local comment surface" (SelectionPopover
@@ -22,9 +26,9 @@
  * affordances deep in ArtifactRenderer keep working via context regardless).
  * `onSubmitSelectionComment` is a forward-compat hook for Task 9's MCP
  * comment-submission flow; SelectionPopover only ARMS an anchor today (the actual
- * text composition happens in ChatRail, which lives entirely inside the opaque
- * `chat` slot), so this screen does not yet wire it to anything — Task 9 owns
- * designing the MCP submit path.
+ * text composition happens in the margin's composer, which lives entirely inside
+ * the opaque `margin` slot), so this screen does not yet wire it to anything —
+ * Task 9 owns designing the MCP submit path.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -165,9 +169,10 @@ export interface SystemDesignViewProps {
    */
   allowEmptySendBack?: boolean;
   // ── SPA-only optional surfaces (see file header) ──────────────────────────
-  chat?: ReactNode;
-  chatOpen?: boolean;
-  onOpenChat?: () => void;
+  /** Builds the comment margin for this screen's scroll container. */
+  margin?: ((scrollRoot: HTMLElement | null) => ReactNode) | undefined;
+  marginOpen?: boolean | undefined;
+  onOpenMargin?: (() => void) | undefined;
   commentSurface?: CommentSurfaceProps;
   /** Reserved for Task 9's MCP two-call (arm, then submit) comment flow. */
   onSubmitSelectionComment?: (anchor: Anchor, text: string) => void;
@@ -205,13 +210,17 @@ export function SystemDesignView({
   acknowledgeStalePending,
   acknowledgeStaleError,
   allowEmptySendBack = false,
-  chat,
-  chatOpen,
-  onOpenChat,
+  margin,
+  marginOpen,
+  onOpenMargin,
   commentSurface,
   episodesSlot,
 }: SystemDesignViewProps): ReactNode {
   const t = useTokens();
+  // The artifact's scroll container, held as STATE (not a ref) so the margin
+  // re-renders the moment it exists: every anchor offset is measured against this
+  // element, and a ref mutation would not tell the margin it had arrived.
+  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
 
   const safeIndex = Math.max(0, Math.min(activeIndex, spine.length - 1));
   const activeKind = (spine[safeIndex]?.kind ?? 'mission') as ArtifactKind;
@@ -272,17 +281,19 @@ export function SystemDesignView({
 
   return (
     <ExperienceChrome
-      chat={chat}
-      chatOpen={chatOpen}
       commentSurface={commentSurface}
+      margin={margin?.(scrollRoot)}
+      marginOpen={marginOpen}
       phaseNum={1}
       phaseTitle="System Design"
       projectName={project.name}
       spine={<SlimSpine activeIndex={safeIndex} steps={spine} onSelect={onSelectStep} />}
       onClose={onClose}
-      onOpenChat={onOpenChat}
+      onOpenMargin={onOpenMargin}
     >
       <Box
+        data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
+        ref={setScrollRoot}
         sx={{
           flexGrow: 1,
           minWidth: 0,

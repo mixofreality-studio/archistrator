@@ -111,8 +111,8 @@ export function useSubmitProjectReviewDecision(
 export interface SetProjectReviewCommentStatusVars {
   kind: ProjectArtifactKind;
   commentID: string;
-  /** 'waived' dismisses an open entry; 'open' reopens an addressed one. */
-  status: Extract<ReviewCommentStatus, 'open' | 'waived'>;
+  /** 'resolved' closes a thread (open or answered); 'open' reopens a resolved one. */
+  status: Extract<ReviewCommentStatus, 'open' | 'resolved'>;
 }
 
 /** Waive/reopen a Phase-2 review-ledger entry. The Phase-2 twin of the system-design op. */

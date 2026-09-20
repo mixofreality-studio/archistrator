@@ -181,8 +181,14 @@ export function CommentProvider({
         ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
         ...(opts?.replyTo !== undefined ? { replyTo: opts.replyTo } : {}),
       };
+      // A REPLY never carries an anchor (design §3.7 / Ruling P14): the server
+      // locates the thread by `replyTo`, and reviewBatch.ts routes it on that
+      // field alone. An anchor armed elsewhere on the page must not be silently
+      // consumed by a reply typed in a margin card — so the reply takes the
+      // free-form path and leaves the armed anchor exactly where it was.
+      const isReply = opts?.replyTo !== undefined && opts.replyTo !== '';
       let next: PostedComment[] | null = null;
-      if (armedAnchor === null) {
+      if (armedAnchor === null || isReply) {
         // Free-form feedback: only post when the architect actually typed something.
         if (trimmed.length === 0) return;
         next = [...comments, { text: trimmed, anchor: null, ...meta }];
@@ -275,8 +281,8 @@ export function CommentProvider({
       {/* Invisible test probe: reflects the currently-armed anchor so black-box
           uitests (and headless smokes) can assert that ANY commentable surface —
           diagram edge/node, sequence step, deployment node, use case, or a text
-          selection — armed its anchor, without depending on the ChatRail (which
-          needs a live co-author session). Empty attributes when nothing is armed.
+          selection — armed its anchor, without depending on the comment margin
+          (which needs a live co-author session). Empty attributes when nothing is armed.
           Suppressed entirely on read-only surfaces (enabled === false) so the DOM
           carries no comment-probe span there. */}
       {enabled ? (

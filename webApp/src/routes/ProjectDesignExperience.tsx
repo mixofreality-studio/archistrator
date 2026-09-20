@@ -65,7 +65,7 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ApproveFaultBanner } from '../components/design/SystemDesignView';
-import { ChatRail } from '../components/design/ChatRail';
+import { CommentMargin } from '../components/design/CommentMargin';
 import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
 import { StageChip } from '../components/StageChip';
@@ -203,12 +203,16 @@ function ProjectDesignBody({
     setActiveKey(`${projectId}:${activeKind}`, projectVersion);
   }, [projectId, activeKind, projectVersion, setActiveKey]);
 
-  // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
+  // Comment-margin open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);
-  const chatOpen = closedAt === null || requestId > closedAt;
-  const setChatOpen = (open: boolean): void => {
+  const marginOpen = closedAt === null || requestId > closedAt;
+  const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
+  // The artifact scroll container the margin measures anchor offsets against.
+  // Phase-2 is only RE-POINTED at the margin here (Stage 2 owns its design pass),
+  // but it needs the same wiring or its cards would all read as unplaced.
+  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
 
   const session = useProjectSessionState(projectId, activeKind, true);
   const requestDraft = useRequestProjectArtifactDraft(projectId);
@@ -381,8 +385,8 @@ function ProjectDesignBody({
     );
   };
 
-  const waiveComment = (commentID: string): void => {
-    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  const resolveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'resolved' });
   };
 
   const reopenComment = (commentID: string): void => {
@@ -442,31 +446,36 @@ function ProjectDesignBody({
 
   return (
     <ExperienceChrome
-      chat={
-        chatOpen ? (
-          <ChatRail
+      margin={
+        marginOpen ? (
+          <CommentMargin
             committed={committed}
+            scrollRoot={scrollRoot}
             statusPending={setCommentStatus.isPending}
             thread={reviewThread}
             onCollapse={() => {
-              setChatOpen(false);
+              setMarginOpen(false);
             }}
             onReopen={reopenComment}
-            onWaive={waiveComment}
+            onResolve={resolveComment}
           />
         ) : undefined
       }
-      chatOpen={chatOpen}
+      marginOpen={marginOpen}
       phaseNum={2}
       phaseTitle="Project Design"
       projectName={project?.name}
       spine={<SlimSpine activeIndex={safeIndex} steps={spine} onSelect={selectStep} />}
       onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => {
-        setChatOpen(true);
+      onOpenMargin={() => {
+        setMarginOpen(true);
       }}
     >
-      <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+      <Box
+        data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
+        ref={setScrollRoot}
+        sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}
+      >
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
           <Box sx={{ minWidth: 0 }}>

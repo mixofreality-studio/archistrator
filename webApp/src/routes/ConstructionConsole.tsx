@@ -91,7 +91,7 @@ import {
 } from '../hooks/useConstructionMutations';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
-import { ChatRail } from '../components/design/ChatRail';
+import { CommentMargin } from '../components/design/CommentMargin';
 import { ConstructionShell } from '../components/construction/lens/ConstructionShell';
 import { BeginConfirmDialog } from '../components/construction/lens/BeginConfirmDialog';
 import {
@@ -193,17 +193,21 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const navigate = useNavigate();
   const { reset, toWire, freeformNotes, requestId } = useComments();
 
-  // Co-author rail open-state, driven by (requestId, manual toggles) exactly like
+  // Comment-margin open-state, driven by (requestId, manual toggles) exactly like
   // the Phase-1 design experience — but DEFAULT-CLOSED here (construction is a
-  // supervision console, not a co-authoring flow): the rail stays collapsed until
+  // supervision console, not a co-authoring flow): the margin stays collapsed until
   // the operator arms an anchor (any commentable surface bumps requestId), then it
   // auto-opens so the armed comment has somewhere to go. A manual collapse records
-  // the requestId it happened at; a newer anchor re-opens the rail.
+  // the requestId it happened at; a newer anchor re-opens the margin.
   const [closedAt, setClosedAt] = useState<number | null>(0);
-  const chatOpen = closedAt === null || requestId > closedAt;
-  const setChatOpen = (open: boolean): void => {
+  const marginOpen = closedAt === null || requestId > closedAt;
+  const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
+  // The console's scroll container — the margin measures anchor offsets against it.
+  // Construction carries no server review thread of its own yet, so the margin here
+  // is the composer plus any staged notes; Stage 2 owns this surface's design pass.
+  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
 
   // Live-cascade poll: while the construction pump is draining the network, poll the
   // project read every 1.5s so the tracker animates eligible→in-construction→integrated.
@@ -1116,22 +1120,23 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
 
   return (
     <ExperienceChrome
-      chat={
-        chatOpen ? (
-          <ChatRail
+      margin={
+        marginOpen ? (
+          <CommentMargin
+            scrollRoot={scrollRoot}
             onCollapse={() => {
-              setChatOpen(false);
+              setMarginOpen(false);
             }}
           />
         ) : undefined
       }
-      chatOpen={chatOpen}
+      marginOpen={marginOpen}
       phaseNum={3}
       phaseTitle="Construction"
       projectName={project?.name}
       onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => {
-        setChatOpen(true);
+      onOpenMargin={() => {
+        setMarginOpen(true);
       }}
     >
       <Box
@@ -1143,6 +1148,8 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
             Top padding here left a strip ABOVE the stuck toolbar that rows scrolled
             through (designer P0-2); the page header carries that spacing instead. */}
         <Box
+          data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
+          ref={setScrollRoot}
           sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, pt: 0, pb: 3 }}
         >
           <ConsoleHeader

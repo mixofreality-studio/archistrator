@@ -124,6 +124,10 @@ export const UI_IDENTIFIERS = {
     // (replaces the full-width committed intro banner).
     ARTIFACT_INFO: 'artifact-info',
     ARTIFACT_RENDER: 'artifact-render',
+    // The artifact's scroll container. The comment margin measures every anchor
+    // offset against THIS element, so an acceptance test that drives the page's
+    // scroll must drive this one and not the window.
+    DESIGN_SCROLL: 'design-scroll',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
     DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
@@ -282,6 +286,9 @@ export const UI_IDENTIFIERS = {
     // Graceful FailedPrecondition surface after an approve race.
     GATE_ERROR: 'gate-error',
   },
+  // The comment COMPOSER, which moved out of the deleted ChatRail into the foot
+  // of the margin. The ids keep their `chat-*` spelling so the existing uitests
+  // selectors keep resolving; Task 11 renames them along with its own specs.
   Chat: {
     RAIL: 'chat-rail',
     TOGGLE: 'chat-toggle',
@@ -293,23 +300,21 @@ export const UI_IDENTIFIERS = {
     ADDRESSEE_PM: 'chat-addressee-pm',
     ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
     ASK: 'chat-ask',
-    // Toggle that reveals/collapses the carried-over PENDING · NOT SENT drafts.
-    PENDING_DISCLOSURE: 'chat-pending-disclosure',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
-    // A durable review-ledger thread entry (server), keyed by its ledger id.
-    threadEntry: (id: string) => `thread-entry-${id}`,
-    // Per-entry lifecycle actions: waive an open entry / reopen an addressed one.
-    threadWaive: (id: string) => `thread-waive-${id}`,
-    threadReopen: (id: string) => `thread-reopen-${id}`,
   },
   Margin: {
     ROOT: 'comment-margin',
     UNPLACED: 'comment-margin-unplaced',
     RESOLVED_DISCLOSURE: 'comment-margin-resolved',
+    // The composer card at the foot of the margin (armed-anchor chip + input).
+    COMPOSER: 'comment-margin-composer',
     card: (id: string) => `margin-card-${id}`,
     reply: (id: string) => `margin-reply-${id}`,
     resolve: (id: string) => `margin-resolve-${id}`,
     reopen: (id: string) => `margin-reopen-${id}`,
+    // A STAGED (posted locally, not yet sent) note, keyed by its accumulator index.
+    staged: (n: number) => `margin-staged-${String(n)}`,
+    stagedDiscard: (n: number) => `margin-staged-discard-${String(n)}`,
   },
   // Comment-anchoring affordances that arm a CommentContext anchor from a
   // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React

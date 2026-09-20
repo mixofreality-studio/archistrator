@@ -268,12 +268,12 @@ export function GatePanel({
         </>
       ) : null}
 
-      {/* Open server-thread entries block approve until addressed or waived. */}
+      {/* Open server-thread entries block approve until answered or resolved. */}
       {approveBlocked ? (
         <Box data-testid={UI_IDENTIFIERS.GatePanel.OPEN_BLOCK} sx={{ px: 2.5, pt: 2 }}>
           <Alert severity="warning" sx={{ alignItems: 'flex-start' }}>
-            {openCommentCount} open comment{openCommentCount === 1 ? '' : 's'} must be addressed or
-            waived before approve.
+            {openCommentCount} open comment{openCommentCount === 1 ? '' : 's'} must be answered or
+            resolved before approve.
           </Alert>
         </Box>
       ) : null}

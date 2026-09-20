@@ -36,7 +36,7 @@ import {
 } from '../hooks/useDesignMutations';
 import { useSetResearchInput, useStartSystemDesign } from '../hooks/useStartDesign';
 
-import { ChatRail } from '../components/design/ChatRail';
+import { CommentMargin } from '../components/design/CommentMargin';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
@@ -170,13 +170,13 @@ export function SystemDesignContainer({
     setActiveKey(`${projectId}:${activeKind}`, projectVersion);
   }, [projectId, activeKind, projectVersion, setActiveKey]);
 
-  // The rail auto-opens whenever the architect arms an anchor (requestId bumps).
+  // The margin auto-opens whenever the architect arms an anchor (requestId bumps).
   // We derive open-state from (requestId, manual toggles) rather than an effect:
   // a manual collapse records the requestId it happened at; a newer anchor (a
-  // higher requestId) re-opens the rail.
+  // higher requestId) re-opens the margin.
   const [closedAt, setClosedAt] = useState<number | null>(null);
-  const chatOpen = closedAt === null || requestId > closedAt;
-  const setChatOpen = (open: boolean): void => {
+  const marginOpen = closedAt === null || requestId > closedAt;
+  const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
 
@@ -319,8 +319,8 @@ export function SystemDesignContainer({
     );
   };
 
-  const waiveComment = (commentID: string): void => {
-    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  const resolveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'resolved' });
   };
 
   const reopenComment = (commentID: string): void => {
@@ -374,20 +374,26 @@ export function SystemDesignContainer({
     );
   }
 
-  const chat = chatOpen ? (
-    <ChatRail
-      askPending={askQuestionsMut.isPending}
-      committed={spine[safeIndex]?.committed === true}
-      statusPending={setCommentStatus.isPending}
-      thread={reviewThread}
-      onAsk={askQuestions}
-      onCollapse={() => {
-        setChatOpen(false);
-      }}
-      onReopen={reopenComment}
-      onWaive={waiveComment}
-    />
-  ) : undefined;
+  // The margin is a FACTORY, not a node: the scroll container it measures anchor
+  // offsets against is owned by the pure View (it is that screen's layout), and a
+  // pre-built node could not receive it.
+  const margin = marginOpen
+    ? (scrollRoot: HTMLElement | null): ReactNode => (
+        <CommentMargin
+          askPending={askQuestionsMut.isPending}
+          committed={spine[safeIndex]?.committed === true}
+          scrollRoot={scrollRoot}
+          statusPending={setCommentStatus.isPending}
+          thread={reviewThread}
+          onAsk={askQuestions}
+          onCollapse={() => {
+            setMarginOpen(false);
+          }}
+          onReopen={reopenComment}
+          onResolve={resolveComment}
+        />
+      )
+    : undefined;
 
   return (
     <StructureFindingsProvider findings={designHealth?.findings}>
@@ -399,8 +405,6 @@ export function SystemDesignContainer({
             activeIndex={safeIndex}
             amendPending={requestDraft.isPending}
             beginPending={startDesign.isPending || requestDraft.isPending}
-            chat={chat}
-            chatOpen={chatOpen}
             commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
             decisionPending={submitReview.isPending}
             episodesSlot={
@@ -411,6 +415,8 @@ export function SystemDesignContainer({
               />
             }
             gateError={gateError}
+            margin={margin}
+            marginOpen={marginOpen}
             needsResearch={needsResearch}
             project={project}
             researchPending={setResearch.isPending || startDesign.isPending}
@@ -421,8 +427,8 @@ export function SystemDesignContainer({
             spine={spine}
             onAcknowledgeStale={onAcknowledgeStale}
             onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-            onOpenChat={() => {
-              setChatOpen(true);
+            onOpenMargin={() => {
+              setMarginOpen(true);
             }}
             onRequestDraft={handleRequestDraft}
             onRetry={retryDraft}

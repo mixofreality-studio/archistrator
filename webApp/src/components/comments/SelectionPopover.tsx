@@ -2,7 +2,8 @@
  * Figma / Google-Docs style selection affordance: watches text selection inside
  * any [data-commentable] region and floats a "Comment" button by the selection.
  * Clicking (or keyboard-committing) arms a prose anchor in the CommentContext (a
- * section/quote JSONPath), which the ChatRail then turns into an AnchoredComment.
+ * section/quote JSONPath), which the comment margin's composer then turns into an
+ * AnchoredComment.
  *
  * The commentable host carries `data-commentable` (a human source label) and may
  * carry `data-artifact-kind` (the typed model kind) so the anchor roots into the

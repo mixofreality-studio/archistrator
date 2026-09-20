@@ -100,7 +100,7 @@ export interface CommentCtx {
    * Signal from the composer that it holds unsent draft text (true) or is empty
    * (false). Drives {@link setAnchor}'s re-anchor guard so a half-typed comment
    * cannot be silently retargeted onto a different node by a later arm. The
-   * composer (ChatRail) is expected to call this as its draft text changes; until
+   * composer (the comment margin's) is expected to call this as its draft text changes; until
    * it does, this stays false and arming behaves exactly as before.
    */
   setDraftPending: (pending: boolean) => void;
