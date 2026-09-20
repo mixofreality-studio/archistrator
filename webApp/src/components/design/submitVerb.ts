@@ -49,6 +49,7 @@ export function resolveSubmitVerb(input: {
 }): SubmitVerb {
   const {
     committed,
+    stage,
     stagedChangeRequests: crs,
     stagedQuestions: qs,
     openThreads,
@@ -56,6 +57,14 @@ export function resolveSubmitVerb(input: {
   } = input;
   const staged = crs + qs;
   const consequence = describeConsequence(crs, qs, committed);
+  // RULING P19: STAGE decides whether a live draft is under review, NOT
+  // `committed` — `committed` only ever colours the WORDING (Send back vs.
+  // Amend, redraft vs. amend). A committed slot's AMENDMENT under review
+  // (stage: 'awaitingReview') is exactly `committed: true` — treating
+  // `committed` as an unconditional override ahead of `stage` (the original
+  // defect) made an amendment permanently unapprovable: a reviewer opening
+  // that screen before typing new feedback saw NO primary verb at all.
+  const liveDraft = stage === 'drafted' || stage === 'awaitingReview';
 
   // Questions alone never redraft — that is the whole point of the ask path.
   if (staged > 0 && crs === 0) {
@@ -82,7 +91,10 @@ export function resolveSubmitVerb(input: {
   // (enabled or its disabled/open-threads variant) stays primary either way.
   // Never offered once committed: a committed slot amends, it doesn't send back.
   const secondaryActions: SubmitAction[] = allowEmptySendBack && !committed ? ['sendBack'] : [];
-  if (committed) {
+  // No live draft AND the slot is committed: a truly clean, sealed artifact —
+  // nothing to approve, nothing to send back. An amendment under active review
+  // (`liveDraft` above) is NOT this case even though it too is `committed`.
+  if (!liveDraft && committed) {
     return { action: 'none', label: '', consequence: '', disabled: true, secondaryActions };
   }
   if (openThreads > 0) {

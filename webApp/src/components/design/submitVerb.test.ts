@@ -94,3 +94,50 @@ void test('allowEmptySendBack: false is identical to omitting it, throughout', (
   assert.deepEqual(withFalse, omitted);
   assert.deepEqual(withFalse.secondaryActions, []);
 });
+
+// RULING P19: STAGE decides whether a live draft is under review, NOT
+// `committed` — `committed` only colours the wording. A committed slot's
+// AMENDMENT under review (stage: 'awaitingReview') is exactly `committed: true`
+// — the original code checked `committed` before `stage` and returned 'none'
+// for this state, so a reviewer opening an amendment's review screen (before
+// typing any new feedback — the NORMAL starting state) could never approve it
+// at all. These tests pin the fix: `stage: 'awaitingReview'` (or 'drafted')
+// always gets the live-draft rows, regardless of `committed`; 'none' is
+// reserved for `stage: 'other'` (no live session) on a committed slot.
+
+void test('a committed slot under active review (awaitingReview) with nothing staged still approves — THE REGRESSION CASE', () => {
+  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview' });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.label, 'Approve');
+  assert.equal(v.disabled, false);
+});
+
+void test('a committed slot under active review, open threads block approve exactly like an uncommitted draft', () => {
+  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview', openThreads: 2 });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.disabled, true);
+  assert.equal(v.label, 'Resolve 2 threads to approve');
+});
+
+void test('a committed slot under active review with staged feedback still amends (not send-back)', () => {
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 1,
+  });
+  assert.equal(v.action, 'amend');
+  assert.equal(v.label, 'Amend (1)');
+  assert.equal(v.consequence, '1 change request → amend');
+});
+
+void test('a committed slot with NO live session (stage: other) offers no primary verb even with open threads', () => {
+  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'other', openThreads: 4 });
+  assert.equal(v.action, 'none');
+});
+
+void test('an uncommitted slot with no live session (stage: other) is unaffected — still approves', () => {
+  const v = resolveSubmitVerb({ ...base, committed: false, stage: 'other' });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.disabled, false);
+});
