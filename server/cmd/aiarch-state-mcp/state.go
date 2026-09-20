@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -133,12 +134,15 @@ func (s *Session) putDraftModel(modelJSON []byte) error {
 	return nil
 }
 
-// respondToReviewComment records the drafting agent's per-entry response on an OPEN
-// review-ledger comment for the ambient kind (review-ledger response requirement). The
-// server's normalizeReviewThread stays authoritative on read-back: a non-empty response
-// flips the entry to addressed, an empty one leaves it open. The binary only records the
-// response text + a proposed addressed status; it never invents, reorders, or deletes
-// entries.
+// respondToReviewComment APPENDS the drafting agent's utterance to an OPEN
+// review-ledger comment's reply thread for the ambient kind (review-ledger response
+// requirement). This is a THREAD, not a field: a second call on the same id adds a
+// second reply rather than overwriting the first. The server's normalizeReviewThread
+// stays authoritative on read-back (a thread is answered iff its LAST utterance is
+// agent-authored); this binary only PROPOSES that resulting status. Appending an
+// agent reply also clears a sticky Reopened bit — otherwise a thread the reviewer
+// explicitly reopened could never settle back to answered once the agent replies
+// again. The binary never invents, reorders, or deletes entries or prior replies.
 func (s *Session) respondToReviewComment(id, response string) error {
 	id = strings.TrimSpace(id)
 	if id == "" {
@@ -154,16 +158,26 @@ func (s *Session) respondToReviewComment(id, response string) error {
 	}
 	found := false
 	for i := range slot.ReviewThread {
-		if slot.ReviewThread[i].ID == id {
-			slot.ReviewThread[i].Response = response
-			// Propose addressed when a non-empty response is given; the server reconciles
-			// the effective status authoritatively on read-back.
-			if strings.TrimSpace(response) != "" {
-				slot.ReviewThread[i].Status = projectstate.ReviewCommentAddressed
-			}
-			found = true
-			break
+		if slot.ReviewThread[i].ID != id {
+			continue
 		}
+		if strings.TrimSpace(response) == "" {
+			return fmt.Errorf("respondToReviewComment requires a non-empty response for comment %s", id)
+		}
+		c := &slot.ReviewThread[i]
+		c.Replies = append(c.Replies, projectstate.ReviewCommentReply{
+			ID:         fmt.Sprintf("%s-u%d", c.ID, len(c.Replies)+1),
+			AuthorRole: s.authorRole(),
+			Text:       response,
+			At:         time.Now().UTC().Format(time.RFC3339),
+		})
+		// An agent answer settles an explicit reviewer reopen. The server's
+		// normalizeReviewThread stays authoritative on read-back; this only
+		// proposes.
+		c.Reopened = false
+		c.Status = projectstate.ReviewCommentAnswered
+		found = true
+		break
 	}
 	if !found {
 		return fmt.Errorf("no review comment with id %q on the %s review thread", id, s.Kind.WireName())

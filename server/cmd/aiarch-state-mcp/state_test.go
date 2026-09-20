@@ -71,31 +71,39 @@ func TestPutDraftModel_MethodRuleRejected(t *testing.T) {
 	}
 }
 
-// TestRespondToReviewComment sets a response + addressed status on a matched entry.
+// TestRespondToReviewComment appends an agent utterance and clears a reopen.
 func TestRespondToReviewComment(t *testing.T) {
-	p := minimalProject()
-	p.Volatilities = projectstate.ArtifactSlot{
-		Status: projectstate.ReviewCommitted,
-		Model:  &projectstate.Volatilities{Items: []projectstate.Volatility{{Name: "X", Rationale: "y", Axis: projectstate.AxisSameCustomerOverTime}}},
-		ReviewThread: []projectstate.ReviewComment{
-			{ID: "r1c1", Text: "clarify the axis", Status: projectstate.ReviewCommentOpen},
-		},
-	}
-	s, _ := seedProject(t, p, jobModeDraft, projectstate.KindVolatilities)
+	s := newTestSession(t)
+	seedThread(t, s, projectstate.ReviewComment{ID: "r1c1", Status: projectstate.ReviewCommentOpen, Reopened: true})
 
 	if err := s.respondToReviewComment("r1c1", "Reworded the rationale."); err != nil {
 		t.Fatalf("respond: %v", err)
 	}
-	slot := readBackSlot(t, s, projectstate.KindVolatilities)
-	if slot.ReviewThread[0].Response != "Reworded the rationale." {
-		t.Fatalf("response not recorded: %q", slot.ReviewThread[0].Response)
+
+	got := readThread(t, s)
+	if len(got[0].Replies) != 1 {
+		t.Fatalf("want 1 reply, got %d", len(got[0].Replies))
 	}
-	if slot.ReviewThread[0].Status != projectstate.ReviewCommentAddressed {
-		t.Fatalf("status not moved to addressed: %q", slot.ReviewThread[0].Status)
+	if got[0].Replies[0].Text != "Reworded the rationale." {
+		t.Fatalf("reply text = %q", got[0].Replies[0].Text)
 	}
-	// Unknown id is an error.
+	if got[0].Replies[0].AuthorRole == "" {
+		t.Fatal("reply must carry an author role")
+	}
+	if got[0].Reopened {
+		t.Fatal("an agent reply must clear the sticky Reopened bit")
+	}
+
+	// A second response appends rather than overwriting — this is a thread.
+	if err := s.respondToReviewComment("r1c1", "Also split objective 3."); err != nil {
+		t.Fatalf("second respond: %v", err)
+	}
+	if got := readThread(t, s); len(got[0].Replies) != 2 {
+		t.Fatalf("want 2 replies after a second response, got %d", len(got[0].Replies))
+	}
+
 	if err := s.respondToReviewComment("nope", "x"); err == nil {
-		t.Fatalf("expected error for unknown comment id")
+		t.Fatal("expected an error for an unknown comment id")
 	}
 }
 
