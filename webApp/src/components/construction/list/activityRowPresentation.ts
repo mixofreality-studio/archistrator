@@ -440,6 +440,61 @@ export const PROVENANCE_SLOT_PX = 108;
 export const STATE_SLOT_PX = 100;
 export const ACTIVITY_GRID_GAP_PX = 6;
 
+/**
+ * THE HEADER LABELS SIZE THE FLOAT AND EFFORT SLOTS — and they have to be sized
+ * for the WIDEST way the label draws, not for the way one machine draws it.
+ *
+ * Those two are the only slots narrow enough for their own column header to fill
+ * them, so what separates "FLOAT" from "EFFORT" is whatever the label leaves
+ * INSIDE its slot, plus the grid's ACTIVITY_GRID_GAP_PX. The designer ruled on
+ * that gutter in N5: 7.5px was rejected, the untracked ~8.5px accepted.
+ *
+ * But the slack a label leaves is font metrics, and font metrics are not one
+ * number across platforms. Chrome draws these 9px mono caps with FRACTIONAL
+ * advances on macOS/CoreText — 5.51px per character, "FLOAT" 27.6px — and with
+ * advances ROUNDED UP TO WHOLE PIXELS on Linux/FreeType — 6px per character,
+ * "FLOAT" exactly 30.0px. Sized from the macOS figure, the compact slots were
+ * 30/36px, so on Linux each label filled its slot edge to edge and the gutter
+ * collapsed to the bare 6px grid gap: the very "FLOAT EFFORT ID run together"
+ * that the compact rule exists to prevent, reappearing on the other platform
+ * (CI run 35479140002, uitests N5).
+ *
+ * So the slot is sized from the ROUNDED advance — the widest either platform
+ * draws — plus slack that keeps the gutter at the accepted figure everywhere.
+ */
+const HEADER_LABEL_ADVANCE_PX = 6;
+/** The wide header labels are tracked 0.08em at 9px; the compact ones are not. */
+const HEADER_LABEL_TRACKING_PX = 0.72;
+/** Slack inside the slot. With ACTIVITY_GRID_GAP_PX beside it: 3 + 6 = 9 ≥ 8.5. */
+const HEADER_LABEL_SLACK_PX = 3;
+
+/** The widest a header label of `chars` characters draws — see the note above. */
+export function headerLabelWidthPx(chars: number, tracked: boolean): number {
+  return Math.ceil(chars * (HEADER_LABEL_ADVANCE_PX + (tracked ? HEADER_LABEL_TRACKING_PX : 0)));
+}
+
+/** That label plus the slack that keeps its gutter on any platform. */
+export function headerLabelSlotPx(chars: number, tracked: boolean): number {
+  return headerLabelWidthPx(chars, tracked) + HEADER_LABEL_SLACK_PX;
+}
+
+const FLOAT_LABEL_CHARS = 'float'.length;
+const EFFORT_LABEL_CHARS = 'effort'.length;
+
+/**
+ * BELOW LIST_NARROW_BELOW_PX THE RULING FLIPS, so these two slots give the slack
+ * back. At 500px the id and title were crushed to "C-…" and "B…" (designer final
+ * pass, item 6) and the narrow template already drops two whole columns to keep
+ * them whole; three more pixels per track is three the id does not have — it
+ * overflowed its cell the moment the tracks took them (uitests
+ * construction-integration-pending, 500px). So in the narrow layout the slots are
+ * the labels' own width, the labels keep the grid's 6px gutter and nothing else,
+ * and the id reads in full. The gutter ruling of N5 is a 1600px ruling; this one
+ * is the 500px ruling, and they do not compete.
+ */
+export const LIST_NARROW_FLOAT_SLOT_PX = headerLabelWidthPx(FLOAT_LABEL_CHARS, false);
+export const LIST_NARROW_EFFORT_SLOT_PX = headerLabelWidthPx(EFFORT_LABEL_CHARS, false);
+
 export interface ListSlotWidths {
   float: number;
   effort: number;
@@ -448,11 +503,24 @@ export interface ListSlotWidths {
   progressTrack: number;
 }
 
-/** Fixed slot widths, px. The progress slot is its track plus a 32px numeral and a
- *  4px gap; the provenance and state slots do not vary. */
+/** Fixed slot widths, px. Float and effort are their header label's width at its
+ *  widest plus its gutter (headerLabelSlotPx); the progress slot is its track plus
+ *  a 32px numeral and a 4px gap; the provenance and state slots do not vary. */
 export const LIST_SLOT_WIDTHS: Readonly<Record<'wide' | 'compact', ListSlotWidths>> = {
-  wide: { float: 34, effort: 44, kind: 92, provenance: PROVENANCE_SLOT_PX, progressTrack: 56 },
-  compact: { float: 30, effort: 36, kind: 24, provenance: PROVENANCE_SLOT_PX, progressTrack: 28 },
+  wide: {
+    float: headerLabelSlotPx(FLOAT_LABEL_CHARS, true),
+    effort: headerLabelSlotPx(EFFORT_LABEL_CHARS, true),
+    kind: 92,
+    provenance: PROVENANCE_SLOT_PX,
+    progressTrack: 56,
+  },
+  compact: {
+    float: headerLabelSlotPx(FLOAT_LABEL_CHARS, false),
+    effort: headerLabelSlotPx(EFFORT_LABEL_CHARS, false),
+    kind: 24,
+    provenance: PROVENANCE_SLOT_PX,
+    progressTrack: 28,
+  },
 };
 
 /** The CSS custom properties one width mode sets; the grid below reads them. */

@@ -255,6 +255,9 @@ test('N5: at 1600 with the pane open, header labels keep a gutter and fit their 
 }) => {
   await openList(page, '&a=C-billing-engine');
   await page.setViewportSize({ width: 1600, height: 900 });
+  // Measure the design's typeface, not the one in flight: until the webfont
+  // swaps in, these labels are drawn by the fallback, at the fallback's advances.
+  await page.evaluate(() => document.fonts.ready.then(() => true));
   await page.waitForTimeout(400);
   const cells = await page.evaluate((headerId) => {
     const header = document.querySelector(`[data-testid="${headerId}"]`);
@@ -276,8 +279,22 @@ test('N5: at 1600 with the pane open, header labels keep a gutter and fit their 
   for (const [name, c] of Object.entries(cells)) {
     expect(c.right - c.left, `${name} fits its slot`).toBeLessThanOrEqual(c.box + 0.5);
   }
-  expect(cells.effort.left - cells.float.right, 'float→effort gutter').toBeGreaterThanOrEqual(8);
-  expect(cells.id.left - cells.effort.right, 'effort→id gutter').toBeGreaterThanOrEqual(8);
+  // WHY 8 — it is the designer's figure, not a measurement of this machine's
+  // fonts: on N5 a 7.5px gutter was rejected and the untracked ~8.5px accepted.
+  // It holds on any platform because the slots are sized from the label's WIDEST
+  // rendering (webApp activityRowPresentation.headerLabelSlotPx), not from the
+  // narrower advances macOS happens to draw. A failure here is the layout, and
+  // the message says by how much and against which slot.
+  const span = (c: { left: number; right: number; box: number }): string =>
+    `${String(Math.round((c.right - c.left) * 100) / 100)}px of a ${String(c.box)}px slot`;
+  expect(
+    cells.effort.left - cells.float.right,
+    `float→effort gutter — "float" took ${span(cells.float)}`
+  ).toBeGreaterThanOrEqual(8);
+  expect(
+    cells.id.left - cells.effort.right,
+    `effort→id gutter — "effort" took ${span(cells.effort)}`
+  ).toBeGreaterThanOrEqual(8);
 });
 
 for (const width of [1280, 1366, 1600]) {

@@ -29,6 +29,9 @@ import {
   activityGridColumns,
   listSlotVars,
   LIST_SLOT_WIDTHS,
+  ACTIVITY_GRID_GAP_PX,
+  LIST_NARROW_EFFORT_SLOT_PX,
+  LIST_NARROW_FLOAT_SLOT_PX,
   percentLabel,
   progressPresentationFor,
   retryCounterLabel,
@@ -438,4 +441,48 @@ void test('every tier-1 row and the header share one grid with fixed slots', () 
   );
   assert.equal(listSlotVars('wide')['--list-progress-w'], '92px');
   assert.equal(listSlotVars('compact')['--list-progress-w'], '64px');
+});
+
+void test('the float and effort slots leave their own header label a gutter, on either platform', () => {
+  // "FLOAT" and "EFFORT" fill their slots, so the gutter beside the next label is
+  // the slack left INSIDE the slot plus the grid gap. The designer's figure for
+  // that gutter is ~8.5px (7.5px was rejected — the note on the compact rule in
+  // ActivityTreeView). The widest these 9px mono caps draw is one whole pixel per
+  // character beyond the advance, which is what Chrome/FreeType does on Linux and
+  // Chrome/CoreText does not do on macOS: a slot sized from the narrower of the
+  // two collapsed the gutter to the bare grid gap on CI (uitests N5).
+  const WIDEST_ADVANCE_PX = 6;
+  const TRACKING_PX = 0.72;
+  for (const [mode, tracked] of [
+    ['wide', true],
+    ['compact', false],
+  ] as const) {
+    const slots = LIST_SLOT_WIDTHS[mode];
+    const widest = (chars: number): number =>
+      chars * (WIDEST_ADVANCE_PX + (tracked ? TRACKING_PX : 0));
+    const floatGutter = slots.float - widest('float'.length) + ACTIVITY_GRID_GAP_PX;
+    const effortGutter = slots.effort - widest('effort'.length) + ACTIVITY_GRID_GAP_PX;
+    assert.ok(floatGutter >= 8.5, `${mode}: float→effort gutter is ${String(floatGutter)}px`);
+    assert.ok(effortGutter >= 8.5, `${mode}: effort→id gutter is ${String(effortGutter)}px`);
+    // And the label still fits the slot it sized.
+    assert.ok(slots.float > widest('float'.length) && slots.effort > widest('effort'.length));
+  }
+  // Compact still narrows what it can: the tracks, never below their label.
+  assert.ok(LIST_SLOT_WIDTHS.compact.float < LIST_SLOT_WIDTHS.wide.float);
+  assert.ok(LIST_SLOT_WIDTHS.compact.effort < LIST_SLOT_WIDTHS.wide.effort);
+});
+
+void test('below the narrow breakpoint the slots give that slack to the id, and still fit their labels', () => {
+  // The 500px ruling, not the 1600px one: the narrow layout already drops two
+  // columns so the id reads in full, and three spare pixels per track are three
+  // the id does not have. The labels keep the grid's gutter and nothing more.
+  const WIDEST_ADVANCE_PX = 6;
+  assert.equal(LIST_NARROW_FLOAT_SLOT_PX, 'float'.length * WIDEST_ADVANCE_PX);
+  assert.equal(LIST_NARROW_EFFORT_SLOT_PX, 'effort'.length * WIDEST_ADVANCE_PX);
+  // Narrower than the compact tracks they replace — by exactly the slack.
+  assert.ok(LIST_NARROW_FLOAT_SLOT_PX < LIST_SLOT_WIDTHS.compact.float);
+  assert.ok(LIST_NARROW_EFFORT_SLOT_PX < LIST_SLOT_WIDTHS.compact.effort);
+  // Never below the label itself: a clipped header is not a trade, it is a bug.
+  assert.ok(LIST_NARROW_FLOAT_SLOT_PX >= 'float'.length * WIDEST_ADVANCE_PX);
+  assert.ok(LIST_NARROW_EFFORT_SLOT_PX >= 'effort'.length * WIDEST_ADVANCE_PX);
 });

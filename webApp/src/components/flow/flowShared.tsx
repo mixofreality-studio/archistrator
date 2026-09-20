@@ -30,6 +30,7 @@ import { type Layer, LAYER_LABEL } from './flowLayout';
 import { edgeTypes, nodeTypes } from './flowNodeTypes';
 import { flowInstanceId } from './flowInstanceId.ts';
 import { fitToWidth } from './fitContent.ts';
+import { useMeasuredSizes } from './measuredSizes.ts';
 
 /** The shared layer-colour legend Panel (only the layers actually present). */
 export function LayerLegend({
@@ -264,6 +265,7 @@ function FitToContent({
 }): null {
   const { setViewport, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
   const paneWidth = useStore((s) => s.width);
+  const measured = useMeasuredSizes();
   useEffect(() => {
     let raf = 0;
     let frames = 0;
@@ -300,6 +302,7 @@ function FitToContent({
     };
   }, [
     nodes,
+    measured,
     height,
     paneWidth,
     minHeight,
