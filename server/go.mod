@@ -9,7 +9,7 @@ require (
 	github.com/mixofreality-studio/archistrator-platform/framework-go-http-generator v0.4.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-llm v0.2.0
 	github.com/mixofreality-studio/archistrator-platform/framework-go-projectmodel v0.2.3
-	github.com/mixofreality-studio/archistrator-platform/method-assets v0.7.1
+	github.com/mixofreality-studio/archistrator-platform/method-assets v0.8.0
 	go.opentelemetry.io/contrib/instrumentation/net/http/otelhttp v0.60.0
 	go.temporal.io/api v1.62.12
 	go.temporal.io/sdk v1.44.0
@@ -143,17 +143,8 @@ require (
 	google.golang.org/genproto/googleapis/api v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/genproto/googleapis/rpc v0.0.0-20260401024825-9d38bb4040a9 // indirect
 	google.golang.org/grpc v1.80.0 // indirect
-	google.golang.org/protobuf v1.36.11 // indirect
+	google.golang.org/protobuf v1.36.11
 	gopkg.in/yaml.v3 v3.0.1
 )
 
 tool github.com/alecthomas/go-check-sumtype/cmd/go-check-sumtype
-
-// NOT FOR RELEASE (B1 phase 2): builds against the UNRELEASED method-assets on the
-// local platform branch b1-operator-notes (verified at c9411c13 — 8661f09e, which merges
-// platform main 14bf6743, plus the B1 re-review minors: the construct id regex refuses a
-// dotted segment, and the step-manifest generator's tables gate each other). The seated
-// construct workflow in this repo is that template's rendering, so the two move together.
-// The release replaces this whole block with
-// `require .../method-assets v0.8.0` (see b1-phase2-report.md, RELEASE CHECKLIST).
-replace github.com/mixofreality-studio/archistrator-platform/method-assets => /private/tmp/claude-501/-Users-davidmarne-mixofrealitystudio-archistrator/908b515e-f017-4f7e-931f-e828bbdef72e/scratchpad/plat-wt/method-assets
