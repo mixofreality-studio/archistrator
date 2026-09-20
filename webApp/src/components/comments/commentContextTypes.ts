@@ -45,12 +45,20 @@ export interface PostedComment {
   commentType?: ReviewCommentType;
   /** For a question, the role it is addressed to (pm/architect). */
   addressee?: ReviewCommentAddressee;
+  /**
+   * The durable review-ledger thread this utterance answers. Absent means the
+   * comment opens a NEW thread. A reply stages exactly like a new comment — it
+   * does not dispatch — and rides the next batch verb (design §3.7).
+   */
+  replyTo?: string;
 }
 
 /** Options carried on {@link CommentCtx.post} for a question (vs a plain change-request). */
 export interface PostOptions {
   commentType?: ReviewCommentType;
   addressee?: ReviewCommentAddressee;
+  /** See {@link PostedComment.replyTo}. Threaded through into the staged entry. */
+  replyTo?: string;
 }
 
 /** A pending question grouped for the "Ask" action: its addressee + anchored payload. */

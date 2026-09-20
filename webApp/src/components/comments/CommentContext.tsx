@@ -175,9 +175,10 @@ export function CommentProvider({
   const post = useCallback(
     (text: string, opts?: PostOptions): void => {
       const trimmed = text.trim();
-      const meta: Pick<PostedComment, 'commentType' | 'addressee'> = {
+      const meta: Pick<PostedComment, 'commentType' | 'addressee' | 'replyTo'> = {
         commentType: opts?.commentType ?? 'changeRequest',
         ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
+        ...(opts?.replyTo !== undefined ? { replyTo: opts.replyTo } : {}),
       };
       let next: PostedComment[] | null = null;
       if (armedAnchor === null) {
@@ -231,6 +232,8 @@ export function CommentProvider({
           jsonPath: c.anchor.jsonPath,
           text: c.text,
           anchorText: c.anchor.anchorText ?? c.anchor.label,
+          // Presence-required on the wire: empty ⇒ new thread, non-empty ⇒ reply.
+          replyTo: c.replyTo ?? '',
         });
       }
     }

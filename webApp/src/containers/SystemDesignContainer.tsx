@@ -346,6 +346,8 @@ export function SystemDesignContainer({
           jsonPath: q.jsonPath,
           text: q.text,
           anchorText: q.anchorText,
+          // Questions never reply to an existing thread.
+          replyTo: '',
         })),
       });
     }

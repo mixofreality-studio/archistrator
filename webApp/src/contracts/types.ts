@@ -288,6 +288,12 @@ export interface AnchoredComment {
   jsonPath: string;
   text: string;
   anchorText: string;
+  /**
+   * The durable review-ledger thread this entry answers. REQUIRED on the wire
+   * (presence-only, per the contract-strictness doctrine): empty string means
+   * "open a new thread", a non-empty id means "reply to this existing thread".
+   */
+  replyTo: string;
 }
 
 /** Server review-ledger comment status: open → addressed (by an agent response) → optionally waived. */
@@ -305,10 +311,22 @@ export type ReviewCommentType = 'changeRequest' | 'question';
 export type ReviewCommentAddressee = 'pm' | 'architect' | '';
 
 /**
+ * One reply utterance appended to a durable review-ledger thread — either side,
+ * human or agent. The server derives a thread's status from the LAST utterance:
+ * `answered` iff it is agent-authored, `open` otherwise.
+ */
+export interface ReviewCommentReply {
+  id: string;
+  authorRole: string;
+  text: string;
+  at: string;
+}
+
+/**
  * One durable review-thread entry as the server exposes it on the session view.
  * Distinct from the client-side pending {@link AnchoredComment}: these have been
  * committed to the ledger, carry an author role + round, a lifecycle `status`, and
- * (once the agent redrafts) a `response`.
+ * a `replies` list (the thread body past the root comment).
  */
 export interface ReviewCommentView {
   id: string;
@@ -320,8 +338,18 @@ export interface ReviewCommentView {
   authorRole: string;
   round: number;
   status: ReviewCommentStatus;
-  /** The agent's per-entry response committed on redraft; empty while still open. */
-  response: string;
+  /**
+   * DEPRECATED — superseded by `replies` (a thread's reply utterances). Still present
+   * on the wire for back-compat; never read or write it in new code. (Not tagged
+   * `@deprecated`: that flips on `@typescript-eslint/no-deprecated` project-wide,
+   * which would fail lint in ChatRail.tsx — the sole remaining reader, deleted by a
+   * later task — before this field's last caller is gone.)
+   */
+  response?: string;
+  /** The reply utterances appended to this thread, oldest first. */
+  replies: ReviewCommentReply[];
+  /** True when a thread the server had marked `answered` received a new human reply. */
+  reopened: boolean;
   /** Change-request (default) or a non-blocking question (question-comments). */
   type: ReviewCommentType;
   /** For a question, the role it is addressed to; empty for change-requests. */
