@@ -24,7 +24,10 @@ export interface SubmitVerb {
    * primary button — today only ever `['sendBack']`, and only when
    * `allowEmptySendBack` keeps Send back reachable despite nothing being
    * staged (RULING P18: this must never demote `action` away from `approve`).
-   * Empty whenever nothing extra applies.
+   * Gated on a LIVE DRAFT under review, not on `committed` (RULING P20) — an
+   * amendment under active review needs this exactly as much as an original
+   * draft does. Empty whenever nothing extra applies, including on a
+   * genuinely inert, sealed (`stage: 'other'`) artifact.
    */
   secondaryActions: SubmitAction[];
 }
@@ -40,10 +43,10 @@ export function resolveSubmitVerb(input: {
    * always 0 there) — its own composer collects reject feedback AFTER the
    * click, not before. SPA default (false): behavior is untouched. True
    * (MCP) keeps Send back reachable as a SECONDARY action (see
-   * `secondaryActions`) whenever nothing is staged and the slot isn't
-   * committed — it must NEVER replace `approve` as the primary verb
-   * (RULING P18): a reviewer with nothing staged and nothing blocking always
-   * sees Approve, on every surface.
+   * `secondaryActions`) whenever nothing is staged and a draft is LIVE under
+   * review — an original draft OR an amendment (RULING P20) — it must NEVER
+   * replace `approve` as the primary verb (RULING P18): a reviewer with
+   * nothing staged and nothing blocking always sees Approve, on every surface.
    */
   allowEmptySendBack?: boolean;
 }): SubmitVerb {
@@ -89,8 +92,12 @@ export function resolveSubmitVerb(input: {
   }
   // Nothing staged. `allowEmptySendBack` only ever ADDS a secondary — Approve
   // (enabled or its disabled/open-threads variant) stays primary either way.
-  // Never offered once committed: a committed slot amends, it doesn't send back.
-  const secondaryActions: SubmitAction[] = allowEmptySendBack && !committed ? ['sendBack'] : [];
+  // RULING P20: gated on `liveDraft`, NOT `!committed` — a committed slot's
+  // AMENDMENT under active review (`committed: true, stage: 'awaitingReview'`)
+  // is still a live draft an MCP host needs to be able to send back, exactly
+  // like an uncommitted one. Only a genuinely inert, sealed artifact
+  // (`!liveDraft`, i.e. `stage: 'other'`) offers no secondary at all.
+  const secondaryActions: SubmitAction[] = allowEmptySendBack && liveDraft ? ['sendBack'] : [];
   // No live draft AND the slot is committed: a truly clean, sealed artifact —
   // nothing to approve, nothing to send back. An amendment under active review
   // (`liveDraft` above) is NOT this case even though it too is `committed`.

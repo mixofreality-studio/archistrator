@@ -82,7 +82,7 @@ void test('allowEmptySendBack does not change the staged-change-request path', (
   assert.deepEqual(v.secondaryActions, []);
 });
 
-void test('allowEmptySendBack is never offered on a committed slot (Amend is the only send-forward there)', () => {
+void test('allowEmptySendBack offers no secondary on a SEALED committed slot (stage: other) — superseded in spirit by RULING P20 below, which is about a LIVE amendment, not this inert case', () => {
   const v = resolveSubmitVerb({ ...base, committed: true, stage: 'other', allowEmptySendBack: true });
   assert.equal(v.action, 'none');
   assert.deepEqual(v.secondaryActions, []);
@@ -140,4 +140,40 @@ void test('an uncommitted slot with no live session (stage: other) is unaffected
   const v = resolveSubmitVerb({ ...base, committed: false, stage: 'other' });
   assert.equal(v.action, 'approve');
   assert.equal(v.disabled, false);
+});
+
+// RULING P20: the SECONDARY Send back (allowEmptySendBack) must be gated on
+// `liveDraft`, not `!committed` — the same family of bug as P19, one level
+// up. A committed slot's AMENDMENT under active review is exactly as much a
+// "live draft an MCP host needs to send back" as an original, uncommitted
+// draft is: gating the secondary on `!committed` left MCP with no reject path
+// at all once reviewing an amendment with nothing newly staged (only Approve
+// reachable). Only a genuinely SEALED artifact (`stage: 'other'`) offers none.
+
+void test('a committed slot under active review offers Send back as a SECONDARY too — THE REGRESSION CASE', () => {
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'awaitingReview',
+    allowEmptySendBack: true,
+  });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.disabled, false);
+  assert.deepEqual(v.secondaryActions, ['sendBack']);
+});
+
+void test('a SEALED committed slot (stage: other) still offers no secondary, even with allowEmptySendBack', () => {
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'other',
+    allowEmptySendBack: true,
+  });
+  assert.equal(v.action, 'none');
+  assert.deepEqual(v.secondaryActions, []);
+});
+
+void test('allowEmptySendBack: false offers no secondary on an active amendment either', () => {
+  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview' });
+  assert.deepEqual(v.secondaryActions, []);
 });
