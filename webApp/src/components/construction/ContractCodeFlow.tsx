@@ -65,6 +65,7 @@ import { useComments, contractOpAnchor } from '../comments/CommentContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { flowInstanceId } from '../flow/flowInstanceId.ts';
 import { fitToWidth } from '../flow/fitContent.ts';
+import { useMeasuredSizes } from '../flow/measuredSizes.ts';
 import { prefersReducedMotion } from '../../utilities/reducedMotion';
 import {
   CODE_CANVAS_BORDERS,
@@ -520,8 +521,11 @@ const edgeTypes = { returns: ReturnsEdge };
 /** Frames to wait, at most, for React Flow to measure newly added nodes. */
 const MEASURE_FRAMES = 30;
 
-// Re-frames the canvas whenever `dep` changes (an op expands or collapses) or its
-// width does. Lives as a child of <ReactFlow> so it can use the flow hooks. It
+// Re-frames the canvas whenever `dep` changes (an op expands or collapses), its
+// width does, or the drawing RE-MEASURES at the same content (useMeasuredSizes:
+// a webfont swapping in unwraps the op signatures and the node gets shorter —
+// without that dep the frame kept the taller height and an empty band opened
+// below the node). Lives as a child of <ReactFlow> so it can use the flow hooks. It
 // waits until React Flow has MEASURED every node (a new column is added
 // unmeasured, and bounds taken then are the interface's alone), then sizes the
 // canvas to the drawing (fitContent.fitToWidth) — the zoom by the width, never
@@ -540,6 +544,7 @@ function FrameOnChange({
 }): null {
   const { setViewport, getNodes, getNodesBounds, getInternalNode } = useReactFlow();
   const paneWidth = useStore((s) => s.width);
+  const measured = useMeasuredSizes();
   useEffect(() => {
     let raf = 0;
     let frames = 0;
@@ -578,7 +583,17 @@ function FrameOnChange({
     return (): void => {
       cancelAnimationFrame(raf);
     };
-  }, [dep, height, paneWidth, onHeight, setViewport, getNodes, getNodesBounds, getInternalNode]);
+  }, [
+    dep,
+    measured,
+    height,
+    paneWidth,
+    onHeight,
+    setViewport,
+    getNodes,
+    getNodesBounds,
+    getInternalNode,
+  ]);
   return null;
 }
 

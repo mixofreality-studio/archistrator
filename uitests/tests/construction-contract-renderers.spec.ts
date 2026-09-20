@@ -1388,10 +1388,26 @@ test('S4: before an op is expanded the interface sits at the top of a canvas its
     const [i, f] = [await iface.boundingBox(), await frame.boundingBox()];
     return i !== null && f !== null ? Math.round(i.y - f.y) : -1;
   };
+  // The webfont swaps in after the first paint and the node re-measures, so the
+  // canvas re-fits to it (webApp flowShared.useMeasuredSizes). Read the band once
+  // the drawing has settled — and then assert it, with its numbers.
+  await page.evaluate(() => document.fonts.ready.then(() => true));
   await expect.poll(gap, { message: 'the interface node is top-aligned' }).toBeLessThanOrEqual(20);
   expect(await gap()).toBeGreaterThanOrEqual(0);
+  const band = async (): Promise<number> => {
+    const [bi, bf] = [await iface.boundingBox(), await frame.boundingBox()];
+    return bi !== null && bf !== null ? bf.height - bi.height : -1;
+  };
+  // WHY 40: the canvas is the drawing plus its own chrome — CODE_CANVAS_GUTTER
+  // above and below (14px each) and the frame's two 1.5px borders, 31px in all
+  // (webApp contractCode.ts). Anything beyond that is a band of empty canvas the
+  // node does not fill, which is what "a canvas its own size" rules out.
+  await expect.poll(band, { message: 'no empty band below the node' }).toBeLessThanOrEqual(40);
   const [i, f] = [await iface.boundingBox(), await frame.boundingBox()];
-  expect(i !== null && f !== null && f.height - i.height <= 40, 'no empty band below the node').toBe(true);
+  expect(
+    i !== null && f !== null && f.height - i.height <= 40,
+    `no empty band below the node — node ${String(i?.height)}px in a ${String(f?.height)}px canvas`
+  ).toBe(true);
   // One "Click an op" in the whole focus view.
   await expect(focus.getByText(/Click an op/)).toHaveCount(1);
   const ops = await managerOpCount(page);

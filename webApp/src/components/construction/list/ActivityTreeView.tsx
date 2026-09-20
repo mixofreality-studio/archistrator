@@ -164,6 +164,8 @@ import {
   isCurrentStage,
   LIST_COMPACT_BELOW_PX,
   LIST_NARROW_BELOW_PX,
+  LIST_NARROW_EFFORT_SLOT_PX,
+  LIST_NARROW_FLOAT_SLOT_PX,
   listSlotVars,
   progressPresentationFor,
   retryCounterLabel,
@@ -217,13 +219,15 @@ const LIST_SLOT_SX = {
     ...listSlotVars('compact'),
     '& [data-kind-full]': { display: 'none' },
     '& [data-kind-icon]': { display: 'inline-flex' },
-    // The compact float/effort slots are 30/36px, exactly the width of "FLOAT" and
-    // "EFFORT" at 9px with wide tracking — so "FLOAT EFFORT ID" ran together at
-    // 1600 with the pane open (designer re-check N5). Compact labels set TIGHTER,
-    // which leaves each one a visible gutter inside its own slot — at 9px, never
-    // smaller: 9px is the floor for these labels (designer final items; they read
-    // 8px here for one round). At 9px, even 0.02em of tracking left "FLOAT" 7.5px
-    // from "EFFORT" (measured at 1600); untracked, the gutter is ~8.5px.
+    // Compact labels set TIGHTER, which leaves each one a visible gutter inside
+    // its own slot — at 9px, never smaller: 9px is the floor for these labels
+    // (designer final items; they read 8px here for one round). At 9px, even
+    // 0.02em of tracking left "FLOAT" 7.5px from "EFFORT" (measured at 1600),
+    // which the designer rejected; untracked, the gutter is ~8.5px, accepted.
+    // The slots themselves are now sized FROM these labels at their widest
+    // rendering, not from one platform's — see headerLabelSlotPx in
+    // activityRowPresentation.ts, which is where the 30/36px slots that let them
+    // run together again on Linux were corrected.
     [`& [data-testid="${UI_IDENTIFIERS.Construction.LIST_HEADER}"] .MuiTypography-root`]: {
       fontSize: 9,
       letterSpacing: 0,
@@ -236,6 +240,11 @@ const LIST_SLOT_SX = {
   [`@container ${LIST_CONTAINER} (max-width: ${String(LIST_NARROW_BELOW_PX - 1)}px)`]: {
     '--list-grid': ACTIVITY_GRID_COLUMNS_NARROW,
     '& [data-slot="kind"], & [data-slot="provenance"]': { display: 'none' },
+    // And the float/effort tracks hand back the gutter slack they carry above
+    // this width: here every spare pixel belongs to the id (activityRowPresentation
+    // LIST_NARROW_*_SLOT_PX). The labels keep the grid's own 6px gutter.
+    '--list-float-w': `${String(LIST_NARROW_FLOAT_SLOT_PX)}px`,
+    '--list-effort-w': `${String(LIST_NARROW_EFFORT_SLOT_PX)}px`,
   },
 } as const;
 
