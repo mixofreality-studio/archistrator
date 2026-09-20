@@ -18,9 +18,10 @@
  * cost no AI run.
  *
  * ── Why the placement layer is translated rather than scrolled ──────────────
- * `useAnchorOffsets` returns each anchor's offset within the scroll CONTENT (it
- * subtracts the root's own scrollTop), so the numbers are stable while the reader
- * scrolls. The margin therefore renders one absolutely-positioned layer in those
+ * `useAnchorOffsets` returns each anchor's offset within the scroll CONTENT: it
+ * measures the row's live viewport top against a content origin of
+ * `root.top - root.scrollTop`, which ADDS the root's scrollTop back in. The
+ * numbers are therefore stable while the reader scrolls. The margin therefore renders one absolutely-positioned layer in those
  * same content coordinates and slides the whole layer by `-scrollTop`, which is
  * exactly the transform that maps content space to viewport space. A card is then
  * level with its row by construction, at any scroll position, with no per-card
@@ -72,6 +73,15 @@ export const MARGIN_WIDTH = 320;
  */
 export const MARGIN_DRAWER_QUERY = '@media (max-width: 1100px)';
 
+/**
+ * The empty thread, hoisted to module scope. A `thread = []` default parameter
+ * mints a NEW array every render, which re-identifies `items` and `paths` and so
+ * forces `useAnchorOffsets` to re-measure the DOM on every render — on the
+ * Construction console, which polls every 1.5s and passes no thread at all, that
+ * is a full re-measure per poll forever.
+ */
+const EMPTY_THREAD: readonly ReviewCommentView[] = [];
+
 /** One placeable margin entry: a server thread, or a locally staged note. */
 type MarginItem =
   | { key: string; kind: 'thread'; entry: ReviewCommentView }
@@ -83,7 +93,7 @@ function anchorPathOf(item: MarginItem): string {
 }
 
 export function CommentMargin({
-  thread = [],
+  thread = EMPTY_THREAD,
   scrollRoot,
   statusPending = false,
   askPending = false,
@@ -180,7 +190,17 @@ export function CommentMargin({
         replies.set(replyTo, [...(replies.get(replyTo) ?? []), { index, text: c.text }]);
         return;
       }
-      own.push({ key: `staged-${String(index)}`, kind: 'staged', index, comment: c });
+      // Keyed by the note's own minted id, NOT its position: discarding a note
+      // shifts every later index, and an index-keyed `heights` entry would then
+      // describe a different note for a frame — long enough for a card to paint
+      // at the wrong size and shove its neighbours. `id` is absent only on notes
+      // persisted before it existed, which fall back to the old behaviour.
+      own.push({
+        key: `staged-${c.id ?? String(index)}`,
+        kind: 'staged',
+        index,
+        comment: c,
+      });
     });
     return { stagedReplies: replies, ownCards: own };
   }, [comments]);

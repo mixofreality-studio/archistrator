@@ -53,7 +53,12 @@ import type {
   CommentCtx,
 } from './commentContextTypes';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext';
-import { browserPendingCommentStorage, loadPending, savePending } from './pendingCommentsStore';
+import {
+  browserPendingCommentStorage,
+  loadPending,
+  mintPendingId,
+  savePending,
+} from './pendingCommentsStore';
 import {
   isQuestion,
   toWireEntries,
@@ -176,7 +181,10 @@ export function CommentProvider({
   const post = useCallback(
     (text: string, opts?: PostOptions): void => {
       const trimmed = text.trim();
-      const meta: Pick<PostedComment, 'commentType' | 'addressee' | 'replyTo'> = {
+      const meta: Pick<PostedComment, 'id' | 'commentType' | 'addressee' | 'replyTo'> = {
+        // See PostedComment.id: a stable handle that survives a neighbour being
+        // discarded. Never sent; `toWireEntries` and friends do not read it.
+        id: mintPendingId(),
         commentType: opts?.commentType ?? 'changeRequest',
         ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
         ...(opts?.replyTo !== undefined ? { replyTo: opts.replyTo } : {}),

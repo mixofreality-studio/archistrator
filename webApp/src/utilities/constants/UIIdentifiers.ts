@@ -305,7 +305,6 @@ export const UI_IDENTIFIERS = {
   Margin: {
     ROOT: 'comment-margin',
     UNPLACED: 'comment-margin-unplaced',
-    RESOLVED_DISCLOSURE: 'comment-margin-resolved',
     // The composer card at the foot of the margin (armed-anchor chip + input).
     COMPOSER: 'comment-margin-composer',
     card: (id: string) => `margin-card-${id}`,

@@ -123,3 +123,19 @@ export function browserPendingCommentStorage(): PendingCommentStorage | null {
     return null;
   }
 }
+
+/**
+ * Monotonic within a page lifetime; the timestamp prefix separates it from the
+ * ids a PREVIOUS page lifetime minted, whose notes are still in storage and come
+ * back on load. Two lifetimes could only collide by reloading inside the same
+ * millisecond AND landing on the same sequence number, which is not a failure
+ * worth a uuid dependency here — an id collision costs one frame of wrong card
+ * height, not data.
+ */
+let pendingIdSeq = 0;
+
+/** Mints a stable client-side id for a newly staged pending comment. */
+export function mintPendingId(): string {
+  pendingIdSeq += 1;
+  return `p${String(Date.now())}-${String(pendingIdSeq)}`;
+}

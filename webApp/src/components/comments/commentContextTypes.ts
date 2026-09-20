@@ -34,6 +34,15 @@ export interface Anchor {
  * `comments`, free-form entries become the reject `feedback` notes.
  */
 export interface PostedComment {
+  /**
+   * Stable client-side identity, minted when the note is staged. It never reaches
+   * the wire — it exists so a surface can key a note by something that does not
+   * move when an EARLIER note is discarded (the margin's per-card height cache
+   * would otherwise describe the wrong note for a frame). Optional: entries
+   * persisted before this field existed carry none, and callers fall back to the
+   * index for those.
+   */
+  id?: string;
   text: string;
   anchor: Anchor | null;
   /**
