@@ -54,15 +54,11 @@ import type {
 } from './commentContextTypes';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext';
 import { browserPendingCommentStorage, loadPending, savePending } from './pendingCommentsStore';
+import { isQuestion, toWireEntries, freeformNotesFrom } from './reviewBatch';
 
 // Type definitions imported from commentContextTypes.ts for reusability across
 // the comment system (including the test file, which cannot import .tsx files).
 export type { Anchor, PostedComment, PostOptions, PendingQuestion, CommentCtx };
-
-/** True when a pending entry is a question (absent type ⇒ change-request). */
-function isQuestion(c: PostedComment): boolean {
-  return c.commentType === 'question';
-}
 
 const Ctx = createContext<CommentCtx | null>(null);
 
@@ -221,33 +217,12 @@ export function CommentProvider({
     });
   }, [persist]);
 
-  const toWire = useCallback((): AnchoredComment[] => {
-    const out: AnchoredComment[] = [];
-    for (const c of comments) {
-      // Questions ride the separate "Ask" action, never a Send-back redraft.
-      if (c.anchor !== null && !isQuestion(c)) {
-        // anchorText is the item's rendered-text snapshot; the label already carries
-        // it for every arm surface, so fall back to it when no richer text was set.
-        out.push({
-          jsonPath: c.anchor.jsonPath,
-          text: c.text,
-          anchorText: c.anchor.anchorText ?? c.anchor.label,
-          // Presence-required on the wire: empty ⇒ new thread, non-empty ⇒ reply.
-          replyTo: c.replyTo ?? '',
-        });
-      }
-    }
-    return out;
-  }, [comments]);
+  // toWireEntries/freeformNotesFrom live in reviewBatch.ts (a plain .ts module) so
+  // they're unit-testable under node:test — see that file for the reply-routing
+  // rule (a margin reply arms no anchor; it must land in toWire(), never both).
+  const toWire = useCallback((): AnchoredComment[] => toWireEntries(comments), [comments]);
 
-  const freeformNotes = useCallback(
-    (): string =>
-      comments
-        .filter((c) => c.anchor === null && !isQuestion(c))
-        .map((c) => c.text)
-        .join('\n'),
-    [comments]
-  );
+  const freeformNotes = useCallback((): string => freeformNotesFrom(comments), [comments]);
 
   const pendingQuestions = useCallback(
     (): PendingQuestion[] =>
