@@ -18,7 +18,7 @@
  * "Send back"/"Amend" as both a routed reply and a free-form note.
  */
 import type { AnchoredComment } from '../../contracts/types';
-import type { PostedComment } from './commentContextTypes';
+import type { PendingQuestion, PostedComment } from './commentContextTypes';
 
 /** True when a pending entry is a question (absent type ⇒ change-request). */
 export function isQuestion(c: PostedComment): boolean {
@@ -75,4 +75,25 @@ export function freeformNotesFrom(comments: readonly PostedComment[]): string {
     .filter((c) => c.anchor === null && !isQuestion(c) && !hasReplyTo(c))
     .map((c) => c.text)
     .join('\n');
+}
+
+/**
+ * The QUESTION entries, mapped into the "Ask" payload — the third destination, and
+ * the one `toWireEntries`/`freeformNotesFrom` deliberately exclude.
+ *
+ * `replyTo` rides through: a question thread is the CONVERSATIONAL case, so a
+ * follow-up staged against an answered question is an utterance IN that thread, not
+ * a new ask. It travels on the same `AskQuestions` batch verb as a fresh question
+ * (a reply never dispatches on its own), and the server routes it by `replyTo`. A
+ * fresh question carries `''` — the presence-required wire convention for "open a
+ * new thread".
+ */
+export function pendingQuestionsFrom(comments: readonly PostedComment[]): PendingQuestion[] {
+  return comments.filter(isQuestion).map((c) => ({
+    addressee: c.addressee ?? 'pm',
+    jsonPath: c.anchor?.jsonPath ?? '',
+    text: c.text,
+    anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
+    replyTo: c.replyTo ?? '',
+  }));
 }

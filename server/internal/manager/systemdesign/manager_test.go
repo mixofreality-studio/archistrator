@@ -23,6 +23,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
@@ -4040,12 +4041,15 @@ func TestBulkResolveAnsweredOnApprove(t *testing.T) {
 	}
 }
 
-// THE DOORS THAT CANNOT ROUTE A REPLY MUST REFUSE ONE (design §3.7). Only the review gate
-// has a loaded thread to route a replyTo against. requestArtifactDraft seeds round-0 threads
-// BEFORE the session has loaded any thread, and askQuestions opens a thread by definition —
-// so each could only convert a reply into a fresh unanchored comment, silently detaching it.
-// Both refuse instead, before touching Temporal or the project state (the nil client proves
-// it: falling through would panic).
+// THE DOORS THAT CANNOT ROUTE A REPLY MUST REFUSE ONE (design §3.7). requestArtifactDraft
+// seeds round-0 threads BEFORE the session has loaded any thread, so it could only convert a
+// reply into a fresh unanchored comment, silently detaching it. It refuses instead, before
+// touching Temporal or the project state (the nil client proves it: falling through would
+// panic).
+//
+// askQuestions is NO LONGER one of these doors (comment-margin task 5b): it reads the live
+// thread inside its own OCC loop, so it routes a follow-up into the question thread it names
+// — see TestAskRoutesReplyIntoTheQuestionThread and TestAskRefusesAReplyToNamingNoThread.
 func Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	reply := []AnchoredComment{{Text: "still vague", ReplyTo: "r1c1"}}
@@ -4057,9 +4061,6 @@ func Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt(t *testing.T) {
 		{"requestArtifactDraft", func(m *systemDesignManager) error {
 			_, err := m.RequestArtifactDraft(bgRC(), id, KindMission, &ReviewFeedback{Notes: "rework", Comments: reply})
 			return err
-		}},
-		{"askQuestions", func(m *systemDesignManager) error {
-			return m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseePM, reply)
 		}},
 	}
 	for _, tc := range cases {
@@ -11849,4 +11850,182 @@ func TestOperatorNoteKind_WireOrdinalsMatchTheStore(t *testing.T) {
 			t.Errorf("store kind %d maps to wire kind %d", p.store, p.wire)
 		}
 	}
+}
+
+// ---------------------------------------------------------------------------
+// COMMENT-MARGIN task 5b: a QUESTION thread is the conversational case — the
+// reviewer must be able to follow up on the agent's answer. AskQuestions
+// therefore ROUTES a replyTo into the named thread instead of refusing it; the
+// fresh half still opens question-typed, addressed entries.
+// ---------------------------------------------------------------------------
+
+func TestAskRoutesReplyIntoTheQuestionThread(t *testing.T) {
+	existing := []projectstate.ReviewComment{{
+		ID: "r1c0", Round: 1, Text: "Why only three objectives?",
+		AuthorRole: reviewAuthorRole,
+		Type:       projectstate.ReviewCommentTypeQuestion,
+		Addressee:  projectstate.ReviewAddresseeArchitect,
+		Status:     projectstate.ReviewCommentAnswered,
+		Replies: []projectstate.ReviewCommentReply{
+			{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the abstraction ceiling.", At: "2026-09-19T00:00:00Z"},
+		},
+	}}
+	incoming := []AnchoredComment{
+		{Text: "That does not answer the cost objective", ReplyTo: "r1c0"},
+		{JSONPath: "$.objectives[3]", AnchorText: "obj 4", Text: "And what about objective 4?"},
+	}
+
+	fresh, replies, err := splitIncomingQuestions(existing, projectstate.ReviewAddresseeArchitect, incoming, "2026-09-19T02:00:00Z")
+	if err != nil {
+		t.Fatalf("split: %v", err)
+	}
+	if len(fresh) != 1 || len(replies) != 1 {
+		t.Fatalf("want 1 fresh question + 1 reply, got %d/%d", len(fresh), len(replies))
+	}
+	// The fresh half is still a QUESTION addressed to the role (the ask contract).
+	if fresh[0].Type != projectstate.ReviewCommentTypeQuestion || fresh[0].Addressee != projectstate.ReviewAddresseeArchitect {
+		t.Fatalf("fresh ask must stay question/addressed: %+v", fresh[0])
+	}
+	// The reply's role must be the SAME one the change-request path stamps, and it must
+	// NOT be an agent role — otherwise the derive rule reads the thread as self-answered.
+	if replies[0].AuthorRole != reviewerUtteranceRole {
+		t.Fatalf("reply author = %q, want %q", replies[0].AuthorRole, reviewerUtteranceRole)
+	}
+
+	got, err := projectstate.ApplyReviewBatch(existing, 2, fresh, replies)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("a reply must NOT open a thread; want 2 entries, got %d", len(got))
+	}
+	if len(got[0].Replies) != 2 || got[0].Replies[1].Text != "That does not answer the cost objective" {
+		t.Fatalf("the reply must append to r1c0: %+v", got[0].Replies)
+	}
+	// THE ANSWER-JOB HAND-OFF: the reviewer got the last word, so the derive rule flips the
+	// question thread back to OPEN — and it keeps its question type + addressee, which is
+	// exactly the predicate the answer job's /design-answer command selects on.
+	if got[0].Status != projectstate.ReviewCommentOpen {
+		t.Fatalf("a reviewer reply must re-open the question thread, got %q", got[0].Status)
+	}
+	if got[0].Type != projectstate.ReviewCommentTypeQuestion || got[0].Addressee != projectstate.ReviewAddresseeArchitect {
+		t.Fatalf("the reopened thread must stay an addressed question: %+v", got[0])
+	}
+}
+
+// A replyTo naming no thread on this artifact is a hard ContractMisuse on the ask door too
+// — never a silently re-filed new question.
+func TestAskRefusesAReplyToNamingNoThread(t *testing.T) {
+	_, _, err := splitIncomingQuestions(nil, projectstate.ReviewAddresseePM,
+		[]AnchoredComment{{Text: "follow up", ReplyTo: "ghost"}}, "2026-09-19T02:00:00Z")
+	if err == nil {
+		t.Fatal("expected a refusal for a replyTo naming no thread")
+	}
+	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got kind %d (%v)", got, err)
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("the refusal must name the offending id, got %q", err.Error())
+	}
+}
+
+// A REPLY-ONLY ask batch (no fresh questions) is a legitimate batch — it must not be
+// mistaken for "no questions to ask", and its idempotency key must differ per reply so two
+// distinct follow-ups do not collapse into one in the RA dedup ledger.
+func TestAskIdempotencyKeyCoversRepliesOnly(t *testing.T) {
+	a := []projectstate.ReviewReply{{CommentID: "r1c0", AuthorRole: reviewerUtteranceRole, Text: "still unclear"}}
+	b := []projectstate.ReviewReply{{CommentID: "r1c0", AuthorRole: reviewerUtteranceRole, Text: "one more thing"}}
+	ka := askQuestionsIdempotencyKey("p", KindMission, "", nil, a)
+	kb := askQuestionsIdempotencyKey("p", KindMission, "", nil, b)
+	if ka == kb {
+		t.Fatalf("two distinct reply-only batches must not share an idempotency key (%s)", ka)
+	}
+	if ka != askQuestionsIdempotencyKey("p", KindMission, "", nil, a) {
+		t.Fatal("the key must be content-stable so a re-ask dedups")
+	}
+}
+
+// The OP, end to end over its RA seam (comment-margin task 5b). The helper tests above pin
+// the split; this one proves the WIRING: AskQuestions must hand the reviewer's utterance to
+// SeedReviewCommentsOnBranch as a REPLY (the arg that was hardcoded nil before this task),
+// and must refuse a replyTo the live thread does not know — without seeding anything.
+func TestAskQuestionsOpRoutesRepliesThroughTheSeedVerb(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(id), Version: 7}
+	proj.Mission = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model:  &projectstate.MissionStatement{},
+		ReviewThread: []projectstate.ReviewComment{{
+			ID: "r1c0", Round: 1, Text: "Why only three objectives?",
+			AuthorRole: reviewAuthorRole,
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+			Status:     projectstate.ReviewCommentAnswered,
+			Replies: []projectstate.ReviewCommentReply{
+				{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the ceiling.", At: "2026-09-19T00:00:00Z"},
+			},
+		}},
+	}
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatalf("encode seed project: %v", err)
+	}
+
+	newManager := func(seed func(comments []projectstate.ReviewComment, replies []projectstate.ReviewReply)) *systemDesignManager {
+		// No co-author workflow exists → GetSessionState reports NotFound → the ledger lives
+		// on main (""), which is the committed-artifact ask path.
+		mc := &temporalmocks.Client{}
+		mc.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, "").
+			Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found"))
+		ds := &projectstatefake.FakeDesignSessionAccess{
+			ReadProjectOnBranchFn: func(fwra.Context, projectstate.ProjectID, string) (projectstate.ProjectEnvelope, error) {
+				return env, nil
+			},
+			SeedReviewCommentsOnBranchFn: func(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+				seed(comments, replies)
+				return 8, nil
+			},
+		}
+		// pipeline/repo left nil: the answer-job dispatch is best-effort and logs a miss.
+		return &systemDesignManager{client: mc, designSession: ds}
+	}
+
+	t.Run("a follow-up rides the seed verb as a reply, not a new question", func(t *testing.T) {
+		var gotComments []projectstate.ReviewComment
+		var gotReplies []projectstate.ReviewReply
+		m := newManager(func(c []projectstate.ReviewComment, r []projectstate.ReviewReply) {
+			gotComments, gotReplies = c, r
+		})
+		err := m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseeArchitect,
+			[]AnchoredComment{{Text: "That does not answer the cost objective", ReplyTo: "r1c0"}})
+		if err != nil {
+			t.Fatalf("a reply-only ask must be accepted, got: %v", err)
+		}
+		if len(gotComments) != 0 {
+			t.Fatalf("a follow-up must NOT seed a new question entry, got %+v", gotComments)
+		}
+		if len(gotReplies) != 1 || gotReplies[0].CommentID != "r1c0" || gotReplies[0].AuthorRole != reviewerUtteranceRole {
+			t.Fatalf("the utterance must reach the seed verb as a reply on r1c0: %+v", gotReplies)
+		}
+		if gotReplies[0].At == "" {
+			t.Fatal("a reply utterance must be timestamped (the RA's retry-idempotency key)")
+		}
+	})
+
+	t.Run("a replyTo naming no thread is refused and seeds nothing", func(t *testing.T) {
+		seeded := false
+		m := newManager(func([]projectstate.ReviewComment, []projectstate.ReviewReply) { seeded = true })
+		err := m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseeArchitect,
+			[]AnchoredComment{{Text: "follow up", ReplyTo: "ghost"}})
+		if err == nil {
+			t.Fatal("a replyTo naming no thread must be refused")
+		}
+		if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+			t.Fatalf("want ContractMisuse, got kind %d (%v)", got, err)
+		}
+		if seeded {
+			t.Fatal("a refused ask must not write to the ledger")
+		}
+	})
 }

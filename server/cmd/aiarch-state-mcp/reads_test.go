@@ -118,3 +118,63 @@ func TestGetCritique(t *testing.T) {
 		t.Fatalf("getCritique(approve) = %q, %v", got2, err)
 	}
 }
+
+// COMMENT-MARGIN task 5b — THE ANSWER JOB REACHES A REOPENED QUESTION THREAD.
+// Routing a reviewer reply into a question thread is only half the path: the answer job
+// must then answer it. The job's /design-answer command selects "the OPEN questions
+// addressed to you" from getReviewThread and answers each with respondToReviewComment.
+// This drives that exact pair against a thread whose LAST utterance is the reviewer's
+// (the shape ApplyReviewBatch leaves behind after a routed reply — status derived back to
+// open, type/addressee intact): the answer session must SEE it, and must be able to answer
+// it by id with no status gate in the way.
+func TestAnswerJobSeesAndAnswersAReopenedQuestionThread(t *testing.T) {
+	p := minimalProject()
+	p.Mission = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewAwaitingReview,
+		Model:  &projectstate.MissionStatement{},
+		ReviewThread: []projectstate.ReviewComment{{
+			ID: "r1c0", Round: 1, Text: "Why only three objectives?",
+			AuthorRole: "architect",
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			Addressee:  projectstate.ReviewAddresseeArchitect,
+			// The derived status after a routed reviewer reply: OPEN again.
+			Status: projectstate.ReviewCommentOpen,
+			Replies: []projectstate.ReviewCommentReply{
+				{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the abstraction ceiling.", At: "2026-09-19T00:00:00Z"},
+				{ID: "r1c0-u2", AuthorRole: "architect-user", Text: "That does not answer the cost objective", At: "2026-09-19T02:00:00Z"},
+			},
+		}},
+	}
+	s, _ := seedProject(t, p, jobModeAnswer, projectstate.KindMission)
+
+	// STEP 1 of /design-answer: collect the OPEN questions addressed to you.
+	thread, err := s.getReviewThread()
+	if err != nil {
+		t.Fatalf("getReviewThread: %v", err)
+	}
+	for _, want := range []string{"r1c0", projectstate.ReviewCommentOpen, projectstate.ReviewCommentTypeQuestion, projectstate.ReviewAddresseeArchitect} {
+		if !strings.Contains(thread, want) {
+			t.Fatalf("the answer job must see the reopened question as %q; thread was:\n%s", want, thread)
+		}
+	}
+	// The reviewer's follow-up is the context the answer must address.
+	if !strings.Contains(thread, "does not answer the cost objective") {
+		t.Fatalf("the reviewer's follow-up utterance must be visible to the answer job:\n%s", thread)
+	}
+
+	// STEP 3 of /design-answer: answer it in place, by id.
+	if err := s.respondToReviewComment("r1c0", "Cost is covered by objective 2."); err != nil {
+		t.Fatalf("respondToReviewComment on a reopened question: %v", err)
+	}
+	slot := readBackSlot(t, s, projectstate.KindMission)
+	if len(slot.ReviewThread) != 1 {
+		t.Fatalf("answering must not open a thread, got %d entries", len(slot.ReviewThread))
+	}
+	entry := slot.ReviewThread[0]
+	if len(entry.Replies) != 3 || entry.Replies[2].AuthorRole != "architect" {
+		t.Fatalf("the agent answer must append a third, AGENT-authored utterance: %+v", entry.Replies)
+	}
+	if entry.Status != projectstate.ReviewCommentAnswered {
+		t.Fatalf("an answered question settles back to answered, got %q", entry.Status)
+	}
+}

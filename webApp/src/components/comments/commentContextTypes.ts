@@ -67,6 +67,14 @@ export interface PendingQuestion {
   jsonPath: string;
   text: string;
   anchorText: string;
+  /**
+   * The question thread this ask ANSWERS, or `''` to open a new one — the same
+   * presence-required wire convention as {@link AnchoredComment.replyTo}. A question
+   * thread is the conversational case, so a follow-up staged against an answered
+   * question must reach `AskQuestions` carrying its thread id; without this field the
+   * mapper had nowhere to put it and the follow-up dispatched as a NEW thread.
+   */
+  replyTo: string;
 }
 
 export interface CommentCtx {

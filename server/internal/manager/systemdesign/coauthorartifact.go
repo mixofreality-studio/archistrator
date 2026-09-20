@@ -3271,6 +3271,32 @@ func splitIncomingComments(thread []projectstate.ReviewComment, incoming []Ancho
 	if err := checkReplyTargets(ledgerCommentIDs(thread), incoming); err != nil {
 		return nil, nil, err
 	}
+	fresh, replies := partitionIncomingComments(incoming, at)
+	return anchoredToLedgerComments(fresh), replies, nil
+}
+
+// splitIncomingQuestions is splitIncomingComments' ASK-door twin: the same split, the same
+// refusal, but the fresh half opens QUESTION-typed entries addressed to a role rather than
+// change-requests (questionsToLedger). It exists because a question thread is the
+// conversational case — "with questions, the ai will respond like a comment response" — so a
+// follow-up filed against an answered question must land INSIDE that thread. The reviewer
+// utterance is stamped with the same reviewerUtteranceRole the change-request path uses, so
+// the RA's derive rule reads it as human and re-opens the thread for the answer job.
+func splitIncomingQuestions(thread []projectstate.ReviewComment, addressee string, incoming []AnchoredComment, at string) ([]projectstate.ReviewComment, []projectstate.ReviewReply, error) {
+	if err := checkReplyTargets(ledgerCommentIDs(thread), incoming); err != nil {
+		return nil, nil, err
+	}
+	fresh, replies := partitionIncomingComments(incoming, at)
+	return questionsToLedger(addressee, fresh), replies, nil
+}
+
+// partitionIncomingComments is the thread-INDEPENDENT half of the split: it sorts one batch
+// into the entries that open a thread (no replyTo) and the utterances that answer one, with
+// no knowledge of which threads exist. Kept separate so a caller that must know the shape of
+// a batch BEFORE it reads the ledger (AskQuestions derives its idempotency key and its
+// emptiness refusal up front) partitions once and runs checkReplyTargets against the thread
+// it later reads — without duplicating the reply-stamping rule.
+func partitionIncomingComments(incoming []AnchoredComment, at string) ([]AnchoredComment, []projectstate.ReviewReply) {
 	var fresh []AnchoredComment
 	var replies []projectstate.ReviewReply
 	for _, c := range incoming {
@@ -3288,7 +3314,7 @@ func splitIncomingComments(thread []projectstate.ReviewComment, incoming []Ancho
 			At:         at,
 		})
 	}
-	return anchoredToLedgerComments(fresh), replies, nil
+	return fresh, replies
 }
 
 // checkReplyTargets refuses a batch whose replyTo names no thread on this artifact. Split

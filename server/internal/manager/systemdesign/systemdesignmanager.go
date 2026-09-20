@@ -1866,14 +1866,20 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	default:
 		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
 	}
-	// A question OPENS a thread by definition — questionsToLedger mints a fresh round of
-	// entries and the answer job answers them by those ids. A replyTo has no meaning here and
-	// would be silently dropped, so refuse it (design §3.7).
-	if perr := checkNoReplyTo("replyTo is not supported on askQuestions — a question opens its own thread; reply to an existing thread at the review gate instead", questions); perr != nil {
-		return perr
-	}
-	qs := questionsToLedger(addressee, questions)
-	if len(qs) == 0 {
+	// A QUESTION THREAD IS A CONVERSATION (comment-margin task 5b). An ask carrying a
+	// replyTo is a FOLLOW-UP on a thread the agent already answered, not a new question — so
+	// this door ROUTES it into that thread instead of refusing it. (requestArtifactDraft
+	// still refuses one: it seeds round-0 threads before any thread is loaded, so it could
+	// only re-file a reply as a fresh unanchored comment.) The batch is partitioned ONCE
+	// here, before the ledger read, because both the emptiness refusal and the idempotency
+	// key must see the whole batch; the replyTo targets are checked against the live thread
+	// inside the loop. `at` is stamped once, outside the loop, so an OCC retry re-applies the
+	// identical utterance rather than duplicating it.
+	at := time.Now().UTC().Format(time.RFC3339)
+	freshAsks, replies := partitionIncomingComments(questions, at)
+	qs := questionsToLedger(addressee, freshAsks)
+	// A REPLY-ONLY batch is a legitimate ask — the follow-up IS the question this round.
+	if len(qs) == 0 && len(replies) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
@@ -1882,7 +1888,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	branch := m.resolveQuestionBranch(rc, projectID, kind)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
-	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs, replies)
 
 	// Sync-path optimistic-concurrency loop (mirrors SetResearchInput): read the head
 	// version on the resolved branch, compute a fresh question round from the live thread
@@ -1894,6 +1900,12 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			return mapReadProjectError(err)
 		}
 		thread := slotFor(proj, kind).ReviewThread
+		// A replyTo naming no thread on this artifact is a hard refusal, never a silent new
+		// thread — the same rule the change-request door applies, run here against the thread
+		// just read (the RA would surface a bare NotFound from deep inside the append).
+		if perr := checkReplyTargets(ledgerCommentIDs(thread), questions); perr != nil {
+			return perr
+		}
 		round := nextQuestionRound(thread)
 		if r, ok := existingQuestionRound(thread, qs); ok {
 			// A prior ask already seeded these exact questions (its answer-job dispatch may
@@ -1901,7 +1913,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, nil, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, replies, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -2016,7 +2028,13 @@ func nextQuestionRound(thread []projectstate.ReviewComment) int64 {
 // on this artifact/branch". Content-derived (no Temporal context on this sync op), so a
 // retried identical Ask collapses to a no-op in the RA dedup ledger while a genuinely new
 // batch is a distinct mutation.
-func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+//
+// The REPLY half of the batch is hashed too (task 5b): a follow-up on an existing question
+// thread adds no fresh entry, so a qs-only key would give two different follow-ups — or a
+// follow-up and a bare re-ask — the SAME key, and the RA would swallow the second as a
+// duplicate. The utterance's `at` is deliberately excluded: it is wall-clock on this sync op,
+// and including it would defeat the re-ask dedup the key exists for.
+func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment, replies []projectstate.ReviewReply) fwra.IdempotencyKey {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(branch))
 	_, _ = h.Write([]byte{0})
@@ -2026,6 +2044,12 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 		_, _ = h.Write([]byte(q.Anchor))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(q.Text))
+		_, _ = h.Write([]byte{0})
+	}
+	for _, r := range replies {
+		_, _ = h.Write([]byte(r.CommentID))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(r.Text))
 		_, _ = h.Write([]byte{0})
 	}
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
@@ -2039,9 +2063,11 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 var answerJobDispatchSeq atomic.Uint64
 
 // answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the content
-// base plus a monotonic nonce (see answerJobDispatchSeq).
+// base plus a monotonic nonce (see answerJobDispatchSeq). The reply half is not folded into
+// the base: the nonce ALREADY makes every dispatch key distinct, which is this key's whole
+// purpose, so a reply-only ask still fires its own answer job.
 func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
-	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs, nil)
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
 }
 

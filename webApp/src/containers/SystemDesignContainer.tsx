@@ -346,8 +346,11 @@ export function SystemDesignContainer({
           jsonPath: q.jsonPath,
           text: q.text,
           anchorText: q.anchorText,
-          // Questions never reply to an existing thread.
-          replyTo: '',
+          // A question thread IS a conversation: a follow-up staged against an answered
+          // question carries that thread's id, and the server appends it as an utterance
+          // there (re-opening it for the answer job) instead of seeding a new thread.
+          // A fresh question carries '' — open a new thread.
+          replyTo: q.replyTo,
         })),
       });
     }

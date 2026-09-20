@@ -1,7 +1,12 @@
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { toWireEntries, freeformNotesFrom, isQuestion } from './reviewBatch.ts';
+import {
+  toWireEntries,
+  freeformNotesFrom,
+  isQuestion,
+  pendingQuestionsFrom,
+} from './reviewBatch.ts';
 import type { PostedComment } from './commentContextTypes.ts';
 
 const ANCHOR = {
@@ -63,4 +68,53 @@ void test('a question is excluded from both toWire() and freeformNotes() (unchan
   assert.equal(toWireEntries([question]).length, 0);
   assert.equal(freeformNotesFrom([question]), '');
   assert.equal(isQuestion(question), true);
+});
+
+// ── pendingQuestionsFrom: the "Ask" payload (comment-margin task 5b) ────────
+// A question thread is the conversational case, so a follow-up staged against an
+// answered question must reach AskQuestions carrying the thread it answers. Before
+// this task the question mapper had nowhere to put `replyTo` and the container
+// hardcoded '' — so a follow-up dispatched as a brand-new thread.
+
+void test('a follow-up staged on a question thread carries replyTo into the Ask payload', () => {
+  const followUp: PostedComment = {
+    text: 'That does not answer the cost objective',
+    anchor: null,
+    commentType: 'question',
+    addressee: 'architect',
+    replyTo: 'r1c0',
+  };
+  assert.deepEqual(pendingQuestionsFrom([followUp]), [
+    {
+      addressee: 'architect',
+      jsonPath: '',
+      anchorText: '',
+      text: 'That does not answer the cost objective',
+      replyTo: 'r1c0',
+    },
+  ]);
+});
+
+void test('a fresh anchored question still asks with an empty replyTo (a new thread)', () => {
+  const question: PostedComment = {
+    text: 'Which region?',
+    anchor: ANCHOR,
+    commentType: 'question',
+    addressee: 'pm',
+  };
+  assert.deepEqual(pendingQuestionsFrom([question]), [
+    {
+      addressee: 'pm',
+      jsonPath: ANCHOR.jsonPath,
+      anchorText: ANCHOR.label,
+      text: 'Which region?',
+      replyTo: '',
+    },
+  ]);
+});
+
+void test('change-requests never ride the Ask payload, replies included', () => {
+  const changeRequestReply: PostedComment = { text: 'still vague', anchor: null, replyTo: 'r1c1' };
+  const note: PostedComment = { text: 'a plain note', anchor: null };
+  assert.equal(pendingQuestionsFrom([changeRequestReply, note]).length, 0);
 });

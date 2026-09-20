@@ -54,7 +54,12 @@ import type {
 } from './commentContextTypes';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext';
 import { browserPendingCommentStorage, loadPending, savePending } from './pendingCommentsStore';
-import { isQuestion, toWireEntries, freeformNotesFrom } from './reviewBatch';
+import {
+  isQuestion,
+  toWireEntries,
+  freeformNotesFrom,
+  pendingQuestionsFrom,
+} from './reviewBatch';
 
 // Type definitions imported from commentContextTypes.ts for reusability across
 // the comment system (including the test file, which cannot import .tsx files).
@@ -217,21 +222,16 @@ export function CommentProvider({
     });
   }, [persist]);
 
-  // toWireEntries/freeformNotesFrom live in reviewBatch.ts (a plain .ts module) so
-  // they're unit-testable under node:test — see that file for the reply-routing
-  // rule (a margin reply arms no anchor; it must land in toWire(), never both).
+  // toWireEntries/freeformNotesFrom/pendingQuestionsFrom live in reviewBatch.ts (a
+  // plain .ts module) so they're unit-testable under node:test — see that file for
+  // the reply-routing rule (a margin reply arms no anchor; it must land in exactly
+  // one destination, and a reply on a QUESTION thread rides the Ask payload).
   const toWire = useCallback((): AnchoredComment[] => toWireEntries(comments), [comments]);
 
   const freeformNotes = useCallback((): string => freeformNotesFrom(comments), [comments]);
 
   const pendingQuestions = useCallback(
-    (): PendingQuestion[] =>
-      comments.filter(isQuestion).map((c) => ({
-        addressee: c.addressee ?? 'pm',
-        jsonPath: c.anchor?.jsonPath ?? '',
-        text: c.text,
-        anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
-      })),
+    (): PendingQuestion[] => pendingQuestionsFrom(comments),
     [comments]
   );
 
