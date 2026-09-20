@@ -302,6 +302,15 @@ export const UI_IDENTIFIERS = {
     threadWaive: (id: string) => `thread-waive-${id}`,
     threadReopen: (id: string) => `thread-reopen-${id}`,
   },
+  Margin: {
+    ROOT: 'comment-margin',
+    UNPLACED: 'comment-margin-unplaced',
+    RESOLVED_DISCLOSURE: 'comment-margin-resolved',
+    card: (id: string) => `margin-card-${id}`,
+    reply: (id: string) => `margin-reply-${id}`,
+    resolve: (id: string) => `margin-resolve-${id}`,
+    reopen: (id: string) => `margin-reopen-${id}`,
+  },
   // Comment-anchoring affordances that arm a CommentContext anchor from a
   // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React
   // Flow's `selected` state is inert in these controlled graphs), so the two

@@ -36,8 +36,129 @@ import IconButton from '@mui/material/IconButton';
 import Tooltip from '@mui/material/Tooltip';
 import ChatBubbleOutlineIcon from '@mui/icons-material/ChatBubbleOutline';
 import { useComments, type Anchor } from './CommentContext';
+import { useRegisterAnchor } from './AnchorRegistry';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
+
+/**
+ * One row of a {@link CommentableList}. Extracted from the parent's `.map()` body
+ * because it calls {@link useRegisterAnchor} — a hook, which React forbids inside a
+ * loop callback. Owns none of the list's state; everything it needs (focus index,
+ * armed/hover chrome, handlers) is threaded down as props so the row is a pure
+ * function of them plus its own anchor registration.
+ */
+function CommentableRow({
+  rowAnchor,
+  testId,
+  commentTestId,
+  commentLabel,
+  isFocused,
+  isArmed,
+  revealed,
+  setRowRef,
+  onRowClick,
+  onRowFocus,
+  onRowKeyDown,
+  onArm,
+  children,
+}: {
+  rowAnchor: Anchor;
+  testId: string;
+  commentTestId: string;
+  commentLabel: string;
+  isFocused: boolean;
+  isArmed: boolean;
+  revealed: boolean;
+  /** The list's roving-tabindex ref slot for this row (rowRefs.current[index]). */
+  setRowRef: (el: HTMLDivElement | null) => void;
+  onRowClick: (e: React.MouseEvent) => void;
+  onRowFocus: () => void;
+  onRowKeyDown: (e: React.KeyboardEvent) => void;
+  onArm: () => void;
+  children: ReactNode;
+}): ReactNode {
+  const t = useTokens();
+  // Enrols this row's DOM element under its anchor's jsonPath so the margin can
+  // measure its offset and scroll to it — composed below with `setRowRef` so BOTH
+  // the roving-tabindex ref array and the anchor registry stay populated.
+  const registerAnchor = useRegisterAnchor(rowAnchor.jsonPath);
+
+  return (
+    <Box
+      aria-keyshortcuts="Enter c"
+      aria-label={rowAnchor.label}
+      data-testid={testId}
+      ref={(el: HTMLDivElement | null) => {
+        setRowRef(el);
+        registerAnchor(el);
+      }}
+      role="listitem"
+      sx={{
+        display: 'flex',
+        alignItems: 'flex-start',
+        gap: 1,
+        px: 1,
+        py: 0.75,
+        borderRadius: 1,
+        cursor: 'default',
+        // Comment button: hidden at rest (opacity 0 — but kept in layout, in the
+        // tab order and in the a11y tree; NO display:none / visibility:hidden),
+        // revealed at FULL contrast on row hover or keyboard focus-within. Kept
+        // persistently visible (revealed) when the row is the armed anchor or
+        // already carries a pending comment.
+        '& .commentable-row-action': {
+          opacity: revealed ? 1 : 0,
+          transition: 'opacity 120ms',
+        },
+        '&:hover .commentable-row-action, &:focus-within .commentable-row-action': {
+          opacity: 1,
+        },
+        // Touch / no-hover pointers can't reveal-on-hover — always show it there.
+        '@media (hover: none)': {
+          '& .commentable-row-action': { opacity: 1 },
+        },
+        '&:hover': { bgcolor: t.paperAlt },
+        // Focused-row border driven by DOM :focus (so a POINTER click shows it
+        // immediately, not only keyboard nav) and by the armed anchor (the active
+        // row stays outlined while its comment is being composed).
+        ...(isArmed
+          ? { outline: `2px solid ${t.accent}`, outlineOffset: 1, bgcolor: t.paperAlt }
+          : {}),
+        '&:focus': {
+          outline: `2px solid ${t.accent}`,
+          outlineOffset: 1,
+          bgcolor: t.paperAlt,
+        },
+      }}
+      tabIndex={isFocused ? 0 : -1}
+      onClick={onRowClick}
+      onFocus={onRowFocus}
+      onKeyDown={onRowKeyDown}
+    >
+      <Box sx={{ flexGrow: 1, minWidth: 0 }}>{children}</Box>
+      <Tooltip title="Comment on this item — press Enter or C">
+        <IconButton
+          aria-label={commentLabel}
+          className="commentable-row-action"
+          data-testid={commentTestId}
+          size="small"
+          sx={{
+            flexShrink: 0,
+            color: t.accentText,
+            bgcolor: t.accent,
+            border: `1.5px solid ${t.line}`,
+            borderRadius: 1,
+            '&:hover': { bgcolor: t.accent2 },
+          }}
+          tabIndex={-1}
+          onClick={onArm}
+        >
+          <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
+        </IconButton>
+      </Tooltip>
+    </Box>
+  );
+}
 
 export function CommentableList<T>({
   items,
@@ -69,7 +190,6 @@ export function CommentableList<T>({
   /** Vertical gap between rows, in theme spacing units. */
   gap?: number;
 }): ReactNode {
-  const t = useTokens();
   const { setAnchor, enabled, anchor: armedAnchor, comments } = useComments();
   const [focused, setFocused] = useState(0);
   const rowRefs = useRef<(HTMLDivElement | null)[]>([]);
@@ -178,54 +298,22 @@ export function CommentableList<T>({
             ? `Comment on ${value} (${kind})`
             : `Comment on ${value}`;
         return (
-          <Box
-            aria-keyshortcuts="Enter c"
-            aria-label={rowAnchor.label}
-            data-testid={UI_IDENTIFIERS.Comments.listItem(key)}
+          <CommentableRow
+            commentLabel={commentLabel}
+            commentTestId={UI_IDENTIFIERS.Comments.listItemComment(key)}
+            isArmed={isArmed}
+            isFocused={isFocused}
             key={key}
-            ref={(el: HTMLDivElement | null) => {
+            revealed={revealed}
+            rowAnchor={rowAnchor}
+            setRowRef={(el) => {
               rowRefs.current[index] = el;
             }}
-            role="listitem"
-            sx={{
-              display: 'flex',
-              alignItems: 'flex-start',
-              gap: 1,
-              px: 1,
-              py: 0.75,
-              borderRadius: 1,
-              cursor: 'default',
-              // Comment button: hidden at rest (opacity 0 — but kept in layout, in the
-              // tab order and in the a11y tree; NO display:none / visibility:hidden),
-              // revealed at FULL contrast on row hover or keyboard focus-within. Kept
-              // persistently visible (revealed) when the row is the armed anchor or
-              // already carries a pending comment.
-              '& .commentable-row-action': {
-                opacity: revealed ? 1 : 0,
-                transition: 'opacity 120ms',
-              },
-              '&:hover .commentable-row-action, &:focus-within .commentable-row-action': {
-                opacity: 1,
-              },
-              // Touch / no-hover pointers can't reveal-on-hover — always show it there.
-              '@media (hover: none)': {
-                '& .commentable-row-action': { opacity: 1 },
-              },
-              '&:hover': { bgcolor: t.paperAlt },
-              // Focused-row border driven by DOM :focus (so a POINTER click shows it
-              // immediately, not only keyboard nav) and by the armed anchor (the active
-              // row stays outlined while its comment is being composed).
-              ...(isArmed
-                ? { outline: `2px solid ${t.accent}`, outlineOffset: 1, bgcolor: t.paperAlt }
-                : {}),
-              '&:focus': {
-                outline: `2px solid ${t.accent}`,
-                outlineOffset: 1,
-                bgcolor: t.paperAlt,
-              },
+            testId={UI_IDENTIFIERS.Comments.listItem(key)}
+            onArm={() => {
+              arm(item, index);
             }}
-            tabIndex={isFocused ? 0 : -1}
-            onClick={(e) => {
+            onRowClick={(e) => {
               // Pointer clicks sync the roving-focus index AND move DOM focus to the
               // row, so the focused-row border shows immediately and keyboard nav
               // continues from here. Skip the focus move when the click landed on the
@@ -234,37 +322,15 @@ export function CommentableList<T>({
                 moveTo(index);
               }
             }}
-            onFocus={() => {
+            onRowFocus={() => {
               setFocused(index);
             }}
-            onKeyDown={(e) => {
+            onRowKeyDown={(e) => {
               onKeyDown(e, item, index);
             }}
           >
-            <Box sx={{ flexGrow: 1, minWidth: 0 }}>{renderItem(item, index)}</Box>
-            <Tooltip title="Comment on this item — press Enter or C">
-              <IconButton
-                aria-label={commentLabel}
-                className="commentable-row-action"
-                data-testid={UI_IDENTIFIERS.Comments.listItemComment(key)}
-                size="small"
-                sx={{
-                  flexShrink: 0,
-                  color: t.accentText,
-                  bgcolor: t.accent,
-                  border: `1.5px solid ${t.line}`,
-                  borderRadius: 1,
-                  '&:hover': { bgcolor: t.accent2 },
-                }}
-                tabIndex={-1}
-                onClick={() => {
-                  arm(item, index);
-                }}
-              >
-                <ChatBubbleOutlineIcon sx={{ fontSize: 15 }} />
-              </IconButton>
-            </Tooltip>
-          </Box>
+            {renderItem(item, index)}
+          </CommentableRow>
         );
       })}
     </Box>
