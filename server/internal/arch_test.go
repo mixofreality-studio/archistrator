@@ -861,9 +861,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"RevenueShareUnknown",
 		// REVIEW-LEDGER status vocabulary — the closed wire values of a durable ReviewComment's
 		// status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
-		// here; the ReviewComment type itself is generated contract surface.
+		// here; the ReviewComment type itself is generated contract surface. The LIVE
+		// vocabulary a thread's status is derived into is open/answered/resolved
+		// (normalizeReviewThread); Addressed and Waived are DEPRECATED — never written by
+		// current code, kept only as the values the read-compat shim (migrateLegacyReviewThread)
+		// maps a pre-thread ledger's retired statuses FROM on decode.
 		"ReviewCommentAddressed",
+		"ReviewCommentAnswered",
 		"ReviewCommentOpen",
+		"ReviewCommentResolved",
 		"ReviewCommentWaived",
 		// QUESTION-COMMENTS vocabulary + behavior — the closed type/addressee wire values of a
 		// durable ReviewComment plus the pure classification helpers over them. Plain-string
