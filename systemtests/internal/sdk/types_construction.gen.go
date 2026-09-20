@@ -17,6 +17,7 @@ type ActivityOverride struct {
 type ConstructionAnchoredComment struct {
 	JSONPath string `json:"jsonPath"`
 	Text     string `json:"text"`
+	ReplyTo  string `json:"replyTo"`
 }
 
 type ConstructionReviewFeedback struct {

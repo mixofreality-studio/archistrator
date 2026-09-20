@@ -359,6 +359,7 @@ type SystemDesignAnchoredComment struct {
 	JSONPath   string `json:"jsonPath"`
 	Text       string `json:"text"`
 	AnchorText string `json:"anchorText"`
+	ReplyTo    string `json:"replyTo"`
 }
 
 type SystemDesignReviewFeedback struct {
