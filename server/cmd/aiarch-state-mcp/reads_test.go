@@ -128,22 +128,40 @@ func TestGetCritique(t *testing.T) {
 // open, type/addressee intact): the answer session must SEE it, and must be able to answer
 // it by id with no status gate in the way.
 func TestAnswerJobSeesAndAnswersAReopenedQuestionThread(t *testing.T) {
+	// THE FIXTURE IS DERIVED, NOT ASSERTED. Hardcoding Status: open here would make this test
+	// blind to exactly the mutations it exists to rule out — a filter or gate keyed on the
+	// status. So the reopened state is produced the way production produces it: an ANSWERED
+	// question thread, plus one reviewer utterance, run through the real
+	// projectstate.ApplyReviewBatch (the very call AskQuestions makes via the seed verb),
+	// whose closing normalizeReviewThread derives the status.
+	answered := []projectstate.ReviewComment{{
+		ID: "r1c0", Round: 1, Text: "Why only three objectives?",
+		AuthorRole: "architect",
+		Type:       projectstate.ReviewCommentTypeQuestion,
+		Addressee:  projectstate.ReviewAddresseeArchitect,
+		Status:     projectstate.ReviewCommentAnswered,
+		Replies: []projectstate.ReviewCommentReply{
+			{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the abstraction ceiling.", At: "2026-09-19T00:00:00Z"},
+		},
+	}}
+	reopened, err := projectstate.ApplyReviewBatch(answered, 2, nil, []projectstate.ReviewReply{{
+		CommentID: "r1c0", AuthorRole: "architect-user",
+		Text: "That does not answer the cost objective", At: "2026-09-19T02:00:00Z",
+	}})
+	if err != nil {
+		t.Fatalf("ApplyReviewBatch: %v", err)
+	}
+	// Precondition, stated so a change in the derive rule fails HERE with a clear message
+	// rather than silently defusing every assertion below.
+	if reopened[0].Status != projectstate.ReviewCommentOpen {
+		t.Fatalf("fixture precondition: a reviewer utterance must DERIVE the thread back to open, got %q", reopened[0].Status)
+	}
+
 	p := minimalProject()
 	p.Mission = projectstate.ArtifactSlot{
-		Status: projectstate.ReviewAwaitingReview,
-		Model:  &projectstate.MissionStatement{},
-		ReviewThread: []projectstate.ReviewComment{{
-			ID: "r1c0", Round: 1, Text: "Why only three objectives?",
-			AuthorRole: "architect",
-			Type:       projectstate.ReviewCommentTypeQuestion,
-			Addressee:  projectstate.ReviewAddresseeArchitect,
-			// The derived status after a routed reviewer reply: OPEN again.
-			Status: projectstate.ReviewCommentOpen,
-			Replies: []projectstate.ReviewCommentReply{
-				{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the abstraction ceiling.", At: "2026-09-19T00:00:00Z"},
-				{ID: "r1c0-u2", AuthorRole: "architect-user", Text: "That does not answer the cost objective", At: "2026-09-19T02:00:00Z"},
-			},
-		}},
+		Status:       projectstate.ReviewAwaitingReview,
+		Model:        &projectstate.MissionStatement{},
+		ReviewThread: reopened,
 	}
 	s, _ := seedProject(t, p, jobModeAnswer, projectstate.KindMission)
 

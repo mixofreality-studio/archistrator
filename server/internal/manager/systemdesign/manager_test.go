@@ -12029,3 +12029,138 @@ func TestAskQuestionsOpRoutesRepliesThroughTheSeedVerb(t *testing.T) {
 		}
 	})
 }
+
+// FIX ROUND 1, ITEM 1 — THE DISPATCH ADDRESSEE OF A REPLY COMES FROM ITS THREAD.
+//
+// Both answer commands select "the OPEN questions addressed to YOU". A follow-up staged on an
+// ARCHITECT-addressed thread can reach this op carrying addressee "pm" — that is the SPA's
+// default for an entry with no addressee of its own, and it is what happens when a mixed batch
+// is grouped under pm. The ledger append is correct either way (the utterance lands in the
+// right thread), but dispatching design-answer-pm starts a session that finds NOTHING addressed
+// to it: the follow-up then sits unanswered forever, silently. The SPA cannot defend this — it
+// does not know the thread's addressee either — so the Manager, which already reads the live
+// thread, must.
+func TestAskQuestionsDispatchesTheRepliedToThreadsAddressee(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+
+	proj := projectstate.Project{ID: projectstate.ProjectID(id), Version: 7}
+	proj.Mission = projectstate.ArtifactSlot{
+		Status: projectstate.ReviewCommitted,
+		Model:  &projectstate.MissionStatement{},
+		ReviewThread: []projectstate.ReviewComment{{
+			ID: "r1c0", Round: 1, Text: "Why only three objectives?",
+			AuthorRole: reviewAuthorRole,
+			Type:       projectstate.ReviewCommentTypeQuestion,
+			// THE THREAD belongs to the architect.
+			Addressee: projectstate.ReviewAddresseeArchitect,
+			Status:    projectstate.ReviewCommentAnswered,
+			Replies: []projectstate.ReviewCommentReply{
+				{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the ceiling.", At: "2026-09-19T00:00:00Z"},
+			},
+		}},
+	}
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatalf("encode seed project: %v", err)
+	}
+
+	pipe := &recordingPipeline{}
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found"))
+	m := sdManagerWith(pipe)
+	m.client = mc
+	m.designSession = &projectstatefake.FakeDesignSessionAccess{
+		ReadProjectOnBranchFn: func(fwra.Context, projectstate.ProjectID, string) (projectstate.ProjectEnvelope, error) {
+			return env, nil
+		},
+		SeedReviewCommentsOnBranchFn: func(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
+			return 8, nil
+		},
+	}
+
+	// The INCOMING ask says "pm" — the SPA's default for an entry with no addressee.
+	err = m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseePM,
+		[]AnchoredComment{{Text: "That does not answer the cost objective", ReplyTo: "r1c0"}})
+	if err != nil {
+		t.Fatalf("a follow-up must be accepted: %v", err)
+	}
+	if len(pipe.specs) != 1 {
+		t.Fatalf("expected exactly one answer-job dispatch, got %d", len(pipe.specs))
+	}
+	got := pipe.specs[0].DispatchInputs[dispatchInputCommand]
+	want := projectstate.DesignCommandFor(projectstate.KindMission, projectstate.DesignJobModeAnswer, projectstate.ReviewAddresseeArchitect)
+	if got != want {
+		t.Fatalf("a reply on an ARCHITECT thread must dispatch %q (the thread's own addressee), got %q — that session would find nothing addressed to it and the follow-up would never be answered", want, got)
+	}
+}
+
+// A FRESH question keeps using the caller's addressee, exactly as before — the asker decides
+// who a new question is for, and there is no thread to inherit from.
+func TestAskQuestionsFreshQuestionKeepsTheCallersAddressee(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	proj := projectstate.Project{ID: projectstate.ProjectID(id), Version: 7}
+	proj.Mission = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: &projectstate.MissionStatement{}}
+	env, err := projectstate.EncodeProject(proj)
+	if err != nil {
+		t.Fatalf("encode seed project: %v", err)
+	}
+
+	pipe := &recordingPipeline{}
+	mc := &temporalmocks.Client{}
+	mc.On("DescribeWorkflowExecution", mock.Anything, mock.Anything, "").
+		Return((*workflowservice.DescribeWorkflowExecutionResponse)(nil), serviceerror.NewNotFound("workflow not found"))
+	m := sdManagerWith(pipe)
+	m.client = mc
+	m.designSession = &projectstatefake.FakeDesignSessionAccess{
+		ReadProjectOnBranchFn: func(fwra.Context, projectstate.ProjectID, string) (projectstate.ProjectEnvelope, error) {
+			return env, nil
+		},
+		SeedReviewCommentsOnBranchFn: func(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
+			return 8, nil
+		},
+	}
+
+	if err := m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseePM,
+		[]AnchoredComment{{JSONPath: "$.objectives[0]", Text: "Which market?"}}); err != nil {
+		t.Fatalf("a fresh ask must be accepted: %v", err)
+	}
+	if len(pipe.specs) != 1 {
+		t.Fatalf("expected exactly one answer-job dispatch, got %d", len(pipe.specs))
+	}
+	want := projectstate.DesignCommandFor(projectstate.KindMission, projectstate.DesignJobModeAnswer, projectstate.ReviewAddresseePM)
+	if got := pipe.specs[0].DispatchInputs[dispatchInputCommand]; got != want {
+		t.Fatalf("a fresh question must keep the caller's addressee (%q), got %q", want, got)
+	}
+}
+
+// answerJobAddressee: the pure rule, including the MIXED batch it cannot fully serve.
+func TestAnswerJobAddresseeRule(t *testing.T) {
+	thread := []projectstate.ReviewComment{
+		{ID: "arch1", Type: projectstate.ReviewCommentTypeQuestion, Addressee: projectstate.ReviewAddresseeArchitect},
+		{ID: "pm1", Type: projectstate.ReviewCommentTypeQuestion, Addressee: projectstate.ReviewAddresseePM},
+		{ID: "cr1"}, // a change-request thread carries no addressee
+	}
+	reply := func(id string) []projectstate.ReviewReply {
+		return []projectstate.ReviewReply{{CommentID: id, AuthorRole: reviewerUtteranceRole, Text: "t"}}
+	}
+
+	// A reply inherits its thread's addressee, overriding the caller's.
+	if got, mixed := answerJobAddressee(thread, projectstate.ReviewAddresseePM, 0, reply("arch1")); got != projectstate.ReviewAddresseeArchitect || mixed {
+		t.Fatalf("reply on an architect thread → architect (mixed=%v), got %q", mixed, got)
+	}
+	// A reply on a thread with NO addressee (a change-request) falls back to the caller's.
+	if got, mixed := answerJobAddressee(thread, projectstate.ReviewAddresseePM, 0, reply("cr1")); got != projectstate.ReviewAddresseePM || mixed {
+		t.Fatalf("reply on an addressee-less thread → the caller's (mixed=%v), got %q", mixed, got)
+	}
+	// Fresh only → the caller's.
+	if got, mixed := answerJobAddressee(thread, projectstate.ReviewAddresseeArchitect, 1, nil); got != projectstate.ReviewAddresseeArchitect || mixed {
+		t.Fatalf("fresh only → the caller's (mixed=%v), got %q", mixed, got)
+	}
+	// MIXED: a fresh pm question AND a reply on an architect thread. One dispatch cannot serve
+	// both, so the caller's addressee is kept (today's behaviour for the fresh half) and the
+	// disagreement is reported so it can be logged rather than silently half-answered.
+	if got, mixed := answerJobAddressee(thread, projectstate.ReviewAddresseePM, 1, reply("arch1")); got != projectstate.ReviewAddresseePM || !mixed {
+		t.Fatalf("a mixed batch must keep the caller's addressee AND report mixed; got %q mixed=%v", got, mixed)
+	}
+}

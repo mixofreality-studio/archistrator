@@ -1925,7 +1925,17 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 				minted[i] = qs[i]
 				minted[i].ID = projectstate.ReviewCommentID(round, i)
 			}
-			m.dispatchAnswerJob(ctx, projectID, kind, branch, addressee, minted)
+			// A REPLY is answered by the role its THREAD is addressed to, not by whoever the
+			// caller named — see answerJobAddressee. Dispatching the other role's command would
+			// start a session that finds nothing addressed to it, leaving the follow-up
+			// unanswered forever with no signal.
+			dispatchTo, mixed := answerJobAddressee(thread, addressee, len(qs), replies)
+			if mixed {
+				slog.Default().Warn("askQuestions: this batch needs BOTH answer roles (a fresh question for one, a reply on the other's thread) — only one answer job is dispatched, so the other half stays unanswered until it is re-asked on its own",
+					"op", "systemdesign.AskQuestions", "projectID", string(projectID),
+					"artifactKind", artifactKindString(kind), "dispatchedTo", dispatchTo)
+			}
+			m.dispatchAnswerJob(ctx, projectID, kind, branch, dispatchTo, minted)
 			return nil
 		}
 		if isRAConflict(err) {
@@ -2009,6 +2019,51 @@ func questionsToLedger(addressee string, questions []AnchoredComment) []projects
 		})
 	}
 	return out
+}
+
+// answerJobAddressee decides which role the answer job must be dispatched to, given the batch
+// that was just appended. A FRESH question is addressed by its asker, so the caller's argument
+// decides. A REPLY is NOT: it lands in a thread that already has its own addressee, and both
+// answer commands select only "the OPEN questions addressed to YOU" — so dispatching the other
+// role's command starts a session that finds nothing to do, and the follow-up sits unanswered
+// forever with no signal anywhere. The client cannot defend this (it does not know the thread's
+// addressee either), so the thread the reply names decides. A reply onto a thread with no
+// addressee at all (a change-request) falls back to the caller's.
+//
+// mixed reports that the batch genuinely needs BOTH roles — a fresh question for one and a
+// reply on the other's thread, which the SPA can produce because it groups by the STAGED
+// addressee, not by the target thread's. One dispatch cannot serve both, so the caller's
+// addressee is kept (today's behaviour for the fresh half) and the caller logs the disagreement
+// rather than silently answering half the batch.
+func answerJobAddressee(thread []projectstate.ReviewComment, callerAddressee string, freshCount int, replies []projectstate.ReviewReply) (string, bool) {
+	addresseeOf := make(map[string]string, len(thread))
+	for _, c := range thread {
+		addresseeOf[c.ID] = c.Addressee
+	}
+	chosen, mixed := "", false
+	note := func(a string) {
+		switch {
+		case a == "":
+		case chosen == "":
+			chosen = a
+		case chosen != a:
+			mixed = true
+		}
+	}
+	if freshCount > 0 {
+		note(callerAddressee)
+	}
+	for _, r := range replies {
+		if a := addresseeOf[r.CommentID]; a != "" {
+			note(a)
+			continue
+		}
+		note(callerAddressee)
+	}
+	if chosen == "" {
+		chosen = callerAddressee
+	}
+	return chosen, mixed
 }
 
 // nextQuestionRound returns a round number one past the highest round already present in the
