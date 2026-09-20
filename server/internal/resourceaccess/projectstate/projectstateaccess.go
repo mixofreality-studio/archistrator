@@ -6596,7 +6596,20 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.Notes = entry.Notes
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
-		slot.ReviewThread = entry.ReviewThread
+		// LEGACY-VOCABULARY GRANDFATHER (review-thread status vocabulary, this feature): a
+		// committed slot's ReviewThread may still carry the RETIRED "addressed"/"waived"
+		// statuses (and a bare legacy Response string) from before the reply-thread model
+		// existed. migrateLegacyReviewThread render-on-reads it onto the current vocabulary
+		// — this is the SAME lazy-migration shape as the Revisions grandfather just below:
+		// nothing is written back here, but the in-memory Project this decode produces (and
+		// therefore every write built from it, e.g. the next normalizeReviewThread at a
+		// (re)stage) sees only current values from this point on. No caller-identity or
+		// clock is available in this pure decoder, so draftedBy/at are passed empty;
+		// migrateLegacyReviewThread defaults an empty draftedBy to "architect", and the
+		// empty `at` is unreachable for every entry actually on disk today (F45 staleAck
+		// entries carry no Response, so the reply-synthesis branch that would use `at`
+		// never fires for them).
+		slot.ReviewThread = migrateLegacyReviewThread(entry.ReviewThread, "", "")
 		slot.Revisions = entry.Revisions
 		// PRE-FIELD GRANDFATHER (F38 follow-up 2026-07-05): a slot committed BEFORE the
 		// Revisions field existed reads back as 0 (the zero-value / omitempty gap), yet a

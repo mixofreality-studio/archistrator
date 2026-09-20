@@ -7666,6 +7666,75 @@ func TestNormalizeReviewThreadReadCompat(t *testing.T) {
 	}
 }
 
+// TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead is the fix-round-1 covering
+// test (Important finding): migrateLegacyReviewThread was defined but never called
+// from any read path, so a committed pre-thread ledger never actually migrated —
+// decodeSlotsMap read the raw "addressed"/"waived" strings straight through forever,
+// a value validReviewCommentStatus no longer accepts. The raw JSON below is the EXACT
+// shape of all 27 legacy entries in the real committed .aiarch/state/project.json as
+// of this fix: a staleAck audit entry, status "addressed", response present but
+// EMPTY (not absent — decodeSlotsMap must handle a non-nil-but-empty *string, not
+// just a nil one). It goes through DecodeProjectJSON, the single exported decode seam
+// both the live git store (decodeProjectFromSnapshot) and the CI validator use, so
+// this proves the fix at the actual boundary every reader shares — not just a direct
+// call to the migrate helper.
+func TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead(t *testing.T) {
+	raw := []byte(`{
+		"id": "proj-1",
+		"version": 1,
+		"phase": 1,
+		"slots": {
+			"1": {
+				"kind": 1,
+				"status": 2,
+				"reviewThread": [
+					{
+						"id": "r1c1",
+						"anchor": "",
+						"anchorText": "",
+						"text": "Reviewed — unaffected: diagrams only, no term changes",
+						"authorRole": "architect",
+						"round": 1,
+						"status": "addressed",
+						"response": "",
+						"type": "staleAck",
+						"addressee": ""
+					}
+				]
+			}
+		}
+	}`)
+	p, ok, err := DecodeProjectJSON(raw, ProjectID("proj-1"))
+	if err != nil {
+		t.Fatalf("DecodeProjectJSON: %v", err)
+	}
+	if !ok {
+		t.Fatal("DecodeProjectJSON: want ok=true for a populated document")
+	}
+	thread := p.Glossary.ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("want 1 review comment, got %d", len(thread))
+	}
+	c := thread[0]
+	if c.Status != ReviewCommentAnswered {
+		t.Fatalf("legacy staleAck \"addressed\" must decode as %q, got %q (validReviewCommentStatus no longer accepts %q)",
+			ReviewCommentAnswered, c.Status, "addressed")
+	}
+	if !validReviewCommentStatus(c.Status) {
+		t.Errorf("decoded status %q must be a currently-valid wire value", c.Status)
+	}
+	// The real data's response is present but EMPTY, not a real reply — migration must
+	// NOT synthesize a reply from it.
+	if len(c.Replies) != 0 {
+		t.Errorf("an empty legacy response must not synthesize a reply, got %+v", c.Replies)
+	}
+	// The migration is transient (render-on-read): it must not touch the decoded
+	// struct's Response field itself, only Status/Replies.
+	if c.Response == nil || *c.Response != "" {
+		t.Errorf("Response must decode verbatim (present, empty), got %v", c.Response)
+	}
+}
+
 // Question-comments (2026-07-05): type/addressee defaulting + the approve-gate classifier.
 
 func TestAppendReviewComments_CarriesTypeAndAddressee(t *testing.T) {
