@@ -86,8 +86,11 @@ ReviewCommentReply {
 }
 ```
 
-`ReviewCommentView` (the two manager contracts) mirrors the same change:
-`response: string` → `replies: ReviewCommentReply[]`.
+`ReviewComment` also gains `reopened: boolean` — the sticky bit recording that the
+reviewer explicitly reopened a thread, cleared when an agent next replies. §3.3
+explains why derivation alone cannot express a reopen.
+
+`ReviewCommentView` (the two manager contracts) mirrors both changes.
 
 `required` stays presence-only per the contract-strictness ruling; non-emptiness
 belongs in GO, not `minLength`.
@@ -111,16 +114,24 @@ signature. Only the legal transitions change:
 
 - `open → resolved` (resolve an unanswered thread; this is the old waive)
 - `answered → resolved` (accept the AI's response)
-- `answered → open` (**a queued reply landing on an answered thread reopens it**,
-  applied by the manager at submit time — so the pushback rides the redraft and
-  blocks approve until answered again)
-- `resolved → open` (reopen)
+- `resolved → open` (reopen; sets the sticky `reopened` bit)
 
 The old `addressed → open` reopen becomes `resolved → open`. `answered` is no
 longer terminal-ish: it is a waypoint the reviewer passes through.
 
-`answered → open` is the only transition the *manager* applies on its own; every
-other one is an explicit reviewer action.
+**`answered → open` is not a transition at all — it falls out of the derive rule.**
+`normalizeReviewThread` already owns status as a function of the entry's content;
+the rule becomes: a thread is `answered` iff its **last utterance is
+agent-authored**, and `open` otherwise. So a queued reviewer reply landing on an
+answered thread makes the last utterance human and the thread re-opens by itself,
+with no manager-applied transition and no special case. `resolved` stays sticky (a
+reviewer decision), as do `staleAck` entries.
+
+The one thing derivation cannot express is an explicit reopen of a thread whose
+last utterance is an agent reply — derivation would immediately re-answer it. That
+is what the sticky `reopened` bit is for. The old code solved the same problem by
+**clearing the response on reopen**, which under a thread model would destroy
+conversation history; the bit preserves it.
 
 ### 3.4 Approve gate
 
