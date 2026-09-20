@@ -50,15 +50,25 @@ const INTRO: Partial<Record<ArtifactKind, { draft: string; committed: string }>>
 /**
  * The committed-state "how to read this" copy, moved off the full-width banner into
  * a small (?) info icon-button + popover next to the header title (UX-P1-4/P2-10).
- * Renders nothing for kinds without framing copy, so the header can call it
- * unconditionally.
+ *
+ * Also carries the slot's state address (project.json path), retired from its own
+ * always-visible subtitle line (Task 9): a muted mono line beneath the framing copy,
+ * or the button's ENTIRE content when the kind has no framing copy at all (every
+ * prose artifact, Mission included, plus every Phase-2 kind — none of which are in
+ * INTRO below). Renders nothing when there is neither copy nor a stateAddress, so
+ * the header can call it unconditionally.
  */
-export function ArtifactInfoButton({ kind }: { kind: ArtifactKind | undefined }): ReactNode {
+export function ArtifactInfoButton({
+  kind,
+  stateAddress,
+}: {
+  kind?: ArtifactKind | undefined;
+  stateAddress?: string | undefined;
+}): ReactNode {
   const t = useTokens();
   const [anchorEl, setAnchorEl] = useState<HTMLElement | null>(null);
-  if (kind === undefined) return null;
-  const copy = INTRO[kind];
-  if (copy === undefined) return null;
+  const copy = kind === undefined ? undefined : INTRO[kind];
+  if (copy === undefined && stateAddress === undefined) return null;
   const open = anchorEl !== null;
   return (
     <>
@@ -85,9 +95,26 @@ export function ArtifactInfoButton({ kind }: { kind: ArtifactKind | undefined })
         }}
       >
         <Box sx={{ p: 2, maxWidth: 360, bgcolor: t.paper }}>
-          <Typography sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
-            {copy.committed}
-          </Typography>
+          {copy !== undefined ? (
+            <Typography
+              sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}
+            >
+              {copy.committed}
+            </Typography>
+          ) : null}
+          {stateAddress !== undefined ? (
+            <Typography
+              sx={{
+                fontFamily: t.mono,
+                fontSize: 11,
+                color: t.muted,
+                lineHeight: 1.5,
+                mt: copy !== undefined ? 1 : 0,
+              }}
+            >
+              {stateAddress}
+            </Typography>
+          ) : null}
         </Box>
       </Popover>
     </>

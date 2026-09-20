@@ -43,7 +43,6 @@ import AutoAwesomeIcon from '@mui/icons-material/AutoAwesome';
 import type {
   ArtifactKind,
   ArtifactModelEnvelope,
-  ArtifactProvenance,
   Finding,
   ProjectStateWithGit,
   ResearchInput,
@@ -63,7 +62,7 @@ import { SlimSpine, type SpineStep } from './SlimSpine';
 import { GeneratingScene } from './GeneratingScene';
 import { DraftFailedPanel } from './DraftFailedPanel';
 import { GatePanel } from './GatePanel';
-import { CommittedArtifactPanel } from './CommittedArtifactPanel';
+import { CommittedArtifactPanel, CommittedChip } from './CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from './StaleBasisChip';
 import { ResearchInputPanel } from './ResearchInputPanel';
 import { CommentProvider } from '../comments/CommentContext';
@@ -221,6 +220,10 @@ export function SystemDesignView({
   // re-renders the moment it exists: every anchor offset is measured against this
   // element, and a ref mutation would not tell the margin it had arrived.
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
+  // The amend composer dialog's open state, lifted out of CommittedArtifactPanel
+  // (RULING P6): Task 10's submit-bar Amend button sets this directly — no
+  // imperative handle, no ref.
+  const [amendOpen, setAmendOpen] = useState(false);
 
   const safeIndex = Math.max(0, Math.min(activeIndex, spine.length - 1));
   const activeKind = (spine[safeIndex]?.kind ?? 'mission') as ArtifactKind;
@@ -252,11 +255,11 @@ export function SystemDesignView({
   const activeCommitted = spine[safeIndex]?.committed === true;
   const commentCount = commentSurface?.commentCount ?? 0;
 
-  // Whether StepBody's committed-panel arm (below) is what renders: the CommittedArtifactPanel
-  // already carries a full-width "COMMITTED" strip with the actionable Amend button, so when it
-  // shows, the header's COMMITTED StageChip is a redundant second signal (QA'd stacked on
-  // Scrubbed Requirements). This mirrors StepBody's early-return sequence up to the F-GTD-11
-  // committed-panel guard; the strip wins, so the header chip is suppressed when it is true.
+  // Whether StepBody's committed-panel arm (below) is what renders: when it does,
+  // the header renders CommittedChip instead of StageChip (Task 9 — the chip
+  // replaces the old full-width strip, so it is the signal, not a second one).
+  // This mirrors StepBody's early-return sequence up to the F-GTD-11 committed-panel
+  // guard.
   const showsCommittedPanel =
     !needsResearch &&
     !draftFailed &&
@@ -319,13 +322,19 @@ export function SystemDesignView({
               </Typography>
               {/* Suppressed when the committed-panel strip below already shows COMMITTED
                   (+ Amend), so the header chip is not a duplicate signal. */}
-              {showsCommittedPanel ? null : (
+              {showsCommittedPanel ? (
+                <CommittedChip provenance={committedProvenance} revisions={committedRevisions} />
+              ) : (
                 <StageChip stage={headerChipStage(activeCommitted, stage)} />
               )}
               {/* Committed framing copy moved off the full-width banner into a (?) info
                   popover; staleness moved off the amber banner into a compact chip —
-                  so the first paint of a committed step is content, not banners. */}
-              {activeCommitted ? <ArtifactInfoButton kind={activeKind} /> : null}
+                  so the first paint of a committed step is content, not banners. The
+                  slot's state address (project.json path) rides along here too (Task 9),
+                  off its own always-visible subtitle line. */}
+              {activeCommitted ? (
+                <ArtifactInfoButton kind={activeKind} stateAddress={meta.stateAddress} />
+              ) : null}
               {activeCommitted && committedStale ? (
                 <StaleBasisHeaderChip
                   ackDisabledReason={ackDisabledReason}
@@ -339,9 +348,6 @@ export function SystemDesignView({
                 />
               ) : null}
             </Box>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.stateAddress} · step {safeIndex + 1} of {spine.length}
-            </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title="drafts: architect Worker">
@@ -368,6 +374,7 @@ export function SystemDesignView({
         <StepBody
           activeKind={activeKind}
           allowEmptySendBack={allowEmptySendBack}
+          amendOpen={amendOpen}
           amendPending={amendPending}
           asyncFailed={asyncFailed}
           beginPending={beginPending}
@@ -375,7 +382,6 @@ export function SystemDesignView({
           commentCount={commentCount}
           committed={activeCommitted}
           committedEnvelope={committedEnvelope}
-          committedProvenance={committedProvenance}
           committedRevisions={committedRevisions}
           decisionPending={decisionPending}
           draftFailed={draftFailed}
@@ -399,6 +405,7 @@ export function SystemDesignView({
           view={view}
           withdrawPending={decisionPending}
           onAmend={onRequestDraft}
+          onAmendOpenChange={setAmendOpen}
           onApprove={() => {
             onSubmitReview('approve');
           }}
@@ -426,10 +433,10 @@ function StepBody({
   t,
   activeKind,
   allowEmptySendBack,
+  amendOpen,
   committed,
   committedEnvelope,
   committedRevisions,
-  committedProvenance,
   useCasesEnvelope,
   systemEnvelope,
   loading,
@@ -462,14 +469,16 @@ function StepBody({
   onSendBack,
   onWithdraw,
   onAmend,
+  onAmendOpenChange,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
   allowEmptySendBack: boolean;
+  /** The amend composer dialog's open state, lifted from CommittedArtifactPanel (RULING P6). */
+  amendOpen: boolean;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
   committedRevisions: number | undefined;
-  committedProvenance: ArtifactProvenance | undefined;
   /** The committed coreUseCases envelope (F-QA2-51 dynamic-view label fallback). */
   useCasesEnvelope: ArtifactModelEnvelope | undefined;
   /** The committed System envelope (the carousel's "View call chain" join). */
@@ -504,6 +513,7 @@ function StepBody({
   onSendBack: () => void;
   onWithdraw: () => void;
   onAmend: (feedback: string, onAccepted: () => void) => void;
+  onAmendOpenChange: (open: boolean) => void;
 }): ReactNode {
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
@@ -623,17 +633,18 @@ function StepBody({
   // (F-GTD-11): the architect could no longer reopen a clean committed slot.
   if ((sessionMissing || stage === 'committed') && committed && committedEnvelope !== undefined) {
     // Same fill rule as the live-session path: a self-scrolling committed card (the
-    // glossary) grows to the bottom of the scroll area (no dead region below it),
-    // while the panel's COMMITTED strip + Amend affordance stay natural above it.
+    // glossary) grows to the bottom of the scroll area (no dead region below it).
+    // The committed chip + Amend affordance now live in the header / submit bar,
+    // not a strip inside this panel.
     const committedFill = committedEnvelope.kind === 'glossary';
     return (
       <CommittedArtifactPanel
+        amendOpen={amendOpen}
         amendPending={amendPending}
         fill={committedFill}
         fillMinHeight={FILL_MIN_HEIGHT}
-        provenance={committedProvenance}
-        revisions={committedRevisions}
         onAmend={onAmend}
+        onAmendOpenChange={onAmendOpenChange}
       >
         {proseSurface(
           committedEnvelope.kind,

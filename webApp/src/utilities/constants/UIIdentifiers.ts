@@ -143,8 +143,6 @@ export const UI_IDENTIFIERS = {
     AMEND_INCLUDE_PENDING: 'amend-include-pending',
     AMEND_SUBMIT: 'amend-submit',
     AMEND_CANCEL: 'amend-cancel',
-    // 'COMMITTED · revision N' meta on the committed-panel header.
-    COMMITTED_REVISION: 'committed-revision',
     // Read-only 'COMMITTED … — current' label shown above the generating scene while
     // a committed artifact's amendment drafts.
     AMEND_CURRENT_LABEL: 'amend-current-label',
