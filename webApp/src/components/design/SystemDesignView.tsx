@@ -332,6 +332,9 @@ export function SystemDesignView({
 
   return (
     <ExperienceChrome
+      // ALWAYS shared, margin or no margin: this screen's content column carries no
+      // overflow of its own, and the MCP host composes it with no margin wired.
+      bodyScroll="shared"
       commentSurface={commentSurface}
       margin={margin}
       marginOpen={marginOpen}

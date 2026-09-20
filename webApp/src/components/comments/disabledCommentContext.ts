@@ -29,5 +29,6 @@ export const DISABLED_COMMENT_CTX: CommentCtx = {
   freeformNotes: () => '',
   pendingQuestions: () => [],
   requestId: 0,
+  anchorRefusals: 0,
 };
 /* eslint-enable @typescript-eslint/no-empty-function */

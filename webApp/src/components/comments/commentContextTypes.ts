@@ -147,4 +147,17 @@ export interface CommentCtx {
   pendingQuestions: () => PendingQuestion[];
   /** Monotonic counter; bumps whenever an anchor is armed. */
   requestId: number;
+  /**
+   * How many times {@link setAnchor}'s re-anchor guard has REFUSED to move the
+   * armed anchor — because a composer holds unsent text — SINCE that anchor was
+   * armed. Reset to 0 by every successful arm or disarm, so a non-zero value
+   * always describes the anchor (and therefore the draft card) in front of you.
+   *
+   * The refusal is deliberate: it keeps a half-typed comment paired with the
+   * location it was written against. But it has to be explicable. With the
+   * composer in a card at the foot of the margin nobody noticed; now that arming a
+   * row IS what opens the draft card, a refused arm reads as a dead comment
+   * button. The surface that owns the open draft watches this and says so.
+   */
+  anchorRefusals: number;
 }

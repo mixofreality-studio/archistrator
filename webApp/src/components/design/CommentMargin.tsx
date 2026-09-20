@@ -81,13 +81,13 @@ export const MARGIN_WIDTH = 320;
 /**
  * Below this viewport width the margin stops being a column beside the content
  * and becomes a toggleable overlay drawer — at narrower widths a 320px column
- * takes more of the reading area than the content can spare. The raw media text
- * is exported alongside the `@media` block so this component can ASK (via
- * `useMediaQuery`) which mode it is in: the drawer is pinned rather than in
- * content space, so it lays its cards out as a list instead of placing them.
+ * takes more of the reading area than the content can spare. Exported as raw
+ * media text, not an `@media` block, because both sides ASK rather than style:
+ * the chrome mounts the margin in a different place, and this component lays its
+ * cards out as a list instead of placing them — a pinned drawer is not in content
+ * space. (There was an `@media` sibling export; nothing styles on it any more.)
  */
 export const MARGIN_DRAWER_MEDIA = '(max-width: 1100px)';
-export const MARGIN_DRAWER_QUERY = `@media ${MARGIN_DRAWER_MEDIA}`;
 
 /**
  * The empty thread, hoisted to module scope. A `thread = []` default parameter
@@ -189,12 +189,19 @@ export function CommentMargin({
     };
     bump();
     // CAPTURE phase: a `scroll` event does not bubble, but it DOES capture, and
-    // some artifacts scroll in a NESTED container of their own (the glossary's
-    // fill-mode card with its sticky search header) rather than moving the root.
-    // A nested scroll really does move a row within content space, so the offsets
-    // must be re-taken; scrolling the ROOT no longer changes any of them (the
-    // cards ride along with the content), it just costs a no-op re-measure.
-    scrollRoot.addEventListener('scroll', bump, { capture: true, passive: true });
+    // some artifacts scroll in a NESTED container of their own rather than moving
+    // the root. A nested scroll really does move a row within content space, so
+    // those offsets must be re-taken.
+    //
+    // The ROOT's own scroll is filtered out. Offsets are in CONTENT space and the
+    // cards ride along with the content, so scrolling the page changes not one of
+    // them — before this guard, every frame of ordinary scrolling re-measured every
+    // anchor in the DOM to arrive at the numbers it already had.
+    const onScroll = (e: Event): void => {
+      if (e.target === scrollRoot) return;
+      bump();
+    };
+    scrollRoot.addEventListener('scroll', onScroll, { capture: true, passive: true });
     window.addEventListener('resize', bump);
     const ro = new ResizeObserver(bump);
     ro.observe(scrollRoot);
@@ -202,7 +209,7 @@ export function CommentMargin({
     mo.observe(scrollRoot, { childList: true, subtree: true });
     return (): void => {
       disposed = true;
-      scrollRoot.removeEventListener('scroll', bump, { capture: true });
+      scrollRoot.removeEventListener('scroll', onScroll, { capture: true });
       window.removeEventListener('resize', bump);
       ro.disconnect();
       mo.disconnect();
@@ -335,16 +342,6 @@ export function CommentMargin({
       />
     );
 
-  // Document order for the drawer's flat list: `placed` is already sorted by the
-  // stacking pass, and the unanchored items lead (they belong to no row).
-  const ordered: MarginItem[] = [
-    ...unplaced,
-    ...placed.flatMap((p) => {
-      const item = byKey.get(p.id);
-      return item === undefined ? [] : [item];
-    }),
-  ];
-
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Margin.ROOT}
@@ -434,13 +431,17 @@ export function CommentMargin({
               ))}
             </Box>
           ) : null}
-          {ordered
-            .filter((item) => !unplaced.includes(item))
-            .map((item) => (
-              <Box key={item.key} ref={measure(item.key)}>
+          {/* Document order: `placed` is already sorted by the stacking pass. The
+              unanchored group above leads it — those items belong to no row. */}
+          {placed.map((p) => {
+            const item = byKey.get(p.id);
+            if (item === undefined) return null;
+            return (
+              <Box key={p.id} ref={measure(p.id)}>
                 {renderItem(item)}
               </Box>
-            ))}
+            );
+          })}
         </>
       ) : (
         <>
@@ -459,6 +460,14 @@ export function CommentMargin({
                 // Above the placed layer: an item anchored to the very first row
                 // wants the same band of margin, and this group was here first.
                 zIndex: 2,
+                // A sticky block taller than the scrollport can never have its
+                // bottom scrolled into view, and its opaque background would mask
+                // every placed card behind it for good. Construction — where every
+                // note is unanchored — is exactly that case. Cap it below the
+                // scrollport (the chrome above is nowhere near 50vh) and let the
+                // overflow scroll inside the group.
+                maxHeight: '50vh',
+                overflowY: 'auto',
                 p: 1,
                 pr: 4,
                 display: 'flex',
@@ -663,11 +672,17 @@ function MarginDraftCard({
   onStaged: () => void;
   t: Tokens;
 }): ReactNode {
-  const { post, setDraftPending } = useComments();
+  const { post, setDraftPending, anchorRefusals } = useComments();
   const [draft, setDraft] = useState('');
   const [commentType, setCommentType] = useState<ReviewCommentType>('changeRequest');
   const [addressee, setAddressee] = useState<Exclude<ReviewCommentAddressee, ''>>('pm');
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // CommentContext refuses to move an armed anchor while this card holds unsent
+  // text (it would strand the half-typed comment on the wrong row). That refusal
+  // is right, but it used to be SILENT — the reviewer pressed another row's
+  // comment button and nothing happened. The counter resets on every accepted
+  // arm/disarm, so a non-zero value here always means THIS card blocked it.
+  const blockedAnotherRow = anchorRefusals > 0;
 
   // Google-Docs behaviour: the card opens ready to type. `preventScroll` because
   // the card and the shared scroller now live in the SAME scroll container — a
@@ -819,7 +834,20 @@ function MarginDraftCard({
         />
       </Box>
 
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, justifyContent: 'flex-end' }}>
+      {blockedAnotherRow ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Margin.DRAFT_BLOCKING}
+          role="status"
+          sx={{ fontFamily: t.mono, fontSize: 10, color: t.accent, mt: 0.75 }}
+        >
+          Comment or Cancel first — this draft is holding the comment button on other
+          rows, so it cannot be moved off {anchor !== null ? 'this one' : 'the margin'}.
+        </Typography>
+      ) : null}
+
+      <Box
+        sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, justifyContent: 'flex-end' }}
+      >
         <Button
           size="small"
           sx={{ color: t.muted, fontSize: 12, textTransform: 'none', minWidth: 0, px: 1 }}

@@ -201,8 +201,17 @@ export function ConstructionShell({
     const toolbar = toolbarRef.current;
     const row = rowRef.current;
     if (root === null || toolbar === null || row === null) return undefined;
+    // Walk to the scroller, SUMMING bottom padding on the way. The dead space
+    // below the content is not the scroller's own padding any more: the shared
+    // scroller (ExperienceChrome, Task 8b) has none, and the console's `pb: 3`
+    // sits on an inner box this walk passes straight through. Reading only the
+    // scroller gave 0 instead of 24 and left the detail pane's height cap short.
     let scroller: HTMLElement | null = root.parentElement;
-    while (scroller !== null && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
+    let padBottom = 0;
+    while (scroller !== null) {
+      const style = getComputedStyle(scroller);
+      padBottom += Number.parseFloat(style.paddingBottom) || 0;
+      if (/(auto|scroll)/.test(style.overflowY)) break;
       scroller = scroller.parentElement;
     }
     const written: Record<string, string> = {};
@@ -227,7 +236,7 @@ export function ConstructionShell({
         toolbarRect.height,
         scroller?.clientHeight ?? window.innerHeight,
         row.getBoundingClientRect().top - scrollerTop,
-        scroller !== null ? Number.parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0
+        padBottom
       );
       for (const [name, value] of varsToWrite(written, vars)) {
         target.style.setProperty(name, value);

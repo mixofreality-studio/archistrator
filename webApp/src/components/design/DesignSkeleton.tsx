@@ -116,6 +116,8 @@ export function DesignExperienceSkeleton({
   const t = useTokens();
   return (
     <ExperienceChrome
+      // Self: the skeleton body below carries its own overflowY. No margin.
+      bodyScroll="self"
       phaseNum={phaseNum}
       phaseTitle={phaseTitle}
       projectName={projectName}

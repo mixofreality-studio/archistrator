@@ -170,6 +170,8 @@ function OperationsConsoleBody({ operatedAppId }: { operatedAppId: string }): Re
 
   return (
     <ExperienceChrome
+      // Self: the tab bar is pinned and the tab BODY scrolls (see below). No margin.
+      bodyScroll="self"
       phaseNum={4}
       phaseTitle="Operations"
       onClose={() => void navigate({ to: '/' })}

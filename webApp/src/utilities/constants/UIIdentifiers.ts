@@ -325,6 +325,10 @@ export const UI_IDENTIFIERS = {
     // Opens a FREE-FORM (unanchored) draft card. The only composer affordance the
     // margin owns itself, now that arming a row composes in place.
     ADD_NOTE: 'comment-margin-add-note',
+    // The line an open draft card shows once CommentContext's re-anchor guard has
+    // refused another row's comment button on its behalf — so the refusal is
+    // explained rather than read as a dead button.
+    DRAFT_BLOCKING: 'comment-margin-draft-blocking',
     card: (id: string) => `margin-card-${id}`,
     reply: (id: string) => `margin-reply-${id}`,
     resolve: (id: string) => `margin-resolve-${id}`,

@@ -96,6 +96,8 @@ export function CommentProvider({
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
+  // See CommentCtx.anchorRefusals: the re-anchor guard below must be explicable.
+  const [anchorRefusals, setAnchorRefusals] = useState(0);
   // Whether the composer currently holds unsent draft text. A ref (not state) so the
   // setAnchor guard reads it synchronously without re-subscribing on every keystroke.
   const draftPendingRef = useRef(false);
@@ -165,10 +167,16 @@ export function CommentProvider({
       // stays stable — see armedAnchorRef.)
       const prev = armedAnchorRef.current;
       if (a !== null && prev !== null && draftPendingRef.current && a.jsonPath !== prev.jsonPath) {
+        // Refused — but say so, or the comment button the reviewer just pressed
+        // looks broken. The open draft card renders the explanation.
+        setAnchorRefusals((n) => n + 1);
         return;
       }
       armedAnchorRef.current = a;
       setArmedAnchor(a);
+      // Accepted: whatever was refused was refused on behalf of the PREVIOUS
+      // anchor, which no longer exists. See CommentCtx.anchorRefusals.
+      setAnchorRefusals(0);
       if (a !== null) setRequestId((n) => n + 1);
     },
     [enabled]
@@ -265,8 +273,10 @@ export function CommentProvider({
       freeformNotes,
       pendingQuestions,
       requestId,
+      anchorRefusals,
     }),
     [
+      anchorRefusals,
       enabled,
       comments,
       armedAnchor,

@@ -446,6 +446,7 @@ function ProjectDesignBody({
 
   return (
     <ExperienceChrome
+      bodyScroll="shared"
       margin={
         marginOpen
           ? (scrollRoot: HTMLElement | null): ReactNode => (

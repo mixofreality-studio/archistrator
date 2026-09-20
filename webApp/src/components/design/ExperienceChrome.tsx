@@ -24,8 +24,20 @@
  *   • the margin column carries no border and no background of its own. It is
  *     page margin that happens to hold cards, not a docked panel.
  *
- * A content column passed as `children` must therefore carry NO `overflowY` of
- * its own — it is a block inside the page, and the page is what scrolls.
+ * ── EXACTLY ONE scroller, declared not inferred ─────────────────────────────
+ * Every surface must end up with exactly one scroll container — never zero, never
+ * two. Which one it is cannot be guessed from the props (an earlier revision
+ * inferred it from `onOpenMargin` and left the MCP System Design widget, which
+ * wires no margin at all, with ZERO scrollers and a body clipped at the fold), so
+ * `bodyScroll` is REQUIRED and every caller states its answer:
+ *
+ *   'shared' — the chrome owns it (the box below). `children` must carry no
+ *              `overflowY` of its own; it is a block inside the page, and the page
+ *              is what scrolls. Every surface that has, or could open, a comment
+ *              margin must be 'shared' — the margin only works inside that box.
+ *   'self'   — `children` owns it, and this row must not scroll. For a surface
+ *              that pins its own furniture above a scrolling body (Operations' tab
+ *              bar) and has no margin.
  *
  * Extracted from DesignExperience.tsx so the two phase screens share one shell
  * rather than forking it.
@@ -47,12 +59,22 @@ import { MARGIN_DRAWER_MEDIA, MARGIN_WIDTH } from './CommentMargin';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
+// DEV-only, de-duplicated: the warning below would otherwise fire on every
+// render of the mis-wired surface. Same shape as AnchorRegistry's.
+const warned = new Set<string>();
+function warnOnce(message: string): void {
+  if (warned.has(message)) return;
+  warned.add(message);
+  console.warn(message);
+}
+
 export function ExperienceChrome({
   phaseNum,
   phaseTitle,
   projectName,
   onClose,
   spine,
+  bodyScroll,
   margin,
   marginOpen,
   onOpenMargin,
@@ -71,6 +93,12 @@ export function ExperienceChrome({
    * it. Omitted ⇒ no margin affordance at all.
    */
   margin?: ((scrollRoot: HTMLElement | null) => ReactNode) | undefined;
+  /**
+   * Which element scrolls — see the file header. Required on purpose: there is no
+   * safe default, and the one surface an inferred default got wrong had no
+   * scroller at all.
+   */
+  bodyScroll: 'shared' | 'self';
   /** Whether the margin is currently shown (drives the header's re-open toggle). */
   marginOpen?: boolean | undefined;
   onOpenMargin?: (() => void) | undefined;
@@ -87,13 +115,17 @@ export function ExperienceChrome({
   // the moment it exists: every anchor offset is measured against this element,
   // and a ref mutation would not tell the margin it had arrived.
   const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
-  // Only a surface that HAS a comment margin gets the shared scroller — including
-  // while that margin is collapsed (`margin` undefined, `onOpenMargin` still
-  // wired), so collapsing does not restructure the page under the reader. A
-  // surface with no margin at all (Operations, the loading skeleton) keeps its own
-  // inner scrolling: Operations pins a tab bar above a scrolling body, and a
-  // shared scroller would let that bar scroll away.
-  const hasMargin = margin !== undefined || onOpenMargin !== undefined;
+  const shared = bodyScroll === 'shared';
+  // A margin can only be placed inside the shared scroller (its cards are
+  // positioned in that scroller's content space), so this pairing is a wiring
+  // mistake, and a silent one: the cards would all read as unplaced.
+  if (import.meta.env.DEV && !shared && margin !== undefined) {
+    warnOnce(
+      'ExperienceChrome: bodyScroll="self" with a comment margin wired — the margin ' +
+        'measures anchor offsets against the shared scroller this surface does not have, ' +
+        'so every card falls into the unplaced group. Use bodyScroll="shared".'
+    );
+  }
   const drawer = useMediaQuery(MARGIN_DRAWER_MEDIA, { noSsr: true });
   // Built once, mounted in exactly one of the two places below. The two are
   // different DOM positions (in the page vs. pinned over it), so a viewport that
@@ -262,7 +294,7 @@ export function ExperienceChrome({
             position: 'relative',
           }}
         >
-          {hasMargin ? (
+          {shared ? (
             // THE scroller — content column and margin column together, so the only
             // scrollbar on the page sits at the far right of the window, past the
             // cards, and the two columns move as one surface.
