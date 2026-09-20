@@ -1585,7 +1585,7 @@ func (s *stubProjectState) WithdrawArtifactOnBranch(_ fwra.Context, _ ProjectID,
 	return 22, nil
 }
 
-func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "RejectArtifactOnBranchWithComments")
 	return 30, nil
 }
@@ -1735,7 +1735,7 @@ func TestDesignSessionAccess_CommitArtifactWithProvenance_Primary(t *testing.T) 
 func TestDesignSessionAccess_RejectArtifactOnBranchWithComments_DelegatesToBase(t *testing.T) {
 	base := &stubProjectState{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.RejectArtifactOnBranchWithComments(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", 0, nil, "idem-1")
+	v, err := s.RejectArtifactOnBranchWithComments(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", 0, nil, nil, "idem-1")
 	if err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
 	}
@@ -2596,7 +2596,7 @@ func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
 		{Anchor: "$.vision", AnchorText: "v", Text: "sharpen the vision", AuthorRole: "architect"},
 		{Anchor: "", Text: "a free-form note", AuthorRole: "architect"},
 	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "please revise", 1, comments, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "please revise", 1, comments, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2671,11 +2671,11 @@ func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
 	// Same idempotency key twice (a Temporal activity retry): the second collapses to the
 	// committed version and MUST NOT duplicate the ledger entry (review-ledger §5).
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("first reject: %v", err)
 	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("retry reject (same key): %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2701,7 +2701,7 @@ func TestGitStore_SetReviewCommentStatus_ResolveAndReopen(t *testing.T) {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -2761,7 +2761,7 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -3419,7 +3419,7 @@ func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testin
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	const notes = "rework the vision"
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments(branch=\"\"): %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -3463,7 +3463,7 @@ func TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse(t *
 		t.Fatalf("CreateProject: %v", err)
 	}
 	// No stage — the Mission slot is unpopulated on main.
-	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, cred, "wf:reject")
+	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, nil, cred, "wf:reject")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
 	}

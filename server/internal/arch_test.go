@@ -454,6 +454,15 @@ var encapsulationAllowlistData = map[string][]string{
 		"ActivityProgress",
 		"Actor",
 		"AllArtifactKinds",
+		// PURE LEDGER TRANSFORM over projectstate's own owned types (same category as
+		// ClassifyType / CommandFor below): ApplyReviewBatch is what ONE submitted review
+		// batch DOES to a thread — the fresh comments open entries, the replies append
+		// utterances, and the derive rule re-runs. The reject verb calls it, and the design
+		// Managers that SPLIT a submission into those two halves (ruling P2, comment-margin
+		// §3.7) verify their split against it rather than re-implementing utterance-id
+		// minting and the reopen-bit rule a layer up. Total and side-effect-free over
+		// already-public types; there is no resource to generate a contract op for.
+		"ApplyReviewBatch",
 		"ArtifactKindFromWireName",
 		"Axis",
 		"Axis.MarshalJSON",

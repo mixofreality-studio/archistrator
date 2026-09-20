@@ -223,7 +223,7 @@ func (wf *workflows) commitReview(ctx workflow.Context, projectID ProjectID, hea
 // path.
 func (wf *workflows) rejectReview(ctx workflow.Context, projectID ProjectID, notes string, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, projectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(projectID), expected, "", projectstate.KindSdpReview, notes, 0, nil)
+		return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(projectID), expected, "", projectstate.KindSdpReview, notes, 0, nil, nil)
 	})
 	if err != nil {
 		return err

@@ -229,9 +229,9 @@ func (i genInvokers) DesignSessionReconcileBranchFromMain(ctx workflow.Context, 
 }
 
 // DesignSessionRejectArtifactOnBranchWithComments invokes activity "designSessionAccess.rejectArtifactOnBranchWithComments".
-func (i genInvokers) DesignSessionRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+func (i genInvokers) DesignSessionRejectArtifactOnBranchWithComments(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
 	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.rejectArtifactOnBranchWithComments"), "designSessionAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.rejectArtifactOnBranchWithComments"), "designSessionAccess.rejectArtifactOnBranchWithComments", projectID, expectedVersion, branch, kind, notes, round, comments, replies).Get(ctx, &out)
 	return out, err
 }
 

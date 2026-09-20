@@ -534,11 +534,11 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry\" to start a fresh session, then decide on its review gate")
 	}
 	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
-	// the reviewer must address (redraft) or waive each first. The message lists the open ids.
+	// the reviewer must send it back (redraft) or resolve each first. The message lists the open ids.
 	if decision == ReviewApprove {
 		if open := openReviewCommentViewIDs(view.ReviewThread); len(open) > 0 {
 			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot approve: %d review comment(s) still open (%s) — address or waive them first", len(open), strings.Join(open, ", ")))
+				fmt.Sprintf("cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first", len(open), strings.Join(open, ", ")))
 		}
 	}
 
@@ -551,7 +551,7 @@ func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projec
 }
 
 // reviewGateView returns the session's full gate view (stage + durable review thread) for the
-// F19 review precondition AND the review-ledger approve/waive preconditions, plus whether a
+// F19 review precondition AND the review-ledger approve/resolve preconditions, plus whether a
 // LIVE workflow can still honor a signal (F-R2 Phase-2 port). Same dead-workflow defense as
 // GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed with live=false (a signal to
 // it can never be honored), a WEDGED run likewise (live=false), a missing execution reports
@@ -587,9 +587,10 @@ func (m *projectDesignManager) reviewGateView(ctx context.Context, wfID string) 
 	return view, true, nil
 }
 
-// SetReviewCommentStatus applies a human status transition to one durable review-ledger
-// comment (review-ledger §4): waive an OPEN comment to dismiss it, or reopen an ADDRESSED
-// comment to send it back for another redraft. Mirrors SubmitReviewDecision's F19 shape — a
+// SetReviewCommentStatus applies a REVIEWER status transition to one durable review-ledger
+// thread (design §3.3): resolve an OPEN or ANSWERED thread to close it (resolving an
+// untouched thread IS the old waive), or reopen a RESOLVED one to send it back for another
+// redraft. Mirrors SubmitReviewDecision's F19 shape — a
 // synchronous precondition check via the sessionState query before signaling the (fire-and-
 // forget) branch mutation.
 func (m *projectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
@@ -604,10 +605,12 @@ func (m *projectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, proj
 		return newError(fwmanager.ContractMisuse, "empty commentId")
 	}
 	switch status {
-	case projectstate.ReviewCommentWaived, projectstate.ReviewCommentOpen:
-		// waive (open->waived) or reopen (addressed->open) — the only human-authored transitions.
+	case projectstate.ReviewCommentResolved, projectstate.ReviewCommentOpen:
+		// close (open|answered -> resolved) or reopen (resolved -> open) — the only
+		// reviewer-authored transitions. "answered" is derived by the server from the
+		// reply history and is never set by a human.
 	default:
-		return newError(fwmanager.ContractMisuse, "status must be \"waived\" (to dismiss an open comment) or \"open\" (to reopen an addressed comment)")
+		return newError(fwmanager.ContractMisuse, "status must be \"resolved\" (to close a thread) or \"open\" (to reopen a resolved thread)")
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -646,21 +649,24 @@ func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
 	return ids
 }
 
-// checkCommentTransition validates a human status transition against the live thread: the
-// comment must exist and the transition must be legal (open->waived, addressed->open).
+// checkCommentTransition validates a REVIEWER status transition against the live thread: the
+// comment must exist and the transition must be legal (open->resolved, answered->resolved,
+// resolved->open). answered->open is absent on purpose — it falls out of the derive rule
+// when a queued reviewer reply makes the last utterance human (design §3.3).
 func checkCommentTransition(thread []ReviewCommentView, id, status string) error {
 	for _, c := range thread {
 		if c.ID != id {
 			continue
 		}
 		switch {
-		case c.Status == projectstate.ReviewCommentOpen && status == projectstate.ReviewCommentWaived:
+		case (c.Status == projectstate.ReviewCommentOpen || c.Status == projectstate.ReviewCommentAnswered) &&
+			status == projectstate.ReviewCommentResolved:
 			return nil
-		case c.Status == projectstate.ReviewCommentAddressed && status == projectstate.ReviewCommentOpen:
+		case c.Status == projectstate.ReviewCommentResolved && status == projectstate.ReviewCommentOpen:
 			return nil
 		default:
 			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->waived, addressed->open)", id, c.Status, status))
+				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->resolved, answered->resolved, resolved->open)", id, c.Status, status))
 		}
 	}
 	return newError(fwmanager.FailedPrecondition, "review comment "+id+" not found in the thread")
@@ -2291,10 +2297,26 @@ func toReviewCommentView(c projectstate.ReviewComment) ReviewCommentView {
 		AuthorRole: c.AuthorRole,
 		Round:      c.Round,
 		Status:     c.Status,
-		Response:   c.Response,
+		Replies:    toViewReplies(c.Replies),
+		Reopened:   c.Reopened,
 		Type:       c.Type,
 		Addressee:  c.Addressee,
 	}
+}
+
+// toViewReplies projects a stored entry's utterance history onto the wire shape. The
+// DEPRECATED scalar ReviewComment.Response is deliberately NOT read here: the shared decode
+// point already migrates a legacy response into a synthesized first reply
+// (migrateLegacyReviewThread, design §3.5), so reading it again would double-render it.
+func toViewReplies(in []projectstate.ReviewCommentReply) []ReviewCommentReply {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ReviewCommentReply, 0, len(in))
+	for _, r := range in {
+		out = append(out, ReviewCommentReply{ID: r.ID, AuthorRole: r.AuthorRole, Text: r.Text, At: r.At})
+	}
+	return out
 }
 
 // reviewThreadToView projects the durable ledger onto the wire thread the sessionState
@@ -2322,7 +2344,7 @@ const (
 	signalReviewDecision = "reviewDecision"
 	// signalSetCommentStatus resumes a suspended CoAuthorPhase2ArtifactWorkflow at the
 	// AwaitingReview gate to apply a durable review-ledger status transition
-	// (open->waived / addressed->open) to one comment on the session branch; backs
+	// (open|answered->resolved / resolved->open) to one comment on the session branch; backs
 	// SetReviewCommentStatus (review-ledger feature).
 	signalSetCommentStatus = "setCommentStatus"
 	// signalRedraft resumes a CoAuthorPhase2ArtifactWorkflow that landed in the
@@ -2519,7 +2541,7 @@ type coAuthorState struct {
 	// human "why" for the SPA's retry/withdraw screen (the anti-wedge requirement).
 	failureReason string
 	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
-	// refreshed from the session branch after every (re)stage and every waive/reopen so the
+	// refreshed from the session branch after every (re)stage and every resolve/reopen so the
 	// query + approve gate see the live thread. Nil until a read-back carries comments.
 	reviewThread []projectstate.ReviewComment
 	// policyAutoApprove and vibesAutogateEnabled drive the VIBES AUTOGATE (F-R3 vibes-everywhere,

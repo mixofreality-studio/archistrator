@@ -745,6 +745,13 @@ type ReviewPolicy struct {
 	Preset            *string                          `json:"preset,omitempty"`
 }
 
+type ReviewReply struct {
+	CommentID  string `json:"commentId"`
+	AuthorRole string `json:"authorRole"`
+	Text       string `json:"text"`
+	At         string `json:"at"`
+}
+
 type RiskModel struct {
 	Rows              []RiskRow    `json:"rows"`
 	TooRiskyThreshold float64      `json:"tooRiskyThreshold"`
@@ -958,7 +965,7 @@ type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)

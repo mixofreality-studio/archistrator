@@ -25,11 +25,14 @@ components:
                 jsonPath:
                     type: string
                     x-go-name: JSONPath
+                replyTo:
+                    type: string
                 text:
                     type: string
             required:
                 - jsonPath
                 - text
+                - replyTo
             type: object
         ConstructionConstructionSessionView:
             additionalProperties: false
@@ -2313,12 +2316,15 @@ components:
                 jsonPath:
                     type: string
                     x-go-name: JSONPath
+                replyTo:
+                    type: string
                 text:
                     type: string
             required:
                 - jsonPath
                 - text
                 - anchorText
+                - replyTo
             type: object
         ProjectDesignArtifactKind:
             enum:
@@ -2575,6 +2581,24 @@ components:
             type: object
         ProjectDesignProjectID:
             type: string
+        ProjectDesignReviewCommentReply:
+            additionalProperties: false
+            properties:
+                at:
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                text:
+                    type: string
+            required:
+                - id
+                - authorRole
+                - text
+                - at
+            type: object
         ProjectDesignReviewCommentView:
             additionalProperties: false
             properties:
@@ -2589,6 +2613,12 @@ components:
                 id:
                     type: string
                     x-go-name: ID
+                reopened:
+                    type: boolean
+                replies:
+                    items:
+                        $ref: '#/components/schemas/ProjectDesignReviewCommentReply'
+                    type: array
                 response:
                     type: string
                 round:
@@ -2608,7 +2638,8 @@ components:
                 - authorRole
                 - round
                 - status
-                - response
+                - replies
+                - reopened
                 - type
                 - addressee
             type: object
@@ -2988,12 +3019,15 @@ components:
                 jsonPath:
                     type: string
                     x-go-name: JSONPath
+                replyTo:
+                    type: string
                 text:
                     type: string
             required:
                 - jsonPath
                 - text
                 - anchorText
+                - replyTo
             type: object
         SystemDesignArtifactKind:
             enum:
@@ -3937,6 +3971,24 @@ components:
                 - title
                 - content
             type: object
+        SystemDesignReviewCommentReply:
+            additionalProperties: false
+            properties:
+                at:
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                text:
+                    type: string
+            required:
+                - id
+                - authorRole
+                - text
+                - at
+            type: object
         SystemDesignReviewCommentView:
             additionalProperties: false
             properties:
@@ -3951,6 +4003,12 @@ components:
                 id:
                     type: string
                     x-go-name: ID
+                reopened:
+                    type: boolean
+                replies:
+                    items:
+                        $ref: '#/components/schemas/SystemDesignReviewCommentReply'
+                    type: array
                 response:
                     type: string
                 round:
@@ -3970,7 +4028,8 @@ components:
                 - authorRole
                 - round
                 - status
-                - response
+                - replies
+                - reopened
                 - type
                 - addressee
             type: object

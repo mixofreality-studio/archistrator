@@ -395,7 +395,12 @@ const staleAckAuthorRole = "architect"
 // appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
 // id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
 // reject (the dormant-rail fallback), still appending the comments.
-func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// replies carries the other half of the SAME submitted batch: utterances answering threads
+// that already exist on this slot (design §3.7). The reviewer's "still vague" belongs INSIDE
+// the thread it was written against, not in a brand-new one, so the two halves land in the
+// one atomic commit — see ApplyReviewBatch, which owns both appends.
+func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
 			return err
@@ -404,7 +409,11 @@ func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, proje
 		if !ok {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
 		}
-		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
 		return nil
 	})
 }
@@ -1824,13 +1833,13 @@ func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(rc fwra.Context, proje
 // status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
 // in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
 // just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, cred, idempotencyKey)
+	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, replies, cred, idempotencyKey)
 }
 
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
@@ -3101,7 +3110,7 @@ type designSessionBase interface {
 	ProjectStateAccess
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
@@ -3201,8 +3210,8 @@ func (s *designSessionAccess) CommitArtifactWithProvenance(rc fwra.Context, proj
 // RejectArtifactOnBranchWithComments forwards straight to base: it lands the Rejected
 // status flip + notes AND appends the reviewer's comments to the slot's durable
 // ReviewThread in one atomic commit.
-func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, idempotencyKey)
+func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, replies, idempotencyKey)
 }
 
 // WithdrawArtifactOnBranch forwards straight to base (branch=="" withdraws on the
@@ -9329,6 +9338,54 @@ func validReviewCommentStatus(s string) bool {
 	default:
 		return false
 	}
+}
+
+// ApplyReviewBatch applies ONE submitted review batch to a thread: the fresh comments
+// open new entries for round, and each reply appends an utterance to the entry it names.
+// It is the single place that knows what a batch IS, so the Manager that splits an
+// incoming submission into (replies, fresh comments) never has to re-implement utterance-id
+// minting or the reopen-bit rule — that invariant lives here, in the layer that owns the
+// ledger (ruling P2).
+//
+// Idempotent under Temporal activity retry on BOTH halves: appendReviewComments dedups on
+// the deterministic per-(round,index) id, and a reply whose (author, text, at) is already
+// present on its thread is skipped — which is exactly the retry case, since the caller
+// stamps `at` from the deterministic workflow clock.
+//
+// The batch closes with normalizeReviewThread so the derived status is true of the ledger
+// the instant it is written: a reviewer utterance landing on an ANSWERED thread re-opens it
+// here rather than waiting for the next stage to re-derive it.
+//
+// A reply naming no entry is a NotFound — never a silently-dropped utterance.
+func ApplyReviewBatch(thread []ReviewComment, round int64, comments []ReviewComment, replies []ReviewReply) ([]ReviewComment, error) {
+	thread = appendReviewComments(thread, round, comments)
+	for _, r := range replies {
+		if reviewReplyPresent(thread, r) {
+			continue
+		}
+		var err error
+		if thread, err = appendReviewReply(thread, r.CommentID, r.AuthorRole, r.Text, r.At); err != nil {
+			return nil, err
+		}
+	}
+	return normalizeReviewThread(thread), nil
+}
+
+// reviewReplyPresent reports whether the named entry already carries this exact utterance
+// — the retry guard behind ApplyReviewBatch's idempotency (see its doc).
+func reviewReplyPresent(thread []ReviewComment, r ReviewReply) bool {
+	for i := range thread {
+		if thread[i].ID != r.CommentID {
+			continue
+		}
+		for _, have := range thread[i].Replies {
+			if have.AuthorRole == r.AuthorRole && have.Text == r.Text && have.At == r.At {
+				return true
+			}
+		}
+		return false
+	}
+	return false
 }
 
 // appendReviewReply appends one utterance to the thread entry with id. Appending an

@@ -17756,6 +17756,31 @@
           ],
           "additionalProperties": false
         },
+        "ReviewReply": {
+          "type": "object",
+          "properties": {
+            "commentId": {
+              "type": "string",
+              "x-go-name": "CommentID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "commentId",
+            "authorRole",
+            "text",
+            "at"
+          ],
+          "additionalProperties": false
+        },
         "Version": {
           "type": "integer"
         }
@@ -17909,6 +17934,15 @@
                   "type": "array",
                   "items": {
                     "$ref": "#/$defs/ReviewComment"
+                  }
+                }
+              },
+              {
+                "name": "replies",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewReply"
                   }
                 }
               },
