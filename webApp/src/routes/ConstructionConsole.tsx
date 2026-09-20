@@ -204,10 +204,6 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
-  // The console's scroll container — the margin measures anchor offsets against it.
-  // Construction carries no server review thread of its own yet, so the margin here
-  // is the composer plus any staged notes; Stage 2 owns this surface's design pass.
-  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
 
   // Live-cascade poll: while the construction pump is draining the network, poll the
   // project read every 1.5s so the tracker animates eligible→in-construction→integrated.
@@ -1121,14 +1117,16 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
   return (
     <ExperienceChrome
       margin={
-        marginOpen ? (
-          <CommentMargin
-            scrollRoot={scrollRoot}
-            onCollapse={() => {
-              setMarginOpen(false);
-            }}
-          />
-        ) : undefined
+        marginOpen
+          ? (scrollRoot: HTMLElement | null): ReactNode => (
+              <CommentMargin
+                scrollRoot={scrollRoot}
+                onCollapse={() => {
+                  setMarginOpen(false);
+                }}
+              />
+            )
+          : undefined
       }
       marginOpen={marginOpen}
       phaseNum={3}
@@ -1141,17 +1139,15 @@ function ConstructionConsoleBody({ projectId }: { projectId: string }): ReactNod
     >
       <Box
         data-testid={UI_IDENTIFIERS.Construction.ROOT}
-        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column', minHeight: 0 }}
+        // No scroll of its own: ExperienceChrome's page box is the scroller and
+        // stretches this column to at least a viewport (Task 8b).
+        sx={{ flexGrow: 1, minWidth: 0, display: 'flex', flexDirection: 'column' }}
       >
         {/* The lens shell IS the console (Task 13) — no tab bar mounts around it. */}
         {/* pt: 0 — the sticky lens toolbar sticks at the scroller's own top edge.
             Top padding here left a strip ABOVE the stuck toolbar that rows scrolled
             through (designer P0-2); the page header carries that spacing instead. */}
-        <Box
-          data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
-          ref={setScrollRoot}
-          sx={{ flexGrow: 1, minHeight: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, pt: 0, pb: 3 }}
-        >
+        <Box sx={{ flexGrow: 1, px: { xs: 2, md: 4 }, pt: 0, pb: 3 }}>
           <ConsoleHeader
             action={
               // Operating (Task 14): once construction is fully complete the

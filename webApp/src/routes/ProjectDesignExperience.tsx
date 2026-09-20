@@ -210,10 +210,6 @@ function ProjectDesignBody({
   const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
-  // The artifact scroll container the margin measures anchor offsets against.
-  // Phase-2 is only RE-POINTED at the margin here (Stage 2 owns its design pass),
-  // but it needs the same wiring or its cards would all read as unplaced.
-  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
   // The amend composer dialog's open state, lifted out of CommittedArtifactPanel
   // (RULING P6, shared with the Phase-1 SystemDesignView twin).
   const [amendOpen, setAmendOpen] = useState(false);
@@ -451,19 +447,21 @@ function ProjectDesignBody({
   return (
     <ExperienceChrome
       margin={
-        marginOpen ? (
-          <CommentMargin
-            committed={committed}
-            scrollRoot={scrollRoot}
-            statusPending={setCommentStatus.isPending}
-            thread={reviewThread}
-            onCollapse={() => {
-              setMarginOpen(false);
-            }}
-            onReopen={reopenComment}
-            onResolve={resolveComment}
-          />
-        ) : undefined
+        marginOpen
+          ? (scrollRoot: HTMLElement | null): ReactNode => (
+              <CommentMargin
+                committed={committed}
+                scrollRoot={scrollRoot}
+                statusPending={setCommentStatus.isPending}
+                thread={reviewThread}
+                onCollapse={() => {
+                  setMarginOpen(false);
+                }}
+                onReopen={reopenComment}
+                onResolve={resolveComment}
+              />
+            )
+          : undefined
       }
       marginOpen={marginOpen}
       phaseNum={2}
@@ -475,11 +473,9 @@ function ProjectDesignBody({
         setMarginOpen(true);
       }}
     >
-      <Box
-        data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
-        ref={setScrollRoot}
-        sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}
-      >
+      {/* The content column. It does NOT scroll: ExperienceChrome wraps this and
+          the margin in ONE page box, and that page is what scrolls (Task 8b). */}
+      <Box sx={{ flexGrow: 1, minWidth: 0, px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
           <Box sx={{ minWidth: 0 }}>

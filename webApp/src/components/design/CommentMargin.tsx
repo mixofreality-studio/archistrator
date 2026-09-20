@@ -17,35 +17,48 @@
  * ride the next batch verb; only Resolve/Reopen act immediately, because they
  * cost no AI run.
  *
- * ── Why the placement layer is translated rather than scrolled ──────────────
+ * ── Why there is no scroll compensation here (Task 8b) ─────────────────────
  * `useAnchorOffsets` returns each anchor's offset within the scroll CONTENT: it
  * measures the row's live viewport top against a content origin of
- * `root.top - root.scrollTop`, which ADDS the root's scrollTop back in. The
- * numbers are therefore stable while the reader scrolls. The margin therefore renders one absolutely-positioned layer in those
- * same content coordinates and slides the whole layer by `-scrollTop`, which is
- * exactly the transform that maps content space to viewport space. A card is then
- * level with its row by construction, at any scroll position, with no per-card
- * arithmetic.
+ * `root.top - root.scrollTop`, which ADDS the root's scrollTop back in. Those
+ * numbers are stable while the reader scrolls.
+ *
+ * `ExperienceChrome` puts the content column and this margin inside ONE scroll
+ * container, and this component renders inside it. Its root is therefore itself
+ * in content space — it scrolls with the rows — so a card positioned at
+ * `top: <anchor offset>` is level with its row at every scroll position, with no
+ * transform and no `scrollTop` state. The margin previously owned a second
+ * scroller and cancelled it with `translateY(-scrollTop)`; that compensation
+ * existed only to bridge two scrollers, and went out with the second one.
+ *
+ * The ONE case that still needs its own scroll is the narrow-viewport DRAWER
+ * (<1100px), where the chrome lifts this column out of the scroller and pins it
+ * over the content. A pinned column cannot be in content space, so there cards
+ * are NOT anchor-placed: they render as a plain ordered list (document order,
+ * from the same stacking pass) inside the drawer's own scroll. Nothing is
+ * anchored to a row the drawer is covering anyway.
  */
-import { useEffect, useMemo, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
 import InputBase from '@mui/material/InputBase';
+import Tooltip from '@mui/material/Tooltip';
+import useMediaQuery from '@mui/material/useMediaQuery';
 import CloseIcon from '@mui/icons-material/Close';
 import ChevronRightIcon from '@mui/icons-material/ChevronRight';
-import SendIcon from '@mui/icons-material/ArrowUpward';
 import PlaceIcon from '@mui/icons-material/Place';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
+import AddCommentOutlinedIcon from '@mui/icons-material/AddCommentOutlined';
 
 import { useComments } from '../comments/CommentContext';
 import { useAnchorOffsets, useScrollAnchorIntoView } from '../comments/AnchorRegistry';
 import { stackCards, type MarginCard } from '../comments/commentMarginLayout';
 import { isQuestion } from '../comments/reviewBatch';
-import type { PostedComment } from '../comments/commentContextTypes';
+import type { Anchor, PostedComment } from '../comments/commentContextTypes';
 import { MarginThreadCard, type StagedReply } from './MarginThreadCard';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
@@ -68,9 +81,13 @@ export const MARGIN_WIDTH = 320;
 /**
  * Below this viewport width the margin stops being a column beside the content
  * and becomes a toggleable overlay drawer — at narrower widths a 320px column
- * takes more of the reading area than the content can spare.
+ * takes more of the reading area than the content can spare. The raw media text
+ * is exported alongside the `@media` block so this component can ASK (via
+ * `useMediaQuery`) which mode it is in: the drawer is pinned rather than in
+ * content space, so it lays its cards out as a list instead of placing them.
  */
-export const MARGIN_DRAWER_QUERY = '@media (max-width: 1100px)';
+export const MARGIN_DRAWER_MEDIA = '(max-width: 1100px)';
+export const MARGIN_DRAWER_QUERY = `@media ${MARGIN_DRAWER_MEDIA}`;
 
 /**
  * The empty thread, hoisted to module scope. A `thread = []` default parameter
@@ -81,14 +98,26 @@ export const MARGIN_DRAWER_QUERY = '@media (max-width: 1100px)';
  */
 const EMPTY_THREAD: readonly ReviewCommentView[] = [];
 
-/** One placeable margin entry: a server thread, or a locally staged note. */
+/** The single in-place draft card's key — there is at most one open at a time. */
+const DRAFT_KEY = 'draft';
+
+/**
+ * One placeable margin entry: a server thread, a locally staged note, or the
+ * in-place DRAFT the reviewer is composing. The draft is a first-class item on
+ * purpose (Task 8b): it goes through the same {@link stackCards} pass as the
+ * rest, so it opens exactly where its finished comment will sit and pushes its
+ * neighbours down exactly as that comment will.
+ */
 type MarginItem =
   | { key: string; kind: 'thread'; entry: ReviewCommentView }
-  | { key: string; kind: 'staged'; index: number; comment: PostedComment };
+  | { key: string; kind: 'staged'; index: number; comment: PostedComment }
+  | { key: typeof DRAFT_KEY; kind: 'draft'; anchor: Anchor | null };
 
 /** The anchor JSONPath an item wants to sit level with ('' ⇒ unanchored). */
 function anchorPathOf(item: MarginItem): string {
-  return item.kind === 'thread' ? item.entry.anchor : (item.comment.anchor?.jsonPath ?? '');
+  if (item.kind === 'thread') return item.entry.anchor;
+  if (item.kind === 'draft') return item.anchor?.jsonPath ?? '';
+  return item.comment.anchor?.jsonPath ?? '';
 }
 
 export function CommentMargin({
@@ -123,11 +152,20 @@ export function CommentMargin({
   onCollapse: () => void;
 }): ReactNode {
   const t = useTokens();
-  const { comments, remove } = useComments();
+  const { comments, remove, anchor, setAnchor, enabled } = useComments();
+  // The drawer is PINNED over the content rather than living in content space,
+  // so it cannot place cards by anchor offset — see the file header.
+  const drawer = useMediaQuery(MARGIN_DRAWER_MEDIA, { noSsr: true });
   const [activeId, setActiveId] = useState<string | null>(null);
   const [heights, setHeights] = useState<ReadonlyMap<string, number>>(new Map());
   const [tick, setTick] = useState(0);
-  const [scrollTop, setScrollTop] = useState(0);
+  // A free-form (unanchored) draft is open. An ANCHORED draft needs no flag of
+  // its own: an armed anchor IS the open draft (arming a row is what opens it),
+  // and an armed anchor OUTRANKS this flag — arming a row while a free-form draft
+  // is open simply re-files the same card (and its half-typed text) against that
+  // row, which is what the reviewer meant. The flag is cleared wherever a draft
+  // ends (cancel, stage), so it never outlives the card.
+  const [freeform, setFreeform] = useState(false);
 
   // Re-measure on scroll, on resize, and whenever the content under the scroll
   // root changes shape — at most once per animation frame, because measurement
@@ -146,16 +184,16 @@ export function CommentMargin({
       requestAnimationFrame(() => {
         queued = false;
         if (disposed) return;
-        setScrollTop(scrollRoot.scrollTop);
         setTick((n) => n + 1);
       });
     };
     bump();
     // CAPTURE phase: a `scroll` event does not bubble, but it DOES capture, and
-    // some artifacts scroll in a nested container of their own (the glossary's
+    // some artifacts scroll in a NESTED container of their own (the glossary's
     // fill-mode card with its sticky search header) rather than moving the root.
-    // Listening only on the root would leave every card frozen while the rows it
-    // points at slid past underneath.
+    // A nested scroll really does move a row within content space, so the offsets
+    // must be re-taken; scrolling the ROOT no longer changes any of them (the
+    // cards ride along with the content), it just costs a no-op re-measure.
     scrollRoot.addEventListener('scroll', bump, { capture: true, passive: true });
     window.addEventListener('resize', bump);
     const ro = new ResizeObserver(bump);
@@ -198,10 +236,18 @@ export function CommentMargin({
     return { stagedReplies: replies, ownCards: own };
   }, [comments]);
 
-  const items = useMemo<MarginItem[]>(
-    () => [...thread.map((e): MarginItem => ({ key: e.id, kind: 'thread', entry: e })), ...ownCards],
-    [thread, ownCards]
-  );
+  // Arming a row's comment button opens the draft card IN PLACE — the composer
+  // that used to sit at the foot of the margin is gone (Task 8b).
+  const draftOpen = enabled && (anchor !== null || freeform);
+
+  const items = useMemo<MarginItem[]>(() => {
+    const list: MarginItem[] = [
+      ...thread.map((e): MarginItem => ({ key: e.id, kind: 'thread', entry: e })),
+      ...ownCards,
+    ];
+    if (draftOpen) list.push({ key: DRAFT_KEY, kind: 'draft', anchor });
+    return list;
+  }, [thread, ownCards, draftOpen, anchor]);
 
   // A stable, de-duplicated path list: `useAnchorOffsets` memoizes on this array's
   // identity, so rebuilding it every render would re-measure every render.
@@ -242,8 +288,23 @@ export function CommentMargin({
       setHeights((prev) => (prev.get(key) === h ? prev : new Map(prev).set(key, h)));
     };
 
+  const closeDraft = (): void => {
+    setAnchor(null);
+    setFreeform(false);
+  };
+
   const renderItem = (item: MarginItem): ReactNode =>
-    item.kind === 'thread' ? (
+    item.kind === 'draft' ? (
+      <MarginDraftCard
+        anchor={item.anchor}
+        committed={committed}
+        t={t}
+        onCancel={closeDraft}
+        onStaged={() => {
+          setFreeform(false);
+        }}
+      />
+    ) : item.kind === 'thread' ? (
       <MarginThreadCard
         active={activeId === item.key}
         entry={item.entry}
@@ -274,76 +335,148 @@ export function CommentMargin({
       />
     );
 
+  // Document order for the drawer's flat list: `placed` is already sorted by the
+  // stacking pass, and the unanchored items lead (they belong to no row).
+  const ordered: MarginItem[] = [
+    ...unplaced,
+    ...placed.flatMap((p) => {
+      const item = byKey.get(p.id);
+      return item === undefined ? [] : [item];
+    }),
+  ];
+
   return (
     <Box
       data-testid={UI_IDENTIFIERS.Margin.ROOT}
-      sx={{ height: '100%', display: 'flex', flexDirection: 'column', bgcolor: t.paperAlt }}
+      sx={
+        drawer
+          ? {
+              // Pinned overlay: its own scroll, because it is NOT in content space.
+              height: '100%',
+              overflowY: 'auto',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 1,
+              p: 1,
+              bgcolor: t.bg,
+            }
+          : {
+              // In content space, inside the chrome's shared scroller. No background
+              // and no border: the page shows through and the cards read as notes in
+              // the margin, not as a docked panel. `relative` makes this box the
+              // containing block for the placed cards, whose `top` IS the anchor's
+              // offset within the shared scroll content — no transform needed.
+              // `height: 100%` spans the whole PAGE (the chrome stretches the column
+              // to the document's height, not the viewport's), which is what gives
+              // the sticky controls above something to stick within all the way down.
+              position: 'relative',
+              height: '100%',
+            }
+      }
     >
-      {/* The placement viewport. It carries NO header of its own: the margin's top
-          edge must line up with the scroll container's top edge, or every card
-          would sit one header-height below the row it belongs to. The collapse
-          control therefore floats over the top-right corner instead. */}
-      <Box sx={{ flexGrow: 1, minHeight: 0, position: 'relative', overflow: 'hidden' }}>
+      {/* A zero-height sticky strip: the margin's own two controls float over the
+          top-right corner and stay reachable at any scroll depth without occupying
+          a band of margin that a card wants to sit in. */}
+      <Box
+        sx={{
+          position: 'sticky',
+          top: 0,
+          height: 0,
+          zIndex: 5,
+          display: 'flex',
+          justifyContent: 'flex-end',
+          alignItems: 'flex-start',
+          gap: 0.25,
+          pt: 0.5,
+          pr: 0.5,
+        }}
+      >
+        {enabled ? (
+          <Tooltip title="Add a note — not tied to a row">
+            <IconButton
+              aria-label="add an unanchored note"
+              data-testid={UI_IDENTIFIERS.Margin.ADD_NOTE}
+              size="small"
+              sx={{ color: t.muted }}
+              onClick={() => {
+                // An armed anchor would be consumed by `post`, quietly turning this
+                // free-form note into an anchored one. Disarm first.
+                setAnchor(null);
+                setFreeform(true);
+              }}
+            >
+              <AddCommentOutlinedIcon sx={{ fontSize: 16 }} />
+            </IconButton>
+          </Tooltip>
+        ) : null}
         <IconButton
           aria-label="collapse comment margin"
           size="small"
-          sx={{ position: 'absolute', top: 4, right: 4, zIndex: 3, color: t.muted }}
+          sx={{ color: t.muted }}
           onClick={onCollapse}
         >
           <ChevronRightIcon fontSize="small" />
         </IconButton>
+      </Box>
 
-        {/* Unanchored threads and free-form notes have no row to sit beside, so
-            they pin to the top of the margin under their own heading. */}
-        {unplaced.length > 0 ? (
-          <Box
-            data-testid={UI_IDENTIFIERS.Margin.UNPLACED}
-            sx={{
-              position: 'absolute',
-              top: 0,
-              left: 0,
-              right: 0,
-              zIndex: 2,
-              maxHeight: '55%',
-              overflowY: 'auto',
-              p: 1,
-              pr: 4,
-              display: 'flex',
-              flexDirection: 'column',
-              gap: 1,
-              bgcolor: t.paperAlt,
-              borderBottom: `1.5px solid ${t.line}`,
-            }}
-          >
-            <Typography
-              sx={{
-                fontFamily: t.mono,
-                fontSize: 9.5,
-                fontWeight: 700,
-                letterSpacing: '0.1em',
-                color: t.muted,
-              }}
+      {drawer ? (
+        <>
+          {unplaced.length > 0 ? (
+            <Box
+              data-testid={UI_IDENTIFIERS.Margin.UNPLACED}
+              sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}
             >
-              UNPLACED
-            </Typography>
-            {unplaced.map((item) => (
+              <UnplacedHeading t={t} />
+              {unplaced.map((item) => (
+                <Box key={item.key} ref={measure(item.key)}>
+                  {renderItem(item)}
+                </Box>
+              ))}
+            </Box>
+          ) : null}
+          {ordered
+            .filter((item) => !unplaced.includes(item))
+            .map((item) => (
               <Box key={item.key} ref={measure(item.key)}>
                 {renderItem(item)}
               </Box>
             ))}
-          </Box>
-        ) : null}
+        </>
+      ) : (
+        <>
+          {/* Unanchored threads, free-form notes and a free-form draft have no row
+              to sit beside, so they lead the margin under their own heading.
+              STICKY, unlike every placed card: an item with no anchor has no
+              position in the document to scroll away with, and a free-form draft
+              opened from ＋ while the reader is halfway down the page would
+              otherwise open above the fold, out of sight. */}
+          {unplaced.length > 0 ? (
+            <Box
+              data-testid={UI_IDENTIFIERS.Margin.UNPLACED}
+              sx={{
+                position: 'sticky',
+                top: 0,
+                // Above the placed layer: an item anchored to the very first row
+                // wants the same band of margin, and this group was here first.
+                zIndex: 2,
+                p: 1,
+                pr: 4,
+                display: 'flex',
+                flexDirection: 'column',
+                gap: 1,
+                // Matches the page, and masks whatever stacks underneath.
+                bgcolor: t.bg,
+              }}
+            >
+              <UnplacedHeading t={t} />
+              {unplaced.map((item) => (
+                <Box key={item.key} ref={measure(item.key)}>
+                  {renderItem(item)}
+                </Box>
+              ))}
+            </Box>
+          ) : null}
 
-        {/* The content-coordinate layer, slid to viewport space by -scrollTop. */}
-        <Box
-          sx={{
-            position: 'absolute',
-            top: 0,
-            left: 0,
-            right: 0,
-            transform: `translateY(${String(-scrollTop)}px)`,
-          }}
-        >
           {placed.map((p) => {
             const item = byKey.get(p.id);
             if (item === undefined) return null;
@@ -357,11 +490,26 @@ export function CommentMargin({
               </Box>
             );
           })}
-        </Box>
-      </Box>
-
-      <MarginComposer committed={committed} t={t} />
+        </>
+      )}
     </Box>
+  );
+}
+
+/** The mono "UNPLACED" label above the unanchored group. */
+function UnplacedHeading({ t }: { t: Tokens }): ReactNode {
+  return (
+    <Typography
+      sx={{
+        fontFamily: t.mono,
+        fontSize: 9.5,
+        fontWeight: 700,
+        letterSpacing: '0.1em',
+        color: t.muted,
+      }}
+    >
+      UNPLACED
+    </Typography>
   );
 }
 
@@ -479,35 +627,67 @@ function StagedNoteCard({
 }
 
 /**
- * The composer, moved wholesale out of the deleted rail into the foot of the
- * margin. It owns the one thing the margin cards cannot: opening a NEW thread,
- * anchored (when a selection is armed) or free-form — as either a change request
- * or a question, staged locally until the next batch verb.
+ * The IN-PLACE draft card (Task 8b, founder correction #2).
  *
- * The `Ask` action that used to live here moved to Task 10's submit bar (Ruling
- * P17) — every review verb (Send back / Approve / Amend / Ask) now converges
- * through that one bar instead of scattering across the header, the gate, and
- * this composer.
+ * Arming a row's comment button used to focus a composer at the FOOT of the
+ * margin — a panel affordance: you typed in one place and the comment appeared
+ * in another. This card opens where the finished comment will live. It is a
+ * {@link MarginItem} like any other, so the same {@link stackCards} pass places
+ * it level with its row and pushes its neighbours down exactly as the staged
+ * card will once you press Comment.
+ *
+ * It owns the one thing the other margin cards cannot: opening a NEW thread —
+ * anchored (a row armed it) or free-form (the margin's ＋ affordance opened it)
+ * — as either a change request or a question. Comment STAGES it into
+ * `CommentContext`; nothing dispatches until the next batch verb.
+ *
+ * The `Ask` action that used to sit beside it moved to Task 10's submit bar
+ * (Ruling P17) — every review verb converges through that one bar.
  */
-function MarginComposer({
+function MarginDraftCard({
+  anchor,
   committed,
+  onCancel,
+  onStaged,
   t,
 }: {
+  /** The armed anchor this draft is filed against, or `null` for a free-form note. */
+  anchor: Anchor | null;
   committed: boolean;
+  /** Discard the draft and disarm the anchor. */
+  onCancel: () => void;
+  /**
+   * The draft was staged. `post` clears an ARMED anchor itself (which unmounts an
+   * anchored draft); this closes the free-form case, which has no anchor to clear.
+   */
+  onStaged: () => void;
   t: Tokens;
 }): ReactNode {
-  const { anchor, setAnchor, post, setDraftPending, enabled } = useComments();
+  const { post, setDraftPending } = useComments();
   const [draft, setDraft] = useState('');
   const [commentType, setCommentType] = useState<ReviewCommentType>('changeRequest');
   const [addressee, setAddressee] = useState<Exclude<ReviewCommentAddressee, ''>>('pm');
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
-  // UX-P1-3: CommentContext's re-anchor guard only engages while the composer
-  // holds unsent text — keep it in sync with the draft field.
+  // Google-Docs behaviour: the card opens ready to type. `preventScroll` because
+  // the card and the shared scroller now live in the SAME scroll container — a
+  // focus that scrolled would yank the reader off the row they just armed.
+  useEffect(() => {
+    inputRef.current?.focus({ preventScroll: true });
+  }, []);
+
+  // UX-P1-3: CommentContext's re-anchor guard only engages while a composer holds
+  // unsent text — keep it in sync, and clear it when the card goes away (cancel,
+  // stage, or the artifact changing underneath it).
   useEffect(() => {
     setDraftPending(draft.length > 0);
   }, [draft, setDraftPending]);
-
-  if (!enabled) return null;
+  useEffect(
+    () => (): void => {
+      setDraftPending(false);
+    },
+    [setDraftPending]
+  );
 
   const canSend = anchor !== null || draft.trim().length > 0;
   const submit = (): void => {
@@ -517,39 +697,28 @@ function MarginComposer({
       ...(commentType === 'question' ? { addressee } : {}),
     });
     setDraft('');
+    onStaged();
   };
 
   return (
-    <Box
+    <Paper
       data-testid={UI_IDENTIFIERS.Margin.COMPOSER}
-      sx={{ flexShrink: 0, p: 1.25, borderTop: `1.5px solid ${t.line}`, bgcolor: t.paperAlt }}
+      sx={{ p: 1.25, border: `1.5px solid ${t.accent}`, bgcolor: t.paper }}
     >
       {anchor !== null && (
-        <Box
-          sx={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 1,
-            mb: 1,
-            px: 1.25,
-            py: 0.75,
-            border: `1.5px solid ${t.accent}`,
-            borderRadius: 1.5,
-            bgcolor: t.chatArchitectBg,
-          }}
-        >
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1, minWidth: 0 }}>
           {anchor.kind === 'node' ? (
-            <AccountTreeOutlinedIcon sx={{ fontSize: 16, color: t.accent }} />
+            <AccountTreeOutlinedIcon sx={{ fontSize: 15, color: t.accent, flexShrink: 0 }} />
           ) : (
-            <FormatQuoteIcon sx={{ fontSize: 16, color: t.accent }} />
+            <FormatQuoteIcon sx={{ fontSize: 15, color: t.accent, flexShrink: 0 }} />
           )}
           <Box sx={{ flexGrow: 1, minWidth: 0 }}>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted }}>
+            <Typography sx={{ fontFamily: t.mono, fontSize: 9.5, color: t.muted }}>
               {anchor.source}
             </Typography>
             <Typography
               sx={{
-                fontSize: 12.5,
+                fontSize: 12,
                 color: t.ink,
                 overflow: 'hidden',
                 textOverflow: 'ellipsis',
@@ -559,16 +728,6 @@ function MarginComposer({
               {anchor.label}
             </Typography>
           </Box>
-          <IconButton
-            aria-label="clear armed anchor"
-            size="small"
-            sx={{ color: t.muted }}
-            onClick={() => {
-              setAnchor(null);
-            }}
-          >
-            <CloseIcon sx={{ fontSize: 14 }} />
-          </IconButton>
         </Box>
       )}
 
@@ -620,18 +779,18 @@ function MarginComposer({
 
       <Box
         sx={{
-          display: 'flex',
-          alignItems: 'center',
           border: `1.5px solid ${t.line}`,
           borderRadius: 1.5,
-          px: 1.5,
+          px: 1.25,
+          py: 0.25,
           bgcolor: t.paper,
         }}
       >
         <InputBase
           multiline
           data-testid={UI_IDENTIFIERS.Chat.INPUT}
-          maxRows={4}
+          inputRef={inputRef}
+          maxRows={8}
           placeholder={
             commentType === 'question'
               ? 'Ask a question…'
@@ -641,36 +800,54 @@ function MarginComposer({
                   ? 'Type feedback for an amendment…'
                   : 'Type feedback for a redraft…'
           }
-          sx={{ flexGrow: 1, fontSize: 13.5, py: 1, color: t.ink }}
+          sx={{ width: '100%', fontSize: 13.5, py: 0.5, color: t.ink }}
           value={draft}
           onChange={(e) => {
             setDraft(e.target.value);
           }}
           onKeyDown={(e) => {
+            if (e.key === 'Escape') {
+              e.preventDefault();
+              onCancel();
+              return;
+            }
             if (e.key === 'Enter' && !e.shiftKey) {
               e.preventDefault();
               submit();
             }
           }}
         />
-        <IconButton
-          aria-label="post comment"
+      </Box>
+
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 1, justifyContent: 'flex-end' }}>
+        <Button
+          size="small"
+          sx={{ color: t.muted, fontSize: 12, textTransform: 'none', minWidth: 0, px: 1 }}
+          onClick={onCancel}
+        >
+          Cancel
+        </Button>
+        <Button
           data-testid={UI_IDENTIFIERS.Chat.SEND}
           disabled={!canSend}
           size="small"
           sx={{
             bgcolor: t.accent,
             color: t.accentText,
-            ml: 1,
+            fontSize: 12,
+            fontWeight: 700,
+            textTransform: 'none',
+            minWidth: 0,
+            px: 1.5,
             '&:hover': { bgcolor: t.accent2 },
-            '&.Mui-disabled': { bgcolor: t.line },
+            '&.Mui-disabled': { bgcolor: t.line, color: t.muted },
           }}
           onClick={submit}
         >
-          <SendIcon sx={{ fontSize: 16 }} />
-        </IconButton>
+          Comment
+        </Button>
       </Box>
-    </Box>
+    </Paper>
   );
 }
 

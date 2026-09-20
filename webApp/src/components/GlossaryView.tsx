@@ -158,14 +158,27 @@ export function GlossaryView({
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden',
+        // fill: the card is part of the PAGE (the design experience scrolls the
+        // whole page, artifact and comment margin together — Task 8b), so it must
+        // not clip: `hidden` would make it a scroll container and its header could
+        // not stick to the page. Fixed-height mode (home base ArtifactPane) still
+        // clips, because there the card really is its own little viewport.
+        overflow: fill ? 'visible' : 'hidden',
         // fill: grow to the parent flex column's height (the parent owns the floor);
         // otherwise sit at the fixed pixel height (home base ArtifactPane).
         ...(fill ? { flexGrow: 1, minHeight: 0 } : { height }),
       }}
     >
-      {/* pinned header: search + category filter chips */}
-      <Box sx={{ p: 2, borderBottom: `1px solid ${t.line}`, flexShrink: 0 }}>
+      {/* pinned header: search + category filter chips. In fill mode it pins to the
+          PAGE's scrollport, so filtering 42 terms never means scrolling back up. */}
+      <Box
+        sx={{
+          p: 2,
+          borderBottom: `1px solid ${t.line}`,
+          flexShrink: 0,
+          ...(fill ? { position: 'sticky', top: 0, zIndex: 3, bgcolor: t.paper } : {}),
+        }}
+      >
         <TextField
           fullWidth
           inputRef={searchRef}

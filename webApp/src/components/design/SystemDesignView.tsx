@@ -13,12 +13,12 @@
  * Send back / Approve / Amend / Ask, sticky at the bottom of the scroll column).
  *
  * ── SPA-only optional surfaces ───────────────────────────────────────────────
- * `margin` is an opaque, pre-built ReactNode FACTORY (the SPA container wires its
- * own CommentMargin against CommentContext + review mutations); omitted,
- * ExperienceChrome renders no margin affordance at all. It takes the artifact's
- * scroll container, because that element is owned HERE (it is this screen's
- * layout) while the margin that measures anchors against it is built by the
- * container — a plain ReactNode could not carry it across that seam.
+ * `margin` is an opaque ReactNode FACTORY (the SPA container wires its own
+ * CommentMargin against CommentContext + review mutations); omitted,
+ * ExperienceChrome renders no margin affordance at all. It takes the SHARED
+ * scroll container that wraps this screen's content column and the margin
+ * together — owned by ExperienceChrome since Task 8b, and passed straight through
+ * from here; a plain ReactNode could not carry it across that seam.
  * `commentSurface` carries the minimal bit of
  * CommentContext state this pure screen itself needs (the local pending-comment
  * counts, split by type, that SubmitBar's `resolveSubmitVerb` picks a verb from,
@@ -28,10 +28,10 @@
  * tree — see CommentContext.useComments — so nested per-item commentable
  * affordances deep in ArtifactRenderer keep working via context regardless).
  * `onSubmitSelectionComment` is a forward-compat hook for Task 9's MCP
- * comment-submission flow; SelectionPopover only ARMS an anchor today (the actual
- * text composition happens in the margin's composer, which lives entirely inside
- * the opaque `margin` slot), so this screen does not yet wire it to anything —
- * Task 9 owns designing the MCP submit path.
+ * comment-submission flow; SelectionPopover only ARMS an anchor today (arming is
+ * what opens the margin's in-place draft card, which lives entirely inside the
+ * opaque `margin` slot), so this screen does not yet wire it to anything — Task 9
+ * owns designing the MCP submit path.
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -192,7 +192,11 @@ export interface SystemDesignViewProps {
    */
   allowEmptySendBack?: boolean;
   // ── SPA-only optional surfaces (see file header) ──────────────────────────
-  /** Builds the comment margin for this screen's scroll container. */
+  /**
+   * Builds the comment margin, given the SHARED scroll container that wraps this
+   * column and the margin together (owned by ExperienceChrome). Passed straight
+   * through — this screen never sees the element.
+   */
   margin?: ((scrollRoot: HTMLElement | null) => ReactNode) | undefined;
   marginOpen?: boolean | undefined;
   onOpenMargin?: (() => void) | undefined;
@@ -242,10 +246,10 @@ export function SystemDesignView({
   episodesSlot,
 }: SystemDesignViewProps): ReactNode {
   const t = useTokens();
-  // The artifact's scroll container, held as STATE (not a ref) so the margin
-  // re-renders the moment it exists: every anchor offset is measured against this
-  // element, and a ref mutation would not tell the margin it had arrived.
-  const [scrollRoot, setScrollRoot] = useState<HTMLElement | null>(null);
+  // The scroll container is NOT this screen's any more: ExperienceChrome owns the
+  // ONE scroller that wraps this column AND the margin (Task 8b), so `margin` goes
+  // through to the chrome as the factory it already was and the chrome feeds it
+  // the element.
   // The amend composer dialog's open state, lifted out of CommittedArtifactPanel
   // (RULING P6): Task 10's submit-bar Amend button sets this directly — no
   // imperative handle, no ref.
@@ -329,7 +333,7 @@ export function SystemDesignView({
   return (
     <ExperienceChrome
       commentSurface={commentSurface}
-      margin={margin?.(scrollRoot)}
+      margin={margin}
       marginOpen={marginOpen}
       phaseNum={1}
       phaseTitle="System Design"
@@ -339,18 +343,17 @@ export function SystemDesignView({
       onOpenMargin={onOpenMargin}
     >
       <Box
-        data-testid={UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL}
-        ref={setScrollRoot}
         sx={{
           flexGrow: 1,
           minWidth: 0,
           // A flex column so a fill-mode artifact card (the glossary) can grow to the
-          // bottom of this scroll area instead of sitting at a fixed height with dead
-          // space below it. minHeight:0 keeps overflowY:auto working when content is
-          // taller than the viewport. Prose/diagram bodies carry no flexGrow, so they
-          // stay at their natural height at the top — unchanged.
-          minHeight: 0,
-          overflowY: 'auto',
+          // bottom of the scroll viewport instead of sitting at a fixed height with
+          // dead space below it. Prose/diagram bodies carry no flexGrow, so they stay
+          // at their natural height at the top — unchanged.
+          //
+          // No scroll and no height of its own: ExperienceChrome's page box (which
+          // is at least a viewport tall) stretches this column, so the glossary's
+          // fill still works and a taller artifact still grows the page (Task 8b).
           display: 'flex',
           flexDirection: 'column',
           px: { xs: 2, md: 4 },

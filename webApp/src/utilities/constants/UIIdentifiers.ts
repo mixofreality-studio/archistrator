@@ -317,8 +317,14 @@ export const UI_IDENTIFIERS = {
   Margin: {
     ROOT: 'comment-margin',
     UNPLACED: 'comment-margin-unplaced',
-    // The composer card at the foot of the margin (armed-anchor chip + input).
+    // The IN-PLACE draft card (Task 8b): opened by arming a row (level with that
+    // row) or by ADD_NOTE (free-form, in the unplaced group). Carries the type
+    // toggle, the text field, Cancel and Comment. Replaces the foot composer this
+    // testid used to name — the id is kept so acceptance selectors still resolve.
     COMPOSER: 'comment-margin-composer',
+    // Opens a FREE-FORM (unanchored) draft card. The only composer affordance the
+    // margin owns itself, now that arming a row composes in place.
+    ADD_NOTE: 'comment-margin-add-note',
     card: (id: string) => `margin-card-${id}`,
     reply: (id: string) => `margin-reply-${id}`,
     resolve: (id: string) => `margin-resolve-${id}`,
