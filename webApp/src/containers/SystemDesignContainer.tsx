@@ -380,12 +380,10 @@ export function SystemDesignContainer({
   const margin = marginOpen
     ? (scrollRoot: HTMLElement | null): ReactNode => (
         <CommentMargin
-          askPending={askQuestionsMut.isPending}
           committed={spine[safeIndex]?.committed === true}
           scrollRoot={scrollRoot}
           statusPending={setCommentStatus.isPending}
           thread={reviewThread}
-          onAsk={askQuestions}
           onCollapse={() => {
             setMarginOpen(false);
           }}
@@ -394,6 +392,11 @@ export function SystemDesignContainer({
         />
       )
     : undefined;
+
+  // Split by type (Task 10): the submit bar's `resolveSubmitVerb` picks Send
+  // back/Amend vs. Ask from exactly this split, not a single merged count.
+  const questionCount = pendingQuestions().length;
+  const changeRequestCount = comments.length - questionCount;
 
   return (
     <StructureFindingsProvider findings={designHealth?.findings}>
@@ -404,8 +407,9 @@ export function SystemDesignContainer({
             acknowledgeStalePending={acknowledgeStale.isPending}
             activeIndex={safeIndex}
             amendPending={requestDraft.isPending}
+            askPending={askQuestionsMut.isPending}
             beginPending={startDesign.isPending || requestDraft.isPending}
-            commentSurface={{ enabled: commentsEnabled, commentCount: comments.length, setAnchor }}
+            commentSurface={{ enabled: commentsEnabled, changeRequestCount, questionCount, setAnchor }}
             decisionPending={submitReview.isPending}
             episodesSlot={
               <EpisodesPanelContainer
@@ -426,6 +430,7 @@ export function SystemDesignContainer({
             sessionMissing={sessionMissing}
             spine={spine}
             onAcknowledgeStale={onAcknowledgeStale}
+            onAsk={askQuestions}
             onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
             onOpenMargin={() => {
               setMarginOpen(true);

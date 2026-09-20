@@ -8,7 +8,9 @@
  *
  * Composition: ExperienceChrome (chrome + optional comment margin + SelectionPopover)
  * → SlimSpine (progress rail) → artifact header → StepBody (the active step's
- * content: research CTA / generating scene / committed panel / draft + gate).
+ * content: research CTA / generating scene / committed panel / draft + gate) →
+ * SubmitBar (Task 10 — the one surface every review verb converges through:
+ * Send back / Approve / Amend / Ask, sticky at the bottom of the scroll column).
  *
  * ── SPA-only optional surfaces ───────────────────────────────────────────────
  * `margin` is an opaque, pre-built ReactNode FACTORY (the SPA container wires its
@@ -19,7 +21,8 @@
  * container — a plain ReactNode could not carry it across that seam.
  * `commentSurface` carries the minimal bit of
  * CommentContext state this pure screen itself needs (the local pending-comment
- * count that gates "Send back", and the anchor-arming callback SelectionPopover
+ * counts, split by type, that SubmitBar's `resolveSubmitVerb` picks a verb from,
+ * and the anchor-arming callback SelectionPopover
  * uses); omitted, both default to "no local comment surface" (SelectionPopover
  * still falls back to ambient CommentContext when a Provider happens to wrap the
  * tree — see CommentContext.useComments — so nested per-item commentable
@@ -62,6 +65,7 @@ import { SlimSpine, type SpineStep } from './SlimSpine';
 import { GeneratingScene } from './GeneratingScene';
 import { DraftFailedPanel } from './DraftFailedPanel';
 import { GatePanel } from './GatePanel';
+import { SubmitBar } from './SubmitBar';
 import { CommittedArtifactPanel, CommittedChip } from './CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from './StaleBasisChip';
 import { ResearchInputPanel } from './ResearchInputPanel';
@@ -80,6 +84,11 @@ const PROSE_ARTIFACT_KINDS = new Set<string>(['mission']);
 
 /** Seed rationale for a reconcile-via-amendment fired from the stale banner (F45). */
 const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
+
+/** SubmitBar's Ask verb never resolves without a staged question — see
+ *  `resolveSubmitVerb` — so this stands in for `onAsk` wherever the container
+ *  hasn't wired one (MCP has no client-side comment accumulator to ask about). */
+const NOOP = (): void => undefined;
 
 // Floor height for a fill-mode artifact card (today only the glossary): the card
 // grows to fill the scroll area on a tall viewport, but never shrinks below this,
@@ -102,14 +111,20 @@ function proseSurface(kind: string | undefined, node: ReactNode): ReactNode {
 /**
  * The pure screen's own local comment-surface needs — deliberately a small
  * subset of CommentContext's `CommentCtx`, not the whole thing: the accumulated,
- * not-yet-sent comment count (gates GatePanel's "Send back") and the
+ * not-yet-sent comment counts (feed the submit bar's `resolveSubmitVerb`) and the
  * anchor-arming callback SelectionPopover commits into. SPA-only; the container
  * builds this from its own `useComments()` call (it renders inside
  * CommentProvider). Omitted in MCP.
  */
 export interface CommentSurfaceProps extends SelectionCommentSurface {
-  /** Count of accumulated, not-yet-sent comments this gate cycle. */
-  commentCount: number;
+  /**
+   * Counts of accumulated, not-yet-sent comments this gate cycle, split by type
+   * (Task 10): the submit bar picks Send back/Amend vs. Ask from exactly this
+   * split — a single merged count (the pre-Task-10 shape) could not tell a staged
+   * question from a staged change request.
+   */
+  changeRequestCount: number;
+  questionCount: number;
 }
 
 export interface SystemDesignViewProps {
@@ -161,10 +176,19 @@ export interface SystemDesignViewProps {
   acknowledgeStalePending: boolean;
   acknowledgeStaleError?: string | undefined;
   /**
-   * SPA default (false, unset): GatePanel's "Send back" stays gated on
-   * `commentSurface.commentCount > 0`. MCP (no client-side comment accumulator)
-   * passes `true` so the click is reachable — see GatePanel's own doc comment for
-   * why that doesn't weaken the "redraft always carries guidance" invariant.
+   * Submit the staged QUESTIONS without a redraft — the submit bar's Ask verb
+   * (Task 10). Omitted where asking is not wired (MCP has no client-side comment
+   * accumulator, so a staged question never exists there to ask about).
+   */
+  onAsk?: (() => void) | undefined;
+  /** The AskQuestions mutation is in flight — the submit bar's Ask action disables. */
+  askPending?: boolean;
+  /**
+   * SPA default (false, unset): the submit bar's Send back stays gated on
+   * `commentSurface.changeRequestCount > 0`. MCP (no client-side comment
+   * accumulator) passes `true` so the click is reachable — see SubmitBar's own
+   * doc comment for why that doesn't weaken the "redraft always carries
+   * guidance" invariant.
    */
   allowEmptySendBack?: boolean;
   // ── SPA-only optional surfaces (see file header) ──────────────────────────
@@ -208,6 +232,8 @@ export function SystemDesignView({
   onAcknowledgeStale,
   acknowledgeStalePending,
   acknowledgeStaleError,
+  onAsk,
+  askPending = false,
   allowEmptySendBack = false,
   margin,
   marginOpen,
@@ -253,7 +279,8 @@ export function SystemDesignView({
   const failureReason = view?.failureReason;
   const failureRunUrl = view?.failureRunUrl;
   const activeCommitted = spine[safeIndex]?.committed === true;
-  const commentCount = commentSurface?.commentCount ?? 0;
+  const stagedChangeRequests = commentSurface?.changeRequestCount ?? 0;
+  const stagedQuestions = commentSurface?.questionCount ?? 0;
 
   // Whether StepBody's committed-panel arm (below) is what renders: when it does,
   // the header renders CommittedChip instead of StageChip (Task 9 — the chip
@@ -268,6 +295,23 @@ export function SystemDesignView({
     (sessionMissing || stage === 'committed') &&
     activeCommitted &&
     committedEnvelope !== undefined;
+
+  // The submit bar (Task 10) mounts wherever GatePanel or the committed panel's
+  // Amend affordance would otherwise be the review surface: a draft under review
+  // (gateOpen), or a committed slot with nothing else showing. It renders nothing
+  // itself once mounted with nothing to do (see SubmitBar's own doc comment).
+  const gateOpen = stage === 'awaitingReview';
+  const showSubmitBar = gateOpen || showsCommittedPanel;
+  const submitStage: 'drafted' | 'awaitingReview' | 'other' = gateOpen ? 'awaitingReview' : 'other';
+  // Withdraw only applies while a draft sits under review — a clean committed
+  // slot (the OTHER case showSubmitBar mounts for) has no live session to
+  // withdraw. Named (not inline) so its return type is explicit regardless of
+  // the ternary around it.
+  const onWithdrawFromBar = gateOpen
+    ? (): void => {
+        onSubmitReview('withdraw');
+      }
+    : undefined;
 
   // F-GTD-12: while this artifact's own co-author session is LIVE (an amendment in
   // flight — a committed slot can only host an amendment), the ack would commit to
@@ -373,17 +417,14 @@ export function SystemDesignView({
         {/* body */}
         <StepBody
           activeKind={activeKind}
-          allowEmptySendBack={allowEmptySendBack}
           amendOpen={amendOpen}
           amendPending={amendPending}
           asyncFailed={asyncFailed}
           beginPending={beginPending}
           blurb={meta.blurb}
-          commentCount={commentCount}
           committed={activeCommitted}
           committedEnvelope={committedEnvelope}
           committedRevisions={committedRevisions}
-          decisionPending={decisionPending}
           draftFailed={draftFailed}
           failureReason={failureReason}
           failureRunUrl={failureRunUrl}
@@ -406,21 +447,44 @@ export function SystemDesignView({
           withdrawPending={decisionPending}
           onAmend={onRequestDraft}
           onAmendOpenChange={setAmendOpen}
-          onApprove={() => {
-            onSubmitReview('approve');
-          }}
           onBegin={() => {
             onRequestDraft(undefined);
           }}
           onRetry={onRetry}
-          onSendBack={() => {
-            onSubmitReview('reject');
-          }}
           onSubmitResearch={onSubmitResearch}
           onWithdraw={() => {
             onSubmitReview('withdraw');
           }}
         />
+
+        {/* The submit bar (Task 10): the one surface every review verb converges
+            through — Send back / Approve / Amend / Ask, replacing the header's old
+            Amend button, the gate's own action row, and the margin foot's Ask.
+            Sticky at the bottom of this scroll column. */}
+        {showSubmitBar ? (
+          <SubmitBar
+            allowEmptySendBack={allowEmptySendBack}
+            askPending={askPending}
+            committed={activeCommitted}
+            openThreads={openCommentCount}
+            pending={decisionPending}
+            stage={submitStage}
+            stagedChangeRequests={stagedChangeRequests}
+            stagedQuestions={stagedQuestions}
+            withdrawPending={decisionPending}
+            onAmend={() => {
+              setAmendOpen(true);
+            }}
+            onApprove={() => {
+              onSubmitReview('approve');
+            }}
+            onAsk={onAsk ?? NOOP}
+            onSendBack={() => {
+              onSubmitReview('reject');
+            }}
+            onWithdraw={onWithdrawFromBar}
+          />
+        ) : null}
 
         {/* SP1 capture-seam episodes panel — below the artifact renderer. */}
         {episodesSlot !== undefined && <Box sx={{ mt: 2, flexShrink: 0 }}>{episodesSlot}</Box>}
@@ -432,7 +496,6 @@ export function SystemDesignView({
 function StepBody({
   t,
   activeKind,
-  allowEmptySendBack,
   amendOpen,
   committed,
   committedEnvelope,
@@ -453,10 +516,8 @@ function StepBody({
   blurb,
   view,
   findings,
-  commentCount,
   openCommentCount,
   gateError,
-  decisionPending,
   beginPending,
   researchPending,
   retryPending,
@@ -465,15 +526,12 @@ function StepBody({
   onBegin,
   onRetry,
   onSubmitResearch,
-  onApprove,
-  onSendBack,
   onWithdraw,
   onAmend,
   onAmendOpenChange,
 }: {
   t: Tokens;
   activeKind: ArtifactKind;
-  allowEmptySendBack: boolean;
   /** The amend composer dialog's open state, lifted from CommittedArtifactPanel (RULING P6). */
   amendOpen: boolean;
   committed: boolean;
@@ -497,10 +555,8 @@ function StepBody({
   blurb: string;
   view: SessionStateResponse['view'] | undefined;
   findings: Finding[];
-  commentCount: number;
   openCommentCount: number;
   gateError: string | undefined;
-  decisionPending: boolean;
   beginPending: boolean;
   researchPending: boolean;
   retryPending: boolean;
@@ -509,8 +565,6 @@ function StepBody({
   onBegin: () => void;
   onRetry: () => void;
   onSubmitResearch: (research: ResearchInput) => void;
-  onApprove: () => void;
-  onSendBack: () => void;
   onWithdraw: () => void;
   onAmend: (feedback: string, onAccepted: () => void) => void;
   onAmendOpenChange: (open: boolean) => void;
@@ -730,16 +784,10 @@ function StepBody({
       ) : null}
       {gateOpen ? (
         <GatePanel
-          allowEmptySendBack={allowEmptySendBack}
-          commentCount={commentCount}
           critique={view?.critique}
           findings={findings}
           gateError={gateError}
           openCommentCount={openCommentCount}
-          pending={decisionPending}
-          onApprove={onApprove}
-          onSendBack={onSendBack}
-          onWithdraw={onWithdraw}
         />
       ) : null}
     </>

@@ -165,6 +165,16 @@ export const UI_IDENTIFIERS = {
     APPROVE_FAULT: 'approve-fault',
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
+    // The submit bar (Task 10, Ruling P5): the one surface every review verb
+    // (Send back / Approve / Amend / Ask) converges through, sticky at the bottom
+    // of the scroll column. Task 11 keys off the root id.
+    SUBMIT_BAR: 'submit-bar',
+    SUBMIT_BAR_PRIMARY: 'submit-bar-primary',
+    SUBMIT_BAR_CONSEQUENCE: 'submit-bar-consequence',
+    SUBMIT_BAR_MENU_BUTTON: 'submit-bar-menu-button',
+    SUBMIT_BAR_MENU: 'submit-bar-menu',
+    // A secondary (overflow) verb, keyed by its action ('withdraw' / 'retry').
+    submitBarMenuItem: (action: string) => `submit-bar-menu-item-${action}`,
   },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
@@ -287,17 +297,19 @@ export const UI_IDENTIFIERS = {
   // The comment COMPOSER, which moved out of the deleted ChatRail into the foot
   // of the margin. The ids keep their `chat-*` spelling so the existing uitests
   // selectors keep resolving; Task 11 renames them along with its own specs.
+  // `ASK` retired (Task 10, Ruling P17): the Ask verb moved out of the composer
+  // into the submit bar (DesignExperience.SUBMIT_BAR) — see submitBarMenuItem/
+  // SUBMIT_BAR_PRIMARY above.
   Chat: {
     RAIL: 'chat-rail',
     TOGGLE: 'chat-toggle',
     SEND: 'chat-send',
     INPUT: 'chat-input',
-    // Composer type/addressee pickers + the separate Ask send (question-comments).
+    // Composer type/addressee pickers (question-comments' addressee).
     TYPE_CHANGE_REQUEST: 'chat-type-change-request',
     TYPE_QUESTION: 'chat-type-question',
     ADDRESSEE_PM: 'chat-addressee-pm',
     ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
-    ASK: 'chat-ask',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
   },
   Margin: {

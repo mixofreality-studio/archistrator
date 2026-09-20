@@ -856,14 +856,16 @@ function ProjectStepBody({
       ) : null}
       {gateOpen ? (
         <GatePanel
-          commentCount={commentCount}
+          actions={{
+            commentCount,
+            pending: decisionPending,
+            onApprove,
+            onSendBack,
+            onWithdraw,
+          }}
           findings={findings}
           gateError={gateError}
           openCommentCount={openCommentCount}
-          pending={decisionPending}
-          onApprove={onApprove}
-          onSendBack={onSendBack}
-          onWithdraw={onWithdraw}
         />
       ) : null}
     </>

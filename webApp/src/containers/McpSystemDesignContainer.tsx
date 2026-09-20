@@ -397,7 +397,8 @@ export function McpSystemDesignContainer({
               beginPending={requestDraft.isPending}
               commentSurface={{
                 enabled: true,
-                commentCount: 0,
+                changeRequestCount: 0,
+                questionCount: 0,
                 setAnchor: (anchor) => {
                   if (anchor !== null) {
                     setComposer({ mode: 'comment', anchor });

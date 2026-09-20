@@ -40,7 +40,6 @@ import SendIcon from '@mui/icons-material/ArrowUpward';
 import PlaceIcon from '@mui/icons-material/Place';
 import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import AccountTreeOutlinedIcon from '@mui/icons-material/AccountTreeOutlined';
-import QuestionAnswerOutlinedIcon from '@mui/icons-material/QuestionAnswerOutlined';
 
 import { useComments } from '../comments/CommentContext';
 import { useAnchorOffsets, useScrollAnchorIntoView } from '../comments/AnchorRegistry';
@@ -96,11 +95,9 @@ export function CommentMargin({
   thread = EMPTY_THREAD,
   scrollRoot,
   statusPending = false,
-  askPending = false,
   committed = false,
   onResolve,
   onReopen,
-  onAsk,
   onCollapse,
 }: {
   /** The durable server review-ledger thread for the active slot. */
@@ -113,8 +110,6 @@ export function CommentMargin({
   scrollRoot: HTMLElement | null;
   /** A resolve/reopen mutation is in flight — the lifecycle buttons are disabled. */
   statusPending?: boolean;
-  /** An AskQuestions mutation is in flight — the Ask action is disabled. */
-  askPending?: boolean;
   /**
    * The active slot is COMMITTED, so staged notes ride the next Amend rather than
    * a gate "Send back". Copy-only; it changes no routing.
@@ -124,8 +119,6 @@ export function CommentMargin({
   onResolve?: ((id: string) => void) | undefined;
   /** Reopen a resolved thread. Omitted alongside {@link onResolve}. */
   onReopen?: ((id: string) => void) | undefined;
-  /** Submit the staged QUESTIONS without a redraft. Omitted where asking is not possible. */
-  onAsk?: (() => void) | undefined;
   /** Collapse the margin (narrow viewports open it again from the chrome header). */
   onCollapse: () => void;
 }): ReactNode {
@@ -367,7 +360,7 @@ export function CommentMargin({
         </Box>
       </Box>
 
-      <MarginComposer askPending={askPending} committed={committed} t={t} onAsk={onAsk} />
+      <MarginComposer committed={committed} t={t} />
     </Box>
   );
 }
@@ -487,24 +480,23 @@ function StagedNoteCard({
 
 /**
  * The composer, moved wholesale out of the deleted rail into the foot of the
- * margin. It still owns the one thing the margin cards cannot: opening a NEW
- * thread, anchored (when a selection is armed) or free-form.
+ * margin. It owns the one thing the margin cards cannot: opening a NEW thread,
+ * anchored (when a selection is armed) or free-form — as either a change request
+ * or a question, staged locally until the next batch verb.
  *
- * The `Ask` action stays here for now — Task 10's submit bar is where every
- * review verb finally converges, and it takes this button with it.
+ * The `Ask` action that used to live here moved to Task 10's submit bar (Ruling
+ * P17) — every review verb (Send back / Approve / Amend / Ask) now converges
+ * through that one bar instead of scattering across the header, the gate, and
+ * this composer.
  */
 function MarginComposer({
-  askPending,
   committed,
-  onAsk,
   t,
 }: {
-  askPending: boolean;
   committed: boolean;
-  onAsk?: (() => void) | undefined;
   t: Tokens;
 }): ReactNode {
-  const { anchor, setAnchor, post, pendingQuestions, setDraftPending, enabled } = useComments();
+  const { anchor, setAnchor, post, setDraftPending, enabled } = useComments();
   const [draft, setDraft] = useState('');
   const [commentType, setCommentType] = useState<ReviewCommentType>('changeRequest');
   const [addressee, setAddressee] = useState<Exclude<ReviewCommentAddressee, ''>>('pm');
@@ -517,7 +509,6 @@ function MarginComposer({
 
   if (!enabled) return null;
 
-  const pendingQuestionCount = pendingQuestions().length;
   const canSend = anchor !== null || draft.trim().length > 0;
   const submit = (): void => {
     if (!canSend) return;
@@ -679,29 +670,6 @@ function MarginComposer({
           <SendIcon sx={{ fontSize: 16 }} />
         </IconButton>
       </Box>
-
-      {onAsk !== undefined && pendingQuestionCount > 0 ? (
-        <Button
-          fullWidth
-          data-testid={UI_IDENTIFIERS.Chat.ASK}
-          disabled={askPending}
-          size="small"
-          startIcon={<QuestionAnswerOutlinedIcon sx={{ fontSize: 15 }} />}
-          sx={{
-            mt: 1,
-            color: t.accentText,
-            bgcolor: t.accent,
-            textTransform: 'none',
-            fontFamily: t.mono,
-            fontSize: 12,
-            '&:hover': { bgcolor: t.accent2 },
-          }}
-          variant="contained"
-          onClick={onAsk}
-        >
-          {`Ask ${String(pendingQuestionCount)} question${pendingQuestionCount === 1 ? '' : 's'} (no redraft)`}
-        </Button>
-      ) : null}
     </Box>
   );
 }
