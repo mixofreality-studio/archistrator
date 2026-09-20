@@ -16069,11 +16069,15 @@
             },
             "text": {
               "type": "string"
+            },
+            "replyTo": {
+              "type": "string"
             }
           },
           "required": [
             "jsonPath",
-            "text"
+            "text",
+            "replyTo"
           ],
           "additionalProperties": false
         },
@@ -17695,6 +17699,15 @@
             "response": {
               "type": "string"
             },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewCommentReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
               "x-go-name": "Type"
@@ -17711,9 +17724,35 @@
             "authorRole",
             "round",
             "status",
-            "response",
+            "replies",
+            "reopened",
             "type",
             "addressee"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewCommentReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
           ],
           "additionalProperties": false
         },
@@ -22361,12 +22400,16 @@
             },
             "anchorText": {
               "type": "string"
+            },
+            "replyTo": {
+              "type": "string"
             }
           },
           "required": [
             "jsonPath",
             "text",
-            "anchorText"
+            "anchorText",
+            "replyTo"
           ],
           "additionalProperties": false
         },
@@ -22681,6 +22724,31 @@
         "ProjectID": {
           "type": "string"
         },
+        "ReviewCommentReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
+          ],
+          "additionalProperties": false
+        },
         "ReviewCommentView": {
           "type": "object",
           "properties": {
@@ -22709,6 +22777,15 @@
             "response": {
               "type": "string"
             },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewCommentReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
               "x-go-name": "Type"
@@ -22725,7 +22802,8 @@
             "authorRole",
             "round",
             "status",
-            "response",
+            "replies",
+            "reopened",
             "type",
             "addressee"
           ],
@@ -25564,6 +25642,15 @@
             "response": {
               "type": "string"
             },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewCommentReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
               "x-go-name": "Type"
@@ -25580,9 +25667,35 @@
             "authorRole",
             "round",
             "status",
-            "response",
+            "replies",
+            "reopened",
             "type",
             "addressee"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewCommentReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
           ],
           "additionalProperties": false
         },
@@ -27681,12 +27794,16 @@
             },
             "anchorText": {
               "type": "string"
+            },
+            "replyTo": {
+              "type": "string"
             }
           },
           "required": [
             "jsonPath",
             "text",
-            "anchorText"
+            "anchorText",
+            "replyTo"
           ],
           "additionalProperties": false
         },
@@ -28928,6 +29045,31 @@
           ],
           "additionalProperties": false
         },
+        "ReviewCommentReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
+          ],
+          "additionalProperties": false
+        },
         "ReviewCommentView": {
           "type": "object",
           "properties": {
@@ -28956,6 +29098,15 @@
             "response": {
               "type": "string"
             },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewCommentReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
             "type": {
               "type": "string",
               "x-go-name": "Type"
@@ -28972,7 +29123,8 @@
             "authorRole",
             "round",
             "status",
-            "response",
+            "replies",
+            "reopened",
             "type",
             "addressee"
           ],
