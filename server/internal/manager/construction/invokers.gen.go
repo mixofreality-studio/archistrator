@@ -385,9 +385,9 @@ func (i genInvokers) DesignSessionRejectArtifactOnBranchWithComments(ctx workflo
 }
 
 // DesignSessionSeedReviewCommentsOnBranch invokes activity "designSessionAccess.seedReviewCommentsOnBranch".
-func (i genInvokers) DesignSessionSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
+func (i genInvokers) DesignSessionSeedReviewCommentsOnBranch(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
 	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.seedReviewCommentsOnBranch"), "designSessionAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.seedReviewCommentsOnBranch"), "designSessionAccess.seedReviewCommentsOnBranch", projectID, expectedVersion, branch, kind, round, comments, replies).Get(ctx, &out)
 	return out, err
 }
 

@@ -383,8 +383,8 @@ func (a *genActivities) DesignSessionRejectArtifactOnBranchWithComments(ctx cont
 
 // DesignSessionSeedReviewCommentsOnBranch wraps designSessionAccess.seedReviewCommentsOnBranch.
 // Registered as "designSessionAccess.seedReviewCommentsOnBranch".
-func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
-	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, genActivityIdempotencyKey(ctx))
+func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
+	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, replies, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

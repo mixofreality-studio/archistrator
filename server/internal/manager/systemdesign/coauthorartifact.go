@@ -3304,6 +3304,19 @@ func checkReplyTargets(known map[string]bool, incoming []AnchoredComment) error 
 	return nil
 }
 
+// checkNoReplyTo refuses a batch carrying ANY replyTo on an op that cannot route one into an
+// existing thread. Such an op has only one other option — convert the reply into a fresh
+// unanchored comment — and that silent detachment is precisely what replyTo exists to
+// prevent, so it fails loudly instead. reason names the op's own limitation.
+func checkNoReplyTo(reason string, incoming []AnchoredComment) error {
+	for _, c := range incoming {
+		if c.ReplyTo != "" {
+			return newError(fwmanager.ContractMisuse, reason+" (offending replyTo: "+c.ReplyTo+")")
+		}
+	}
+	return nil
+}
+
 // ledgerCommentIDs / viewCommentIDs collect the thread's entry ids from the durable and the
 // wire projection respectively — the two shapes checkReplyTargets is asked about.
 func ledgerCommentIDs(thread []projectstate.ReviewComment) map[string]bool {
@@ -3373,7 +3386,11 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 	}
 	branch := gf.readBackBranch()
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, branch, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), 0, comments)
+		// nil replies: an amendment's reopening feedback opens round-0 threads and cannot
+		// answer one. This seed runs BEFORE the first loadReviewThread of the session, so
+		// there is no thread to route a reply against — which is why RequestArtifactDraft
+		// refuses a replyTo at the door rather than letting one arrive here to be re-filed.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), 0, comments, nil)
 	})
 	if err != nil {
 		return
@@ -3402,7 +3419,22 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 // dispatch. Returns whether the seed durably landed, so the caller marks feedbackSeeded and
 // stops re-seeding. headVersion is a hint only — applyRecovering re-reads on a version conflict.
 func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *coAuthorState) bool {
-	comments := feedbackToLedgerComments(*feedback)
+	// SPLIT, NEVER RE-FILE (design §3.7). The retained feedback is the SAME batch the reject
+	// arm received, replies included, so converting it with anchoredToLedgerComments alone
+	// would drop every ReplyTo and seed the reviewer's "still vague" as a fresh unanchored
+	// comment — the exact detachment replyTo exists to prevent, one recovery path down. Split
+	// it against the last-known thread and hand both halves to the seed verb.
+	comments, replies, serr := splitIncomingComments(state.reviewThread, feedback.Comments,
+		workflow.Now(ctx).UTC().Format(time.RFC3339))
+	if serr != nil {
+		// A replyTo naming no thread in the last-known ledger. REFUSE the seed rather than
+		// re-file the reply as a new comment: the feedback stays in workflow memory (and in
+		// the failed gate's reason), the reviewer sees an un-seeded gate, and a Retry re-runs
+		// this against a freshly loaded thread. Silent detachment is the one outcome ruled out.
+		workflow.GetLogger(ctx).Error("review-ledger: failed-gate seed REFUSED — a queued reply names no thread in the last-known ledger; not re-filing it as a new comment",
+			"artifactKind", artifactKindString(in.ArtifactKind), "error", serr.Error())
+		return false
+	}
 	// Fold the free-text rationale (Notes) into an unanchored comment too — a memory-only
 	// failed-gate feedback (a PM-critique revise, a redraft signal) is Notes-only, so
 	// without this the durable seed is empty and the redraft agent loses the direction
@@ -3413,13 +3445,15 @@ func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInp
 			comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
 		}
 	}
-	if len(comments) == 0 {
+	// A replies-ONLY batch is still feedback worth seeding, so the emptiness test spans both
+	// halves (pre-feature executions carry no replies, so this reads exactly as before).
+	if len(comments) == 0 && len(replies) == 0 {
 		return false
 	}
 	branch := gf.readBackBranch()
 	round := int64(*reviewRound)
 	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments)
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments, replies)
 	}); err != nil {
 		return false
 	}

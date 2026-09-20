@@ -121,7 +121,7 @@ type FakeDesignSessionAccess struct {
 	WithdrawArtifactOnBranchFn           func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	ReconcileBranchFromMainFn            func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 	SetReviewCommentStatusOnBranchFn     func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
-	SeedReviewCommentsOnBranchFn         func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
+	SeedReviewCommentsOnBranchFn         func(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error)
 }
 
 func (f *FakeDesignSessionAccess) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.ProjectEnvelope, error) {
@@ -173,11 +173,11 @@ func (f *FakeDesignSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context
 	return f.SetReviewCommentStatusOnBranchFn(rc, projectID, expectedVersion, branch, kind, commentID, status, idempotencyKey)
 }
 
-func (f *FakeDesignSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *FakeDesignSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, idempotencyKey fwra.IdempotencyKey) (projectstate.Version, error) {
 	if f.SeedReviewCommentsOnBranchFn == nil {
 		panic("FakeDesignSessionAccess.SeedReviewCommentsOnBranchFn not set")
 	}
-	return f.SeedReviewCommentsOnBranchFn(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
+	return f.SeedReviewCommentsOnBranchFn(rc, projectID, expectedVersion, branch, kind, round, comments, replies, idempotencyKey)
 }
 
 var _ projectstate.DesignSessionAccess = (*FakeDesignSessionAccess)(nil)

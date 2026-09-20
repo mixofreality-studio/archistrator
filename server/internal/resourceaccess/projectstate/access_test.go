@@ -1595,7 +1595,7 @@ func (s *stubProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ Proj
 	return 31, nil
 }
 
-func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "SeedReviewCommentsOnBranch")
 	return 32, nil
 }
@@ -1795,7 +1795,7 @@ func TestDesignSessionAccess_SetReviewCommentStatusOnBranch_DelegatesToBase(t *t
 func TestDesignSessionAccess_SeedReviewCommentsOnBranch_DelegatesToBase(t *testing.T) {
 	base := &stubProjectState{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.SeedReviewCommentsOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, 0, nil, "idem-1")
+	v, err := s.SeedReviewCommentsOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, 0, nil, nil, "idem-1")
 	if err != nil {
 		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
 	}
@@ -2638,7 +2638,7 @@ func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	comments := []ReviewComment{{Anchor: "$.vision", AnchorText: "v", Text: "the reopening reason", AuthorRole: "architect"}}
-	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", KindMission, 0, comments, cred, "wf:seed"); err != nil {
+	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", KindMission, 0, comments, nil, cred, "wf:seed"); err != nil {
 		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)

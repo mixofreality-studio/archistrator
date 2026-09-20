@@ -341,8 +341,13 @@ func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID Proje
 // any status change (F38 amendments). At an amendment session's start the reopening feedback
 // is seeded here as round-0 open entries — the "why" the drafting agent must address and the
 // reviewer tracks — on the SAME session branch the draft was staged on. It reuses the same
-// deterministic, idempotent append as the reject path (appendReviewComments dedups on id).
-func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// deterministic, idempotent append as the reject path (ApplyReviewBatch).
+//
+// replies carries the QUEUED-REPLIES half of the same feedback (design §3.7), for the callers
+// that recover a memory-only reject: the reviewer's "still vague" belongs in the thread it was
+// written against, and a seed that could only mint fresh comments would re-file it as a new,
+// unanchored one — the very detachment replyTo exists to prevent.
+func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		slot, ok := slotPtr(p, kind)
 		if !ok {
@@ -351,7 +356,11 @@ func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID Pro
 		if slot.Status == ReviewNone || slot.Model == nil {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: slot %s is unpopulated (stage a model first)", kind))
 		}
-		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
 		return nil
 	})
 }
@@ -1844,13 +1853,13 @@ func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Cont
 
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
 // status change). The cred is minted just-in-time, exactly like the other ledger verbs.
-func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, cred, idempotencyKey)
+	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, replies, cred, idempotencyKey)
 }
 
 // SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
@@ -3114,7 +3123,7 @@ type designSessionBase interface {
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
@@ -3238,8 +3247,8 @@ func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, pr
 
 // SeedReviewCommentsOnBranch appends the F38 amendment reopening feedback as OPEN
 // ledger entries (no status change). Forwards straight to base.
-func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
+func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, replies, idempotencyKey)
 }
 
 // envelope.go is the ONE Manager-Temporal-boundary wire codec for the sealed

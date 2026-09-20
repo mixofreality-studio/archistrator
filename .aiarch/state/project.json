@@ -18137,6 +18137,15 @@
                 }
               },
               {
+                "name": "replies",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewReply"
+                  }
+                }
+              },
+              {
                 "name": "idempotencyKey",
                 "schema": {
                   "x-go-type": "fwra.IdempotencyKey"

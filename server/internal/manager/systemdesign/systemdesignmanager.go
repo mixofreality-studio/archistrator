@@ -265,6 +265,15 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
 		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
 	}
+	// A re-request/amendment SEEDS round-0 threads before the session has loaded any thread
+	// at all (seedAmendmentLedger runs ahead of the first loadReviewThread), so there is
+	// nothing here for a replyTo to name. Refuse it rather than let it reach a seed that
+	// could only re-file it as a fresh comment (design §3.7).
+	if feedback != nil {
+		if perr := checkNoReplyTo("replyTo is not supported on requestArtifactDraft — it opens a new round of threads; file a reply against an existing thread through submitReviewDecision at the review gate", feedback.Comments); perr != nil {
+			return "", perr
+		}
+	}
 
 	// Spine-ordering gate. The Phase-1 spine is strictly ordered
 	// (mission → glossary → scrubbedRequirements → volatilities → coreUseCases →
@@ -1857,6 +1866,12 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	default:
 		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
 	}
+	// A question OPENS a thread by definition — questionsToLedger mints a fresh round of
+	// entries and the answer job answers them by those ids. A replyTo has no meaning here and
+	// would be silently dropped, so refuse it (design §3.7).
+	if perr := checkNoReplyTo("replyTo is not supported on askQuestions — a question opens its own thread; reply to an existing thread at the review gate instead", questions); perr != nil {
+		return perr
+	}
 	qs := questionsToLedger(addressee, questions)
 	if len(qs) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
@@ -1886,7 +1901,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, nil, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail

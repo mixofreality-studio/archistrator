@@ -210,6 +210,13 @@ func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projec
 	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
 		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
 	}
+	// RULING P13: refuse a queued reply rather than let the amendment seed re-file it as a
+	// new round-0 thread. See checkNoReplyTo.
+	if feedback != nil {
+		if perr := checkNoReplyTo(feedback.Comments); perr != nil {
+			return "", perr
+		}
+	}
 
 	// Spine-ordering gate (Phase-2 twin of the systemdesign Manager). A Phase-2 kind
 	// may only be drafted once its immediate predecessor in the Phase-2 sequence is
@@ -465,6 +472,13 @@ func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID
 	default:
 		return newError(fwmanager.ContractMisuse, "unknown SDP decision")
 	}
+	// RULING P13: the SDP reject path lands through the same comment-less ledger verb, so a
+	// replyTo here would be dropped outright. See checkNoReplyTo.
+	if feedback != nil {
+		if perr := checkNoReplyTo(feedback.Comments); perr != nil {
+			return perr
+		}
+	}
 
 	wfID := sdpReviewWorkflowID(projectID)
 	// PM-P2-4: capture the acting identity for the SdpReview commit's approvedBy provenance.
@@ -481,25 +495,8 @@ func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID
 // Phase-2 kind other than the SDP review.
 func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
 	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase2(kind) || kind == KindSdpReview {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
-	}
-	switch decision {
-	case ReviewApprove, ReviewWithdraw:
-		// ok
-	case ReviewReject:
-		if feedback == nil || feedback.Notes == "" {
-			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
-		}
-	case ReviewDecisionUnknown:
-		// The zero value: a caller that forgot to set Decision, not a legitimate
-		// review outcome. Reject explicitly rather than falling through silently.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	default:
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	if err := validateReviewDecisionArgs(projectID, kind, decision, feedback); err != nil {
+		return err
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -632,6 +629,56 @@ func (m *projectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, proj
 	sig := setCommentStatusSignal{CommentID: commentID, Status: status}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, sig); err != nil {
 		return mapSignalError(err)
+	}
+	return nil
+}
+
+// validateReviewDecisionArgs is SubmitReviewDecision's pure ARGUMENT gate, split out from the
+// op body (which reads as the review FLOW): the identifiers are well-formed, the kind belongs
+// to the co-authored Phase-2 set, the decision is one the op can act on — with Reject
+// additionally requiring the feedback it exists to carry — and no comment in that feedback
+// carries a replyTo this Manager cannot route (ruling P13; see checkNoReplyTo). Every check
+// here needs nothing but its arguments, so all of them refuse BEFORE the session query rather
+// than after a pointless round-trip. Mirrors the systemdesign twin.
+func validateReviewDecisionArgs(projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if !artifactKindIsPhase2(kind) || kind == KindSdpReview {
+		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
+	}
+	switch decision {
+	case ReviewApprove, ReviewWithdraw:
+		// ok
+	case ReviewReject:
+		if feedback == nil || feedback.Notes == "" {
+			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
+		}
+	case ReviewDecisionUnknown:
+		// The zero value: a caller that forgot to set Decision, not a legitimate
+		// review outcome. Reject explicitly rather than falling through silently.
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	default:
+		return newError(fwmanager.ContractMisuse, "unknown review decision")
+	}
+	if feedback != nil {
+		return checkNoReplyTo(feedback.Comments)
+	}
+	return nil
+}
+
+// checkNoReplyTo refuses a batch carrying ANY replyTo (CONTROLLER RULING P13). Phase-2 reply
+// ROUTING is a Stage-2 deliverable: neither this Manager nor its co-author workflow can append
+// an utterance into an existing thread, so a replyTo that arrived here could only be converted
+// into a fresh unanchored comment — silently detaching the reply from the conversation it
+// answers, which is the exact loss design §3.7 exists to prevent. Until Stage 2 routes it,
+// refuse loudly: an obvious ContractMisuse beats a silent corruption of the ledger.
+func checkNoReplyTo(incoming []AnchoredComment) error {
+	for _, c := range incoming {
+		if c.ReplyTo != "" {
+			return newError(fwmanager.ContractMisuse,
+				"replyTo is not supported on Phase-2 (project design) yet — threaded replies are a Stage-2 deliverable; until then a Phase-2 comment can only open a new thread (offending replyTo: "+c.ReplyTo+")")
+		}
 	}
 	return nil
 }
@@ -1602,6 +1649,11 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 	default:
 		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
 	}
+	// RULING P13 + design §3.7: a question OPENS its own thread, so a replyTo has no meaning
+	// here and questionsToLedger would drop it. See checkNoReplyTo.
+	if perr := checkNoReplyTo(questions); perr != nil {
+		return perr
+	}
 	qs := questionsToLedger(addressee, questions)
 	if len(qs) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
@@ -1626,7 +1678,7 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, nil, key)
 		if err == nil {
 			minted := make([]projectstate.ReviewComment, len(qs))
 			for i := range qs {

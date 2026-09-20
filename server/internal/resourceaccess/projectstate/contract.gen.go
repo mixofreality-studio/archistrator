@@ -969,7 +969,7 @@ type DesignSessionAccess interface {
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // GitActivityStatusAccess is the generated service-contract interface for this component.

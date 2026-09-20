@@ -1133,7 +1133,7 @@ func (f *renderFakeProjectState) SetReviewCommentStatusOnBranch(fwra.Context, pr
 	panic("renderFakeProjectState.SetReviewCommentStatusOnBranch must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("renderFakeProjectState.SeedReviewCommentsOnBranch must not be called by these façade-precondition tests")
 }
 
@@ -1257,6 +1257,15 @@ func (f *fakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID)
 		return projectstate.Project{}, fwra.New(fwra.NotFound, "no row yet")
 	}
 	return f.project, nil
+}
+
+// committedCount reports how many artifacts have committed so far, under fakeProjectState's
+// OWN mutex — branchAwareFakeProjectState carries a second mutex that shadows this one by
+// embedding depth, so a caller reaching through the embedding must not lock "f.mu".
+func (f *fakeProjectState) committedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.committed)
 }
 
 func (f *fakeProjectState) ReadProjectVersion(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Version, error) {
@@ -1423,7 +1432,7 @@ func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ proj
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -4031,6 +4040,49 @@ func TestBulkResolveAnsweredOnApprove(t *testing.T) {
 	}
 }
 
+// THE DOORS THAT CANNOT ROUTE A REPLY MUST REFUSE ONE (design §3.7). Only the review gate
+// has a loaded thread to route a replyTo against. requestArtifactDraft seeds round-0 threads
+// BEFORE the session has loaded any thread, and askQuestions opens a thread by definition —
+// so each could only convert a reply into a fresh unanchored comment, silently detaching it.
+// Both refuse instead, before touching Temporal or the project state (the nil client proves
+// it: falling through would panic).
+func Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	reply := []AnchoredComment{{Text: "still vague", ReplyTo: "r1c1"}}
+
+	cases := []struct {
+		name string
+		call func(m *systemDesignManager) error
+	}{
+		{"requestArtifactDraft", func(m *systemDesignManager) error {
+			_, err := m.RequestArtifactDraft(bgRC(), id, KindMission, &ReviewFeedback{Notes: "rework", Comments: reply})
+			return err
+		}},
+		{"askQuestions", func(m *systemDesignManager) error {
+			return m.AskQuestions(bgRC(), id, KindMission, projectstate.ReviewAddresseePM, reply)
+		}},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &systemDesignManager{}
+			err := tc.call(m)
+			if err == nil {
+				t.Fatalf("%s must refuse a replyTo it cannot route", tc.name)
+			}
+			if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
+				t.Fatalf("%s must refuse with ContractMisuse, got kind %d (%v)", tc.name, got, err)
+			}
+			if !strings.Contains(err.Error(), "replyTo") || !strings.Contains(err.Error(), "r1c1") {
+				t.Fatalf("%s's refusal must name replyTo and the offending id, got %q", tc.name, err.Error())
+			}
+		})
+	}
+	// Scoped to replyTo: an ordinary anchored comment still passes both doors' guard.
+	if err := checkNoReplyTo("unused", []AnchoredComment{{JSONPath: "$.objectives[0]", Text: "tighten this"}}); err != nil {
+		t.Fatalf("a comment with no replyTo must pass the guard, got %v", err)
+	}
+}
+
 // RULING P2: the Manager only SPLITS a submitted batch into (replies to existing threads,
 // fresh comments); the RA owns BOTH appends, so utterance-id minting and the reopen-bit rule
 // live in exactly one layer. This test therefore drives the split and then replays it through
@@ -4347,7 +4399,7 @@ func (f *fakeProjectStateAccess) RejectArtifactOnBranchWithComments(_ fwra.Conte
 func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
-func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -7614,13 +7666,39 @@ type ledgerFakeProjectState struct {
 	// is the number of dispatches already submitted when the i-th seed fired).
 	pipe            *fakePipeline
 	seededAtSubmits []int
+	// seededReplies records the QUEUED-REPLIES half of each seed (design §3.7), so a test can
+	// prove a reply stayed a reply instead of being re-filed as a fresh comment.
+	seededReplies [][]projectstate.ReviewReply
+	// existingThread, when set, is stamped onto the SystemDesign slot's ReviewThread by every
+	// read, so the workflow's in-memory state.reviewThread carries threads a queued reply can
+	// legitimately name.
+	existingThread []projectstate.ReviewComment
+	// statusApplied / statusAtCommits record each SetReviewCommentStatus apply and how many
+	// commits had landed when it fired — the drain-order evidence for the approve burst.
+	statusApplied   []string
+	statusAtCommits []int
+}
+
+// ReadProjectOnBranch stamps existingThread onto the SystemDesign slot so loadReviewThread
+// populates the workflow's in-memory thread. Branch-independent on purpose: the review
+// ledger is read from whichever substrate the session is on.
+func (f *ledgerFakeProjectState) ReadProjectOnBranch(rc fwra.Context, projectID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+	proj, err := f.branchAwareFakeProjectState.ReadProjectOnBranch(rc, projectID, branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	if len(f.existingThread) > 0 {
+		proj.SystemDesign.ReviewThread = append([]projectstate.ReviewComment(nil), f.existingThread...)
+	}
+	return proj, nil
 }
 
 var _ projectstate.ProjectStateAccess = (*ledgerFakeProjectState)(nil)
 
-func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.seededRounds = append(f.seededRounds, round)
 	f.seededComments = append(f.seededComments, comments)
+	f.seededReplies = append(f.seededReplies, replies)
 	if f.pipe != nil {
 		f.seededAtSubmits = append(f.seededAtSubmits, f.pipe.submitCount())
 	}
@@ -7631,7 +7709,9 @@ func (f *ledgerFakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Cont
 	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
 }
 
-func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, _ string, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerFakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, commentID string, status string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.statusApplied = append(f.statusApplied, commentID+"="+status)
+	f.statusAtCommits = append(f.statusAtCommits, f.committedCount())
 	return expectedVersion, nil
 }
 
@@ -7856,6 +7936,181 @@ func Test_CoAuthor_RailEnabled_FailedGateRetry_SeedsRetainedFeedbackToLedger_Bef
 	// dispatch (which brings the count to 2).
 	if len(ps.seededAtSubmits) != 1 || ps.seededAtSubmits[0] != 1 {
 		t.Fatalf("the ledger seed must land BEFORE the redraft dispatch (want 1 prior dispatch at seed time), got %v", ps.seededAtSubmits)
+	}
+}
+
+// FINDING 1 — A QUEUED REPLY MUST SURVIVE THE FAULTED-REJECT RECOVERY PATH.
+// The reject arm retains the architect's whole batch (replies included) in workflow MEMORY
+// before it writes. When that write FAULTS, the session lands at the failed gate un-seeded,
+// and the pre-dispatch failed-gate seed is what finally puts the feedback in the ledger.
+// That seed used to convert the batch with anchoredToLedgerComments alone, which IGNORES
+// ReplyTo — so the reviewer's reply was silently re-filed as a fresh unanchored comment,
+// detached from the thread it answered. The seed now SPLITS the batch exactly as the reject
+// path does: the reply lands as an utterance on r1c1, the unaddressed comment opens a thread.
+func Test_CoAuthor_FaultedReject_FailedGateSeed_KeepsQueuedReplyAsReply(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline()
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{
+			fakeProjectState:   base,
+			failRejectOnBranch: true, // the reject write faults → failed gate, feedback un-seeded
+		},
+		pipe: pipe,
+		// The thread the reviewer is replying INTO, as the session branch serves it.
+		existingThread: []projectstate.ReviewComment{{
+			ID: "r1c1", Text: "Component 1 is vague", Status: projectstate.ReviewCommentAnswered,
+			Replies: []projectstate.ReviewCommentReply{{ID: "r1c1-u1", AuthorRole: "architect", Text: "Renamed it.", At: "2026-09-19T00:00:00Z"}},
+		}},
+	}
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	const (
+		replyText = "Still vague"
+		freshText = "and component 2 overlaps it"
+	)
+	batch := func() *ReviewFeedback {
+		return &ReviewFeedback{
+			Notes: "another pass please",
+			Comments: []AnchoredComment{
+				{Text: replyText, ReplyTo: "r1c1"},
+				{JSONPath: "$.components[1].name", Text: freshText},
+			},
+		}
+	}
+
+	// t=30s: at AwaitingReview, reject with the mixed batch — the write FAULTS (failed gate).
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: batch()})
+	}, 30*time.Second)
+	// t=70s: Retry-via-Reject at the failed gate carrying the same batch → the pre-dispatch
+	// failed-gate seed is the ONLY thing that can get this feedback into the ledger.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: batch()})
+	}, 70*time.Second)
+	// t=130s: end the session cleanly.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 130*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the faulted-reject recovery must not crash the workflow: %v", err)
+	}
+	if len(ps.seededReplies) != 1 {
+		t.Fatalf("the retained feedback must seed exactly once, got %d seeds", len(ps.seededReplies))
+	}
+	// THE FIX: the reply is a REPLY on r1c1, authored by the human reviewer role.
+	replies := ps.seededReplies[0]
+	if len(replies) != 1 {
+		t.Fatalf("the queued reply must ride the seed as a reply, got %v", replies)
+	}
+	if replies[0].CommentID != "r1c1" || replies[0].Text != replyText || replies[0].AuthorRole != reviewerUtteranceRole {
+		t.Fatalf("the reply must target r1c1 as the reviewer, got %+v", replies[0])
+	}
+	// THE REGRESSION GUARD: it must NOT also appear as a fresh comment. Pre-fix it appeared
+	// here and nowhere else.
+	for _, c := range ps.seededComments[0] {
+		if c.Text == replyText {
+			t.Fatalf("the reply was RE-FILED as a fresh comment — the exact detachment replyTo prevents: %+v", c)
+		}
+	}
+	// The unaddressed comment still opens its own thread, and the Notes rationale still rides.
+	var sawFresh, sawNotes bool
+	for _, c := range ps.seededComments[0] {
+		switch c.Text {
+		case freshText:
+			sawFresh = true
+		case "another pass please":
+			sawNotes = true
+		}
+	}
+	if !sawFresh || !sawNotes {
+		t.Fatalf("the fresh comment and the Notes rationale must still seed, got %v", ps.seededComments[0])
+	}
+}
+
+// FINDING 2 — THE APPROVE BURST MUST DRAIN BEFORE THE COMMIT.
+// SubmitReviewDecision issues N resolve signals and then the decision, back to back. A
+// Temporal Selector with several ready channels picks the FIRST REGISTERED, and a burst of
+// signals routinely lands in ONE workflow task — so with the decision registered first the
+// workflow would commit and end with every resolve still unread, silently dropping the
+// bulk-resolve. awaitReviewGate registers the status channel first and each status apply
+// re-suspends at the same gate, so the burst drains completely before the decision is taken.
+// Signalling all four from ONE delayed callback reproduces the single-task burst exactly.
+//
+// GetVersion COVERAGE: the testsuite always resolves a FRESH execution's GetVersion to
+// maxSupported, and exposes no API to pin DefaultVersion for a new run, so only the v1
+// (status-first) branch is reachable here. The DefaultVersion branch exists purely to keep
+// an already-suspended pre-deploy session replay-deterministic; it is unreachable by any
+// execution started after the deploy, and cannot be exercised by this suite.
+func Test_CoAuthor_ApproveBurst_GateDrainsEveryResolveBeforeCommit(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	pipe := newFakePipeline()
+	ps := &ledgerFakeProjectState{
+		branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base},
+		pipe:                        pipe,
+		// Three ANSWERED threads — the bulk-resolve set. None is an open change-request, so
+		// the approve gate's own blocker check passes.
+		existingThread: []projectstate.ReviewComment{
+			{ID: "r1c1", Status: projectstate.ReviewCommentAnswered},
+			{ID: "r1c2", Status: projectstate.ReviewCommentAnswered},
+			{ID: "r1c3", Status: projectstate.ReviewCommentAnswered},
+		},
+	}
+	rail := &fakeRail{checkGreen: true}
+	wf := newRailWorkflows(rail)
+	registerRailCoAuthor(env, wf, ps, pipe)
+
+	// ONE callback = one workflow task carrying all four signals, exactly as the manager's
+	// back-to-back SignalWorkflow calls deliver them.
+	env.RegisterDelayedCallback(func() {
+		for _, cid := range []string{"r1c1", "r1c2", "r1c3"} {
+			env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{CommentID: cid, Status: projectstate.ReviewCommentResolved})
+		}
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the approve burst must not crash the workflow: %v", err)
+	}
+	var outcome coAuthorOutcome
+	if err := env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("the burst must still approve, got outcome %d", outcome)
+	}
+	// Every resolve was APPLIED — none was left unread in its channel when the gate returned.
+	want := []string{"r1c1=resolved", "r1c2=resolved", "r1c3=resolved"}
+	if len(ps.statusApplied) != len(want) {
+		t.Fatalf("the gate must drain every queued resolve, want %v, got %v", want, ps.statusApplied)
+	}
+	for i := range want {
+		if ps.statusApplied[i] != want[i] {
+			t.Fatalf("resolve %d = %q, want %q (full order %v)", i, ps.statusApplied[i], want[i], ps.statusApplied)
+		}
+	}
+	// And every one of them landed BEFORE the commit (zero commits had happened at each apply).
+	for i, n := range ps.statusAtCommits {
+		if n != 0 {
+			t.Fatalf("resolve %d applied AFTER %d commit(s) — the burst did not drain before the commit (%v)", i, n, ps.statusAtCommits)
+		}
+	}
+	if len(base.committed) != 1 {
+		t.Fatalf("the approve must commit exactly once, got %v", base.committed)
 	}
 }
 
@@ -8955,7 +9210,7 @@ func (f *setResearchFakeState) SetReviewCommentStatusOnBranch(fwra.Context, proj
 	panic("setResearchFakeState.SetReviewCommentStatusOnBranch must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
 	panic("setResearchFakeState.SeedReviewCommentsOnBranch must not be called by SetResearchInput")
 }
 

@@ -894,8 +894,10 @@ func (wf *workflows) coAuthorApplyDecision(
 			// lands on main exactly as before.
 			// The trailing nil is the QUEUED-REPLIES half of the batch (design §3.7), which
 			// Phase 2 does not route yet: the margin's reply box reaches Phase 2 only in
-			// Stage 2, so no AnchoredComment here can carry a replyTo. Every submitted
-			// comment is therefore a fresh thread, exactly as before.
+			// Stage 2. No AnchoredComment here CAN carry a replyTo, because
+			// SubmitReviewDecision refuses one outright (checkNoReplyTo, ruling P13) rather
+			// than let feedbackToLedgerComments drop it and re-file the reply as a new
+			// thread. Every submitted comment is therefore a fresh thread, exactly as before.
 			return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), notes, int64(*reviewRound), feedbackToLedgerComments(sig.Feedback), nil)
 		})
 		if err != nil {
@@ -2206,7 +2208,10 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), 0, comments)
+		// nil replies: Phase-2 reply ROUTING is a Stage-2 deliverable, and no replyTo can
+		// reach this seed — the Manager ops refuse one at the door (checkNoReplyTo,
+		// ruling P13) rather than let it be silently re-filed as a fresh thread.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), 0, comments, nil)
 	})
 	if err != nil {
 		return
@@ -2253,7 +2258,10 @@ func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInp
 	branch := gf.readBackBranch()
 	round := int64(*reviewRound)
 	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments)
+		// nil replies: Phase-2 reply ROUTING is a Stage-2 deliverable, and no replyTo can
+		// reach this seed — the Manager ops refuse one at the door (checkNoReplyTo,
+		// ruling P13) rather than let it be silently re-filed as a fresh thread.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments, nil)
 	}); err != nil {
 		return false
 	}
