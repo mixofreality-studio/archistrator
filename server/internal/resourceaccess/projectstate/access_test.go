@@ -7764,15 +7764,25 @@ func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
 	}
 }
 
-// TestCreateProject_DefaultsReviewPolicyToVibesPreset pins the Task 7 default: a
+// TestCreateProject_LeavesReviewPolicyPresetUnset pins the corrected birth default: a
 // FRESH project (the "project.json is first materialized" path — CreateProject's
-// modeCreateOnly branch, the one path init-vs-first-materialization judgment call
-// picked, see docs/superpowers/sdd/task-7-report.md) is born with ReviewPolicy.Preset
-// explicitly "vibes". This is behavior-PRESERVING for every existing caller: an empty
-// GatedPhasesByType map already gated nothing (RequiresHuman's zero-value "pure
-// vibes"), so making the default explicit changes no dispatch decision — it only gives
-// the local-first funnel (and any future preset UI) a real value to read/upgrade.
-func TestCreateProject_DefaultsReviewPolicyToVibesPreset(t *testing.T) {
+// modeCreateOnly branch) is born with ReviewPolicy.Preset UNSET (nil, the
+// legacy/explicit mode), NOT "vibes".
+//
+// This REPLACES the Task 7 pin (2026-07-19), whose stated rationale — "behavior-
+// preserving, an empty GatedPhasesByType already gated nothing, so the explicit
+// default changes no dispatch decision" — was falsified one day later by the design
+// vibes autogate (2026-07-20): systemdesign/projectdesign set policyAutoApprove from
+// ReviewPolicy.Preset DIRECTLY, so a birth-seeded "vibes" auto-approved every design
+// draft and committed it without the architect. The human design gate — the Method's
+// commit authority — was gone for every project ever created, which is what the UC1/UC2
+// agentic E2E system tests exist to prove.
+//
+// Nil keeps CONSTRUCTION behavior byte-identical (EffectiveGate's default arm is
+// RequiresHuman over an empty map — ungated, floor unchanged; see
+// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap), so this only restores
+// the design gate.
+func TestCreateProject_LeavesReviewPolicyPresetUnset(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID("fresh-project")
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
@@ -7782,8 +7792,10 @@ func TestCreateProject_DefaultsReviewPolicyToVibesPreset(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
-	if p.ReviewPolicy.Preset == nil || *p.ReviewPolicy.Preset != ReviewPresetVibes {
-		t.Fatalf("fresh project ReviewPolicy.Preset = %v, want %q", p.ReviewPolicy.Preset, ReviewPresetVibes)
+	// Preset is the design autogate's ONLY input (policyAutoApprove), so any non-nil
+	// value born here — "vibes" above all — silently removes the human design gate.
+	if p.ReviewPolicy.Preset != nil {
+		t.Fatalf("fresh project ReviewPolicy.Preset = %q, want unset (nil) — a birth-seeded preset auto-approves every design draft", *p.ReviewPolicy.Preset)
 	}
 }
 
