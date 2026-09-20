@@ -1,6 +1,7 @@
 /**
  * computeActivityStatuses' milestone dependency resolution — mirrors the server's
- * resolveDependencySatisfied (constructionmanager.go:982-1016).
+ * projectstate.ResolveDependencySatisfied
+ * (server/internal/resourceaccess/projectstate/projectstateaccess.go:8470-8506).
  *
  * A milestone id can appear inside an activity's dependsOn (network.milestones[]
  * carries its own dependsOn, recursively resolved). Before this fix the universe

@@ -374,6 +374,12 @@ Five rules:
    among their inputs; the read model carries per-activity and per-project `worstOrigin`. Without
    this, rows are honestly badged while the header launders a fabricated 93.7% — the single worst
    lie available to this wave.
+
+   *(Shipped state, 2026-09-19, final main review I1: `worstOrigin` is **per-row only**
+   (`systemdesign/contract.gen.go:71`). No per-project field was added, because the project-level
+   header this rule guarded was deleted rather than dashed — see the §9 criterion 2 amendment. The
+   contagion rule holds where an aggregate is actually drawn: the gate ribbon's per-milestone
+   completion count.)*
 4. **Synthesis is a committed artifact, never a render-time behaviour.** It lands as a reviewable
    diff, called out in the commit message, revertible in one commit. **No server code path may
    fabricate a row at request time.**
@@ -719,8 +725,23 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    every row, stripped the untrusted evidence instead, and renamed the control "Observed only"
    (0ef0c9b). The designer re-check (B1) then found the pane calling a stripped row
    "unrecorded"; the hidden-attempt count and the recorded/unrecorded split are from that pass.)
-2. **No laundered aggregate.** The project EV/progress header shows **"—"** whenever
-   `worstOrigin != observed` — not a badged number, not a footnote.
+2. **No laundered aggregate.** A completion count computed over evidence nobody watched reads
+   **"—"**, never a badged number and never a footnote. The count this rule governs is the gate
+   ribbon's per-milestone one: `gateRibbon.ts` emits `complete` **only** when every feeder's
+   evidence is observed AND every feeder's percentage is known, and `GraphStrips.tsx` renders "—"
+   with a tooltip naming how many feeders have no observed record (or an unreported phase)
+   wherever it is absent.
+
+   (Amended 2026-09-19, final main review I1. As published this criterion named "the project
+   EV/progress header" and a per-project `worstOrigin`. Neither exists. The header was **deleted**,
+   not dashed — `EvTrackingChart.tsx`, `ConstructionTracker.tsx` and `HeadStateRollup.tsx` are gone
+   with the tab shell, and no lens renders a project-level aggregate. And `worstOrigin` is a
+   **per-row** field only (`systemdesign/contract.gen.go:71`, omitted entirely on an unrecorded
+   row); a project-level one was never on the wire, so the rule as written could not be implemented
+   without a contract change. The rule itself was not weakened: it moved to the one aggregate this
+   wave does render. **Consequence to keep in view:** no project-level percentage is gated today
+   because none is drawn — the day one is added, it inherits this criterion and needs the
+   per-project origin the contract still lacks.)
 3. **Retry is never absent.** `↻ Run this task` is present in every state, in every lens's detail
    pane: enabled when something backs it, otherwise disabled with its reason, never a no-op (§7.8,
    amended in the tasks-lens merge round; this supersedes "enablement unchanged" below).
@@ -730,6 +751,20 @@ Components: `construction/status.tsx` (extend the union, invent no colours) · `
    and carries ↻ only where the selection holds at least one attempt; a first run reads ▶.)
 4. **Unclassified is visible.** Activities whose type cannot be resolved render as Unclassified with
    **zero** lifecycle sub-rows.
+
+   (Evidence recorded 2026-09-19, final main review I2. The state is REACHABLE — `ClassifyType`
+   returns `ok=false` for any activity whose `workerClass`/`coding` pair matches no rule in
+   `ClassifyActivity` (`projectstateaccess.go:8228`), and the server then emits the row with
+   `classified=false` and every member that flag gates at its zero value
+   (`systemdesignmanager.go:3411-3466`) — but **no seeded run can show it**, because every activity
+   in the committed slot-9 list classifies today, and the server re-derives the type at read for
+   every stored row, so a fixture on the seeded server would be overwritten. The browser evidence
+   therefore lives in the PREVIEW lane, whose fixtures are the wire itself:
+   `uitests/preview-fixtures/web-client/construction/unclassified-row.json` carries one activity
+   with an unclassifiable plan item, and `tests/preview/preview-shell.spec.ts` drives it — the row
+   reads UNCLASSIFIED, the tree's expand gesture opens nothing under it, and the same gesture on a
+   typed neighbour does open its lifecycle, so the assertion discriminates. The unit pins stand
+   alongside it: `activityTree.test.ts:103`, `laneSpine.test.ts:126`.)
 5. **The join key holds.** Every `TaskAttempt` and every newly written `EpisodeRecord.TargetRef`
    carries `<activityId>:<task>:<n>`.
 6. **Selection survives the poll.** Selection and viewport are stable across the 1.5s cascade poll

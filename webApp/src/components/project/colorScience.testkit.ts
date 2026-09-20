@@ -1,9 +1,15 @@
 /**
- * The colour science the palette rules are measured in (designer palette ruling,
+ * The colour science the palette rules are MEASURED in (designer palette ruling,
  * fix I): CIELAB and its polar LCh, CIEDE2000 colour difference, and the WCAG
  * contrast ratio. Zero imports, so node:test pins it directly: bandRamp.test.ts holds
  * CIEDE2000 to the Sharma, Wu & Dalal (2005) reference pairs, then measures the real
  * theme tokens with it.
+ *
+ * TEST KIT, NOT PRODUCTION CODE — hence `.testkit.ts`, and hence its home beside its
+ * one consumer rather than in `utilities/theme/`, where it shipped in the production
+ * layer with no production importer (final main review I6). Nothing the app renders
+ * measures colour at runtime: the themes carry literal tokens. If a screen ever needs
+ * this maths, move it back to `utilities/` with the importer that justifies it.
  *
  * Every hex is sRGB `#RRGGBB`. Lab is relative to the D65 white.
  */

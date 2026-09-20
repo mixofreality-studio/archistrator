@@ -17,7 +17,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { THEME_ORDER, TOKENS, type Tokens } from '../../utilities/theme/themes.ts';
-import { contrast, deltaE2000, lab, lch, type Lab } from '../../utilities/theme/colorScience.ts';
+import { contrast, deltaE2000, lab, lch, type Lab } from './colorScience.testkit.ts';
 import { BAND_TOKEN, CRITICAL_PATH_TOKEN, FLOAT_BANDS_BY_FLOAT } from './bandRamp.ts';
 import { bandTokens } from './bandTokens.ts';
 import { SELECTION_TOKEN, STATUS_TOKEN } from '../construction/statusRamp.ts';

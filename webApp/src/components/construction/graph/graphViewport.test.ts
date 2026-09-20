@@ -5,6 +5,7 @@
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 import {
   CANVAS_BOTTOM_PAD_PX,
@@ -53,6 +54,116 @@ void test('a component id can never collide with an activity id in the signature
 
 void test('the signature is per project', () => {
   assert.notEqual(graphSignatureOf('p', ['a'], ['x']), graphSignatureOf('q', ['a'], ['x']));
+});
+
+// ---------------------------------------------------------------------------
+// STATUS-INVARIANCE — the property the viewport memory rests on (spec §7.6,
+// AC6; final main review I3)
+//
+// The store is keyed by the signature, so anything the signature reads becomes
+// something that RESETS the operator's pan and zoom when it changes. Statuses,
+// attempts and provenance change on the 1.5s cascade poll: folding any of them
+// in re-fits the canvas mid-glance — the recorded, previously-fixed bug §7.6
+// calls a mandatory carry-over. The tests above all vary ids, so that mistake
+// used to pass them silently. These three make it fail:
+//   - the shape pin: the whole signature string, for a known input;
+//   - the arity pin: a fourth input cannot be added unnoticed;
+//   - the source pins: neither the function nor its ONE call site may name
+//     status-ish evidence. A call site can reach the same bug without touching
+//     the function at all, by folding a status into the ids it passes.
+// ---------------------------------------------------------------------------
+
+/** Evidence vocabulary: none of it may reach the signature, here or at the call site. */
+const EVIDENCE_WORDS = [
+  'status',
+  'attempt',
+  'provenance',
+  'origin',
+  'percent',
+  'complete',
+  'phase',
+  'evidence',
+  'owed',
+  'failed',
+  'observed',
+];
+
+function source(file: string): string {
+  return readFileSync(new URL(file, import.meta.url), 'utf8');
+}
+
+/** The text of `name(...)`, from its opening paren to the paren that closes it. */
+function callText(src: string, name: string): string {
+  const at = src.indexOf(`${name}(`);
+  assert.ok(at >= 0, `${name}( is called`);
+  let depth = 0;
+  for (let i = at + name.length; i < src.length; i += 1) {
+    if (src[i] === '(') depth += 1;
+    else if (src[i] === ')') {
+      depth -= 1;
+      if (depth === 0) return src.slice(at, i + 1);
+    }
+  }
+  throw new Error(`${name}( is never closed`);
+}
+
+function namesNoEvidence(text: string, where: string): void {
+  for (const word of EVIDENCE_WORDS) {
+    assert.ok(
+      !new RegExp(word, 'i').test(text),
+      `${where} names "${word}" — the graph viewport signature must not depend on evidence that moves under the poll`
+    );
+  }
+}
+
+void test('the signature is exactly project + component ids + activity ids — nothing else', () => {
+  // The whole string, so a fourth field (or a fourth input folded into an
+  // existing one) changes it and fails here.
+  assert.equal(graphSignatureOf('p', ['a', 'b'], ['C-x']), 'p|c2:a,b|a1:C-x');
+  assert.equal(
+    graphSignatureOf.length,
+    3,
+    'graphSignatureOf takes exactly projectId, componentIds, activityIds'
+  );
+});
+
+void test('the signature function itself reads no status, attempt or provenance', () => {
+  const src = source('./graphViewport.ts');
+  const at = src.indexOf('export function graphSignatureOf(');
+  assert.ok(at >= 0, 'graphSignatureOf is declared');
+  const end = src.indexOf('\n}', at);
+  assert.ok(end > at, 'its body closes');
+  // From the declaration (NOT the docblock above it, which names those words to
+  // rule them out) to the end of the body.
+  namesNoEvidence(src.slice(at, end), 'graphSignatureOf');
+});
+
+void test("the lens's call site passes only ids, so no poll-borne value reaches the signature", () => {
+  namesNoEvidence(
+    callText(source('./ActivityGraphLens.tsx'), 'graphSignatureOf'),
+    'the ActivityGraphLens call to graphSignatureOf'
+  );
+});
+
+void test('two polls of the same plan that differ only in status share one signature', () => {
+  // The call site's own derivation (ids off the model), over the same plan read
+  // twice: once mid-flight, once with an activity completed.
+  const sig = (activities: readonly { activityId: string; status: string }[]): string =>
+    graphSignatureOf(
+      'archistrator',
+      ['billing-manager', 'usage-access'],
+      activities.map((a) => a.activityId)
+    );
+  assert.equal(
+    sig([
+      { activityId: 'C-billing-manager', status: 'running' },
+      { activityId: 'C-usage-access', status: 'not-started' },
+    ]),
+    sig([
+      { activityId: 'C-billing-manager', status: 'done' },
+      { activityId: 'C-usage-access', status: 'running' },
+    ])
+  );
 });
 
 // ---------------------------------------------------------------------------

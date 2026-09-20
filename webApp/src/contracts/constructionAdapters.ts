@@ -294,7 +294,11 @@ export function computeActivityStatuses(
 
 /**
  * Recursively resolves whether one dependency id is satisfied — the SPA mirror of
- * the server's resolveDependencySatisfied (constructionmanager.go:982-1016).
+ * the server's projectstate.ResolveDependencySatisfied
+ * (server/internal/resourceaccess/projectstate/projectstateaccess.go:8470-8506).
+ * The rule used to live unexported in the construction Manager; it moved into
+ * projectstate so the pump and the catalog's construction-complete signal read
+ * one copy. Change the rule there and here together.
  *
  *   - An activity id is satisfied iff it's a member of the integrated `done` set.
  *   - A milestone id (present in `milestoneById`) is satisfied iff EVERY id in its

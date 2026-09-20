@@ -128,19 +128,22 @@ export function skipUnlessLiveDrafting(): void {
  * (e.g. this repo's own checkout, or a seed built from it) — NOT the throwaway
  * empty repo CI provisions for the project-CREATION specs (see
  * .github/workflows/uitests.yml's "Project state" note: that empty repo is
- * intentional, so CreateProject's permissive-resume path hands fresh-phase-0 state
- * to the tests that create projects; it has no "archistrator" project at all).
+ * intentional, so the tests that create projects start from nothing; it has no
+ * "archistrator" project at all, and GetProject answers 404 there).
  */
 export async function constructionArtifactsAvailable(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<boolean> {
   // No answer, or an error answer, FAILS (fix-H ruling). Only an answer that says
-  // this server holds no such content is a reason to skip: get-project answers 200
-  // for any id (CreateProject's permissive resume), so that answer is a 200 whose
-  // project carries no system-test plan, as on CI's fresh repo.
+  // this server holds no such content is a reason to skip, and there are two such
+  // answers: a 404 (`not_found`) on the empty repo CI provisions for the
+  // project-CREATION specs, which has no "archistrator" project at all; and a 200
+  // whose project carries no system-test plan. Every other status is an error
+  // answer, not a missing fixture.
   const url = `${baseURL}/api/v1/system-design/get-project/archistrator`;
   const res = await probeGet(request, url, 'the construction-artifacts probe');
+  if (res.status() === 404) return false;
   if (res.status() !== 200) {
     throw new Error(
       `uitests: ${url} answered ${String(res.status())}. An error answer is not a missing fixture, ` +
