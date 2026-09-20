@@ -19,6 +19,14 @@ export interface SubmitVerb {
   /** Always shown beneath the verb: what pressing it actually dispatches. */
   consequence: string;
   disabled: boolean;
+  /**
+   * Verbs offered in the overflow menu ALONGSIDE Withdraw/Retry, never as the
+   * primary button — today only ever `['sendBack']`, and only when
+   * `allowEmptySendBack` keeps Send back reachable despite nothing being
+   * staged (RULING P18: this must never demote `action` away from `approve`).
+   * Empty whenever nothing extra applies.
+   */
+  secondaryActions: SubmitAction[];
 }
 
 export function resolveSubmitVerb(input: {
@@ -27,22 +35,55 @@ export function resolveSubmitVerb(input: {
   stagedChangeRequests: number;
   stagedQuestions: number;
   openThreads: number;
+  /**
+   * MCP has no client-side comment accumulator (`stagedChangeRequests` is
+   * always 0 there) — its own composer collects reject feedback AFTER the
+   * click, not before. SPA default (false): behavior is untouched. True
+   * (MCP) keeps Send back reachable as a SECONDARY action (see
+   * `secondaryActions`) whenever nothing is staged and the slot isn't
+   * committed — it must NEVER replace `approve` as the primary verb
+   * (RULING P18): a reviewer with nothing staged and nothing blocking always
+   * sees Approve, on every surface.
+   */
+  allowEmptySendBack?: boolean;
 }): SubmitVerb {
-  const { committed, stagedChangeRequests: crs, stagedQuestions: qs, openThreads } = input;
+  const {
+    committed,
+    stagedChangeRequests: crs,
+    stagedQuestions: qs,
+    openThreads,
+    allowEmptySendBack = false,
+  } = input;
   const staged = crs + qs;
   const consequence = describeConsequence(crs, qs, committed);
 
   // Questions alone never redraft — that is the whole point of the ask path.
   if (staged > 0 && crs === 0) {
-    return { action: 'ask', label: `Ask (${String(qs)}) — no redraft`, consequence, disabled: false };
+    return {
+      action: 'ask',
+      label: `Ask (${String(qs)}) — no redraft`,
+      consequence,
+      disabled: false,
+      secondaryActions: [],
+    };
   }
   if (staged > 0) {
     return committed
-      ? { action: 'amend', label: `Amend (${String(staged)})`, consequence, disabled: false }
-      : { action: 'sendBack', label: `Send back (${String(staged)})`, consequence, disabled: false };
+      ? { action: 'amend', label: `Amend (${String(staged)})`, consequence, disabled: false, secondaryActions: [] }
+      : {
+          action: 'sendBack',
+          label: `Send back (${String(staged)})`,
+          consequence,
+          disabled: false,
+          secondaryActions: [],
+        };
   }
+  // Nothing staged. `allowEmptySendBack` only ever ADDS a secondary — Approve
+  // (enabled or its disabled/open-threads variant) stays primary either way.
+  // Never offered once committed: a committed slot amends, it doesn't send back.
+  const secondaryActions: SubmitAction[] = allowEmptySendBack && !committed ? ['sendBack'] : [];
   if (committed) {
-    return { action: 'none', label: '', consequence: '', disabled: true };
+    return { action: 'none', label: '', consequence: '', disabled: true, secondaryActions };
   }
   if (openThreads > 0) {
     return {
@@ -50,9 +91,16 @@ export function resolveSubmitVerb(input: {
       label: `Resolve ${String(openThreads)} thread${openThreads === 1 ? '' : 's'} to approve`,
       consequence: 'Open change requests block approval',
       disabled: true,
+      secondaryActions,
     };
   }
-  return { action: 'approve', label: 'Approve', consequence: 'Commits the artifact and advances', disabled: false };
+  return {
+    action: 'approve',
+    label: 'Approve',
+    consequence: 'Commits the artifact and advances',
+    disabled: false,
+    secondaryActions,
+  };
 }
 
 /**

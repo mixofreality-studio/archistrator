@@ -134,9 +134,11 @@ export const UI_IDENTIFIERS = {
     DRAFT_FAILED_GATE_ERROR: 'draft-failed-gate-error',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
-    // Committed-panel amendment affordances: the header Amend button, its small
-    // rationale composer, and the composer's controls.
-    AMEND: 'committed-amend',
+    // Committed-panel amendment affordances: the small rationale composer and its
+    // controls. The header Amend trigger button was retired in Task 9 (dialog kept,
+    // reopened by Task 10's submit bar); its testid (`committed-amend`) went with
+    // it — Task 10's bar mints its own (`SUBMIT_BAR_PRIMARY`), since the same
+    // button slot now carries four possible verbs, not just Amend.
     RECONCILE: 'committed-reconcile',
     AMEND_COMPOSER: 'amend-composer',
     AMEND_RATIONALE: 'amend-rationale',

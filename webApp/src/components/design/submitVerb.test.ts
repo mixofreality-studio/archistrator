@@ -52,3 +52,45 @@ void test('a committed slot amends', () => {
 void test('a committed slot with nothing staged offers no primary verb', () => {
   assert.equal(resolveSubmitVerb({ ...base, committed: true, stage: 'other' }).action, 'none');
 });
+
+// RULING P18: allowEmptySendBack (MCP has no client-side comment accumulator)
+// must NEVER demote Approve as the primary verb — it only ever adds Send back
+// as a SECONDARY (overflow) action. A branch that swapped the primary verb
+// instead made Approve permanently unreachable for MCP; these tests pin the
+// decision inside this pure function so no component-side inference can regress it.
+
+void test('allowEmptySendBack offers Send back as a SECONDARY without demoting Approve', () => {
+  const v = resolveSubmitVerb({ ...base, allowEmptySendBack: true });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.label, 'Approve');
+  assert.equal(v.disabled, false);
+  assert.deepEqual(v.secondaryActions, ['sendBack']);
+});
+
+void test('allowEmptySendBack + open threads: primary stays the disabled Resolve-N-threads, Send back still secondary', () => {
+  const v = resolveSubmitVerb({ ...base, openThreads: 3, allowEmptySendBack: true });
+  assert.equal(v.action, 'approve');
+  assert.equal(v.disabled, true);
+  assert.equal(v.label, 'Resolve 3 threads to approve');
+  assert.deepEqual(v.secondaryActions, ['sendBack']);
+});
+
+void test('allowEmptySendBack does not change the staged-change-request path', () => {
+  const v = resolveSubmitVerb({ ...base, stagedChangeRequests: 2, allowEmptySendBack: true });
+  assert.equal(v.action, 'sendBack');
+  assert.equal(v.label, 'Send back (2)');
+  assert.deepEqual(v.secondaryActions, []);
+});
+
+void test('allowEmptySendBack is never offered on a committed slot (Amend is the only send-forward there)', () => {
+  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'other', allowEmptySendBack: true });
+  assert.equal(v.action, 'none');
+  assert.deepEqual(v.secondaryActions, []);
+});
+
+void test('allowEmptySendBack: false is identical to omitting it, throughout', () => {
+  const withFalse = resolveSubmitVerb({ ...base, allowEmptySendBack: false });
+  const omitted = resolveSubmitVerb(base);
+  assert.deepEqual(withFalse, omitted);
+  assert.deepEqual(withFalse.secondaryActions, []);
+});

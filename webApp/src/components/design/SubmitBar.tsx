@@ -6,7 +6,9 @@
  * single primary verb from what is staged and whether the slot is committed; this
  * component renders it, the consequence line beneath it (founder: "I want to know
  * what this button will actually do"), and an overflow menu for the verbs that
- * are never primary (Withdraw, Retry).
+ * are never primary (Withdraw, Retry, and — MCP only, via `allowEmptySendBack`
+ * — a Send back that stays reachable even with nothing staged; see
+ * `resolveSubmitVerb`'s `secondaryActions`, RULING P18).
  *
  * Mounted sticky at the bottom of the System Design scroll column
  * (SystemDesignView) whenever there is a live review surface to act on — the
@@ -86,13 +88,14 @@ export interface SubmitBarProps {
   /** Opens the amend composer dialog (RULING P6) — never submits directly. */
   onAmend: () => void;
   /**
-   * SPA default (false): the primary verb is exactly what `resolveSubmitVerb`
-   * resolves, so Send back stays absent until a change request is staged. MCP
-   * (see McpSystemDesignContainer) has no client-side comment accumulator —
-   * `stagedChangeRequests` is always 0 there, so without this carve-out an
-   * uncommitted MCP session could only ever Approve, and its own reject-feedback
-   * composer (opened by a Send back click) would be unreachable. Mirrors
-   * GatePanel's identical `allowEmptySendBack` doc comment.
+   * Forwarded straight into `resolveSubmitVerb` (RULING P18 — the decision
+   * lives in the tested pure function, not here). SPA default (false): no
+   * effect. MCP (see McpSystemDesignContainer) has no client-side comment
+   * accumulator — `stagedChangeRequests` is always 0 there, so without this
+   * its own reject-feedback composer (opened by a Send back click) would be
+   * permanently unreachable whenever nothing is staged. `resolveSubmitVerb`
+   * guarantees this only ever ADDS a secondary Send back to the overflow menu;
+   * it never demotes Approve as the primary verb.
    */
   allowEmptySendBack?: boolean;
   /** Omitted where withdrawing does not apply (e.g. a clean committed slot). */
@@ -124,24 +127,19 @@ export function SubmitBar({
   const t = useTokens();
   const [menuAnchor, setMenuAnchor] = useState<HTMLElement | null>(null);
 
-  const resolved = resolveSubmitVerb({
+  const verb = resolveSubmitVerb({
     committed,
     stage,
     stagedChangeRequests,
     stagedQuestions,
     openThreads,
+    allowEmptySendBack,
   });
-  // MCP compatibility carve-out (see `allowEmptySendBack`'s doc comment): with
-  // nothing staged, offer Send back instead of the resolved Approve so the click
-  // that opens MCP's own feedback composer stays reachable.
-  const verb =
-    allowEmptySendBack && !committed && resolved.action === 'approve'
-      ? { action: 'sendBack' as const, label: 'Send back', consequence: 'Opens the feedback composer', disabled: false }
-      : resolved;
 
   const busy = primaryBusy(verb.action, pending, askPending);
   const menuOpen = menuAnchor !== null;
-  const hasMenu = onWithdraw !== undefined || onRetry !== undefined;
+  const offersSecondarySendBack = verb.secondaryActions.includes('sendBack');
+  const hasMenu = onWithdraw !== undefined || onRetry !== undefined || offersSecondarySendBack;
 
   const onPrimaryClick = (): void => {
     switch (verb.action) {
@@ -245,6 +243,19 @@ export function SubmitBar({
               >
                 <UndoIcon sx={{ fontSize: 16, mr: 1 }} />
                 Withdraw
+              </MenuItem>
+            ) : null}
+            {offersSecondarySendBack ? (
+              <MenuItem
+                data-testid={UI_IDENTIFIERS.DesignExperience.submitBarMenuItem('sendBack')}
+                disabled={pending}
+                onClick={() => {
+                  setMenuAnchor(null);
+                  onSendBack();
+                }}
+              >
+                <ReplayIcon sx={{ fontSize: 16, mr: 1 }} />
+                Send back
               </MenuItem>
             ) : null}
             {onRetry !== undefined ? (
