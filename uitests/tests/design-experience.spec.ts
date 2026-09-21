@@ -5,8 +5,9 @@
  * AC flow:
  *   • the SlimSpine renders a step per Phase-1 artifact;
  *   • "Request draft" → the generating scene → a rendered artifact;
- *   • the gate panel Approve advances the spine;
- *   • Send-back enables after entering feedback (free-form note or anchored comment);
+ *   • the submit bar's Approve advances the spine;
+ *   • the bar's verb flips to Send back once feedback is staged (a free-form
+ *     margin note or an anchored comment);
  *   • Send back with feedback regenerates the artifact (give-feedback → redraft loop).
  *
  * The structural pieces (spine, steps, close) are PURE-UI and run whenever the
@@ -63,6 +64,22 @@ async function requestFirstDraft(page: Page): Promise<void> {
     await page.getByTestId(TESTID.researchInputText).fill(RESEARCH_NOTE);
     await page.getByTestId(TESTID.researchInputSubmit).click();
   }
+}
+
+/**
+ * Open a FREE-FORM (unanchored) draft card in the comment margin — the margin's
+ * own ＋ affordance, and the only composer it owns itself now that arming a row
+ * composes in place. Re-opens the margin first if the architect collapsed it
+ * (the chrome's toggle renders only while it is closed).
+ */
+async function openMarginComposer(page: Page): Promise<void> {
+  const toggle = page.getByTestId(TESTID.marginToggle);
+  if ((await toggle.count()) > 0) {
+    await toggle.click();
+  }
+  await expect(page.getByTestId(TESTID.marginRoot)).toBeVisible();
+  await page.getByTestId(TESTID.marginAddNote).click();
+  await expect(page.getByTestId(TESTID.marginComposer)).toBeVisible();
 }
 
 /** Open the stubbed fresh project's home base, then enter System Design from it. */
@@ -140,11 +157,15 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     const gate = page.getByTestId(TESTID.gatePanel);
     await expect(gate).toBeVisible({ timeout: 180_000 });
 
-    // Send-back is disabled until feedback is entered; Approve is always live.
-    await expect(page.getByTestId(TESTID.gateSendback)).toBeDisabled();
-    await expect(page.getByTestId(TESTID.gateApprove)).toBeEnabled();
+    // The commit-authority verbs moved OFF this panel onto the one submit bar
+    // (GatePanel omits `actions` in Phase 1 now). With nothing staged, the single
+    // verb it offers is Approve — which is also how "no empty send back" is
+    // guaranteed: Send back is not a verb until a change request is staged.
+    const submit = page.getByTestId(TESTID.submitBarPrimary);
+    await expect(submit).toHaveText(/Approve/);
+    await expect(submit).toBeEnabled();
 
-    await page.getByTestId(TESTID.gateApprove).click();
+    await submit.click();
 
     // Approve seals the artifact and auto-advances: the first step becomes
     // committed and the active step moves on. We assert the spine survived the
@@ -160,26 +181,31 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     await requestFirstDraft(page);
     await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible({ timeout: 180_000 });
 
-    // No feedback yet → Send-back disabled.
-    await expect(page.getByTestId(TESTID.gateSendback)).toBeDisabled();
+    // No feedback yet → the bar's one verb is Approve, not Send back.
+    await expect(page.getByTestId(TESTID.submitBarPrimary)).toHaveText(/Approve/);
 
-    // Free-form feedback needs NO anchor: open the rail, type a note, post it.
-    // The composer is enabled without arming a selection (an anchored comment is
-    // an optional way to pin a note to a spot, not a precondition for sending back).
-    const toggle = page.getByTestId(TESTID.chatToggle);
-    if ((await toggle.count()) > 0) {
-      await toggle.click();
-    }
-    const input = page.getByTestId(TESTID.chatInput);
+    // Free-form feedback needs NO anchor. In the comment margin that is the ＋
+    // affordance: it opens an UNANCHORED draft card, proving an anchored comment
+    // is an optional way to pin a note to a spot, not a precondition for sending
+    // back. (The old rail typed into a composer at its foot; composing is in
+    // place now, so the card is the composer.)
+    await openMarginComposer(page);
+    const input = page.getByTestId(TESTID.marginComposerInput).getByRole('textbox');
     await expect(input).toBeVisible();
     await expect(input).toBeEnabled();
 
     await input.fill('Please tighten the definitions — several read as circular.');
-    await page.getByTestId(TESTID.chatSend).click();
+    await page.getByTestId(TESTID.marginComposerSubmit).click();
 
-    // The note accumulates and now arms Send-back.
-    await expect(page.getByTestId(TESTID.chatRail)).toContainText('tighten the definitions');
-    await expect(page.getByTestId(TESTID.gateSendback)).toBeEnabled();
+    // The note accumulates in the margin and the bar's verb flips to Send back,
+    // naming what is staged and what pressing it will do.
+    await expect(page.getByTestId(TESTID.marginRoot)).toContainText('tighten the definitions');
+    const armed = page.getByTestId(TESTID.submitBarPrimary);
+    await expect(armed).toHaveText(/Send back \(1\)/);
+    await expect(armed).toBeEnabled();
+    await expect(page.getByTestId(TESTID.submitBarConsequence)).toContainText(
+      '1 change request → redraft',
+    );
   });
 
   test('Send back with feedback regenerates the artifact', async ({ page }) => {
@@ -191,17 +217,15 @@ test.describe('co-author drafting (live backend — UITESTS_LIVE_DRAFTING=1)', (
     await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible({ timeout: 180_000 });
 
     // Enter feedback and send it back.
-    const toggle = page.getByTestId(TESTID.chatToggle);
-    if ((await toggle.count()) > 0) {
-      await toggle.click();
-    }
-    const input = page.getByTestId(TESTID.chatInput);
+    await openMarginComposer(page);
+    const input = page.getByTestId(TESTID.marginComposerInput).getByRole('textbox');
     await expect(input).toBeEnabled();
     await input.fill('Redraft: make each definition stand alone; drop the circular references.');
-    await page.getByTestId(TESTID.chatSend).click();
+    await page.getByTestId(TESTID.marginComposerSubmit).click();
 
-    await expect(page.getByTestId(TESTID.gateSendback)).toBeEnabled();
-    await page.getByTestId(TESTID.gateSendback).click();
+    const sendBack = page.getByTestId(TESTID.submitBarPrimary);
+    await expect(sendBack).toHaveText(/Send back \(1\)/);
+    await sendBack.click();
 
     // The reject loops the workflow back to drafting: the generating scene returns,
     // then a fresh artifact + gate — the give-feedback → regenerate loop, end to end.

@@ -125,17 +125,25 @@ test('an ops.call mutation: an EMPTY-body 500 on a review decision surfaces as a
   await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible();
 
   const note = 'Name the dispatch venue.';
-  await page.getByTestId(TESTID.chatInput).getByRole('textbox').fill(note);
-  await page.getByTestId(TESTID.chatSend).click();
-  await expect(page.getByText('PENDING · NOT SENT · 1')).toBeVisible();
-  await page.getByTestId(TESTID.gateSendback).click();
+  // Free-form (unanchored) feedback comes from the comment margin's ＋ affordance
+  // now that the rail's foot composer is gone — the draft card IS the composer.
+  await page.getByTestId(TESTID.marginAddNote).click();
+  await page.getByTestId(TESTID.marginComposerInput).getByRole('textbox').fill(note);
+  await page.getByTestId(TESTID.marginComposerSubmit).click();
+  await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
+  // Phase 1's commit-authority verbs live on the ONE submit bar now, not on the
+  // gate panel (GatePanel omits `actions` there) — with a change request staged,
+  // its single primary verb IS the send back this case drives.
+  const sendBack = page.getByTestId(TESTID.submitBarPrimary);
+  await expect(sendBack).toHaveText(/Send back \(1\)/);
+  await sendBack.click();
 
   // A 5xx is indeterminate: the cause-neutral banner, and the staged note kept.
   // Read as a success, the banner never showed and the note was cleared.
   const banner = page.getByTestId(TESTID.gateError);
   await expect(banner).toBeVisible({ timeout: 10_000 });
   await expect(banner).toContainText('could not be confirmed');
-  await expect(page.getByText('PENDING · NOT SENT · 1')).toBeVisible();
+  await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
   await expect(page.getByText(note)).toBeVisible();
   expect(decisions).toHaveLength(1);
 });

@@ -96,6 +96,15 @@ export const TESTID = {
   draftFailureReason: UI_IDENTIFIERS.DesignExperience.DRAFT_FAILURE_REASON,
   retryDraft: UI_IDENTIFIERS.DesignExperience.RETRY_DRAFT,
   withdrawDraft: UI_IDENTIFIERS.DesignExperience.WITHDRAW_DRAFT,
+  // THE scroller. One box now spans the content column AND the comment margin, so
+  // they move as one surface — a spec that drives the page's scroll must drive
+  // this element, never the window and never a margin scroller (there is none).
+  designScroll: UI_IDENTIFIERS.DesignExperience.DESIGN_SCROLL,
+  // The one bar every review verb converges through (Send back / Approve / Amend /
+  // Ask), plus its consequence line: what pressing the verb will actually dispatch.
+  submitBar: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR,
+  submitBarPrimary: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_PRIMARY,
+  submitBarConsequence: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_CONSEQUENCE,
 
   // Glossary artifact — the searchable, filterable reference widget (search +
   // Four-Questions category chips + grouped term list). Chips key by the BASE
@@ -185,11 +194,35 @@ export const TESTID = {
   // Inline error banner near the gate actions (failed decision — F79/F-QA2-47).
   gateError: UI_IDENTIFIERS.GatePanel.GATE_ERROR,
 
-  // Chat rail (anchored comments)
-  chatRail: UI_IDENTIFIERS.Chat.RAIL,
-  chatToggle: UI_IDENTIFIERS.Chat.TOGGLE,
-  chatInput: UI_IDENTIFIERS.Chat.INPUT,
-  chatSend: UI_IDENTIFIERS.Chat.SEND,
+  // The COMMENT MARGIN (Google-Docs-style threads beside the content) — what the
+  // `ChatRail` became. `UI_IDENTIFIERS.Chat.RAIL` ('chat-rail') is GONE from the
+  // SPA (nothing renders it), so there is deliberately no `chatRail` export any
+  // more: the margin's own root is `marginRoot` below.
+  //
+  // Three ids still read `chat-*` ON THE WIRE because the SPA has not renamed
+  // them yet (see UIIdentifiers.ts's `Chat` block): the margin header's re-open
+  // button and, inside the in-place DRAFT CARD, its text field and its "Comment"
+  // submit. They are exported here under margin-shaped NAMES, because the name is
+  // what a spec reads and the affordance is the margin's. The residual
+  // UIIdentifiers rename is an earmark, not this package's to make.
+  marginToggle: UI_IDENTIFIERS.Chat.TOGGLE,
+  marginComposerInput: UI_IDENTIFIERS.Chat.INPUT,
+  marginComposerSubmit: UI_IDENTIFIERS.Chat.SEND,
+  // The margin proper (UI_IDENTIFIERS.Margin): the column, the unanchored group,
+  // the in-place draft card and the per-thread card/reply/resolve/reopen builders.
+  // A placed card sits LEVEL with the row it anchors to — there is no separate
+  // margin scroller (see `designScroll` above: one box moves both columns).
+  marginRoot: UI_IDENTIFIERS.Margin.ROOT,
+  marginUnplaced: UI_IDENTIFIERS.Margin.UNPLACED,
+  marginComposer: UI_IDENTIFIERS.Margin.COMPOSER,
+  marginAddNote: UI_IDENTIFIERS.Margin.ADD_NOTE,
+  marginDraftBlocking: UI_IDENTIFIERS.Margin.DRAFT_BLOCKING,
+  marginCard: UI_IDENTIFIERS.Margin.card,
+  marginReply: UI_IDENTIFIERS.Margin.reply,
+  marginResolve: UI_IDENTIFIERS.Margin.resolve,
+  marginReopen: UI_IDENTIFIERS.Margin.reopen,
+  marginStaged: UI_IDENTIFIERS.Margin.staged,
+  marginStagedDiscard: UI_IDENTIFIERS.Margin.stagedDiscard,
   commentAnchor: UI_IDENTIFIERS.Chat.commentAnchor,
   // Invisible probe reflecting the currently-armed comment anchor (data-anchor-*
   // attrs) — how a diagram-node click OR keyboard ('c'/Enter on a focused,

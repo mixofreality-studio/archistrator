@@ -200,9 +200,12 @@ export async function commitArtifactsThrough(
       await page.getByTestId(TESTID.researchInputSubmit).click();
     }
 
-    // Wait for the human gate, then approve to commit and auto-advance.
+    // Wait for the human gate, then approve to commit and auto-advance. The gate
+    // PANEL still marks the awaitingReview stage, but its commit-authority row is
+    // gone in Phase 1 (GatePanel omits `actions`) — Approve is the submit bar's
+    // single primary verb whenever nothing is staged.
     await expect(gate).toBeVisible({ timeout: STEP_GATE_TIMEOUT });
-    await page.getByTestId(TESTID.gateApprove).click();
+    await page.getByTestId(TESTID.submitBarPrimary).click();
     await expect(gate).toHaveCount(0, { timeout: 30_000 });
   }
 
