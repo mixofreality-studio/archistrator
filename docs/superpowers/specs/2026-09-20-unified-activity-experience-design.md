@@ -152,8 +152,17 @@ Replaces the construction console's shell and HomeBase's phase cards. LIST: Tabl
 
 Each stage = its own plan + subagent-driven run in a worktree; drain-and-cutover, not `GetVersion`, where task queues change owner.
 
+**Merge order (green at every merge, per the 2026-09-20 gate recon): 0 → 2 → 1 → 3 → 4 → 6, with 5 running in parallel from 0 and merging after 3.** Why not model-first: ALIGN-MISSING-PKG / ALIGN-EXTRA-PKG / CC-* (Error severity) tie slot 5 to the Go packages, so the model wave must keep the three old manager components and add `delivery-manager` as `buildStatus: "planned"` with contracts carrying no `goPackage`; the component deletion ships only with stage 4.
+
+Must-ship-together sets: **stage 2** = method-assets release + pin bump + both generated tables + `derived-plan-write`; **stage 1** = model + every use-case realization (a half-authored dynamic view is red); **stage 4** = new manager package + old slot-5 component deletion + `cmd/clientgen/main.go` and `cmd/appgen/main.go` exposed-manager lists + `arch_test.go` allowlists + `registered_names_test.go` golden + drain.
+
+Self-amendment procedure (precedent `2026-07-31-callchain-rollout.md`): hand-edit `.aiarch/state/project.json` → `make gen-models` → `make method-check` → `GOWORK=off go run ./cmd/aiarch-state-mcp validate --root .. --slot System` → `GOWORK=off make test-short` → `cd webApp && npm run check`. State slots 9/10 are never hand-edited — `make derived-plan-write`.
+
+Pre-req: land or abandon the unmerged `lifecycle-2-conformance-gate` branch (touches manager/construction) before stage 3.
+
 | Stage | Content | Ships |
 |---|---|---|
+| **0 Read contract** | Add read-only `QueryActivityView` to the **existing** `constructionManager` (12→13 ops: a design-health Warning only, no ALIGN/CC exposure, no drain) returning lifecycle + tasks + revisions (derived from today's `Attempts`/`OperatorNotes`/episodes) for one activity; preview fixtures validated by `fixture-schema.mjs`. Same PR: fix the `phase.String()` → `artifactKind` defect and stop swallowing the `ProposeReviews` error. | a schema-stable read for the webApp |
 | **1 Model** | `project.json` self-amendment (§4): volatility merge, `delivery-manager`, 3 core use cases + re-parented variations, dynamic views, `deliveryManager`/`reviewEngine` contracts; regen (modelgen, OAS, ops.gen). Old managers remain as the implementation until stage 4 behind the new contract names where generation requires. | model + generated contracts |
 | **2 Lifecycles + review engine** | `lifecycles.json` in method-assets (platform release), loader + validation, `lifecycles.gen.ts`; remove `profileRows` family from projectStateAccess; `EffectiveGate` → reviewEngine, generalized signature, artifactKind bug fix, M0 human floor; plan derivation emits activities 1–3 + M0 prefix (`ActivityType` requirements/architecture/projectDesign appended, never renumbered). | engine + data, no behaviour change on the rails yet |
 | **3 Unified rail** | task-level revisions/threads/verdicts in project state; activity branch; stage/review/commit verb family; construction send-back persistence; `QueryActivityView` read. | construction review history becomes real |
