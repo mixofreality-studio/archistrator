@@ -75,6 +75,7 @@ import {
   type ToolbarState,
 } from './useLensSelection';
 import { isToolbarStuck, lensGeometryVars, varsToWrite } from './lensGeometry';
+import { scrollerBoxOf } from '../scrollerGeometry';
 import { LIST_LENS_ONLY, RANKED_LABEL, toolbarForLens } from './toolbarForLens';
 import { tasksBadgeFor, type TasksBadge } from '../tasks/tasksLensCopy';
 
@@ -201,19 +202,11 @@ export function ConstructionShell({
     const toolbar = toolbarRef.current;
     const row = rowRef.current;
     if (root === null || toolbar === null || row === null) return undefined;
-    // Walk to the scroller, SUMMING bottom padding on the way. The dead space
-    // below the content is not the scroller's own padding any more: the shared
-    // scroller (ExperienceChrome, Task 8b) has none, and the console's `pb: 3`
-    // sits on an inner box this walk passes straight through. Reading only the
-    // scroller gave 0 instead of 24 and left the detail pane's height cap short.
-    let scroller: HTMLElement | null = root.parentElement;
-    let padBottom = 0;
-    while (scroller !== null) {
-      const style = getComputedStyle(scroller);
-      padBottom += Number.parseFloat(style.paddingBottom) || 0;
-      if (/(auto|scroll)/.test(style.overflowY)) break;
-      scroller = scroller.parentElement;
-    }
+    // The scroller, and the dead space below the content inside it. Shared with
+    // the graph canvas, which sizes itself against the SAME number and used to
+    // compute it with its own copy of this walk — see scrollerGeometry.ts for why
+    // the padding is summed rather than read off the scroller.
+    const { scroller, padBottom } = scrollerBoxOf(root);
     const written: Record<string, string> = {};
     let writtenStuck: string | undefined;
     const publish = (): void => {
