@@ -138,6 +138,89 @@ func TestTsString_QuotesTheWayPrettierDoes(t *testing.T) {
 	}
 }
 
+// render must refuse rather than emit a raw newline inside a TS string literal:
+// nothing in ValidateLifecycle's contract guards string CONTENT (only presence),
+// and JSON's `"\n"` decodes to a real newline rune, so an exitCriterion carrying
+// one would otherwise produce invalid TS that fails to parse.
+func TestRender_RefusesNewlineInPhaseExitCriterion(t *testing.T) {
+	bad := fixture()
+	bad.Phases[0].ExitCriterion = "line one\nline two"
+	_, err := render([]methodassets.Lifecycle{bad})
+	if err == nil {
+		t.Fatal("render must refuse a phase exitCriterion containing a literal newline")
+	}
+	if !strings.Contains(err.Error(), "fixture") {
+		t.Errorf("error must name the lifecycle type, got %v", err)
+	}
+	if !strings.Contains(err.Error(), "exitCriterion") {
+		t.Errorf("error must name the field, got %v", err)
+	}
+}
+
+// U+2028 LINE SEPARATOR is invisible in most renderers but is a real control
+// character tsString does not escape — a JS/TS string literal containing one
+// raw is legal per spec but the printed source is confusing and unrenderable
+// as intended; refuse it alongside the ASCII control range.
+func TestRender_RefusesLineSeparatorInTaskTitle(t *testing.T) {
+	bad := fixture()
+	bad.Tasks[0].Title = "Draft A continued"
+	_, err := render([]methodassets.Lifecycle{bad})
+	if err == nil {
+		t.Fatal("render must refuse a task title containing U+2028 LINE SEPARATOR")
+	}
+	if !strings.Contains(err.Error(), "title") {
+		t.Errorf("error must name the field, got %v", err)
+	}
+}
+
+// Command's content is never checked by ValidateLifecycle (only its presence,
+// via dispatchIsComplete), so this case is clean at the render() level: any
+// error here can only come from the new guard.
+func TestRender_RefusesTabInCommand(t *testing.T) {
+	bad := fixture()
+	bad.Tasks[0].Command = "mission-draft\tx"
+	_, err := render([]methodassets.Lifecycle{bad})
+	if err == nil {
+		t.Fatal("render must refuse a command containing a tab")
+	}
+	if !strings.Contains(err.Error(), "command") {
+		t.Errorf("error must name the field, got %v", err)
+	}
+}
+
+// dependsOn cannot be exercised the same way: ValidateLifecycle's referential
+// check compares a dependsOn entry against real task ids by exact string
+// match, so mutating one alone always makes it an unknown-id failure from
+// ValidateLifecycle before the new guard ever runs — a corrupted-but-referring
+// dependsOn entry would require corrupting the target task's id identically,
+// which the id-field check would then catch first anyway. So this checks the
+// guard's own helper directly, on a lifecycle shape that skips
+// ValidateLifecycle entirely (the helper does not care whether the graph is
+// otherwise valid — only whether it would tsString something unescapable).
+func TestCheckEmittedStrings_RefusesTabInDependsOnEntry(t *testing.T) {
+	l := methodassets.Lifecycle{
+		Type: "fixture",
+		Tasks: []methodassets.LifecycleTask{
+			{ID: "a", Kind: methodassets.LifecycleTaskDispatch, Title: "A", Phase: "p", DependsOn: []string{"x\ty"}},
+		},
+	}
+	err := checkEmittedStrings([]methodassets.Lifecycle{l})
+	if err == nil {
+		t.Fatal("must refuse a dependsOn entry containing a tab")
+	}
+	if !strings.Contains(err.Error(), "dependsOn") {
+		t.Errorf("error must name the field, got %v", err)
+	}
+}
+
+// The pinned real data must never trip the new guard: this is the case that
+// must stay green through the fix, not just the synthetic ones above.
+func TestRender_PinnedDataHasNoControlCharacters(t *testing.T) {
+	if _, err := render(methodassets.Lifecycles()); err != nil {
+		t.Fatalf("the pinned method-assets lifecycles must render without a control-character refusal: %v", err)
+	}
+}
+
 // Prettier measures a line in characters. The copy carries "—" and "·" (multi-byte
 // in UTF-8), so a byte count would break lines prettier keeps whole.
 func TestWriteProp_MeasuresCharactersNotBytes(t *testing.T) {
