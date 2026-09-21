@@ -106,12 +106,36 @@ join: a task with several dependsOn waits for all
 ```
 Per-type differences are data (lifecycle) and strategy (command, worker class, artifact codec) — never a branch on "design vs construction". Acceptance: merged workflow code is materially smaller than the three it replaces (baseline ≈ 6,300 twin lines + constructactivity.go).
 
-### 5.3 One staging/review rail (ResourceAccess)
-One verb family for every activity: **stage** (write the task's artifact on the activity branch) → **review** (append to the task's review thread) → **commit** (merge on gate pass). Design activities' artifacts are `project.json` slots; construction's are code + `.serviceContracts`/`.phaseArtifacts`; both ride an **activity branch** (`activity/{activityId}`), replacing the design session branch.
-- `ReviewThread` (today on `ArtifactSlot`) moves to the **task**: `.activityExecution[activityId].tasks[taskId].revisions[n] = { attemptIds[], episodeRef, stagedRef (commit sha), verdicts[{reviewer, role, verdict, summary}], thread: ReviewComment[], outcome, decidedAt }`. The design slot keeps `Revisions`/`Provenance`; its thread becomes a read-through to the task's.
-- `stagedRef` makes "artifact as of revision n" a git read — history costs no new storage.
-- `OperatorNote{sendBack}` stops being the only survivor of a construction send-back; `sig.Feedback` is persisted as the verdict + thread.
-- `designSessionAccess` (8 ops) and `constructionTransitionAccess` (12) shrink to one facet set; `RecordPhaseStarted/Completed` die with the phase rail (ruling 6 endorsement).
+### 5.3 One staging/review rail + execution data model (system-architect ruling, 2026-09-21)
+
+The mega `project.json` and slots 0–16 stay. One verb family for every activity: **stage** (write the task's output on the activity branch `activity/{activityId}`, replacing the design session branch) → **review** → **commit** (merge on gate pass). Design activities' artifacts are slot models; construction's are code + `.serviceContracts`/`.phaseArtifacts`.
+
+**Two append-only ledgers per activity; everything else derived.** A revision is a derived grouping, never a stored container (a nested `tasks[].revisions[]` tree is read-modify-write under Temporal retry — the reason the attempt ledger exists). The attempts ledger alone cannot hold a review, because comments are replied to and resolved after the attempt ends.
+
+```
+.activityExecution[activityId] = ActivityExecution{
+  ActivityID, Type, Variant, LifecyclePin{id, version},
+  StartedAt, CompletedAt, FailureReason, FailureDetail,      // sticky head facts
+  Attempts []TaskAttempt,                                    // APPEND-ONLY — written by the workflow (today only cmd/backfill-attempts writes it)
+  Reviews  []ReviewRound,                                    // APPEND-ONLY container
+  Produced []ProducedArtifact, OperatorNotes []OperatorNote, // notes narrowed to override/retry/takeover/requeue/skip
+  Version int64 }                                            // optimistic concurrency
+TaskAttempt{ AttemptID "<activityId>:<taskId>:<n>", TaskID, Revision, Attempt, Actor,
+  StartedAt, EndedAt, Outcome, StagedRef, Evidence, Provenance }
+ReviewRound{ RoundID "<activityId>:<reviewTaskId>:<n>", TaskID, Reviews (judged task), Round,
+  SubjectRef{kind, ref = stagedRef sha}, Reviewers[]{role, actor, required},
+  Verdicts[]{reviewerRole, actor, verdict approve|sendBack|abstain, summary, at, attemptId},
+  Thread []ReviewComment,          // EXISTING type unchanged (replies, status, type, addressee)
+  Outcome passed|sentBack|pending, DecidedAt, DecidedBy, Provenance }
+```
+
+- Agent and human verdicts are rows in `Verdicts`; Ask/questions are `ReviewComment.type = question` — no third mechanism. Artifact-as-of-revision = `SubjectRef.ref` (a git read; no new storage). The only in-place mutations are comment `status`/`replies` (existing normalizer `ApplyReviewBatch`).
+- **Derived, never stored:** revisions, task state, `Phases`/`PhaseCompletion`, `CurrentPhase`, `BuildStatus`, coarse `Phase`, earned value, `constructionProgress`.
+- **Key rename** `.activityConstruction` → `.activityExecution` in **stage 3**, with the shape change (one wire break). ActivityID keys and the AttemptID format are kept so the episode ledger's `TargetRef` join survives.
+- **Dispositions.** `ArtifactSlot.ReviewThread`: read-through to `ReviewRound` in stage 3 (dual-write during the wave), deleted in stage 6. `CritiqueVerdict`/`CritiqueNotes`: deleted in stage 3 — an ordinary verdict with `role: projectManager`. `ArtifactSlot.Revisions`: kept, deprecated in place, stamped at commit, with a drift test equal to the derived round count. `NoteSendBack` stops being written in stage 3 (pending feedback = the latest round's open comments). `Phases`/`CurrentPhase`/`BuildStatus`/`Phase`/`Kind`: no longer stored from stage 3, emitted as computed view fields through stage 5, stored fields deleted in stage 6. Root `phase`: frozen, derived from milestone position, never renumbered or deleted.
+- **ResourceAccess.** `gitActivityStatusAccess` + `constructionTransitionAccess` Record* + `designSessionAccess` fold into ONE component **`activityExecutionAccess`**, owner of both ledgers; `sourceControlAccess` and `episodeAccess` stay separate (ruling 6). Twelve atomic verbs: `OpenActivity`, `StageTaskOutput`, `RecordAttemptOutcome`, `OpenReviewRound`, `AppendReviewVerdict` (verdict + its comments in one commit), `SetReviewCommentStatus`, `DecideReviewRound`, `CommitActivityArtifacts`, `RecordActivityOutcome`, `RecordOperatorNote`, `AcknowledgeStaleBasis`, `ReadActivityExecution`. `projectStateAccess` keeps slots/plan/policy and sheds its 12 dead ops (D1–D4) in the same wave; view derivation lives in an Engine, not the RA.
+- **Concurrency.** `.activityExecution[activityId]` is the unit of optimistic concurrency (`Version`, CAS, retry). Every mutation is a narrow `func(*Project) error` transition (precedent `commitTransition`) applied inside one project-scoped serialized commit lane (`{projectId}:statewrite`, the same queue activity-branch merges use) — transformations are sent, never whole documents. Deterministic ids (AttemptID/RoundID/NoteID) make every append idempotent under retry.
+- **Migration (stage 6, `cmd/migrate-activity-execution`).** Rename the map; carry identity, timestamps, failure facts, Produced, Attempts, OperatorNotes verbatim with each row's `Provenance.Origin` preserved (backfilled stays backfilled); drop the derived fields; stamp `Version = 1` + the current `LifecyclePin`; convert each sealed slot's `ReviewThread` into one backfilled `ReviewRound` per distinct `round`; `CritiqueVerdict/Notes` → one backfilled projectManager verdict; `NoteSendBack` notes → a round whose verdict carries the note's comments; synthesize activities 1–3 + M0 as Done for sealed projects. Acceptance: derived `Phases` equal the pre-migration stored `Phases` for every row.
 
 ### 5.4 One review engine
 `reviewEngine.ProposeReviews(activityType, taskId, artifactKind, policy, floorTouched) → ReviewSet{reviewers[], requiresHuman, reason}`. `ReviewPolicy.EffectiveGate`/`RequiresHuman` and the floor keywords move out of projectStateAccess into the engine; the policy **data** stays in project state. Design's PM critic / architect self-review become ordinary agent reviewers in the set. New non-overridable floor: **`projectDesign` gate always requires a human** (spend approval). Fixes the live defect where `constructactivity.go` passes `phase.String()` (`"detailed_design"`) as `artifactKind` (`"DetailedDesign"` expected) so `ProposeReviews` always errors and rosters are always empty — the error must no longer be swallowed.
