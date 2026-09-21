@@ -34,6 +34,15 @@ export interface Anchor {
  * `comments`, free-form entries become the reject `feedback` notes.
  */
 export interface PostedComment {
+  /**
+   * Stable client-side identity, minted when the note is staged. It never reaches
+   * the wire — it exists so a surface can key a note by something that does not
+   * move when an EARLIER note is discarded (the margin's per-card height cache
+   * would otherwise describe the wrong note for a frame). Optional: entries
+   * persisted before this field existed carry none, and callers fall back to the
+   * index for those.
+   */
+  id?: string;
   text: string;
   anchor: Anchor | null;
   /**
@@ -45,12 +54,20 @@ export interface PostedComment {
   commentType?: ReviewCommentType;
   /** For a question, the role it is addressed to (pm/architect). */
   addressee?: ReviewCommentAddressee;
+  /**
+   * The durable review-ledger thread this utterance answers. Absent means the
+   * comment opens a NEW thread. A reply stages exactly like a new comment — it
+   * does not dispatch — and rides the next batch verb (design §3.7).
+   */
+  replyTo?: string;
 }
 
 /** Options carried on {@link CommentCtx.post} for a question (vs a plain change-request). */
 export interface PostOptions {
   commentType?: ReviewCommentType;
   addressee?: ReviewCommentAddressee;
+  /** See {@link PostedComment.replyTo}. Threaded through into the staged entry. */
+  replyTo?: string;
 }
 
 /** A pending question grouped for the "Ask" action: its addressee + anchored payload. */
@@ -59,6 +76,14 @@ export interface PendingQuestion {
   jsonPath: string;
   text: string;
   anchorText: string;
+  /**
+   * The question thread this ask ANSWERS, or `''` to open a new one — the same
+   * presence-required wire convention as {@link AnchoredComment.replyTo}. A question
+   * thread is the conversational case, so a follow-up staged against an answered
+   * question must reach `AskQuestions` carrying its thread id; without this field the
+   * mapper had nowhere to put it and the follow-up dispatched as a NEW thread.
+   */
+  replyTo: string;
 }
 
 export interface CommentCtx {
@@ -84,7 +109,7 @@ export interface CommentCtx {
    * Signal from the composer that it holds unsent draft text (true) or is empty
    * (false). Drives {@link setAnchor}'s re-anchor guard so a half-typed comment
    * cannot be silently retargeted onto a different node by a later arm. The
-   * composer (ChatRail) is expected to call this as its draft text changes; until
+   * composer (the comment margin's) is expected to call this as its draft text changes; until
    * it does, this stays false and arming behaves exactly as before.
    */
   setDraftPending: (pending: boolean) => void;
@@ -122,4 +147,17 @@ export interface CommentCtx {
   pendingQuestions: () => PendingQuestion[];
   /** Monotonic counter; bumps whenever an anchor is armed. */
   requestId: number;
+  /**
+   * How many times {@link setAnchor}'s re-anchor guard has REFUSED to move the
+   * armed anchor — because a composer holds unsent text — SINCE that anchor was
+   * armed. Reset to 0 by every successful arm or disarm, so a non-zero value
+   * always describes the anchor (and therefore the draft card) in front of you.
+   *
+   * The refusal is deliberate: it keeps a half-typed comment paired with the
+   * location it was written against. But it has to be explicable. With the
+   * composer in a card at the foot of the margin nobody noticed; now that arming a
+   * row IS what opens the draft card, a refused arm reads as a dead comment
+   * button. The surface that owns the open draft watches this and says so.
+   */
+  anchorRefusals: number;
 }

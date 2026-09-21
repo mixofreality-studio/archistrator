@@ -65,9 +65,10 @@ import { GeneratingScene } from '../components/design/GeneratingScene';
 import { DraftFailedPanel } from '../components/design/DraftFailedPanel';
 import { GatePanel } from '../components/design/GatePanel';
 import { ApproveFaultBanner } from '../components/design/SystemDesignView';
-import { ChatRail } from '../components/design/ChatRail';
-import { CommittedArtifactPanel } from '../components/design/CommittedArtifactPanel';
+import { CommentMargin } from '../components/design/CommentMargin';
+import { CommittedArtifactPanel, CommittedChip } from '../components/design/CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from '../components/design/StaleBasisChip';
+import { ArtifactInfoButton } from '../components/design/ArtifactIntro';
 import { StageChip } from '../components/StageChip';
 import { ProjectArtifactRenderer } from '../components/project/ProjectArtifactRenderer';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
@@ -203,12 +204,15 @@ function ProjectDesignBody({
     setActiveKey(`${projectId}:${activeKind}`, projectVersion);
   }, [projectId, activeKind, projectVersion, setActiveKey]);
 
-  // Chat rail open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
+  // Comment-margin open-state mirrors the Phase-1 derivation (newer anchor re-opens it).
   const [closedAt, setClosedAt] = useState<number | null>(null);
-  const chatOpen = closedAt === null || requestId > closedAt;
-  const setChatOpen = (open: boolean): void => {
+  const marginOpen = closedAt === null || requestId > closedAt;
+  const setMarginOpen = (open: boolean): void => {
     setClosedAt(open ? null : requestId);
   };
+  // The amend composer dialog's open state, lifted out of CommittedArtifactPanel
+  // (RULING P6, shared with the Phase-1 SystemDesignView twin).
+  const [amendOpen, setAmendOpen] = useState(false);
 
   const session = useProjectSessionState(projectId, activeKind, true);
   const requestDraft = useRequestProjectArtifactDraft(projectId);
@@ -252,12 +256,12 @@ function ProjectDesignBody({
   const committedRevisions = committedSlot?.revisions;
   const committedStale = committedSlot?.staleBasis === true;
 
-  // Whether ProjectStepBody's committed-panel arm (below) is what renders: the
-  // CommittedArtifactPanel already carries a full-width "COMMITTED" strip with the
-  // actionable Amend button, so when it shows, the header's COMMITTED StageChip is a
-  // redundant second signal. Mirrors ProjectStepBody's early-return sequence up to the
-  // F-GTD-11 committed-panel guard (the SDP-committed arm renders its own content, not the
-  // panel, so it keeps the header chip). The strip wins, so suppress the chip when true.
+  // Whether ProjectStepBody's committed-panel arm (below) is what renders: when it
+  // does, the header renders CommittedChip instead of StageChip (Task 9 — the chip
+  // replaces the old full-width strip, so it is the signal, not a duplicate of one).
+  // Mirrors ProjectStepBody's early-return sequence up to the F-GTD-11 committed-panel
+  // guard (the SDP-committed arm renders its own content, not the panel, so it keeps
+  // the plain StageChip).
   const showsCommittedPanel =
     !draftFailed &&
     !generating &&
@@ -381,8 +385,8 @@ function ProjectDesignBody({
     );
   };
 
-  const waiveComment = (commentID: string): void => {
-    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'waived' });
+  const resolveComment = (commentID: string): void => {
+    setCommentStatus.mutate({ kind: activeKind, commentID, status: 'resolved' });
   };
 
   const reopenComment = (commentID: string): void => {
@@ -442,31 +446,37 @@ function ProjectDesignBody({
 
   return (
     <ExperienceChrome
-      chat={
-        chatOpen ? (
-          <ChatRail
-            committed={committed}
-            statusPending={setCommentStatus.isPending}
-            thread={reviewThread}
-            onCollapse={() => {
-              setChatOpen(false);
-            }}
-            onReopen={reopenComment}
-            onWaive={waiveComment}
-          />
-        ) : undefined
+      bodyScroll="shared"
+      margin={
+        marginOpen
+          ? (scrollRoot: HTMLElement | null): ReactNode => (
+              <CommentMargin
+                committed={committed}
+                scrollRoot={scrollRoot}
+                statusPending={setCommentStatus.isPending}
+                thread={reviewThread}
+                onCollapse={() => {
+                  setMarginOpen(false);
+                }}
+                onReopen={reopenComment}
+                onResolve={resolveComment}
+              />
+            )
+          : undefined
       }
-      chatOpen={chatOpen}
+      marginOpen={marginOpen}
       phaseNum={2}
       phaseTitle="Project Design"
       projectName={project?.name}
       spine={<SlimSpine activeIndex={safeIndex} steps={spine} onSelect={selectStep} />}
       onClose={() => void navigate({ to: '/project/$projectId/home', params: { projectId } })}
-      onOpenChat={() => {
-        setChatOpen(true);
+      onOpenMargin={() => {
+        setMarginOpen(true);
       }}
     >
-      <Box sx={{ flexGrow: 1, minWidth: 0, overflowY: 'auto', px: { xs: 2, md: 4 }, py: 3 }}>
+      {/* The content column. It does NOT scroll: ExperienceChrome wraps this and
+          the margin in ONE page box, and that page is what scrolls (Task 8b). */}
+      <Box sx={{ flexGrow: 1, minWidth: 0, px: { xs: 2, md: 4 }, py: 3 }}>
         {/* artifact header */}
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5, mb: 2 }}>
           <Box sx={{ minWidth: 0 }}>
@@ -474,9 +484,11 @@ function ProjectDesignBody({
               <Typography component="h1" sx={{ color: t.ink }} variant="h4">
                 {meta.title}
               </Typography>
-              {/* Suppressed when the committed-panel strip below already shows COMMITTED
-                  (+ Amend), so the header chip is not a duplicate signal. */}
-              {showsCommittedPanel ? null : (
+              {/* Collapsed to a chip when the committed-panel arm below renders (Task 9),
+                  so the header chip is not a duplicate signal. */}
+              {showsCommittedPanel ? (
+                <CommittedChip revisions={committedRevisions} />
+              ) : (
                 <StageChip
                   stage={
                     // An amendment awaiting review must read AWAITING YOU, not COMMITTED —
@@ -490,6 +502,10 @@ function ProjectDesignBody({
                   }
                 />
               )}
+              {/* Slot path (project.json state address), off its own always-visible
+                  subtitle line (Task 9) into the (?) popover — no framing copy exists
+                  for any Phase-2 kind, so this renders the address alone. */}
+              {committed ? <ArtifactInfoButton stateAddress={meta.stateAddress} /> : null}
               {/* Staleness moved off the full-width amber banner into a compact
                   header chip + popover (parity with the System Design shell). */}
               {committed && committedStale ? (
@@ -505,9 +521,6 @@ function ProjectDesignBody({
                 />
               ) : null}
             </Box>
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted, mt: 0.5 }}>
-              {meta.stateAddress} · step {safeIndex + 1} of {PHASE2_KINDS.length}
-            </Typography>
           </Box>
           <Box sx={{ flexGrow: 1 }} />
           <Tooltip title="drafts: architect Worker">
@@ -530,6 +543,7 @@ function ProjectDesignBody({
               ? advance.error.message
               : undefined
           }
+          amendOpen={amendOpen}
           amendPending={requestDraft.isPending}
           asyncFailed={asyncFailed}
           beginPending={requestDraft.isPending || assembleSdp.isPending}
@@ -564,6 +578,7 @@ function ProjectDesignBody({
             advance.mutate(true);
           }}
           onAmend={amend}
+          onAmendOpenChange={setAmendOpen}
           onApprove={approve}
           onBegin={beginDraft}
           onRetry={retryDraft}
@@ -591,6 +606,7 @@ function ProjectDesignBody({
 function ProjectStepBody({
   t,
   activeKind,
+  amendOpen,
   isSdpStep,
   loading,
   generating,
@@ -627,6 +643,7 @@ function ProjectStepBody({
   onSendBack,
   onWithdraw,
   onAmend,
+  onAmendOpenChange,
   onSdpCommit,
   onSdpRejectAll,
   onAdvance,
@@ -634,6 +651,8 @@ function ProjectStepBody({
 }: {
   t: Tokens;
   activeKind: ProjectArtifactKind;
+  /** The amend composer dialog's open state, lifted from CommittedArtifactPanel (RULING P6). */
+  amendOpen: boolean;
   isSdpStep: boolean;
   loading: boolean;
   generating: boolean;
@@ -670,6 +689,7 @@ function ProjectStepBody({
   onSendBack: () => void;
   onWithdraw: () => void;
   onAmend: (feedback: string, onAccepted: () => void) => void;
+  onAmendOpenChange: (open: boolean) => void;
   onSdpCommit: (optionId: string) => void;
   onSdpRejectAll: (feedback: string) => void;
   onAdvance: () => void;
@@ -745,16 +765,18 @@ function ProjectStepBody({
 
   // When the slot is committed and no review is in progress — either the co-author
   // session is gone (404) or it has reached its terminal 'committed' stage — render
-  // the committed model read-only under the committed panel (revision meta +
-  // stale-basis reconcile + Amend affordance). Without the stage==='committed' arm
-  // a freshly-approved artifact loses its Amend affordance until the session ages
-  // out (F-GTD-11): the architect could no longer reopen a clean committed slot.
+  // the committed model read-only under the committed panel. The committed chip +
+  // Amend affordance live in the header / submit bar now, not a strip in this panel.
+  // Without the stage==='committed' arm a freshly-approved artifact loses its Amend
+  // affordance until the session ages out (F-GTD-11): the architect could no longer
+  // reopen a clean committed slot.
   if ((sessionMissing || stage === 'committed') && committed && committedEnvelope !== undefined) {
     return (
       <CommittedArtifactPanel
+        amendOpen={amendOpen}
         amendPending={amendPending}
-        revisions={committedRevisions}
         onAmend={onAmend}
+        onAmendOpenChange={onAmendOpenChange}
       >
         <ProjectArtifactRenderer
           activityEnvelope={activityEnvelope}
@@ -831,14 +853,16 @@ function ProjectStepBody({
       ) : null}
       {gateOpen ? (
         <GatePanel
-          commentCount={commentCount}
+          actions={{
+            commentCount,
+            pending: decisionPending,
+            onApprove,
+            onSendBack,
+            onWithdraw,
+          }}
           findings={findings}
           gateError={gateError}
           openCommentCount={openCommentCount}
-          pending={decisionPending}
-          onApprove={onApprove}
-          onSendBack={onSendBack}
-          onWithdraw={onWithdraw}
         />
       ) : null}
     </>

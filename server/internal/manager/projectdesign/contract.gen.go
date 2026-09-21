@@ -38,6 +38,7 @@ type AnchoredComment struct {
 	JSONPath   string `json:"jsonPath"`
 	Text       string `json:"text"`
 	AnchorText string `json:"anchorText"`
+	ReplyTo    string `json:"replyTo"`
 }
 
 type ArtifactKind int
@@ -145,17 +146,26 @@ type PhaseAdvanceResult struct {
 
 type ProjectID string
 
-type ReviewCommentView struct {
+type ReviewCommentReply struct {
 	ID         string `json:"id"`
-	Anchor     string `json:"anchor"`
-	AnchorText string `json:"anchorText"`
-	Text       string `json:"text"`
 	AuthorRole string `json:"authorRole"`
-	Round      int64  `json:"round"`
-	Status     string `json:"status"`
-	Response   string `json:"response"`
-	Type       string `json:"type"`
-	Addressee  string `json:"addressee"`
+	Text       string `json:"text"`
+	At         string `json:"at"`
+}
+
+type ReviewCommentView struct {
+	ID         string               `json:"id"`
+	Anchor     string               `json:"anchor"`
+	AnchorText string               `json:"anchorText"`
+	Text       string               `json:"text"`
+	AuthorRole string               `json:"authorRole"`
+	Round      int64                `json:"round"`
+	Status     string               `json:"status"`
+	Response   *string              `json:"response,omitempty"`
+	Replies    []ReviewCommentReply `json:"replies"`
+	Reopened   bool                 `json:"reopened"`
+	Type       string               `json:"type"`
+	Addressee  string               `json:"addressee"`
 }
 
 type ReviewDecision int

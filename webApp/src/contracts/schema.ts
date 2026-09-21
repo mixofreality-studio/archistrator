@@ -768,6 +768,7 @@ export interface components {
     };
     ConstructionAnchoredComment: {
       jsonPath: string;
+      replyTo: string;
       text: string;
     };
     ConstructionConstructionSessionView: {
@@ -1513,6 +1514,7 @@ export interface components {
     ProjectDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;
+      replyTo: string;
       text: string;
     };
     /** @enum {integer} */
@@ -1614,13 +1616,21 @@ export interface components {
       missingArtifacts: null | components['schemas']['ProjectDesignArtifactKind'][];
     };
     ProjectDesignProjectID: string;
+    ProjectDesignReviewCommentReply: {
+      at: string;
+      authorRole: string;
+      id: string;
+      text: string;
+    };
     ProjectDesignReviewCommentView: {
       addressee: string;
       anchor: string;
       anchorText: string;
       authorRole: string;
       id: string;
-      response: string;
+      reopened: boolean;
+      replies: components['schemas']['ProjectDesignReviewCommentReply'][];
+      response?: string;
       round: number;
       status: string;
       text: string;
@@ -1726,6 +1736,7 @@ export interface components {
     SystemDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;
+      replyTo: string;
       text: string;
     };
     /** @enum {integer} */
@@ -2065,13 +2076,21 @@ export interface components {
       contentBytes?: number;
       title: string;
     };
+    SystemDesignReviewCommentReply: {
+      at: string;
+      authorRole: string;
+      id: string;
+      text: string;
+    };
     SystemDesignReviewCommentView: {
       addressee: string;
       anchor: string;
       anchorText: string;
       authorRole: string;
       id: string;
-      response: string;
+      reopened: boolean;
+      replies: components['schemas']['SystemDesignReviewCommentReply'][];
+      response?: string;
       round: number;
       status: string;
       text: string;

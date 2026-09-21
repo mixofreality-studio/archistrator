@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   loadPending,
+  mintPendingId,
   savePending,
   storageKeyFor,
   type PendingCommentStorage,
@@ -105,4 +106,10 @@ void test('slots are isolated per (project, kind) key', () => {
   savePending(storage, 'proj-1:glossary', [ANCHORED], 3);
   assert.deepStrictEqual(loadPending(storage, 'proj-1:mission', 3), COMMENTS);
   assert.deepStrictEqual(loadPending(storage, 'proj-1:glossary', 3), [ANCHORED]);
+});
+
+void test('minted pending ids are distinct, so discarding a note cannot alias its neighbour', () => {
+  const ids = Array.from({ length: 50 }, () => mintPendingId());
+  assert.equal(new Set(ids).size, ids.length);
+  assert.ok(ids.every((id) => id.length > 0));
 });

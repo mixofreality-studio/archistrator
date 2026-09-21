@@ -124,23 +124,27 @@ export const UI_IDENTIFIERS = {
     // (replaces the full-width committed intro banner).
     ARTIFACT_INFO: 'artifact-info',
     ARTIFACT_RENDER: 'artifact-render',
+    // The artifact's scroll container. The comment margin measures every anchor
+    // offset against THIS element, so an acceptance test that drives the page's
+    // scroll must drive this one and not the window.
+    DESIGN_SCROLL: 'design-scroll',
     DRAFT_FAILED: 'draft-failed',
     DRAFT_FAILURE_REASON: 'draft-failure-reason',
     DRAFT_FAILURE_RUN_LINK: 'draft-failure-run-link',
     DRAFT_FAILED_GATE_ERROR: 'draft-failed-gate-error',
     RETRY_DRAFT: 'retry-draft',
     WITHDRAW_DRAFT: 'withdraw-draft',
-    // Committed-panel amendment affordances: the header Amend button, its small
-    // rationale composer, and the composer's controls.
-    AMEND: 'committed-amend',
+    // Committed-panel amendment affordances: the small rationale composer and its
+    // controls. The header Amend trigger button was retired in Task 9 (dialog kept,
+    // reopened by Task 10's submit bar); its testid (`committed-amend`) went with
+    // it — Task 10's bar mints its own (`SUBMIT_BAR_PRIMARY`), since the same
+    // button slot now carries four possible verbs, not just Amend.
     RECONCILE: 'committed-reconcile',
     AMEND_COMPOSER: 'amend-composer',
     AMEND_RATIONALE: 'amend-rationale',
     AMEND_INCLUDE_PENDING: 'amend-include-pending',
     AMEND_SUBMIT: 'amend-submit',
     AMEND_CANCEL: 'amend-cancel',
-    // 'COMMITTED · revision N' meta on the committed-panel header.
-    COMMITTED_REVISION: 'committed-revision',
     // Read-only 'COMMITTED … — current' label shown above the generating scene while
     // a committed artifact's amendment drafts.
     AMEND_CURRENT_LABEL: 'amend-current-label',
@@ -163,6 +167,16 @@ export const UI_IDENTIFIERS = {
     APPROVE_FAULT: 'approve-fault',
     // Compact stale marker on a spine step, keyed by slot kind.
     spineStale: (kind: string) => `spine-stale-${kind}`,
+    // The submit bar (Task 10, Ruling P5): the one surface every review verb
+    // (Send back / Approve / Amend / Ask) converges through, sticky at the bottom
+    // of the scroll column. Task 11 keys off the root id.
+    SUBMIT_BAR: 'submit-bar',
+    SUBMIT_BAR_PRIMARY: 'submit-bar-primary',
+    SUBMIT_BAR_CONSEQUENCE: 'submit-bar-consequence',
+    SUBMIT_BAR_MENU_BUTTON: 'submit-bar-menu-button',
+    SUBMIT_BAR_MENU: 'submit-bar-menu',
+    // A secondary (overflow) verb, keyed by its action ('withdraw' / 'retry').
+    submitBarMenuItem: (action: string) => `submit-bar-menu-item-${action}`,
   },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
@@ -282,25 +296,46 @@ export const UI_IDENTIFIERS = {
     // Graceful FailedPrecondition surface after an approve race.
     GATE_ERROR: 'gate-error',
   },
+  // The comment COMPOSER, which moved out of the deleted ChatRail into the foot
+  // of the margin. The ids keep their `chat-*` spelling so the existing uitests
+  // selectors keep resolving; Task 11 renames them along with its own specs.
+  // `ASK` retired (Task 10, Ruling P17): the Ask verb moved out of the composer
+  // into the submit bar (DesignExperience.SUBMIT_BAR) — see submitBarMenuItem/
+  // SUBMIT_BAR_PRIMARY above.
   Chat: {
     RAIL: 'chat-rail',
     TOGGLE: 'chat-toggle',
     SEND: 'chat-send',
     INPUT: 'chat-input',
-    // Composer type/addressee pickers + the separate Ask send (question-comments).
+    // Composer type/addressee pickers (question-comments' addressee).
     TYPE_CHANGE_REQUEST: 'chat-type-change-request',
     TYPE_QUESTION: 'chat-type-question',
     ADDRESSEE_PM: 'chat-addressee-pm',
     ADDRESSEE_ARCHITECT: 'chat-addressee-architect',
-    ASK: 'chat-ask',
-    // Toggle that reveals/collapses the carried-over PENDING · NOT SENT drafts.
-    PENDING_DISCLOSURE: 'chat-pending-disclosure',
     commentAnchor: (n: number) => `comment-anchor-${String(n)}`,
-    // A durable review-ledger thread entry (server), keyed by its ledger id.
-    threadEntry: (id: string) => `thread-entry-${id}`,
-    // Per-entry lifecycle actions: waive an open entry / reopen an addressed one.
-    threadWaive: (id: string) => `thread-waive-${id}`,
-    threadReopen: (id: string) => `thread-reopen-${id}`,
+  },
+  Margin: {
+    ROOT: 'comment-margin',
+    UNPLACED: 'comment-margin-unplaced',
+    // The IN-PLACE draft card (Task 8b): opened by arming a row (level with that
+    // row) or by ADD_NOTE (free-form, in the unplaced group). Carries the type
+    // toggle, the text field, Cancel and Comment. Replaces the foot composer this
+    // testid used to name — the id is kept so acceptance selectors still resolve.
+    COMPOSER: 'comment-margin-composer',
+    // Opens a FREE-FORM (unanchored) draft card. The only composer affordance the
+    // margin owns itself, now that arming a row composes in place.
+    ADD_NOTE: 'comment-margin-add-note',
+    // The line an open draft card shows once CommentContext's re-anchor guard has
+    // refused another row's comment button on its behalf — so the refusal is
+    // explained rather than read as a dead button.
+    DRAFT_BLOCKING: 'comment-margin-draft-blocking',
+    card: (id: string) => `margin-card-${id}`,
+    reply: (id: string) => `margin-reply-${id}`,
+    resolve: (id: string) => `margin-resolve-${id}`,
+    reopen: (id: string) => `margin-reopen-${id}`,
+    // A STAGED (posted locally, not yet sent) note, keyed by its accumulator index.
+    staged: (n: number) => `margin-staged-${String(n)}`,
+    stagedDiscard: (n: number) => `margin-staged-discard-${String(n)}`,
   },
   // Comment-anchoring affordances that arm a CommentContext anchor from a
   // diagram surface or a text selection. Diagram edges/nodes arm on CLICK (React

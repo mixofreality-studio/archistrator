@@ -205,6 +205,27 @@ func parseArtifactKind(v string) (projectstate.ArtifactKind, error) {
 		v, projectstate.KindVolatilities.String(), projectstate.KindVolatilities.WireName())
 }
 
+// authorRole returns the drafting role this session appends review-thread replies
+// as. In answer mode the founder's open questions are addressed either to the
+// architect (/design-answer) or the product manager (/design-answer-pm) — s.Command
+// carries that slug verbatim (AIARCH_COMMAND, stamped from the dispatch's `command`
+// input; see .github/workflows/aiarch-design.yml). Every draft-mode command
+// (mission-draft, system-draft, ...) is architect-authored per Method doctrine (the
+// architect drives every draft; the PM only critiques/ratifies), so "architect" is
+// correct there too, and it is the safe fallback for a hand-run session that carries
+// no command at all.
+//
+// The value returned here MUST be exactly "architect" or "pm": normalizeReviewThread's
+// isReviewerRole (projectstateaccess.go) treats any OTHER author role as the human
+// reviewer — a deliberate fail-safe — which would make an agent's reply invisible to
+// the derive rule and the thread would never reach "answered".
+func (s *Session) authorRole() string {
+	if s.Command == "design-answer-pm" {
+		return "pm"
+	}
+	return "architect"
+}
+
 // projectFilePath is the absolute on-disk path of the aggregate document in the checkout.
 func (s *Session) projectFilePath() string {
 	return filepath.Join(s.StateRoot, statePathPrefix, projectFile)

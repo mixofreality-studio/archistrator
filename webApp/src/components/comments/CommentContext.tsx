@@ -53,16 +53,22 @@ import type {
   CommentCtx,
 } from './commentContextTypes';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext';
-import { browserPendingCommentStorage, loadPending, savePending } from './pendingCommentsStore';
+import {
+  browserPendingCommentStorage,
+  loadPending,
+  mintPendingId,
+  savePending,
+} from './pendingCommentsStore';
+import {
+  isQuestion,
+  toWireEntries,
+  freeformNotesFrom,
+  pendingQuestionsFrom,
+} from './reviewBatch';
 
 // Type definitions imported from commentContextTypes.ts for reusability across
 // the comment system (including the test file, which cannot import .tsx files).
 export type { Anchor, PostedComment, PostOptions, PendingQuestion, CommentCtx };
-
-/** True when a pending entry is a question (absent type ⇒ change-request). */
-function isQuestion(c: PostedComment): boolean {
-  return c.commentType === 'question';
-}
 
 const Ctx = createContext<CommentCtx | null>(null);
 
@@ -90,6 +96,8 @@ export function CommentProvider({
   const [comments, setComments] = useState<PostedComment[]>([]);
   const [armedAnchor, setArmedAnchor] = useState<Anchor | null>(null);
   const [requestId, setRequestId] = useState(0);
+  // See CommentCtx.anchorRefusals: the re-anchor guard below must be explicable.
+  const [anchorRefusals, setAnchorRefusals] = useState(0);
   // Whether the composer currently holds unsent draft text. A ref (not state) so the
   // setAnchor guard reads it synchronously without re-subscribing on every keystroke.
   const draftPendingRef = useRef(false);
@@ -159,10 +167,16 @@ export function CommentProvider({
       // stays stable — see armedAnchorRef.)
       const prev = armedAnchorRef.current;
       if (a !== null && prev !== null && draftPendingRef.current && a.jsonPath !== prev.jsonPath) {
+        // Refused — but say so, or the comment button the reviewer just pressed
+        // looks broken. The open draft card renders the explanation.
+        setAnchorRefusals((n) => n + 1);
         return;
       }
       armedAnchorRef.current = a;
       setArmedAnchor(a);
+      // Accepted: whatever was refused was refused on behalf of the PREVIOUS
+      // anchor, which no longer exists. See CommentCtx.anchorRefusals.
+      setAnchorRefusals(0);
       if (a !== null) setRequestId((n) => n + 1);
     },
     [enabled]
@@ -175,12 +189,22 @@ export function CommentProvider({
   const post = useCallback(
     (text: string, opts?: PostOptions): void => {
       const trimmed = text.trim();
-      const meta: Pick<PostedComment, 'commentType' | 'addressee'> = {
+      const meta: Pick<PostedComment, 'id' | 'commentType' | 'addressee' | 'replyTo'> = {
+        // See PostedComment.id: a stable handle that survives a neighbour being
+        // discarded. Never sent; `toWireEntries` and friends do not read it.
+        id: mintPendingId(),
         commentType: opts?.commentType ?? 'changeRequest',
         ...(opts?.addressee !== undefined ? { addressee: opts.addressee } : {}),
+        ...(opts?.replyTo !== undefined ? { replyTo: opts.replyTo } : {}),
       };
+      // A REPLY never carries an anchor (design §3.7 / Ruling P14): the server
+      // locates the thread by `replyTo`, and reviewBatch.ts routes it on that
+      // field alone. An anchor armed elsewhere on the page must not be silently
+      // consumed by a reply typed in a margin card — so the reply takes the
+      // free-form path and leaves the armed anchor exactly where it was.
+      const isReply = opts?.replyTo !== undefined && opts.replyTo !== '';
       let next: PostedComment[] | null = null;
-      if (armedAnchor === null) {
+      if (armedAnchor === null || isReply) {
         // Free-form feedback: only post when the architect actually typed something.
         if (trimmed.length === 0) return;
         next = [...comments, { text: trimmed, anchor: null, ...meta }];
@@ -220,40 +244,16 @@ export function CommentProvider({
     });
   }, [persist]);
 
-  const toWire = useCallback((): AnchoredComment[] => {
-    const out: AnchoredComment[] = [];
-    for (const c of comments) {
-      // Questions ride the separate "Ask" action, never a Send-back redraft.
-      if (c.anchor !== null && !isQuestion(c)) {
-        // anchorText is the item's rendered-text snapshot; the label already carries
-        // it for every arm surface, so fall back to it when no richer text was set.
-        out.push({
-          jsonPath: c.anchor.jsonPath,
-          text: c.text,
-          anchorText: c.anchor.anchorText ?? c.anchor.label,
-        });
-      }
-    }
-    return out;
-  }, [comments]);
+  // toWireEntries/freeformNotesFrom/pendingQuestionsFrom live in reviewBatch.ts (a
+  // plain .ts module) so they're unit-testable under node:test — see that file for
+  // the reply-routing rule (a margin reply arms no anchor; it must land in exactly
+  // one destination, and a reply on a QUESTION thread rides the Ask payload).
+  const toWire = useCallback((): AnchoredComment[] => toWireEntries(comments), [comments]);
 
-  const freeformNotes = useCallback(
-    (): string =>
-      comments
-        .filter((c) => c.anchor === null && !isQuestion(c))
-        .map((c) => c.text)
-        .join('\n'),
-    [comments]
-  );
+  const freeformNotes = useCallback((): string => freeformNotesFrom(comments), [comments]);
 
   const pendingQuestions = useCallback(
-    (): PendingQuestion[] =>
-      comments.filter(isQuestion).map((c) => ({
-        addressee: c.addressee ?? 'pm',
-        jsonPath: c.anchor?.jsonPath ?? '',
-        text: c.text,
-        anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
-      })),
+    (): PendingQuestion[] => pendingQuestionsFrom(comments),
     [comments]
   );
 
@@ -273,8 +273,10 @@ export function CommentProvider({
       freeformNotes,
       pendingQuestions,
       requestId,
+      anchorRefusals,
     }),
     [
+      anchorRefusals,
       enabled,
       comments,
       armedAnchor,
@@ -297,8 +299,8 @@ export function CommentProvider({
       {/* Invisible test probe: reflects the currently-armed anchor so black-box
           uitests (and headless smokes) can assert that ANY commentable surface —
           diagram edge/node, sequence step, deployment node, use case, or a text
-          selection — armed its anchor, without depending on the ChatRail (which
-          needs a live co-author session). Empty attributes when nothing is armed.
+          selection — armed its anchor, without depending on the comment margin
+          (which needs a live co-author session). Empty attributes when nothing is armed.
           Suppressed entirely on read-only surfaces (enabled === false) so the DOM
           carries no comment-probe span there. */}
       {enabled ? (

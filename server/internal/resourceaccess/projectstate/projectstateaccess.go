@@ -341,8 +341,13 @@ func (s *GitStore) withdrawArtifactOnBranch(ctx context.Context, projectID Proje
 // any status change (F38 amendments). At an amendment session's start the reopening feedback
 // is seeded here as round-0 open entries — the "why" the drafting agent must address and the
 // reviewer tracks — on the SAME session branch the draft was staged on. It reuses the same
-// deterministic, idempotent append as the reject path (appendReviewComments dedups on id).
-func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// deterministic, idempotent append as the reject path (ApplyReviewBatch).
+//
+// replies carries the QUEUED-REPLIES half of the same feedback (design §3.7), for the callers
+// that recover a memory-only reject: the reviewer's "still vague" belongs in the thread it was
+// written against, and a seed that could only mint fresh comments would re-file it as a new,
+// unanchored one — the very detachment replyTo exists to prevent.
+func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "SeedReviewComments", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		slot, ok := slotPtr(p, kind)
 		if !ok {
@@ -351,7 +356,11 @@ func (s *GitStore) SeedReviewCommentsOnBranch(ctx context.Context, projectID Pro
 		if slot.Status == ReviewNone || slot.Model == nil {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.SeedReviewComments: slot %s is unpopulated (stage a model first)", kind))
 		}
-		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
 		return nil
 	})
 }
@@ -395,7 +404,12 @@ const staleAckAuthorRole = "architect"
 // appendReviewComments). Each comment supplies Anchor / AnchorText / Text / AuthorRole; the
 // id / round / open status are server-minted here. branch=="" behaves exactly as the main-path
 // reject (the dormant-rail fallback), still appending the comments.
-func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// replies carries the other half of the SAME submitted batch: utterances answering threads
+// that already exist on this slot (design §3.7). The reviewer's "still vague" belongs INSIDE
+// the thread it was written against, not in a brand-new one, so the two halves land in the
+// one atomic commit — see ApplyReviewBatch, which owns both appends.
+func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutationOnBranch(ctx, "RejectArtifact", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
 		if err := statusTransition("RejectArtifact", kind, ReviewRejected, notes)(p); err != nil {
 			return err
@@ -404,7 +418,11 @@ func (s *GitStore) RejectArtifactOnBranchWithComments(ctx context.Context, proje
 		if !ok {
 			return fwra.New(fwra.ContractMisuse, fmt.Sprintf("projectstate.RejectArtifact: unknown kind %s", kind))
 		}
-		slot.ReviewThread = appendReviewComments(slot.ReviewThread, round, comments)
+		updated, err := ApplyReviewBatch(slot.ReviewThread, round, comments, replies)
+		if err != nil {
+			return err
+		}
+		slot.ReviewThread = updated
 		return nil
 	})
 }
@@ -1824,24 +1842,24 @@ func (a *projectStateGitAdapter) WithdrawArtifactOnBranch(rc fwra.Context, proje
 // status flip + notes AND appends the reviewer's comments to the slot's durable ReviewThread
 // in one atomic commit on the session branch (empty branch ⇒ main). The cred is minted
 // just-in-time.
-func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, cred, idempotencyKey)
+	return a.store.RejectArtifactOnBranchWithComments(ctx, projectID, expectedVersion, branch, kind, notes, round, comments, replies, cred, idempotencyKey)
 }
 
 // SeedReviewCommentsOnBranch is the F38 amendment ledger-seed (append open comments, no
 // status change). The cred is minted just-in-time, exactly like the other ledger verbs.
-func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *projectStateGitAdapter) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, cred, idempotencyKey)
+	return a.store.SeedReviewCommentsOnBranch(ctx, projectID, expectedVersion, branch, kind, round, comments, replies, cred, idempotencyKey)
 }
 
 // SetReviewCommentStatusOnBranch applies a human status transition to one ledger entry on
@@ -3101,11 +3119,11 @@ type designSessionBase interface {
 	ProjectStateAccess
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (Project, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 var _ DesignSessionAccess = (*designSessionAccess)(nil)
@@ -3201,8 +3219,8 @@ func (s *designSessionAccess) CommitArtifactWithProvenance(rc fwra.Context, proj
 // RejectArtifactOnBranchWithComments forwards straight to base: it lands the Rejected
 // status flip + notes AND appends the reviewer's comments to the slot's durable
 // ReviewThread in one atomic commit.
-func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, idempotencyKey)
+func (s *designSessionAccess) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.base.RejectArtifactOnBranchWithComments(rc, projectID, expectedVersion, branch, kind, notes, round, comments, replies, idempotencyKey)
 }
 
 // WithdrawArtifactOnBranch forwards straight to base (branch=="" withdraws on the
@@ -3229,8 +3247,8 @@ func (s *designSessionAccess) SetReviewCommentStatusOnBranch(rc fwra.Context, pr
 
 // SeedReviewCommentsOnBranch appends the F38 amendment reopening feedback as OPEN
 // ledger entries (no status change). Forwards straight to base.
-func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, idempotencyKey)
+func (s *designSessionAccess) SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+	return s.base.SeedReviewCommentsOnBranch(rc, projectID, expectedVersion, branch, kind, round, comments, replies, idempotencyKey)
 }
 
 // envelope.go is the ONE Manager-Temporal-boundary wire codec for the sealed
@@ -6596,7 +6614,20 @@ func decodeSlotsMap(w map[string]slotJSON, p *Project) error {
 		slot.Notes = entry.Notes
 		slot.CritiqueVerdict = entry.CritiqueVerdict
 		slot.CritiqueNotes = entry.CritiqueNotes
-		slot.ReviewThread = entry.ReviewThread
+		// LEGACY-VOCABULARY GRANDFATHER (review-thread status vocabulary, this feature): a
+		// committed slot's ReviewThread may still carry the RETIRED "addressed"/"waived"
+		// statuses (and a bare legacy Response string) from before the reply-thread model
+		// existed. migrateLegacyReviewThread render-on-reads it onto the current vocabulary
+		// — this is the SAME lazy-migration shape as the Revisions grandfather just below:
+		// nothing is written back here, but the in-memory Project this decode produces (and
+		// therefore every write built from it, e.g. the next normalizeReviewThread at a
+		// (re)stage) sees only current values from this point on. No caller-identity or
+		// clock is available in this pure decoder, so draftedBy/at are passed empty;
+		// migrateLegacyReviewThread defaults an empty draftedBy to "architect", and the
+		// empty `at` is unreachable for every entry actually on disk today (F45 staleAck
+		// entries carry no Response, so the reply-synthesis branch that would use `at`
+		// never fires for them).
+		slot.ReviewThread = migrateLegacyReviewThread(entry.ReviewThread, "", "")
 		slot.Revisions = entry.Revisions
 		// PRE-FIELD GRANDFATHER (F38 follow-up 2026-07-05): a slot committed BEFORE the
 		// Revisions field existed reads back as 0 (the zero-value / omitempty gap), yet a
@@ -9100,11 +9131,21 @@ func DesignCommandFor(k ArtifactKind, mode DesignJobMode, addressee string) stri
 const (
 	// ReviewCommentOpen — filed by a reviewer, not yet addressed. Blocks approve.
 	ReviewCommentOpen = "open"
-	// ReviewCommentAddressed — the drafting agent committed a non-empty response on the
-	// redraft (server-computed from Response presence, see normalizeReviewThread).
+	// ReviewCommentAnswered — the drafting agent has appended a reply. A waypoint,
+	// not a close: only the reviewer resolves (design §3.3).
+	ReviewCommentAnswered = "answered"
+	// ReviewCommentResolved — the reviewer closed the thread. Sticky; normalization
+	// never reconsiders it. Subsumes the retired "waived" (resolving an unanswered
+	// thread IS dismissing it).
+	ReviewCommentResolved = "resolved"
+
+	// ReviewCommentAddressed — DEPRECATED. Retired live status, kept only so a
+	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
+	// Never written by current code.
 	ReviewCommentAddressed = "addressed"
-	// ReviewCommentWaived — the human dismissed the comment without a redraft. Sticky:
-	// normalization never reconsiders a waived entry.
+	// ReviewCommentWaived — DEPRECATED. Retired live status, kept only so a
+	// pre-thread ledger committed to git still decodes via migrateLegacyReviewThread.
+	// Never written by current code.
 	ReviewCommentWaived = "waived"
 )
 
@@ -9122,7 +9163,7 @@ const (
 	ReviewCommentTypeQuestion = "question"
 	// ReviewCommentTypeStaleAck — an AUDIT entry recording that a reviewer marked a stale
 	// committed artifact "reviewed — unaffected" (F45). It carries the reviewer's note, is
-	// born addressed, and normalization never reconsiders it (like a waived entry) so it
+	// born answered, and normalization never reconsiders it (like a resolved entry) so it
 	// stays a permanent, non-blocking trail entry rather than flipping open on a later stage.
 	ReviewCommentTypeStaleAck = "staleAck"
 )
@@ -9162,9 +9203,9 @@ func ReviewCommentID(round int64, index int) string {
 	return reviewCommentID(round, index)
 }
 
-// appendStaleAck appends one ADDRESSED staleAck audit entry (F45) recording that a reviewer
+// appendStaleAck appends one ANSWERED staleAck audit entry (F45) recording that a reviewer
 // marked the artifact "reviewed — unaffected", carrying the reviewer's note. It mints a fresh
-// round (past the highest present) so its id never collides, and is born addressed so it is a
+// round (past the highest present) so its id never collides, and is born answered so it is a
 // permanent non-blocking trail entry (normalization skips it). The authorRole is the reviewer.
 func appendStaleAck(thread []ReviewComment, authorRole, note string) []ReviewComment {
 	round := nextThreadRound(thread)
@@ -9173,7 +9214,7 @@ func appendStaleAck(thread []ReviewComment, authorRole, note string) []ReviewCom
 		Text:       staleAckText(note),
 		AuthorRole: authorRole,
 		Round:      round,
-		Status:     ReviewCommentAddressed,
+		Status:     ReviewCommentAnswered,
 		Type:       ReviewCommentTypeStaleAck,
 	})
 }
@@ -9203,7 +9244,7 @@ func staleAckText(note string) string {
 // and SKIPPING any id already present. The skip makes the append idempotent under Temporal
 // activity retry (the same round re-appends the same ids → no duplicates). The caller
 // supplies each comment's Anchor / AnchorText / Text / AuthorRole; ID / Round / Status /
-// Response are authored here. Returns the grown thread.
+// Replies / Reopened are authored here. Returns the grown thread.
 func appendReviewComments(thread []ReviewComment, round int64, comments []ReviewComment) []ReviewComment {
 	present := make(map[string]bool, len(thread))
 	for _, c := range thread {
@@ -9222,7 +9263,8 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 			AuthorRole: c.AuthorRole,
 			Round:      round,
 			Status:     ReviewCommentOpen,
-			Response:   "",
+			Replies:    nil,
+			Reopened:   false,
 			// Carry the caller-supplied type/addressee (question-comments): a seeded
 			// question keeps its "question" type + addressee; a reject/amendment comment
 			// leaves them "" (a change-request, the migration-safe default).
@@ -9234,38 +9276,47 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 	return thread
 }
 
-// normalizeReviewThread reconciles every non-waived entry's Status against its Response:
-// a non-empty Response means the drafting agent addressed the comment (Addressed); an
-// empty Response means it is still open. This is the server's authority over the status
-// the drafting agent PROPOSES on a redraft (review-ledger §3: "entries whose response came
-// back empty STAY open") — the agent commits a response + a proposed addressed status into
-// project.json, but the server, not the agent, decides the effective status. Waived is
-// sticky (a human decision) and never reconsidered. Applied on every (re)stage so the
-// ledger the reviewer sees always reflects the responses actually committed. A no-op for a
-// slot with no thread (the common case).
+// normalizeReviewThread derives every non-sticky entry's Status from its reply
+// history: the thread is ANSWERED iff its last utterance is agent-authored, and
+// OPEN otherwise (no replies at all, or the reviewer got the last word). That one
+// rule also implements the answered->open reopen for free — a queued reviewer
+// reply landing on an answered thread makes the last utterance human, so the
+// thread re-opens and blocks approve until the agent answers again.
+//
+// Sticky and never reconsidered: RESOLVED (a reviewer decision), staleAck entries
+// (audit records), and the Reopened bit (an explicit reviewer reopen, which the
+// agent clears when it replies — see appendReviewReply).
 func normalizeReviewThread(thread []ReviewComment) []ReviewComment {
 	for i := range thread {
-		// Waived (a human dismissal) and staleAck (an audit record) are sticky — normalization
-		// never reconsiders them, so a staleAck stays addressed rather than flipping open.
-		if thread[i].Status == ReviewCommentWaived || thread[i].Type == ReviewCommentTypeStaleAck {
+		c := &thread[i]
+		if c.Status == ReviewCommentResolved || c.Type == ReviewCommentTypeStaleAck {
 			continue
 		}
-		if thread[i].Response != "" {
-			thread[i].Status = ReviewCommentAddressed
-		} else {
-			thread[i].Status = ReviewCommentOpen
+		if c.Reopened || len(c.Replies) == 0 || isReviewerRole(c.Replies[len(c.Replies)-1].AuthorRole) {
+			c.Status = ReviewCommentOpen
+			continue
 		}
+		c.Status = ReviewCommentAnswered
 	}
 	return thread
 }
 
-// applyReviewCommentStatus applies a HUMAN status transition to the entry with id in
-// thread. Only two transitions are legal (review-ledger §4): open→waived (dismiss) and
-// addressed→open (reopen). A reopen CLEARS the response so the next redraft's
-// normalizeReviewThread keeps the entry open until the agent commits a fresh response
-// (otherwise the stale response would immediately re-normalize it back to addressed and
-// silently undo the reopen). An unknown id is NotFound; any other transition is
-// ContractMisuse. Both surface upward as a FailedPrecondition at the manager.
+// isReviewerRole reports whether an utterance came from the human reviewer rather
+// than an agent. Anything that is not a known agent role is treated as the
+// reviewer, so an unrecognised author can never silently satisfy a change request.
+func isReviewerRole(role string) bool {
+	switch role {
+	case "architect", "pm":
+		return false
+	default:
+		return true
+	}
+}
+
+// applyReviewCommentStatus applies a REVIEWER status transition. Legal:
+// open->resolved and answered->resolved (close), and resolved->open (reopen).
+// A reopen sets the sticky Reopened bit and PRESERVES the reply history — the
+// thread is the record of the conversation, so reopening must not erase it.
 func applyReviewCommentStatus(thread []ReviewComment, id, status string) ([]ReviewComment, error) {
 	for i := range thread {
 		if thread[i].ID != id {
@@ -9273,14 +9324,15 @@ func applyReviewCommentStatus(thread []ReviewComment, id, status string) ([]Revi
 		}
 		from := thread[i].Status
 		switch {
-		case from == ReviewCommentOpen && status == ReviewCommentWaived:
-			thread[i].Status = ReviewCommentWaived
-		case from == ReviewCommentAddressed && status == ReviewCommentOpen:
+		case (from == ReviewCommentOpen || from == ReviewCommentAnswered) && status == ReviewCommentResolved:
+			thread[i].Status = ReviewCommentResolved
+			thread[i].Reopened = false
+		case from == ReviewCommentResolved && status == ReviewCommentOpen:
 			thread[i].Status = ReviewCommentOpen
-			thread[i].Response = ""
+			thread[i].Reopened = true
 		default:
 			return nil, fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-				"projectstate.SetReviewCommentStatus: illegal transition %q -> %q for comment %s (allowed: open->waived, addressed->open)", from, status, id))
+				"projectstate.SetReviewCommentStatus: illegal transition %q -> %q for comment %s (allowed: open->resolved, answered->resolved, resolved->open)", from, status, id))
 		}
 		return thread, nil
 	}
@@ -9290,11 +9342,110 @@ func applyReviewCommentStatus(thread []ReviewComment, id, status string) ([]Revi
 // validReviewCommentStatus reports whether s is one of the closed wire values.
 func validReviewCommentStatus(s string) bool {
 	switch s {
-	case ReviewCommentOpen, ReviewCommentAddressed, ReviewCommentWaived:
+	case ReviewCommentOpen, ReviewCommentAnswered, ReviewCommentResolved:
 		return true
 	default:
 		return false
 	}
+}
+
+// ApplyReviewBatch applies ONE submitted review batch to a thread: the fresh comments
+// open new entries for round, and each reply appends an utterance to the entry it names.
+// It is the single place that knows what a batch IS, so the Manager that splits an
+// incoming submission into (replies, fresh comments) never has to re-implement utterance-id
+// minting or the reopen-bit rule — that invariant lives here, in the layer that owns the
+// ledger (ruling P2).
+//
+// Idempotent under Temporal activity retry on BOTH halves: appendReviewComments dedups on
+// the deterministic per-(round,index) id, and a reply whose (author, text, at) is already
+// present on its thread is skipped — which is exactly the retry case, since the caller
+// stamps `at` from the deterministic workflow clock.
+//
+// The batch closes with normalizeReviewThread so the derived status is true of the ledger
+// the instant it is written: a reviewer utterance landing on an ANSWERED thread re-opens it
+// here rather than waiting for the next stage to re-derive it.
+//
+// A reply naming no entry is a NotFound — never a silently-dropped utterance.
+func ApplyReviewBatch(thread []ReviewComment, round int64, comments []ReviewComment, replies []ReviewReply) ([]ReviewComment, error) {
+	thread = appendReviewComments(thread, round, comments)
+	for _, r := range replies {
+		if reviewReplyPresent(thread, r) {
+			continue
+		}
+		var err error
+		if thread, err = appendReviewReply(thread, r.CommentID, r.AuthorRole, r.Text, r.At); err != nil {
+			return nil, err
+		}
+	}
+	return normalizeReviewThread(thread), nil
+}
+
+// reviewReplyPresent reports whether the named entry already carries this exact utterance
+// — the retry guard behind ApplyReviewBatch's idempotency (see its doc).
+func reviewReplyPresent(thread []ReviewComment, r ReviewReply) bool {
+	for i := range thread {
+		if thread[i].ID != r.CommentID {
+			continue
+		}
+		for _, have := range thread[i].Replies {
+			if have.AuthorRole == r.AuthorRole && have.Text == r.Text && have.At == r.At {
+				return true
+			}
+		}
+		return false
+	}
+	return false
+}
+
+// appendReviewReply appends one utterance to the thread entry with id. Appending an
+// AGENT reply clears the sticky Reopened bit, so an explicitly reopened thread
+// settles back to answered once the agent has actually answered again.
+func appendReviewReply(thread []ReviewComment, id, authorRole, text, at string) ([]ReviewComment, error) {
+	for i := range thread {
+		if thread[i].ID != id {
+			continue
+		}
+		thread[i].Replies = append(thread[i].Replies, ReviewCommentReply{
+			ID:         fmt.Sprintf("%s-u%d", id, len(thread[i].Replies)+1),
+			AuthorRole: authorRole,
+			Text:       text,
+			At:         at,
+		})
+		if !isReviewerRole(authorRole) {
+			thread[i].Reopened = false
+		}
+		return thread, nil
+	}
+	return nil, fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.appendReviewReply: comment %s not found in review thread", id))
+}
+
+// migrateLegacyReviewThread render-on-reads a pre-thread ledger: a non-empty
+// legacy response becomes one synthesized agent reply, and the retired statuses
+// map onto the new vocabulary. Nothing is written back — git history stays as
+// committed (design §3.5).
+//
+// Response is the deprecated, never-written *string kept on the generated
+// ReviewComment (RULING P8: kept as a pointer, not deleted, so a pre-thread
+// ledger committed to git still decodes) — nil-checked here rather than
+// compared against "" directly.
+func migrateLegacyReviewThread(thread []ReviewComment, draftedBy, at string) []ReviewComment {
+	for i := range thread {
+		c := &thread[i]
+		if c.Response != nil && *c.Response != "" && len(c.Replies) == 0 {
+			role := draftedBy
+			if role == "" {
+				role = "architect"
+			}
+			c.Replies = []ReviewCommentReply{{ID: c.ID + "-u1", AuthorRole: role, Text: *c.Response, At: at}}
+		}
+		switch c.Status {
+		case ReviewCommentAddressed:
+			c.Status = ReviewCommentAnswered
+		case ReviewCommentWaived:
+			c.Status = ReviewCommentResolved
+		}
+	}
+	return thread
 }
 
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a

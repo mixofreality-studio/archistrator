@@ -288,10 +288,24 @@ export interface AnchoredComment {
   jsonPath: string;
   text: string;
   anchorText: string;
+  /**
+   * The durable review-ledger thread this entry answers. REQUIRED on the wire
+   * (presence-only, per the contract-strictness doctrine): empty string means
+   * "open a new thread", a non-empty id means "reply to this existing thread".
+   */
+  replyTo: string;
 }
 
-/** Server review-ledger comment status: open → addressed (by an agent response) → optionally waived. */
-export type ReviewCommentStatus = 'open' | 'addressed' | 'waived';
+/**
+ * Server review-ledger thread status. Derived, not set directly: a thread is
+ * `answered` iff its LAST utterance is agent-authored and `open` otherwise, so a
+ * queued human reply re-opens it by itself. `resolved` is the one sticky value —
+ * only the reviewer sets it, and it is what the old `waive` verb became.
+ *
+ * The legacy wire values `addressed`/`waived` map onto `answered`/`resolved` in
+ * {@link mapReviewComment}'s normalizer; nothing in the app speaks them.
+ */
+export type ReviewCommentStatus = 'open' | 'answered' | 'resolved';
 
 /**
  * Review-ledger comment type (question-comments, 2026-07-05). A `changeRequest` must be
@@ -305,10 +319,22 @@ export type ReviewCommentType = 'changeRequest' | 'question';
 export type ReviewCommentAddressee = 'pm' | 'architect' | '';
 
 /**
+ * One reply utterance appended to a durable review-ledger thread — either side,
+ * human or agent. The server derives a thread's status from the LAST utterance:
+ * `answered` iff it is agent-authored, `open` otherwise.
+ */
+export interface ReviewCommentReply {
+  id: string;
+  authorRole: string;
+  text: string;
+  at: string;
+}
+
+/**
  * One durable review-thread entry as the server exposes it on the session view.
  * Distinct from the client-side pending {@link AnchoredComment}: these have been
  * committed to the ledger, carry an author role + round, a lifecycle `status`, and
- * (once the agent redrafts) a `response`.
+ * a `replies` list (the thread body past the root comment).
  */
 export interface ReviewCommentView {
   id: string;
@@ -320,8 +346,17 @@ export interface ReviewCommentView {
   authorRole: string;
   round: number;
   status: ReviewCommentStatus;
-  /** The agent's per-entry response committed on redraft; empty while still open. */
-  response: string;
+  /**
+   * DEPRECATED — superseded by `replies` (a thread's reply utterances). Still present
+   * on the wire for back-compat; never read or write it in new code. Its last reader
+   * (ChatRail) is gone; the read-compat shim that synthesizes a first reply from it
+   * lives server-side, so nothing in the SPA consults this field any more.
+   */
+  response?: string;
+  /** The reply utterances appended to this thread, oldest first. */
+  replies: ReviewCommentReply[];
+  /** True when a thread the server had marked `answered` received a new human reply. */
+  reopened: boolean;
   /** Change-request (default) or a non-blocking question (question-comments). */
   type: ReviewCommentType;
   /** For a question, the role it is addressed to; empty for change-requests. */

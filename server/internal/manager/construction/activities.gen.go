@@ -376,15 +376,15 @@ func (a *genActivities) DesignSessionReconcileBranchFromMain(ctx context.Context
 
 // DesignSessionRejectArtifactOnBranchWithComments wraps designSessionAccess.rejectArtifactOnBranchWithComments.
 // Registered as "designSessionAccess.rejectArtifactOnBranchWithComments".
-func (a *genActivities) DesignSessionRejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
-	v, err := a.DesignSession.RejectArtifactOnBranchWithComments(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, round, comments, genActivityIdempotencyKey(ctx))
+func (a *genActivities) DesignSessionRejectArtifactOnBranchWithComments(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
+	v, err := a.DesignSession.RejectArtifactOnBranchWithComments(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, notes, round, comments, replies, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // DesignSessionSeedReviewCommentsOnBranch wraps designSessionAccess.seedReviewCommentsOnBranch.
 // Registered as "designSessionAccess.seedReviewCommentsOnBranch".
-func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment) (projectstate.Version, error) {
-	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, genActivityIdempotencyKey(ctx))
+func (a *genActivities) DesignSessionSeedReviewCommentsOnBranch(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply) (projectstate.Version, error) {
+	v, err := a.DesignSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, round, comments, replies, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

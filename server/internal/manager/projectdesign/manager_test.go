@@ -262,6 +262,71 @@ func Test_GetSessionState_AbnormalClose_SubStepNeverLeaks(t *testing.T) {
 	}
 }
 
+// CONTROLLER RULING P13 — PHASE-2 MUST REFUSE A replyTo, NEVER SWALLOW IT.
+// Phase-2 reply ROUTING is a Stage-2 deliverable: this Manager has no checkReplyTargets and
+// feedbackToLedgerComments drops ReplyTo outright, so a reply arriving here would be
+// converted into a fresh unanchored comment and silently detached from the thread it
+// answers. Until Stage 2 routes it, every door that takes an AnchoredComment refuses a
+// non-empty replyTo with a ContractMisuse that NAMES the missing capability.
+//
+// Each op refuses BEFORE touching Temporal or the project state — the mock carries no
+// expectations, so any op that fell through to a query or a signal would panic here.
+func Test_Phase2_RefusesReplyTo_OnEveryAnchoredCommentDoor(t *testing.T) {
+	id := ProjectID(uuid.NewString())
+	reply := []AnchoredComment{{Text: "still vague", ReplyTo: "r1c1"}}
+
+	cases := []struct {
+		name string
+		call func(m *projectDesignManager) error
+	}{
+		{"submitReviewDecision", func(m *projectDesignManager) error {
+			return m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions, ReviewReject,
+				&ReviewFeedback{Notes: "rework", Comments: reply})
+		}},
+		{"requestArtifactDraft", func(m *projectDesignManager) error {
+			_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions,
+				&ReviewFeedback{Notes: "rework", Comments: reply})
+			return err
+		}},
+		{"submitSDPDecision", func(m *projectDesignManager) error {
+			return m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, id, SDPRejectAll, nil,
+				&ReviewFeedback{Notes: "none of these", Comments: reply})
+		}},
+		{"askQuestions", func(m *projectDesignManager) error {
+			return m.AskQuestions(fwmanager.Context{Context: context.Background()}, id, KindPlanningAssumptions, projectstate.ReviewAddresseePM, reply)
+		}},
+	}
+
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := &projectDesignManager{client: &temporalmocks.Client{}}
+			err := tc.call(m)
+			if err == nil {
+				t.Fatalf("%s must REFUSE a replyTo, not swallow it", tc.name)
+			}
+			e := asProjectDesignError(t, err)
+			if e.Kind != fwmanager.ContractMisuse {
+				t.Fatalf("%s must refuse with ContractMisuse, got kind %d (%v)", tc.name, e.Kind, err)
+			}
+			if !strings.Contains(err.Error(), "replyTo") || !strings.Contains(err.Error(), "r1c1") {
+				t.Fatalf("%s's refusal must name replyTo and the offending id, got %q", tc.name, err.Error())
+			}
+		})
+	}
+}
+
+// The same doors must stay OPEN for an ordinary comment — the refusal is scoped to replyTo,
+// not a blanket rejection of anchored feedback. Proven on the one door that refuses purely
+// on arguments and needs no live session to get past the guard.
+func Test_Phase2_PlainAnchoredComment_PassesTheReplyToGuard(t *testing.T) {
+	if err := checkNoReplyTo([]AnchoredComment{{JSONPath: "$.resources", Text: "use plain strings"}}); err != nil {
+		t.Fatalf("a comment with no replyTo must pass the guard, got %v", err)
+	}
+	if err := checkNoReplyTo(nil); err != nil {
+		t.Fatalf("an empty batch must pass the guard, got %v", err)
+	}
+}
+
 // A Phase-2 draft whose immediate predecessor slot is uncommitted is refused with
 // FailedPrecondition naming that predecessor — the wire enforces the Method's ordered
 // Phase-2 spine, not only the SPA. Short-circuits before any Temporal client call.
@@ -793,7 +858,7 @@ func (f *fakeProjectState) WithdrawArtifactOnBranch(rc fwra.Context, projectID p
 	return f.WithdrawArtifact(rc, projectID, expectedVersion, kind, notes)
 }
 
-func (f *fakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, _ string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	// The base fake carries no durable ledger — mirrors the old comment-dropping
 	// fallback (comments are accepted but not recorded).
 	return f.RejectArtifact(rc, projectID, expectedVersion, kind, notes)
@@ -805,7 +870,7 @@ func (f *fakeProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ proj
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -2642,7 +2707,7 @@ func (f *branchAwareRejectFake) RejectArtifactOnBranch(rc fwra.Context, projectI
 // directly here (not left to embedding promotion of *fakeProjectState's version) because a
 // promoted method's internal f.RejectArtifact call resolves against the EMBEDDED type, not
 // this outer one — Go has no virtual dispatch through embedding.
-func (f *branchAwareRejectFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *branchAwareRejectFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	return f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
 }
 
@@ -3558,7 +3623,7 @@ func (f *ledgerThreadFake) ReadProjectOnBranch(rc fwra.Context, projectID projec
 	return proj, nil
 }
 
-func (f *ledgerThreadFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, key fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerThreadFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.tmu.Lock()
 	for i, c := range comments {
 		f.thread = append(f.thread, projectstate.ReviewComment{
@@ -3581,7 +3646,7 @@ func (f *ledgerThreadFake) SetReviewCommentStatusOnBranch(_ fwra.Context, _ proj
 	return f.bump(), nil
 }
 
-func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, expectedVersion projectstate.Version, _ string, _ projectstate.ArtifactKind, round int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.tmu.Lock()
 	f.seededRounds = append(f.seededRounds, round)
 	f.seededComments = append(f.seededComments, comments)
@@ -3598,7 +3663,7 @@ func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 // F48 END-TO-END — reject-with-comments must flow through the whole review-ledger loop now that
 // the Temporal codec carries the thread: (a) the session-state query shows the open entry, (b)
 // the reject loops to a redraft dispatch (the comment now reaches the agent via getReviewThread),
-// and (c) Approve is BLOCKED until the open comment is waived. All three read the workflow's
+// and (c) Approve is BLOCKED until the open thread is resolved. All three read the workflow's
 // in-memory reviewThread, which is
 // reloaded from the branch read-back — the read that silently dropped the thread pre-F48.
 func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApproveGate(t *testing.T) {
@@ -3646,7 +3711,7 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 80*time.Second)
 
-	// t=130s: Approve must have been BLOCKED (still AwaitingReview, nothing committed). Then waive.
+	// t=130s: Approve must have been BLOCKED (still AwaitingReview, nothing committed). Then resolve.
 	env.RegisterDelayedCallback(func() {
 		enc, _ := env.QueryWorkflow(querySessionState)
 		var view SessionStateView
@@ -3657,10 +3722,10 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 		if len(base.committed) != 0 {
 			t.Fatalf("(c) nothing may commit while a comment is open, got %v", base.committed)
 		}
-		env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{CommentID: "r0c1", Status: projectstate.ReviewCommentWaived})
+		env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{CommentID: "r0c1", Status: projectstate.ReviewCommentResolved})
 	}, 130*time.Second)
 
-	// t=170s: with the comment waived, Approve now merges.
+	// t=170s: with the thread resolved, Approve now merges.
 	env.RegisterDelayedCallback(func() {
 		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
 	}, 170*time.Second)
@@ -3675,10 +3740,10 @@ func Test_CoAuthorPhase2_RejectWithComments_ThreadRefreshes_QueryPromptAndApprov
 		t.Fatalf("decode outcome: %v", err)
 	}
 	if outcome != coAuthorApproved {
-		t.Fatalf("after waive + approve the session must be Approved, got %d", outcome)
+		t.Fatalf("after resolve + approve the session must be Approved, got %d", outcome)
 	}
 	if len(base.committed) != 1 {
-		t.Fatalf("approve-after-waive must commit once, got %v", base.committed)
+		t.Fatalf("approve-after-resolve must commit once, got %v", base.committed)
 	}
 	// (b) the reject looped to a REDRAFT dispatch (the second submit). Under thin dispatch the
 	// open review-ledger comment reaches the drafting agent via getReviewThread (proven by (a)

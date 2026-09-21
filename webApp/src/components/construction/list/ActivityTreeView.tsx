@@ -147,6 +147,7 @@ import {
 } from './searchExpansion.ts';
 import { pendingPhaseLine, pendingSentence } from './pendingResume.ts';
 import { pendingNoteLineFor, type PendingNoteLine } from './pendingNotes.ts';
+import { scrollerOf } from '../scrollerGeometry';
 import {
   ACTIVITY_GRID_GAP_PX,
   activityGridColumns,
@@ -251,15 +252,10 @@ const LIST_SLOT_SX = {
 /** How many frames a deep link waits for its row to appear before giving up. */
 const DEEP_LINK_MAX_FRAMES = 90;
 
-/** The nearest scrolling ancestor — the console's scroller, found the way the
- *  lens shell finds it. */
-function scrollParentOf(el: HTMLElement): HTMLElement | null {
-  let node: HTMLElement | null = el.parentElement;
-  while (node !== null && !/(auto|scroll)/.test(getComputedStyle(node).overflowY)) {
-    node = node.parentElement;
-  }
-  return node;
-}
+/** The nearest scrolling ancestor — the console's scroller, found by the same
+ *  function the lens shell and the graph canvas use, rather than by a third copy
+ *  of the walk that only CLAIMED to match them (scrollerGeometry.ts). */
+const scrollParentOf = scrollerOf;
 
 // ---------------------------------------------------------------------------
 // The item model

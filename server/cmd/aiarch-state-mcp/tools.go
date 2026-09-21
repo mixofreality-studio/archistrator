@@ -36,8 +36,8 @@ type putDraftModelInput struct {
 }
 
 type respondToReviewCommentInput struct {
-	ID       string `json:"id" jsonschema:"the id of the open review-ledger comment you are responding to (see getReviewThread)"`
-	Response string `json:"response" jsonschema:"how you addressed the comment in this redraft, or a concise reasoned pushback if you disagree"`
+	ID       string `json:"id" jsonschema:"the id of the open review-comment thread you are replying to (see getReviewThread)"`
+	Response string `json:"response" jsonschema:"your reply, appended as a new utterance: for a change request, what you changed in the draft; for a question, your direct answer; or a concise reasoned pushback if you disagree"`
 }
 
 type setCritiqueVerdictInput struct {
@@ -211,8 +211,8 @@ func composedVerbs(s *Session) []composedVerb {
 		{name: "getReviewThread", modes: all, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "getReviewThread",
-				Description: "Return this artifact's durable review ledger (each reviewer comment's id, anchor, text, status, and your prior response). " +
-					"You MUST respond to every OPEN comment before publishing — use respondToReviewComment.",
+				Description: "Return this artifact's durable review ledger (each reviewer comment's id, anchor, text, status, and its full reply history). " +
+					"You MUST respond to every OPEN comment before publishing — use respondToReviewComment. On a change request, your response must say what you changed.",
 				Annotations: &mcp.ToolAnnotations{ReadOnlyHint: true},
 			}, textHandler(func(context.Context, emptyInput) (string, error) { return s.getReviewThread() }))
 		}},
@@ -248,9 +248,9 @@ func composedVerbs(s *Session) []composedVerb {
 		{name: "respondToReviewComment", modes: []string{jobModeDraft, jobModeAnswer}, register: func(srv *mcp.Server) {
 			mcp.AddTool(srv, &mcp.Tool{
 				Name: "respondToReviewComment",
-				Description: "Record your response to one OPEN review-ledger comment (matched by id from getReviewThread). In answer mode this ANSWERS a question in place; " +
-					"in draft mode you respond after revising the draft to address a change-request. A change-request left without a response stays open and blocks approval; " +
-					"an answered question is marked addressed.",
+				Description: "Append your reply to one open review-comment thread. For a CHANGE REQUEST, state in one line WHAT YOU CHANGED in the draft — not that you read " +
+					"the comment, and not what you intend to do. For a QUESTION, answer it directly. Your reply is appended to the thread the reviewer reads; it never " +
+					"replaces an earlier utterance.",
 			}, textHandler(func(_ context.Context, in respondToReviewCommentInput) (string, error) {
 				if err := s.respondToReviewComment(in.ID, in.Response); err != nil {
 					return "", err

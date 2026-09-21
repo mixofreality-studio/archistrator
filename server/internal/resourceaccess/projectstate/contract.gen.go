@@ -719,21 +719,37 @@ const (
 )
 
 type ReviewComment struct {
+	ID         string               `json:"id"`
+	Anchor     string               `json:"anchor"`
+	AnchorText string               `json:"anchorText"`
+	Text       string               `json:"text"`
+	AuthorRole string               `json:"authorRole"`
+	Round      int64                `json:"round"`
+	Status     string               `json:"status"`
+	Response   *string              `json:"response,omitempty"`
+	Replies    []ReviewCommentReply `json:"replies"`
+	Reopened   bool                 `json:"reopened"`
+	Type       string               `json:"type"`
+	Addressee  string               `json:"addressee"`
+}
+
+type ReviewCommentReply struct {
 	ID         string `json:"id"`
-	Anchor     string `json:"anchor"`
-	AnchorText string `json:"anchorText"`
-	Text       string `json:"text"`
 	AuthorRole string `json:"authorRole"`
-	Round      int64  `json:"round"`
-	Status     string `json:"status"`
-	Response   string `json:"response"`
-	Type       string `json:"type"`
-	Addressee  string `json:"addressee"`
+	Text       string `json:"text"`
+	At         string `json:"at"`
 }
 
 type ReviewPolicy struct {
 	GatedPhasesByType map[string][]ActivityMethodPhase `json:"gatedPhasesByType,omitempty"`
 	Preset            *string                          `json:"preset,omitempty"`
+}
+
+type ReviewReply struct {
+	CommentID  string `json:"commentId"`
+	AuthorRole string `json:"authorRole"`
+	Text       string `json:"text"`
+	At         string `json:"at"`
 }
 
 type RiskModel struct {
@@ -949,11 +965,11 @@ type DesignSessionAccess interface {
 	ReadProjectOnBranch(rc fwra.Context, projectID ProjectID, branch string) (ProjectEnvelope, error)
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ModelEnvelope, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
-	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
 
 // GitActivityStatusAccess is the generated service-contract interface for this component.

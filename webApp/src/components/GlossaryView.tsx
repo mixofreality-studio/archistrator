@@ -108,6 +108,17 @@ export function GlossaryView({
   const [query, setQuery] = useState('');
   const [activeBase, setActiveBase] = useState<string | null>(null);
   const searchRef = useRef<HTMLInputElement>(null);
+  // The pinned header's measured height. In fill mode it sticks at the page's
+  // scrollport top, so a section subheader must stick BELOW it — at 0 it would
+  // slide underneath and read as missing. Measured rather than guessed: the
+  // filter-chip row wraps at narrow widths. A ref callback (fresh every render,
+  // so it re-reads after a wrap) with an equality guard, not an effect.
+  const [headerHeight, setHeaderHeight] = useState(0);
+  const measureHeader = (el: HTMLDivElement | null): void => {
+    if (el === null) return;
+    const h = el.getBoundingClientRect().height;
+    setHeaderHeight((prev) => (prev === h ? prev : h));
+  };
 
   // Items paired with their index in the ORIGINAL model array, so a per-term
   // comment anchors to `$.items[n]` regardless of the filtered/regrouped
@@ -158,14 +169,28 @@ export function GlossaryView({
       sx={{
         display: 'flex',
         flexDirection: 'column',
-        overflow: 'hidden',
+        // fill: the card is part of the PAGE (the design experience scrolls the
+        // whole page, artifact and comment margin together — Task 8b), so it must
+        // not clip: `hidden` would make it a scroll container and its header could
+        // not stick to the page. Fixed-height mode (home base ArtifactPane) still
+        // clips, because there the card really is its own little viewport.
+        overflow: fill ? 'visible' : 'hidden',
         // fill: grow to the parent flex column's height (the parent owns the floor);
         // otherwise sit at the fixed pixel height (home base ArtifactPane).
         ...(fill ? { flexGrow: 1, minHeight: 0 } : { height }),
       }}
     >
-      {/* pinned header: search + category filter chips */}
-      <Box sx={{ p: 2, borderBottom: `1px solid ${t.line}`, flexShrink: 0 }}>
+      {/* pinned header: search + category filter chips. In fill mode it pins to the
+          PAGE's scrollport, so filtering 42 terms never means scrolling back up. */}
+      <Box
+        ref={measureHeader}
+        sx={{
+          p: 2,
+          borderBottom: `1px solid ${t.line}`,
+          flexShrink: 0,
+          ...(fill ? { position: 'sticky', top: 0, zIndex: 3, bgcolor: t.paper } : {}),
+        }}
+      >
         <TextField
           fullWidth
           inputRef={searchRef}
@@ -262,8 +287,11 @@ export function GlossaryView({
         <span key={announcement}>{announcement}</span>
       </Box>
 
-      {/* scrollable grouped list */}
-      <Box sx={{ overflowY: 'auto', flexGrow: 1, px: 2, pb: 2 }}>
+      {/* The grouped list. In fill mode it must NOT be a scroll container: it is
+          part of the page (which is what scrolls), and `overflow: auto` here made
+          it a scrollport that never scrolls — which is what silently flattened the
+          sticky subheaders below into static labels. */}
+      <Box sx={{ overflowY: fill ? 'visible' : 'auto', flexGrow: 1, px: 2, pb: 2 }}>
         {grouped.total === 0 ? (
           <Box
             data-testid={UI_IDENTIFIERS.Glossary.EMPTY}
@@ -278,7 +306,9 @@ export function GlossaryView({
                 data-testid={UI_IDENTIFIERS.Glossary.section(cat)}
                 sx={{
                   position: 'sticky',
-                  top: 0,
+                  // Below the pinned filter header in fill mode; at the card's own
+                  // top in fixed-height mode, where the list is its own scrollport.
+                  top: fill ? `${String(headerHeight)}px` : 0,
                   zIndex: 1,
                   bgcolor: t.paper,
                   py: 1,

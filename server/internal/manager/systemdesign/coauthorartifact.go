@@ -463,7 +463,7 @@ func (wf *workflows) beginCoAuthorSession(ctx workflow.Context, in coAuthorInput
 }
 
 // awaitReviewGate suspends at the AwaitingReview gate, multiplexing the review DECISION
-// signal with the SetReviewCommentStatus (waive / reopen) signal. A status signal mutates
+// signal with the SetReviewCommentStatus (resolve / reopen) signal. A status signal mutates
 // the durable review ledger on the session branch and re-suspends at THIS gate WITHOUT
 // redrafting; an approve/merge-window fault is contained as actionReAwait and likewise
 // re-suspends here (the staged draft is intact — QA F35). Only a review DECISION that the
@@ -505,13 +505,33 @@ func (wf *workflows) awaitReviewGate(
 		var stSig setCommentStatusSignal
 		var gotStatus bool
 		sel := workflow.NewSelector(ctx)
-		sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
-			c.Receive(ctx, &sig)
-		})
-		sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
-			c.Receive(ctx, &stSig)
-			gotStatus = true
-		})
+		addDecision := func() {
+			sel.AddReceive(workflow.GetSignalChannel(ctx, signalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
+				c.Receive(ctx, &sig)
+			})
+		}
+		addStatus := func() {
+			sel.AddReceive(workflow.GetSignalChannel(ctx, signalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
+				c.Receive(ctx, &stSig)
+				gotStatus = true
+			})
+		}
+		// STATUS BEFORE DECISION (design §3.4). A Selector with several ready channels picks
+		// the FIRST REGISTERED, and Approve now arrives as a burst — one resolve signal per
+		// ANSWERED thread, then the decision — which routinely lands in ONE workflow task. With
+		// the decision registered first, the workflow would commit and end while those resolves
+		// sat unread in their channel, silently dropping the bulk-resolve. Draining status
+		// first costs the decision nothing: each status apply re-suspends at THIS gate, so the
+		// decision is picked on the next pass with the ledger already closed. GetVersion-gated
+		// because the registration order decides which handler ran, so flipping it unversioned
+		// would be a replay non-determinism for a session already suspended here.
+		if workflow.GetVersion(ctx, "resolve-before-decision", workflow.DefaultVersion, 1) >= 1 {
+			addStatus()
+			addDecision()
+		} else {
+			addDecision()
+			addStatus()
+		}
 		sel.Select(ctx)
 
 		if gotStatus {
@@ -1080,7 +1100,7 @@ func (wf *workflows) handleReviewDecision(
 	// Pure workflow-local bookkeeping — the increment itself issues no history command.
 	// Consumer audit (F-QA2-44): only the APPROVE arm consumes the session's cached rail
 	// credential (mergeOnApprove: status guard / +1 relay / merge). The Reject, Withdraw,
-	// and waive/reopen (applyCommentStatus) paths — and the failed-gate Retry/Withdraw —
+	// and resolve/reopen (applyCommentStatus) paths — and the failed-gate Retry/Withdraw —
 	// ride designSessionAccess/projectState activities that carry no workflow-cached
 	// credential (the RA authenticates per call), and a failed-gate Retry's re-dispatch
 	// re-mints in beginSession. So only the approve arm re-mints here.
@@ -1091,7 +1111,7 @@ func (wf *workflows) handleReviewDecision(
 		// The manager's SetReviewCommentStatus/approve precondition rejects this synchronously,
 		// but this workflow-side guard is the TOCTOU-safe backstop (a comment could be reopened
 		// between the manager's query and the signal). Re-suspend at the gate; the reviewer sees
-		// the open comments in the queryable thread and waives or redrafts.
+		// the open threads in the queryable thread and resolves them or redrafts.
 		if open := projectstate.OpenReviewCommentIDs(state.reviewThread); len(open) > 0 {
 			return stepReAwait()
 		}
@@ -1110,6 +1130,21 @@ func (wf *workflows) handleReviewDecision(
 		// the failed-gate seed persists this feedback before the Retry redraft dispatch.
 		state.feedbackSeeded = false
 		branch := gf.readBackBranch()
+		// QUEUED REPLIES (design §3.7): the submitted batch mixes utterances answering threads
+		// that ALREADY exist on this slot with fresh anchored comments. Split it once, here —
+		// stamping the whole batch with ONE workflow-clock timestamp, which is both replay-stable
+		// and the key that makes the RA's reply append idempotent across activity retries (a
+		// timestamp re-read inside the retry loop would duplicate every reviewer utterance).
+		freshComments, replies, splitErr := splitIncomingComments(state.reviewThread, rejectFeedback.Comments,
+			workflow.Now(ctx).UTC().Format(time.RFC3339))
+		if splitErr != nil {
+			// A replyTo naming no thread on this slot. SubmitReviewDecision refuses this
+			// synchronously, so reaching here means the thread moved between the reviewer's
+			// query and this signal. Land at the same human-visible failed gate a faulted
+			// reject uses (below), keeping the feedback — never silently re-file the reply as
+			// a new thread, which is exactly the loss §3.7 exists to prevent.
+			return wf.recoverAtFailedGate(ctx, in, *headVersion, rejectFailedReason(splitErr), "", state, feedback, redraftCount)
+		}
 		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, branch, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 			// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
 			// reject as durable, server-minted ledger entries, round-stamped by the per-reject
@@ -1123,7 +1158,7 @@ func (wf *workflows) handleReviewDecision(
 			// AND find the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒
 			// the reject lands on main exactly as before.
 			return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(in.ProjectID), expected, branch,
-				toPSKind(in.ArtifactKind), rejectFeedback.Notes, int64(*reviewRound), feedbackToLedgerComments(rejectFeedback))
+				toPSKind(in.ArtifactKind), rejectFeedback.Notes, int64(*reviewRound), freshComments, replies)
 		})
 		if err != nil {
 			// CRASH CONTAINMENT (QA F28). An activity fault while recording the Reject must
@@ -1435,7 +1470,7 @@ type coAuthorState struct {
 	policyAutoApprove    bool
 	vibesAutogateEnabled bool
 	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
-	// refreshed from the session branch after every (re)stage and after every waive/reopen
+	// refreshed from the session branch after every (re)stage and after every resolve/reopen
 	// so the sessionState Query surfaces the live thread and the approve gate can block
 	// while any comment is still open. Nil until the first read-back that carries comments.
 	reviewThread []projectstate.ReviewComment
@@ -3179,7 +3214,8 @@ func designArchApprovalBody(kind ArtifactKind) string {
 
 // setCommentStatusSignal is the SetReviewCommentStatus signal payload. It rides the
 // signalSetCommentStatus channel to the CoAuthorArtifactWorkflow suspended at the
-// AwaitingReview gate, which applies the branch mutation (open->waived / addressed->open).
+// AwaitingReview gate, which applies the branch mutation (open|answered->resolved /
+// resolved->open).
 type setCommentStatusSignal struct {
 	CommentID string
 	Status    string
@@ -3192,8 +3228,14 @@ type setCommentStatusSignal struct {
 // in appendReviewComments. Free-text-only Notes are NOT comments (they stay the reject
 // notes); an anchored comment with empty Text is dropped (defensive).
 func feedbackToLedgerComments(feedback ReviewFeedback) []projectstate.ReviewComment {
-	out := make([]projectstate.ReviewComment, 0, len(feedback.Comments))
-	for _, c := range feedback.Comments {
+	return anchoredToLedgerComments(feedback.Comments)
+}
+
+// anchoredToLedgerComments is feedbackToLedgerComments' inner half, over a bare comment
+// slice — the shape the §3.7 split hands back once the replies have been taken out.
+func anchoredToLedgerComments(comments []AnchoredComment) []projectstate.ReviewComment {
+	out := make([]projectstate.ReviewComment, 0, len(comments))
+	for _, c := range comments {
 		if c.Text == "" {
 			continue
 		}
@@ -3205,6 +3247,118 @@ func feedbackToLedgerComments(feedback ReviewFeedback) []projectstate.ReviewComm
 		})
 	}
 	return out
+}
+
+// reviewerUtteranceRole is the role stamped on a REPLY the human reviewer files into an
+// existing thread. It differs from reviewAuthorRole ("architect", the role stamped on the
+// comments the reviewer OPENS) because the derive rule reads it: projectstate.isReviewerRole
+// treats "architect" and "pm" as AGENT roles, so a reviewer reply stamped "architect" would
+// leave the thread reading as answered by its own author. Design §3.2 names this role.
+const reviewerUtteranceRole = "architect-user"
+
+// splitIncomingComments splits one submitted batch into the two things it can be: utterances
+// answering an EXISTING thread (replyTo non-empty), and fresh anchored comments, which open
+// new threads for this round. It only SPLITS — projectstate.ApplyReviewBatch performs both
+// appends in one atomic commit, so utterance-id minting and the reopen-bit rule stay in the
+// RA that owns the ledger rather than being mirrored here (ruling P2).
+//
+// A replyTo naming no thread is a ContractMisuse rather than a silent new thread — silently
+// reinterpreting a reply as a new comment would lose the reviewer's place in the
+// conversation. at is the caller's single timestamp for the whole batch; it must be stamped
+// ONCE (from the deterministic workflow clock), because it is also what makes the RA's reply
+// append idempotent under Temporal activity retry.
+func splitIncomingComments(thread []projectstate.ReviewComment, incoming []AnchoredComment, at string) ([]projectstate.ReviewComment, []projectstate.ReviewReply, error) {
+	if err := checkReplyTargets(ledgerCommentIDs(thread), incoming); err != nil {
+		return nil, nil, err
+	}
+	fresh, replies := partitionIncomingComments(incoming, at)
+	return anchoredToLedgerComments(fresh), replies, nil
+}
+
+// splitIncomingQuestions is splitIncomingComments' ASK-door twin: the same split, the same
+// refusal, but the fresh half opens QUESTION-typed entries addressed to a role rather than
+// change-requests (questionsToLedger). It exists because a question thread is the
+// conversational case — "with questions, the ai will respond like a comment response" — so a
+// follow-up filed against an answered question must land INSIDE that thread. The reviewer
+// utterance is stamped with the same reviewerUtteranceRole the change-request path uses, so
+// the RA's derive rule reads it as human and re-opens the thread for the answer job.
+func splitIncomingQuestions(thread []projectstate.ReviewComment, addressee string, incoming []AnchoredComment, at string) ([]projectstate.ReviewComment, []projectstate.ReviewReply, error) {
+	if err := checkReplyTargets(ledgerCommentIDs(thread), incoming); err != nil {
+		return nil, nil, err
+	}
+	fresh, replies := partitionIncomingComments(incoming, at)
+	return questionsToLedger(addressee, fresh), replies, nil
+}
+
+// partitionIncomingComments is the thread-INDEPENDENT half of the split: it sorts one batch
+// into the entries that open a thread (no replyTo) and the utterances that answer one, with
+// no knowledge of which threads exist. Kept separate so a caller that must know the shape of
+// a batch BEFORE it reads the ledger (AskQuestions derives its idempotency key and its
+// emptiness refusal up front) partitions once and runs checkReplyTargets against the thread
+// it later reads — without duplicating the reply-stamping rule.
+func partitionIncomingComments(incoming []AnchoredComment, at string) ([]AnchoredComment, []projectstate.ReviewReply) {
+	var fresh []AnchoredComment
+	var replies []projectstate.ReviewReply
+	for _, c := range incoming {
+		if c.ReplyTo == "" {
+			fresh = append(fresh, c)
+			continue
+		}
+		if strings.TrimSpace(c.Text) == "" {
+			continue // an empty utterance is not a reply (mirrors the fresh-comment drop)
+		}
+		replies = append(replies, projectstate.ReviewReply{
+			CommentID:  c.ReplyTo,
+			AuthorRole: reviewerUtteranceRole,
+			Text:       c.Text,
+			At:         at,
+		})
+	}
+	return fresh, replies
+}
+
+// checkReplyTargets refuses a batch whose replyTo names no thread on this artifact. Split
+// out from splitIncomingComments so the Manager op can run the SAME refusal synchronously
+// against the queried wire thread, where a ContractMisuse still reaches the caller (a signal
+// payload's error cannot).
+func checkReplyTargets(known map[string]bool, incoming []AnchoredComment) error {
+	for _, c := range incoming {
+		if c.ReplyTo != "" && !known[c.ReplyTo] {
+			return newError(fwmanager.ContractMisuse, "replyTo names no thread on this artifact: "+c.ReplyTo)
+		}
+	}
+	return nil
+}
+
+// checkNoReplyTo refuses a batch carrying ANY replyTo on an op that cannot route one into an
+// existing thread. Such an op has only one other option — convert the reply into a fresh
+// unanchored comment — and that silent detachment is precisely what replyTo exists to
+// prevent, so it fails loudly instead. reason names the op's own limitation.
+func checkNoReplyTo(reason string, incoming []AnchoredComment) error {
+	for _, c := range incoming {
+		if c.ReplyTo != "" {
+			return newError(fwmanager.ContractMisuse, reason+" (offending replyTo: "+c.ReplyTo+")")
+		}
+	}
+	return nil
+}
+
+// ledgerCommentIDs / viewCommentIDs collect the thread's entry ids from the durable and the
+// wire projection respectively — the two shapes checkReplyTargets is asked about.
+func ledgerCommentIDs(thread []projectstate.ReviewComment) map[string]bool {
+	ids := make(map[string]bool, len(thread))
+	for _, c := range thread {
+		ids[c.ID] = true
+	}
+	return ids
+}
+
+func viewCommentIDs(thread []ReviewCommentView) map[string]bool {
+	ids := make(map[string]bool, len(thread))
+	for _, c := range thread {
+		ids[c.ID] = true
+	}
+	return ids
 }
 
 // openReviewCommentIDs PROMOTED to projectstate.OpenReviewCommentIDs
@@ -3258,7 +3412,11 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 	}
 	branch := gf.readBackBranch()
 	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, branch, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), 0, comments)
+		// nil replies: an amendment's reopening feedback opens round-0 threads and cannot
+		// answer one. This seed runs BEFORE the first loadReviewThread of the session, so
+		// there is no thread to route a reply against — which is why RequestArtifactDraft
+		// refuses a replyTo at the door rather than letting one arrive here to be re-filed.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), 0, comments, nil)
 	})
 	if err != nil {
 		return
@@ -3287,7 +3445,22 @@ func (wf *workflows) seedAmendmentLedger(ctx workflow.Context, in coAuthorInput,
 // dispatch. Returns whether the seed durably landed, so the caller marks feedbackSeeded and
 // stops re-seeding. headVersion is a hint only — applyRecovering re-reads on a version conflict.
 func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *coAuthorState) bool {
-	comments := feedbackToLedgerComments(*feedback)
+	// SPLIT, NEVER RE-FILE (design §3.7). The retained feedback is the SAME batch the reject
+	// arm received, replies included, so converting it with anchoredToLedgerComments alone
+	// would drop every ReplyTo and seed the reviewer's "still vague" as a fresh unanchored
+	// comment — the exact detachment replyTo exists to prevent, one recovery path down. Split
+	// it against the last-known thread and hand both halves to the seed verb.
+	comments, replies, serr := splitIncomingComments(state.reviewThread, feedback.Comments,
+		workflow.Now(ctx).UTC().Format(time.RFC3339))
+	if serr != nil {
+		// A replyTo naming no thread in the last-known ledger. REFUSE the seed rather than
+		// re-file the reply as a new comment: the feedback stays in workflow memory (and in
+		// the failed gate's reason), the reviewer sees an un-seeded gate, and a Retry re-runs
+		// this against a freshly loaded thread. Silent detachment is the one outcome ruled out.
+		workflow.GetLogger(ctx).Error("review-ledger: failed-gate seed REFUSED — a queued reply names no thread in the last-known ledger; not re-filing it as a new comment",
+			"artifactKind", artifactKindString(in.ArtifactKind), "error", serr.Error())
+		return false
+	}
 	// Fold the free-text rationale (Notes) into an unanchored comment too — a memory-only
 	// failed-gate feedback (a PM-critique revise, a redraft signal) is Notes-only, so
 	// without this the durable seed is empty and the redraft agent loses the direction
@@ -3298,13 +3471,15 @@ func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInp
 			comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
 		}
 	}
-	if len(comments) == 0 {
+	// A replies-ONLY batch is still feedback worth seeding, so the emptiness test spans both
+	// halves (pre-feature executions carry no replies, so this reads exactly as before).
+	if len(comments) == 0 && len(replies) == 0 {
 		return false
 	}
 	branch := gf.readBackBranch()
 	round := int64(*reviewRound)
 	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments)
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments, replies)
 	}); err != nil {
 		return false
 	}
@@ -3319,7 +3494,7 @@ func (wf *workflows) seedFailedGateFeedback(ctx workflow.Context, in coAuthorInp
 
 // loadReviewThread reads the artifact slot's durable ledger from the session branch (the
 // same branch the draft is staged on; "" ⇒ main). Called on the workflow goroutine after
-// every (re)stage and after every waive/reopen so the sessionState Query + the approve gate
+// every (re)stage and after every resolve/reopen so the sessionState Query + the approve gate
 // see the live thread. A read fault is returned to the caller, which keeps the last-known
 // thread (the ledger is auxiliary display/gate state — a transient read miss must not derail
 // the review session). Delegates to the shared readProjectOnBranch helper (gitsession.go)
@@ -3332,7 +3507,7 @@ func (wf *workflows) loadReviewThread(ctx workflow.Context, in coAuthorInput, gf
 	return slotFor(proj, in.ArtifactKind).ReviewThread, nil
 }
 
-// applyCommentStatus applies one human review-ledger transition (waive / reopen) to the
+// applyCommentStatus applies one reviewer review-ledger transition (resolve / reopen) to the
 // session branch during the AwaitingReview window, then refreshes the in-memory thread so
 // the query + approve gate reflect it. Best-effort: an illegal transition / unknown id /
 // transient fault leaves the review session at the gate with the unchanged thread (the

@@ -1585,7 +1585,7 @@ func (s *stubProjectState) WithdrawArtifactOnBranch(_ fwra.Context, _ ProjectID,
 	return 22, nil
 }
 
-func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) RejectArtifactOnBranchWithComments(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ string, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "RejectArtifactOnBranchWithComments")
 	return 30, nil
 }
@@ -1595,7 +1595,7 @@ func (s *stubProjectState) SetReviewCommentStatusOnBranch(_ fwra.Context, _ Proj
 	return 31, nil
 }
 
-func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ fwra.IdempotencyKey) (Version, error) {
+func (s *stubProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ ProjectID, _ Version, _ string, _ ArtifactKind, _ int64, _ []ReviewComment, _ []ReviewReply, _ fwra.IdempotencyKey) (Version, error) {
 	s.calls = append(s.calls, "SeedReviewCommentsOnBranch")
 	return 32, nil
 }
@@ -1735,7 +1735,7 @@ func TestDesignSessionAccess_CommitArtifactWithProvenance_Primary(t *testing.T) 
 func TestDesignSessionAccess_RejectArtifactOnBranchWithComments_DelegatesToBase(t *testing.T) {
 	base := &stubProjectState{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.RejectArtifactOnBranchWithComments(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", 0, nil, "idem-1")
+	v, err := s.RejectArtifactOnBranchWithComments(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, "notes", 0, nil, nil, "idem-1")
 	if err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
 	}
@@ -1795,7 +1795,7 @@ func TestDesignSessionAccess_SetReviewCommentStatusOnBranch_DelegatesToBase(t *t
 func TestDesignSessionAccess_SeedReviewCommentsOnBranch_DelegatesToBase(t *testing.T) {
 	base := &stubProjectState{}
 	s := NewDesignSessionAccess(base)
-	v, err := s.SeedReviewCommentsOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, 0, nil, "idem-1")
+	v, err := s.SeedReviewCommentsOnBranch(fwra.Context{Context: context.Background()}, "proj-1", 1, "session-branch", KindMission, 0, nil, nil, "idem-1")
 	if err != nil {
 		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
 	}
@@ -2596,7 +2596,7 @@ func TestGitStore_RejectWithComments_AppendsOpenLedger(t *testing.T) {
 		{Anchor: "$.vision", AnchorText: "v", Text: "sharpen the vision", AuthorRole: "architect"},
 		{Anchor: "", Text: "a free-form note", AuthorRole: "architect"},
 	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "please revise", 1, comments, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "please revise", 1, comments, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2638,7 +2638,7 @@ func TestGitStore_SeedReviewComments_AppendsOpenNoStatusChange(t *testing.T) {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	comments := []ReviewComment{{Anchor: "$.vision", AnchorText: "v", Text: "the reopening reason", AuthorRole: "architect"}}
-	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", KindMission, 0, comments, cred, "wf:seed"); err != nil {
+	if _, err := store.SeedReviewCommentsOnBranch(ctx, id, v2, "", KindMission, 0, comments, nil, cred, "wf:seed"); err != nil {
 		t.Fatalf("SeedReviewCommentsOnBranch: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2671,11 +2671,11 @@ func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
 	// Same idempotency key twice (a Temporal activity retry): the second collapses to the
 	// committed version and MUST NOT duplicate the ledger entry (review-ledger §5).
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("first reject: %v", err)
 	}
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("retry reject (same key): %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -2690,7 +2690,7 @@ func TestGitStore_RejectWithComments_IdempotentOnSameKey(t *testing.T) {
 	}
 }
 
-func TestGitStore_SetReviewCommentStatus_WaiveAndReopen(t *testing.T) {
+func TestGitStore_SetReviewCommentStatus_ResolveAndReopen(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID(uuid.NewString())
 	if _, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create"); err != nil {
@@ -2701,25 +2701,35 @@ func TestGitStore_SetReviewCommentStatus_WaiveAndReopen(t *testing.T) {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	comments := []ReviewComment{{Anchor: "$.a", Text: "one", AuthorRole: "architect"}}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, comments, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
-	// waive the open comment.
-	v4, err := store.SetReviewCommentStatusOnBranch(ctx, id, v3, "", KindMission, "r1c1", ReviewCommentWaived, cred, "wf:waive")
+	// resolve the open comment.
+	v4, err := store.SetReviewCommentStatusOnBranch(ctx, id, v3, "", KindMission, "r1c1", ReviewCommentResolved, cred, "wf:resolve")
 	if err != nil {
-		t.Fatalf("waive: %v", err)
+		t.Fatalf("resolve: %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
-	if proj.Mission.ReviewThread[0].Status != ReviewCommentWaived {
-		t.Fatalf("status after waive = %q, want waived", proj.Mission.ReviewThread[0].Status)
+	if proj.Mission.ReviewThread[0].Status != ReviewCommentResolved {
+		t.Fatalf("status after resolve = %q, want resolved", proj.Mission.ReviewThread[0].Status)
 	}
-	// waived->open is not a legal transition (only open->waived / addressed->open).
-	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v4, "", KindMission, "r1c1", ReviewCommentOpen, cred, "wf:reopen"); kindOf(t, err) != fwra.ContractMisuse {
-		t.Fatalf("waived->open kind = %v, want ContractMisuse", kindOf(t, err))
+	// resolved->open is the legal reopen; it must set the sticky Reopened bit.
+	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v4, "", KindMission, "r1c1", ReviewCommentOpen, cred, "wf:reopen"); err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	proj, err = store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Mission.ReviewThread[0].Status != ReviewCommentOpen {
+		t.Fatalf("status after reopen = %q, want open", proj.Mission.ReviewThread[0].Status)
+	}
+	if !proj.Mission.ReviewThread[0].Reopened {
+		t.Fatal("reopen must set the sticky Reopened bit")
 	}
 }
 
@@ -2733,7 +2743,7 @@ func TestGitStore_SetReviewCommentStatus_UnknownIDNotFound(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v2, "", KindMission, "nope", ReviewCommentWaived, cred, "wf:waive"); kindOf(t, err) != fwra.NotFound {
+	if _, err := store.SetReviewCommentStatusOnBranch(ctx, id, v2, "", KindMission, "nope", ReviewCommentResolved, cred, "wf:resolve"); kindOf(t, err) != fwra.NotFound {
 		t.Fatalf("unknown id kind = %v, want NotFound", kindOf(t, err))
 	}
 }
@@ -2751,7 +2761,7 @@ func TestGitStore_ReviewThread_SurvivesRestage(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
-	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, cred, "wf:reject")
+	v3, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, "n", 1, []ReviewComment{{Anchor: "$.a", Text: "one"}}, nil, cred, "wf:reject")
 	if err != nil {
 		t.Fatalf("reject: %v", err)
 	}
@@ -2814,7 +2824,7 @@ func TestGitStore_AcknowledgeStaleBasis(t *testing.T) {
 		t.Fatalf("want 1 staleAck audit entry, got %d", len(thread))
 	}
 	ack := thread[0]
-	if ack.Type != ReviewCommentTypeStaleAck || ack.Status != ReviewCommentAddressed || ack.AuthorRole != "architect" {
+	if ack.Type != ReviewCommentTypeStaleAck || ack.Status != ReviewCommentAnswered || ack.AuthorRole != "architect" {
 		t.Errorf("audit entry shape wrong: %+v", ack)
 	}
 	if want := "diagrams only, no term changes"; !strings.Contains(ack.Text, want) {
@@ -3409,7 +3419,7 @@ func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testin
 		t.Fatalf("StageArtifactForReview: %v", err)
 	}
 	const notes = "rework the vision"
-	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, cred, "wf:reject"); err != nil {
+	if _, err := store.RejectArtifactOnBranchWithComments(ctx, id, v2, "", KindMission, notes, 0, nil, nil, cred, "wf:reject"); err != nil {
 		t.Fatalf("RejectArtifactOnBranchWithComments(branch=\"\"): %v", err)
 	}
 	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
@@ -3453,7 +3463,7 @@ func TestGitStore_RejectArtifactOnBranchWithComments_UnpopulatedSlotIsMisuse(t *
 		t.Fatalf("CreateProject: %v", err)
 	}
 	// No stage — the Mission slot is unpopulated on main.
-	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, cred, "wf:reject")
+	_, err := store.RejectArtifactOnBranchWithComments(ctx, id, 1, "", KindMission, "notes", 0, nil, nil, cred, "wf:reject")
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("reject of an unpopulated slot kind = %v, want ContractMisuse", k)
 	}
@@ -7457,8 +7467,14 @@ func TestAppendReviewComments_MintsDeterministicIDsAndStampsOpen(t *testing.T) {
 		if c.Round != 2 {
 			t.Errorf("comment %d round = %d, want 2", i, c.Round)
 		}
-		if c.Response != "" {
-			t.Errorf("comment %d response = %q, want empty", i, c.Response)
+		if c.Response != nil {
+			t.Errorf("comment %d response = %v, want nil (never written)", i, c.Response)
+		}
+		if len(c.Replies) != 0 {
+			t.Errorf("comment %d replies = %+v, want none", i, c.Replies)
+		}
+		if c.Reopened {
+			t.Errorf("comment %d reopened = true, want false", i)
 		}
 	}
 	if got[0].AnchorText != "the old vision" {
@@ -7491,47 +7507,54 @@ func TestAppendReviewComments_DistinctRoundsAccumulate(t *testing.T) {
 	}
 }
 
-func TestNormalizeReviewThread_ResponsePresenceDecidesStatus(t *testing.T) {
+// TestNormalizeReviewThread_ReplyHistoryDecidesStatus supersedes the retired
+// Response-presence rule: status is now derived from the reply thread (see
+// TestNormalizeReviewThreadDerivesFromLastReply for the full derive-rule matrix). This
+// keeps the original 3-row shape (agent-answered / agent-claimed-without-a-reply /
+// resolved-stays-sticky) under the new vocabulary.
+func TestNormalizeReviewThread_ReplyHistoryDecidesStatus(t *testing.T) {
+	agentReply := ReviewCommentReply{ID: "r1c1-u1", AuthorRole: "architect", Text: "fixed the vision", At: "2026-09-19T00:00:00Z"}
 	thread := []ReviewComment{
-		{ID: "r1c1", Status: ReviewCommentOpen, Response: "fixed the vision"}, // agent responded
-		{ID: "r1c2", Status: ReviewCommentAddressed, Response: ""},            // agent claimed addressed w/o response
-		{ID: "r1c3", Status: ReviewCommentWaived, Response: ""},               // waived stays sticky
+		{ID: "r1c1", Status: ReviewCommentOpen, Replies: []ReviewCommentReply{agentReply}}, // agent replied last
+		{ID: "r1c2", Status: ReviewCommentAnswered},                                        // agent claimed answered w/o a reply
+		{ID: "r1c3", Status: ReviewCommentResolved},                                        // resolved stays sticky
 	}
 	got := normalizeReviewThread(thread)
-	if got[0].Status != ReviewCommentAddressed {
-		t.Errorf("responded comment status = %q, want addressed", got[0].Status)
+	if got[0].Status != ReviewCommentAnswered {
+		t.Errorf("agent-replied comment status = %q, want answered", got[0].Status)
 	}
 	if got[1].Status != ReviewCommentOpen {
-		t.Errorf("empty-response comment status = %q, want open (server overrides the agent's claim)", got[1].Status)
+		t.Errorf("no-reply comment status = %q, want open (server overrides the agent's claim)", got[1].Status)
 	}
-	if got[2].Status != ReviewCommentWaived {
-		t.Errorf("waived comment status = %q, want waived (sticky)", got[2].Status)
+	if got[2].Status != ReviewCommentResolved {
+		t.Errorf("resolved comment status = %q, want resolved (sticky)", got[2].Status)
 	}
 }
 
+// TestApplyReviewCommentStatus_LegalTransitions supersedes the retired open->waived /
+// addressed->open pair with the new open|answered->resolved (close) and resolved->open
+// (reopen) transitions (see TestApplyReviewCommentStatusTransitions for the full matrix
+// including the reopen's Reopened bit + preserved reply history).
 func TestApplyReviewCommentStatus_LegalTransitions(t *testing.T) {
 	thread := []ReviewComment{
 		{ID: "r1c1", Status: ReviewCommentOpen},
-		{ID: "r1c2", Status: ReviewCommentAddressed, Response: "done"},
+		{ID: "r1c2", Status: ReviewCommentAnswered},
 	}
-	// open -> waived (dismiss).
-	got, err := applyReviewCommentStatus(thread, "r1c1", ReviewCommentWaived)
+	// open -> resolved (close).
+	got, err := applyReviewCommentStatus(thread, "r1c1", ReviewCommentResolved)
 	if err != nil {
-		t.Fatalf("open->waived: %v", err)
+		t.Fatalf("open->resolved: %v", err)
 	}
-	if got[0].Status != ReviewCommentWaived {
-		t.Errorf("r1c1 status = %q, want waived", got[0].Status)
+	if got[0].Status != ReviewCommentResolved {
+		t.Errorf("r1c1 status = %q, want resolved", got[0].Status)
 	}
-	// addressed -> open (reopen) clears the response so the next normalize keeps it open.
-	got, err = applyReviewCommentStatus(got, "r1c2", ReviewCommentOpen)
+	// answered -> resolved (close).
+	got, err = applyReviewCommentStatus(got, "r1c2", ReviewCommentResolved)
 	if err != nil {
-		t.Fatalf("addressed->open: %v", err)
+		t.Fatalf("answered->resolved: %v", err)
 	}
-	if got[1].Status != ReviewCommentOpen {
-		t.Errorf("r1c2 status = %q, want open", got[1].Status)
-	}
-	if got[1].Response != "" {
-		t.Errorf("reopen must clear response, got %q", got[1].Response)
+	if got[1].Status != ReviewCommentResolved {
+		t.Errorf("r1c2 status = %q, want resolved", got[1].Status)
 	}
 }
 
@@ -7542,7 +7565,7 @@ func TestApplyReviewCommentStatus_IllegalTransitionAndUnknownID(t *testing.T) {
 		t.Errorf("open->open kind = %v, want ContractMisuse", kindOfErr(err))
 	}
 	// unknown id is NotFound.
-	if _, err := applyReviewCommentStatus(thread, "nope", ReviewCommentWaived); kindOfErr(err) != fwra.NotFound {
+	if _, err := applyReviewCommentStatus(thread, "nope", ReviewCommentResolved); kindOfErr(err) != fwra.NotFound {
 		t.Errorf("unknown id kind = %v, want NotFound", kindOfErr(err))
 	}
 }
@@ -7553,6 +7576,163 @@ func kindOfErr(err error) fwra.Kind {
 		return e.Kind
 	}
 	return fwra.Kind(0)
+}
+
+// legacyResponsePtr is a small test helper — ReviewComment.Response is the deprecated
+// *string kept only for the read-compat shim (RULING P8: KEPT, not deleted, as a
+// never-written pointer so a pre-thread ledger committed to git still decodes); literal
+// construction in a legacy-ledger test needs an addressable value.
+func legacyResponsePtr(s string) *string { return &s }
+
+func TestNormalizeReviewThreadDerivesFromLastReply(t *testing.T) {
+	agent := ReviewCommentReply{ID: "r1", AuthorRole: "architect", Text: "Split it.", At: "2026-09-19T00:00:00Z"}
+	human := ReviewCommentReply{ID: "r2", AuthorRole: "architect-user", Text: "Still wrong.", At: "2026-09-19T01:00:00Z"}
+
+	cases := []struct {
+		name string
+		in   ReviewComment
+		want string
+	}{
+		{"no replies is open", ReviewComment{ID: "c1", Status: ReviewCommentOpen}, ReviewCommentOpen},
+		{"agent reply last is answered", ReviewComment{ID: "c2", Replies: []ReviewCommentReply{agent}}, ReviewCommentAnswered},
+		{"reviewer reply last reopens", ReviewComment{ID: "c3", Replies: []ReviewCommentReply{agent, human}}, ReviewCommentOpen},
+		{"reopened bit beats an agent reply", ReviewComment{ID: "c4", Replies: []ReviewCommentReply{agent}, Reopened: true}, ReviewCommentOpen},
+		{"resolved is sticky", ReviewComment{ID: "c5", Status: ReviewCommentResolved}, ReviewCommentResolved},
+		{"staleAck is sticky", ReviewComment{ID: "c6", Type: ReviewCommentTypeStaleAck, Status: ReviewCommentAnswered}, ReviewCommentAnswered},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := normalizeReviewThread([]ReviewComment{tc.in})
+			if got[0].Status != tc.want {
+				t.Fatalf("status = %q, want %q", got[0].Status, tc.want)
+			}
+		})
+	}
+}
+
+func TestApplyReviewCommentStatusTransitions(t *testing.T) {
+	agent := ReviewCommentReply{ID: "r1", AuthorRole: "architect", Text: "done", At: "2026-09-19T00:00:00Z"}
+	legal := []struct{ from, to string }{
+		{ReviewCommentOpen, ReviewCommentResolved},
+		{ReviewCommentAnswered, ReviewCommentResolved},
+		{ReviewCommentResolved, ReviewCommentOpen},
+	}
+	for _, tc := range legal {
+		thread := []ReviewComment{{ID: "c1", Status: tc.from, Replies: []ReviewCommentReply{agent}}}
+		got, err := applyReviewCommentStatus(thread, "c1", tc.to)
+		if err != nil {
+			t.Fatalf("%s->%s: unexpected error %v", tc.from, tc.to, err)
+		}
+		if got[0].Status != tc.to {
+			t.Fatalf("%s->%s: status = %q", tc.from, tc.to, got[0].Status)
+		}
+	}
+
+	// A reopen sets the sticky bit and KEEPS the reply history.
+	thread := []ReviewComment{{ID: "c1", Status: ReviewCommentResolved, Replies: []ReviewCommentReply{agent}}}
+	got, err := applyReviewCommentStatus(thread, "c1", ReviewCommentOpen)
+	if err != nil {
+		t.Fatalf("reopen: %v", err)
+	}
+	if !got[0].Reopened {
+		t.Fatal("reopen must set the sticky Reopened bit")
+	}
+	if len(got[0].Replies) != 1 {
+		t.Fatalf("reopen must preserve replies, got %d", len(got[0].Replies))
+	}
+
+	// Illegal: answered -> open is the manager's derived business, not a human verb.
+	if _, err := applyReviewCommentStatus(
+		[]ReviewComment{{ID: "c1", Status: ReviewCommentAnswered}}, "c1", ReviewCommentAnswered,
+	); err == nil {
+		t.Fatal("expected an error for a no-op transition")
+	}
+}
+
+func TestNormalizeReviewThreadReadCompat(t *testing.T) {
+	legacy := []ReviewComment{
+		{ID: "c1", Status: "addressed", Response: legacyResponsePtr("Reworded it.")},
+		{ID: "c2", Status: "waived"},
+	}
+	got := normalizeReviewThread(migrateLegacyReviewThread(legacy, "architect", "2026-01-01T00:00:00Z"))
+	if got[0].Status != ReviewCommentAnswered {
+		t.Fatalf("legacy addressed should read as answered, got %q", got[0].Status)
+	}
+	if len(got[0].Replies) != 1 || got[0].Replies[0].Text != "Reworded it." {
+		t.Fatalf("legacy response should synthesize one reply, got %+v", got[0].Replies)
+	}
+	if got[1].Status != ReviewCommentResolved {
+		t.Fatalf("legacy waived should read as resolved, got %q", got[1].Status)
+	}
+}
+
+// TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead is the fix-round-1 covering
+// test (Important finding): migrateLegacyReviewThread was defined but never called
+// from any read path, so a committed pre-thread ledger never actually migrated —
+// decodeSlotsMap read the raw "addressed"/"waived" strings straight through forever,
+// a value validReviewCommentStatus no longer accepts. The raw JSON below is the EXACT
+// shape of all 27 legacy entries in the real committed .aiarch/state/project.json as
+// of this fix: a staleAck audit entry, status "addressed", response present but
+// EMPTY (not absent — decodeSlotsMap must handle a non-nil-but-empty *string, not
+// just a nil one). It goes through DecodeProjectJSON, the single exported decode seam
+// both the live git store (decodeProjectFromSnapshot) and the CI validator use, so
+// this proves the fix at the actual boundary every reader shares — not just a direct
+// call to the migrate helper.
+func TestDecodeProjectJSON_MigratesLegacyReviewThreadOnRead(t *testing.T) {
+	raw := []byte(`{
+		"id": "proj-1",
+		"version": 1,
+		"phase": 1,
+		"slots": {
+			"1": {
+				"kind": 1,
+				"status": 2,
+				"reviewThread": [
+					{
+						"id": "r1c1",
+						"anchor": "",
+						"anchorText": "",
+						"text": "Reviewed — unaffected: diagrams only, no term changes",
+						"authorRole": "architect",
+						"round": 1,
+						"status": "addressed",
+						"response": "",
+						"type": "staleAck",
+						"addressee": ""
+					}
+				]
+			}
+		}
+	}`)
+	p, ok, err := DecodeProjectJSON(raw, ProjectID("proj-1"))
+	if err != nil {
+		t.Fatalf("DecodeProjectJSON: %v", err)
+	}
+	if !ok {
+		t.Fatal("DecodeProjectJSON: want ok=true for a populated document")
+	}
+	thread := p.Glossary.ReviewThread
+	if len(thread) != 1 {
+		t.Fatalf("want 1 review comment, got %d", len(thread))
+	}
+	c := thread[0]
+	if c.Status != ReviewCommentAnswered {
+		t.Fatalf("legacy staleAck \"addressed\" must decode as %q, got %q (validReviewCommentStatus no longer accepts %q)",
+			ReviewCommentAnswered, c.Status, "addressed")
+	}
+	if !validReviewCommentStatus(c.Status) {
+		t.Errorf("decoded status %q must be a currently-valid wire value", c.Status)
+	}
+	// The real data's response is present but EMPTY, not a real reply — migration must
+	// NOT synthesize a reply from it.
+	if len(c.Replies) != 0 {
+		t.Errorf("an empty legacy response must not synthesize a reply, got %+v", c.Replies)
+	}
+	// The migration is transient (render-on-read): it must not touch the decoded
+	// struct's Response field itself, only Status/Replies.
+	if c.Response == nil || *c.Response != "" {
+		t.Errorf("Response must decode verbatim (present, empty), got %v", c.Response)
+	}
 }
 
 // Question-comments (2026-07-05): type/addressee defaulting + the approve-gate classifier.
@@ -7588,9 +7768,9 @@ func TestReviewCommentClassifiers(t *testing.T) {
 		{"legacy open (empty type) blocks", ReviewComment{Status: ReviewCommentOpen}, false, true},
 		{"open change-request blocks", ReviewComment{Status: ReviewCommentOpen, Type: ReviewCommentTypeChangeRequest}, false, true},
 		{"open question does NOT block", ReviewComment{Status: ReviewCommentOpen, Type: ReviewCommentTypeQuestion}, true, false},
-		{"addressed question does NOT block", ReviewComment{Status: ReviewCommentAddressed, Type: ReviewCommentTypeQuestion}, true, false},
-		{"addressed change-request does NOT block", ReviewComment{Status: ReviewCommentAddressed}, false, false},
-		{"waived change-request does NOT block", ReviewComment{Status: ReviewCommentWaived}, false, false},
+		{"answered question does NOT block", ReviewComment{Status: ReviewCommentAnswered, Type: ReviewCommentTypeQuestion}, true, false},
+		{"answered change-request does NOT block", ReviewComment{Status: ReviewCommentAnswered}, false, false},
+		{"resolved change-request does NOT block", ReviewComment{Status: ReviewCommentResolved}, false, false},
 	}
 	for _, tc := range cases {
 		if got := ReviewCommentIsQuestion(tc.c); got != tc.isQuestion {
@@ -7602,19 +7782,21 @@ func TestReviewCommentClassifiers(t *testing.T) {
 	}
 }
 
-// An answered question normalizes to addressed (Response non-empty), an unanswered one
+// An answered question normalizes to answered (agent reply last), an unanswered one
 // stays open — and either way a question never blocks approve.
 func TestNormalize_QuestionStatusAndGate(t *testing.T) {
 	thread := []ReviewComment{
-		{ID: "q1", Status: ReviewCommentOpen, Type: ReviewCommentTypeQuestion, Response: ""},
-		{ID: "q2", Status: ReviewCommentOpen, Type: ReviewCommentTypeQuestion, Response: "because X"},
+		{ID: "q1", Status: ReviewCommentOpen, Type: ReviewCommentTypeQuestion},
+		{ID: "q2", Status: ReviewCommentOpen, Type: ReviewCommentTypeQuestion, Replies: []ReviewCommentReply{
+			{ID: "q2-u1", AuthorRole: "architect", Text: "because X", At: "2026-09-19T00:00:00Z"},
+		}},
 	}
 	out := normalizeReviewThread(thread)
 	if out[0].Status != ReviewCommentOpen {
 		t.Errorf("unanswered question must stay open, got %q", out[0].Status)
 	}
-	if out[1].Status != ReviewCommentAddressed {
-		t.Errorf("answered question must be addressed, got %q", out[1].Status)
+	if out[1].Status != ReviewCommentAnswered {
+		t.Errorf("answered question must be answered, got %q", out[1].Status)
 	}
 	for _, c := range out {
 		if ReviewCommentBlocksApprove(c) {
@@ -7623,21 +7805,21 @@ func TestNormalize_QuestionStatusAndGate(t *testing.T) {
 	}
 }
 
-// A staleAck audit entry is sticky: normalization never reopens it (no Response, but it must
-// stay addressed), and appendStaleAck stamps it addressed + staleAck with a fresh id.
+// A staleAck audit entry is sticky: normalization never reopens it (no replies, but it must
+// stay answered), and appendStaleAck stamps it answered + staleAck with a fresh id.
 func TestStaleAck_AppendAndNormalizeSticky(t *testing.T) {
 	out := appendStaleAck(nil, "architect", "diagrams only")
 	if len(out) != 1 {
 		t.Fatalf("want 1 entry, got %d", len(out))
 	}
 	e := out[0]
-	if e.Type != ReviewCommentTypeStaleAck || e.Status != ReviewCommentAddressed || e.AuthorRole != "architect" {
+	if e.Type != ReviewCommentTypeStaleAck || e.Status != ReviewCommentAnswered || e.AuthorRole != "architect" {
 		t.Fatalf("staleAck shape wrong: %+v", e)
 	}
-	// Normalize must NOT flip the staleAck (empty response) to open.
+	// Normalize must NOT flip the staleAck (no replies) to open.
 	normalized := normalizeReviewThread(out)
-	if normalized[0].Status != ReviewCommentAddressed {
-		t.Errorf("staleAck must stay addressed after normalize, got %q", normalized[0].Status)
+	if normalized[0].Status != ReviewCommentAnswered {
+		t.Errorf("staleAck must stay answered after normalize, got %q", normalized[0].Status)
 	}
 	if ReviewCommentBlocksApprove(normalized[0]) {
 		t.Errorf("staleAck must never block approve")

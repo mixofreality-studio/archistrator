@@ -95,8 +95,10 @@ test.describe('Architecture draft-failed panel — centered at wide viewports (r
   // The founder saw the failed-state icon/title/text/buttons off to one side with a
   // huge empty gutter — it looked broken at wide viewport. Two invariants guard the
   // fix at 1300 / 1600 / 2000: (a) the failure content is centered WITHIN the panel;
-  // (b) the panel is centered within the CONTENT AREA (the region left of the chat
-  // rail). A shift to either side by hundreds of px — the regression — breaks these.
+  // (b) the panel is centered within the CONTENT AREA — the region left of the
+  // COMMENT MARGIN (it was the chat rail when this regression was filed; the margin
+  // is the column that reserves that strip now, so it is what bounds the reading
+  // area). A shift to either side by hundreds of px — the regression — breaks these.
   const centerX = (b: { x: number; width: number }): number => b.x + b.width / 2;
 
   for (const width of [1300, 1600, 2000]) {
@@ -115,9 +117,9 @@ test.describe('Architecture draft-failed panel — centered at wide viewports (r
 
       const panelBox = await panel.boundingBox();
       const reasonBox = await reason.boundingBox();
-      // eslint-disable-next-line no-restricted-syntax -- the content area is the <main> landmark ExperienceChrome renders; it carries no testid and <main> is the correct structural handle for "the content region" (chat rail excluded below).
+      // eslint-disable-next-line no-restricted-syntax -- the content area is the <main> landmark ExperienceChrome renders; it carries no testid and <main> is the correct structural handle for "the content region" (the comment margin is excluded below).
       const mainBox = await page.locator('main').first().boundingBox();
-      const chatBox = await page.getByTestId(TESTID.chatRail).first().boundingBox();
+      const marginBox = await page.getByTestId(TESTID.marginRoot).first().boundingBox();
       expect(panelBox).not.toBeNull();
       expect(reasonBox).not.toBeNull();
       expect(mainBox).not.toBeNull();
@@ -126,11 +128,11 @@ test.describe('Architecture draft-failed panel — centered at wide viewports (r
       // (a) failure reason centered within the panel card.
       expect(Math.abs(centerX(reasonBox) - centerX(panelBox))).toBeLessThan(24);
 
-      // (b) panel centered within the content area (main, minus the chat rail on the
-      // right when it is open). A regression that pushes the panel to one side moves
-      // its center far off the content-area center.
+      // (b) panel centered within the content area (main, minus the comment margin
+      // on the right when it is open). A regression that pushes the panel to one
+      // side moves its center far off the content-area center.
       const contentLeft = mainBox.x;
-      const contentRight = chatBox !== null ? chatBox.x : mainBox.x + mainBox.width;
+      const contentRight = marginBox !== null ? marginBox.x : mainBox.x + mainBox.width;
       const contentCenter = (contentLeft + contentRight) / 2;
       const tolerance = (contentRight - contentLeft) * 0.06;
       expect(Math.abs(centerX(panelBox) - contentCenter)).toBeLessThan(tolerance);

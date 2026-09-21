@@ -1,13 +1,12 @@
 /**
- * Wraps the read-only render of a COMMITTED artifact slot with a header bar that
- * carries the commit provenance and the amendment affordance.
- *
- * Header:
- *   • 'COMMITTED · revision N' — the revision suffix appears once the slot has
- *     been amended (revisions > 1).
- *   • a 'basis changed — reconcile' chip when the upstream basis has drifted
- *     (staleBasis); its Reconcile button opens the composer pre-filled.
- *   • an 'Amend' button.
+ * Wraps the read-only render of a COMMITTED artifact slot. The full-width
+ * 'COMMITTED · revision N' strip + inline Amend button (Task 9) are gone — the
+ * caller now renders `CommittedChip` (below) in the artifact header instead, at a
+ * fraction of the vertical cost, and the Amend affordance moves to Task 10's
+ * submit bar. This panel is left carrying only the amend composer's Dialog: its
+ * `open` state is LIFTED to the caller (RULING P6 — `amendOpen`/`onAmendOpenChange`
+ * props, no imperative handle, no ref) so Task 10's button can open the very same
+ * dialog by flipping that state.
  *
  * Amend composer (a small dialog, mirroring the rail composer: a free-form
  * rationale plus, optionally, the pending anchored comments already accumulated
@@ -19,9 +18,10 @@
  */
 import { useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
-import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
 import Button from '@mui/material/Button';
+import Chip from '@mui/material/Chip';
+import Tooltip from '@mui/material/Tooltip';
 import Dialog from '@mui/material/Dialog';
 import DialogTitle from '@mui/material/DialogTitle';
 import DialogContent from '@mui/material/DialogContent';
@@ -30,6 +30,7 @@ import TextField from '@mui/material/TextField';
 import Checkbox from '@mui/material/Checkbox';
 import FormControlLabel from '@mui/material/FormControlLabel';
 import EditNoteIcon from '@mui/icons-material/EditNote';
+import CheckIcon from '@mui/icons-material/Check';
 import { useComments } from '../comments/CommentContext';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -42,10 +43,9 @@ import type { ArtifactProvenance } from '../../contracts/types';
  * raw string. Returns '' when nothing is worth showing.
  *
  * Deliberately excludes the revision number (fix 7, founder QA round 5): the
- * strip immediately above already reads "COMMITTED · revision N", and on a
- * pre-provenance commit (no committedAt/approvedBy/draftedBy) this line used
- * to render as nothing BUT "rev N" — a caption whose entire content
- * duplicated the banner ~20px above it.
+ * chip beside it already reads "committed · rN", and on a pre-provenance commit
+ * (no committedAt/approvedBy/draftedBy) this line used to render as nothing BUT
+ * "rev N" — a caption whose entire content duplicated the chip beside it.
  */
 function provenanceSummary(provenance: ArtifactProvenance | undefined): string {
   const parts: string[] = [];
@@ -63,23 +63,57 @@ function provenanceSummary(provenance: ArtifactProvenance | undefined): string {
   return parts.join(' · ');
 }
 
-export function CommittedArtifactPanel({
+/**
+ * The committed-panel header, collapsed to a chip (Task 9): 'committed' / 'committed
+ * · r{n}' (the revision suffix appears once the slot has been amended, revisions >
+ * 1), styled to match `StageChip`'s committed variant. The provenance line that used
+ * to sit under the full-width strip is absorbed into this chip's tooltip instead of
+ * taking its own line — `provenanceSummary` returns '' when there is nothing to
+ * show, which renders an empty (no-op) tooltip.
+ */
+export function CommittedChip({
   revisions,
   provenance,
+}: {
+  /** Commit count; the revision suffix shows only when > 1. */
+  revisions?: number | undefined;
+  /** Commit provenance (PM-P2-4): who committed / when / which rail drafted it. */
+  provenance?: ArtifactProvenance | undefined;
+}): ReactNode {
+  const t = useTokens();
+  const revisionN = revisions ?? 0;
+  const label = revisionN > 1 ? `committed · r${String(revisionN)}` : 'committed';
+  return (
+    <Tooltip title={provenanceSummary(provenance)}>
+      <Chip
+        icon={<CheckIcon sx={{ fontSize: 15 }} />}
+        label={label}
+        size="small"
+        sx={{
+          color: t.committedFg,
+          bgcolor: t.committedBg,
+          '& .MuiChip-icon': { color: t.committedFg, ml: 0.75 },
+        }}
+      />
+    </Tooltip>
+  );
+}
+
+export function CommittedArtifactPanel({
+  amendOpen,
   amendPending,
   onAmend,
+  onAmendOpenChange,
   fill = false,
   fillMinHeight,
   children,
 }: {
-  /** Commit count; the revision suffix shows only when > 1. */
-  revisions?: number | undefined;
   /**
-   * Commit provenance (PM-P2-4): who committed / when / which rail drafted it. Absent on
-   * pre-provenance commits; a quiet muted one-line summary renders under the strip when
-   * present.
+   * The amend composer dialog's open state, lifted to the caller (RULING P6):
+   * Task 10's submit-bar Amend button flips this directly — no imperative handle,
+   * no ref.
    */
-  provenance?: ArtifactProvenance | undefined;
+  amendOpen: boolean;
   /** An amend RequestArtifactDraft is in flight — disable the composer submit. */
   amendPending: boolean;
   /**
@@ -100,26 +134,34 @@ export function CommittedArtifactPanel({
    * the rationale) intact for a retry instead of silently dropping them.
    */
   onAmend: (feedback: string, onAccepted: () => void) => void;
+  onAmendOpenChange: (open: boolean) => void;
   children: ReactNode;
 }): ReactNode {
   const t = useTokens();
   const { comments, reset } = useComments();
-  const [open, setOpen] = useState(false);
   const [rationale, setRationale] = useState('');
   const [includePending, setIncludePending] = useState(true);
+
+  // The open trigger now lives one level up (the caller's Amend button), so seed
+  // the composer's local fields whenever `amendOpen` flips to true — mirrors the
+  // old openComposer('') seed that used to run from this component's own
+  // (now-deleted) Amend button. Adjusted during render, not an effect, per
+  // https://react.dev/learn/you-might-not-need-an-effect#adjusting-some-state-when-a-prop-changes.
+  const [prevAmendOpen, setPrevAmendOpen] = useState(amendOpen);
+  if (amendOpen !== prevAmendOpen) {
+    setPrevAmendOpen(amendOpen);
+    if (amendOpen) {
+      setRationale('');
+      setIncludePending(true);
+    }
+  }
 
   const pendingCount = comments.length;
   const willIncludePending = includePending && pendingCount > 0;
   const canSubmit = rationale.trim().length > 0 || willIncludePending;
 
-  const openComposer = (seed: string): void => {
-    setRationale(seed);
-    setIncludePending(true);
-    setOpen(true);
-  };
-
   const close = (): void => {
-    setOpen(false);
+    onAmendOpenChange(false);
     setRationale('');
   };
 
@@ -139,9 +181,6 @@ export function CommittedArtifactPanel({
     });
   };
 
-  const revisionN = revisions ?? 0;
-  const provLine = provenanceSummary(provenance);
-
   return (
     <Box
       sx={{
@@ -149,56 +188,10 @@ export function CommittedArtifactPanel({
         flexDirection: 'column',
         gap: 2,
         // fill: this panel is the direct child of the experience's scroll column, so
-        // it owns the grow + the short-viewport floor; the header strip stays natural
-        // and the artifact card slot (below) takes the remaining height.
+        // it owns the grow + the short-viewport floor for the artifact card slot below.
         ...(fill ? { flexGrow: 1, minHeight: fillMinHeight ?? 0 } : {}),
       }}
     >
-      <Paper
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-          flexWrap: 'wrap',
-          px: 2,
-          py: 1.25,
-          bgcolor: t.committedBg,
-          border: `1.5px solid ${t.line}`,
-        }}
-      >
-        <Typography
-          data-testid={UI_IDENTIFIERS.DesignExperience.COMMITTED_REVISION}
-          sx={{
-            fontFamily: t.mono,
-            fontWeight: 700,
-            fontSize: 12,
-            letterSpacing: '0.08em',
-            color: t.committedFg,
-          }}
-        >
-          COMMITTED{revisionN > 1 ? ` · revision ${String(revisionN)}` : ''}
-        </Typography>
-        <Box sx={{ flexGrow: 1 }} />
-        <Button
-          data-testid={UI_IDENTIFIERS.DesignExperience.AMEND}
-          size="small"
-          startIcon={<EditNoteIcon sx={{ fontSize: 18 }} />}
-          sx={{ color: t.ink, borderColor: t.line, textTransform: 'none' }}
-          variant="outlined"
-          onClick={() => {
-            openComposer('');
-          }}
-        >
-          Amend
-        </Button>
-      </Paper>
-
-      {provLine.length > 0 ? (
-        <Typography sx={{ mt: -1.25, fontSize: 12, color: t.muted, lineHeight: 1.4 }}>
-          {provLine}
-        </Typography>
-      ) : null}
-
       {fill ? (
         <Box sx={{ flexGrow: 1, minHeight: 0, display: 'flex', flexDirection: 'column' }}>
           {children}
@@ -207,7 +200,7 @@ export function CommittedArtifactPanel({
         children
       )}
 
-      <Dialog fullWidth maxWidth="sm" open={open} onClose={close}>
+      <Dialog fullWidth maxWidth="sm" open={amendOpen} onClose={close}>
         <DialogTitle sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 15 }}>
           Amend committed artifact
         </DialogTitle>

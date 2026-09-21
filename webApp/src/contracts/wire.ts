@@ -93,6 +93,7 @@ import type {
   ReviewCommentStatus,
   ReviewCommentType,
   PmCritiqueView,
+  ReviewCommentReply,
   ReviewCommentView,
   ReviewDecision,
   SDPDecision,
@@ -208,9 +209,25 @@ export function mapDesignHealth(w: Schemas['SystemDesignDesignHealth']): DesignH
   };
 }
 
-/** Normalize a wire review-status string into the app union (unknown → 'open'). */
+/**
+ * Normalize a wire review-status string into the app union (unknown → 'open').
+ *
+ * Git-as-DB history is not rewritten, so entries committed before the thread
+ * migration still carry the old vocabulary. The server shims them on read, but
+ * this mapper is the SPA's own last line: `addressed` was what `answered` is now,
+ * and `waived` was what `resolved` is now.
+ */
 function reviewStatus(s: string): ReviewCommentStatus {
-  return s === 'addressed' || s === 'waived' ? s : 'open';
+  switch (s) {
+    case 'answered':
+    case 'addressed':
+      return 'answered';
+    case 'resolved':
+    case 'waived':
+      return 'resolved';
+    default:
+      return 'open';
+  }
 }
 
 /** Normalize the wire comment type (empty/legacy → 'changeRequest'). */
@@ -221,6 +238,18 @@ function reviewType(s: string): ReviewCommentType {
 /** Normalize the wire addressee (only meaningful for questions). */
 function reviewAddressee(s: string): ReviewCommentAddressee {
   return s === 'pm' || s === 'architect' ? s : '';
+}
+
+/** One reply utterance on a review thread. The two manager shapes are structurally identical. */
+function mapReviewCommentReply(
+  w: Schemas['SystemDesignReviewCommentReply'] | Schemas['ProjectDesignReviewCommentReply']
+): ReviewCommentReply {
+  return {
+    id: w.id,
+    authorRole: w.authorRole,
+    text: w.text,
+    at: w.at,
+  };
 }
 
 /** One durable review-ledger entry. The two manager shapes are structurally identical. */
@@ -235,7 +264,10 @@ function mapReviewComment(
     authorRole: w.authorRole,
     round: w.round,
     status: reviewStatus(w.status),
-    response: w.response,
+    // DEPRECATED (superseded by `replies`); carried through only when the wire sends it.
+    ...(w.response !== undefined ? { response: w.response } : {}),
+    replies: w.replies.map(mapReviewCommentReply),
+    reopened: w.reopened,
     type: reviewType(w.type),
     addressee: reviewAddressee(w.addressee),
   };

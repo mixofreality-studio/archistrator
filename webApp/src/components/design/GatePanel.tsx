@@ -1,6 +1,7 @@
 /**
  * The human review gate, shown when the session stage is awaitingReview. Surfaces
- * the machine-validation findings (severity-colored) and the commit authority:
+ * the machine-validation findings (severity-colored) and, where `actions` is
+ * supplied, the commit-authority row:
  *   Approve & continue → submitReviewDecision(approve) then auto-advance
  *   Send back          → submitReviewDecision(reject, { feedback, comments })
  *   Withdraw           → submitReviewDecision(withdraw)
@@ -10,6 +11,12 @@
  * MCP: there is no such client-side accumulator — see `allowEmptySendBack`).
  * Findings are the real engine.Finding[] from the
  * session view; an empty findings list reads as "all checks passed".
+ *
+ * `actions` is OMITTED by System Design (Phase 1, SystemDesignView.tsx): Task
+ * 10's SubmitBar owns the commit-authority verbs there instead, so this panel
+ * renders only its findings/PM-review/diagnostics there. Project Design (Phase 2,
+ * ProjectDesignExperience.tsx) and construction still pass `actions` and keep
+ * this row exactly as before — neither is redesigned by Task 10.
  */
 import { useId, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
@@ -25,41 +32,14 @@ import UndoIcon from '@mui/icons-material/Undo';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import type { Finding, PmCritiqueView } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
+import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { sendBackDisabled } from './sendBackLogic';
 import { pmReviewPresentation } from './pmReviewLogic';
 
-export function GatePanel({
-  findings,
-  critique,
-  commentCount,
-  openCommentCount = 0,
-  gateError,
-  pending,
-  allowEmptySendBack = false,
-  onApprove,
-  onSendBack,
-  onWithdraw,
-}: {
-  findings: Finding[];
-  /**
-   * The surfaced PM-critique conclusion for the draft under review (F-QA2-7):
-   * rendered as the "PM REVIEW" section so the founder never approves a
-   * PM-reviewed artifact blind to what the PM concluded. Absent for
-   * architect-owned kinds (no PM critic) and on Phase-2/construction gates —
-   * the section simply does not render.
-   */
-  critique?: PmCritiqueView | undefined;
+export interface GateActionsProps {
   /** Number of accumulated (client-side, unsent) anchored send-back comments. */
   commentCount: number;
-  /**
-   * Open entries on the SERVER review thread. While > 0 the server rejects Approve
-   * (FailedPrecondition), so we disable it here and name the count. Each must be
-   * addressed (agent response) or waived first.
-   */
-  openCommentCount?: number;
-  /** Graceful message from a FailedPrecondition approve race — refetch + surface. */
-  gateError?: string | undefined;
   /** A decision mutation is in flight — disable the buttons. */
   pending: boolean;
   /**
@@ -76,6 +56,37 @@ export function GatePanel({
   onApprove: () => void;
   onSendBack: () => void;
   onWithdraw: () => void;
+}
+
+export function GatePanel({
+  findings,
+  critique,
+  openCommentCount = 0,
+  gateError,
+  actions,
+}: {
+  findings: Finding[];
+  /**
+   * The surfaced PM-critique conclusion for the draft under review (F-QA2-7):
+   * rendered as the "PM REVIEW" section so the founder never approves a
+   * PM-reviewed artifact blind to what the PM concluded. Absent for
+   * architect-owned kinds (no PM critic) and on Phase-2/construction gates —
+   * the section simply does not render.
+   */
+  critique?: PmCritiqueView | undefined;
+  /**
+   * Open entries on the SERVER review thread. While > 0 the server rejects Approve
+   * (FailedPrecondition), so we disable it here and name the count. Each must be
+   * addressed (agent response) or waived first.
+   */
+  openCommentCount?: number;
+  /** Graceful message from a FailedPrecondition approve race — refetch + surface. */
+  gateError?: string | undefined;
+  /**
+   * The commit-authority action row (Approve / Send back / Withdraw). Omitted by
+   * System Design (Phase 1) — see this file's doc comment.
+   */
+  actions?: GateActionsProps | undefined;
 }): ReactNode {
   const t = useTokens();
   const [showFindings, setShowFindings] = useState(true);
@@ -84,21 +95,9 @@ export function GatePanel({
   const pmReviewRegionId = useId();
   const pmReview = critique !== undefined ? pmReviewPresentation(critique) : undefined;
   const approveBlocked = openCommentCount > 0;
-  // Two-step approve when notes are pending: accumulated comments ride the next
-  // "Send back", so approving discards them. We make that loss explicit (never
-  // block it) by flipping the primary button into an inline confirm strip.
-  const [confirmDiscard, setConfirmDiscard] = useState(false);
   const errors = findings.filter((f) => f.severity === 'error').length;
   const warnings = findings.filter((f) => f.severity === 'warning').length;
   const oks = findings.length - errors - warnings;
-
-  const onApproveClick = (): void => {
-    if (commentCount > 0 && !confirmDiscard) {
-      setConfirmDiscard(true);
-      return;
-    }
-    onApprove();
-  };
 
   return (
     // flexShrink:0 is load-bearing, not cosmetic: this Paper is a DIRECT flex
@@ -268,12 +267,12 @@ export function GatePanel({
         </>
       ) : null}
 
-      {/* Open server-thread entries block approve until addressed or waived. */}
+      {/* Open server-thread entries block approve until answered or resolved. */}
       {approveBlocked ? (
         <Box data-testid={UI_IDENTIFIERS.GatePanel.OPEN_BLOCK} sx={{ px: 2.5, pt: 2 }}>
           <Alert severity="warning" sx={{ alignItems: 'flex-start' }}>
-            {openCommentCount} open comment{openCommentCount === 1 ? '' : 's'} must be addressed or
-            waived before approve.
+            {openCommentCount} open comment{openCommentCount === 1 ? '' : 's'} must be answered or
+            resolved before approve.
           </Alert>
         </Box>
       ) : null}
@@ -287,100 +286,132 @@ export function GatePanel({
         </Box>
       ) : null}
 
-      <Box
-        sx={{
-          px: 2.5,
-          py: 2,
-          borderTop: `1.5px solid ${t.line}`,
-          display: 'flex',
-          alignItems: 'center',
-          gap: 1.5,
-          bgcolor: t.awaitingBg,
-          flexWrap: 'wrap',
-        }}
-      >
-        <Box sx={{ minWidth: 0 }}>
-          <Typography
-            sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.awaitingFg }}
-          >
-            You are the commit authority
-          </Typography>
-          <Typography sx={{ color: t.awaitingFg, opacity: 0.85 }} variant="caption">
-            {commentCount > 0
-              ? `${String(commentCount)} note${commentCount === 1 ? '' : 's'} ready to send back.`
-              : 'Approve to seal and auto-advance, or type feedback then send back for a redraft.'}
-          </Typography>
-        </Box>
-        <Box sx={{ flexGrow: 1 }} />
-        {confirmDiscard ? (
-          <Box
-            data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CONFIRM}
-            sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}
-          >
-            <Typography sx={{ fontSize: 13, color: t.awaitingFg, fontWeight: 600 }}>
-              {commentCount} note{commentCount === 1 ? '' : 's'} will be discarded on approve — send
-              back first to keep {commentCount === 1 ? 'it' : 'them'}.
-            </Typography>
-            <Button
-              color="inherit"
-              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CANCEL}
-              disabled={pending}
-              sx={{ color: t.muted }}
-              variant="text"
-              onClick={() => {
-                setConfirmDiscard(false);
-              }}
-            >
-              Cancel
-            </Button>
-            <Button
-              color="primary"
-              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
-              disabled={pending || approveBlocked}
-              startIcon={<CheckIcon />}
-              variant="contained"
-              onClick={onApproveClick}
-            >
-              Approve anyway
-            </Button>
-          </Box>
-        ) : (
-          <>
-            <Button
-              color="inherit"
-              data-testid={UI_IDENTIFIERS.GatePanel.WITHDRAW}
-              disabled={pending}
-              startIcon={<UndoIcon />}
-              sx={{ color: t.muted }}
-              variant="text"
-              onClick={onWithdraw}
-            >
-              Withdraw
-            </Button>
-            <Button
-              color="inherit"
-              data-testid={UI_IDENTIFIERS.GatePanel.SENDBACK}
-              disabled={sendBackDisabled(pending, commentCount, allowEmptySendBack)}
-              startIcon={<ReplayIcon />}
-              sx={{ color: t.ink, borderColor: t.line }}
-              variant="outlined"
-              onClick={onSendBack}
-            >
-              Send back
-            </Button>
-            <Button
-              color="primary"
-              data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
-              disabled={pending || approveBlocked}
-              startIcon={<CheckIcon />}
-              variant="contained"
-              onClick={onApproveClick}
-            >
-              Approve &amp; continue
-            </Button>
-          </>
-        )}
-      </Box>
+      {actions !== undefined ? <GateActions {...actions} approveBlocked={approveBlocked} t={t} /> : null}
     </Paper>
+  );
+}
+
+/**
+ * The commit-authority action row (Approve / Send back / Withdraw), split out of
+ * `GatePanel` (Task 10) so System Design (Phase 1) can omit it — its verbs now
+ * live in the submit bar instead — while Project Design (Phase 2) and
+ * construction keep rendering it exactly as before via `GatePanel`'s `actions` prop.
+ */
+function GateActions({
+  commentCount,
+  pending,
+  allowEmptySendBack = false,
+  approveBlocked,
+  t,
+  onApprove,
+  onSendBack,
+  onWithdraw,
+}: GateActionsProps & { approveBlocked: boolean; t: Tokens }): ReactNode {
+  // Two-step approve when notes are pending: accumulated comments ride the next
+  // "Send back", so approving discards them. We make that loss explicit (never
+  // block it) by flipping the primary button into an inline confirm strip.
+  const [confirmDiscard, setConfirmDiscard] = useState(false);
+
+  const onApproveClick = (): void => {
+    if (commentCount > 0 && !confirmDiscard) {
+      setConfirmDiscard(true);
+      return;
+    }
+    onApprove();
+  };
+
+  return (
+    <Box
+      sx={{
+        px: 2.5,
+        py: 2,
+        borderTop: `1.5px solid ${t.line}`,
+        display: 'flex',
+        alignItems: 'center',
+        gap: 1.5,
+        bgcolor: t.awaitingBg,
+        flexWrap: 'wrap',
+      }}
+    >
+      <Box sx={{ minWidth: 0 }}>
+        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.awaitingFg }}>
+          You are the commit authority
+        </Typography>
+        <Typography sx={{ color: t.awaitingFg, opacity: 0.85 }} variant="caption">
+          {commentCount > 0
+            ? `${String(commentCount)} note${commentCount === 1 ? '' : 's'} ready to send back.`
+            : 'Approve to seal and auto-advance, or type feedback then send back for a redraft.'}
+        </Typography>
+      </Box>
+      <Box sx={{ flexGrow: 1 }} />
+      {confirmDiscard ? (
+        <Box
+          data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CONFIRM}
+          sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}
+        >
+          <Typography sx={{ fontSize: 13, color: t.awaitingFg, fontWeight: 600 }}>
+            {commentCount} note{commentCount === 1 ? '' : 's'} will be discarded on approve — send
+            back first to keep {commentCount === 1 ? 'it' : 'them'}.
+          </Typography>
+          <Button
+            color="inherit"
+            data-testid={UI_IDENTIFIERS.GatePanel.APPROVE_CANCEL}
+            disabled={pending}
+            sx={{ color: t.muted }}
+            variant="text"
+            onClick={() => {
+              setConfirmDiscard(false);
+            }}
+          >
+            Cancel
+          </Button>
+          <Button
+            color="primary"
+            data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
+            disabled={pending || approveBlocked}
+            startIcon={<CheckIcon />}
+            variant="contained"
+            onClick={onApproveClick}
+          >
+            Approve anyway
+          </Button>
+        </Box>
+      ) : (
+        <>
+          <Button
+            color="inherit"
+            data-testid={UI_IDENTIFIERS.GatePanel.WITHDRAW}
+            disabled={pending}
+            startIcon={<UndoIcon />}
+            sx={{ color: t.muted }}
+            variant="text"
+            onClick={onWithdraw}
+          >
+            Withdraw
+          </Button>
+          <Button
+            color="inherit"
+            data-testid={UI_IDENTIFIERS.GatePanel.SENDBACK}
+            disabled={sendBackDisabled(pending, commentCount, allowEmptySendBack)}
+            startIcon={<ReplayIcon />}
+            sx={{ color: t.ink, borderColor: t.line }}
+            variant="outlined"
+            onClick={onSendBack}
+          >
+            Send back
+          </Button>
+          <Button
+            color="primary"
+            data-testid={UI_IDENTIFIERS.GatePanel.APPROVE}
+            disabled={pending || approveBlocked}
+            startIcon={<CheckIcon />}
+            variant="contained"
+            onClick={onApproveClick}
+          >
+            Approve &amp; continue
+          </Button>
+        </>
+      )}
+    </Box>
   );
 }

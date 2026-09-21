@@ -62,6 +62,51 @@ func readBackSlot(t *testing.T, s *Session, kind projectstate.ArtifactKind) proj
 	return *slot
 }
 
+// newTestSession returns a draft-mode Session over the Volatilities slot, seeded with a
+// minimal decodable project — the common fixture for review-thread tests where the
+// artifact kind itself is incidental.
+func newTestSession(t *testing.T) *Session {
+	t.Helper()
+	s, _ := seedProject(t, minimalProject(), jobModeDraft, projectstate.KindVolatilities)
+	return s
+}
+
+// seedThread appends c to the ambient slot's review thread, on top of whatever
+// newTestSession already wrote to disk.
+func seedThread(t *testing.T, s *Session, c projectstate.ReviewComment) {
+	t.Helper()
+	proj, _, err := s.readProject()
+	if err != nil {
+		t.Fatalf("read project: %v", err)
+	}
+	slot, ok := slotFor(&proj, s.Kind)
+	if !ok {
+		t.Fatalf("no slot for kind %s", s.Kind)
+	}
+	// encodeSlotsMap drops a slot entirely at ReviewNone (the "nothing drafted yet"
+	// zero value), which would silently discard the seeded thread on round-trip.
+	// A review thread only exists on a slot that has been staged/committed at least
+	// once, so give it a real status.
+	if slot.Status == projectstate.ReviewNone {
+		slot.Status = projectstate.ReviewCommitted
+	}
+	slot.ReviewThread = append(slot.ReviewThread, c)
+	newBytes, err := projectstate.EncodeProjectJSON(proj)
+	if err != nil {
+		t.Fatalf("encode project: %v", err)
+	}
+	if err := s.writeProjectBytes(newBytes); err != nil {
+		t.Fatalf("write project: %v", err)
+	}
+}
+
+// readThread re-reads the checked-out project.json and returns the ambient slot's
+// review thread.
+func readThread(t *testing.T, s *Session) []projectstate.ReviewComment {
+	t.Helper()
+	return readBackSlot(t, s, s.Kind).ReviewThread
+}
+
 // fakeGit records git invocations and returns canned output, so publishDraft's control
 // flow is exercised without a real repo.
 type fakeGit struct {

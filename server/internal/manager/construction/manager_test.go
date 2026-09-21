@@ -2808,7 +2808,7 @@ func (fakeFullProjectState) WithdrawArtifactOnBranch(fwra.Context, projectstate.
 	return 0, nil
 }
 
-func (fakeFullProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeFullProjectState) RejectArtifactOnBranchWithComments(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
@@ -2816,7 +2816,7 @@ func (fakeFullProjectState) SetReviewCommentStatusOnBranch(fwra.Context, project
 	return 0, nil
 }
 
-func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, int64, []projectstate.ReviewComment, []projectstate.ReviewReply, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 

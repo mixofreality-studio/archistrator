@@ -656,4 +656,113 @@ export async function stubCreatedProject(
   return answered;
 }
 
+/** SessionStage ordinal for a session that has reached its terminal committed stage. */
+const STAGE_SESSION_COMMITTED = 4;
+
+/**
+ * The three business objectives the margin fixture renders. The margin anchors to
+ * the objective's INDEX (`$.objectives[n]`, see MissionView → missionObjectiveAnchor),
+ * so index 2 — "Objective 3" — is what the open change request below sits beside.
+ */
+const MISSION_OBJECTIVES = [
+  { number: 1, statement: 'Cut the time from research corpus to a committed mission below one day.' },
+  { number: 2, statement: 'Keep every design decision traceable to the artifact slot that carries it.' },
+  { number: 3, statement: 'Let a reviewer answer "what will this button do?" without leaving the page.' },
+];
+
+/** The open change request's id — the spec keys its margin card off this. */
+export const MARGIN_CHANGE_REQUEST_ID = 'r1c0';
+/** The answered, PM-addressed question's id (unanchored → the UNPLACED group). */
+export const MARGIN_QUESTION_ID = 'r1c1';
+/** The rendered anchor reference on the change request's card — also its jump button's name. */
+export const MARGIN_ANCHOR_TEXT = 'Objective 3';
+
+/**
+ * stubCommittedMissionWithThread stubs the acceptance fixture for the comment
+ * margin: a COMMITTED `mission` slot (revisions 2, so the header chip reads
+ * 'committed · r2') whose review thread carries the two entry shapes the margin
+ * has to place differently —
+ *
+ *   • an OPEN change request anchored to `$.objectives[2]`, which must sit LEVEL
+ *     with that objective's row; and
+ *   • an ANSWERED question addressed to `pm` with one agent reply and NO anchor,
+ *     which has no row to sit beside and therefore leads the margin in its
+ *     UNPLACED group.
+ *
+ * The thread rides the SESSION view (that is where `reviewThread` lives on the
+ * wire — see wire.ts's mapSessionState), so the session probe answers 200 at the
+ * terminal `committed` stage rather than the 404 the other committed stubs use.
+ * That combination — committed slot + committed session — is exactly the
+ * `sessionMissing || stage === 'committed'` arm SystemDesignView renders the
+ * committed panel from, so the submit bar's verb reads Amend, not Send back.
+ *
+ * Everything is fulfilled in-browser: it creates nothing. Returns the project id.
+ */
+export async function stubCommittedMissionWithThread(page: Page): Promise<string> {
+  const projectId = 'comment-margin-fixture';
+  const mission = {
+    vision: 'Software architecture that a small team can actually hold in its head.',
+    objectives: MISSION_OBJECTIVES,
+    mission: 'Drive a project from research corpus to constructed system through one reviewed ladder of artifacts.',
+  };
+  const slots: Slot[] = [
+    { kind: 'mission', stage: STAGE_COMMITTED, revisions: 2, model: { kind: 'mission', model: mission } },
+  ];
+
+  await stubSessionGate(page);
+  await stubGetProject(page, projectId, projectState(projectId, 'Comment Margin Fixture', slots));
+  await page.route('**/api/v1/system-design/get-session-state/**', (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        projectId,
+        artifactKind: KIND_ORDINAL.mission,
+        stage: STAGE_SESSION_COMMITTED,
+        activeRole: 0,
+        activeStep: 0,
+        round: 1,
+        draft: { kind: 'mission', model: mission },
+        findings: [],
+        reviewThread: [
+          {
+            id: MARGIN_CHANGE_REQUEST_ID,
+            anchor: '$.objectives[2]',
+            anchorText: MARGIN_ANCHOR_TEXT,
+            text: 'This objective names a feeling, not a measurable outcome. Say what the reviewer can check.',
+            authorRole: 'architect-user',
+            round: 1,
+            status: 'open',
+            replies: [],
+            reopened: false,
+            type: 'changeRequest',
+            addressee: '',
+          },
+          {
+            id: MARGIN_QUESTION_ID,
+            anchor: '',
+            anchorText: '',
+            text: 'Is "one day" a business commitment or an aspiration?',
+            authorRole: 'architect-user',
+            round: 1,
+            status: 'answered',
+            replies: [
+              {
+                id: `${MARGIN_QUESTION_ID}-a0`,
+                authorRole: 'pm',
+                text: 'An aspiration for now — the commitment lands with the first paying customer.',
+                at: '2026-09-19T10:00:00Z',
+              },
+            ],
+            reopened: false,
+            type: 'question',
+            addressee: 'pm',
+          },
+        ],
+      }),
+    }),
+  );
+  return projectId;
+}
+
 export const DESIGN_STUB_KIND_ORDINAL = KIND_ORDINAL;

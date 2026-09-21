@@ -2,6 +2,24 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { DISABLED_COMMENT_CTX } from './disabledCommentContext.ts';
+import { loadPending, savePending, type PendingCommentStorage } from './pendingCommentsStore.ts';
+import type { PostedComment } from './commentContextTypes.ts';
+
+/** A `Map`-backed double matching the `PendingCommentStorage` shape `pendingCommentsStore`
+ *  expects, so these tests can exercise the persistence round-trip under node:test without
+ *  a real `localStorage`. */
+function memoryStore(): PendingCommentStorage {
+  const map = new Map<string, string>();
+  return {
+    getItem: (key: string): string | null => map.get(key) ?? null,
+    setItem: (key: string, value: string): void => {
+      map.set(key, value);
+    },
+    removeItem: (key: string): void => {
+      map.delete(key);
+    },
+  };
+}
 
 void test('DISABLED_COMMENT_CTX — enabled === false', () => {
   assert.strictEqual(DISABLED_COMMENT_CTX.enabled, false);
@@ -99,3 +117,25 @@ void test('DISABLED_COMMENT_CTX — required interface members exist', () => {
 // NOTE: Full renderHook-based useComments missing-provider test is earmarked
 // pending a component-test harness setup. This file tests only the exported
 // disabled-context object's invariants, avoiding JSX/React rendering.
+
+void test('a staged reply carries replyTo and survives a persist round-trip', () => {
+  const store = memoryStore();
+  const staged: PostedComment[] = [
+    { text: 'Still too vague', anchor: null, commentType: 'changeRequest', replyTo: 'r1c1' },
+  ];
+  savePending(store, 'proj:mission', staged, 7);
+  const loaded = loadPending(store, 'proj:mission', 7);
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0]?.replyTo, 'r1c1');
+});
+
+void test('a new thread stages with no replyTo', () => {
+  const store = memoryStore();
+  savePending(
+    store,
+    'proj:mission',
+    [{ text: 'Objective 3 is vague', anchor: null, commentType: 'changeRequest' }],
+    7
+  );
+  assert.equal(loadPending(store, 'proj:mission', 7)[0]?.replyTo, undefined);
+});

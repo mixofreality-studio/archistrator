@@ -120,8 +120,8 @@ export function useSubmitReviewDecision(
 export interface SetReviewCommentStatusVars {
   kind: ArtifactKind;
   commentID: string;
-  /** 'waived' dismisses an open entry; 'open' reopens an addressed one. */
-  status: Extract<ReviewCommentStatus, 'open' | 'waived'>;
+  /** 'resolved' closes a thread (open or answered); 'open' reopens a resolved one. */
+  status: Extract<ReviewCommentStatus, 'open' | 'resolved'>;
 }
 
 /**

@@ -5,14 +5,14 @@
  * NOT silently discard the staged review feedback.
  *
  * Verified invariants at the review gate after the stubbed 503:
- *   1. The staged "PENDING · NOT SENT" note is RETAINED (client state not cleared);
+ *   1. The staged "STAGED · NOT SENT" note is RETAINED (client state not cleared);
  *   2. Send back re-enables for a retry;
- *   3. A cause-neutral error banner renders near the gate actions — it does NOT
+ *   3. A cause-neutral error banner renders near the gate findings — it does NOT
  *      claim the decision failed outright (the session may have received it) and
  *      does NOT parrot the raw transport detail.
  *
  * Route-intercepted (support/designStubs.stubAwaitingReviewGlossary): the spec
- * stubs the wire and drives the REAL SPA — GatePanel, ChatRail, CommentContext —
+ * stubs the wire and drives the REAL SPA — GatePanel, CommentMargin, CommentContext —
  * hermetically, no live drafting stack. Poll-cadence behavior (F-QA2-48) is
  * deliberately NOT asserted here: interval timing is flaky under Playwright and is
  * pinned by the sessionPolling unit tests instead.
@@ -54,13 +54,23 @@ test.describe('Review-gate send back over a lost-response 503 (F-QA2-47)', () =>
     await page.goto(`/project/${projectId}/design/system`);
     await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible();
 
-    // Stage one free-form send-back note through the chat rail composer.
-    const sendBack = page.getByTestId(TESTID.gateSendback);
-    await expect(sendBack).toBeDisabled(); // no feedback staged yet
-    await page.getByTestId(TESTID.chatInput).getByRole('textbox').fill(NOTE);
-    await page.getByTestId(TESTID.chatSend).click();
-    await expect(page.getByText('PENDING · NOT SENT · 1')).toBeVisible();
+    // Stage one free-form send-back note. The rail's foot composer is gone: a
+    // note with no row to anchor to comes from the margin's ＋ affordance, which
+    // opens an unanchored draft card in the UNPLACED group. And the gate panel no
+    // longer carries the commit-authority row in Phase 1 (GatePanel.tsx: System
+    // Design omits `actions`) — the ONE submit bar owns every review verb, so the
+    // send-back this regression is about is that bar's primary verb.
+    const sendBack = page.getByTestId(TESTID.submitBarPrimary);
+    // "No feedback staged ⇒ no empty send back" is now structural rather than a
+    // disabled button: with nothing staged `resolveSubmitVerb` offers Approve, and
+    // Send back is not a verb at all. Same guarantee, asserted where it now lives.
+    await expect(sendBack).toHaveText(/Approve/);
+    await page.getByTestId(TESTID.marginAddNote).click();
+    await page.getByTestId(TESTID.marginComposerInput).getByRole('textbox').fill(NOTE);
+    await page.getByTestId(TESTID.marginComposerSubmit).click();
+    await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
     await expect(page.getByText(NOTE)).toBeVisible();
+    await expect(sendBack).toHaveText(/Send back \(1\)/);
     await expect(sendBack).toBeEnabled();
 
     await sendBack.click();
@@ -74,11 +84,14 @@ test.describe('Review-gate send back over a lost-response 503 (F-QA2-47)', () =>
     await expect(banner).not.toContainText('signal response lost');
 
     // 1. The staged note survives the fault — nothing was discarded.
-    await expect(page.getByText('PENDING · NOT SENT · 1')).toBeVisible();
+    await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
     await expect(page.getByText(NOTE)).toBeVisible();
 
-    // 2. The decision buttons settle back to actionable for a retry.
+    // 2. The decision button settles back to actionable for a retry — still
+    //    naming the same staged note, so the retry sends what the first attempt
+    //    did. (There is no second button to check any more: the bar shows exactly
+    //    ONE verb, and with a change request staged that verb is Send back.)
+    await expect(sendBack).toHaveText(/Send back \(1\)/);
     await expect(sendBack).toBeEnabled();
-    await expect(page.getByTestId(TESTID.gateApprove)).toBeEnabled();
   });
 });

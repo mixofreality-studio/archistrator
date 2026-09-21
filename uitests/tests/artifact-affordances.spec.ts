@@ -93,8 +93,9 @@ test.describe('coreUseCases diagram + picker affordances (live backend — UITES
     const armedAnchor = page.getByTestId(TESTID.commentArmedAnchor);
     await expect(armedAnchor).toHaveAttribute('data-anchor-label', /.+/);
 
-    // Commit it.
-    await page.getByTestId(TESTID.gateApprove).click();
+    // Commit it. Phase 1's Approve lives on the one submit bar now, not on the
+    // gate panel (GatePanel omits `actions` there).
+    await page.getByTestId(TESTID.submitBarPrimary).click();
     await expect(gate).toHaveCount(0, { timeout: 30_000 });
 
     // Approve auto-advanced to `system` — re-select coreUseCases to render its

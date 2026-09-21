@@ -79,6 +79,7 @@ import {
   graphSignatureOf,
   saveGraphViewport,
 } from './graphViewport';
+import { scrollerBoxOf } from '../scrollerGeometry';
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
@@ -403,17 +404,17 @@ function GraphCanvas({
   useLayoutEffect(() => {
     const box = boxRef.current;
     if (box === null) return undefined;
-    let scroller: HTMLElement | null = box.parentElement;
-    while (scroller !== null && !/(auto|scroll)/.test(getComputedStyle(scroller).overflowY)) {
-      scroller = scroller.parentElement;
-    }
+    // The scroller, and the dead space below the content inside it: padding that
+    // is inside the scroller's box but is not room for the canvas. Summed over the
+    // boxes between, because the console's `pb: 3` no longer sits on the scroller
+    // itself (scrollerGeometry.ts) — reading only the scroller returned 0, the
+    // canvas grew by the 24px it should have left alone, and the GRAPH lens
+    // overflowed the scroller by 24 − CANVAS_BOTTOM_PAD_PX = 8px.
+    const { scroller, padBottom } = scrollerBoxOf(box);
     let written = '';
     const measure = (): void => {
       const bottom = scroller?.getBoundingClientRect().bottom ?? window.innerHeight;
       const topAtRest = box.getBoundingClientRect().top + (scroller?.scrollTop ?? window.scrollY);
-      // The scroller's bottom padding is inside its box but not room for content.
-      const padBottom =
-        scroller !== null ? Number.parseFloat(getComputedStyle(scroller).paddingBottom) || 0 : 0;
       const next = `${String(canvasHeightPx(bottom, topAtRest, padBottom))}px`;
       if (next !== written) {
         box.style.height = next;

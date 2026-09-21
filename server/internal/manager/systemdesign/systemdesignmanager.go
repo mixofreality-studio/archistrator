@@ -265,6 +265,15 @@ func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, project
 	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
 		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
 	}
+	// A re-request/amendment SEEDS round-0 threads before the session has loaded any thread
+	// at all (seedAmendmentLedger runs ahead of the first loadReviewThread), so there is
+	// nothing here for a replyTo to name. Refuse it rather than let it reach a seed that
+	// could only re-file it as a fresh comment (design §3.7).
+	if feedback != nil {
+		if perr := checkNoReplyTo("replyTo is not supported on requestArtifactDraft — it opens a new round of threads; file a reply against an existing thread through submitReviewDecision at the review gate", feedback.Comments); perr != nil {
+			return "", perr
+		}
+	}
 
 	// Spine-ordering gate. The Phase-1 spine is strictly ordered
 	// (mission → glossary → scrubbedRequirements → volatilities → coreUseCases →
@@ -531,13 +540,8 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 		return newError(fwmanager.FailedPrecondition,
 			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry design job\" to start a fresh session, then decide on its review gate")
 	}
-	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
-	// the reviewer must address (redraft) or waive each one first. The message lists the open ids.
-	if decision == ReviewApprove {
-		if open := openReviewCommentViewIDs(view.ReviewThread); len(open) > 0 {
-			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot approve: %d review comment(s) still open (%s) — address or waive them first", len(open), strings.Join(open, ", ")))
-		}
+	if lerr := m.applyReviewLedgerGate(ctx, wfID, decision, feedback, view.ReviewThread); lerr != nil {
+		return lerr
 	}
 
 	// PM-P2-4: capture the acting reviewer identity here (the one place a security.Principal
@@ -546,6 +550,48 @@ func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, project
 	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
 		return mapSignalError(err)
+	}
+	return nil
+}
+
+// applyReviewLedgerGate is SubmitReviewDecision's review-LEDGER half, split out from the op
+// body (which reads as the review FLOW) and from its F19 stage gate. Three rules, all over
+// the thread the sessionState query just returned:
+//
+//   - APPROVE is blocked while any change-request thread is still OPEN (review-ledger §4,
+//     restated in the design §3.3 vocabulary) — the reviewer sends it back for a redraft or
+//     resolves it first. The message lists the open ids.
+//   - APPROVE then BULK-RESOLVES every ANSWERED thread (design §3.4). Approving IS accepting
+//     every answer the agent gave, so accepting a redraft that answered eight change requests
+//     costs one gesture, not eight Resolve clicks. Signaled BEFORE the decision because the
+//     gate's selector drains status signals first, so the commit that follows carries a
+//     fully-closed ledger. A failed resolve aborts the approve: half-closing the ledger and
+//     committing anyway would strand threads answered forever, and the reviewer can simply
+//     press Approve again.
+//   - REJECT refuses a replyTo naming no thread on this artifact (design §3.7). Here is the
+//     only place that refusal reaches the caller — the workflow receives the decision as a
+//     fire-and-forget signal, so its own (TOCTOU-safe) re-check can only divert to the
+//     failed gate.
+func (m *systemDesignManager) applyReviewLedgerGate(ctx context.Context, wfID string, decision ReviewDecision, feedback *ReviewFeedback, thread []ReviewCommentView) error {
+	switch decision {
+	case ReviewApprove:
+		if open := openReviewCommentViewIDs(thread); len(open) > 0 {
+			return newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first", len(open), strings.Join(open, ", ")))
+		}
+		for _, id := range bulkResolveAnswered(thread) {
+			resolve := setCommentStatusSignal{CommentID: id, Status: projectstate.ReviewCommentResolved}
+			if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, resolve); err != nil {
+				return mapSignalError(err)
+			}
+		}
+	case ReviewReject:
+		if feedback != nil {
+			return checkReplyTargets(viewCommentIDs(thread), feedback.Comments)
+		}
+	case ReviewWithdraw, ReviewDecisionUnknown:
+		// Withdraw abandons the draft, ledger and all — there is nothing to gate on. The
+		// zero value never reaches here (validateReviewDecisionArgs refuses it up front).
 	}
 	return nil
 }
@@ -641,7 +687,7 @@ func (m *systemDesignManager) withdrawDeadSessionOnMain(ctx context.Context, pro
 }
 
 // reviewGateView returns the session's full gate view (stage + the durable review thread)
-// for the F19 review precondition AND the review-ledger approve/waive preconditions, plus
+// for the F19 review precondition AND the review-ledger approve/resolve preconditions, plus
 // whether a LIVE workflow can still honor a signal. Same dead-workflow defense as
 // GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed with live=false (a signal
 // to it can never be honored — 2026-07-16 incident), a missing execution reports
@@ -677,9 +723,10 @@ func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (
 	return view, true, nil
 }
 
-// SetReviewCommentStatus applies a human status transition to one durable review-ledger
-// comment (review-ledger §4): waive an OPEN comment to dismiss it, or reopen an ADDRESSED
-// comment to send it back for another redraft. It mirrors SubmitReviewDecision's F19 shape —
+// SetReviewCommentStatus applies a REVIEWER status transition to one durable review-ledger
+// thread (design §3.3): resolve an OPEN or ANSWERED thread to close it (resolving an
+// untouched thread IS the old waive), or reopen a RESOLVED one to put it back in front of
+// the drafting agent. It mirrors SubmitReviewDecision's F19 shape —
 // a synchronous precondition check via the sessionState query before signaling the (fire-and-
 // forget) branch mutation, so a bad request fails loudly rather than silently no-op'ing.
 func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
@@ -694,10 +741,12 @@ func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, proje
 		return newError(fwmanager.ContractMisuse, "empty commentId")
 	}
 	switch status {
-	case projectstate.ReviewCommentWaived, projectstate.ReviewCommentOpen:
-		// waive (open->waived) or reopen (addressed->open) — the only human-authored transitions.
+	case projectstate.ReviewCommentResolved, projectstate.ReviewCommentOpen:
+		// close (open|answered -> resolved) or reopen (resolved -> open) — the only
+		// reviewer-authored transitions. "answered" is derived by the server from the
+		// reply history and is never set by a human.
 	default:
-		return newError(fwmanager.ContractMisuse, "status must be \"waived\" (to dismiss an open comment) or \"open\" (to reopen an addressed comment)")
+		return newError(fwmanager.ContractMisuse, "status must be \"resolved\" (to close a thread) or \"open\" (to reopen a resolved thread)")
 	}
 
 	wfID := coAuthorWorkflowID(projectID, kind)
@@ -737,26 +786,44 @@ func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
 	return ids
 }
 
-// checkCommentTransition validates a human status transition against the live thread: the
-// comment must exist and the transition must be legal (open->waived, addressed->open). Any
-// other case is a FailedPrecondition naming the reason (the durable RA verb re-checks, but a
-// synchronous refusal is a better caller experience than a silently dropped signal).
+// checkCommentTransition validates a REVIEWER status transition against the live thread: the
+// comment must exist and the transition must be legal (open->resolved, answered->resolved,
+// resolved->open). Any other case is a FailedPrecondition naming the reason (the durable RA
+// verb re-checks, but a synchronous refusal is a better caller experience than a silently
+// dropped signal). Note what is ABSENT: answered->open is not a transition at all — it falls
+// out of the derive rule when a queued reviewer reply makes the last utterance human
+// (design §3.3).
 func checkCommentTransition(thread []ReviewCommentView, id, status string) error {
 	for _, c := range thread {
 		if c.ID != id {
 			continue
 		}
 		switch {
-		case c.Status == projectstate.ReviewCommentOpen && status == projectstate.ReviewCommentWaived:
+		case (c.Status == projectstate.ReviewCommentOpen || c.Status == projectstate.ReviewCommentAnswered) &&
+			status == projectstate.ReviewCommentResolved:
 			return nil
-		case c.Status == projectstate.ReviewCommentAddressed && status == projectstate.ReviewCommentOpen:
+		case c.Status == projectstate.ReviewCommentResolved && status == projectstate.ReviewCommentOpen:
 			return nil
 		default:
 			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->waived, addressed->open)", id, c.Status, status))
+				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->resolved, answered->resolved, resolved->open)", id, c.Status, status))
 		}
 	}
 	return newError(fwmanager.FailedPrecondition, "review comment "+id+" not found in the thread")
+}
+
+// bulkResolveAnswered returns the ids of every ANSWERED thread on the slot. Approve
+// resolves them all in one gesture, so accepting a redraft that answered eight change
+// requests does not cost eight Resolve clicks (design §3.4). Threads the reviewer
+// explicitly reopened are OPEN, not answered, so they are excluded and keep blocking.
+func bulkResolveAnswered(thread []ReviewCommentView) []string {
+	var ids []string
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentAnswered {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }
 
 // checkReviewPrecondition enforces that the submitted decision is meaningful at the
@@ -1799,8 +1866,20 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	default:
 		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
 	}
-	qs := questionsToLedger(addressee, questions)
-	if len(qs) == 0 {
+	// A QUESTION THREAD IS A CONVERSATION (comment-margin task 5b). An ask carrying a
+	// replyTo is a FOLLOW-UP on a thread the agent already answered, not a new question — so
+	// this door ROUTES it into that thread instead of refusing it. (requestArtifactDraft
+	// still refuses one: it seeds round-0 threads before any thread is loaded, so it could
+	// only re-file a reply as a fresh unanchored comment.) The batch is partitioned ONCE
+	// here, before the ledger read, because both the emptiness refusal and the idempotency
+	// key must see the whole batch; the replyTo targets are checked against the live thread
+	// inside the loop. `at` is stamped once, outside the loop, so an OCC retry re-applies the
+	// identical utterance rather than duplicating it.
+	at := time.Now().UTC().Format(time.RFC3339)
+	freshAsks, replies := partitionIncomingComments(questions, at)
+	qs := questionsToLedger(addressee, freshAsks)
+	// A REPLY-ONLY batch is a legitimate ask — the follow-up IS the question this round.
+	if len(qs) == 0 && len(replies) == 0 {
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
@@ -1809,7 +1888,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 	branch := m.resolveQuestionBranch(rc, projectID, kind)
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
-	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs, replies)
 
 	// Sync-path optimistic-concurrency loop (mirrors SetResearchInput): read the head
 	// version on the resolved branch, compute a fresh question round from the live thread
@@ -1821,6 +1900,12 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			return mapReadProjectError(err)
 		}
 		thread := slotFor(proj, kind).ReviewThread
+		// A replyTo naming no thread on this artifact is a hard refusal, never a silent new
+		// thread — the same rule the change-request door applies, run here against the thread
+		// just read (the RA would surface a bare NotFound from deep inside the append).
+		if perr := checkReplyTargets(ledgerCommentIDs(thread), questions); perr != nil {
+			return perr
+		}
 		round := nextQuestionRound(thread)
 		if r, ok := existingQuestionRound(thread, qs); ok {
 			// A prior ask already seeded these exact questions (its answer-job dispatch may
@@ -1828,7 +1913,7 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, replies, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -1840,7 +1925,17 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 				minted[i] = qs[i]
 				minted[i].ID = projectstate.ReviewCommentID(round, i)
 			}
-			m.dispatchAnswerJob(ctx, projectID, kind, branch, addressee, minted)
+			// A REPLY is answered by the role its THREAD is addressed to, not by whoever the
+			// caller named — see answerJobAddressee. Dispatching the other role's command would
+			// start a session that finds nothing addressed to it, leaving the follow-up
+			// unanswered forever with no signal.
+			dispatchTo, mixed := answerJobAddressee(thread, addressee, len(qs), replies)
+			if mixed {
+				slog.Default().Warn("askQuestions: this batch needs BOTH answer roles (a fresh question for one, a reply on the other's thread) — only one answer job is dispatched, so the other half stays unanswered until it is re-asked on its own",
+					"op", "systemdesign.AskQuestions", "projectID", string(projectID),
+					"artifactKind", artifactKindString(kind), "dispatchedTo", dispatchTo)
+			}
+			m.dispatchAnswerJob(ctx, projectID, kind, branch, dispatchTo, minted)
 			return nil
 		}
 		if isRAConflict(err) {
@@ -1926,6 +2021,51 @@ func questionsToLedger(addressee string, questions []AnchoredComment) []projects
 	return out
 }
 
+// answerJobAddressee decides which role the answer job must be dispatched to, given the batch
+// that was just appended. A FRESH question is addressed by its asker, so the caller's argument
+// decides. A REPLY is NOT: it lands in a thread that already has its own addressee, and both
+// answer commands select only "the OPEN questions addressed to YOU" — so dispatching the other
+// role's command starts a session that finds nothing to do, and the follow-up sits unanswered
+// forever with no signal anywhere. The client cannot defend this (it does not know the thread's
+// addressee either), so the thread the reply names decides. A reply onto a thread with no
+// addressee at all (a change-request) falls back to the caller's.
+//
+// mixed reports that the batch genuinely needs BOTH roles — a fresh question for one and a
+// reply on the other's thread, which the SPA can produce because it groups by the STAGED
+// addressee, not by the target thread's. One dispatch cannot serve both, so the caller's
+// addressee is kept (today's behaviour for the fresh half) and the caller logs the disagreement
+// rather than silently answering half the batch.
+func answerJobAddressee(thread []projectstate.ReviewComment, callerAddressee string, freshCount int, replies []projectstate.ReviewReply) (string, bool) {
+	addresseeOf := make(map[string]string, len(thread))
+	for _, c := range thread {
+		addresseeOf[c.ID] = c.Addressee
+	}
+	chosen, mixed := "", false
+	note := func(a string) {
+		switch {
+		case a == "":
+		case chosen == "":
+			chosen = a
+		case chosen != a:
+			mixed = true
+		}
+	}
+	if freshCount > 0 {
+		note(callerAddressee)
+	}
+	for _, r := range replies {
+		if a := addresseeOf[r.CommentID]; a != "" {
+			note(a)
+			continue
+		}
+		note(callerAddressee)
+	}
+	if chosen == "" {
+		chosen = callerAddressee
+	}
+	return chosen, mixed
+}
+
 // nextQuestionRound returns a round number one past the highest round already present in the
 // thread (min 1), so appendReviewComments mints fresh, non-colliding ids for a new batch of
 // questions regardless of how many reject/amendment rounds preceded them.
@@ -1943,7 +2083,13 @@ func nextQuestionRound(thread []projectstate.ReviewComment) int64 {
 // on this artifact/branch". Content-derived (no Temporal context on this sync op), so a
 // retried identical Ask collapses to a no-op in the RA dedup ledger while a genuinely new
 // batch is a distinct mutation.
-func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
+//
+// The REPLY half of the batch is hashed too (task 5b): a follow-up on an existing question
+// thread adds no fresh entry, so a qs-only key would give two different follow-ups — or a
+// follow-up and a bare re-ask — the SAME key, and the RA would swallow the second as a
+// duplicate. The utterance's `at` is deliberately excluded: it is wall-clock on this sync op,
+// and including it would defeat the re-ask dedup the key exists for.
+func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment, replies []projectstate.ReviewReply) fwra.IdempotencyKey {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(branch))
 	_, _ = h.Write([]byte{0})
@@ -1953,6 +2099,12 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 		_, _ = h.Write([]byte(q.Anchor))
 		_, _ = h.Write([]byte{0})
 		_, _ = h.Write([]byte(q.Text))
+		_, _ = h.Write([]byte{0})
+	}
+	for _, r := range replies {
+		_, _ = h.Write([]byte(r.CommentID))
+		_, _ = h.Write([]byte{0})
+		_, _ = h.Write([]byte(r.Text))
 		_, _ = h.Write([]byte{0})
 	}
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
@@ -1966,9 +2118,11 @@ func askQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch s
 var answerJobDispatchSeq atomic.Uint64
 
 // answerJobDispatchKey derives a per-call-unique answer-job idempotency key from the content
-// base plus a monotonic nonce (see answerJobDispatchSeq).
+// base plus a monotonic nonce (see answerJobDispatchSeq). The reply half is not folded into
+// the base: the nonce ALREADY makes every dispatch key distinct, which is this key's whole
+// purpose, so a reply-only ask still fires its own answer job.
 func answerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
-	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	base := askQuestionsIdempotencyKey(projectID, kind, branch, qs, nil)
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
 }
 
@@ -4460,10 +4614,26 @@ func toReviewCommentView(c projectstate.ReviewComment) ReviewCommentView {
 		AuthorRole: c.AuthorRole,
 		Round:      c.Round,
 		Status:     c.Status,
-		Response:   c.Response,
+		Replies:    toViewReplies(c.Replies),
+		Reopened:   c.Reopened,
 		Type:       c.Type,
 		Addressee:  c.Addressee,
 	}
+}
+
+// toViewReplies projects a stored entry's utterance history onto the wire shape. The
+// DEPRECATED scalar ReviewComment.Response is deliberately NOT read here: the shared
+// decode point already migrates a legacy response into a synthesized first reply
+// (migrateLegacyReviewThread, design §3.5), so reading it again would double-render it.
+func toViewReplies(in []projectstate.ReviewCommentReply) []ReviewCommentReply {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]ReviewCommentReply, 0, len(in))
+	for _, r := range in {
+		out = append(out, ReviewCommentReply{ID: r.ID, AuthorRole: r.AuthorRole, Text: r.Text, At: r.At})
+	}
+	return out
 }
 
 // reviewThreadToView projects the durable ledger onto the wire thread the sessionState
@@ -4501,7 +4671,7 @@ const (
 	querySessionState = "sessionState"
 	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
 	// AwaitingReview gate to apply a durable review-ledger status transition
-	// (open->waived / addressed->open) to one comment on the session branch; backs
+	// (open|answered->resolved / resolved->open) to one comment on the session branch; backs
 	// SetReviewCommentStatus (review-ledger feature).
 	signalSetCommentStatus = "setCommentStatus"
 )
