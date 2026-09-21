@@ -794,6 +794,8 @@ export interface components {
       /** @description True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation. */
       redraftExhausted: boolean;
       reviewSet?: components['schemas']['ConstructionReviewSet'];
+      /** @description Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered. */
+      reviewSetError?: string;
       stage: components['schemas']['ConstructionConstructionStage'];
       variance?: components['schemas']['ConstructionFlaggedVariance'];
     };

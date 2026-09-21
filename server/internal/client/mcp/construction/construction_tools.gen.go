@@ -393,6 +393,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"awaitingSince":    "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.",
 		"awaitingUntil":    "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.",
 		"redraftExhausted": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation.",
+		"reviewSetError":   "Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered.",
 	},
 	reflect.TypeFor[mgr.PumpStatus](): {
 		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",

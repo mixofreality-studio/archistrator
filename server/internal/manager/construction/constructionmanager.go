@@ -1836,7 +1836,9 @@ type constructState struct {
 	stage         ConstructionStage
 	pipelinePhase *PipelinePhase
 	reviewSet     *ReviewSet
-	variance      *FlaggedVariance
+	// reviewSetError is why reviewSet is nil at the current gate ("" when the engine answered).
+	reviewSetError string
+	variance       *FlaggedVariance
 
 	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
 	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
@@ -1928,6 +1930,10 @@ func (s *constructState) view() (ConstructionSessionView, error) {
 		RedraftExhausted: s.redraftExhausted,
 		Attempt:          int64(s.attempt),
 		AttemptBudget:    maxVarianceAttempts,
+	}
+	if s.reviewSetError != "" {
+		e := s.reviewSetError
+		v.ReviewSetError = &e
 	}
 	if s.awaitingGate != "" {
 		gate, since := s.awaitingGate, s.awaitingSince

@@ -38,6 +38,7 @@ type ConstructionSessionView struct {
 	Stage            ConstructionStage `json:"stage"`
 	PipelinePhase    *PipelinePhase    `json:"pipelinePhase,omitempty"`
 	ReviewSet        *ReviewSet        `json:"reviewSet,omitempty"`
+	ReviewSetError   *string           `json:"reviewSetError,omitempty"`
 	Variance         *FlaggedVariance  `json:"variance,omitempty"`
 	AwaitingGate     *string           `json:"awaitingGate,omitempty"`
 	AwaitingSince    *time.Time        `json:"awaitingSince,omitempty"`

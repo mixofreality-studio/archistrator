@@ -2978,15 +2978,28 @@ func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ interven
 
 var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 
-// fakeReview returns a scripted reviewer set. Satisfies the PUBLISHED
-// review.ReviewEngine directly (Task 6 — no Manager-local seam). The scripted `set`
-// is the ENGINE's own review.ReviewSet — reviewSetFromEngine (adapters.go) bridges it
-// onto the façade ReviewSet the same way production does.
+// fakeReview returns a scripted reviewer set — but only for a call the REAL engine
+// accepts. It used to accept anything, which is how the Manager passed a lifecycle
+// phase's wire name as the artifact kind for months with every test green. Satisfies
+// the PUBLISHED review.ReviewEngine directly (Task 6 — no Manager-local seam). The
+// scripted `set` is the ENGINE's own review.ReviewSet — reviewSetFromEngine
+// (adapters.go) bridges it onto the façade ReviewSet the same way production does.
+// kinds records each artifactKind the Manager passed, in call order; err, when set, is
+// returned instead (the engine-refusal path).
 type fakeReview struct {
-	set review.ReviewSet
+	set   review.ReviewSet
+	err   error
+	kinds []review.ReviewArtifactKind
 }
 
-func (r *fakeReview) ProposeReviews(_ fweng.Context, _ review.ReviewChange, _ string, _ string, _ string, _ []string) (review.ReviewSet, error) {
+func (r *fakeReview) ProposeReviews(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind review.ReviewArtifactKind, graph string, contracts []string) (review.ReviewSet, error) {
+	r.kinds = append(r.kinds, artifactKind)
+	if _, err := review.NewReviewEngine().ProposeReviews(rc, change, componentID, artifactKind, graph, contracts); err != nil {
+		return review.ReviewSet{}, fmt.Errorf("fakeReview: the real engine refuses this call: %w", err)
+	}
+	if r.err != nil {
+		return review.ReviewSet{}, r.err
+	}
 	return r.set, nil
 }
 
@@ -7526,6 +7539,128 @@ func Test_SessionView_PhaseGate_ReportsTheOccurrenceAndClearsOnDecision(t *testi
 	}
 	if done := b12View(t, env); done.AwaitingGate != nil || done.AwaitingSince != nil || done.AwaitingUntil != nil {
 		t.Fatalf("the decision must clear the awaiting fields, got gate=%v since=%v until=%v", done.AwaitingGate, done.AwaitingSince, done.AwaitingUntil)
+	}
+}
+
+// A gated phase must show its reviewer set. The Manager used to pass the phase's wire
+// name ("detailed_design") where the engine accepts only its own kind vocabulary
+// ("DetailedDesign"), and runPhaseGate dropped the error, so ReviewSet was nil at every
+// gate of every activity. The REAL engine is wired here: a fake that accepts any kind is
+// how the defect stayed hidden.
+func Test_SessionView_PhaseGate_CarriesTheReviewerSet(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+	var atGate ConstructionSessionView
+	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if atGate.Stage != StageAwaitingApproval || b12Gate(atGate) != "detailed_design" {
+		t.Fatalf("not at the detailed_design gate: stage=%v gate=%q", atGate.Stage, b12Gate(atGate))
+	}
+	if atGate.ReviewSet == nil || len(atGate.ReviewSet.Reviewers) == 0 {
+		t.Fatalf("the detailed_design gate shows no reviewers: ReviewSet=%+v", atGate.ReviewSet)
+	}
+	if r := atGate.ReviewSet.Reviewers[0]; r.Role != "architect" || !r.MayAmend {
+		t.Fatalf("a service's detailed design is reviewed by the architect, who may amend; got %+v", r)
+	}
+}
+
+// Every (type, variant, profile phase) the pump can dispatch — with and without a
+// component — gets reviewers from the REAL engine. This is the totality proof: no gate
+// can lose its reviewer set to the Manager's argument again.
+func Test_ReviewArtifactKindFor_IsTotalOverEveryDispatchablePhase(t *testing.T) {
+	types := []projectstate.ActivityType{
+		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend, projectstate.ActivityTypeTesting,
+		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation,
+		projectstate.ActivityTypeUIDesign, projectstate.ActivityTypeIntegration,
+	}
+	variants := []projectstate.TestingVariant{
+		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,
+		projectstate.TestVariantSystemTest, projectstate.TestVariantQAProcess,
+	}
+	eng := review.NewReviewEngine()
+	for _, typ := range types {
+		for _, v := range variants {
+			for _, p := range projectstate.ProfileFor(typ, v).PhaseIDs() {
+				for _, componentID := range []string{"comp-1", ""} {
+					act := constructionActivity{ActivityID: "A", Type: typ, Variant: v, ComponentID: componentID}
+					kind := reviewArtifactKindFor(act, p)
+					set, err := eng.ProposeReviews(fweng.Context{}, review.ReviewChange{ActivityID: "A", ComponentID: componentID}, componentID, kind, "", nil)
+					if err != nil || len(set.Reviewers) == 0 {
+						t.Errorf("%s/%s/%s component=%q → %s: reviewers=%v err=%v", typ, v, p, componentID, kind, set.Reviewers, err)
+					}
+				}
+			}
+		}
+	}
+}
+
+// The rows a reader would check by hand.
+func Test_ReviewArtifactKindFor_PinnedRows(t *testing.T) {
+	svc := constructionActivity{Type: projectstate.ActivityTypeService, ComponentID: "c"}
+	spa := constructionActivity{Type: projectstate.ActivityTypeFrontend, ComponentID: "web-client"}
+	ui := constructionActivity{Type: projectstate.ActivityTypeUIDesign, ComponentID: "web-client"}
+	res := constructionActivity{Type: projectstate.ActivityTypeDeployment, ComponentID: "github"}
+	stp := constructionActivity{Type: projectstate.ActivityTypeTesting, Variant: projectstate.TestVariantPlan}
+	bare := constructionActivity{Type: projectstate.ActivityTypeService} // nonstructural: no component
+	cases := []struct {
+		name string
+		act  constructionActivity
+		p    projectstate.ActivityMethodPhase
+		want review.ReviewArtifactKind
+	}{
+		{"service requirements", svc, projectstate.MethodPhaseRequirements, review.ReviewKindNoncoding},
+		{"service detailed design", svc, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
+		{"service test plan", svc, projectstate.MethodPhaseTestPlan, review.ReviewKindNoncoding},
+		{"service construction", svc, projectstate.MethodPhaseConstruction, review.ReviewKindConstruction},
+		{"service integration", svc, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
+		{"frontend design", spa, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
+		{"frontend construction", spa, projectstate.MethodPhaseConstruction, review.ReviewKindUICode},
+		{"uiDesign concept", ui, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
+		{"deployment spec", res, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
+		{"deployment convergence", res, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
+		{"N-STP plan review", stp, projectstate.MethodPhaseIntegration, review.ReviewKindNoncoding},
+		{"no component: design degrades", bare, projectstate.MethodPhaseDetailedDesign, review.ReviewKindNoncoding},
+		{"no component: integration stands", bare, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
+	}
+	for _, c := range cases {
+		if got := reviewArtifactKindFor(c.act, c.p); got != c.want {
+			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
+		}
+	}
+}
+
+// An engine refusal is shown on the view and the gate still works.
+func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	fr := &fakeReview{err: errors.New("policy produced an empty reviewer set")}
+	deps.Review = fr
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+	var atGate ConstructionSessionView
+	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an engine refusal must not fail the activity: %v", err)
+	}
+	if atGate.Stage != StageAwaitingApproval || atGate.ReviewSet != nil {
+		t.Fatalf("stage=%v reviewSet=%+v, want awaitingApproval with no set", atGate.Stage, atGate.ReviewSet)
+	}
+	if atGate.ReviewSetError == nil || !strings.Contains(*atGate.ReviewSetError, "empty reviewer set") {
+		t.Fatalf("reviewSetError = %v, want the engine's reason", atGate.ReviewSetError)
+	}
+	if len(fr.kinds) == 0 || fr.kinds[0] != review.ReviewKindDetailedDesign {
+		t.Fatalf("the Manager asked for kinds %v, want the detailed_design gate to ask for %s", fr.kinds, review.ReviewKindDetailedDesign)
 	}
 }
 

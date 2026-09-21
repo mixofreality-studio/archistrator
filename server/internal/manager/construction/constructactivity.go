@@ -1470,9 +1470,17 @@ func (wf *workflows) runPhaseGate(
 		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
 
-	// Surface the reviewer set on the session view (display-only in v1; on engine error
-	// leave it unset and still gate — the human Approve/SendBack is the enforced gate).
-	if rs, e := wf.proposeReviewSet(in, phase, state); e == nil {
+	// Surface the reviewer set on the session view. The set is display-only in v1 — the
+	// human Approve/SendBack is the enforced gate — so an engine refusal does not fail the
+	// activity; it is LOGGED and SHOWN (reviewSetError), never dropped. An assignment and a
+	// log line emit no commands, so this needs no version gate (same argument as the human
+	// stage below) and every replay fixture replays unchanged.
+	state.reviewSet, state.reviewSetError = nil, ""
+	if rs, e := wf.proposeReviewSet(in, phase, state); e != nil {
+		state.reviewSetError = e.Error()
+		workflow.GetLogger(ctx).Error("review engine refused to propose reviewers; the gate opens without a reviewer set",
+			"activityId", in.ActivityID, "phase", phase.String(), "err", e.Error())
+	} else {
 		state.reviewSet = &rs // NOTE: *ReviewSet (B6)
 	}
 
@@ -2217,11 +2225,65 @@ func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivi
 func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) (ReviewSet, error) {
 	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
 	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
-		change, in.Activity.ComponentID, phase.String(), "", state.reviewContracts)
+		change, in.Activity.ComponentID, reviewArtifactKindFor(in.Activity, phase), "", state.reviewContracts)
 	if err != nil {
 		return ReviewSet{}, err
 	}
 	return reviewSetFromEngine(set), nil
+}
+
+// reviewArtifactKindFor is the TOTAL (activity type, lifecycle phase) → review kind
+// table: all 35 cells are decided, so it returns no error and no bool, and a gate can
+// never again go without reviewers because of what the Manager passed. It replaces
+// phase.String(), whose wire names ("detailed_design") were never in the engine's
+// vocabulary ("DetailedDesign") — the engine refused every call and the gate dropped
+// the error.
+//
+// It lives here, not in the engine, because its inputs are projectstate types no Engine
+// imports and an Engine package exports only its generated surface; the engine owns the
+// VOCABULARY (the generated review.ReviewArtifactKind), so a wrong value does not
+// compile. Spec 2026-09-20 §5.4 moves the table into the engine with the generalized
+// ProposeReviews(activityType, …) signature (stage 2).
+//
+// A component-scoped kind for an activity with NO component degrades to Noncoding:
+// there is no contract or UI design to hold the work against, so the architect signs it
+// off. Off-profile cells (a phase the type's profile does not carry) are decided too, so
+// a profile change cannot make this partial. The rows are justified in the plan
+// (docs/superpowers/plans/2026-09-21-activity-experience-stage0.md, Task 6).
+func reviewArtifactKindFor(act constructionActivity, p projectstate.ActivityMethodPhase) review.ReviewArtifactKind {
+	kind := review.ReviewKindNoncoding
+	switch act.Type {
+	case projectstate.ActivityTypeService, projectstate.ActivityTypeDeployment:
+		kind = componentReviewKind(p, review.ReviewKindDetailedDesign, review.ReviewKindConstruction)
+	case projectstate.ActivityTypeFrontend, projectstate.ActivityTypeUIDesign:
+		kind = componentReviewKind(p, review.ReviewKindUIDesign, review.ReviewKindUICode)
+	case projectstate.ActivityTypeIntegration:
+		kind = componentReviewKind(p, review.ReviewKindNoncoding, review.ReviewKindNoncoding)
+	case projectstate.ActivityTypeTesting, projectstate.ActivityTypeDocumentation:
+		// A document or a test asset with no architecture component; its "integration"
+		// phase is a label (Plan Review, Sign-off, Doc Review), not a call-chain integration.
+	}
+	if act.ComponentID == "" && kind != review.ReviewKindIntegration {
+		return review.ReviewKindNoncoding
+	}
+	return kind
+}
+
+// componentReviewKind is one row of the table for a type that designs and then builds:
+// its documents (requirements, test plan) are signed off, its design and its build take
+// the row's two kinds, and its integration is reviewed against the call chains.
+func componentReviewKind(p projectstate.ActivityMethodPhase, design, build review.ReviewArtifactKind) review.ReviewArtifactKind {
+	switch p {
+	case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan:
+		return review.ReviewKindNoncoding
+	case projectstate.MethodPhaseDetailedDesign:
+		return design
+	case projectstate.MethodPhaseConstruction:
+		return build
+	case projectstate.MethodPhaseIntegration:
+		return review.ReviewKindIntegration
+	}
+	return review.ReviewKindNoncoding
 }
 
 // snapshotContractKeys derives the deterministic (sorted) set of contract identifiers

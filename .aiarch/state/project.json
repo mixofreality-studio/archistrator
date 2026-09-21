@@ -16110,6 +16110,10 @@
               ],
               "$ref": "#/$defs/ReviewSet"
             },
+            "reviewSetError": {
+              "type": "string",
+              "description": "Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
+            },
             "variance": {
               "type": [
                 "null"
@@ -26913,6 +26917,26 @@
           ],
           "additionalProperties": false
         },
+        "ReviewArtifactKind": {
+          "type": "string",
+          "enum": [
+            "DetailedDesign",
+            "Construction",
+            "Integration",
+            "Noncoding",
+            "UIDesign",
+            "UICode"
+          ],
+          "x-enum-varnames": [
+            "ReviewKindDetailedDesign",
+            "ReviewKindConstruction",
+            "ReviewKindIntegration",
+            "ReviewKindNoncoding",
+            "ReviewKindUIDesign",
+            "ReviewKindUICode"
+          ],
+          "x-go-base": "string"
+        },
         "ReviewSet": {
           "type": "object",
           "properties": {
@@ -26978,7 +27002,7 @@
               {
                 "name": "artifactKind",
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/$defs/ReviewArtifactKind"
                 }
               },
               {
