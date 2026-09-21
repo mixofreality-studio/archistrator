@@ -20,11 +20,71 @@ import (
 
 type ActivityID string
 
+type ActivityLifecyclePhase struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Weight     int64  `json:"weight"`
+	GateTaskID string `json:"gateTaskId"`
+	Completed  bool   `json:"completed"`
+}
+
 type ActivityOverride struct {
 	Kind     OverrideKind      `json:"kind"`
 	Notes    string            `json:"notes"`
 	Comments []AnchoredComment `json:"comments,omitempty"`
 }
+
+type ActivityTaskKind string
+
+const (
+	ActivityTaskDispatch ActivityTaskKind = "dispatch"
+	ActivityTaskReview   ActivityTaskKind = "review"
+)
+
+type ActivityTaskState string
+
+const (
+	ActivityTaskPending       ActivityTaskState = "pending"
+	ActivityTaskLocked        ActivityTaskState = "locked"
+	ActivityTaskRunning       ActivityTaskState = "running"
+	ActivityTaskAwaitingHuman ActivityTaskState = "awaitingHuman"
+	ActivityTaskPassed        ActivityTaskState = "passed"
+	ActivityTaskSentBack      ActivityTaskState = "sentBack"
+	ActivityTaskFailed        ActivityTaskState = "failed"
+)
+
+type ActivityTaskView struct {
+	ID               string             `json:"id"`
+	Kind             ActivityTaskKind   `json:"kind"`
+	Title            string             `json:"title"`
+	LifecyclePhaseID string             `json:"phase"`
+	DependsOn        []string           `json:"dependsOn"`
+	Reviews          *string            `json:"reviews,omitempty"`
+	State            ActivityTaskState  `json:"state"`
+	Revisions        []TaskRevisionView `json:"revisions"`
+}
+
+type ActivityView struct {
+	ActivityID  ActivityID               `json:"activityId"`
+	Name        string                   `json:"name"`
+	Type        string                   `json:"type"`
+	Variant     *string                  `json:"variant,omitempty"`
+	ComponentID *string                  `json:"componentId,omitempty"`
+	State       ActivityViewState        `json:"state"`
+	Phases      []ActivityLifecyclePhase `json:"phases"`
+	Tasks       []ActivityTaskView       `json:"tasks"`
+	ReviewSet   *ReviewSet               `json:"reviewSet,omitempty"`
+}
+
+type ActivityViewState string
+
+const (
+	ActivityViewNotStarted    ActivityViewState = "notStarted"
+	ActivityViewRunning       ActivityViewState = "running"
+	ActivityViewAwaitingHuman ActivityViewState = "awaitingHuman"
+	ActivityViewDone          ActivityViewState = "done"
+	ActivityViewFailed        ActivityViewState = "failed"
+)
 
 type AnchoredComment struct {
 	JSONPath string `json:"jsonPath"`
@@ -195,6 +255,43 @@ type SubagentSpan struct {
 	EndedAt   *time.Time `json:"endedAt,omitempty"`
 }
 
+type TaskRevisionComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
+type TaskRevisionOutcome string
+
+const (
+	TaskRevisionRunning       TaskRevisionOutcome = "running"
+	TaskRevisionAwaitingHuman TaskRevisionOutcome = "awaitingHuman"
+	TaskRevisionPassed        TaskRevisionOutcome = "passed"
+	TaskRevisionSentBack      TaskRevisionOutcome = "sentBack"
+	TaskRevisionFailed        TaskRevisionOutcome = "failed"
+	TaskRevisionSkipped       TaskRevisionOutcome = "skipped"
+)
+
+type TaskRevisionProvenance string
+
+const (
+	TaskRevisionSynthesized TaskRevisionProvenance = "synthesized"
+	TaskRevisionBackfilled  TaskRevisionProvenance = "backfilled"
+	TaskRevisionObserved    TaskRevisionProvenance = "observed"
+)
+
+type TaskRevisionView struct {
+	N            int64                  `json:"n"`
+	Outcome      TaskRevisionOutcome    `json:"outcome"`
+	StartedAt    *time.Time             `json:"startedAt,omitempty"`
+	EndedAt      *time.Time             `json:"endedAt,omitempty"`
+	AttemptIDs   []string               `json:"attemptIds"`
+	EpisodeID    *string                `json:"episodeId,omitempty"`
+	CommentCount int64                  `json:"commentCount"`
+	Comments     []TaskRevisionComment  `json:"comments"`
+	Note         *string                `json:"note,omitempty"`
+	Provenance   TaskRevisionProvenance `json:"provenance"`
+}
+
 type TimelineEvent struct {
 	Seq       int64            `json:"seq"`
 	EventType string           `json:"eventType"`
@@ -215,6 +312,7 @@ type ConstructionManager interface {
 	UpdateReviewPolicy(rc fwm.Context, projectID ProjectID, policy ReviewPolicyInput) error
 	ListEpisodesForActivity(rc fwm.Context, projectID ProjectID, activityID string) ([]EpisodeRecordView, error)
 	GetEpisodeTimeline(rc fwm.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error)
+	QueryActivityView(rc fwm.Context, projectID ProjectID, activityID ActivityID) (ActivityView, error)
 }
 
 // NewConstructionManager constructs the ConstructionManager, delegating to the hand-written, unexported

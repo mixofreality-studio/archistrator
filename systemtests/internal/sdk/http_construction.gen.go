@@ -139,3 +139,11 @@ func (c *HTTPClient) ConstructionGetEpisodeTimeline(ctx context.Context, project
 	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
 	return out, err
 }
+
+// ConstructionQueryActivityView calls the QueryActivityView operation on the Construction manager over HTTP.
+func (c *HTTPClient) ConstructionQueryActivityView(ctx context.Context, projectID ProjectID, activityID ActivityID) (ActivityView, error) {
+	path := fmt.Sprintf("/api/v1/construction/query-activity-view/%s/%s", projectID, activityID)
+	var out ActivityView
+	err := c.doRequest(ctx, http.MethodGet, path, nil, &out, http.StatusOK)
+	return out, err
+}

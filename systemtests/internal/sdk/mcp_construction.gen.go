@@ -139,3 +139,14 @@ type ConstructionGetEpisodeTimelineInput struct {
 func (c *MCPClient) ConstructionGetEpisodeTimeline(ctx context.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
 	return mcpCallResult[EpisodeTimeline](c, ctx, "constructionGetEpisodeTimeline", ConstructionGetEpisodeTimelineInput{ProjectID: projectID, EpisodeID: episodeID})
 }
+
+// ConstructionQueryActivityViewInput is the MCP tool-call argument object for constructionQueryActivityView.
+type ConstructionQueryActivityViewInput struct {
+	ProjectID  ProjectID  `json:"projectID"`
+	ActivityID ActivityID `json:"activityID"`
+}
+
+// ConstructionQueryActivityView calls the constructionQueryActivityView tool on the Construction manager over MCP.
+func (c *MCPClient) ConstructionQueryActivityView(ctx context.Context, projectID ProjectID, activityID ActivityID) (ActivityView, error) {
+	return mcpCallResult[ActivityView](c, ctx, "constructionQueryActivityView", ConstructionQueryActivityViewInput{ProjectID: projectID, ActivityID: activityID})
+}

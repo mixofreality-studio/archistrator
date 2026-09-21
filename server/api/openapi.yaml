@@ -2,6 +2,32 @@ components:
     schemas:
         ConstructionActivityID:
             type: string
+        ConstructionActivityLifecyclePhase:
+            additionalProperties: false
+            properties:
+                completed:
+                    description: True iff the gate task's state is passed.
+                    type: boolean
+                gateTaskId:
+                    description: The review task whose pass IS this lifecycle phase's binary exit criterion.
+                    type: string
+                    x-go-name: GateTaskID
+                id:
+                    description: 'The lifecycle phase''s wire name: requirements, detailed_design, test_plan, construction or integration.'
+                    type: string
+                    x-go-name: ID
+                label:
+                    type: string
+                weight:
+                    description: The share of the activity's progress this lifecycle phase carries; the weights of one activity sum to 100.
+                    type: integer
+            required:
+                - id
+                - label
+                - weight
+                - gateTaskId
+                - completed
+            type: object
         ConstructionActivityOverride:
             additionalProperties: false
             properties:
@@ -19,6 +45,133 @@ components:
                 - kind
                 - notes
             type: object
+        ConstructionActivityTaskKind:
+            enum:
+                - dispatch
+                - review
+            type: string
+            x-enum-varnames:
+                - ActivityTaskDispatch
+                - ActivityTaskReview
+            x-go-base: string
+        ConstructionActivityTaskState:
+            enum:
+                - pending
+                - locked
+                - running
+                - awaitingHuman
+                - passed
+                - sentBack
+                - failed
+            type: string
+            x-enum-varnames:
+                - ActivityTaskPending
+                - ActivityTaskLocked
+                - ActivityTaskRunning
+                - ActivityTaskAwaitingHuman
+                - ActivityTaskPassed
+                - ActivityTaskSentBack
+                - ActivityTaskFailed
+            x-go-base: string
+        ConstructionActivityTaskView:
+            additionalProperties: false
+            properties:
+                dependsOn:
+                    description: The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them.
+                    items:
+                        type: string
+                    type: array
+                id:
+                    description: The task id within the lifecycle (a Figure A-1 task id for a construction activity).
+                    type: string
+                    x-go-name: ID
+                kind:
+                    $ref: '#/components/schemas/ConstructionActivityTaskKind'
+                phase:
+                    description: The id of the lifecycle phase this task belongs to.
+                    type: string
+                    x-go-name: LifecyclePhaseID
+                reviews:
+                    description: For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task.
+                    type: string
+                revisions:
+                    description: Oldest first. A dispatch task and the review task that judges it share revision numbers.
+                    items:
+                        $ref: '#/components/schemas/ConstructionTaskRevisionView'
+                    type: array
+                state:
+                    $ref: '#/components/schemas/ConstructionActivityTaskState'
+                title:
+                    type: string
+            required:
+                - id
+                - kind
+                - title
+                - phase
+                - dependsOn
+                - state
+                - revisions
+            type: object
+        ConstructionActivityView:
+            additionalProperties: false
+            description: 'One activity''s lifecycle, per-task revisions and live review set: the Activity Experience''s single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored.'
+            properties:
+                activityId:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+                    x-go-name: ActivityID
+                componentId:
+                    description: The architecture component this activity builds. Omitted for an activity with none (the system test plan, system testing).
+                    type: string
+                    x-go-name: ComponentID
+                name:
+                    description: The activity's display title from the committed activity list; its id when the list carries no title.
+                    type: string
+                phases:
+                    description: The lifecycle phases (Figure A-2) in lifecycle order.
+                    items:
+                        $ref: '#/components/schemas/ConstructionActivityLifecyclePhase'
+                    type: array
+                reviewSet:
+                    $ref: '#/components/schemas/ConstructionReviewSet'
+                    description: Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate.
+                    type:
+                        - "null"
+                state:
+                    $ref: '#/components/schemas/ConstructionActivityViewState'
+                tasks:
+                    description: Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet.
+                    items:
+                        $ref: '#/components/schemas/ConstructionActivityTaskView'
+                    type: array
+                type:
+                    description: 'The activity type''s wire name: service, frontend, testing, deployment, documentation, uiDesign or integration.'
+                    type: string
+                variant:
+                    description: The testing variant's wire name (plan, harness, perf, systemTest or qaProcess). Omitted unless type is testing.
+                    type: string
+            required:
+                - activityId
+                - name
+                - type
+                - state
+                - phases
+                - tasks
+            type: object
+        ConstructionActivityViewState:
+            enum:
+                - notStarted
+                - running
+                - awaitingHuman
+                - done
+                - failed
+            type: string
+            x-enum-varnames:
+                - ActivityViewNotStarted
+                - ActivityViewRunning
+                - ActivityViewAwaitingHuman
+                - ActivityViewDone
+                - ActivityViewFailed
+            x-go-base: string
         ConstructionAnchoredComment:
             additionalProperties: false
             properties:
@@ -429,6 +582,100 @@ components:
                     x-go-name: ToolUseID
             required:
                 - toolUseId
+            type: object
+        ConstructionTaskRevisionComment:
+            additionalProperties: false
+            properties:
+                jsonPath:
+                    type: string
+                    x-go-name: JSONPath
+                text:
+                    type: string
+            required:
+                - jsonPath
+                - text
+            type: object
+        ConstructionTaskRevisionOutcome:
+            enum:
+                - running
+                - awaitingHuman
+                - passed
+                - sentBack
+                - failed
+                - skipped
+            type: string
+            x-enum-varnames:
+                - TaskRevisionRunning
+                - TaskRevisionAwaitingHuman
+                - TaskRevisionPassed
+                - TaskRevisionSentBack
+                - TaskRevisionFailed
+                - TaskRevisionSkipped
+            x-go-base: string
+        ConstructionTaskRevisionProvenance:
+            description: 'The worst origin among the revision''s attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed.'
+            enum:
+                - synthesized
+                - backfilled
+                - observed
+            type: string
+            x-enum-varnames:
+                - TaskRevisionSynthesized
+                - TaskRevisionBackfilled
+                - TaskRevisionObserved
+            x-go-base: string
+        ConstructionTaskRevisionView:
+            additionalProperties: false
+            properties:
+                attemptIds:
+                    description: Every attempt of the revision, as "<activityId>:<task>:<n>" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate.
+                    items:
+                        type: string
+                    type: array
+                    x-go-name: AttemptIDs
+                commentCount:
+                    type: integer
+                comments:
+                    description: The anchored comments that rode with a send-back. Empty unless outcome is sentBack.
+                    items:
+                        $ref: '#/components/schemas/ConstructionTaskRevisionComment'
+                    type: array
+                endedAt:
+                    description: Omitted while any attempt of the revision is unresolved.
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+                episodeId:
+                    description: The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured.
+                    type: string
+                    x-go-name: EpisodeID
+                "n":
+                    description: 1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it.
+                    type: integer
+                note:
+                    description: The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded.
+                    type: string
+                outcome:
+                    $ref: '#/components/schemas/ConstructionTaskRevisionOutcome'
+                provenance:
+                    $ref: '#/components/schemas/ConstructionTaskRevisionProvenance'
+                startedAt:
+                    format: date-time
+                    type:
+                        - "null"
+                        - string
+                    x-go-import: time
+                    x-go-type: time.Time
+            required:
+                - "n"
+                - outcome
+                - attemptIds
+                - commentCount
+                - comments
+                - provenance
             type: object
         ConstructionTimelineEvent:
             additionalProperties: false
@@ -4916,6 +5163,71 @@ paths:
             responses:
                 "204":
                     description: no content
+                "400":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: contract misuse
+                "401":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: unauthenticated
+                "403":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: forbidden
+                "404":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: not found
+                "409":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: failed precondition
+                "500":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: internal error
+                "503":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionErrorResponse'
+                    description: infrastructure unavailable
+            security:
+                - bearerAuth: []
+    /api/v1/construction/query-activity-view/{projectID}/{activityID}:
+        get:
+            operationId: QueryActivityView
+            parameters:
+                - in: path
+                  name: projectID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionProjectID'
+                - in: path
+                  name: activityID
+                  required: true
+                  schema:
+                    $ref: '#/components/schemas/ConstructionActivityID'
+            responses:
+                "200":
+                    content:
+                        application/json:
+                            schema:
+                                $ref: '#/components/schemas/ConstructionActivityView'
+                    description: success
                 "400":
                     content:
                         application/json:

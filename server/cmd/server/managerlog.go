@@ -222,6 +222,11 @@ func (m loggingConstructionManager) ListEpisodesForActivity(rc fwmanager.Context
 	return v, logInfraError(m.log, "Construction.ListEpisodesForActivity", string(projectID), err)
 }
 
+func (m loggingConstructionManager) QueryActivityView(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID) (construction.ActivityView, error) {
+	v, err := m.inner.QueryActivityView(rc, projectID, activityID)
+	return v, logInfraError(m.log, "Construction.QueryActivityView", string(projectID), err)
+}
+
 func (m loggingConstructionManager) OverrideActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error {
 	return logInfraError(m.log, "Construction.OverrideActivity", string(projectID), m.inner.OverrideActivity(rc, projectID, activityID, override))
 }

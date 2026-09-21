@@ -56,7 +56,11 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		t.Fatalf("parseSlots on the committed state: %v", perr)
 	}
 
-	// systemDesignManager carries 13 ops — past the App-C max of 12 (Warning).
+	// systemDesignManager (16 ops) and constructionManager (13) are both past the
+	// App-C max of 12 (Warning). constructionManager's 13th is the read-only
+	// QueryActivityView (unified-activity spec 2026-09-20, stage 0); both contracts
+	// dissolve into the 12-op deliveryManager in stage 4. The index is by rule id, so
+	// one assertion covers both.
 	assertPresent(t, got, RuleContractOpMax, methodcheck.SeverityWarning)
 	// Objective-coverage advisory: ERA-DEPENDENT. While any objective is referenced
 	// by neither an objectiveLinks entry nor a legacy justifyingObjective, the

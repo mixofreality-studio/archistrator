@@ -8,11 +8,71 @@ import (
 
 type ActivityID string
 
+type ActivityLifecyclePhase struct {
+	ID         string `json:"id"`
+	Label      string `json:"label"`
+	Weight     int64  `json:"weight"`
+	GateTaskID string `json:"gateTaskId"`
+	Completed  bool   `json:"completed"`
+}
+
 type ActivityOverride struct {
 	Kind     OverrideKind                  `json:"kind"`
 	Notes    string                        `json:"notes"`
 	Comments []ConstructionAnchoredComment `json:"comments,omitempty"`
 }
+
+type ActivityTaskKind string
+
+const (
+	ActivityTaskDispatch ActivityTaskKind = "dispatch"
+	ActivityTaskReview   ActivityTaskKind = "review"
+)
+
+type ActivityTaskState string
+
+const (
+	ActivityTaskPending       ActivityTaskState = "pending"
+	ActivityTaskLocked        ActivityTaskState = "locked"
+	ActivityTaskRunning       ActivityTaskState = "running"
+	ActivityTaskAwaitingHuman ActivityTaskState = "awaitingHuman"
+	ActivityTaskPassed        ActivityTaskState = "passed"
+	ActivityTaskSentBack      ActivityTaskState = "sentBack"
+	ActivityTaskFailed        ActivityTaskState = "failed"
+)
+
+type ActivityTaskView struct {
+	ID               string             `json:"id"`
+	Kind             ActivityTaskKind   `json:"kind"`
+	Title            string             `json:"title"`
+	LifecyclePhaseID string             `json:"phase"`
+	DependsOn        []string           `json:"dependsOn"`
+	Reviews          *string            `json:"reviews,omitempty"`
+	State            ActivityTaskState  `json:"state"`
+	Revisions        []TaskRevisionView `json:"revisions"`
+}
+
+type ActivityView struct {
+	ActivityID  ActivityID               `json:"activityId"`
+	Name        string                   `json:"name"`
+	Type        string                   `json:"type"`
+	Variant     *string                  `json:"variant,omitempty"`
+	ComponentID *string                  `json:"componentId,omitempty"`
+	State       ActivityViewState        `json:"state"`
+	Phases      []ActivityLifecyclePhase `json:"phases"`
+	Tasks       []ActivityTaskView       `json:"tasks"`
+	ReviewSet   *ReviewSet               `json:"reviewSet,omitempty"`
+}
+
+type ActivityViewState string
+
+const (
+	ActivityViewNotStarted    ActivityViewState = "notStarted"
+	ActivityViewRunning       ActivityViewState = "running"
+	ActivityViewAwaitingHuman ActivityViewState = "awaitingHuman"
+	ActivityViewDone          ActivityViewState = "done"
+	ActivityViewFailed        ActivityViewState = "failed"
+)
 
 type ConstructionAnchoredComment struct {
 	JSONPath string `json:"jsonPath"`
@@ -118,6 +178,95 @@ type Reviewer struct {
 	MayAmend          bool    `json:"mayAmend"`
 }
 
+type TaskRevisionComment struct {
+	JSONPath string `json:"jsonPath"`
+	Text     string `json:"text"`
+}
+
+type TaskRevisionOutcome string
+
+const (
+	TaskRevisionRunning       TaskRevisionOutcome = "running"
+	TaskRevisionAwaitingHuman TaskRevisionOutcome = "awaitingHuman"
+	TaskRevisionPassed        TaskRevisionOutcome = "passed"
+	TaskRevisionSentBack      TaskRevisionOutcome = "sentBack"
+	TaskRevisionFailed        TaskRevisionOutcome = "failed"
+	TaskRevisionSkipped       TaskRevisionOutcome = "skipped"
+)
+
+type TaskRevisionProvenance string
+
+const (
+	TaskRevisionSynthesized TaskRevisionProvenance = "synthesized"
+	TaskRevisionBackfilled  TaskRevisionProvenance = "backfilled"
+	TaskRevisionObserved    TaskRevisionProvenance = "observed"
+)
+
+type TaskRevisionView struct {
+	N            int64                  `json:"n"`
+	Outcome      TaskRevisionOutcome    `json:"outcome"`
+	StartedAt    *time.Time             `json:"startedAt,omitempty"`
+	EndedAt      *time.Time             `json:"endedAt,omitempty"`
+	AttemptIDs   []string               `json:"attemptIds"`
+	EpisodeID    *string                `json:"episodeId,omitempty"`
+	CommentCount int64                  `json:"commentCount"`
+	Comments     []TaskRevisionComment  `json:"comments"`
+	Note         *string                `json:"note,omitempty"`
+	Provenance   TaskRevisionProvenance `json:"provenance"`
+}
+
+// ActivityTaskKindName returns the declared varname of a ActivityTaskKind value.
+func ActivityTaskKindName(v ActivityTaskKind) string {
+	switch v {
+	case ActivityTaskDispatch:
+		return "ActivityTaskDispatch"
+	case ActivityTaskReview:
+		return "ActivityTaskReview"
+	default:
+		return ""
+	}
+}
+
+// ActivityTaskStateName returns the declared varname of a ActivityTaskState value.
+func ActivityTaskStateName(v ActivityTaskState) string {
+	switch v {
+	case ActivityTaskPending:
+		return "ActivityTaskPending"
+	case ActivityTaskLocked:
+		return "ActivityTaskLocked"
+	case ActivityTaskRunning:
+		return "ActivityTaskRunning"
+	case ActivityTaskAwaitingHuman:
+		return "ActivityTaskAwaitingHuman"
+	case ActivityTaskPassed:
+		return "ActivityTaskPassed"
+	case ActivityTaskSentBack:
+		return "ActivityTaskSentBack"
+	case ActivityTaskFailed:
+		return "ActivityTaskFailed"
+	default:
+		return ""
+	}
+}
+
+// ActivityViewStateName returns the declared varname of a ActivityViewState value.
+func ActivityViewStateName(v ActivityViewState) string {
+	switch v {
+	case ActivityViewNotStarted:
+		return "ActivityViewNotStarted"
+	case ActivityViewRunning:
+		return "ActivityViewRunning"
+	case ActivityViewAwaitingHuman:
+		return "ActivityViewAwaitingHuman"
+	case ActivityViewDone:
+		return "ActivityViewDone"
+	case ActivityViewFailed:
+		return "ActivityViewFailed"
+	default:
+		return ""
+	}
+}
+
 // ConstructionStageName returns the declared varname of a ConstructionStage value.
 func ConstructionStageName(v ConstructionStage) string {
 	switch v {
@@ -189,6 +338,40 @@ func PipelinePhaseName(v PipelinePhase) string {
 		return "PipelineFailed"
 	case PipelineCancelled:
 		return "PipelineCancelled"
+	default:
+		return ""
+	}
+}
+
+// TaskRevisionOutcomeName returns the declared varname of a TaskRevisionOutcome value.
+func TaskRevisionOutcomeName(v TaskRevisionOutcome) string {
+	switch v {
+	case TaskRevisionRunning:
+		return "TaskRevisionRunning"
+	case TaskRevisionAwaitingHuman:
+		return "TaskRevisionAwaitingHuman"
+	case TaskRevisionPassed:
+		return "TaskRevisionPassed"
+	case TaskRevisionSentBack:
+		return "TaskRevisionSentBack"
+	case TaskRevisionFailed:
+		return "TaskRevisionFailed"
+	case TaskRevisionSkipped:
+		return "TaskRevisionSkipped"
+	default:
+		return ""
+	}
+}
+
+// TaskRevisionProvenanceName returns the declared varname of a TaskRevisionProvenance value.
+func TaskRevisionProvenanceName(v TaskRevisionProvenance) string {
+	switch v {
+	case TaskRevisionSynthesized:
+		return "TaskRevisionSynthesized"
+	case TaskRevisionBackfilled:
+		return "TaskRevisionBackfilled"
+	case TaskRevisionObserved:
+		return "TaskRevisionObserved"
 	default:
 		return ""
 	}

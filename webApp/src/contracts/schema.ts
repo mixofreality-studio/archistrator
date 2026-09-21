@@ -116,6 +116,22 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
+  '/api/v1/construction/query-activity-view/{projectID}/{activityID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get: operations['QueryActivityView'];
+    put?: never;
+    post?: never;
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
   '/api/v1/construction/resume-project/{projectID}': {
     parameters: {
       query?: never;
@@ -761,11 +777,69 @@ export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
     ConstructionActivityID: string;
+    ConstructionActivityLifecyclePhase: {
+      /** @description True iff the gate task's state is passed. */
+      completed: boolean;
+      /** @description The review task whose pass IS this lifecycle phase's binary exit criterion. */
+      gateTaskId: string;
+      /** @description The lifecycle phase's wire name: requirements, detailed_design, test_plan, construction or integration. */
+      id: string;
+      label: string;
+      /** @description The share of the activity's progress this lifecycle phase carries; the weights of one activity sum to 100. */
+      weight: number;
+    };
     ConstructionActivityOverride: {
       comments?: null | components['schemas']['ConstructionAnchoredComment'][];
       kind: components['schemas']['ConstructionOverrideKind'];
       notes: string;
     };
+    /** @enum {string} */
+    ConstructionActivityTaskKind: 'dispatch' | 'review';
+    /** @enum {string} */
+    ConstructionActivityTaskState:
+      | 'pending'
+      | 'locked'
+      | 'running'
+      | 'awaitingHuman'
+      | 'passed'
+      | 'sentBack'
+      | 'failed';
+    ConstructionActivityTaskView: {
+      /** @description The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them. */
+      dependsOn: string[];
+      /** @description The task id within the lifecycle (a Figure A-1 task id for a construction activity). */
+      id: string;
+      kind: components['schemas']['ConstructionActivityTaskKind'];
+      /** @description The id of the lifecycle phase this task belongs to. */
+      phase: string;
+      /** @description For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task. */
+      reviews?: string;
+      /** @description Oldest first. A dispatch task and the review task that judges it share revision numbers. */
+      revisions: components['schemas']['ConstructionTaskRevisionView'][];
+      state: components['schemas']['ConstructionActivityTaskState'];
+      title: string;
+    };
+    /** @description One activity's lifecycle, per-task revisions and live review set: the Activity Experience's single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored. */
+    ConstructionActivityView: {
+      activityId: components['schemas']['ConstructionActivityID'];
+      /** @description The architecture component this activity builds. Omitted for an activity with none (the system test plan, system testing). */
+      componentId?: string;
+      /** @description The activity's display title from the committed activity list; its id when the list carries no title. */
+      name: string;
+      /** @description The lifecycle phases (Figure A-2) in lifecycle order. */
+      phases: components['schemas']['ConstructionActivityLifecyclePhase'][];
+      /** @description Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate. */
+      reviewSet?: components['schemas']['ConstructionReviewSet'];
+      state: components['schemas']['ConstructionActivityViewState'];
+      /** @description Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. */
+      tasks: components['schemas']['ConstructionActivityTaskView'][];
+      /** @description The activity type's wire name: service, frontend, testing, deployment, documentation, uiDesign or integration. */
+      type: string;
+      /** @description The testing variant's wire name (plan, harness, perf, systemTest or qaProcess). Omitted unless type is testing. */
+      variant?: string;
+    };
+    /** @enum {string} */
+    ConstructionActivityViewState: 'notStarted' | 'running' | 'awaitingHuman' | 'done' | 'failed';
     ConstructionAnchoredComment: {
       jsonPath: string;
       replyTo: string;
@@ -900,6 +974,45 @@ export interface components {
       /** Format: date-time */
       startedAt?: string;
       toolUseId: string;
+    };
+    ConstructionTaskRevisionComment: {
+      jsonPath: string;
+      text: string;
+    };
+    /** @enum {string} */
+    ConstructionTaskRevisionOutcome:
+      | 'running'
+      | 'awaitingHuman'
+      | 'passed'
+      | 'sentBack'
+      | 'failed'
+      | 'skipped';
+    /**
+     * @description The worst origin among the revision's attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed.
+     * @enum {string}
+     */
+    ConstructionTaskRevisionProvenance: 'synthesized' | 'backfilled' | 'observed';
+    ConstructionTaskRevisionView: {
+      /** @description Every attempt of the revision, as "<activityId>:<task>:<n>" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate. */
+      attemptIds: string[];
+      commentCount: number;
+      /** @description The anchored comments that rode with a send-back. Empty unless outcome is sentBack. */
+      comments: components['schemas']['ConstructionTaskRevisionComment'][];
+      /**
+       * Format: date-time
+       * @description Omitted while any attempt of the revision is unresolved.
+       */
+      endedAt?: null | string;
+      /** @description The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured. */
+      episodeId?: string;
+      /** @description 1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it. */
+      n: number;
+      /** @description The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. */
+      note?: string;
+      outcome: components['schemas']['ConstructionTaskRevisionOutcome'];
+      provenance: components['schemas']['ConstructionTaskRevisionProvenance'];
+      /** Format: date-time */
+      startedAt?: null | string;
     };
     ConstructionTimelineEvent: {
       eventType: string;
@@ -2781,6 +2894,92 @@ export interface operations {
           [name: string]: unknown;
         };
         content?: never;
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionErrorResponse'];
+        };
+      };
+    };
+  };
+  QueryActivityView: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['ConstructionProjectID'];
+        activityID: components['schemas']['ConstructionActivityID'];
+      };
+      cookie?: never;
+    };
+    requestBody?: never;
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['ConstructionActivityView'];
+        };
       };
       /** @description contract misuse */
       400: {

@@ -23,6 +23,7 @@ type FakeConstructionManager struct {
 	UpdateReviewPolicyFn      func(rc fwm.Context, projectID construction.ProjectID, policy construction.ReviewPolicyInput) error
 	ListEpisodesForActivityFn func(rc fwm.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error)
 	GetEpisodeTimelineFn      func(rc fwm.Context, projectID construction.ProjectID, episodeID string) (construction.EpisodeTimeline, error)
+	QueryActivityViewFn       func(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID) (construction.ActivityView, error)
 }
 
 func (f *FakeConstructionManager) ExecuteNextActivity(rc fwm.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error) {
@@ -107,6 +108,13 @@ func (f *FakeConstructionManager) GetEpisodeTimeline(rc fwm.Context, projectID c
 		panic("FakeConstructionManager.GetEpisodeTimelineFn not set")
 	}
 	return f.GetEpisodeTimelineFn(rc, projectID, episodeID)
+}
+
+func (f *FakeConstructionManager) QueryActivityView(rc fwm.Context, projectID construction.ProjectID, activityID construction.ActivityID) (construction.ActivityView, error) {
+	if f.QueryActivityViewFn == nil {
+		panic("FakeConstructionManager.QueryActivityViewFn not set")
+	}
+	return f.QueryActivityViewFn(rc, projectID, activityID)
 }
 
 var _ construction.ConstructionManager = (*FakeConstructionManager)(nil)

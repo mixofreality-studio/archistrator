@@ -9553,3 +9553,230 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
 	}
 }
+
+// ===========================================================================
+// QueryActivityView — the façade (contract amendment, stage 0).
+// ===========================================================================
+
+// avManager builds a façade over a project, an episode ledger and a strict client.
+func avManager(c client.Client, proj projectstate.Project, eps *fakeEpisodes) *constructionManager {
+	ps := &fakeProjectState{project: proj}
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, eps, 0, "", nil)
+}
+
+func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
+	m := avManager(nil, ledgerChain(), &fakeEpisodes{})
+	for _, c := range []struct{ project, activity string }{{"", "A"}, {"p", ""}} {
+		_, err := m.QueryActivityView(testCtx(), ProjectID(c.project), ActivityID(c.activity))
+		if e := asConstructionError(t, err); e.Kind != fwmanager.ContractMisuse {
+			t.Fatalf("(%q,%q): want ContractMisuse, got %s", c.project, c.activity, e.Kind)
+		}
+	}
+}
+
+// An id the committed plan does not hold is NotFound — which is also the answer for the
+// requirements, architecture and projectDesign activities until stage 2 makes them real.
+func TestQueryActivityView_UnknownActivityIsNotFound(t *testing.T) {
+	m := avManager(nil, ledgerChain(), &fakeEpisodes{})
+	for _, id := range []string{"C-nope", "requirements", "architecture", "projectDesign"} {
+		_, err := m.QueryActivityView(testCtx(), "p", ActivityID(id))
+		if e := asConstructionError(t, err); e.Kind != fwmanager.NotFound || !strings.Contains(e.Detail, id) {
+			t.Fatalf("%s: want NotFound naming it, got %s %q", id, e.Kind, e.Detail)
+		}
+	}
+}
+
+// Not started: the whole lifecycle is returned, nothing has a revision, only the root is
+// pending, and no session is asked for (a nil client would panic if it were).
+func TestQueryActivityView_NotStarted_ReturnsTheWholeLifecycle(t *testing.T) {
+	v, err := avManager(nil, ledgerChain(), &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.State != ActivityViewNotStarted || v.Type != "service" || v.Name != "A" || v.ReviewSet != nil {
+		t.Fatalf("view = %+v, want a not-started service activity with no review set", v)
+	}
+	if len(v.Phases) != 5 || len(v.Tasks) != 10 {
+		t.Fatalf("want Figure A-1's 5 phases and 10 tasks, got %d and %d", len(v.Phases), len(v.Tasks))
+	}
+	for _, task := range v.Tasks {
+		want := ActivityTaskLocked
+		if len(task.DependsOn) == 0 {
+			want = ActivityTaskPending
+		}
+		if task.State != want || task.Revisions == nil || len(task.Revisions) != 0 || task.DependsOn == nil {
+			t.Errorf("%s: state=%s revisions=%v dependsOn=%v; want %s and empty, non-nil arrays", task.ID, task.State, task.Revisions, task.DependsOn, want)
+		}
+	}
+}
+
+// Done by its backfilled ledger: every task passed, every phase completed, provenance carried.
+func TestQueryActivityView_Done_FromTheLedger(t *testing.T) {
+	proj := ledgerChain()
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
+	}
+	v, err := avManager(nil, proj, &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if v.State != ActivityViewDone {
+		t.Fatalf("state = %s, want done", v.State)
+	}
+	for _, ph := range v.Phases {
+		if !ph.Completed {
+			t.Errorf("lifecycle phase %s not completed", ph.ID)
+		}
+	}
+	for _, task := range v.Tasks {
+		if task.State != ActivityTaskPassed || len(task.Revisions) != 1 || task.Revisions[0].Provenance != TaskRevisionBackfilled {
+			t.Errorf("%s: %+v, want passed with one backfilled revision", task.ID, task)
+		}
+	}
+}
+
+// A live gate: the session is asked (the row is Running), the review task awaits the
+// human, the send-back is revision 1 with its note and comments, the episode is joined
+// by TargetRef = AttemptID, and the review set rides along.
+func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
+	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	since := t0.Add(31 * time.Minute)
+	eps := &fakeEpisodes{listRecords: []episode.EpisodeRecord{
+		{EpisodeID: "ep-1", TargetRef: "A:detailedDesign:1", StartedAt: t0, EndedAt: t0.Add(10 * time.Minute)},
+		{EpisodeID: "ep-2", TargetRef: "A:detailedDesign:2", StartedAt: t0.Add(21 * time.Minute), EndedAt: t0.Add(30 * time.Minute)},
+	}}
+	live := awaitingAt("detailed_design")
+	live.AwaitingSince = &since
+	live.ReviewSet = &ReviewSet{Reviewers: []Reviewer{{Role: "architect", Perspective: "architecture", MayAmend: true}}}
+	mc := &temporalmocks.Client{}
+	mc.On("QueryWorkflow", mock.Anything, constructActivityWorkflowID("p", "A"), "", querySessionState).Return(encodedJSON{v: live}, nil)
+
+	v, err := avManager(mc, avSentBackAtTheDesignGate(t0), eps).QueryActivityView(testCtx(), "p", "A")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if eps.lastQuery.TargetRef == nil || *eps.lastQuery.TargetRef != "A" {
+		t.Fatalf("episodes must be listed for the activity, got %+v", eps.lastQuery)
+	}
+	if v.State != ActivityViewAwaitingHuman || v.ReviewSet == nil || len(v.ReviewSet.Reviewers) != 1 {
+		t.Fatalf("state=%s reviewSet=%+v, want awaitingHuman with the live review set", v.State, v.ReviewSet)
+	}
+	byID := map[string]ActivityTaskView{}
+	for _, task := range v.Tasks {
+		byID[task.ID] = task
+	}
+	avCheckLiveGateStates(t, byID)
+	avCheckLiveGateRevisions(t, byID["designReview"].Revisions, since)
+}
+
+// avSentBackAtTheDesignGate is a Running service activity whose requirements phase is
+// backfilled and whose detailed design was sent back once, with an anchored comment.
+func avSentBackAtTheDesignGate(t0 time.Time) projectstate.Project {
+	proj := ledgerChain()
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {
+		ActivityID: "A", Phase: projectstate.ActivityConstructionRunning, CurrentPhase: projectstate.MethodPhaseDetailedDesign,
+		Attempts: passedLedger("A", projectstate.MethodPhaseRequirements),
+		OperatorNotes: []projectstate.OperatorNote{{
+			NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "split the op", RecordedAt: t0.Add(20 * time.Minute),
+			Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "too wide"}},
+		}},
+	}}
+	return proj
+}
+
+// avCheckLiveGateStates asserts the task states around a live gate: the redraft passed
+// and is joined to its episode, the gate awaits the human, and the DAG holds — the
+// test-plan branch is open while construction waits behind the design gate.
+func avCheckLiveGateStates(t *testing.T, byID map[string]ActivityTaskView) {
+	t.Helper()
+	work, gate := byID["detailedDesign"], byID["designReview"]
+	if work.State != ActivityTaskPassed || len(work.Revisions) != 2 || work.Revisions[1].EpisodeID == nil || *work.Revisions[1].EpisodeID != "ep-2" {
+		t.Fatalf("detailedDesign = %+v, want passed with revision 2 joined to ep-2", work)
+	}
+	if gate.State != ActivityTaskAwaitingHuman || len(gate.Revisions) != 2 {
+		t.Fatalf("designReview = %+v, want awaitingHuman with 2 revisions", gate)
+	}
+	if byID["stp"].State != ActivityTaskPending || byID["construction"].State != ActivityTaskLocked {
+		t.Errorf("the test-plan branch is open (%s) and construction locked (%s) behind the design gate", byID["stp"].State, byID["construction"].State)
+	}
+}
+
+// avCheckLiveGateRevisions asserts the gate's two revisions: the send-back carries its
+// note and anchored comment, and the occurrence now waiting started when the session says.
+func avCheckLiveGateRevisions(t *testing.T, gate []TaskRevisionView, since time.Time) {
+	t.Helper()
+	r1, r2 := gate[0], gate[1]
+	if r1.Outcome != TaskRevisionSentBack || r1.Note == nil || *r1.Note != "split the op" || r1.CommentCount != 1 || len(r1.Comments) != 1 || r1.Comments[0].JSONPath != "$.ops[0]" {
+		t.Errorf("revision 1 = %+v, want sentBack carrying the note and its one comment", r1)
+	}
+	if r2.Outcome != TaskRevisionAwaitingHuman || r2.StartedAt == nil || !r2.StartedAt.Equal(since) {
+		t.Errorf("revision 2 = %+v, want awaitingHuman since %v", r2, since)
+	}
+}
+
+// A Running row whose session is gone (past retention) still reads — without a live gate.
+func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
+	proj := ledgerChain()
+	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	}
+	mc := &temporalmocks.Client{}
+	mc.On("QueryWorkflow", mock.Anything, constructActivityWorkflowID("p", "A"), "", querySessionState).
+		Return(nil, serviceerror.NewNotFound("workflow not found"))
+	v, err := avManager(mc, proj, &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
+	if err != nil || v.State != ActivityViewRunning || v.ReviewSet != nil {
+		t.Fatalf("view=%+v err=%v, want a running view with no review set", v, err)
+	}
+}
+
+// The lifecycle key rule, over EVERY activity type and testing variant, and every key
+// resolves in the pinned method-assets. A stray variant on a non-testing type is ignored
+// (the zero variant is what every non-testing activity carries).
+func TestLifecycleTypeKey_CoversEveryTypeAndVariant(t *testing.T) {
+	cases := []struct {
+		typ     projectstate.ActivityType
+		variant projectstate.TestingVariant
+		want    string
+	}{
+		{projectstate.ActivityTypeService, projectstate.TestVariantPlan, "service"},
+		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan, "frontend"},
+		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan, "deployment"},
+		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan, "documentation"},
+		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan, "uiDesign"},
+		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan, "integration"},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan, "testing:plan"},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness, "testing:harness"},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf, "testing:perf"},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest, "testing:systemTest"},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess, "testing:qaProcess"},
+		{projectstate.ActivityTypeService, projectstate.TestVariantHarness, "service"},
+	}
+	for _, c := range cases {
+		got := lifecycleTypeKey(c.typ, c.variant)
+		if got != c.want {
+			t.Errorf("lifecycleTypeKey(%s, %s) = %q, want %q", c.typ, c.variant, got, c.want)
+		}
+		if _, ok := methodassets.LifecycleFor(got); !ok {
+			t.Errorf("method-assets has no lifecycle for key %q", got)
+		}
+	}
+}
+
+// Task 7's wire strings ARE the contract's enum values; this is what lets the façade
+// convert instead of mapping.
+func TestActivityViewWireStringsMatchTheContract(t *testing.T) {
+	pairs := map[string]string{
+		taskPending: string(ActivityTaskPending), taskLocked: string(ActivityTaskLocked), taskRunning: string(ActivityTaskRunning),
+		taskAwaitingHuman: string(ActivityTaskAwaitingHuman), taskPassed: string(ActivityTaskPassed),
+		taskSentBack: string(ActivityTaskSentBack), taskFailed: string(ActivityTaskFailed),
+		"rev:" + revRunning: "rev:" + string(TaskRevisionRunning), "rev:" + revAwaitingHuman: "rev:" + string(TaskRevisionAwaitingHuman),
+		"rev:" + revPassed: "rev:" + string(TaskRevisionPassed), "rev:" + revSentBack: "rev:" + string(TaskRevisionSentBack),
+		"rev:" + revFailed: "rev:" + string(TaskRevisionFailed), "rev:" + revSkipped: "rev:" + string(TaskRevisionSkipped),
+		methodassets.LifecycleTaskDispatch: string(ActivityTaskDispatch), methodassets.LifecycleTaskReview: string(ActivityTaskReview),
+	}
+	for internal, wire := range pairs {
+		if internal != wire {
+			t.Errorf("internal %q != contract %q", internal, wire)
+		}
+	}
+}

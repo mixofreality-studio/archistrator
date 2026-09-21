@@ -759,6 +759,73 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 	return view, nil
 }
 
+// QueryActivityView — op 2.13 (unified-activity spec 2026-09-20, stage 0). The Activity
+// Experience's single read: one activity's platform-fixed lifecycle (method-assets),
+// each task's state and revisions, and the live review set. A PLAIN METHOD like the
+// episode reads — no workflow, no signal; it asks the activity's session (the same
+// Temporal Query GetSessionState serves) only while the row is Running, so a Done or
+// not-started activity reads with Temporal down.
+//
+// Everything is DERIVED on read (normalizeAttempts, deriveTaskViews); stage 3 stores
+// revisions and this becomes a projection. An id the committed activity list does not
+// hold is NotFound — today that includes the requirements, architecture and
+// projectDesign activities, which become real in stage 2.
+//
+// The live session is read ONCE and both the attempt list and the gate come out of that
+// one read: state rule 1 answers awaitingHuman for the gate task matching the live gate
+// even with no revision at all, so a stale gate beside fresh attempts would show a gate
+// with no history.
+func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID ProjectID, activityID ActivityID) (ActivityView, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return ActivityView{}, newError(fwm.ContractMisuse, "empty projectId")
+	}
+	if activityID == "" {
+		return ActivityView{}, newError(fwm.ContractMisuse, "empty activityId")
+	}
+	id := string(activityID)
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		return ActivityView{}, mapRAError(err, "projectStateAccess.ReadProject")
+	}
+	item, ok := committedActivityItem(proj, id)
+	if !ok {
+		return ActivityView{}, newError(fwm.NotFound, "no activity "+id+" in the committed activity list")
+	}
+	row := proj.ActivityConstruction[id]
+	row.ActivityID = id
+	typ, variant, _, classified := projectstate.ResolveConstructionRow(row, item)
+	if !classified {
+		return ActivityView{}, newError(fwm.FailedPrecondition, fmt.Sprintf(
+			"activity %s (workerClass %q, coding=%v) matches no activity-classification rule, so it has no lifecycle — amend workerClass or coding in the committed activity list",
+			id, item.WorkerClass, item.Coding))
+	}
+	key := lifecycleTypeKey(typ, variant)
+	lc, ok := methodassets.LifecycleFor(key)
+	if !ok {
+		return ActivityView{}, newError(fwm.Infrastructure, "the platform's method assets carry no lifecycle for activity type "+key)
+	}
+	coarse, _ := projectstate.EffectiveConstructionPhase(row, item)
+	live, err := m.liveSessionFor(ctx, projectID, activityID, coarse)
+	if err != nil {
+		return ActivityView{}, err
+	}
+	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{ProjectID: episode.ProjectID(projectID), TargetRef: &id})
+	if err != nil {
+		return ActivityView{}, mapRAError(err, "episodeAccess.ListEpisodes")
+	}
+	// The gate is the session's awaitingGate verbatim: a lifecycle-phase id matches a
+	// phase, and the merge hold and an escalation simply match none.
+	liveGate, _ := liveApprovalGate(live)
+	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, records, live), row.OperatorNotes, liveGate)
+	view := activityViewFrom(activityID, item, typ, variant, lc, tasks)
+	view.State = activityViewState(coarse, live)
+	if liveGate != "" {
+		view.ReviewSet = live.ReviewSet
+	}
+	return view, nil
+}
+
 // GetPumpStatus — op 2.9 (plan B1.5). Reports whether the project's ONE construction
 // pump ({projectId}:nextActivity, pumpWorkflowID) has a RUNNING execution now. It
 // describes the pump id with an EMPTY run id, which reads the latest run — so a pump
@@ -3000,4 +3067,138 @@ func dispatchEvidenceState(mine, reviewer []taskRevision) string {
 		return taskFailed // 6
 	}
 	return taskPassed // 7
+}
+
+// committedActivityItem finds an activity in the committed Phase-2 activity list.
+func committedActivityItem(proj projectstate.Project, id string) (projectstate.ActivityItem, bool) {
+	_, list, ok := committedPlanInputs(proj)
+	if !ok {
+		return projectstate.ActivityItem{}, false
+	}
+	for _, it := range list.Activities {
+		if it.Name == id {
+			return it, true
+		}
+	}
+	return projectstate.ActivityItem{}, false
+}
+
+// lifecycleTypeKey is the method-assets lifecycle key: the activity type's wire name,
+// and "testing:<variant wire name>" for a testing activity (partAB decision D2).
+func lifecycleTypeKey(t projectstate.ActivityType, v projectstate.TestingVariant) string {
+	if t == projectstate.ActivityTypeTesting {
+		return t.String() + ":" + v.String()
+	}
+	return t.String()
+}
+
+// liveSessionFor asks the activity's session only while its row is Running: a
+// not-started, done or failed activity has no gate to show, and must read with Temporal
+// down. No session (never dispatched, or past retention) is not an error.
+func (m *constructionManager) liveSessionFor(ctx context.Context, projectID ProjectID, activityID ActivityID, coarse projectstate.ActivityConstructionPhase) (*ConstructionSessionView, error) {
+	if coarse != projectstate.ActivityConstructionRunning {
+		return nil, nil //nolint:nilnil // "no live session" is a value here, not a failure
+	}
+	v, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		var fe *fwm.Error
+		if errors.As(err, &fe) && fe.Kind == fwm.NotFound {
+			return nil, nil //nolint:nilnil // see above
+		}
+		return nil, err
+	}
+	return &v, nil
+}
+
+// activityViewState folds the row's effective coarse state and the live session into
+// the view's five states. KNOWN STAGE-0 GAP: the coarse state comes from the row, the
+// task states from the evidence, and a Running row that stored no CurrentPhase has no
+// running task to show — the activity reads running while every task reads pending or
+// locked. That is honest about what today's records hold; stage 3 stores the revisions
+// and the two stop being separate derivations.
+func activityViewState(coarse projectstate.ActivityConstructionPhase, live *ConstructionSessionView) ActivityViewState {
+	switch coarse {
+	case projectstate.ActivityConstructionNotStarted:
+		return ActivityViewNotStarted
+	case projectstate.ActivityConstructionDone:
+		return ActivityViewDone
+	case projectstate.ActivityConstructionFailed:
+		return ActivityViewFailed
+	case projectstate.ActivityConstructionRunning:
+		if live != nil && (live.Stage == StageAwaitingApproval || live.Stage == StageAwaitingTakeover) {
+			return ActivityViewAwaitingHuman
+		}
+	}
+	return ActivityViewRunning
+}
+
+// activityViewFrom assembles the contract view. Every array is non-nil: the wire carries
+// [] for "none", never null.
+func activityViewFrom(activityID ActivityID, item projectstate.ActivityItem, typ projectstate.ActivityType, variant projectstate.TestingVariant, lc methodassets.Lifecycle, tasks []taskView) ActivityView {
+	states := make(map[string]string, len(tasks))
+	revisions := make(map[string][]taskRevision, len(tasks))
+	for _, t := range tasks {
+		states[t.ID], revisions[t.ID] = t.State, t.Revisions
+	}
+	view := ActivityView{ActivityID: activityID, Name: item.Title, Type: typ.String(),
+		Phases: make([]ActivityLifecyclePhase, 0, len(lc.Phases)), Tasks: make([]ActivityTaskView, 0, len(lc.Tasks))}
+	if view.Name == "" {
+		view.Name = item.Name
+	}
+	if typ == projectstate.ActivityTypeTesting {
+		view.Variant = strPtrOrNil(variant.String())
+	}
+	view.ComponentID = strPtrOrNil(item.ComponentID)
+	for _, ph := range lc.Phases {
+		view.Phases = append(view.Phases, ActivityLifecyclePhase{
+			ID: ph.ID, Label: ph.Label, Weight: int64(ph.Weight), GateTaskID: ph.Gate, Completed: states[ph.Gate] == taskPassed,
+		})
+	}
+	for _, t := range lc.Tasks {
+		view.Tasks = append(view.Tasks, ActivityTaskView{
+			ID: t.ID, Kind: ActivityTaskKind(t.Kind), Title: t.Title, LifecyclePhaseID: t.Phase,
+			DependsOn: append([]string{}, t.DependsOn...), Reviews: strPtrOrNil(t.Reviews),
+			State: ActivityTaskState(states[t.ID]), Revisions: revisionViews(revisions[t.ID]),
+		})
+	}
+	return view
+}
+
+func revisionViews(revs []taskRevision) []TaskRevisionView {
+	out := make([]TaskRevisionView, 0, len(revs))
+	for _, r := range revs {
+		comments := make([]TaskRevisionComment, 0, len(r.Comments))
+		for _, c := range r.Comments {
+			comments = append(comments, TaskRevisionComment{JSONPath: c.JSONPath, Text: c.Text})
+		}
+		out = append(out, TaskRevisionView{
+			N: int64(r.N), Outcome: TaskRevisionOutcome(r.Outcome), StartedAt: r.StartedAt, EndedAt: r.EndedAt,
+			AttemptIDs: append([]string{}, r.AttemptIDs...), EpisodeID: strPtrOrNil(r.EpisodeID),
+			CommentCount: int64(len(r.Comments)), Comments: comments, Note: strPtrOrNil(r.Note),
+			Provenance: revisionProvenance(r.Provenance),
+		})
+	}
+	return out
+}
+
+// revisionProvenance names the origin on the wire. OriginSynthesized is the EMPTY string
+// in storage on purpose (a dropped stamp fails suspicious); the wire spells it out.
+func revisionProvenance(o projectstate.RecordOrigin) TaskRevisionProvenance {
+	switch o {
+	case projectstate.OriginObserved:
+		return TaskRevisionObserved
+	case projectstate.OriginBackfilled:
+		return TaskRevisionBackfilled
+	case projectstate.OriginSynthesized:
+		return TaskRevisionSynthesized
+	}
+	return TaskRevisionSynthesized // an unknown origin is as bad as synthesized (originRank)
+}
+
+// strPtrOrNil is the optional-string idiom of the generated contract: "" is omitted.
+func strPtrOrNil(s string) *string {
+	if s == "" {
+		return nil
+	}
+	return &s
 }

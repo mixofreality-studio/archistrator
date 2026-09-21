@@ -33,6 +33,7 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/construction/update-review-policy/{projectID}", h.handleUpdateReviewPolicy)
 	mux.HandleFunc("GET /api/v1/construction/list-episodes-for-activity/{projectID}", h.handleListEpisodesForActivity)
 	mux.HandleFunc("GET /api/v1/construction/get-episode-timeline/{projectID}", h.handleGetEpisodeTimeline)
+	mux.HandleFunc("GET /api/v1/construction/query-activity-view/{projectID}/{activityID}", h.handleQueryActivityView)
 }
 
 type executeNextActivityRequest struct {
@@ -375,6 +376,31 @@ func (h *Handler) handleGetEpisodeTimeline(w http.ResponseWriter, r *http.Reques
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
 	result, err := h.Manager.GetEpisodeTimeline(rc, projectID, episodeID)
+	if err != nil {
+		writeManagerError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, result)
+}
+
+// handleQueryActivityView binds GET /api/v1/construction/query-activity-view/{projectID}/{activityID} -> mgr.QueryActivityView.
+func (h *Handler) handleQueryActivityView(w http.ResponseWriter, r *http.Request) {
+	projectID := mgr.ProjectID(r.PathValue("projectID"))
+	activityID := mgr.ActivityID(r.PathValue("activityID"))
+	principal, ok := security.PrincipalFrom(r.Context())
+	if !ok {
+		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
+		return
+	}
+	decision, err := h.Security.Authorize(r.Context(), principal,
+		security.Action{Verb: "query-activity-view"},
+		security.ResourceRef{Kind: "project", ID: string(projectID)})
+	if err != nil || !decision.Permit {
+		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
+		return
+	}
+	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
+	result, err := h.Manager.QueryActivityView(rc, projectID, activityID)
 	if err != nil {
 		writeManagerError(w, err)
 		return
