@@ -55,12 +55,15 @@
 package construction
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -75,6 +78,7 @@ import (
 
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -2506,4 +2510,494 @@ func mapRAError(err error, label string) error {
 func isEpisodeTraceNotFound(err error) bool {
 	var raErr *fwra.Error
 	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
+}
+
+// ---------------------------------------------------------------------------
+// QueryActivityView — revision derivation (spec 2026-09-20 §2). PURE: no I/O, no
+// clock. normalizeAttempts turns today's scattered evidence into one attempt list;
+// deriveTaskViews cuts that list into revisions and decides every task's state.
+//
+// WHY NORMALIZE. The running construct workflow does not write the attempt ledger: it
+// counts attempts in memory to mint the AttemptID it stamps on the episode's TargetRef,
+// and a gate attempt is written by nothing. Only cmd/backfill-attempts appends to
+// ActivityConstructionStatus.Attempts. A live run's history is its episodes, its
+// send-back OperatorNotes, its stored phase completions and its live session. Stage 3
+// of the unified-activity spec persists revisions; this block is deleted then.
+// ---------------------------------------------------------------------------
+
+// Revision outcomes and task states: the wire values of the ActivityView contract.
+const (
+	revRunning       = "running"
+	revAwaitingHuman = "awaitingHuman"
+	revPassed        = "passed"
+	revSentBack      = "sentBack"
+	revFailed        = "failed"
+	revSkipped       = "skipped"
+
+	taskPending       = "pending"
+	taskLocked        = "locked"
+	taskRunning       = "running"
+	taskAwaitingHuman = "awaitingHuman"
+	taskPassed        = "passed"
+	taskSentBack      = "sentBack"
+	taskFailed        = "failed"
+
+	normalizeGenerator = "constructionManager.normalizeAttempts"
+)
+
+// taskRevision is revision n of one lifecycle task: the n-th work that reached the gate
+// (with every failed or retried attempt before it) for a dispatch task, the n-th gate
+// attempt for a review task. The two share n.
+type taskRevision struct {
+	N          int
+	Outcome    string
+	StartedAt  *time.Time
+	EndedAt    *time.Time
+	AttemptIDs []string
+	EpisodeID  string
+	Note       string
+	Comments   []projectstate.NoteComment
+	Provenance projectstate.RecordOrigin
+}
+
+// taskView is one lifecycle task's derived state and history.
+type taskView struct {
+	ID        string
+	State     string
+	Revisions []taskRevision
+}
+
+// canonicalMethodPhases is the order reconstructed gate attempts are emitted in.
+var canonicalMethodPhases = []projectstate.ActivityMethodPhase{
+	projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan,
+	projectstate.MethodPhaseConstruction, projectstate.MethodPhaseIntegration,
+}
+
+// normalizeAttempts builds the one attempt list the derivation reads (rules N1–N4): the
+// ledger verbatim, then a work attempt per episode the ledger does not hold, then the
+// dispatch running now, then the gate attempts the send-back notes, the stored phase
+// completions and the live gate imply. Everything it adds is stamped backfilled —
+// "reconstructed from real evidence recorded elsewhere" — with the evidence as its basis.
+func normalizeAttempts(activityID string, row projectstate.ActivityConstructionStatus, episodes []episode.EpisodeRecord, live *ConstructionSessionView) []projectstate.TaskAttempt {
+	out := slices.Clone(row.Attempts)
+	index := make(map[string]int, len(out))
+	for i, a := range out {
+		index[a.AttemptID] = i
+	}
+	for _, ep := range episodes {
+		task, n, ok := parseAttemptRef(activityID, ep.TargetRef)
+		if !ok {
+			continue
+		}
+		evidence := projectstate.EvidenceRef{Kind: projectstate.EvidenceEpisode, Ref: ep.EpisodeID}
+		if i, held := index[ep.TargetRef]; held {
+			if out[i].Evidence.Kind == projectstate.EvidenceNone {
+				out[i].Evidence = evidence // N1
+			}
+			continue
+		}
+		started, ended := ep.StartedAt, ep.EndedAt
+		index[ep.TargetRef] = len(out)
+		out = append(out, projectstate.TaskAttempt{ // N2
+			AttemptID: ep.TargetRef, Task: task, Phase: projectstate.PhaseForTask(task), Attempt: n,
+			Actor: projectstate.ActorAgent, StartedAt: &started, EndedAt: &ended,
+			Outcome: taskOutcomeOfEpisode(ep.Outcome), Evidence: evidence,
+			Provenance: reconstructed("episodes[" + ep.EpisodeID + "]"),
+		})
+	}
+	out = appendRunningAttempt(out, activityID, row, live)
+	return appendGateAttempts(out, activityID, row, live)
+}
+
+// parseAttemptRef reads "<activityId>:<task>:<n>" (projectstate.AttemptID). A legacy
+// TargetRef (the bare activity id) and another activity's ref are not attempts of this one.
+func parseAttemptRef(activityID, ref string) (projectstate.MethodTask, int, bool) {
+	rest, ok := strings.CutPrefix(ref, activityID+":")
+	if !ok {
+		return "", 0, false
+	}
+	name, num, ok := strings.Cut(rest, ":")
+	if !ok {
+		return "", 0, false
+	}
+	n, err := strconv.Atoi(num)
+	task := projectstate.MethodTask(name)
+	if err != nil || n < 1 || projectstate.PhaseForTask(task) == "" {
+		return "", 0, false
+	}
+	return task, n, true
+}
+
+// taskOutcomeOfEpisode: an episode that did not succeed — failed, cancelled, or a gap
+// with no summary at all — is a failed attempt; the dispatch burned and produced nothing.
+func taskOutcomeOfEpisode(o episode.EpisodeOutcome) projectstate.TaskOutcome {
+	switch o {
+	case episode.EpisodeSucceeded:
+		return projectstate.OutcomePassed
+	case episode.EpisodeFailed, episode.EpisodeCancelled, episode.EpisodeGap:
+		return projectstate.OutcomeFailed
+	}
+	return projectstate.OutcomeFailed
+}
+
+func reconstructed(basis string) projectstate.AttemptProvenance {
+	return projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: normalizeGenerator, Basis: basis}
+}
+
+func highestAttempt(attempts []projectstate.TaskAttempt, task projectstate.MethodTask) int {
+	n := 0
+	for _, a := range attempts {
+		if a.Task == task && a.Attempt > n {
+			n = a.Attempt
+		}
+	}
+	return n
+}
+
+// appendRunningAttempt is N3: the dispatch a live session is running now, which has no
+// episode until it ends.
+func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
+	if live == nil || (live.Stage != StageDispatching && live.Stage != StagePipelineRunning) {
+		return out
+	}
+	task := projectstate.AgentTaskFor(row.CurrentPhase)
+	if task == "" {
+		return out
+	}
+	for _, a := range out {
+		if a.Task == task && a.Outcome == projectstate.OutcomePending {
+			return out
+		}
+	}
+	n := highestAttempt(out, task) + 1
+	return append(out, projectstate.TaskAttempt{
+		AttemptID: projectstate.AttemptID(activityID, task, n), Task: task, Phase: row.CurrentPhase, Attempt: n,
+		Actor: projectstate.ActorAgent, Provenance: reconstructed("session.stage"),
+	})
+}
+
+// liveApprovalGate is the lifecycle phase a live session awaits approval at, if any. The
+// merge hold and an escalation are not phase gates and never match a phase id.
+func liveApprovalGate(live *ConstructionSessionView) (string, *time.Time) {
+	if live == nil || live.Stage != StageAwaitingApproval || live.AwaitingGate == nil {
+		return "", nil
+	}
+	return *live.AwaitingGate, live.AwaitingSince
+}
+
+// appendGateAttempts is N4, in canonical phase order.
+func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
+	liveGate, liveSince := liveApprovalGate(live)
+	stored := make(map[projectstate.ActivityMethodPhase]projectstate.PhaseCompletion, len(row.Phases))
+	for _, pc := range row.Phases {
+		stored[pc.Phase] = pc
+	}
+	for _, p := range canonicalMethodPhases {
+		gate := projectstate.GateTaskFor(p)
+		n, passed := highestAttempt(out, gate), false
+		for _, a := range out {
+			passed = passed || (a.Task == gate && a.Outcome == projectstate.OutcomePassed)
+		}
+		add := func(outcome projectstate.TaskOutcome, started, ended *time.Time, basis string) {
+			n++
+			out = append(out, projectstate.TaskAttempt{
+				AttemptID: projectstate.AttemptID(activityID, gate, n), Task: gate, Phase: p, Attempt: n,
+				StartedAt: started, EndedAt: ended, Outcome: outcome, Provenance: reconstructed(basis),
+			})
+		}
+		for _, note := range row.OperatorNotes {
+			if note.Kind == projectstate.NoteSendBack && note.Gate == string(p) {
+				at := note.RecordedAt
+				add(projectstate.OutcomeRejected, nil, &at, "operatorNotes["+note.NoteID+"]")
+			}
+		}
+		switch {
+		case stored[p].Completed && !passed:
+			add(projectstate.OutcomePassed, nil, stored[p].CompletedAt, "phases["+string(p)+"].completed")
+		case liveGate == string(p):
+			add(projectstate.OutcomePending, liveSince, nil, "session.awaitingGate")
+		}
+	}
+	return out
+}
+
+// phaseSegment is one revision's work: the phase's work-task attempts up to the one
+// that reached the gate, plus any conditional-task attempts (someConstruction,
+// testClient) made alongside them.
+type phaseSegment struct {
+	main, extra []projectstate.TaskAttempt
+}
+
+func (s phaseSegment) members() []projectstate.TaskAttempt {
+	return append(slices.Clone(s.main), s.extra...)
+}
+
+// deriveTaskViews returns one view per lifecycle task, in lifecycle order (rules R1–R6
+// and the task state table; both are spelled out in the stage-0 plan, Task 7).
+func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, liveGate string) []taskView {
+	revs := make(map[string][]taskRevision, len(lc.Tasks))
+	gates := make(map[string]bool, len(lc.Phases))
+	for _, ph := range lc.Phases {
+		work := phaseWorkTask(lc, ph.ID)
+		workRevs, gateRevs := phaseRevisions(ph, work, attempts, notes, liveGate)
+		if work != "" {
+			revs[work] = workRevs
+		}
+		revs[ph.Gate], gates[ph.Gate] = gateRevs, true
+	}
+	byID := make(map[string]methodassets.LifecycleTask, len(lc.Tasks))
+	reviewerOf := make(map[string]string, len(lc.Tasks))
+	for _, t := range lc.Tasks {
+		byID[t.ID] = t
+		if t.Kind == methodassets.LifecycleTaskReview && t.Reviews != "" {
+			reviewerOf[t.Reviews] = t.ID
+		}
+	}
+	states := make(map[string]string, len(lc.Tasks))
+	var stateOf func(id string) string
+	stateOf = func(id string) string {
+		if s, ok := states[id]; ok {
+			return s
+		}
+		states[id] = taskLocked // a cycle reads locked; a validated lifecycle has none
+		t := byID[id]
+		s := evidenceState(t, gates[id], revs, reviewerOf, liveGate)
+		if s == "" {
+			s = taskPending
+			for _, dep := range t.DependsOn {
+				if stateOf(dep) != taskPassed {
+					s = taskLocked // rule 9
+					break
+				}
+			}
+		}
+		states[id] = s
+		return s
+	}
+	out := make([]taskView, 0, len(lc.Tasks))
+	for _, t := range lc.Tasks {
+		out = append(out, taskView{ID: t.ID, State: stateOf(t.ID), Revisions: revs[t.ID]})
+	}
+	return out
+}
+
+// phaseWorkTask is the phase's dispatch task ("" for a phase with none, e.g. the
+// projectDesign activity's review-only phase).
+func phaseWorkTask(lc methodassets.Lifecycle, phaseID string) string {
+	for _, t := range lc.Tasks {
+		if t.Phase == phaseID && t.Kind == methodassets.LifecycleTaskDispatch {
+			return t.ID
+		}
+	}
+	return ""
+}
+
+// phaseRevisions cuts one lifecycle phase's attempts into the work task's revisions and
+// the gate task's revisions (R1–R4).
+func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, liveGate string) (workRevs, gateRevs []taskRevision) {
+	var main, extra, gate []projectstate.TaskAttempt
+	for _, a := range attempts {
+		switch {
+		case string(a.Phase) != ph.ID:
+		case string(a.Task) == ph.Gate:
+			gate = append(gate, a)
+		case string(a.Task) == work:
+			main = append(main, a)
+		default:
+			extra = append(extra, a) // R2: a conditional task is a sub-attempt of the work task
+		}
+	}
+	byAttempt := func(x, y projectstate.TaskAttempt) int { return cmp.Compare(x.Attempt, y.Attempt) }
+	slices.SortStableFunc(main, byAttempt)
+	slices.SortStableFunc(gate, byAttempt)
+	for i, seg := range foldConditional(cutSegments(main), extra) {
+		workRevs = append(workRevs, dispatchRevision(i+1, seg))
+	}
+	var sendBacks []projectstate.OperatorNote
+	for _, n := range notes {
+		if n.Kind == projectstate.NoteSendBack && n.Gate == ph.ID {
+			sendBacks = append(sendBacks, n)
+		}
+	}
+	rejected := 0
+	for _, g := range gate {
+		if g.Outcome == projectstate.OutcomeRejected {
+			rejected++
+		}
+	}
+	// R4: the j-th rejection takes note j + (len(sendBacks) - rejected) — tails aligned.
+	next := len(sendBacks) - rejected
+	for i, g := range gate {
+		rev := reviewRevision(i+1, g, liveGate == ph.ID)
+		if g.Outcome == projectstate.OutcomeRejected {
+			if next >= 0 && next < len(sendBacks) {
+				rev.Note, rev.Comments = sendBacks[next].Text, sendBacks[next].Comments
+			}
+			next++
+		}
+		gateRevs = append(gateRevs, rev)
+	}
+	return workRevs, gateRevs
+}
+
+// cutSegments is R1: a segment closes at the attempt that reached the gate.
+func cutSegments(main []projectstate.TaskAttempt) []phaseSegment {
+	var out []phaseSegment
+	var cur []projectstate.TaskAttempt
+	for _, a := range main {
+		cur = append(cur, a)
+		if a.Outcome == projectstate.OutcomePassed || a.Outcome == projectstate.OutcomeSkipped {
+			out, cur = append(out, phaseSegment{main: cur}), nil
+		}
+	}
+	if len(cur) > 0 {
+		out = append(out, phaseSegment{main: cur})
+	}
+	return out
+}
+
+// foldConditional is R2: each conditional-task attempt joins the first revision whose
+// reaching attempt ended at or after it started, else the last revision.
+func foldConditional(segs []phaseSegment, extra []projectstate.TaskAttempt) []phaseSegment {
+	for _, x := range extra {
+		if len(segs) == 0 {
+			segs = append(segs, phaseSegment{})
+		}
+		at := len(segs) - 1
+		for i, s := range segs {
+			if len(s.main) == 0 {
+				continue
+			}
+			reached := s.main[len(s.main)-1]
+			if x.StartedAt != nil && reached.EndedAt != nil && !x.StartedAt.After(*reached.EndedAt) {
+				at = i
+				break
+			}
+		}
+		segs[at].extra = append(segs[at].extra, x)
+	}
+	return segs
+}
+
+func dispatchRevision(n int, seg phaseSegment) taskRevision {
+	members := seg.members()
+	rev := taskRevision{N: n, Outcome: revFailed, Provenance: projectstate.AttemptsWorstOrigin(members)} // R5
+	decisive := members[len(members)-1]
+	if len(seg.main) > 0 {
+		decisive = seg.main[len(seg.main)-1]
+	}
+	switch decisive.Outcome {
+	case projectstate.OutcomePassed:
+		rev.Outcome = revPassed
+	case projectstate.OutcomeSkipped:
+		rev.Outcome = revSkipped
+	case projectstate.OutcomePending, projectstate.OutcomeRejected, projectstate.OutcomeFailed:
+		// pending is decided below over every member; a work attempt is never "rejected".
+	}
+	for _, a := range members {
+		rev.AttemptIDs = append(rev.AttemptIDs, a.AttemptID)
+		if a.Outcome == projectstate.OutcomePending {
+			rev.Outcome = revRunning
+		}
+	}
+	for _, a := range slices.Backward(members) { // R6: main members first, so search them last-to-first
+		if a.Evidence.Kind == projectstate.EvidenceEpisode && a.Task == decisive.Task {
+			rev.EpisodeID = a.Evidence.Ref
+			break
+		}
+	}
+	rev.StartedAt, rev.EndedAt = attemptSpan(members)
+	return rev
+}
+
+func reviewRevision(n int, g projectstate.TaskAttempt, live bool) taskRevision {
+	rev := taskRevision{N: n, AttemptIDs: []string{g.AttemptID}, Provenance: projectstate.AttemptsWorstOrigin([]projectstate.TaskAttempt{g})}
+	switch g.Outcome {
+	case projectstate.OutcomePending:
+		rev.Outcome = revRunning
+		if live {
+			rev.Outcome = revAwaitingHuman
+		}
+	case projectstate.OutcomePassed:
+		rev.Outcome = revPassed
+	case projectstate.OutcomeRejected:
+		rev.Outcome = revSentBack
+	case projectstate.OutcomeFailed:
+		rev.Outcome = revFailed
+	case projectstate.OutcomeSkipped:
+		rev.Outcome = revSkipped
+	}
+	rev.StartedAt, rev.EndedAt = attemptSpan([]projectstate.TaskAttempt{g})
+	return rev
+}
+
+// attemptSpan is R6's times: the earliest start, and the latest end once nothing is pending.
+func attemptSpan(members []projectstate.TaskAttempt) (started, ended *time.Time) {
+	open := false
+	for _, a := range members {
+		if a.StartedAt != nil && (started == nil || a.StartedAt.Before(*started)) {
+			started = a.StartedAt
+		}
+		if a.EndedAt != nil && (ended == nil || a.EndedAt.After(*ended)) {
+			ended = a.EndedAt
+		}
+		open = open || a.Outcome == projectstate.OutcomePending
+	}
+	if open {
+		ended = nil
+	}
+	return started, ended
+}
+
+// evidenceState applies state rules 1–8; "" means the task has no evidence and its
+// dependsOn decide between locked and pending.
+func evidenceState(t methodassets.LifecycleTask, isGate bool, revs map[string][]taskRevision, reviewerOf map[string]string, liveGate string) string {
+	if t.Kind == methodassets.LifecycleTaskReview {
+		if isGate && liveGate != "" && liveGate == t.Phase {
+			return taskAwaitingHuman // 1
+		}
+		return reviewEvidenceState(revs[t.ID], len(revs[t.Reviews]))
+	}
+	return dispatchEvidenceState(revs[t.ID], revs[reviewerOf[t.ID]])
+}
+
+func reviewEvidenceState(mine []taskRevision, workRevisions int) string {
+	if len(mine) == 0 {
+		return ""
+	}
+	switch last := mine[len(mine)-1]; last.Outcome {
+	case revRunning, revAwaitingHuman:
+		return taskRunning // 2
+	case revSentBack:
+		if workRevisions > last.N {
+			return taskPending // 3: the redraft is under way
+		}
+		return taskSentBack // 4
+	case revFailed:
+		return taskFailed // 6
+	}
+	return taskPassed // 7
+}
+
+func dispatchEvidenceState(mine, reviewer []taskRevision) string {
+	var verdict *taskRevision
+	if len(reviewer) > 0 {
+		verdict = &reviewer[len(reviewer)-1]
+	}
+	if len(mine) == 0 {
+		if verdict != nil && verdict.Outcome == revPassed {
+			return taskPassed // 8: the gate is the exit criterion; silence is not denial
+		}
+		return ""
+	}
+	last := mine[len(mine)-1]
+	switch {
+	case last.Outcome == revRunning:
+		return taskRunning // 2
+	case verdict != nil && verdict.Outcome == revSentBack && last.N <= verdict.N:
+		return taskSentBack // 5
+	case last.Outcome == revFailed:
+		return taskFailed // 6
+	}
+	return taskPassed // 7
 }

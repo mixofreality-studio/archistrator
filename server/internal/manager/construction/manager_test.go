@@ -36,6 +36,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -9253,4 +9254,302 @@ func TestExecuteNextActivity_NoProjectStillStartsThePump(t *testing.T) {
 		t.Fatalf("a missing project must not read as paused, got %v", err)
 	}
 	mc.AssertExpectations(t)
+}
+
+// ===========================================================================
+// QueryActivityView — revision derivation (spec 2026-09-20 §2). Pure functions.
+// ===========================================================================
+
+// avServiceLifecycle is Figure A-1 as the lifecycle data states it: SRS → SRS Review →
+// fork { Detailed Design → Design Review → Construction → Code Review → Integration }
+// ∥ { STP → STP Review } → join Testing. A literal, so these tests pin the DERIVATION
+// and not the data file.
+func avServiceLifecycle() methodassets.Lifecycle {
+	d := func(id, phase string, deps ...string) methodassets.LifecycleTask {
+		return methodassets.LifecycleTask{ID: id, Kind: methodassets.LifecycleTaskDispatch, Title: id, Phase: phase, DependsOn: deps}
+	}
+	r := func(id, phase, reviews string, deps ...string) methodassets.LifecycleTask {
+		return methodassets.LifecycleTask{ID: id, Kind: methodassets.LifecycleTaskReview, Title: id, Phase: phase, DependsOn: deps, Reviews: reviews}
+	}
+	return methodassets.Lifecycle{
+		Type: "service",
+		Phases: []methodassets.LifecyclePhase{
+			{ID: "requirements", Label: "Requirements", Weight: 15, Gate: "srsReview"},
+			{ID: "detailed_design", Label: "Detailed Design", Weight: 20, Gate: "designReview"},
+			{ID: "test_plan", Label: "Test Plan", Weight: 10, Gate: "stpReview"},
+			{ID: "construction", Label: "Construction", Weight: 40, Gate: "codeReview"},
+			{ID: "integration", Label: "Integration", Weight: 15, Gate: "testing"},
+		},
+		Tasks: []methodassets.LifecycleTask{
+			d("srs", "requirements"), r("srsReview", "requirements", "srs", "srs"),
+			d("detailedDesign", "detailed_design", "srsReview"), r("designReview", "detailed_design", "detailedDesign", "detailedDesign"),
+			d("stp", "test_plan", "srsReview"), r("stpReview", "test_plan", "stp", "stp"),
+			d("construction", "construction", "designReview"), r("codeReview", "construction", "construction", "construction"),
+			d("integration", "integration", "codeReview"), r("testing", "integration", "integration", "integration", "stpReview"),
+		},
+	}
+}
+
+func avAttempt(task projectstate.MethodTask, n int, outcome projectstate.TaskOutcome, origin projectstate.RecordOrigin) projectstate.TaskAttempt {
+	a := ledgerAttempt("C-X", task, n, outcome)
+	a.Provenance = projectstate.AttemptProvenance{Origin: origin, Basis: "test"}
+	return a
+}
+
+func avObserved(task projectstate.MethodTask, n int, outcome projectstate.TaskOutcome) projectstate.TaskAttempt {
+	return avAttempt(task, n, outcome, projectstate.OriginObserved)
+}
+
+func avSendBack(gate, text string, comments ...projectstate.NoteComment) projectstate.OperatorNote {
+	return projectstate.OperatorNote{NoteID: "n-" + text, Kind: projectstate.NoteSendBack, Gate: gate, Text: text, Comments: comments}
+}
+
+func avTask(t *testing.T, views []taskView, id string) taskView {
+	t.Helper()
+	for _, v := range views {
+		if v.ID == id {
+			return v
+		}
+	}
+	t.Fatalf("no task %q in %+v", id, views)
+	return taskView{}
+}
+
+func avOutcomes(v taskView) []string {
+	out := make([]string, 0, len(v.Revisions))
+	for _, r := range v.Revisions {
+		out = append(out, r.Outcome)
+	}
+	return out
+}
+
+var avSRSPassed = []projectstate.TaskAttempt{
+	avObserved(projectstate.TaskSRS, 1, projectstate.OutcomePassed),
+	avObserved(projectstate.TaskSRSReview, 1, projectstate.OutcomePassed),
+}
+
+func TestDeriveTaskViews_StatesAndRevisions(t *testing.T) {
+	passed, rejected, failed, pending := projectstate.OutcomePassed, projectstate.OutcomeRejected, projectstate.OutcomeFailed, projectstate.OutcomePending
+	with := func(extra ...projectstate.TaskAttempt) []projectstate.TaskAttempt {
+		return append(slices.Clone(avSRSPassed), extra...)
+	}
+	cases := []struct {
+		name     string
+		attempts []projectstate.TaskAttempt
+		notes    []projectstate.OperatorNote
+		liveGate string
+		want     map[string]string   // task id → state
+		revs     map[string][]string // task id → revision outcomes
+	}{
+		{
+			name: "nothing recorded: the root is pending, everything else locked",
+			want: map[string]string{"srs": taskPending, "srsReview": taskLocked, "detailedDesign": taskLocked, "testing": taskLocked},
+		},
+		{
+			name:     "the fork: a passed SRS Review unlocks BOTH branches; the join stays locked",
+			attempts: with(),
+			want:     map[string]string{"srsReview": taskPassed, "detailedDesign": taskPending, "stp": taskPending, "designReview": taskLocked, "testing": taskLocked},
+		},
+		{
+			name: "a send-back opens revision 2; the dispatch and its review share the numbers",
+			attempts: with(
+				avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, rejected),
+				avObserved(projectstate.TaskDetailedDesign, 2, passed), avObserved(projectstate.TaskDesignReview, 2, passed)),
+			notes: []projectstate.OperatorNote{avSendBack("detailed_design", "split the op")},
+			want:  map[string]string{"detailedDesign": taskPassed, "designReview": taskPassed, "construction": taskPending},
+			revs:  map[string][]string{"detailedDesign": {revPassed, revPassed}, "designReview": {revSentBack, revPassed}},
+		},
+		{
+			name: "failed and retried work before the gate is ONE revision",
+			attempts: with(
+				avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, passed),
+				avObserved(projectstate.TaskConstruction, 1, failed), avObserved(projectstate.TaskConstruction, 2, failed),
+				avObserved(projectstate.TaskConstruction, 3, passed), avObserved(projectstate.TaskCodeReview, 1, passed)),
+			want: map[string]string{"construction": taskPassed, "codeReview": taskPassed},
+			revs: map[string][]string{"construction": {revPassed}, "codeReview": {revPassed}},
+		},
+		{
+			name:     "sent back and not yet redrafted: both tasks read sentBack",
+			attempts: with(avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, rejected)),
+			notes:    []projectstate.OperatorNote{avSendBack("detailed_design", "redo")},
+			want:     map[string]string{"detailedDesign": taskSentBack, "designReview": taskSentBack, "construction": taskLocked},
+		},
+		{
+			name: "the redraft is running: the dispatch runs, its review waits, the other branch is untouched",
+			attempts: with(
+				avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, rejected),
+				avObserved(projectstate.TaskDetailedDesign, 2, pending), avObserved(projectstate.TaskSTP, 1, pending)),
+			notes: []projectstate.OperatorNote{avSendBack("detailed_design", "redo")},
+			want:  map[string]string{"detailedDesign": taskRunning, "designReview": taskPending, "stp": taskRunning, "stpReview": taskLocked},
+			revs:  map[string][]string{"detailedDesign": {revPassed, revRunning}, "designReview": {revSentBack}},
+		},
+		{
+			name:     "a live gate: the review task awaits the human",
+			attempts: with(avObserved(projectstate.TaskDetailedDesign, 1, passed), avObserved(projectstate.TaskDesignReview, 1, pending)),
+			liveGate: "detailed_design",
+			want:     map[string]string{"detailedDesign": taskPassed, "designReview": taskAwaitingHuman},
+			revs:     map[string][]string{"designReview": {revAwaitingHuman}},
+		},
+		{
+			name:     "work that failed and was not retried",
+			attempts: with(avObserved(projectstate.TaskDetailedDesign, 1, failed)),
+			want:     map[string]string{"detailedDesign": taskFailed, "designReview": taskLocked},
+			revs:     map[string][]string{"detailedDesign": {revFailed}},
+		},
+		{
+			name:     "a partial backfill: a passed gate with no work attempt passes its work, and is not locked by silent ancestors",
+			attempts: []projectstate.TaskAttempt{avAttempt(projectstate.TaskDesignReview, 1, passed, projectstate.OriginBackfilled)},
+			want:     map[string]string{"srs": taskPending, "designReview": taskPassed, "detailedDesign": taskPassed, "construction": taskPending},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			views := deriveTaskViews(avServiceLifecycle(), c.attempts, c.notes, c.liveGate)
+			if len(views) != 10 {
+				t.Fatalf("want one view per lifecycle task (10), got %d", len(views))
+			}
+			for id, want := range c.want {
+				if got := avTask(t, views, id).State; got != want {
+					t.Errorf("%s state = %s, want %s", id, got, want)
+				}
+			}
+			for id, want := range c.revs {
+				if got := avOutcomes(avTask(t, views, id)); !slices.Equal(got, want) {
+					t.Errorf("%s revisions = %v, want %v", id, got, want)
+				}
+			}
+		})
+	}
+}
+
+func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
+	passed, rejected, failed := projectstate.OutcomePassed, projectstate.OutcomeRejected, projectstate.OutcomeFailed
+	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	at := func(a projectstate.TaskAttempt, startMin, endMin int, episodeID string) projectstate.TaskAttempt {
+		s, e := t0.Add(time.Duration(startMin)*time.Minute), t0.Add(time.Duration(endMin)*time.Minute)
+		a.StartedAt, a.EndedAt = &s, &e
+		if episodeID != "" {
+			a.Evidence = projectstate.EvidenceRef{Kind: projectstate.EvidenceEpisode, Ref: episodeID}
+		}
+		return a
+	}
+	attempts := append(slices.Clone(avSRSPassed),
+		at(avObserved(projectstate.TaskConstruction, 1, failed), 0, 10, "ep-c1"),
+		at(avAttempt(projectstate.TaskConstruction, 2, passed, projectstate.OriginSynthesized), 11, 20, "ep-c2"),
+		at(avObserved(projectstate.TaskTestClient, 1, passed), 12, 18, ""),
+		at(avObserved(projectstate.TaskCodeReview, 1, rejected), 21, 30, ""),
+		at(avObserved(projectstate.TaskConstruction, 3, passed), 31, 40, "ep-c3"),
+		at(avObserved(projectstate.TaskCodeReview, 2, passed), 41, 45, ""),
+	)
+	older := avSendBack("construction", "predates the gate attempts — must stay unmatched")
+	matched := avSendBack("construction", "handle the nil map",
+		projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "nil map"}, projectstate.NoteComment{JSONPath: "$.ops[1]", Text: "no test"})
+	elsewhere := avSendBack("detailed_design", "another gate's note")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, "")
+
+	avCheckWorkRevisions(t, t0, avTask(t, views, "construction").Revisions)
+	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
+}
+
+// avCheckWorkRevisions asserts the dispatch side of the run above: two revisions, the
+// failed retry and the tandem test client folded into the first, the episode of the
+// attempt that reached the gate, worst-origin contagion, and the revision's span.
+func avCheckWorkRevisions(t *testing.T, t0 time.Time, work []taskRevision) {
+	t.Helper()
+	if len(work) != 2 {
+		t.Fatalf("construction revisions = %d, want 2", len(work))
+	}
+	if got, want := work[0].AttemptIDs, []string{"C-X:construction:1", "C-X:construction:2", "C-X:testClient:1"}; !slices.Equal(got, want) {
+		t.Errorf("revision 1 members = %v, want %v (the failed retry and the tandem test client are sub-attempts)", got, want)
+	}
+	if work[0].EpisodeID != "ep-c2" || work[1].EpisodeID != "ep-c3" {
+		t.Errorf("episodes = %q, %q; want the attempt that reached the gate: ep-c2, ep-c3", work[0].EpisodeID, work[1].EpisodeID)
+	}
+	if work[0].Provenance != projectstate.OriginSynthesized || work[1].Provenance != projectstate.OriginObserved {
+		t.Errorf("provenance = %q, %q; want synthesized (contagion from construction#2) then observed", work[0].Provenance, work[1].Provenance)
+	}
+	if work[0].StartedAt == nil || !work[0].StartedAt.Equal(t0) || work[0].EndedAt == nil || !work[0].EndedAt.Equal(t0.Add(20*time.Minute)) {
+		t.Errorf("revision 1 spans %v–%v, want %v–%v", work[0].StartedAt, work[0].EndedAt, t0, t0.Add(20*time.Minute))
+	}
+}
+
+// avCheckGateRevisions asserts the review side: shared numbering, and the send-back note
+// matched by order with the tails aligned — the LAST construction note, not the oldest.
+func avCheckGateRevisions(t *testing.T, gate []taskRevision) {
+	t.Helper()
+	if len(gate) != 2 || gate[0].N != 1 || gate[1].N != 2 {
+		t.Fatalf("codeReview revisions = %+v, want n=1,2", gate)
+	}
+	if gate[0].Outcome != revSentBack || gate[0].Note != "handle the nil map" || len(gate[0].Comments) != 2 {
+		t.Errorf("revision 1 = %+v, want sentBack carrying the LAST construction send-back note and its 2 comments", gate[0])
+	}
+	if gate[1].Note != "" || gate[0].EpisodeID != "" {
+		t.Errorf("a passed review carries no note and a review revision no episode: %+v", gate)
+	}
+}
+
+func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
+	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	done := t0.Add(50 * time.Minute)
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID:   "C-X",
+		CurrentPhase: projectstate.MethodPhaseConstruction,
+		Attempts:     []projectstate.TaskAttempt{avAttempt(projectstate.TaskSRS, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled)},
+		Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true, CompletedAt: &done},
+			{Phase: projectstate.MethodPhaseConstruction},
+		},
+		OperatorNotes: []projectstate.OperatorNote{{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "redo", RecordedAt: t0.Add(20 * time.Minute)}},
+	}
+	episodes := []episode.EpisodeRecord{
+		{EpisodeID: "ep-srs", TargetRef: "C-X:srs:1", StartedAt: t0, EndedAt: t0.Add(5 * time.Minute)},
+		{EpisodeID: "ep-dd1", TargetRef: "C-X:detailedDesign:1", StartedAt: t0.Add(6 * time.Minute), EndedAt: t0.Add(15 * time.Minute)},
+		{EpisodeID: "ep-dd2", TargetRef: "C-X:detailedDesign:2", StartedAt: t0.Add(21 * time.Minute), EndedAt: t0.Add(40 * time.Minute)},
+		{EpisodeID: "ep-gap", TargetRef: "C-X:construction:1", StartedAt: t0.Add(51 * time.Minute), EndedAt: t0.Add(52 * time.Minute), Outcome: episode.EpisodeGap},
+		{EpisodeID: "ep-legacy", TargetRef: "C-X"},       // pre-attempt-key record: not an attempt
+		{EpisodeID: "ep-other", TargetRef: "C-XY:srs:1"}, // another activity sharing the prefix
+	}
+	live := &ConstructionSessionView{Stage: StagePipelineRunning}
+	got := normalizeAttempts("C-X", row, episodes, live)
+
+	type key struct {
+		id      string
+		outcome projectstate.TaskOutcome
+		origin  projectstate.RecordOrigin
+	}
+	var have []key
+	for _, a := range got {
+		have = append(have, key{a.AttemptID, a.Outcome, a.Provenance.Origin})
+	}
+	bf := projectstate.OriginBackfilled
+	want := []key{
+		{"C-X:srs:1", projectstate.OutcomePassed, bf},            // N1: the ledger row, verbatim
+		{"C-X:detailedDesign:1", projectstate.OutcomePassed, bf}, // N2
+		{"C-X:detailedDesign:2", projectstate.OutcomePassed, bf}, // N2
+		{"C-X:construction:1", projectstate.OutcomeFailed, bf},   // N2: a gap is a failed attempt
+		{"C-X:construction:2", projectstate.OutcomePending, bf},  // N3: the dispatch running now
+		{"C-X:designReview:1", projectstate.OutcomeRejected, bf}, // N4: the send-back note
+		{"C-X:designReview:2", projectstate.OutcomePassed, bf},   // N4: the stored completion
+	}
+	if !slices.Equal(have, want) {
+		t.Fatalf("normalized attempts:\n got %v\nwant %v", have, want)
+	}
+	if got[0].Evidence.Ref != "ep-srs" {
+		t.Errorf("N1: the ledger attempt must gain its episode as evidence, got %+v", got[0].Evidence)
+	}
+	for _, a := range got[1:] {
+		if a.Provenance.Basis == "" {
+			t.Errorf("%s: a reconstructed attempt must name its basis", a.AttemptID)
+		}
+	}
+}
+
+func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
+	since := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
+	row := projectstate.ActivityConstructionStatus{ActivityID: "C-X", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}}}
+	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: ptrTo("detailed_design"), AwaitingSince: &since}
+	got := normalizeAttempts("C-X", row, nil, live)
+	if len(got) != 1 || got[0].AttemptID != "C-X:designReview:1" || got[0].Outcome != projectstate.OutcomePending || got[0].StartedAt == nil || !got[0].StartedAt.Equal(since) {
+		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
+	}
 }
