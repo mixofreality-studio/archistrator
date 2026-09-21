@@ -4,7 +4,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -79,6 +79,30 @@ void test('it rejects an ambiguous or malformed answer', () => {
 void test('it rejects a fixture without an absolute route', () => {
   assert.equal(validate({ route: 'project/x', ops: {} }), false);
   assert.equal(validate({ ops: {} }), false);
+});
+
+void test('the activity-experience design fixtures are recorded, valid, and answer the one read', () => {
+  const { files, errors } = validateFixtureTree(DESIGN_FIXTURES, { validate });
+  assert.deepEqual(errors, []);
+  const states = files
+    .filter((f) => f.includes(join(SURFACE, 'activity-experience')))
+    .map((f) => f.slice(f.lastIndexOf('/') + 1))
+    .sort();
+  assert.deepEqual(states, [
+    'deployment-linear.json',
+    'done.json',
+    'not-started.json',
+    'service-fork-sent-back.json',
+  ]);
+  for (const f of files.filter((p) => p.includes(join(SURFACE, 'activity-experience')))) {
+    const view = JSON.parse(readFileSync(f, 'utf8')).ops.constructionQueryActivityView.result;
+    const ids = new Set(view.tasks.map((t) => t.id));
+    for (const t of view.tasks) {
+      for (const dep of t.dependsOn) assert.ok(ids.has(dep), `${f}: ${t.id} depends on unknown ${dep}`);
+      if (t.reviews !== undefined) assert.ok(ids.has(t.reviews), `${f}: ${t.id} reviews unknown ${t.reviews}`);
+    }
+    assert.equal(view.phases.reduce((sum, p) => sum + p.weight, 0), 100, `${f}: weights`);
+  }
 });
 
 void test('a fixture whose text carries a bundle marker is refused', () => {

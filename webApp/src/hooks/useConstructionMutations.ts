@@ -29,6 +29,7 @@ import type {
 } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
+import { activityViewsKey } from './useActivityView';
 import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
 import { projectKey } from './useProject';
 
@@ -93,6 +94,7 @@ export function useBeginConstruction(
     await Promise.all([
       client.invalidateQueries({ queryKey: projectKey(projectId) }),
       client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) }),
+      client.invalidateQueries({ queryKey: activityViewsKey(projectId) }),
     ]);
   };
   return useMutation<BeginResult, Error, string>({
@@ -145,7 +147,11 @@ export function usePauseConstruction(
       });
       return undefined;
     },
-    onSuccess: () => client.invalidateQueries({ queryKey: ['constructionSession', projectId] }),
+    onSuccess: () =>
+      Promise.all([
+        client.invalidateQueries({ queryKey: ['constructionSession', projectId] }),
+        client.invalidateQueries({ queryKey: activityViewsKey(projectId) }),
+      ]),
   });
 }
 
@@ -168,6 +174,7 @@ export function useResumeConstruction(
     onSuccess: async () => {
       await client.invalidateQueries({ queryKey: projectKey(projectId) });
       await client.invalidateQueries({ queryKey: constructionSessionsKey(projectId) });
+      await client.invalidateQueries({ queryKey: activityViewsKey(projectId) });
     },
   });
 }
