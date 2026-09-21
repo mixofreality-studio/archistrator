@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check gen-lifecycles gen-lifecycles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -78,7 +78,7 @@ gen-internal-tools:
 gen-internal-tools-check: gen-internal-tools
 	git diff --exit-code -- internal/resourceaccess/projectstate/toolcatalog.gen.go
 
-gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles
+gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles gen-lifecycles
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
 # temporalgen + transportgen + configgen) that emits, from a single project.json
@@ -166,6 +166,23 @@ gen-uiprofiles:
 # server working directory (server-checks.yml).
 gen-uiprofiles-check: gen-uiprofiles
 	git diff --exit-code -- ../webApp/src/components/construction/lifecycleTemplates.gen.ts
+
+# gen-lifecycles — the per-activity-type lifecycle (phases + the dispatch/review
+# task DAG, cmd/gen-lifecycles) emitted into the sibling webApp module at
+# ../webApp/src/components/activity/lifecycles.gen.ts, straight from the
+# lifecycles.json shipped in the method-assets release pinned in go.mod. No
+# project.json read (the data is platform-fixed), so no -project/-id flags.
+gen-lifecycles:
+	GOWORK=off go run ./cmd/gen-lifecycles
+
+# gen-lifecycles-check — drift gate for the generated lifecycles, the same
+# regenerate-then-diff shape as gen-uiprofiles-check. `git diff` is blind to an
+# UNTRACKED file, so the ls-files line fails the gate when the generated file was
+# never committed at all. A method-assets pin bump that changes lifecycles.json
+# turns this red until `make gen-lifecycles` is re-run and committed.
+gen-lifecycles-check: gen-lifecycles
+	git ls-files --error-unmatch ../webApp/src/components/activity/lifecycles.gen.ts >/dev/null
+	git diff --exit-code -- ../webApp/src/components/activity/lifecycles.gen.ts
 
 # Everything, including the model-gated integration tests (need a live, capable
 # Ollama-backed worker — see internal/manager/systemdesign/integration_test.go).
