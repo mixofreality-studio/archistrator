@@ -186,11 +186,18 @@ export function SubmitBar({
             color={verb.action === 'approve' ? 'primary' : 'inherit'}
             data-testid={UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_PRIMARY}
             disabled={verb.disabled || busy}
-            startIcon={busy ? <CircularProgress color="inherit" size={14} /> : verbIcon(verb.action)}
+            startIcon={
+              busy ? <CircularProgress color="inherit" size={14} /> : verbIcon(verb.action)
+            }
             sx={
               verb.action === 'approve'
                 ? {}
-                : { color: t.ink, borderColor: t.line, bgcolor: t.paperAlt, '&:hover': { bgcolor: t.paperAlt } }
+                : {
+                    color: t.ink,
+                    borderColor: t.line,
+                    bgcolor: t.paperAlt,
+                    '&:hover': { bgcolor: t.paperAlt },
+                  }
             }
             variant={verb.action === 'approve' ? 'contained' : 'outlined'}
             onClick={onPrimaryClick}

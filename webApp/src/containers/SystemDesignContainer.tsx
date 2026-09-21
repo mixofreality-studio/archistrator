@@ -409,7 +409,12 @@ export function SystemDesignContainer({
             amendPending={requestDraft.isPending}
             askPending={askQuestionsMut.isPending}
             beginPending={startDesign.isPending || requestDraft.isPending}
-            commentSurface={{ enabled: commentsEnabled, changeRequestCount, questionCount, setAnchor }}
+            commentSurface={{
+              enabled: commentsEnabled,
+              changeRequestCount,
+              questionCount,
+              setAnchor,
+            }}
             decisionPending={submitReview.isPending}
             episodesSlot={
               <EpisodesPanelContainer

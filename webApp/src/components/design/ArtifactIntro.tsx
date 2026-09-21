@@ -96,9 +96,7 @@ export function ArtifactInfoButton({
       >
         <Box sx={{ p: 2, maxWidth: 360, bgcolor: t.paper }}>
           {copy !== undefined ? (
-            <Typography
-              sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}
-            >
+            <Typography sx={{ fontFamily: t.mono, fontSize: 12.5, color: t.ink, lineHeight: 1.5 }}>
               {copy.committed}
             </Typography>
           ) : null}

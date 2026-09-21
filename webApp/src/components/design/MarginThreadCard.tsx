@@ -230,7 +230,9 @@ export function MarginThreadCard({
             >
               STAGED · NOT SENT
             </Typography>
-            <Typography sx={{ fontSize: 12.5, lineHeight: 1.45, color: t.ink }}>{r.text}</Typography>
+            <Typography sx={{ fontSize: 12.5, lineHeight: 1.45, color: t.ink }}>
+              {r.text}
+            </Typography>
           </Box>
           {onDiscardStaged !== undefined ? (
             <IconButton

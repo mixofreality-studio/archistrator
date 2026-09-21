@@ -258,9 +258,10 @@ export function CommentMargin({
 
   // A stable, de-duplicated path list: `useAnchorOffsets` memoizes on this array's
   // identity, so rebuilding it every render would re-measure every render.
-  const paths = useMemo(() => [...new Set(items.map(anchorPathOf))].filter((p) => p.length > 0), [
-    items,
-  ]);
+  const paths = useMemo(
+    () => [...new Set(items.map(anchorPathOf))].filter((p) => p.length > 0),
+    [items]
+  );
   const offsets = useAnchorOffsets(paths, scrollRoot, tick);
   const scrollAnchorIntoView = useScrollAnchorIntoView();
 
@@ -840,8 +841,8 @@ function MarginDraftCard({
           role="status"
           sx={{ fontFamily: t.mono, fontSize: 10, color: t.accent, mt: 0.75 }}
         >
-          Comment or Cancel first — this draft is holding the comment button on other
-          rows, so it cannot be moved off {anchor !== null ? 'this one' : 'the margin'}.
+          Comment or Cancel first — this draft is holding the comment button on other rows, so it
+          cannot be moved off {anchor !== null ? 'this one' : 'the margin'}.
         </Typography>
       ) : null}
 
