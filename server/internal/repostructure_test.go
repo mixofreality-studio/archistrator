@@ -45,6 +45,7 @@ var allowedCmd = map[string]bool{
 	"archistrator":         true,
 	"backfill-attempts":    true,
 	"clientgen":            true,
+	"gen-lifecycles":       true,
 	"gen-systemtests":      true,
 	"gen-uiprofiles":       true,
 	"gen-uitests-episodes": true,
