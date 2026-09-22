@@ -41,6 +41,8 @@ export function activityViewPollIntervalMs(
   error: unknown,
   notStartedPollMs: number | false = false
 ): number | false {
+  // Checked as the no-error case FIRST, not its inverse: statusDecides.test.ts scans every
+  // hook file for the inverted comparison as a hook-holds-a-raw-response smell (sessionPolling.ts:201).
   if (error === null || error === undefined) {
     if (data === undefined) return false;
     if (data.tasks.some((t) => t.state === 'running') || data.state === 'running') {

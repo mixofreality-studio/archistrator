@@ -29,7 +29,7 @@ import type {
 } from '../contracts/types';
 import type { components } from '../contracts/schema';
 import { constructionSessionKey, constructionSessionsKey } from './useConstructionSession';
-import { activityViewsKey } from './useActivityView';
+import { activityViewKey, activityViewsKey } from './useActivityView';
 import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
 import { projectKey } from './useProject';
 
@@ -220,9 +220,12 @@ export function useOverrideActivity(
       return undefined;
     },
     onSuccess: (_data, vars) =>
-      client.invalidateQueries({
-        queryKey: constructionSessionKey(projectId, vars.activityId),
-      }),
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: constructionSessionKey(projectId, vars.activityId),
+        }),
+        client.invalidateQueries({ queryKey: activityViewKey(projectId, vars.activityId) }),
+      ]),
   });
 }
 
@@ -289,9 +292,12 @@ export function useSubmitPhaseDecision(
       }
     },
     onSuccess: (_data, vars) =>
-      client.invalidateQueries({
-        queryKey: constructionSessionKey(projectId, vars.activityId),
-      }),
+      Promise.all([
+        client.invalidateQueries({
+          queryKey: constructionSessionKey(projectId, vars.activityId),
+        }),
+        client.invalidateQueries({ queryKey: activityViewKey(projectId, vars.activityId) }),
+      ]),
   });
 }
 

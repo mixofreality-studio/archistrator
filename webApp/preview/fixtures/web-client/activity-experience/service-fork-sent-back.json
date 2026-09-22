@@ -31,12 +31,12 @@
               { "jsonPath": "$['$defs'].LedgerEntry.properties.amount", "text": "Minor units, not a float." } ],
               "note": "Two ops are the same verb, and money is a float. Fold the pair and move to minor units, then send it back to me.", "provenance": "backfilled" },
             { "n": 2, "outcome": "awaitingHuman", "startedAt": "2026-09-19T11:53:00Z", "attemptIds": ["C-billing-state-access:designReview:2"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
-          { "id": "stp", "kind": "dispatch", "title": "STP", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "running", "revisions": [
-            { "n": 1, "outcome": "running", "attemptIds": ["C-billing-state-access:stp:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
-          { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "locked", "revisions": [] },
           { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "locked", "revisions": [] },
           { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
           { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "stp", "kind": "dispatch", "title": "STP", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "running", "revisions": [
+            { "n": 1, "outcome": "running", "attemptIds": ["C-billing-state-access:stp:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "locked", "revisions": [] },
           { "id": "testing", "kind": "review", "title": "Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
         ],
         "reviewSet": { "reviewers": [ { "role": "architect", "perspective": "architecture", "referenceArtifact": "architecture", "mayAmend": true } ] }
