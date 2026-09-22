@@ -7307,6 +7307,39 @@ func TestCommandForTotalOverProfiles(t *testing.T) {
 	}
 }
 
+// CARRY-OVER from Task 3's review (binding): with cmd/gen-uiprofiles gone, the claim "a
+// profile's command matches its own phase" was covered only by a distinct-count sanity
+// check (TestEveryActivityTypeResolvesToALifecycle asserts CommandFor is non-empty, not
+// that it is the RIGHT command). This is the real oracle: for every (type, variant,
+// carried) phase, CommandFor must equal the lifecycle's own dispatch task's Command for
+// that phase — recomputed HERE straight off methodassets.LifecycleFor's raw Tasks, never
+// through CommandFor's own dispatchTaskIn helper, so a bug in that helper cannot hide
+// behind a test that calls it too.
+func TestCommandFor_MatchesTheLifecyclesDispatchTaskCommand(t *testing.T) {
+	for _, combo := range append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0}) {
+		key := LifecycleKeyFor(combo.t, combo.v)
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Fatalf("no lifecycle %q", key)
+		}
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			want := ""
+			for _, task := range lc.Tasks {
+				if task.Phase == ph.ID && task.Kind == methodassets.LifecycleTaskDispatch {
+					want = task.Command
+					break
+				}
+			}
+			if got := CommandFor(combo.t, combo.v, p); got != want {
+				t.Errorf("%s/%s: CommandFor = %q, want the lifecycle's own dispatch task command %q", key, p, got, want)
+			}
+		}
+	}
+}
+
 type profileCombo struct {
 	t ActivityType
 	v TestingVariant
