@@ -14154,6 +14154,225 @@
           }
         }
       ]
+    },
+    "architecture": {
+      "activityID": "architecture",
+      "type": "architecture",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "architecture:architectureDraft:1",
+          "task": "architectureDraft",
+          "phase": "architecture",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "systemDesign"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: systemDesign (37 components, 18 views, committed); operationalConcepts (5 infrastructure building blocks, committed)"
+          }
+        },
+        {
+          "attemptId": "architecture:architectureReview:1",
+          "task": "architectureReview",
+          "phase": "architecture",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "systemDesign"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: systemDesign (37 components, 18 views, committed); operationalConcepts (5 infrastructure building blocks, committed)"
+          }
+        }
+      ]
+    },
+    "projectDesign": {
+      "activityID": "projectDesign",
+      "type": "projectDesign",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "projectDesign:sdpReview:1",
+          "task": "sdpReview",
+          "phase": "sdp",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "sdpReview"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: planningAssumptions (5 resources, committed); activityList (32 activities, committed); network (31 dependencies, 4 milestones, committed); normalSolution (staffing cap 6, committed); subcriticalSolution (staffing cap 4, committed); compressedSolution (staffing cap 6, committed); decompressedSolution (staffing cap 6, committed); riskModel (4 rows, committed); sdpReview (4 options, committed)"
+          }
+        }
+      ]
+    },
+    "requirements": {
+      "activityID": "requirements",
+      "type": "requirements",
+      "phase": 0,
+      "attempts": [
+        {
+          "attemptId": "requirements:missionDraft:1",
+          "task": "missionDraft",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:missionReview:1",
+          "task": "missionReview",
+          "phase": "mission",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryDraft:1",
+          "task": "glossaryDraft",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:glossaryReview:1",
+          "task": "glossaryReview",
+          "phase": "glossary",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesDraft:1",
+          "task": "volatilitiesDraft",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:volatilitiesReview:1",
+          "task": "volatilitiesReview",
+          "phase": "volatilities",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesDraft:1",
+          "task": "coreUseCasesDraft",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        },
+        {
+          "attemptId": "requirements:coreUseCasesReview:1",
+          "task": "coreUseCasesReview",
+          "phase": "coreUseCases",
+          "attempt": 1,
+          "actor": "agent",
+          "outcome": "passed",
+          "evidence": {
+            "kind": "artifact",
+            "ref": "coreUseCases"
+          },
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/backfill-attempts",
+            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
+          }
+        }
+      ]
     }
   },
   "constructionProgress": {
