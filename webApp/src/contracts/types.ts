@@ -740,9 +740,11 @@ export interface ConstructionRow {
     | 'documentation'
     | 'uiDesign'
     | 'integration'
-    // The three design types at the head of the plan (spec 2026-09-20 §5.1). They are
-    // vocabulary here: nothing derives or classifies a design activity yet, so no
-    // construction row carries one.
+    // The three design types at the head of the plan (spec 2026-09-20 §5.1). The
+    // design prefix is derived, classified, committed and backfilled onto
+    // construction rows same as any other activity (server: ClassifyActivity /
+    // isDesignActivity); the construction pump still refuses it for dispatch —
+    // stage 4's DeliveryManager is what runs a design activity's slash command.
     | 'requirements'
     | 'architecture'
     | 'projectDesign';

@@ -363,12 +363,12 @@ export interface CurrentStageMarker {
 export function currentStageMarker(node: ActivityNode): CurrentStageMarker | undefined {
   const named = node.currentLifecyclePhase;
   if (named === undefined) return undefined;
-  return { named, inProfile: node.phases.some((p) => (p.phase as string) === named) };
+  return { named, inProfile: node.phases.some((p) => p.phase === named) };
 }
 
 /** True when THIS phase node is the activity's reported current one. */
 export function isCurrentStage(node: ActivityNode, stage: PhaseNode): boolean {
-  return node.currentLifecyclePhase === (stage.phase as string);
+  return node.currentLifecyclePhase === stage.phase;
 }
 
 // ---------------------------------------------------------------------------

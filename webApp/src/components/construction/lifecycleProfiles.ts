@@ -38,6 +38,23 @@ export type LifecyclePhase =
   | 'construction'
   | 'integration';
 
+/** The five canonical phases, verbatim — the runtime membership `isLifecyclePhase` checks. */
+const LIFECYCLE_PHASES: readonly LifecyclePhase[] = [
+  'requirements',
+  'detailed_design',
+  'test_plan',
+  'construction',
+  'integration',
+];
+
+/**
+ * Whether a generated phase id is one of the five canonical Method phases —
+ * false for a design lifecycle's own id (`mission`, `architecture`, `sdp`, …).
+ */
+export function isLifecyclePhase(id: string): id is LifecyclePhase {
+  return (LIFECYCLE_PHASES as readonly string[]).includes(id);
+}
+
 /** One Figure A-1 task row within a lifecycle phase. */
 export interface GeneratedTask {
   /** The Figure A-1 task KEY — invariant across profiles; the ledger's join key. */
@@ -55,7 +72,19 @@ export interface GeneratedTask {
 export interface GeneratedPhase {
   /** The phase's slash-command cell, e.g. `service-detailed-design`. */
   id: string;
-  phase: LifecyclePhase;
+  /**
+   * The generated lifecycle's own phase id. One of the five canonical Method
+   * phases (`LifecyclePhase`) for every CONSTRUCTION kind (service, frontend,
+   * the testing variants, deployment, documentation, uiDesign, integration).
+   * The three DESIGN kinds at the head of the plan — requirements, architecture,
+   * projectDesign (spec 2026-09-20 §5.1) — carry that lifecycle's OWN ids
+   * instead (`mission`/`glossary`/`volatilities`/`coreUseCases`, `architecture`,
+   * `sdp`), which share no vocabulary with the five canonical phases or with
+   * each other. `string`, not `LifecyclePhase`, is therefore the honest type
+   * here; `isLifecyclePhase` narrows it back for a consumer that needs the
+   * canonical five specifically.
+   */
+  phase: string;
   name: string;
   /** % contribution (App A Table A-1); weights sum to 100 per kind. */
   weight: number;
@@ -64,7 +93,12 @@ export interface GeneratedPhase {
   tasks: readonly GeneratedTask[];
 }
 
-/** The book's own name per Figure A-1 task (server: projectstate's LabelForTask). */
+/**
+ * The book's own name per Figure A-1 task — hand-authored here. method-assets
+ * lifecycles.json (rendered into lifecycles.gen.ts by cmd/gen-lifecycles) carries
+ * each profile's per-kind task TITLE, not Figure A-1's generic name, so there is
+ * no generated source for this map to read.
+ */
 const BOOK_LABEL: Readonly<Record<string, string>> = {
   srs: 'SRS',
   srsReview: 'SRS Review',
@@ -85,7 +119,10 @@ const BOOK_LABEL: Readonly<Record<string, string>> = {
  * phaseTasks stated it. Every other phase is simply [work, gate]: task KEYS never vary
  * by profile, so keying this by task id holds for all of them.
  */
-const PHASE_TASK_ORDER: Partial<Record<LifecyclePhase, readonly string[]>> = {
+// Keyed by `string` (the generated phase id), not `LifecyclePhase`: a design
+// lifecycle's phase ids (mission, architecture, sdp, …) are never present here
+// and simply miss to the default below, with no cast needed to look them up.
+const PHASE_TASK_ORDER: Partial<Record<string, readonly string[]>> = {
   detailed_design: ['someConstruction', 'detailedDesign', 'designReview'],
   construction: ['construction', 'testClient', 'codeReview'],
 };
@@ -129,13 +166,13 @@ function taskRow(def: LifecycleDef, phase: LifecyclePhaseDef, id: string): Gener
 
 function phaseRow(def: LifecycleDef, phase: LifecyclePhaseDef): GeneratedPhase {
   const work = def.tasks.find((t) => t.phase === phase.id && t.kind === 'dispatch');
-  const order = PHASE_TASK_ORDER[phase.id as LifecyclePhase] ?? [
+  const order = PHASE_TASK_ORDER[phase.id] ?? [
     ...(work === undefined ? [] : [work.id]),
     phase.gate,
   ];
   return {
     id: work?.command ?? '',
-    phase: phase.id as LifecyclePhase,
+    phase: phase.id,
     name: phase.label,
     weight: phase.weight,
     exitCriterion: phase.exitCriterion,

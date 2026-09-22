@@ -3,18 +3,34 @@
  * graph (spec §7.6: "Each lane body is the 5-segment lifecycle spine: segment
  * width = Table A-1 weight, fill = state. That is the mini-lifecycle").
  *
- * FIVE CANONICAL SLOTS (Decision D5)
- * ---------------------------------
- * Every spine has the same five slots in the same order, so two lanes read
- * against each other at a glance. The order is the Service profile's — the one
- * profile that is Figure A-1 verbatim and carries all five phases — read from
- * the generated vocabulary, never typed out here. A phase the activity's
- * profile carries is as wide as its Table A-1 weight; a phase it does not carry
- * is a narrow fixed gap (§7.2 `absent`: "gap in the spine, 40% opacity"), so a
- * Deployment lane visibly HAS no Requirements or Test Plan rather than seeming
- * to be missing data. An unclassified activity has no spine at all (§9 AC4:
- * zero lifecycle sub-rows) — a default profile would launder "we do not know
- * what this is" into a plausible lifecycle.
+ * THE REFERENCE LIST IS PER-ROW (Decision D5, amended for the design prefix)
+ * ----------------------------------------------------------------------
+ * Every CONSTRUCTION kind (service, frontend, the testing variants, deployment,
+ * documentation, uiDesign, integration) draws its phase ids from ONE shared
+ * vocabulary — the five canonical Method phases (Table A-1) — so their spines
+ * share the same five-slot grid (CANONICAL_LIFECYCLE, the Service profile's
+ * order — the one profile that is Figure A-1 verbatim and carries all five —
+ * read from the generated vocabulary, never typed out here). A phase such a
+ * row's profile carries is as wide as its Table A-1 weight; a phase it does not
+ * carry is a narrow fixed gap (§7.2 `absent`: "gap in the spine, 40% opacity"),
+ * so a Deployment lane visibly HAS no Requirements or Test Plan rather than
+ * seeming to be missing data, and two lanes of different construction kinds
+ * still read against each other at a glance.
+ *
+ * The three DESIGN kinds at the head of the plan — requirements, architecture,
+ * projectDesign (spec 2026-09-20 §5.1) — draw from that lifecycle's OWN
+ * vocabulary (mission/glossary/volatilities/coreUseCases, architecture, sdp)
+ * instead, which shares no id with the five canonical phases or with each
+ * other. There is no shared grid to align a design row against, so its
+ * reference list IS its own profile (`referenceIdsFor`): every phase it carries
+ * is present by construction, so a design row's spine never has an absent gap.
+ * Walking the fixed five-slot list for a design row's spine — the bug this
+ * module used to carry — read every one of its phases as a miss and rendered a
+ * blank spine for all three.
+ *
+ * An unclassified activity has no spine at all (§9 AC4: zero lifecycle
+ * sub-rows) — a default profile would launder "we do not know what this is"
+ * into a plausible lifecycle.
  *
  * STATE IS THE LIST'S, NEVER A SECOND DERIVATION (Decision D6)
  * -----------------------------------------------------------
@@ -32,13 +48,15 @@
  * Pure — no React — pinned by laneSpine.test.ts.
  */
 import type { ActivityNode, PhaseNode } from '../list/activityTree.ts';
-import { SERVICE_PROFILE, type LifecyclePhase } from '../lifecycleProfiles.ts';
+import { SERVICE_PROFILE, isLifecyclePhase, type LifecyclePhase } from '../lifecycleProfiles.ts';
 import { taskRowState, type RowState } from '../list/activityRowPresentation.ts';
 import { noAttemptStateFor, type NoAttemptState } from '../detail/detailPaneState.ts';
 import type { OwedMark } from '../tasks/owedChip.ts';
 
 /** The five lifecycle phases in Method order — the Service profile's order. */
-export const CANONICAL_LIFECYCLE: readonly LifecyclePhase[] = SERVICE_PROFILE.map((p) => p.phase);
+export const CANONICAL_LIFECYCLE: readonly LifecyclePhase[] = SERVICE_PROFILE.map(
+  (p) => p.phase
+).filter(isLifecyclePhase);
 
 /** The width of a phase the profile does not carry, as a fraction of the spine. */
 export const ABSENT_GAP_FRACTION = 0.04;
@@ -66,7 +84,10 @@ export interface SpineTick {
 }
 
 export interface SpineSegment {
-  phase: LifecyclePhase;
+  /** The generated phase id — one of the five canonical phases for a construction
+   *  row, or a design lifecycle's own id (`mission`, `architecture`, `sdp`, …)
+   *  for one of the three design rows. See GeneratedPhase.phase. */
+  phase: string;
   /** The profile's display name. Absent on an `absent` gap. */
   name?: string;
   /** Table A-1 weight. Absent on an `absent` gap. */
@@ -79,8 +100,31 @@ export interface SpineSegment {
 
 export interface LaneSpine {
   unclassified: boolean;
-  /** Five canonical slots, or none for an unclassified activity. */
+  /**
+   * The row's reference list, in order (`referenceIdsFor`): five canonical
+   * slots for a construction row (gaps included), exactly the row's own
+   * profile phases for one of the three design rows (never a gap), or none for
+   * an unclassified activity.
+   */
   segments: SpineSegment[];
+}
+
+/**
+ * The reference phase-id list this row's spine is measured against — PER ROW.
+ *
+ * Every phase id in a CONSTRUCTION row's own profile is one of the five
+ * canonical Method phases (verified by `isLifecyclePhase`), so those rows share
+ * the fixed five-slot CANONICAL_LIFECYCLE grid and a phase their own profile
+ * omits draws as an absent gap at its canonical position. A DESIGN row's own
+ * profile phases (mission/glossary/…, architecture, sdp) are never canonical
+ * phases, so there is no shared grid for them: the row's own phases, in their
+ * own profile order, ARE the reference — nothing is ever absent from a list
+ * that is exactly itself.
+ */
+function referenceIdsFor(phases: readonly PhaseNode[]): readonly string[] {
+  return phases.every((p) => isLifecyclePhase(p.phase))
+    ? CANONICAL_LIFECYCLE
+    : phases.map((p) => p.phase);
 }
 
 function segmentState(
@@ -105,13 +149,14 @@ function segmentState(
 export function laneSpineFor(node: ActivityNode, owed: OwedMark | undefined): LaneSpine {
   if (node.unclassified) return { unclassified: true, segments: [] };
 
-  const byPhase = new Map<LifecyclePhase, PhaseNode>(node.phases.map((p) => [p.phase, p]));
-  const absentCount = CANONICAL_LIFECYCLE.filter((ph) => !byPhase.has(ph)).length;
+  const byPhase = new Map<string, PhaseNode>(node.phases.map((p) => [p.phase, p]));
+  const reference = referenceIdsFor(node.phases);
+  const absentCount = reference.filter((ph) => !byPhase.has(ph)).length;
   const totalWeight = node.phases.reduce((acc, p) => acc + p.weight, 0);
   const usable = Math.max(0, 1 - absentCount * ABSENT_GAP_FRACTION);
   const noAttempt = noAttemptStateFor(node.row);
 
-  const segments = CANONICAL_LIFECYCLE.map((phase): SpineSegment => {
+  const segments = reference.map((phase): SpineSegment => {
     const p = byPhase.get(phase);
     if (p === undefined) {
       return { phase, fraction: ABSENT_GAP_FRACTION, state: 'absent', ticks: [] };

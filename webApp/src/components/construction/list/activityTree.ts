@@ -51,12 +51,7 @@ import type {
   TaskAttemptRow,
   TestingVariantName,
 } from '../../../contracts/types';
-import {
-  profileFor,
-  type GeneratedPhase,
-  type GeneratedTask,
-  type LifecyclePhase,
-} from '../lifecycleProfiles.ts';
+import { profileFor, type GeneratedPhase, type GeneratedTask } from '../lifecycleProfiles.ts';
 import { outcomeStateOf, type OutcomeState } from '../detail/detailPaneState.ts';
 
 /** The activity kinds the server can classify — the profile registry's key set. */
@@ -98,7 +93,9 @@ export interface TaskNode {
   gate: boolean;
   /** True when the profile emits this task only if a real attempt exists. */
   conditional: boolean;
-  lifecyclePhase: LifecyclePhase;
+  /** The generated phase id this task belongs to — see GeneratedPhase.phase for why
+   *  this is `string` rather than the narrower `LifecyclePhase`. */
+  lifecyclePhase: string;
   state: TaskState;
   /** Ascending by attempt NUMBER. Empty when nothing was ever recorded. */
   attempts: TaskAttemptNode[];
@@ -128,12 +125,16 @@ export interface PhaseNode {
   activityId: string;
   /** The generated profile id (`service-requirements`, …) — NOT tree-unique. */
   id: string;
-  phase: LifecyclePhase;
+  /** The generated phase id — see GeneratedPhase.phase for why this is `string`
+   *  rather than the narrower `LifecyclePhase` (a design row's phase, e.g.
+   *  `mission`/`architecture`/`sdp`, is never one of the five canonical ids). */
+  phase: string;
   /** The generated per-kind display name (`UX Requirements`, `Smoke Pass`, …). */
   name: string;
   /** Table A-1 % contribution. From the PROFILE, never from the stored row. */
   weight: number;
-  /** This profile phase's own exit criterion (generated, ExitCriterionFor). */
+  /** This profile phase's own exit criterion (generated: lifecycles.gen.ts's
+   *  LifecyclePhaseDef.exitCriterion, from method-assets lifecycles.json). */
   exitCriterion: string;
   completion: PhaseCompletion;
   /** The server's `completedAt`, when it reported one. */
@@ -237,7 +238,7 @@ function attemptsForTask(attempts: readonly TaskAttemptRow[], task: string): Tas
 
 function buildTaskNode(
   activityId: string,
-  lifecyclePhase: LifecyclePhase,
+  lifecyclePhase: string,
   task: GeneratedTask,
   ledger: readonly TaskAttemptRow[]
 ): TaskNode {
@@ -337,7 +338,7 @@ function buildActivityNode(row: ConstructionRow, meta: ActivityMeta | undefined)
   // carrying five Service phases). Counted, never rendered as an extra row — and
   // not counted at all when there is no profile to be off, because there the
   // defect is the missing classification, already reported by `unclassified`.
-  const profilePhases = new Set(phases.map((p) => p.phase as string));
+  const profilePhases = new Set(phases.map((p) => p.phase));
   const offProfilePhaseCount =
     profile === undefined ? 0 : row.phases.filter((p) => !profilePhases.has(p.phase)).length;
 

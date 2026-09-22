@@ -45,7 +45,6 @@
 import type { ConstructionRow, ProjectStateWithGit } from '../../../../contracts/types';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { classify } from '../../artifactClassification.ts';
-import type { LifecyclePhase } from '../../lifecycleProfiles.ts';
 import type { TaskDetailState } from '../detailPaneState.ts';
 import { absenceFor, profileFor } from './taskBriefing.ts';
 
@@ -82,9 +81,12 @@ export type ArtifactBodyKind =
  * falls through to its EPISODES, which is genuinely what is known about it.
  *
  * Keyed by ArtifactBodyKind, so a new renderer has to state where its artifact
- * lives rather than silently applying everywhere.
+ * lives rather than silently applying everywhere. Every ArtifactBodyKind is a
+ * CONSTRUCTION kind, so these are always canonical Method phases in practice —
+ * `string`, not `LifecyclePhase`, only because `lifecyclePhaseOfTask` below is
+ * generic over any row's profile (see GeneratedPhase.phase).
  */
-const ARTIFACT_PHASES: Record<ArtifactBodyKind, readonly LifecyclePhase[]> = {
+const ARTIFACT_PHASES: Record<ArtifactBodyKind, readonly string[]> = {
   // The service contract is placed by artifactPlacement.ts (the designer's
   // per-phase table), which reads the contract JOIN rather than a phase alone:
   // a missing contract and a contract by design need different bodies.
@@ -104,11 +106,11 @@ function isArtifactBodyKind(value: string): value is ArtifactBodyKind {
   return Object.prototype.hasOwnProperty.call(ARTIFACT_PHASES, value);
 }
 
-/** The canonical phase a task key belongs to — every key sits in exactly one. */
+/** The generated phase a task key belongs to — every key sits in exactly one. */
 export function lifecyclePhaseOfTask(
   row: ConstructionRow | undefined,
   task: string
-): LifecyclePhase | undefined {
+): string | undefined {
   for (const profilePhase of profileFor(row) ?? []) {
     if (profilePhase.tasks.some((tk) => tk.task === task)) return profilePhase.phase;
   }

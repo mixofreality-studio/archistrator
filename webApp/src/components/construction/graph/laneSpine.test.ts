@@ -271,3 +271,78 @@ void test('a conditional task is a tick only once it was actually attempted', ()
     true
   );
 });
+
+// ---------------------------------------------------------------------------
+// Design rows — the per-row reference list (the GRAPH lens's blank-spine fix)
+// ---------------------------------------------------------------------------
+//
+// The three design kinds at the head of the plan draw from their OWN
+// vocabulary, which shares no id with the five canonical Method phases: a
+// requirements row's phases are keyed mission/glossary/volatilities/
+// coreUseCases, never requirements/detailed_design/test_plan/construction/
+// integration. Walking the fixed CANONICAL_LIFECYCLE list for these rows (the
+// bug) misses every lookup and renders every segment `absent` — a blank spine.
+// The row's own profile is the reference for these rows instead, so every
+// phase it carries is found and none of them is ever `absent`.
+
+void test('a requirements row gets its OWN four segments, never the five canonical slots', () => {
+  const spine = laneSpineFor(
+    nodeOf(row({ kind: 'requirements', hasBuildEvidence: false })),
+    undefined
+  );
+  assert.equal(spine.unclassified, false);
+  assert.deepEqual(
+    spine.segments.map((s) => s.phase),
+    ['mission', 'glossary', 'volatilities', 'coreUseCases']
+  );
+  assert.deepEqual(
+    spine.segments.map((s) => s.weight),
+    [15, 20, 35, 30]
+  );
+  assert.ok(
+    spine.segments.every((s) => s.state !== 'absent'),
+    'a design row never has an absent gap — its reference list is its own profile'
+  );
+  const total = spine.segments.reduce((a, s) => a + s.fraction, 0);
+  assert.ok(near(total, 1), `fractions sum to ${String(total)}`);
+  assert.ok(near(segment(spine.segments, 'mission').fraction, 0.15));
+  assert.ok(near(segment(spine.segments, 'glossary').fraction, 0.2));
+  assert.ok(near(segment(spine.segments, 'volatilities').fraction, 0.35));
+  assert.ok(near(segment(spine.segments, 'coreUseCases').fraction, 0.3));
+});
+
+void test('an architecture row gets its own ONE segment, weight 100', () => {
+  const spine = laneSpineFor(
+    nodeOf(row({ kind: 'architecture', hasBuildEvidence: false })),
+    undefined
+  );
+  assert.equal(spine.unclassified, false);
+  assert.deepEqual(
+    spine.segments.map((s) => s.phase),
+    ['architecture']
+  );
+  assert.deepEqual(
+    spine.segments.map((s) => s.weight),
+    [100]
+  );
+  assert.notEqual(segment(spine.segments, 'architecture').state, 'absent');
+  assert.ok(near(segment(spine.segments, 'architecture').fraction, 1));
+});
+
+void test('a projectDesign row gets its own ONE segment (M0), weight 100', () => {
+  const spine = laneSpineFor(
+    nodeOf(row({ kind: 'projectDesign', hasBuildEvidence: false })),
+    undefined
+  );
+  assert.equal(spine.unclassified, false);
+  assert.deepEqual(
+    spine.segments.map((s) => s.phase),
+    ['sdp']
+  );
+  assert.deepEqual(
+    spine.segments.map((s) => s.weight),
+    [100]
+  );
+  assert.notEqual(segment(spine.segments, 'sdp').state, 'absent');
+  assert.ok(near(segment(spine.segments, 'sdp').fraction, 1));
+});
