@@ -286,7 +286,9 @@ export function GatePanel({
         </Box>
       ) : null}
 
-      {actions !== undefined ? <GateActions {...actions} approveBlocked={approveBlocked} t={t} /> : null}
+      {actions !== undefined ? (
+        <GateActions {...actions} approveBlocked={approveBlocked} t={t} />
+      ) : null}
     </Paper>
   );
 }

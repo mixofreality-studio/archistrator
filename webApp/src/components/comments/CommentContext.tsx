@@ -59,12 +59,7 @@ import {
   mintPendingId,
   savePending,
 } from './pendingCommentsStore';
-import {
-  isQuestion,
-  toWireEntries,
-  freeformNotesFrom,
-  pendingQuestionsFrom,
-} from './reviewBatch';
+import { isQuestion, toWireEntries, freeformNotesFrom, pendingQuestionsFrom } from './reviewBatch';
 
 // Type definitions imported from commentContextTypes.ts for reusability across
 // the comment system (including the test file, which cannot import .tsx files).

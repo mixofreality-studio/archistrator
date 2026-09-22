@@ -44,7 +44,12 @@ void test('open threads block approve and say so', () => {
 });
 
 void test('a committed slot amends', () => {
-  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'other', stagedChangeRequests: 1 });
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'other',
+    stagedChangeRequests: 1,
+  });
   assert.equal(v.action, 'amend');
   assert.equal(v.label, 'Amend (1)');
 });
@@ -83,7 +88,12 @@ void test('allowEmptySendBack does not change the staged-change-request path', (
 });
 
 void test('allowEmptySendBack offers no secondary on a SEALED committed slot (stage: other) — superseded in spirit by RULING P20 below, which is about a LIVE amendment, not this inert case', () => {
-  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'other', allowEmptySendBack: true });
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'other',
+    allowEmptySendBack: true,
+  });
   assert.equal(v.action, 'none');
   assert.deepEqual(v.secondaryActions, []);
 });
@@ -113,7 +123,12 @@ void test('a committed slot under active review (awaitingReview) with nothing st
 });
 
 void test('a committed slot under active review, open threads block approve exactly like an uncommitted draft', () => {
-  const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview', openThreads: 2 });
+  const v = resolveSubmitVerb({
+    ...base,
+    committed: true,
+    stage: 'awaitingReview',
+    openThreads: 2,
+  });
   assert.equal(v.action, 'approve');
   assert.equal(v.disabled, true);
   assert.equal(v.label, 'Resolve 2 threads to approve');

@@ -149,6 +149,13 @@ jobs:
       - name: Generated UI lifecycle-profile drift check
         run: make gen-uiprofiles-check
 
+      # Drift gate for the generated per-activity-type lifecycles emitted into the
+      # sibling webApp module (cmd/gen-lifecycles, reading the lifecycles.json of
+      # the method-assets release pinned in go.mod). Same regenerate-then-diff
+      # shape as the other gen-*-check gates; also fails if the file is untracked.
+      - name: Generated lifecycles drift check
+        run: make gen-lifecycles-check
+
       # Materialize the .claude method-assets from the pinned lib. The .claude
       # method tree is NOT vendored — it is gitignored and pulled from
       # method-assets (pinned via server/go.mod). This step just proves the

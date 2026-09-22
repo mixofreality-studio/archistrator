@@ -10100,3 +10100,153 @@ func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
 		t.Fatalf("pending = %v, want %v (skip and delivered notes are never pending)", got, want)
 	}
 }
+
+// ---- lifecycles.json parity (unified activity experience, stage 0) ----
+//
+// method-assets' lifecycles.json becomes the ONE source of the per-type lifecycle
+// in stage 2, when profileRows / phaseTasks / gateTasks leave this package. Until
+// then the lifecycle exists twice, and these tests are what makes that safe: a
+// weight, label, exit criterion, task title or command changed on one side alone
+// fails here.
+
+// lifecycleTypeKey is the method-assets lifecycle key of a profile: the activity
+// type's wire name, qualified by the testing variant's wire name for testing.
+func lifecycleTypeKey(t ActivityType, v TestingVariant) string {
+	if t == ActivityTypeTesting {
+		return t.String() + ":" + v.String()
+	}
+	return t.String()
+}
+
+// allLifecycleCombos is allProfileCombos plus the two single-profile types that
+// list leaves out.
+func allLifecycleCombos() []profileCombo {
+	return append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0})
+}
+
+// lifecycleTaskWords is the comparable projection of a methodassets.LifecycleTask
+// (which holds a slice, so cannot be compared with ==): everything the server's
+// tables also state about a task.
+type lifecycleTaskWords struct {
+	ID, Kind, Title, InLifecyclePhase, Command, Reviews string
+}
+
+func lifecycleTaskWordsOf(lc methodassets.Lifecycle, id MethodTask) lifecycleTaskWords {
+	for _, task := range lc.Tasks {
+		if task.ID == string(id) {
+			return lifecycleTaskWords{task.ID, task.Kind, task.Title, task.Phase, task.Command, task.Reviews}
+		}
+	}
+	return lifecycleTaskWords{}
+}
+
+func TestLifecyclesParity_EveryProfileEqualsItsLifecycle(t *testing.T) {
+	for _, combo := range allLifecycleCombos() {
+		key := lifecycleTypeKey(combo.t, combo.v)
+		t.Run(key, func(t *testing.T) {
+			lc, ok := methodassets.LifecycleFor(key)
+			if !ok {
+				t.Fatalf("method-assets carries no lifecycle %q", key)
+			}
+			profile := ProfileFor(combo.t, combo.v)
+			if len(lc.Phases) != len(profile.Phases) {
+				t.Fatalf("%d lifecycle phases, ProfileFor has %d", len(lc.Phases), len(profile.Phases))
+			}
+			if len(lc.Tasks) != 2*len(profile.Phases) {
+				t.Errorf("%d tasks, want one work task and one gate per phase (%d)", len(lc.Tasks), 2*len(profile.Phases))
+			}
+			for i, pp := range profile.Phases {
+				assertLifecyclePhaseParity(t, combo, lc, lc.Phases[i], pp)
+			}
+		})
+	}
+}
+
+func assertLifecyclePhaseParity(t *testing.T, combo profileCombo, lc methodassets.Lifecycle, got methodassets.LifecyclePhase, pp ProfilePhase) {
+	t.Helper()
+	work, gate := AgentTaskFor(pp.Phase), GateTaskFor(pp.Phase)
+
+	wantPhase := methodassets.LifecyclePhase{
+		ID:            string(pp.Phase),
+		Label:         pp.Label,
+		Weight:        pp.Weight,
+		Gate:          string(gate),
+		ExitCriterion: ExitCriterionFor(combo.t, combo.v, pp.Phase),
+	}
+	if got != wantPhase {
+		t.Errorf("lifecycle phase = %+v, want %+v", got, wantPhase)
+	}
+
+	wantWork := lifecycleTaskWords{
+		string(work), methodassets.LifecycleTaskDispatch, TaskLabelFor(combo.t, combo.v, work),
+		string(pp.Phase), CommandFor(combo.t, combo.v, pp.Phase), "",
+	}
+	if gotWork := lifecycleTaskWordsOf(lc, work); gotWork != wantWork {
+		t.Errorf("work task = %+v, want %+v", gotWork, wantWork)
+	}
+
+	// A construction gate carries no command: who reviews is the review engine's call.
+	wantGate := lifecycleTaskWords{
+		string(gate), methodassets.LifecycleTaskReview, TaskLabelFor(combo.t, combo.v, gate),
+		string(pp.Phase), "", string(work),
+	}
+	if gotGate := lifecycleTaskWordsOf(lc, gate); gotGate != wantGate {
+		t.Errorf("gate task = %+v, want %+v", gotGate, wantGate)
+	}
+}
+
+// The requirements and architecture lifecycles are today's design rail, in order:
+// one draft per Phase1RequiredKinds() kind, dispatched by DesignCommandFor's draft
+// command, and critiqued by exactly the command DesignCommandFor dispatches today —
+// "" for a kind designKindHasCritique excludes (volatilities).
+func TestLifecyclesParity_DesignActivitiesFollowTheDesignRail(t *testing.T) {
+	var drafts []methodassets.LifecycleTask
+	critiqueOf := map[string]string{}
+	for _, key := range []string{"requirements", "architecture"} {
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Fatalf("method-assets carries no lifecycle %q", key)
+		}
+		for _, task := range lc.Tasks {
+			if task.Kind == methodassets.LifecycleTaskDispatch {
+				drafts = append(drafts, task)
+				continue
+			}
+			critiqueOf[task.Reviews] = task.Command
+		}
+	}
+	kinds := Phase1RequiredKinds()
+	if len(drafts) != len(kinds) {
+		t.Fatalf("%d design dispatch tasks, Phase1RequiredKinds has %d", len(drafts), len(kinds))
+	}
+	for i, k := range kinds {
+		draft := drafts[i]
+		if draft.ArtifactKind != k.String() {
+			t.Errorf("design dispatch %d produces %q, want %q", i, draft.ArtifactKind, k.String())
+		}
+		if want := DesignCommandFor(k, DesignJobModeDraft, ""); draft.Command != want {
+			t.Errorf("%s command = %q, want %q", draft.ID, draft.Command, want)
+		}
+		if want := DesignCommandFor(k, DesignJobModeCritique, ""); critiqueOf[draft.ID] != want {
+			t.Errorf("%s is critiqued by %q, want %q", draft.ID, critiqueOf[draft.ID], want)
+		}
+	}
+}
+
+// Project Design is deterministic (R7): one human gate over the computed SDP, and
+// nothing to dispatch — the same "" DesignCommandFor returns for KindSdpReview.
+func TestLifecyclesParity_ProjectDesignIsOneUndispatchedGate(t *testing.T) {
+	lc, ok := methodassets.LifecycleFor("projectDesign")
+	if !ok || len(lc.Tasks) != 1 {
+		t.Fatalf("projectDesign must be one task, got %+v", lc)
+	}
+	gate := lc.Tasks[0]
+	if gate.Kind != methodassets.LifecycleTaskReview || gate.ArtifactKind != KindSdpReview.String() {
+		t.Errorf("projectDesign gate = %+v, want a review of %s", gate, KindSdpReview)
+	}
+	if want := DesignCommandFor(KindSdpReview, DesignJobModeDraft, ""); gate.Command != want {
+		t.Errorf("projectDesign gate command = %q, want %q", gate.Command, want)
+	}
+}

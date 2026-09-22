@@ -7,6 +7,17 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
+type ReviewArtifactKind string
+
+const (
+	ReviewKindDetailedDesign ReviewArtifactKind = "DetailedDesign"
+	ReviewKindConstruction   ReviewArtifactKind = "Construction"
+	ReviewKindIntegration    ReviewArtifactKind = "Integration"
+	ReviewKindNoncoding      ReviewArtifactKind = "Noncoding"
+	ReviewKindUIDesign       ReviewArtifactKind = "UIDesign"
+	ReviewKindUICode         ReviewArtifactKind = "UICode"
+)
+
 type ReviewChange struct {
 	ActivityID     string `json:"ActivityID"`
 	ComponentID    string `json:"ComponentID"`
@@ -26,7 +37,7 @@ type Reviewer struct {
 
 // ReviewEngine is the generated service-contract interface for this component.
 type ReviewEngine interface {
-	ProposeReviews(rc fweng.Context, change ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (ReviewSet, error)
+	ProposeReviews(rc fweng.Context, change ReviewChange, componentID string, artifactKind ReviewArtifactKind, architectureGraph string, contracts []string) (ReviewSet, error)
 }
 
 // ReviewEngineImpl is the generated concrete ReviewEngine. Engines are pure (no

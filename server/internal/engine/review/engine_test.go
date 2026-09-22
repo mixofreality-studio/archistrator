@@ -22,17 +22,17 @@ func validChange() ReviewChange {
 
 // Every recognised kind yields a non-empty, deterministic reviewer set.
 func Test_ProposeReviews_PerKind(t *testing.T) {
-	cases := map[string]struct {
+	cases := map[ReviewArtifactKind]struct {
 		wantRole     string
 		wantAmend    bool
 		wantNonEmpty bool
 	}{
-		"DetailedDesign": {roleArchitect, true, true},
-		"Construction":   {roleSeniorReviewer, false, true},
-		"Integration":    {roleSeniorReviewer, false, true},
-		"Noncoding":      {roleArchitect, false, true},
-		"UIDesign":       {roleUIDesigner, true, true},
-		"UICode":         {roleSeniorReviewer, false, true},
+		ReviewKindDetailedDesign: {roleArchitect, true, true},
+		ReviewKindConstruction:   {roleSeniorReviewer, false, true},
+		ReviewKindIntegration:    {roleSeniorReviewer, false, true},
+		ReviewKindNoncoding:      {roleArchitect, false, true},
+		ReviewKindUIDesign:       {roleUIDesigner, true, true},
+		ReviewKindUICode:         {roleSeniorReviewer, false, true},
 	}
 	e := NewReviewEngine()
 	for kind, want := range cases {
@@ -76,9 +76,28 @@ func Test_ProposeReviews_EmptyActivityID_ContractMisuse(t *testing.T) {
 	}
 }
 
-func Test_ProposeReviews_EmptyComponent_ContractMisuse(t *testing.T) {
+// A component-scoped kind needs a component; the two system-level kinds do not — the
+// system test plan and system testing have none, and used to get no reviewers at all.
+func Test_ProposeReviews_ComponentIsRequiredOnlyWhereThereIsOne(t *testing.T) {
 	e := NewReviewEngine()
-	_, err := e.ProposeReviews(fweng.Context{}, ReviewChange{ActivityID: "C-1"}, "", "Construction", "", nil)
+	noComponent := ReviewChange{ActivityID: "N-STP"}
+	for _, kind := range []ReviewArtifactKind{ReviewKindDetailedDesign, ReviewKindConstruction, ReviewKindUIDesign, ReviewKindUICode} {
+		_, err := e.ProposeReviews(fweng.Context{}, noComponent, "", kind, "", nil)
+		if got := asEngineError(t, err).Kind; got != fweng.ContractMisuse {
+			t.Fatalf("%s with no component: want ContractMisuse, got %s", kind, got)
+		}
+	}
+	for _, kind := range []ReviewArtifactKind{ReviewKindIntegration, ReviewKindNoncoding} {
+		set, err := e.ProposeReviews(fweng.Context{}, noComponent, "", kind, "", nil)
+		if err != nil || len(set.Reviewers) == 0 {
+			t.Fatalf("%s with no component: want reviewers, got %+v, %v", kind, set, err)
+		}
+	}
+}
+
+// The Manager's old argument, pinned: a lifecycle phase's wire name is not a kind.
+func Test_ProposeReviews_APhaseWireNameIsNotAKind(t *testing.T) {
+	_, err := NewReviewEngine().ProposeReviews(fweng.Context{}, validChange(), "c", "detailed_design", "", nil)
 	if got := asEngineError(t, err).Kind; got != fweng.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
 	}

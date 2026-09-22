@@ -64,6 +64,13 @@ const OUTPUT_NAMES = {
   ConstructionOverrideKind: 'OverrideKind',
   ConstructionPhaseDecision: 'PhaseDecision',
   ConstructionPipelinePhase: 'PipelinePhase',
+  // the activity experience's single read (QueryActivityView) — string-valued,
+  // so the wire value IS the app string and there is no derivation to verify.
+  ConstructionActivityViewState: 'ActivityViewState',
+  ConstructionActivityTaskKind: 'ActivityTaskKind',
+  ConstructionActivityTaskState: 'ActivityTaskState',
+  ConstructionTaskRevisionOutcome: 'TaskRevisionOutcome',
+  ConstructionTaskRevisionProvenance: 'TaskRevisionProvenance',
   OperationsAutoscaleAction: 'AutoscaleAction',
   OperationsAutoscalerMode: 'AutoscalerMode',
   OperationsDesiredStateReason: 'DesiredStateReason',

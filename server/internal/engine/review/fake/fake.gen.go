@@ -11,10 +11,10 @@ import (
 // FakeReviewEngine is a generated test double for review.ReviewEngine: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeReviewEngine struct {
-	ProposeReviewsFn func(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (review.ReviewSet, error)
+	ProposeReviewsFn func(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind review.ReviewArtifactKind, architectureGraph string, contracts []string) (review.ReviewSet, error)
 }
 
-func (f *FakeReviewEngine) ProposeReviews(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind string, architectureGraph string, contracts []string) (review.ReviewSet, error) {
+func (f *FakeReviewEngine) ProposeReviews(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind review.ReviewArtifactKind, architectureGraph string, contracts []string) (review.ReviewSet, error) {
 	if f.ProposeReviewsFn == nil {
 		panic("FakeReviewEngine.ProposeReviewsFn not set")
 	}

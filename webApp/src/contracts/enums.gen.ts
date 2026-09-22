@@ -116,6 +116,43 @@ export const ACTIVITY_CONSTRUCTION_PHASE_APP_TO_ORDINAL: Readonly<
   done: 2,
   failed: 3,
 };
+// --- ActivityTaskKind ----------------------------------------------------
+// Sources: ConstructionActivityTaskKind
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const ACTIVITY_TASK_KIND_VALUES = ['dispatch', 'review'] as const;
+
+export type ActivityTaskKind = (typeof ACTIVITY_TASK_KIND_VALUES)[number];
+
+export const ACTIVITY_TASK_KIND_GO_VARNAMES = [
+  'ActivityTaskDispatch',
+  'ActivityTaskReview',
+] as const;
+
+// --- ActivityTaskState ---------------------------------------------------
+// Sources: ConstructionActivityTaskState
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const ACTIVITY_TASK_STATE_VALUES = [
+  'pending',
+  'locked',
+  'running',
+  'awaitingHuman',
+  'passed',
+  'sentBack',
+  'failed',
+] as const;
+
+export type ActivityTaskState = (typeof ACTIVITY_TASK_STATE_VALUES)[number];
+
+export const ACTIVITY_TASK_STATE_GO_VARNAMES = [
+  'ActivityTaskPending',
+  'ActivityTaskLocked',
+  'ActivityTaskRunning',
+  'ActivityTaskAwaitingHuman',
+  'ActivityTaskPassed',
+  'ActivityTaskSentBack',
+  'ActivityTaskFailed',
+] as const;
+
 // --- ActivityType --------------------------------------------------------
 // Sources: SystemDesignActivityType
 export const ACTIVITY_TYPE_GO_VARNAMES = [
@@ -156,6 +193,27 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   uiDesign: 5,
   integration: 6,
 };
+// --- ActivityViewState ---------------------------------------------------
+// Sources: ConstructionActivityViewState
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const ACTIVITY_VIEW_STATE_VALUES = [
+  'notStarted',
+  'running',
+  'awaitingHuman',
+  'done',
+  'failed',
+] as const;
+
+export type ActivityViewState = (typeof ACTIVITY_VIEW_STATE_VALUES)[number];
+
+export const ACTIVITY_VIEW_STATE_GO_VARNAMES = [
+  'ActivityViewNotStarted',
+  'ActivityViewRunning',
+  'ActivityViewAwaitingHuman',
+  'ActivityViewDone',
+  'ActivityViewFailed',
+] as const;
+
 // --- ArtifactKind --------------------------------------------------------
 // Sources: SystemDesignArtifactKind, ProjectDesignArtifactKind (identical; folded)
 export const ARTIFACT_KIND_GO_VARNAMES = [
@@ -847,6 +905,42 @@ export const SEVERITY_VALUES = ['info', 'warning', 'error'] as const;
 export type Severity = (typeof SEVERITY_VALUES)[number];
 
 export const SEVERITY_GO_VARNAMES = ['SeverityInfo', 'SeverityWarning', 'SeverityError'] as const;
+
+// --- TaskRevisionOutcome -------------------------------------------------
+// Sources: ConstructionTaskRevisionOutcome
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const TASK_REVISION_OUTCOME_VALUES = [
+  'running',
+  'awaitingHuman',
+  'passed',
+  'sentBack',
+  'failed',
+  'skipped',
+] as const;
+
+export type TaskRevisionOutcome = (typeof TASK_REVISION_OUTCOME_VALUES)[number];
+
+export const TASK_REVISION_OUTCOME_GO_VARNAMES = [
+  'TaskRevisionRunning',
+  'TaskRevisionAwaitingHuman',
+  'TaskRevisionPassed',
+  'TaskRevisionSentBack',
+  'TaskRevisionFailed',
+  'TaskRevisionSkipped',
+] as const;
+
+// --- TaskRevisionProvenance ----------------------------------------------
+// Sources: ConstructionTaskRevisionProvenance
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const TASK_REVISION_PROVENANCE_VALUES = ['synthesized', 'backfilled', 'observed'] as const;
+
+export type TaskRevisionProvenance = (typeof TASK_REVISION_PROVENANCE_VALUES)[number];
+
+export const TASK_REVISION_PROVENANCE_GO_VARNAMES = [
+  'TaskRevisionSynthesized',
+  'TaskRevisionBackfilled',
+  'TaskRevisionObserved',
+] as const;
 
 // --- TestingVariant ------------------------------------------------------
 // Sources: SystemDesignTestingVariant

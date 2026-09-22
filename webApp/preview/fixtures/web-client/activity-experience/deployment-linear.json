@@ -1,0 +1,32 @@
+{
+  "route": "/project/archistrator/activity/R-github",
+  "title": "Activity Experience — linear deployment activity, construction running",
+  "note": "R-github: the provisioning spec passed its review first time; the infrastructure change is being built now. No fork: every task has exactly one predecessor. Live-run revisions read backfilled because stage 0 reconstructs them from the episode ledger and the stored lifecycle-phase completions.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "R-github",
+        "name": "Provision GitHub",
+        "type": "deployment",
+        "componentId": "github",
+        "state": "running",
+        "phases": [
+          { "id": "detailed_design", "label": "Provisioning Spec", "weight": 25, "gateTaskId": "designReview", "completed": true },
+          { "id": "construction", "label": "Construction", "weight": 50, "gateTaskId": "codeReview", "completed": false },
+          { "id": "integration", "label": "Convergence Verification", "weight": 25, "gateTaskId": "testing", "completed": false }
+        ],
+        "tasks": [
+          { "id": "detailedDesign", "kind": "dispatch", "title": "Provisioning Spec", "phase": "detailed_design", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-18T14:00:00Z", "endedAt": "2026-09-18T14:21:40Z", "attemptIds": ["R-github:detailedDesign:1"], "episodeId": "ep-rgh-dd-1", "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "designReview", "kind": "review", "title": "Spec Review", "phase": "detailed_design", "dependsOn": ["detailedDesign"], "reviews": "detailedDesign", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "endedAt": "2026-09-18T15:02:10Z", "attemptIds": ["R-github:designReview:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "running", "revisions": [
+            { "n": 1, "outcome": "running", "attemptIds": ["R-github:construction:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "codeReview", "kind": "review", "title": "Change Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
+          { "id": "integration", "kind": "dispatch", "title": "Rollout", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "testing", "kind": "review", "title": "Convergence Verification", "phase": "integration", "dependsOn": ["integration"], "reviews": "integration", "state": "locked", "revisions": [] }
+        ]
+      }
+    }
+  }
+}

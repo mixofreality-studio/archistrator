@@ -85,6 +85,11 @@ export const OP_BINDINGS = {
     path: '/api/v1/construction/pause-project/{projectID}',
     tool: 'constructionPauseProject',
   },
+  constructionQueryActivityView: {
+    method: 'GET',
+    path: '/api/v1/construction/query-activity-view/{projectID}/{activityID}',
+    tool: 'constructionQueryActivityView',
+  },
   constructionResumeProject: {
     method: 'POST',
     path: '/api/v1/construction/resume-project/{projectID}',

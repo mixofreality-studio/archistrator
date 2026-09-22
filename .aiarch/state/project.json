@@ -16060,6 +16060,330 @@
           ],
           "additionalProperties": false
         },
+        "ActivityView": {
+          "type": "object",
+          "description": "One activity's lifecycle, per-task revisions and live review set: the Activity Experience's single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored.",
+          "properties": {
+            "activityId": {
+              "$ref": "#/$defs/ActivityID",
+              "x-go-name": "ActivityID"
+            },
+            "name": {
+              "type": "string",
+              "description": "The activity's display title from the committed activity list; its id when the list carries no title."
+            },
+            "type": {
+              "type": "string",
+              "description": "The activity type's wire name: service, frontend, testing, deployment, documentation, uiDesign or integration."
+            },
+            "variant": {
+              "type": "string",
+              "description": "The testing variant's wire name (plan, harness, perf, systemTest or qaProcess). Omitted unless type is testing."
+            },
+            "componentId": {
+              "type": "string",
+              "x-go-name": "ComponentID",
+              "description": "The architecture component this activity builds. Omitted for an activity with none (the system test plan, system testing)."
+            },
+            "state": {
+              "$ref": "#/$defs/ActivityViewState"
+            },
+            "phases": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ActivityLifecyclePhase"
+              },
+              "description": "The lifecycle phases (Figure A-2) in lifecycle order."
+            },
+            "tasks": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ActivityTaskView"
+              },
+              "description": "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet."
+            },
+            "reviewSet": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ReviewSet",
+              "description": "Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate."
+            },
+            "reviewSetError": {
+              "type": "string",
+              "description": "Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live."
+            }
+          },
+          "required": [
+            "activityId",
+            "name",
+            "type",
+            "state",
+            "phases",
+            "tasks"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityViewState": {
+          "type": "string",
+          "enum": [
+            "notStarted",
+            "running",
+            "awaitingHuman",
+            "done",
+            "failed"
+          ],
+          "x-enum-varnames": [
+            "ActivityViewNotStarted",
+            "ActivityViewRunning",
+            "ActivityViewAwaitingHuman",
+            "ActivityViewDone",
+            "ActivityViewFailed"
+          ],
+          "x-go-base": "string"
+        },
+        "ActivityLifecyclePhase": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID",
+              "description": "The lifecycle phase's wire name: requirements, detailed_design, test_plan, construction or integration."
+            },
+            "label": {
+              "type": "string"
+            },
+            "weight": {
+              "type": "integer",
+              "description": "The share of the activity's progress this lifecycle phase carries; the weights of one activity sum to 100."
+            },
+            "gateTaskId": {
+              "type": "string",
+              "x-go-name": "GateTaskID",
+              "description": "The review task whose pass IS this lifecycle phase's binary exit criterion."
+            },
+            "completed": {
+              "type": "boolean",
+              "description": "True iff the gate task's state is passed."
+            }
+          },
+          "required": [
+            "id",
+            "label",
+            "weight",
+            "gateTaskId",
+            "completed"
+          ],
+          "additionalProperties": false
+        },
+        "ActivityTaskKind": {
+          "type": "string",
+          "enum": [
+            "dispatch",
+            "review"
+          ],
+          "x-enum-varnames": [
+            "ActivityTaskDispatch",
+            "ActivityTaskReview"
+          ],
+          "x-go-base": "string"
+        },
+        "ActivityTaskState": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "locked",
+            "running",
+            "awaitingHuman",
+            "passed",
+            "sentBack",
+            "failed"
+          ],
+          "x-enum-varnames": [
+            "ActivityTaskPending",
+            "ActivityTaskLocked",
+            "ActivityTaskRunning",
+            "ActivityTaskAwaitingHuman",
+            "ActivityTaskPassed",
+            "ActivityTaskSentBack",
+            "ActivityTaskFailed"
+          ],
+          "x-go-base": "string"
+        },
+        "ActivityTaskView": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID",
+              "description": "The task id within the lifecycle (a Figure A-1 task id for a construction activity)."
+            },
+            "kind": {
+              "$ref": "#/$defs/ActivityTaskKind"
+            },
+            "title": {
+              "type": "string"
+            },
+            "phase": {
+              "type": "string",
+              "x-go-name": "LifecyclePhaseID",
+              "description": "The id of the lifecycle phase this task belongs to."
+            },
+            "dependsOn": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them."
+            },
+            "reviews": {
+              "type": "string",
+              "description": "For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task."
+            },
+            "state": {
+              "$ref": "#/$defs/ActivityTaskState"
+            },
+            "revisions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TaskRevisionView"
+              },
+              "description": "Oldest first. A dispatch task and the review task that judges it share revision numbers."
+            }
+          },
+          "required": [
+            "id",
+            "kind",
+            "title",
+            "phase",
+            "dependsOn",
+            "state",
+            "revisions"
+          ],
+          "additionalProperties": false
+        },
+        "TaskRevisionOutcome": {
+          "type": "string",
+          "enum": [
+            "running",
+            "awaitingHuman",
+            "passed",
+            "sentBack",
+            "failed",
+            "skipped"
+          ],
+          "x-enum-varnames": [
+            "TaskRevisionRunning",
+            "TaskRevisionAwaitingHuman",
+            "TaskRevisionPassed",
+            "TaskRevisionSentBack",
+            "TaskRevisionFailed",
+            "TaskRevisionSkipped"
+          ],
+          "x-go-base": "string"
+        },
+        "TaskRevisionProvenance": {
+          "type": "string",
+          "enum": [
+            "synthesized",
+            "backfilled",
+            "observed"
+          ],
+          "x-enum-varnames": [
+            "TaskRevisionSynthesized",
+            "TaskRevisionBackfilled",
+            "TaskRevisionObserved"
+          ],
+          "x-go-base": "string",
+          "description": "The worst origin among the revision's attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed."
+        },
+        "TaskRevisionComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "TaskRevisionView": {
+          "type": "object",
+          "properties": {
+            "n": {
+              "type": "integer",
+              "description": "1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it."
+            },
+            "outcome": {
+              "$ref": "#/$defs/TaskRevisionOutcome"
+            },
+            "startedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            },
+            "endedAt": {
+              "type": [
+                "null",
+                "string"
+              ],
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time",
+              "description": "Omitted while any attempt of the revision is unresolved."
+            },
+            "attemptIds": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "x-go-name": "AttemptIDs",
+              "description": "Every attempt of the revision, as \"<activityId>:<task>:<n>\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate."
+            },
+            "episodeId": {
+              "type": "string",
+              "x-go-name": "EpisodeID",
+              "description": "The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured."
+            },
+            "commentCount": {
+              "type": "integer"
+            },
+            "comments": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/TaskRevisionComment"
+              },
+              "description": "The anchored comments that rode with a send-back. Empty unless outcome is sentBack."
+            },
+            "note": {
+              "type": "string",
+              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded."
+            },
+            "provenance": {
+              "$ref": "#/$defs/TaskRevisionProvenance"
+            }
+          },
+          "required": [
+            "n",
+            "outcome",
+            "attemptIds",
+            "commentCount",
+            "comments",
+            "provenance"
+          ],
+          "additionalProperties": false
+        },
         "AnchoredComment": {
           "type": "object",
           "properties": {
@@ -16109,6 +16433,10 @@
                 "null"
               ],
               "$ref": "#/$defs/ReviewSet"
+            },
+            "reviewSetError": {
+              "type": "string",
+              "description": "Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered."
             },
             "variance": {
               "type": [
@@ -16873,6 +17201,27 @@
             ],
             "result": {
               "$ref": "#/$defs/EpisodeTimeline"
+            },
+            "error": true
+          },
+          {
+            "name": "QueryActivityView",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "$ref": "#/$defs/ActivityID"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/ActivityView"
             },
             "error": true
           }
@@ -26913,6 +27262,26 @@
           ],
           "additionalProperties": false
         },
+        "ReviewArtifactKind": {
+          "type": "string",
+          "enum": [
+            "DetailedDesign",
+            "Construction",
+            "Integration",
+            "Noncoding",
+            "UIDesign",
+            "UICode"
+          ],
+          "x-enum-varnames": [
+            "ReviewKindDetailedDesign",
+            "ReviewKindConstruction",
+            "ReviewKindIntegration",
+            "ReviewKindNoncoding",
+            "ReviewKindUIDesign",
+            "ReviewKindUICode"
+          ],
+          "x-go-base": "string"
+        },
         "ReviewSet": {
           "type": "object",
           "properties": {
@@ -26978,7 +27347,7 @@
               {
                 "name": "artifactKind",
                 "schema": {
-                  "type": "string"
+                  "$ref": "#/$defs/ReviewArtifactKind"
                 }
               },
               {

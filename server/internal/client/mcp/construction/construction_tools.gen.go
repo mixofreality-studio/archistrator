@@ -39,6 +39,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema(), OutputSchema: updateReviewPolicyOutputSchema()}, h.handleUpdateReviewPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionListEpisodesForActivity", Description: "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.", InputSchema: listEpisodesForActivityInputSchema(), OutputSchema: listEpisodesForActivityOutputSchema()}, h.handleListEpisodesForActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetEpisodeTimeline", Description: "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.", InputSchema: getEpisodeTimelineInputSchema(), OutputSchema: getEpisodeTimelineOutputSchema()}, h.handleGetEpisodeTimeline)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionQueryActivityView", Description: "Return one construction activity's whole lifecycle in one read: its task DAG (every task, its dependencies, its state) grouped into the lifecycle phases and their earned-value weights, each task's revision history with the episode, send-back note and anchored comments behind it, and the reviewer set at the gate it is waiting at. Read-only.", InputSchema: queryActivityViewInputSchema(), OutputSchema: queryActivityViewOutputSchema()}, h.handleQueryActivityView)
 }
 
 type executeNextActivityInput struct {
@@ -137,6 +138,15 @@ type getEpisodeTimelineInput struct {
 
 type getEpisodeTimelineOutput struct {
 	Result mgr.EpisodeTimeline `json:"result"`
+}
+
+type queryActivityViewInput struct {
+	ProjectID  mgr.ProjectID  `json:"projectID"`
+	ActivityID mgr.ActivityID `json:"activityID"`
+}
+
+type queryActivityViewOutput struct {
+	Result mgr.ActivityView `json:"result"`
 }
 
 // executeNextActivityInputSchema is the explicit MCP input schema for the ExecuteNextActivity operation.
@@ -260,6 +270,16 @@ func getEpisodeTimelineInputSchema() *jsonschema.Schema {
 	return s
 }
 
+// queryActivityViewInputSchema is the explicit MCP input schema for the QueryActivityView operation.
+func queryActivityViewInputSchema() *jsonschema.Schema {
+	s := objectSchema[queryActivityViewInput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	s.Required = []string{"projectID", "activityID"}
+	return s
+}
+
 // executeNextActivityOutputSchema is the explicit MCP output schema for the ExecuteNextActivity operation.
 func executeNextActivityOutputSchema() *jsonschema.Schema {
 	s := objectSchema[executeNextActivityOutput]()
@@ -380,12 +400,45 @@ func getEpisodeTimelineOutputSchema() *jsonschema.Schema {
 	return s
 }
 
+// queryActivityViewOutputSchema is the explicit MCP output schema for the QueryActivityView operation.
+func queryActivityViewOutputSchema() *jsonschema.Schema {
+	s := objectSchema[queryActivityViewOutput]()
+	fixUUIDStrings(s)
+	relaxRawJSON(s)
+	allowNullMaps(s)
+	describeContractFields(s, reflect.TypeFor[queryActivityViewOutput]())
+	return s
+}
+
 // contractFieldDescriptions is the contract's own property documentation,
 // keyed by the Go type modelgen emits for each documenting $def. modelgen
 // carries no description into those types, so the inferred output schema
 // would otherwise show an agent a field's shape but never the contract's
 // statement of when that field means nothing.
 var contractFieldDescriptions = map[reflect.Type]map[string]string{
+	reflect.TypeFor[mgr.ActivityLifecyclePhase](): {
+		"completed":  "True iff the gate task's state is passed.",
+		"gateTaskId": "The review task whose pass IS this lifecycle phase's binary exit criterion.",
+		"id":         "The lifecycle phase's wire name: requirements, detailed_design, test_plan, construction or integration.",
+		"weight":     "The share of the activity's progress this lifecycle phase carries; the weights of one activity sum to 100.",
+	},
+	reflect.TypeFor[mgr.ActivityTaskView](): {
+		"dependsOn": "The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them.",
+		"id":        "The task id within the lifecycle (a Figure A-1 task id for a construction activity).",
+		"phase":     "The id of the lifecycle phase this task belongs to.",
+		"reviews":   "For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task.",
+		"revisions": "Oldest first. A dispatch task and the review task that judges it share revision numbers.",
+	},
+	reflect.TypeFor[mgr.ActivityView](): {
+		"componentId":    "The architecture component this activity builds. Omitted for an activity with none (the system test plan, system testing).",
+		"name":           "The activity's display title from the committed activity list; its id when the list carries no title.",
+		"phases":         "The lifecycle phases (Figure A-2) in lifecycle order.",
+		"reviewSet":      "Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate.",
+		"reviewSetError": "Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live.",
+		"tasks":          "Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet.",
+		"type":           "The activity type's wire name: service, frontend, testing, deployment, documentation, uiDesign or integration.",
+		"variant":        "The testing variant's wire name (plan, harness, perf, systemTest or qaProcess). Omitted unless type is testing.",
+	},
 	reflect.TypeFor[mgr.ConstructionSessionView](): {
 		"attempt":          "The current supervision attempt, 1-based: a variance retry, an operator Retry and an escalation's re-dispatch each start the next one. 0 before the first attempt and on the project-level view.",
 		"attemptBudget":    "How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view.",
@@ -393,10 +446,19 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"awaitingSince":    "When this occurrence of the human stage began, in workflow time. A send-back's redraft re-enters its gate with a new awaitingSince, so the pair (awaitingGate, awaitingSince) identifies one gate occurrence. Omitted whenever awaitingGate is.",
 		"awaitingUntil":    "When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.",
 		"redraftExhausted": "True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation.",
+		"reviewSetError":   "Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered.",
 	},
 	reflect.TypeFor[mgr.PumpStatus](): {
 		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",
 		"runStartedAt": "When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.",
+	},
+	reflect.TypeFor[mgr.TaskRevisionView](): {
+		"attemptIds": "Every attempt of the revision, as \"<activityId>:<task>:<n>\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate.",
+		"comments":   "The anchored comments that rode with a send-back. Empty unless outcome is sentBack.",
+		"endedAt":    "Omitted while any attempt of the revision is unresolved.",
+		"episodeId":  "The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured.",
+		"n":          "1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it.",
+		"note":       "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded.",
 	},
 }
 
@@ -602,6 +664,19 @@ func (h *Handler) handleGetEpisodeTimeline(ctx context.Context, _ *mcp.CallToolR
 	principal, _ := security.PrincipalFrom(ctx)
 	rc := fwmanager.Context{Context: ctx, Principal: principal}
 	result, err := h.Manager.GetEpisodeTimeline(rc, in.ProjectID, in.EpisodeID)
+	if err != nil {
+		return nil, out, mapManagerError(err)
+	}
+	out.Result = result
+	return nil, out, nil
+}
+
+// handleQueryActivityView is the MCP tool handler for the QueryActivityView operation.
+func (h *Handler) handleQueryActivityView(ctx context.Context, _ *mcp.CallToolRequest, in queryActivityViewInput) (*mcp.CallToolResult, queryActivityViewOutput, error) {
+	var out queryActivityViewOutput
+	principal, _ := security.PrincipalFrom(ctx)
+	rc := fwmanager.Context{Context: ctx, Principal: principal}
+	result, err := h.Manager.QueryActivityView(rc, in.ProjectID, in.ActivityID)
 	if err != nil {
 		return nil, out, mapManagerError(err)
 	}

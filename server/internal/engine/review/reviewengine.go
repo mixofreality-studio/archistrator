@@ -47,6 +47,10 @@
 // surface — never leaked onto the contract. A future policy that consults the
 // architectureGraph / contracts inputs (e.g. to add a security reviewer for an
 // edge-touching component) refines reviewersFor without changing ProposeReviews.
+//
+// The kind VOCABULARY is the generated ReviewArtifactKind; the Manager owns the
+// (activity type, lifecycle phase) → kind table until ProposeReviews takes the
+// activity type itself (spec 2026-09-20 §5.4, stage 2).
 package review
 
 import (
@@ -78,44 +82,6 @@ const (
 	roleUIDesigner = "uiDesigner"
 )
 
-// reviewKind classifies the produced change under review (mirrors the
-// constructionManager's notion of the activity kind / artifact kind it passes as
-// the artifactKind string). The numeric ordering is Engine-internal and not a wire
-// contract.
-type reviewKind int
-
-const (
-	// kindUnknown — unset (a ContractMisuse on input: the Manager must pass
-	// a recognised artifactKind string).
-	kindUnknown reviewKind = iota
-	// kindDetailedDesign — a component's contract-design (service contract).
-	kindDetailedDesign
-	// kindConstruction — a component's construction code.
-	kindConstruction
-	// kindIntegration — an integration activity's output.
-	kindIntegration
-	// kindNoncoding — a non-coding work-product.
-	kindNoncoding
-	// kindUIDesign — a UI-design concept.
-	kindUIDesign
-	// kindUICode — UI code.
-	kindUICode
-)
-
-// artifactKindByName maps the artifactKind string the Manager passes (the
-// ActivityKind.String() canonical names, plus the UI kinds) to the typed kind. The
-// names mirror constructionManager's ActivityKind.String() ("DetailedDesign",
-// "Construction", "Integration", "Noncoding") so the Manager's call is mechanical,
-// plus "UIDesign"/"UICode" for the client-facet review-routing cases.
-var artifactKindByName = map[string]reviewKind{
-	"DetailedDesign": kindDetailedDesign,
-	"Construction":   kindConstruction,
-	"Integration":    kindIntegration,
-	"Noncoding":      kindNoncoding,
-	"UIDesign":       kindUIDesign,
-	"UICode":         kindUICode,
-}
-
 // GENERATED CONTRACT SURFACE — the I/O models (ReviewChange, Reviewer, ReviewSet)
 // AND the ReviewEngine interface are generated from this component's
 // `.serviceContracts` entry in .aiarch/state/project.json into
@@ -129,10 +95,11 @@ var artifactKindByName = map[string]reviewKind{
 //     an independent consumer mirror it adapts to (deps.go).
 //   - ProposeReviews is pure and deterministic: identical inputs → identical
 //     ReviewSet, always. The error is *fweng.Error and signals programmer/contract
-//     misuse ONLY (the Engine does no I/O): ContractMisuse (empty change
-//     identifiers or an unrecognised artifactKind — a constructionManager bug) and
-//     InternalInvariant (a recognised kind yielded an empty reviewer set — an engine
-//     bug). architectureGraph + contracts are accepted by value for forward-compatible
+//     misuse ONLY (the Engine does no I/O): ContractMisuse (an empty ActivityID, an
+//     empty componentID for a component-scoped kind (DetailedDesign/Construction/
+//     UIDesign/UICode), or an unrecognised artifactKind — each a constructionManager
+//     bug) and InternalInvariant (a recognised kind yielded an empty reviewer set — an
+//     engine bug). architectureGraph + contracts are accepted by value for forward-compatible
 //     policy refinement; the v1 policy keys on artifactKind alone and ignores them.
 
 // The concrete ReviewEngine — the empty, stateless ReviewEngineImpl — and its
@@ -140,13 +107,13 @@ var artifactKindByName = map[string]reviewKind{
 // pure: no fields => no mutable state => trivially deterministic and reentrant).
 // The behaviour below is hand-written on the generated struct.
 
-// ProposeReviews implements ReviewEngine. It validates the input, classifies the
-// artifactKind, and computes the policy's reviewer set for that kind.
+// ProposeReviews implements ReviewEngine. It validates the input and computes the
+// policy's reviewer set for the artifact kind.
 func (ReviewEngineImpl) ProposeReviews(
 	_ fweng.Context, // pure engine: carries identity/cancellation, ignored by v1 policy
 	change ReviewChange,
 	componentID string,
-	artifactKind string,
+	artifactKind ReviewArtifactKind,
 	_ string, // architectureGraph — reserved for a future policy refinement (v1 ignores)
 	_ []string, // contracts — reserved for a future policy refinement (v1 ignores)
 ) (ReviewSet, error) {
@@ -155,38 +122,50 @@ func (ReviewEngineImpl) ProposeReviews(
 		return ReviewSet{}, fweng.New(fweng.ContractMisuse,
 			"ProposeReviews: change has empty ActivityID (Manager failed to assemble a valid ReviewChange)")
 	}
-	if componentID == "" && change.ComponentID == "" {
+
+	reviewers, known := reviewersFor(artifactKind)
+	if !known {
+		// The type is a string on the wire (the internal MCP tool decodes JSON into it), so
+		// an out-of-vocabulary value is still reachable and still refused here.
 		return ReviewSet{}, fweng.New(fweng.ContractMisuse,
-			"ProposeReviews: empty componentID (Manager failed to assemble a valid call)")
+			"ProposeReviews: unrecognised artifactKind "+quote(string(artifactKind)))
 	}
 
-	kind, ok := artifactKindByName[artifactKind]
-	if !ok || kind == kindUnknown {
+	if componentScoped(artifactKind) && componentID == "" && change.ComponentID == "" {
 		return ReviewSet{}, fweng.New(fweng.ContractMisuse,
-			"ProposeReviews: unrecognised artifactKind "+quote(artifactKind))
+			"ProposeReviews: "+string(artifactKind)+" reviews one component's artifact and no componentID was given")
 	}
-
-	reviewers := reviewersFor(kind)
 
 	// --- InternalInvariant guard: every recognised kind must yield ≥1 reviewer ---
 	if len(reviewers) == 0 {
 		return ReviewSet{}, fweng.New(fweng.InternalInvariant,
-			"ProposeReviews: policy produced an empty reviewer set for a recognised kind "+quote(artifactKind))
+			"ProposeReviews: policy produced an empty reviewer set for a recognised kind "+quote(string(artifactKind)))
 	}
 
 	return ReviewSet{Reviewers: reviewers}, nil
 }
 
-// reviewersFor is the package-internal ReviewPolicy: the deterministic
-// artifactKind → reviewer-set mapping (the-method-review-routing). Swappable per
-// policy without touching the ProposeReviews surface.
-func reviewersFor(kind reviewKind) []Reviewer {
+// componentScoped reports whether a kind reviews ONE component's artifact (its service
+// contract, its code, its UI design, its UI code) and so cannot be proposed without a
+// component. Integration and Noncoding review against the system-level architecture:
+// the system test plan and system testing have no component at all.
+func componentScoped(kind ReviewArtifactKind) bool {
 	switch kind {
-	case kindUnknown:
-		// Unset. Callers (ProposeReviews) already reject kindUnknown before
-		// reaching here; mirrors the unrecognised-kind default of no reviewers.
-		return nil
-	case kindDetailedDesign:
+	case ReviewKindDetailedDesign, ReviewKindConstruction, ReviewKindUIDesign, ReviewKindUICode:
+		return true
+	case ReviewKindIntegration, ReviewKindNoncoding:
+		return false
+	}
+	return false
+}
+
+// reviewersFor is the package-internal ReviewPolicy: the deterministic
+// artifactKind → reviewer-set mapping (the-method-review-routing). known is false for
+// a value outside the generated vocabulary. Swappable per policy without touching the
+// ProposeReviews surface.
+func reviewersFor(kind ReviewArtifactKind) (reviewers []Reviewer, known bool) {
+	switch kind {
+	case ReviewKindDetailedDesign:
 		// The architect reviews the service-contract against the architecture; the
 		// architect+constructor may re-stage an amended contract by agreement.
 		return []Reviewer{{
@@ -194,50 +173,49 @@ func reviewersFor(kind reviewKind) []Reviewer {
 			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          true,
-		}}
-	case kindConstruction:
+		}}, true
+	case ReviewKindConstruction:
 		// A senior reviews the code against the committed detailed-design.
 		return []Reviewer{{
 			Role:              roleSeniorReviewer,
 			Perspective:       perspectiveDetailedDesign,
 			ReferenceArtifact: "detailedDesign",
 			MayAmend:          false,
-		}}
-	case kindIntegration:
+		}}, true
+	case ReviewKindIntegration:
 		// A senior reviews integration against the architecture call-chains.
 		return []Reviewer{{
 			Role:              roleSeniorReviewer,
 			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          false,
-		}}
-	case kindNoncoding:
+		}}, true
+	case ReviewKindNoncoding:
 		// A single architect sign-off.
 		return []Reviewer{{
 			Role:              roleArchitect,
 			Perspective:       perspectiveArchitecture,
 			ReferenceArtifact: "architecture",
 			MayAmend:          false,
-		}}
-	case kindUIDesign:
+		}}, true
+	case ReviewKindUIDesign:
 		// A UI designer reviews the concept; designer+constructor may re-stage.
 		return []Reviewer{{
 			Role:              roleUIDesigner,
 			Perspective:       perspectiveUIDesign,
 			ReferenceArtifact: "uiDesign",
 			MayAmend:          true,
-		}}
-	case kindUICode:
+		}}, true
+	case ReviewKindUICode:
 		// A senior reviews the UI code against the committed UI-design.
 		return []Reviewer{{
 			Role:              roleSeniorReviewer,
 			Perspective:       perspectiveUIDesign,
 			ReferenceArtifact: "uiDesign",
 			MayAmend:          false,
-		}}
-	default:
-		return nil
+		}}, true
 	}
+	return nil, false
 }
 
 // quote wraps s in double quotes for readable error detail (the same minimal idiom

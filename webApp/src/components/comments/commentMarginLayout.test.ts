@@ -39,7 +39,10 @@ void test('a cascade pushes every subsequent card', () => {
     ],
     8
   );
-  assert.deepEqual(got.map((c) => c.top), [0, 48, 96]);
+  assert.deepEqual(
+    got.map((c) => c.top),
+    [0, 48, 96]
+  );
 });
 
 void test('input is sorted by desiredTop regardless of argument order', () => {
@@ -50,7 +53,10 @@ void test('input is sorted by desiredTop regardless of argument order', () => {
     ],
     8
   );
-  assert.deepEqual(got.map((c) => c.id), ['early', 'late']);
+  assert.deepEqual(
+    got.map((c) => c.id),
+    ['early', 'late']
+  );
 });
 
 void test('an empty list places nothing', () => {

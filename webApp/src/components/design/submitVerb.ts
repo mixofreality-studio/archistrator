@@ -81,7 +81,13 @@ export function resolveSubmitVerb(input: {
   }
   if (staged > 0) {
     return committed
-      ? { action: 'amend', label: `Amend (${String(staged)})`, consequence, disabled: false, secondaryActions: [] }
+      ? {
+          action: 'amend',
+          label: `Amend (${String(staged)})`,
+          consequence,
+          disabled: false,
+          secondaryActions: [],
+        }
       : {
           action: 'sendBack',
           label: `Send back (${String(staged)})`,
@@ -131,7 +137,9 @@ export function resolveSubmitVerb(input: {
 function describeConsequence(crs: number, qs: number, committed: boolean): string {
   const parts: string[] = [];
   if (crs > 0) {
-    parts.push(`${String(crs)} change request${crs === 1 ? '' : 's'} → ${committed ? 'amend' : 'redraft'}`);
+    parts.push(
+      `${String(crs)} change request${crs === 1 ? '' : 's'} → ${committed ? 'amend' : 'redraft'}`
+    );
   }
   if (qs > 0) parts.push(`${String(qs)} question${qs === 1 ? '' : 's'} → PM`);
   return parts.join(' · ');
