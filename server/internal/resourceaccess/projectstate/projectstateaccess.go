@@ -7128,6 +7128,9 @@ var activityTypeNames = map[ActivityType]string{
 	ActivityTypeDocumentation: "documentation",
 	ActivityTypeUIDesign:      "uiDesign",
 	ActivityTypeIntegration:   "integration",
+	ActivityTypeRequirements:  "requirements",
+	ActivityTypeArchitecture:  "architecture",
+	ActivityTypeProjectDesign: "projectDesign",
 }
 var activityTypeByName = invert(activityTypeNames)
 
@@ -7763,6 +7766,16 @@ func CoarseBuildStatus(phases []PhaseCompletion, _ ActivityMethodPhase) Activity
 // ActivityTypeIntegration — an I-* use-case integration activity: wiring and verifying
 // already-constructed components end-to-end. It has no construction of its own.
 
+// ActivityTypeRequirements — Table 11-1 #1: the mission → glossary → volatilities →
+// core-use-cases chain that used to be the design rail's first four steps, carried in
+// the plan as one activity with those four phases.
+
+// ActivityTypeArchitecture — Table 11-1 #2: the System model and its four views, drawn
+// and validated against the call chains in a single phase.
+
+// ActivityTypeProjectDesign — Table 11-1 #3: the deterministic SDP review. Its one
+// phase holds one task, the M0 gate — nothing is dispatched into it.
+
 // String returns the canonical wire name.
 func (t ActivityType) String() string {
 	switch t {
@@ -7778,11 +7791,17 @@ func (t ActivityType) String() string {
 		return "uiDesign"
 	case ActivityTypeIntegration:
 		return "integration"
+	case ActivityTypeRequirements:
+		return "requirements"
+	case ActivityTypeArchitecture:
+		return "architecture"
+	case ActivityTypeProjectDesign:
+		return "projectDesign"
 	case ActivityTypeService:
 		// The zero value (== ActivityKindService, the legacy alias).
 		return "service"
 	}
-	// Unreachable for the seven defined ActivityType values above (the exhaustive
+	// Unreachable for the ten defined ActivityType values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "service"
@@ -8616,6 +8635,11 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 			Produced: true,
 			Note:     "Construction output recorded in the implementation log.",
 		})
+	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
+		// A design activity's product is a committed artifact SLOT, not a file the
+		// corpus can observe, so it contributes no ProducedArtifact from corpus
+		// evidence. Empty ON PURPOSE: exhaustive wants the arm, and inventing a
+		// produced artifact here would fabricate one.
 	default:
 		out = append(out, ProducedArtifact{
 			Kind:     "code",

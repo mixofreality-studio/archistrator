@@ -1849,7 +1849,7 @@ export interface components {
     };
     SystemDesignActivityMethodPhase: string;
     /** @enum {integer} */
-    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     SystemDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;

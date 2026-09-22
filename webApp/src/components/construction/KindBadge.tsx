@@ -23,7 +23,11 @@ export type ActivityKind =
   | 'deployment'
   | 'documentation'
   | 'uiDesign'
-  | 'integration';
+  | 'integration'
+  // The three design types at the head of the plan (spec 2026-09-20 §5.1).
+  | 'requirements'
+  | 'architecture'
+  | 'projectDesign';
 
 export const KIND_META: Record<ActivityKind, { label: string }> = {
   service: { label: 'Service' },
@@ -33,6 +37,9 @@ export const KIND_META: Record<ActivityKind, { label: string }> = {
   documentation: { label: 'Docs' },
   uiDesign: { label: 'UI design' },
   integration: { label: 'Integration' },
+  requirements: { label: 'Requirements' },
+  architecture: { label: 'Architecture' },
+  projectDesign: { label: 'Project design' },
 };
 
 /** The activity-kind palette — token-driven; no hardcoded colour. */
@@ -52,6 +59,11 @@ export function kindColor(t: Tokens, k: ActivityKind): { fg: string; bg: string 
       return { fg: t.chatPmFg, bg: t.chatPmBg };
     case 'integration':
       return { fg: t.committedFg, bg: t.committedBg };
+    // The three design kinds are architect-owned, so they wear the architect's colour.
+    case 'requirements':
+    case 'architecture':
+    case 'projectDesign':
+      return { fg: t.chatArchitectFg, bg: t.chatArchitectBg };
   }
 }
 
@@ -72,6 +84,13 @@ function kindIcon(k: ActivityKind, size = 13): ReactNode {
       return <PaletteOutlinedIcon sx={sx} />;
     case 'integration':
       return <HubOutlinedIcon sx={sx} />;
+    case 'requirements':
+      return <MenuBookOutlinedIcon sx={sx} />;
+    case 'architecture':
+      return <HubOutlinedIcon sx={sx} />;
+    case 'projectDesign':
+      // The SDP review is a gate; FactCheck is the gate-flavoured icon already here.
+      return <FactCheckOutlinedIcon sx={sx} />;
   }
 }
 

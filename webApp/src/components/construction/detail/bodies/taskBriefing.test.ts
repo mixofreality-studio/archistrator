@@ -20,6 +20,7 @@ import { evidencePointerFor, provenanceNodeFor, selectedAttemptOf } from '../det
 import {
   absenceFor,
   briefingFor,
+  KIND_NOUN,
   NO_CURRENT_PHASE_NOTE,
   NO_PROFILE_NOTE,
   noBriefingNoteFor,
@@ -100,6 +101,34 @@ function projectWith(
     testingState: { testRuns: [], defects: [], ...testingState },
   };
 }
+
+// ---------------------------------------------------------------------------
+// The kind vocabulary
+// ---------------------------------------------------------------------------
+
+// KIND_NOUN is the ONE place a kind is named in a sentence (KindBadge.tsx's
+// KIND_META is the chip's label, and a `.tsx` module cannot be loaded here), so it
+// is where the vocabulary's totality is checked at run time. TypeScript already
+// makes a missing entry a compile error; this catches the other half — an entry
+// that exists but says nothing.
+void test('every activity kind, the three design kinds included, has a noun', () => {
+  const kinds: NonNullable<ConstructionRow['kind']>[] = [
+    'service',
+    'frontend',
+    'testing',
+    'deployment',
+    'documentation',
+    'uiDesign',
+    'integration',
+    'requirements',
+    'architecture',
+    'projectDesign',
+  ];
+  assert.equal(Object.keys(KIND_NOUN).length, kinds.length);
+  for (const k of kinds) {
+    assert.ok(KIND_NOUN[k].length > 0, `${k} has no noun`);
+  }
+});
 
 // ---------------------------------------------------------------------------
 // The briefing — composed, never authored per task

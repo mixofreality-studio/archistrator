@@ -19698,7 +19698,10 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8,
+            9
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -19707,7 +19710,10 @@
             "ActivityTypeDeployment",
             "ActivityTypeDocumentation",
             "ActivityTypeUIDesign",
-            "ActivityTypeIntegration"
+            "ActivityTypeIntegration",
+            "ActivityTypeRequirements",
+            "ActivityTypeArchitecture",
+            "ActivityTypeProjectDesign"
           ],
           "x-go-base": "int"
         },
@@ -23959,7 +23965,10 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8,
+            9
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -23968,7 +23977,10 @@
             "ActivityTypeDeployment",
             "ActivityTypeDocumentation",
             "ActivityTypeUIDesign",
-            "ActivityTypeIntegration"
+            "ActivityTypeIntegration",
+            "ActivityTypeRequirements",
+            "ActivityTypeArchitecture",
+            "ActivityTypeProjectDesign"
           ],
           "x-go-base": "int"
         },
@@ -28181,7 +28193,10 @@
             3,
             4,
             5,
-            6
+            6,
+            7,
+            8,
+            9
           ],
           "x-enum-varnames": [
             "ActivityTypeService",
@@ -28190,7 +28205,10 @@
             "ActivityTypeDeployment",
             "ActivityTypeDocumentation",
             "ActivityTypeUIDesign",
-            "ActivityTypeIntegration"
+            "ActivityTypeIntegration",
+            "ActivityTypeRequirements",
+            "ActivityTypeArchitecture",
+            "ActivityTypeProjectDesign"
           ],
           "x-go-base": "int"
         },

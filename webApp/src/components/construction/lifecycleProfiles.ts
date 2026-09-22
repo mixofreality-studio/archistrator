@@ -100,6 +100,9 @@ const KIND_LIFECYCLE: Readonly<Record<ActivityKind, LifecycleTypeKey>> = {
   documentation: 'documentation',
   uiDesign: 'uiDesign',
   integration: 'integration',
+  requirements: 'requirements',
+  architecture: 'architecture',
+  projectDesign: 'projectDesign',
 };
 
 const VARIANT_LIFECYCLE: Readonly<Record<TestingVariantName, LifecycleTypeKey>> = {

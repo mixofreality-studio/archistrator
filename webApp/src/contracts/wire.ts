@@ -155,7 +155,7 @@ function constructionStageFromOrdinal(ordinal: number): ConstructionStage {
 }
 
 /** ProjectActivityType (0 service,1 frontend,2 testing,3 deployment,4 documentation,
- * 5 uiDesign,6 integration). */
+ * 5 uiDesign,6 integration,7 requirements,8 architecture,9 projectDesign). */
 function activityRowKindFromOrdinal(ordinal: number): ActivityType {
   return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
 }

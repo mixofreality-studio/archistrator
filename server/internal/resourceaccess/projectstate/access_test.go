@@ -6294,6 +6294,71 @@ func verifyEnumWireCompleteness(t *testing.T, name string, declaredOrds []int, m
 	}
 }
 
+// The three design activity types (spec 2026-09-20 §5.1). Their wire names ARE the
+// method-assets lifecycle keys, so a plan activity of this type resolves its lifecycle
+// with no special case. Ordinals 7/8/9 are appended, never inserted.
+func TestActivityType_DesignTypesRoundTripAndKeyTheirLifecycles(t *testing.T) {
+	cases := []struct {
+		typ  ActivityType
+		name string
+	}{
+		{ActivityTypeRequirements, "requirements"},
+		{ActivityTypeArchitecture, "architecture"},
+		{ActivityTypeProjectDesign, "projectDesign"},
+	}
+	for _, c := range cases {
+		if got := c.typ.String(); got != c.name {
+			t.Errorf("%d.String() = %q, want %q", int(c.typ), got, c.name)
+		}
+		raw, err := json.Marshal(c.typ)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", c.name, err)
+		}
+		if string(raw) != `"`+c.name+`"` {
+			t.Errorf("marshal %s = %s, want %q", c.name, raw, c.name)
+		}
+		var back ActivityType
+		if err := json.Unmarshal(raw, &back); err != nil || back != c.typ {
+			t.Errorf("round trip %s: got %v, %v", c.name, back, err)
+		}
+		if got := LifecycleKeyFor(c.typ, TestVariantPlan); got != c.name {
+			t.Errorf("LifecycleKeyFor(%s) = %q, want %q", c.name, got, c.name)
+		}
+		if len(ProfileFor(c.typ, TestVariantPlan).Phases) == 0 {
+			t.Errorf("%s has no lifecycle phases — the method-assets pin does not carry it", c.name)
+		}
+	}
+	// 0-6 are untouched and the three are APPENDED: the count is the cheapest proof
+	// that nothing was inserted in the middle of the wire vocabulary.
+	if len(activityTypeNames) != 10 {
+		t.Fatalf("activityTypeNames holds %d types, want 10", len(activityTypeNames))
+	}
+	for ordinal, want := range map[ActivityType]string{7: "requirements", 8: "architecture", 9: "projectDesign"} {
+		if got := activityTypeNames[ordinal]; got != want {
+			t.Errorf("ordinal %d = %q, want %q", int(ordinal), got, want)
+		}
+	}
+}
+
+// The phase shapes the three design lifecycles publish, pinned so a method-assets
+// release that reshapes them fails here rather than silently reshaping the console.
+func TestProfileFor_DesignLifecycleShapes(t *testing.T) {
+	want := map[ActivityType][]string{
+		ActivityTypeRequirements:  {"mission", "glossary", "volatilities", "coreUseCases"},
+		ActivityTypeArchitecture:  {"architecture"},
+		ActivityTypeProjectDesign: {"sdp"},
+	}
+	for typ, ids := range want {
+		var got []string
+		for _, p := range ProfileFor(typ, TestVariantPlan).PhaseIDs() {
+			got = append(got, string(p))
+		}
+		if !slices.Equal(got, ids) {
+			t.Errorf("%s phases = %v, want %v", typ, got, ids)
+		}
+	}
+}
+
 // contractDef is the slice of a $defs entry this test reads: its declared `enum`
 // list, if any. Kept as raw messages because some $defs enums are string-backed
 // (e.g. ActivityMethodPhase, CritiqueVerdict) rather than the integer ordinals
@@ -7316,9 +7381,7 @@ func TestCommandForTotalOverProfiles(t *testing.T) {
 // through CommandFor's own dispatchTaskIn helper, so a bug in that helper cannot hide
 // behind a test that calls it too.
 func TestCommandFor_MatchesTheLifecyclesDispatchTaskCommand(t *testing.T) {
-	for _, combo := range append(allProfileCombos(),
-		profileCombo{ActivityTypeUIDesign, 0},
-		profileCombo{ActivityTypeIntegration, 0}) {
+	for _, combo := range allActivityTypeCombos() {
 		key := LifecycleKeyFor(combo.t, combo.v)
 		lc, ok := methodassets.LifecycleFor(key)
 		if !ok {
@@ -7326,13 +7389,7 @@ func TestCommandFor_MatchesTheLifecyclesDispatchTaskCommand(t *testing.T) {
 		}
 		for _, ph := range lc.Phases {
 			p := ActivityMethodPhase(ph.ID)
-			want := ""
-			for _, task := range lc.Tasks {
-				if task.Phase == ph.ID && task.Kind == methodassets.LifecycleTaskDispatch {
-					want = task.Command
-					break
-				}
-			}
+			want := rawDispatchCommand(lc, ph.ID)
 			if got := CommandFor(combo.t, combo.v, p); got != want {
 				t.Errorf("%s/%s: CommandFor = %q, want the lifecycle's own dispatch task command %q", key, p, got, want)
 			}
@@ -7340,12 +7397,27 @@ func TestCommandFor_MatchesTheLifecyclesDispatchTaskCommand(t *testing.T) {
 	}
 }
 
+// rawDispatchCommand is a phase's dispatch-task command read straight off the
+// lifecycle's own Tasks, never through the production dispatchTaskIn helper, so a bug
+// in that helper cannot hide behind a test that calls it too. "" when the phase has no
+// dispatch task at all — projectDesign's `sdp` is one review gate and nothing else.
+func rawDispatchCommand(lc methodassets.Lifecycle, phaseID string) string {
+	for _, task := range lc.Tasks {
+		if task.Phase == phaseID && task.Kind == methodassets.LifecycleTaskDispatch {
+			return task.Command
+		}
+	}
+	return ""
+}
+
 type profileCombo struct {
 	t ActivityType
 	v TestingVariant
 }
 
-// allProfileCombos enumerates every distinct (type, variant) profile in the domain.
+// allProfileCombos enumerates the CONSTRUCTION (type, variant) profiles: the ones
+// whose phases walk the .claude command matrix. It is deliberately not every type —
+// allActivityTypeCombos is.
 func allProfileCombos() []profileCombo {
 	return []profileCombo{
 		{ActivityTypeService, 0},
@@ -7358,6 +7430,23 @@ func allProfileCombos() []profileCombo {
 		{ActivityTypeTesting, TestVariantSystemTest},
 		{ActivityTypeTesting, TestVariantQAProcess},
 	}
+}
+
+// allActivityTypeCombos enumerates every distinct (type, variant) an activity can
+// carry: the construction profiles, the two types whose phases are not a command
+// family (UIDesign, Integration), and the three design types the plan's fixed prefix
+// uses. Totality over THIS list is what makes
+// TestEveryLifecycleIsReachableFromAnActivityType total — it replaces the seeded
+// designLifecycleKeys set that stood in for the design types while they had no
+// ActivityType.
+func allActivityTypeCombos() []profileCombo {
+	return append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0},
+		profileCombo{ActivityTypeRequirements, 0},
+		profileCombo{ActivityTypeArchitecture, 0},
+		profileCombo{ActivityTypeProjectDesign, 0},
+	)
 }
 
 // repoCommandsDir walks up from this test file to the repo root (the dir holding
@@ -10080,9 +10169,7 @@ func TestLifecycleKeyFor_CoversEveryTypeAndVariant(t *testing.T) {
 // every lifecycle the platform ships is reachable from one.
 
 func TestEveryActivityTypeResolvesToALifecycle(t *testing.T) {
-	for _, combo := range append(allProfileCombos(),
-		profileCombo{ActivityTypeUIDesign, 0},
-		profileCombo{ActivityTypeIntegration, 0}) {
+	for _, combo := range allActivityTypeCombos() {
 		key := LifecycleKeyFor(combo.t, combo.v)
 		lc, ok := methodassets.LifecycleFor(key)
 		if !ok {
@@ -10094,7 +10181,11 @@ func TestEveryActivityTypeResolvesToALifecycle(t *testing.T) {
 		}
 		for _, ph := range lc.Phases {
 			p := ActivityMethodPhase(ph.ID)
-			if CommandFor(combo.t, combo.v, p) == "" {
+			// A GATE-ONLY phase carries no dispatch task on purpose — projectDesign's
+			// `sdp` is the M0 review and nothing is dispatched into it — so "" is the
+			// honest command there. The claim is only about the phases the data says
+			// something IS dispatched into.
+			if rawDispatchCommand(lc, ph.ID) != "" && CommandFor(combo.t, combo.v, p) == "" {
 				t.Errorf("%s/%s: no dispatch command — the phase walk would dispatch nothing", key, p)
 			}
 			if ph.ExitCriterion == "" {
@@ -10104,20 +10195,9 @@ func TestEveryActivityTypeResolvesToALifecycle(t *testing.T) {
 	}
 }
 
-// designLifecycleKeys are the three lifecycles that have no ActivityType yet: Part B of
-// this stage appends requirements/architecture/projectDesign to the enum and emits them
-// as the plan's fixed prefix. When it does, they move into allProfileCombos and out of
-// here, and this test's failure is the reminder.
-var designLifecycleKeys = []string{"requirements", "architecture", "projectDesign"}
-
 func TestEveryLifecycleIsReachableFromAnActivityType(t *testing.T) {
 	reachable := map[string]bool{}
-	for _, key := range designLifecycleKeys {
-		reachable[key] = true
-	}
-	for _, combo := range append(allProfileCombos(),
-		profileCombo{ActivityTypeUIDesign, 0},
-		profileCombo{ActivityTypeIntegration, 0}) {
+	for _, combo := range allActivityTypeCombos() {
 		reachable[LifecycleKeyFor(combo.t, combo.v)] = true
 	}
 	for _, lc := range methodassets.Lifecycles() {

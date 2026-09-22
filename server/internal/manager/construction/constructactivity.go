@@ -2285,6 +2285,12 @@ func reviewArtifactKindFor(act constructionActivity, p projectstate.ActivityMeth
 	case projectstate.ActivityTypeTesting, projectstate.ActivityTypeDocumentation:
 		// A document or a test asset with no architecture component; its "integration"
 		// phase is a label (Plan Review, Sign-off, Doc Review), not a call-chain integration.
+	case projectstate.ActivityTypeRequirements, projectstate.ActivityTypeArchitecture,
+		projectstate.ActivityTypeProjectDesign:
+		// The design types' reviewer rows move into the engine in Task 8. Until then
+		// they fall through to ReviewKindNoncoding — the architect's sign-off — which
+		// is unreachable in any case: the pump refuses to dispatch a design activity
+		// (Task 10).
 	}
 	if act.ComponentID == "" && kind != review.ReviewKindIntegration {
 		return review.ReviewKindNoncoding

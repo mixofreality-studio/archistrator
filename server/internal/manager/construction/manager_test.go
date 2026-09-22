@@ -7595,6 +7595,8 @@ func Test_ReviewArtifactKindFor_IsTotalOverEveryDispatchablePhase(t *testing.T) 
 		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend, projectstate.ActivityTypeTesting,
 		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation,
 		projectstate.ActivityTypeUIDesign, projectstate.ActivityTypeIntegration,
+		projectstate.ActivityTypeRequirements, projectstate.ActivityTypeArchitecture,
+		projectstate.ActivityTypeProjectDesign,
 	}
 	variants := []projectstate.TestingVariant{
 		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,

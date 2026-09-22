@@ -77,6 +77,9 @@ const (
 	ActivityTypeDocumentation ActivityType = 4
 	ActivityTypeUIDesign      ActivityType = 5
 	ActivityTypeIntegration   ActivityType = 6
+	ActivityTypeRequirements  ActivityType = 7
+	ActivityTypeArchitecture  ActivityType = 8
+	ActivityTypeProjectDesign ActivityType = 9
 )
 
 type ArtifactSlotModel struct {
@@ -527,6 +530,12 @@ func ActivityTypeName(v ActivityType) string {
 		return "ActivityTypeUIDesign"
 	case ActivityTypeIntegration:
 		return "ActivityTypeIntegration"
+	case ActivityTypeRequirements:
+		return "ActivityTypeRequirements"
+	case ActivityTypeArchitecture:
+		return "ActivityTypeArchitecture"
+	case ActivityTypeProjectDesign:
+		return "ActivityTypeProjectDesign"
 	default:
 		return ""
 	}

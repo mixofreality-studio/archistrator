@@ -163,6 +163,9 @@ export const ACTIVITY_TYPE_GO_VARNAMES = [
   'ActivityTypeDocumentation',
   'ActivityTypeUIDesign',
   'ActivityTypeIntegration',
+  'ActivityTypeRequirements',
+  'ActivityTypeArchitecture',
+  'ActivityTypeProjectDesign',
 ] as const;
 
 export type ActivityTypeGoVarname = (typeof ACTIVITY_TYPE_GO_VARNAMES)[number];
@@ -178,6 +181,9 @@ export const ACTIVITY_TYPE_APP_STRINGS = [
   'documentation',
   'uiDesign',
   'integration',
+  'requirements',
+  'architecture',
+  'projectDesign',
 ] as const;
 
 export type ActivityType = (typeof ACTIVITY_TYPE_APP_STRINGS)[number];
@@ -192,6 +198,9 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   documentation: 4,
   uiDesign: 5,
   integration: 6,
+  requirements: 7,
+  architecture: 8,
+  projectDesign: 9,
 };
 // --- ActivityViewState ---------------------------------------------------
 // Sources: ConstructionActivityViewState

@@ -72,8 +72,8 @@ export const CANONICAL_PHASE_NAME: Record<LifecyclePhase, string> = {
 /**
  * How one activity KIND is named in a sentence ("Deployment activities carry
  * no…"). KindBadge.tsx's KIND_META already carries a display label, but it is a
- * `.tsx` module and node:test cannot load one — so the seven nouns live here.
- * Kind-level vocabulary, not per-task prose: seven entries, exhaustive over
+ * `.tsx` module and node:test cannot load one — so the ten nouns live here.
+ * Kind-level vocabulary, not per-task prose: ten entries, exhaustive over
  * ClassifiedKind, so a new kind is a compile error.
  */
 export const KIND_NOUN: Record<ClassifiedKind, string> = {
@@ -84,6 +84,9 @@ export const KIND_NOUN: Record<ClassifiedKind, string> = {
   documentation: 'Documentation',
   uiDesign: 'UI-design',
   integration: 'Integration',
+  requirements: 'Requirements',
+  architecture: 'Architecture',
+  projectDesign: 'Project-design',
 };
 
 // ---------------------------------------------------------------------------

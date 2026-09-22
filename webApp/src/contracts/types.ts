@@ -739,7 +739,13 @@ export interface ConstructionRow {
     | 'deployment'
     | 'documentation'
     | 'uiDesign'
-    | 'integration';
+    | 'integration'
+    // The three design types at the head of the plan (spec 2026-09-20 §5.1). They are
+    // vocabulary here: nothing derives or classifies a design activity yet, so no
+    // construction row carries one.
+    | 'requirements'
+    | 'architecture'
+    | 'projectDesign';
   /** Testing sub-type; present only when kind === 'testing'. */
   variant?: TestingVariantName;
   /**

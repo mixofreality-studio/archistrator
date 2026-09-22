@@ -13,6 +13,7 @@ import assert from 'node:assert/strict';
 import { profileFor, SERVICE_PROFILE } from './lifecycleProfiles.ts';
 import type { ActivityKind } from './KindBadge';
 
+/** Every ActivityKind, the three design kinds included — the adapter must be total. */
 const KINDS: readonly ActivityKind[] = [
   'service',
   'frontend',
@@ -21,6 +22,9 @@ const KINDS: readonly ActivityKind[] = [
   'documentation',
   'uiDesign',
   'integration',
+  'requirements',
+  'architecture',
+  'projectDesign',
 ];
 
 void test('an unclassified row has no profile', () => {
@@ -71,7 +75,10 @@ void test('exactly one gate per phase, and the labels are the profile’s own', 
     for (const p of profileFor(kind, undefined) ?? []) {
       assert.equal(p.tasks.filter((t) => t.gate).length, 1, `${kind}/${p.phase}`);
       assert.ok(p.exitCriterion.length > 0, `${kind}/${p.phase}`);
-      assert.ok(p.id.length > 0, `${kind}/${p.phase}`);
+      // A gate-only phase (projectDesign's SDP · M0 review) dispatches nothing, so it
+      // has no command cell to name; every phase that DOES carry work has one.
+      const dispatches = p.tasks.some((t) => !t.gate && !t.conditional);
+      assert.equal(p.id.length > 0, dispatches, `${kind}/${p.phase}`);
     }
   }
 });
