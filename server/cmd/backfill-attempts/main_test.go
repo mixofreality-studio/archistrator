@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -1205,16 +1206,43 @@ func TestRewrite_ReRunIsByteIdenticalUnlessTheEvidenceChanged(t *testing.T) {
 // writes. That trust is safe only while this tool never writes them: a row it creates
 // carries none of them, and a re-run over a row it backfilled earlier keeps whatever that
 // row held.
+// pumpOwnedFieldsSet names every pump-owned field this row carries a value for. Folded
+// out of the assertion below so the test stays under the complexity gate as the field
+// list grows — the list is the point of the test, so it must be free to grow.
+//
+// CompletedAt sits beside StartedAt: it is the OTHER pump-resolved clock stamp
+// (RecordActivityCompleted / RecordActivityFailed server-resolve it), and a backfilled
+// row carrying one would be asserting a completion time nobody observed.
+func pumpOwnedFieldsSet(row projectstate.ActivityConstructionStatus) []string {
+	var out []string
+	for _, f := range []struct {
+		name string
+		set  bool
+		val  any
+	}{
+		{"phase", row.Phase != projectstate.ActivityConstructionNotStarted, row.Phase},
+		{"phases", len(row.Phases) != 0, row.Phases},
+		{"startedAt", row.StartedAt != nil, row.StartedAt},
+		{"completedAt", row.CompletedAt != nil, row.CompletedAt},
+		{"failureReason", row.FailureReason != projectstate.FailureReasonUnknown, row.FailureReason},
+		{"failureDetail", row.FailureDetail != "", row.FailureDetail},
+		{"operatorNotes", len(row.OperatorNotes) != 0, row.OperatorNotes},
+	} {
+		if f.set {
+			out = append(out, fmt.Sprintf("%s=%v", f.name, f.val))
+		}
+	}
+	return out
+}
+
 func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 	p, _ := backfillFixture(t)
 	if len(p.ActivityConstruction) == 0 {
 		t.Fatal("the fixture backfilled no row; the test would pass vacuously")
 	}
 	for id, row := range p.ActivityConstruction {
-		if row.Phase != projectstate.ActivityConstructionNotStarted || len(row.Phases) != 0 || row.StartedAt != nil ||
-			row.FailureReason != projectstate.FailureReasonUnknown || row.FailureDetail != "" || len(row.OperatorNotes) != 0 {
-			t.Errorf("%s: backfill wrote pump-owned state: phase=%v phases=%v startedAt=%v failure=%v/%q notes=%v",
-				id, row.Phase, row.Phases, row.StartedAt, row.FailureReason, row.FailureDetail, row.OperatorNotes)
+		if wrote := pumpOwnedFieldsSet(row); len(wrote) != 0 {
+			t.Errorf("%s: backfill wrote pump-owned state: %s", id, strings.Join(wrote, ", "))
 		}
 	}
 
@@ -1224,11 +1252,13 @@ func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 		t.Fatal(err)
 	}
 	started := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
+	completed := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
 	held := projectstate.ActivityConstructionStatus{
-		ActivityID: "C-alpha-manager",
-		Phase:      projectstate.ActivityConstructionDone,
-		Phases:     []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseIntegration, Weight: 20, Completed: true}},
-		StartedAt:  &started,
+		ActivityID:  "C-alpha-manager",
+		Phase:       projectstate.ActivityConstructionDone,
+		Phases:      []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseIntegration, Weight: 20, Completed: true}},
+		StartedAt:   &started,
+		CompletedAt: &completed,
 		Attempts: []projectstate.TaskAttempt{{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{
 			Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "earlier run"}}},
 	}
@@ -1237,9 +1267,10 @@ func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 		t.Fatalf("re-running over this tool's own backfill: %v", err)
 	}
 	row := p.ActivityConstruction["C-alpha-manager"]
-	if row.Phase != held.Phase || !reflect.DeepEqual(row.Phases, held.Phases) || row.StartedAt != held.StartedAt {
-		t.Errorf("re-run changed pump-owned state: phase=%v phases=%v startedAt=%v, want %v %v %v",
-			row.Phase, row.Phases, row.StartedAt, held.Phase, held.Phases, held.StartedAt)
+	if row.Phase != held.Phase || !reflect.DeepEqual(row.Phases, held.Phases) ||
+		row.StartedAt != held.StartedAt || row.CompletedAt != held.CompletedAt {
+		t.Errorf("re-run changed pump-owned state: phase=%v phases=%v startedAt=%v completedAt=%v, want %v %v %v %v",
+			row.Phase, row.Phases, row.StartedAt, row.CompletedAt, held.Phase, held.Phases, held.StartedAt, held.CompletedAt)
 	}
 }
 
@@ -1523,18 +1554,19 @@ func TestIntegrationRuling_IsStatedPlainly(t *testing.T) {
 
 // ---- the design prefix ------------------------------------------------------------
 
-// All three design activities qualify on their committed slots, each basis names every
-// slot it read with its count, and each attempt points at the activity's exit artifact.
+// All three design activities qualify on their committed slots and each basis names
+// every slot it read, with its count. A design verdict carries NO ArtifactRef: that
+// field means "one artifact backs every task", which is false here — the per-task
+// artifact is pinned by TestBackfill_EveryDesignAttemptCitesItsOwnPhasesArtifact.
 func TestDesignSlotEvidence_TheThreeQualifyOnTheirCommittedSlots(t *testing.T) {
 	vs := evaluateFixture(t, designPrefixProject(), fixtureServer(t))
 	want := map[string]struct {
 		refs        []string
-		exit        string
 		description string
 	}{
-		"requirements":  {[]string{"mission", "glossary", "scrubbedRequirements", "volatilities", "coreUseCases"}, "coreUseCases", "3 terms"},
-		"architecture":  {[]string{"systemDesign", "operationalConcepts"}, "systemDesign", "8 components, 0 views"},
-		"projectDesign": {[]string{"planningAssumptions", "activityList", "network", "normalSolution", "subcriticalSolution", "compressedSolution", "decompressedSolution", "riskModel", "sdpReview"}, "sdpReview", "2 options"},
+		"requirements":  {[]string{"mission", "glossary", "scrubbedRequirements", "volatilities", "coreUseCases"}, "3 terms"},
+		"architecture":  {[]string{"systemDesign", "operationalConcepts"}, "8 components, 0 views"},
+		"projectDesign": {[]string{"planningAssumptions", "activityList", "network", "normalSolution", "subcriticalSolution", "compressedSolution", "decompressedSolution", "riskModel", "sdpReview"}, "2 options"},
 	}
 	for id, w := range want {
 		v := vs[id]
@@ -1556,8 +1588,8 @@ func TestDesignSlotEvidence_TheThreeQualifyOnTheirCommittedSlots(t *testing.T) {
 		if strings.Count(v.Basis, ", committed)") != len(w.refs) {
 			t.Errorf("%s: basis must say committed once per slot: %s", id, v.Basis)
 		}
-		if v.ArtifactRef != w.exit {
-			t.Errorf("%s: artifact ref = %q, want the exit artifact %q", id, v.ArtifactRef, w.exit)
+		if v.ArtifactRef != "" {
+			t.Errorf("%s: artifact ref = %q, want none — a design activity has one artifact PER PHASE", id, v.ArtifactRef)
 		}
 		if v.ContractRef != "" || v.CodeRef != "" || len(v.Files) != 0 {
 			t.Errorf("%s: a design activity reads no code, got %+v", id, v)
@@ -1565,8 +1597,50 @@ func TestDesignSlotEvidence_TheThreeQualifyOnTheirCommittedSlots(t *testing.T) {
 	}
 }
 
+// THE EVIDENCE REF OF EVERY BACKFILLED DESIGN ATTEMPT, BY LITERAL VALUE (fix round 1).
+// The Glossary tasks must open the GLOSSARY. The first cut pointed all eight
+// Requirements attempts at .coreUseCases — the activity's exit artifact — so six of the
+// eleven rows offered the reader a click-through to an artifact their task did not
+// produce. Asserted as an exact map so a regression cannot hide behind "some ref is set".
+func TestBackfill_EveryDesignAttemptCitesItsOwnPhasesArtifact(t *testing.T) {
+	p := designPrefixProject()
+	vs, err := evaluate(inputs{Project: p, ServerRoot: fixtureServer(t), Head: fixtureHead})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if _, err := backfill(&p, vs, time.Now().UTC()); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	want := map[string]string{
+		"requirements:missionDraft:1":       "mission",
+		"requirements:missionReview:1":      "mission",
+		"requirements:glossaryDraft:1":      "glossary",
+		"requirements:glossaryReview:1":     "glossary",
+		"requirements:volatilitiesDraft:1":  "volatilities",
+		"requirements:volatilitiesReview:1": "volatilities",
+		"requirements:coreUseCasesDraft:1":  "coreUseCases",
+		"requirements:coreUseCasesReview:1": "coreUseCases",
+		"architecture:architectureDraft:1":  "systemDesign",
+		"architecture:architectureReview:1": "systemDesign",
+		"projectDesign:sdpReview:1":         "sdpReview",
+	}
+	got := map[string]string{}
+	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
+		for _, a := range p.ActivityConstruction[id].Attempts {
+			if a.Evidence.Kind != projectstate.EvidenceArtifact {
+				t.Errorf("%s: evidence kind %q, want artifact", a.AttemptID, a.Evidence.Kind)
+			}
+			got[a.AttemptID] = a.Evidence.Ref
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Errorf("design evidence refs =\n %v\nwant\n %v", got, want)
+	}
+}
+
 // Every task of a backfilled design activity is a passed, backfilled attempt stamped
-// with its exit artifact — 8 for Requirements, 2 for Architecture, 1 for Project Design.
+// with its own phase's artifact — 8 for Requirements, 2 for Architecture, 1 for Project
+// Design.
 func TestBackfill_TheDesignPrefixGetsOnePassedAttemptPerLifecycleTask(t *testing.T) {
 	p := designPrefixProject()
 	vs, err := evaluate(inputs{Project: p, ServerRoot: fixtureServer(t), Head: fixtureHead})
@@ -1586,7 +1660,7 @@ func TestBackfill_TheDesignPrefixGetsOnePassedAttemptPerLifecycleTask(t *testing
 				t.Errorf("%s: %s is %s/%s", id, a.AttemptID, a.Outcome, a.Provenance.Origin)
 			}
 			if a.Evidence.Kind != projectstate.EvidenceArtifact || a.Evidence.Ref == "" {
-				t.Errorf("%s: %s carries evidence %+v, want the exit artifact", id, a.AttemptID, a.Evidence)
+				t.Errorf("%s: %s carries evidence %+v, want its phase's artifact", id, a.AttemptID, a.Evidence)
 			}
 			if a.Phase == "" {
 				t.Errorf("%s: %s has no phase stamp", id, a.AttemptID)
@@ -1646,11 +1720,38 @@ func TestDesignSlotEvidence_CoversExactlyTheClassifiersDesignActivities(t *testi
 		if !isDesignActivity(projectstate.ActivityItem{Name: id, WorkerClass: "system-architect"}) {
 			t.Errorf("%s has a design slot set but the classifier does not call it a design activity", id)
 		}
-		if designExitArtifact[id] == "" {
-			t.Errorf("%s has a slot set but no exit artifact to point its attempts at", id)
+	}
+}
+
+// Every phase of every design lifecycle names an artifact, that artifact is one of the
+// slots its OWN activity's qualification read, and designPhaseArtifact names nothing
+// else. Walked off the lifecycle data, so a method-assets release that adds a design
+// phase fails here instead of silently emitting attempts with no evidence.
+func TestDesignPhaseArtifact_NamesOneSlotOfItsOwnActivityForEveryDesignPhase(t *testing.T) {
+	covered := map[projectstate.ActivityMethodPhase]bool{}
+	for id, slots := range designActivitySlots {
+		typ, _, _ := projectstate.ClassifyActivity(id, "system-architect", false)
+		refs := map[string]bool{}
+		for _, s := range slots {
+			refs[s.Ref] = true
+		}
+		for _, ph := range projectstate.ProfileFor(typ, projectstate.TestVariantPlan).Phases {
+			ref := designPhaseArtifact[ph.Phase]
+			if ref == "" {
+				t.Errorf("%s phase %q names no artifact, so its attempts would carry no evidence", id, ph.Phase)
+				continue
+			}
+			if !refs[ref] {
+				t.Errorf("%s phase %q cites .%s, which is not one of the slots %s qualified on", id, ph.Phase, ref, id)
+			}
+			covered[ph.Phase] = true
 		}
 	}
-	if len(designActivitySlots) != len(designExitArtifact) {
-		t.Errorf("%d slot sets vs %d exit artifacts", len(designActivitySlots), len(designExitArtifact))
+	// The canonical construction phases are in the map only to satisfy `exhaustive`, and
+	// they name no artifact; every phase that DOES name one must be a design phase.
+	for ph, ref := range designPhaseArtifact {
+		if ref != "" && !covered[ph] {
+			t.Errorf("designPhaseArtifact points phase %q at .%s, but no design lifecycle carries that phase", ph, ref)
+		}
 	}
 }

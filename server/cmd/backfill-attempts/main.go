@@ -275,15 +275,42 @@ var designActivitySlots = map[string][]designSlot{
 	},
 }
 
-// designExitArtifact is the slot each design activity's FINAL lifecycle phase produces —
-// the artifact its exit gate approves. It is the one ref every backfilled attempt of that
-// activity points at, because EvidenceRef is the UI's click target and a single target is
-// all one carries. The whole evidence is in the Basis, which names every slot; this names
-// the artifact the activity is done WHEN.
-var designExitArtifact = map[string]string{
-	"requirements":  "coreUseCases",
-	"architecture":  "systemDesign",
-	"projectDesign": "sdpReview",
+// designPhaseArtifact is the slot each design lifecycle PHASE produces. A design
+// activity is unlike every other evidence path here in that it does not produce one
+// artifact: Requirements produces four, one per phase. So its evidence is resolved per
+// TASK rather than per activity — EvidenceRef is the UI's click target, and a Glossary
+// row that opened the Core Use Cases would be a click-through that lies about what it
+// shows, which is exactly what evidenceFor's own doc comment forbids. The whole evidence
+// stays in the Basis, which names every slot the activity's qualification read.
+//
+// Keyed on the PHASE, not on (activity, phase): the three design lifecycles use phase ids
+// that collide with none of the eleven construction lifecycles' canonical five (see
+// projectstate's lifecyclePhaseTasks, whose TestLifecyclePhaseTasksAreUnambiguous keeps
+// that true), so the phase alone names the artifact unambiguously.
+//
+// Not every design slot appears here, and that is correct: .scrubbedRequirements,
+// .operationalConcepts and the eight Phase-2 slots beneath .sdpReview have no lifecycle
+// phase of their own. They back the activity's QUALIFICATION, which is what the Basis
+// records; they are not the product of any single task.
+//
+// The five CANONICAL construction phases are listed too, mapped to "" — the same
+// precedent as projectstate's conditionalTasks. `exhaustive` (check: [switch, map])
+// requires every declared ActivityMethodPhase member, so a sixth canonical phase fails
+// the build here and forces a conscious call rather than defaulting to "a design phase
+// with no artifact". The six design phase ids are lifecycle DATA, not declared constants,
+// which is why they are spelled as literals.
+var designPhaseArtifact = map[projectstate.ActivityMethodPhase]string{
+	"mission":                              "mission",
+	"glossary":                             "glossary",
+	"volatilities":                         "volatilities",
+	"coreUseCases":                         "coreUseCases",
+	"architecture":                         "systemDesign",
+	"sdp":                                  "sdpReview",
+	projectstate.MethodPhaseRequirements:   "",
+	projectstate.MethodPhaseDetailedDesign: "",
+	projectstate.MethodPhaseTestPlan:       "",
+	projectstate.MethodPhaseConstruction:   "",
+	projectstate.MethodPhaseIntegration:    "",
 }
 
 // isDesignActivity asks the CLASSIFIER, not a second table: ClassifyActivity returns
@@ -320,12 +347,14 @@ func designSlotEvidence(activityID string, p projectstate.Project) verdict {
 		cites = append(cites, fmt.Sprintf("%s (%s, committed)", s.Ref, description))
 	}
 	basis := "committed design artifacts: " + strings.Join(cites, "; ")
+	// No ArtifactRef: that field means "ONE artifact backs every task of this activity",
+	// which is true of a sign-off and false of a design activity. evidenceFor resolves a
+	// design task's artifact from its phase (designPhaseArtifact) instead.
 	return verdict{
-		ActivityID:  activityID,
-		Qualifies:   true,
-		Reason:      "design slots: " + basis,
-		Basis:       basis,
-		ArtifactRef: designExitArtifact[activityID],
+		ActivityID: activityID,
+		Qualifies:  true,
+		Reason:     "design slots: " + basis,
+		Basis:      basis,
 	}
 }
 
@@ -975,16 +1004,25 @@ func inferredFromAccess(activityID string, resource projectstate.Component, sys 
 }
 
 // evidenceFor points one task's attempt at the artifact that backs it, and at NOTHING
-// when none does. Detailed design and its review were read off the contract;
-// construction and its review off the code at the cited commit. A sign-off backs every
-// task with the artifact it approved. The remaining tasks exist because of a ruling, not
-// a file, so they carry no evidence ref: handing the UI a contract to open under a row
-// labelled "Testing" would be a click-through that lies about what it shows. The basis
-// still says exactly where each row came from.
+// when none does. A design task is backed by the slot its own PHASE produced; detailed
+// design and its review were read off the contract; construction and its review off the
+// code at the cited commit. A sign-off backs every task with the artifact it approved.
+// The remaining tasks exist because of a ruling, not a file, so they carry no evidence
+// ref: handing the UI a contract to open under a row labelled "Testing" would be a
+// click-through that lies about what it shows. The basis still says exactly where each
+// row came from.
 //
-// Every task is listed, with no default case, so `exhaustive` fails the build the moment
-// a thirteenth is added without a conscious call about what backs it.
+// The design rule is FIRST and is keyed on the phase, not on the verdict, because it is
+// the only per-TASK artifact rule here — everything below it is per-activity. It cannot
+// catch a construction task: no construction lifecycle carries any of the six design
+// phase ids (designPhaseArtifact).
+//
+// Every remaining task is listed, with no default case, so `exhaustive` fails the build
+// the moment a thirteenth is added without a conscious call about what backs it.
 func evidenceFor(task projectstate.MethodTask, v verdict) projectstate.EvidenceRef {
+	if ref := designPhaseArtifact[projectstate.PhaseForTask(task)]; ref != "" {
+		return projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: ref}
+	}
 	if v.ArtifactRef != "" {
 		return projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: v.ArtifactRef}
 	}

@@ -1642,6 +1642,63 @@ func Test_DispatchSelectionFor_DesignActivityGoesQuiet(t *testing.T) {
 	}
 }
 
+// M0 ON THE SHAPE THE DERIVED PLAN ACTUALLY HAS (Task 9 + 10). A milestone never carries
+// a Done record of its own, so M0 is satisfied only DERIVEDLY — every activity it depends
+// on is Done — and since Task 9 that is projectDesign, whose ENTIRE lifecycle is one gate
+// task (the sdp phase has no dispatch task at all, so the backfill writes a single passed
+// sdpReview attempt and nothing else).
+//
+// That makes a long, silent chain load-bearing for the whole project: one attempt →
+// phaseCompleteFromAttempts → projectDesign reads Done → M0 satisfied → every construction
+// activity behind M0 is eligible. Break any link and the pump does not fail; it goes
+// QUIESCENT, and a project with 29 activities to build looks finished. So the chain is
+// pinned end to end here, and pinned NEGATIVELY too, so the assertion cannot pass for some
+// reason other than the attempt.
+func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T) {
+	plan := func() projectstate.Project {
+		proj := planWithDesignPrefix()
+		list, _ := proj.ActivityList.Model.(*projectstate.ActivityList)
+		list.Activities = append(list.Activities, projectstate.ActivityItem{
+			Name: "C-TLM", Title: "TodoListManager", WorkerClass: "junior-developer",
+			Coding: true, ComponentID: "todo-list-manager",
+		})
+		proj.Network = makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "architecture", DependsOn: []string{"requirements"}},
+				{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+				{Activity: "C-TLM", DependsOn: []string{"M0"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M0", Name: "SDP Review Approved", Public: true, DependsOn: []string{"projectDesign"}},
+			},
+		)
+		return proj
+	}
+
+	// The backfilled row, exactly as cmd/backfill-attempts writes it: the gate attempt
+	// alone, no stored Phase and no stored Phases.
+	done := plan()
+	done.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"projectDesign": {ActivityID: "projectDesign", Attempts: []projectstate.TaskAttempt{
+			ledgerAttempt("projectDesign", projectstate.GateTaskFor("sdp"), 1, projectstate.OutcomePassed),
+		}},
+	}
+	sel := nextEligibleActivity(done, eligibleDispatchable)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "C-TLM" {
+		t.Fatalf("want C-TLM dispatched behind a satisfied M0, got %+v", sel)
+	}
+	// The design activities were walked past on the same tick, not blocked, not dispatched.
+	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture"}) {
+		t.Errorf("skipped = %v, want the two design activities still not started", sel.SkippedDesign)
+	}
+
+	// Without that one attempt M0 is unsatisfied and the pump has nothing to do — which is
+	// what proves the dispatch above came from the ledger and not from somewhere else.
+	if sel := nextEligibleActivity(plan(), eligibleDispatchable); sel.Verdict != verdictQuiescent {
+		t.Fatalf("with projectDesign unfinished the pump must be quiescent, got %+v", sel)
+	}
+}
+
 // The regression the whole change exists for: a fresh project with NO service
 // contracts must still dispatch its first coding activity.
 func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
