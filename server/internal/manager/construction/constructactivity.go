@@ -1470,11 +1470,24 @@ func (wf *workflows) runPhaseGate(
 		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
 
-	// Surface the reviewer set on the session view. The set is display-only in v1 — the
-	// human Approve/SendBack is the enforced gate — so an engine refusal does not fail the
-	// activity; it is LOGGED and SHOWN (reviewSetError), never dropped. An assignment and a
-	// log line emit no commands, so this needs no version gate (same argument as the human
-	// stage below) and every replay fixture replays unchanged.
+	wf.surfaceReviewSet(ctx, in, phase, state)
+
+	return wf.awaitPhaseDecision(ctx, in, phase, state, gf, headVersion, gitOn, cred)
+}
+
+// surfaceReviewSet puts the gate occurrence ABOUT TO OPEN on the session view: its
+// reviewer roster, or the engine's refusal to propose one. The set is display-only in
+// v1 — the human Approve/SendBack is the enforced gate — so an engine refusal does not
+// fail the activity; it is LOGGED and SHOWN (reviewSetError), never dropped.
+//
+// It runs on EVERY gate entry, including a redraft's re-entry at the same phase, because
+// leaveHumanStage takes the roster down with the occurrence it belonged to (I1): the pair
+// (enter, leave) keeps "a roster is showing" and "a gate is open" the same fact. The
+// proposal is pure and deterministic over (activity, phase, snapshot contracts), so
+// re-entry re-derives the identical set. An assignment and a log line emit no commands,
+// so this needs no version gate (same argument as the human stage below) and every
+// replay fixture replays unchanged.
+func (wf *workflows) surfaceReviewSet(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) {
 	state.reviewSet, state.reviewSetError = nil, ""
 	if rs, e := wf.proposeReviewSet(in, phase, state); e != nil {
 		state.reviewSetError = e.Error()
@@ -1483,8 +1496,6 @@ func (wf *workflows) runPhaseGate(
 	} else {
 		state.reviewSet = &rs // NOTE: *ReviewSet (B6)
 	}
-
-	return wf.awaitPhaseDecision(ctx, in, phase, state, gf, headVersion, gitOn, cred)
 }
 
 // awaitPhaseDecision is the suspend + redraft loop of the gate (extracted so
@@ -1525,6 +1536,7 @@ func (wf *workflows) awaitPhaseDecision(
 				workflow.GetLogger(ctx).Warn("phase redraft budget exhausted; keep awaiting human decision",
 					"activityId", in.ActivityID, "phase", phase.String())
 				state.leaveHumanStage(ctx, activityType, gateOutcomeSentBackExhausted)
+				wf.surfaceReviewSet(ctx, in, phase, state)
 				state.enterPhaseGate(ctx, phase.String(), redraft)
 				continue
 			}
@@ -1538,6 +1550,7 @@ func (wf *workflows) awaitPhaseDecision(
 			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
 				return false, e
 			}
+			wf.surfaceReviewSet(ctx, in, phase, state)
 			state.enterPhaseGate(ctx, phase.String(), redraft)
 		default:
 			// Unknown decision: ignore and keep awaiting the human.
@@ -1600,7 +1613,13 @@ func (s *constructState) enterHumanStage(ctx workflow.Context, stage Constructio
 // timer (tags: the gate CLASS, the outcome and the activity type — never the activity
 // id, which would make the series unbounded) and the construction.gate.decided log line
 // (the dependable surface while the prod OTLP export is an open earmark), then clears
-// the awaiting fields.
+// the awaiting fields AND the reviewer set.
+//
+// I1: the roster (and an engine refusal) describes the OCCURRENCE, not the activity, so
+// it comes down with it. It used to be cleared on gate ENTRY only, which left a decided
+// gate's reviewers on the session view until the next gate opened — and the Activity
+// Experience's takeover card read them as live. surfaceReviewSet puts a fresh roster up
+// on every entry, including a redraft's re-entry, so the pair stays balanced.
 func (s *constructState) leaveHumanStage(ctx workflow.Context, activityType, outcome string) {
 	waited := workflow.Now(ctx).Sub(s.awaitingSince)
 	gateMetrics(ctx).WithTags(map[string]string{
@@ -1613,6 +1632,7 @@ func (s *constructState) leaveHumanStage(ctx workflow.Context, activityType, out
 		"gate", s.awaitingGate, "outcome", outcome,
 		"waitedMs", waited.Milliseconds(), "awaitingSince", s.awaitingSince)
 	s.awaitingGate, s.awaitingSince, s.awaitingUntil = "", time.Time{}, nil
+	s.reviewSet, s.reviewSetError = nil, ""
 }
 
 // humanGateClass is the bounded gate tag: phase, merge or takeover.
@@ -2247,7 +2267,10 @@ func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectst
 //
 // A component-scoped kind for an activity with NO component degrades to Noncoding:
 // there is no contract or UI design to hold the work against, so the architect signs it
-// off. Off-profile cells (a phase the type's profile does not carry) are decided too, so
+// off. The guard below MIRRORS the engine's unexported componentScoped rule (which kinds
+// need a component) and must move with it — until stage 2 dissolves the duplication by
+// giving ProposeReviews the activity type and letting the engine own the whole table.
+// Off-profile cells (a phase the type's profile does not carry) are decided too, so
 // a profile change cannot make this partial. The rows are justified in the plan
 // (docs/superpowers/plans/2026-09-21-activity-experience-stage0.md, Task 6).
 func reviewArtifactKindFor(act constructionActivity, p projectstate.ActivityMethodPhase) review.ReviewArtifactKind {

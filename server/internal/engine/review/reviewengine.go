@@ -95,10 +95,11 @@ const (
 //     an independent consumer mirror it adapts to (deps.go).
 //   - ProposeReviews is pure and deterministic: identical inputs → identical
 //     ReviewSet, always. The error is *fweng.Error and signals programmer/contract
-//     misuse ONLY (the Engine does no I/O): ContractMisuse (empty change
-//     identifiers or an unrecognised artifactKind — a constructionManager bug) and
-//     InternalInvariant (a recognised kind yielded an empty reviewer set — an engine
-//     bug). architectureGraph + contracts are accepted by value for forward-compatible
+//     misuse ONLY (the Engine does no I/O): ContractMisuse (an empty ActivityID, an
+//     empty componentID for a component-scoped kind (DetailedDesign/Construction/
+//     UIDesign/UICode), or an unrecognised artifactKind — each a constructionManager
+//     bug) and InternalInvariant (a recognised kind yielded an empty reviewer set — an
+//     engine bug). architectureGraph + contracts are accepted by value for forward-compatible
 //     policy refinement; the v1 policy keys on artifactKind alone and ignores them.
 
 // The concrete ReviewEngine — the empty, stateless ReviewEngineImpl — and its

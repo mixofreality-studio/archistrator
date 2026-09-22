@@ -820,8 +820,11 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, records, live), row.OperatorNotes, liveGate)
 	view := activityViewFrom(activityID, item, typ, variant, lc, tasks)
 	view.State = activityViewState(coarse, live)
+	// The roster and the engine's refusal to produce one are the SAME fact about the live
+	// gate, so they travel together under the one condition: a refusal without a live gate
+	// would explain an absence nobody is looking at.
 	if liveGate != "" {
-		view.ReviewSet = live.ReviewSet
+		view.ReviewSet, view.ReviewSetError = live.ReviewSet, live.ReviewSetError
 	}
 	return view, nil
 }
@@ -2977,6 +2980,11 @@ func dispatchRevision(n int, seg phaseSegment) taskRevision {
 	return rev
 }
 
+// reviewRevision renders one gate attempt as a revision. n is the ORDINAL of g over the
+// gate attempts sorted by Attempt — 1 for the first, 2 for the second — not the attempt's
+// own number: the two coincide only while the ledger has no gaps, so a ledger missing
+// designReview#2 numbers its third attempt revision 2, and the attempt number stays
+// visible inside attemptIds. live marks the occurrence the session is waiting at now.
 func reviewRevision(n int, g projectstate.TaskAttempt, live bool) taskRevision {
 	rev := taskRevision{N: n, AttemptIDs: []string{g.AttemptID}, Provenance: projectstate.AttemptsWorstOrigin([]projectstate.TaskAttempt{g})}
 	switch g.Outcome {

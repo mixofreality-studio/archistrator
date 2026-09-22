@@ -65,15 +65,16 @@ type ActivityTaskView struct {
 }
 
 type ActivityView struct {
-	ActivityID  ActivityID               `json:"activityId"`
-	Name        string                   `json:"name"`
-	Type        string                   `json:"type"`
-	Variant     *string                  `json:"variant,omitempty"`
-	ComponentID *string                  `json:"componentId,omitempty"`
-	State       ActivityViewState        `json:"state"`
-	Phases      []ActivityLifecyclePhase `json:"phases"`
-	Tasks       []ActivityTaskView       `json:"tasks"`
-	ReviewSet   *ReviewSet               `json:"reviewSet,omitempty"`
+	ActivityID     ActivityID               `json:"activityId"`
+	Name           string                   `json:"name"`
+	Type           string                   `json:"type"`
+	Variant        *string                  `json:"variant,omitempty"`
+	ComponentID    *string                  `json:"componentId,omitempty"`
+	State          ActivityViewState        `json:"state"`
+	Phases         []ActivityLifecyclePhase `json:"phases"`
+	Tasks          []ActivityTaskView       `json:"tasks"`
+	ReviewSet      *ReviewSet               `json:"reviewSet,omitempty"`
+	ReviewSetError *string                  `json:"reviewSetError,omitempty"`
 }
 
 type ActivityViewState string

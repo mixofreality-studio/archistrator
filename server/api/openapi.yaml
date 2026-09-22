@@ -136,6 +136,9 @@ components:
                     description: Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate.
                     type:
                         - "null"
+                reviewSetError:
+                    description: 'Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live.'
+                    type: string
                 state:
                     $ref: '#/components/schemas/ConstructionActivityViewState'
                 tasks:

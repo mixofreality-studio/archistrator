@@ -830,6 +830,8 @@ export interface components {
       phases: components['schemas']['ConstructionActivityLifecyclePhase'][];
       /** @description Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate. */
       reviewSet?: components['schemas']['ConstructionReviewSet'];
+      /** @description Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live. */
+      reviewSetError?: string;
       state: components['schemas']['ConstructionActivityViewState'];
       /** @description Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. */
       tasks: components['schemas']['ConstructionActivityTaskView'][];

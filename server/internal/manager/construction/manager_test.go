@@ -7538,8 +7538,23 @@ func Test_SessionView_PhaseGate_ReportsTheOccurrenceAndClearsOnDecision(t *testi
 	if afterRedraft.AwaitingSince == nil || !afterRedraft.AwaitingSince.Equal(start.Add(30*time.Second)) {
 		t.Fatalf("after the redraft awaitingSince = %v, want the re-entry time %v (a new occurrence)", afterRedraft.AwaitingSince, start.Add(30*time.Second))
 	}
-	if done := b12View(t, env); done.AwaitingGate != nil || done.AwaitingSince != nil || done.AwaitingUntil != nil {
+	// The re-entered occurrence is a gate like any other: it carries its reviewer set.
+	if afterRedraft.ReviewSet == nil {
+		t.Fatalf("after the redraft the gate must still carry its reviewer set, got %+v", afterRedraft.ReviewSet)
+	}
+	b12AssertGateClosed(t, b12View(t, env))
+}
+
+// b12AssertGateClosed asserts that a decided gate left NOTHING of its occurrence on the
+// session view: neither the awaiting fields nor — I1 — the reviewer set or the engine's
+// refusal to propose one, which belong to the occurrence and not to the activity.
+func b12AssertGateClosed(t *testing.T, done ConstructionSessionView) {
+	t.Helper()
+	if done.AwaitingGate != nil || done.AwaitingSince != nil || done.AwaitingUntil != nil {
 		t.Fatalf("the decision must clear the awaiting fields, got gate=%v since=%v until=%v", done.AwaitingGate, done.AwaitingSince, done.AwaitingUntil)
+	}
+	if done.ReviewSet != nil || done.ReviewSetError != nil {
+		t.Fatalf("the decision must clear the reviewer set, got reviewSet=%+v reviewSetError=%v", done.ReviewSet, done.ReviewSetError)
 	}
 }
 
@@ -7662,6 +7677,10 @@ func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) 
 	}
 	if len(fr.kinds) == 0 || fr.kinds[0] != review.ReviewKindDetailedDesign {
 		t.Fatalf("the Manager asked for kinds %v, want the detailed_design gate to ask for %s", fr.kinds, review.ReviewKindDetailedDesign)
+	}
+	// I1: the refusal is the closed occurrence's, and goes with it.
+	if done := b12View(t, env); done.ReviewSetError != nil {
+		t.Fatalf("the decision must clear the refusal, got reviewSetError=%v", *done.ReviewSetError)
 	}
 }
 
@@ -9661,6 +9680,9 @@ func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
 	if v.State != ActivityViewAwaitingHuman || v.ReviewSet == nil || len(v.ReviewSet.Reviewers) != 1 {
 		t.Fatalf("state=%s reviewSet=%+v, want awaitingHuman with the live review set", v.State, v.ReviewSet)
 	}
+	if v.ReviewSetError != nil {
+		t.Fatalf("the engine answered, so nothing explains an absent set; got reviewSetError=%q", *v.ReviewSetError)
+	}
 	byID := map[string]ActivityTaskView{}
 	for _, task := range v.Tasks {
 		byID[task.ID] = task
@@ -9711,6 +9733,41 @@ func avCheckLiveGateRevisions(t *testing.T, gate []TaskRevisionView, since time.
 	}
 	if r2.Outcome != TaskRevisionAwaitingHuman || r2.StartedAt == nil || !r2.StartedAt.Equal(since) {
 		t.Errorf("revision 2 = %+v, want awaitingHuman since %v", r2, since)
+	}
+}
+
+// A live gate with no roster explains itself: the engine's refusal rides the view beside
+// the absent set, under the same live-gate condition (M1). Off a live gate neither shows.
+func TestQueryActivityView_LiveGate_CarriesTheEngineRefusal(t *testing.T) {
+	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
+	refusal := "ProposeReviews: unrecognised artifactKind"
+	for _, c := range []struct {
+		name    string
+		live    ConstructionSessionView
+		wantErr bool
+	}{
+		{"at the gate", awaitingAt("detailed_design"), true},
+		{"no gate is live", ConstructionSessionView{Stage: StagePipelineRunning}, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			live := c.live
+			live.ReviewSetError = &refusal
+			mc := &temporalmocks.Client{}
+			mc.On("QueryWorkflow", mock.Anything, constructActivityWorkflowID("p", "A"), "", querySessionState).Return(encodedJSON{v: &live}, nil)
+			v, err := avManager(mc, avSentBackAtTheDesignGate(t0), &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
+			if err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			if v.ReviewSet != nil {
+				t.Fatalf("a refused proposal leaves no set, got %+v", v.ReviewSet)
+			}
+			if got := v.ReviewSetError != nil; got != c.wantErr {
+				t.Fatalf("reviewSetError present = %v, want %v (%+v)", got, c.wantErr, v.ReviewSetError)
+			}
+			if c.wantErr && *v.ReviewSetError != refusal {
+				t.Fatalf("reviewSetError = %q, want the engine's reason %q", *v.ReviewSetError, refusal)
+			}
+		})
 	}
 }
 
