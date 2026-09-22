@@ -14237,12 +14237,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "mission"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14255,12 +14255,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "mission"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14273,12 +14273,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "glossary"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14291,12 +14291,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "glossary"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14309,12 +14309,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "volatilities"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14327,12 +14327,12 @@
           "outcome": "passed",
           "evidence": {
             "kind": "artifact",
-            "ref": "coreUseCases"
+            "ref": "volatilities"
           },
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14350,7 +14350,7 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         },
@@ -14368,7 +14368,7 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/backfill-attempts",
-            "generatedAt": "2026-09-22T20:26:34.476174Z",
+            "generatedAt": "2026-09-22T20:54:25.954665Z",
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         }
