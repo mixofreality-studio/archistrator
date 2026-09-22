@@ -561,6 +561,10 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  each generated task row's GeneratedTask.label field, so the
 		//	                  SPA renders task names without hand-authoring its own
 		//	                  twelve-string copy of this same vocabulary.
+		//	LifecycleKeyFor → the construction Manager (constructionmanager.go,
+		//	                  QueryActivityView): the method-assets lifecycle key of an
+		//	                  activity. ONE production home for the rule, which stage 0
+		//	                  deliberately carried twice.
 		//	TaskLabelFor    → cmd/gen-uiprofiles: the PER-PROFILE label of each task (a
 		//	                  test plan's construction gate is "Scenario Review", not the
 		//	                  book's "Code Review"), emitted onto GeneratedTask.label; the
@@ -576,6 +580,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"GateTaskFor",
 		"IsConditionalTask",
 		"LabelForTask",
+		"LifecycleKeyFor",
 		"PhaseForTask",
 		"TaskLabelFor",
 		"TasksForPhase",

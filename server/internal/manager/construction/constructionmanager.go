@@ -800,7 +800,7 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 			"activity %s (workerClass %q, coding=%v) matches no activity-classification rule, so it has no lifecycle — amend workerClass or coding in the committed activity list",
 			id, item.WorkerClass, item.Coding))
 	}
-	key := lifecycleTypeKey(typ, variant)
+	key := projectstate.LifecycleKeyFor(typ, variant)
 	lc, ok := methodassets.LifecycleFor(key)
 	if !ok {
 		return ActivityView{}, newError(fwm.Infrastructure, "the platform's method assets carry no lifecycle for activity type "+key)
@@ -3089,15 +3089,6 @@ func committedActivityItem(proj projectstate.Project, id string) (projectstate.A
 		}
 	}
 	return projectstate.ActivityItem{}, false
-}
-
-// lifecycleTypeKey is the method-assets lifecycle key: the activity type's wire name,
-// and "testing:<variant wire name>" for a testing activity (partAB decision D2).
-func lifecycleTypeKey(t projectstate.ActivityType, v projectstate.TestingVariant) string {
-	if t == projectstate.ActivityTypeTesting {
-		return t.String() + ":" + v.String()
-	}
-	return t.String()
 }
 
 // liveSessionFor asks the activity's session only while its row is Running: a

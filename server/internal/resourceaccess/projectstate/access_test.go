@@ -10109,15 +10109,6 @@ func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
 // weight, label, exit criterion, task title or command changed on one side alone
 // fails here.
 
-// lifecycleTypeKey is the method-assets lifecycle key of a profile: the activity
-// type's wire name, qualified by the testing variant's wire name for testing.
-func lifecycleTypeKey(t ActivityType, v TestingVariant) string {
-	if t == ActivityTypeTesting {
-		return t.String() + ":" + v.String()
-	}
-	return t.String()
-}
-
 // allLifecycleCombos is allProfileCombos plus the two single-profile types that
 // list leaves out.
 func allLifecycleCombos() []profileCombo {
@@ -10144,7 +10135,7 @@ func lifecycleTaskWordsOf(lc methodassets.Lifecycle, id MethodTask) lifecycleTas
 
 func TestLifecyclesParity_EveryProfileEqualsItsLifecycle(t *testing.T) {
 	for _, combo := range allLifecycleCombos() {
-		key := lifecycleTypeKey(combo.t, combo.v)
+		key := LifecycleKeyFor(combo.t, combo.v)
 		t.Run(key, func(t *testing.T) {
 			lc, ok := methodassets.LifecycleFor(key)
 			if !ok {
@@ -10248,5 +10239,39 @@ func TestLifecyclesParity_ProjectDesignIsOneUndispatchedGate(t *testing.T) {
 	}
 	if want := DesignCommandFor(KindSdpReview, DesignJobModeDraft, ""); gate.Command != want {
 		t.Errorf("projectDesign gate command = %q, want %q", gate.Command, want)
+	}
+}
+
+// The lifecycle-key rule, over EVERY activity type and testing variant, at its ONE
+// production home. A stray variant on a non-testing type is ignored (the zero variant
+// is what every non-testing activity carries), and every key it produces must resolve
+// in the pinned method-assets — a key rule nothing can look up is a silent 404.
+func TestLifecycleKeyFor_CoversEveryTypeAndVariant(t *testing.T) {
+	cases := []struct {
+		typ     ActivityType
+		variant TestingVariant
+		want    string
+	}{
+		{ActivityTypeService, TestVariantPlan, "service"},
+		{ActivityTypeFrontend, TestVariantPlan, "frontend"},
+		{ActivityTypeDeployment, TestVariantPlan, "deployment"},
+		{ActivityTypeDocumentation, TestVariantPlan, "documentation"},
+		{ActivityTypeUIDesign, TestVariantPlan, "uiDesign"},
+		{ActivityTypeIntegration, TestVariantPlan, "integration"},
+		{ActivityTypeTesting, TestVariantPlan, "testing:plan"},
+		{ActivityTypeTesting, TestVariantHarness, "testing:harness"},
+		{ActivityTypeTesting, TestVariantPerf, "testing:perf"},
+		{ActivityTypeTesting, TestVariantSystemTest, "testing:systemTest"},
+		{ActivityTypeTesting, TestVariantQAProcess, "testing:qaProcess"},
+		{ActivityTypeService, TestVariantHarness, "service"},
+	}
+	for _, c := range cases {
+		got := LifecycleKeyFor(c.typ, c.variant)
+		if got != c.want {
+			t.Errorf("LifecycleKeyFor(%s, %s) = %q, want %q", c.typ, c.variant, got, c.want)
+		}
+		if _, ok := methodassets.LifecycleFor(got); !ok {
+			t.Errorf("method-assets has no lifecycle for key %q", got)
+		}
 	}
 }

@@ -9786,35 +9786,31 @@ func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
 	}
 }
 
-// The lifecycle key rule, over EVERY activity type and testing variant, and every key
-// resolves in the pinned method-assets. A stray variant on a non-testing type is ignored
-// (the zero variant is what every non-testing activity carries).
-func TestLifecycleTypeKey_CoversEveryTypeAndVariant(t *testing.T) {
-	cases := []struct {
+// QueryActivityView looks the activity's lifecycle up by projectstate.LifecycleKeyFor;
+// the key RULE is pinned in projectstate (TestLifecycleKeyFor_CoversEveryTypeAndVariant).
+// What is the Manager's business is that the pinned method-assets answers for every key
+// this Manager can build — an unresolvable key surfaces as an Infrastructure error at a
+// read the Activity Experience makes on every poll.
+func TestQueryActivityView_EveryLifecycleKeyResolvesInThePinnedAssets(t *testing.T) {
+	for _, c := range []struct {
 		typ     projectstate.ActivityType
 		variant projectstate.TestingVariant
-		want    string
 	}{
-		{projectstate.ActivityTypeService, projectstate.TestVariantPlan, "service"},
-		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan, "frontend"},
-		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan, "deployment"},
-		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan, "documentation"},
-		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan, "uiDesign"},
-		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan, "integration"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan, "testing:plan"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness, "testing:harness"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf, "testing:perf"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest, "testing:systemTest"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess, "testing:qaProcess"},
-		{projectstate.ActivityTypeService, projectstate.TestVariantHarness, "service"},
-	}
-	for _, c := range cases {
-		got := lifecycleTypeKey(c.typ, c.variant)
-		if got != c.want {
-			t.Errorf("lifecycleTypeKey(%s, %s) = %q, want %q", c.typ, c.variant, got, c.want)
-		}
-		if _, ok := methodassets.LifecycleFor(got); !ok {
-			t.Errorf("method-assets has no lifecycle for key %q", got)
+		{projectstate.ActivityTypeService, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess},
+	} {
+		key := projectstate.LifecycleKeyFor(c.typ, c.variant)
+		if _, ok := methodassets.LifecycleFor(key); !ok {
+			t.Errorf("method-assets has no lifecycle for key %q", key)
 		}
 	}
 }

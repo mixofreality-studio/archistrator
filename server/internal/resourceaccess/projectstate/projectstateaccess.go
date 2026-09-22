@@ -8774,6 +8774,24 @@ func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string 
 	return profileSlug(t, v) + "-" + kebabPhase(p)
 }
 
+// LifecycleKeyFor is the method-assets lifecycle key of an activity: the activity
+// type's wire name, and "testing:<variant wire name>" for a testing activity (so QA is
+// "testing:qaProcess").
+//
+// THE ONE PRODUCTION STATEMENT OF THE RULE. Stage 0 carried it twice — once in the
+// construction Manager, once as a test-only copy here — because the parity test it
+// protected could not reach across packages into a _test.go. Stage 2 deletes the Go
+// lifecycle tables that duplication existed to guard, so the rule that names the data
+// collapses to one home, beside CommandFor: this package owns ActivityType,
+// TestingVariant and the String() wire names the key is spelled from, and it is where
+// every lifecycle lookup in the server now starts.
+func LifecycleKeyFor(t ActivityType, v TestingVariant) string {
+	if t == ActivityTypeTesting {
+		return t.String() + ":" + v.String()
+	}
+	return t.String()
+}
+
 // MethodTask is one of the twelve internal tasks of Figure A-1 (Löwy, Righting
 // Software, Appendix A) — the unit BELOW a lifecycle phase and ABOVE an attempt.
 //
