@@ -45,7 +45,7 @@
 import type { ConstructionRow, ProjectStateWithGit } from '../../../../contracts/types';
 import type { LensSelection } from '../../lens/useLensSelection';
 import { classify } from '../../artifactClassification.ts';
-import type { LifecyclePhase } from '../../lifecycleTemplates.gen.ts';
+import type { LifecyclePhase } from '../../lifecycleProfiles.ts';
 import type { TaskDetailState } from '../detailPaneState.ts';
 import { absenceFor, profileFor } from './taskBriefing.ts';
 

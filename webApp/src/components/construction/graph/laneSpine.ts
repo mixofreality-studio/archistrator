@@ -32,15 +32,13 @@
  * Pure — no React — pinned by laneSpine.test.ts.
  */
 import type { ActivityNode, PhaseNode } from '../list/activityTree.ts';
-import { GENERATED_TEMPLATES, type LifecyclePhase } from '../lifecycleTemplates.gen.ts';
+import { SERVICE_PROFILE, type LifecyclePhase } from '../lifecycleProfiles.ts';
 import { taskRowState, type RowState } from '../list/activityRowPresentation.ts';
 import { noAttemptStateFor, type NoAttemptState } from '../detail/detailPaneState.ts';
 import type { OwedMark } from '../tasks/owedChip.ts';
 
 /** The five lifecycle phases in Method order — the Service profile's order. */
-export const CANONICAL_LIFECYCLE: readonly LifecyclePhase[] = GENERATED_TEMPLATES.service.map(
-  (p) => p.phase
-);
+export const CANONICAL_LIFECYCLE: readonly LifecyclePhase[] = SERVICE_PROFILE.map((p) => p.phase);
 
 /** The width of a phase the profile does not carry, as a fraction of the spine. */
 export const ABSENT_GAP_FRACTION = 0.04;

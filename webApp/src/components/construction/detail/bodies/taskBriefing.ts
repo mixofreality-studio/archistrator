@@ -12,9 +12,9 @@
  * THE RULE THIS MODULE EXISTS TO ENFORCE
  * --------------------------------------
  * NOTHING here is authored per task. Every line is COMPOSED from the generated
- * vocabulary (lifecycleTemplates.gen.ts — the server's own Profile and its
- * per-profile labels and exit criteria, emitted by gen-uiprofiles). Sixty-odd
- * hand-written blurbs would drift from the server's profile the first time a
+ * vocabulary (lifecycleProfiles.ts — the platform's method-assets lifecycles,
+ * presented in the profile shape this module already speaks). Sixty-odd
+ * hand-written blurbs would drift from the platform's lifecycle the first time a
  * task was renamed, and the drift would be invisible: the card would keep
  * reading fluently while describing work the system no longer schedules.
  *
@@ -42,12 +42,11 @@ import type { LensSelection } from '../../lens/useLensSelection';
 import type { ClassifiedKind } from '../../list/activityTree.ts';
 import type { TaskDetailState } from '../detailPaneState.ts';
 import {
-  GENERATED_TEMPLATES,
-  GENERATED_TESTING_VARIANTS,
+  profileFor as lifecycleProfileFor,
   type GeneratedPhase,
   type GeneratedTask,
   type LifecyclePhase,
-} from '../../lifecycleTemplates.gen.ts';
+} from '../../lifecycleProfiles.ts';
 
 // ---------------------------------------------------------------------------
 // Vocabulary that has no generated source
@@ -93,20 +92,14 @@ export const KIND_NOUN: Record<ClassifiedKind, string> = {
 
 /**
  * The activity's Figure A-1 profile, or `undefined` when the server did not
- * classify it. A testing activity uses its VARIANT profile (the five variants
- * have genuinely different phase sets); a testing row that arrived without a
- * variant falls back to the generic testing profile the registry carries.
+ * classify it. Re-exported under this module's own name because
+ * bodyDispatch.ts imports `profileFor` FROM here, taking a `ConstructionRow`
+ * rather than the adapter's `kind`/`variant` pair.
  */
 export function profileFor(
   row: ConstructionRow | undefined
 ): readonly GeneratedPhase[] | undefined {
-  if (row?.kind === undefined) return undefined;
-  if (row.kind === 'testing') {
-    return row.variant !== undefined
-      ? GENERATED_TESTING_VARIANTS[row.variant]
-      : GENERATED_TEMPLATES.testing;
-  }
-  return GENERATED_TEMPLATES[row.kind];
+  return lifecycleProfileFor(row?.kind, row?.variant);
 }
 
 /** Whether a string is one of the five canonical phases (a URL can carry anything). */

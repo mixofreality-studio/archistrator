@@ -22,11 +22,7 @@ import type {
 } from '../../../contracts/types';
 import type { LensSelection } from '../lens/useLensSelection';
 import type { Tokens } from '../../../utilities/theme/themes';
-import {
-  GENERATED_TEMPLATES,
-  GENERATED_TESTING_VARIANTS,
-  type GeneratedPhase,
-} from '../lifecycleTemplates.gen.ts';
+import { profileFor } from '../lifecycleProfiles.ts';
 import type { ProvenanceBearing, ProvenanceOrigin } from '../provenanceAxis.ts';
 import { PANE_MAX_HEIGHT, PANE_STICKY_TOP } from '../lens/lensGeometry.ts';
 import { REVIEW_ONLY_NOTE, type OwedMark } from '../tasks/owedChip.ts';
@@ -395,16 +391,6 @@ export interface ResolvedPhaseTask {
   taskLabel?: string;
 }
 
-function profileFor(row: ConstructionRow): readonly GeneratedPhase[] | undefined {
-  if (row.kind === undefined) return undefined;
-  if (row.kind === 'testing') {
-    return row.variant !== undefined
-      ? GENERATED_TESTING_VARIANTS[row.variant]
-      : GENERATED_TEMPLATES.testing;
-  }
-  return GENERATED_TEMPLATES[row.kind];
-}
-
 /**
  * Resolve the selected phase/task's display metadata: the selected phase
  * (and, with a task selected, that task's label). With only an activity
@@ -416,7 +402,7 @@ export function resolvePhaseTask(
   selection: LensSelection
 ): ResolvedPhaseTask {
   if (row === undefined) return {};
-  const phases = profileFor(row);
+  const phases = profileFor(row.kind, row.variant);
   if (phases === undefined) return {};
   const phaseId = selection.lifecyclePhase ?? row.currentLifecyclePhase;
   const phase = phases.find((p) => p.phase === phaseId);
@@ -471,7 +457,7 @@ export function selectionSummaryFor(
   selection: LensSelection
 ): string | undefined {
   if (row === undefined || selection.task !== undefined) return undefined;
-  const phases = profileFor(row);
+  const phases = profileFor(row.kind, row.variant);
   const phaseId = selection.lifecyclePhase;
   if (phaseId === undefined) {
     const phaseCount = phases?.length ?? row.phases.length;

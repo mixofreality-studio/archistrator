@@ -52,12 +52,11 @@ import type {
   TestingVariantName,
 } from '../../../contracts/types';
 import {
-  GENERATED_TEMPLATES,
-  GENERATED_TESTING_VARIANTS,
+  profileFor,
   type GeneratedPhase,
   type GeneratedTask,
   type LifecyclePhase,
-} from '../lifecycleTemplates.gen.ts';
+} from '../lifecycleProfiles.ts';
 import { outcomeStateOf, type OutcomeState } from '../detail/detailPaneState.ts';
 
 /** The activity kinds the server can classify — the profile registry's key set. */
@@ -217,27 +216,6 @@ export interface BuildActivityTreeOptions {
 }
 
 // ---------------------------------------------------------------------------
-// Profile resolution
-// ---------------------------------------------------------------------------
-
-/**
- * The activity's Figure A-1 profile, or `undefined` when the server did not
- * classify it. A testing activity uses its VARIANT profile (the five variants
- * have genuinely different phase sets); a testing row that arrived without a
- * variant falls back to the generic testing profile the registry already
- * carries for that kind — the same rule detailPaneState.profileFor applies.
- */
-function profileFor(row: ConstructionRow): readonly GeneratedPhase[] | undefined {
-  if (row.kind === undefined) return undefined;
-  if (row.kind === 'testing') {
-    return row.variant !== undefined
-      ? GENERATED_TESTING_VARIANTS[row.variant]
-      : GENERATED_TEMPLATES.testing;
-  }
-  return GENERATED_TEMPLATES[row.kind];
-}
-
-// ---------------------------------------------------------------------------
 // Attempts
 // ---------------------------------------------------------------------------
 
@@ -348,7 +326,7 @@ export function buildActivityTree(
 }
 
 function buildActivityNode(row: ConstructionRow, meta: ActivityMeta | undefined): ActivityNode {
-  const profile = profileFor(row);
+  const profile = profileFor(row.kind, row.variant);
   const stored = storedByPhase(row.phases);
 
   const phases: PhaseNode[] =
