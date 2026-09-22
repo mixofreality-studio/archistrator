@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -7248,25 +7249,32 @@ func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 	}
 }
 
-func TestProfileSlug(t *testing.T) {
+// The command family each profile dispatches into, one cell per family: the words the
+// lifecycle data states, not a slug this package composes. profileSlug's own table test
+// retired with it — a UI-design activity still walks the FRONTEND commands and an I-*
+// activity still walks /service-integration, and that is what these rows pin.
+func TestCommandFor_NamesTheProfilesCommandFamily(t *testing.T) {
 	cases := []struct {
 		t    ActivityType
 		v    TestingVariant
+		p    ActivityMethodPhase
 		want string
 	}{
-		{ActivityTypeService, 0, "service"},
-		{ActivityTypeFrontend, 0, "frontend"},
-		{ActivityTypeDeployment, 0, "deployment"},
-		{ActivityTypeDocumentation, 0, "documentation"},
-		{ActivityTypeTesting, TestVariantPlan, "testing-plan"},
-		{ActivityTypeTesting, TestVariantHarness, "testing-harness"},
-		{ActivityTypeTesting, TestVariantPerf, "testing-perf"},
-		{ActivityTypeTesting, TestVariantSystemTest, "testing-systemtest"},
-		{ActivityTypeTesting, TestVariantQAProcess, "testing-qa"},
+		{ActivityTypeService, 0, MethodPhaseRequirements, "service-requirements"},
+		{ActivityTypeFrontend, 0, MethodPhaseRequirements, "frontend-requirements"},
+		{ActivityTypeUIDesign, 0, MethodPhaseDetailedDesign, "frontend-detailed-design"},
+		{ActivityTypeIntegration, 0, MethodPhaseIntegration, "service-integration"},
+		{ActivityTypeDeployment, 0, MethodPhaseConstruction, "deployment-construction"},
+		{ActivityTypeDocumentation, 0, MethodPhaseConstruction, "documentation-construction"},
+		{ActivityTypeTesting, TestVariantPlan, MethodPhaseConstruction, "testing-plan-construction"},
+		{ActivityTypeTesting, TestVariantHarness, MethodPhaseConstruction, "testing-harness-construction"},
+		{ActivityTypeTesting, TestVariantPerf, MethodPhaseConstruction, "testing-perf-construction"},
+		{ActivityTypeTesting, TestVariantSystemTest, MethodPhaseConstruction, "testing-systemtest-construction"},
+		{ActivityTypeTesting, TestVariantQAProcess, MethodPhaseConstruction, "testing-qa-construction"},
 	}
 	for _, c := range cases {
-		if got := profileSlug(c.t, c.v); got != c.want {
-			t.Errorf("profileSlug(%v,%v) = %q, want %q", c.t, c.v, got, c.want)
+		if got := CommandFor(c.t, c.v, c.p); got != c.want {
+			t.Errorf("CommandFor(%v,%v,%q) = %q, want %q", c.t, c.v, c.p, got, c.want)
 		}
 	}
 }
@@ -7280,18 +7288,20 @@ func TestCommandFor(t *testing.T) {
 	}
 }
 
-// TestCommandForTotalOverProfiles asserts CommandFor returns a non-empty,
-// well-formed slug for every phase that ProfileFor actually emits — the command
-// matrix is exactly the flattening of ProfileFor.
+// CommandFor is total over exactly the phases ProfileFor emits: every one names a
+// well-formed command slug. That it names a command file that EXISTS is
+// TestEveryProfilePhaseHasCommandFile, below; the composition rule itself is no longer
+// this package's to state — the lifecycle data carries the name.
 func TestCommandForTotalOverProfiles(t *testing.T) {
+	slug := regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	for _, combo := range allProfileCombos() {
 		for _, p := range ProfileFor(combo.t, combo.v).PhaseIDs() {
 			got := CommandFor(combo.t, combo.v, p)
 			if got == "" {
 				t.Errorf("CommandFor(%v,%v,%q) empty", combo.t, combo.v, p)
 			}
-			if want := profileSlug(combo.t, combo.v) + "-" + kebabPhase(p); got != want {
-				t.Errorf("CommandFor = %q, want %q", got, want)
+			if !slug.MatchString(got) {
+				t.Errorf("CommandFor(%v,%v,%q) = %q, not a command slug", combo.t, combo.v, p, got)
 			}
 		}
 	}
@@ -9179,27 +9189,28 @@ var allProfiles = []struct {
 	{"testing-qa", ActivityTypeTesting, TestVariantQAProcess},
 }
 
-// Every row of the one profile table is whole — a label, a work word, a gate word and an
-// exit — and a phase the profile does not carry has no exit criterion (the SPA's `absent`
-// body names it instead). The phase subset itself is ProfileFor's, because ProfileFor IS
-// a projection of these rows.
-func TestProfileRows_TotalOverExactlyTheProfilesPhases(t *testing.T) {
+// Every phase a profile carries is WHOLE — a label, a work word, a gate word and an
+// exit — and a canonical phase the profile does not carry has no exit criterion (the
+// SPA's `absent` body names it instead). Read through the exported surface, not the
+// data file: these four functions are what the generator and the Manager see.
+func TestProfileWords_TotalOverExactlyTheProfilesPhases(t *testing.T) {
 	canonical := []ActivityMethodPhase{
 		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
 		MethodPhaseConstruction, MethodPhaseIntegration,
 	}
 	for _, pr := range allProfiles {
 		carried := map[ActivityMethodPhase]bool{}
-		for _, r := range profileRows(pr.typ, pr.variant) {
-			carried[r.phase] = true
-			if r.label == "" || r.work == "" || r.gate == "" || r.exit == "" {
-				t.Errorf("%s: phase %q row %+v has an empty field", pr.name, r.phase, r)
+		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
+			carried[ph.Phase] = true
+			work := TaskLabelFor(pr.typ, pr.variant, AgentTaskFor(ph.Phase))
+			gate := TaskLabelFor(pr.typ, pr.variant, GateTaskFor(ph.Phase))
+			exit := ExitCriterionFor(pr.typ, pr.variant, ph.Phase)
+			if ph.Label == "" || work == "" || gate == "" || exit == "" {
+				t.Errorf("%s: phase %q is incomplete: label=%q work=%q gate=%q exit=%q",
+					pr.name, ph.Phase, ph.Label, work, gate, exit)
 			}
-			if r.work == r.gate {
-				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, r.phase, r.work)
-			}
-			if got := ExitCriterionFor(pr.typ, pr.variant, r.phase); got != r.exit {
-				t.Errorf("%s: ExitCriterionFor(%q) = %q, want the row's %q", pr.name, r.phase, got, r.exit)
+			if work == gate {
+				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, ph.Phase, work)
 			}
 		}
 		for _, p := range canonical {
@@ -10101,92 +10112,13 @@ func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
 	}
 }
 
-// ---- lifecycles.json parity (unified activity experience, stage 0) ----
+// ---- lifecycles.json, held against this package's remaining hand tables ----
 //
-// method-assets' lifecycles.json becomes the ONE source of the per-type lifecycle
-// in stage 2, when profileRows / phaseTasks / gateTasks leave this package. Until
-// then the lifecycle exists twice, and these tests are what makes that safe: a
-// weight, label, exit criterion, task title or command changed on one side alone
-// fails here.
-
-// allLifecycleCombos is allProfileCombos plus the two single-profile types that
-// list leaves out.
-func allLifecycleCombos() []profileCombo {
-	return append(allProfileCombos(),
-		profileCombo{ActivityTypeUIDesign, 0},
-		profileCombo{ActivityTypeIntegration, 0})
-}
-
-// lifecycleTaskWords is the comparable projection of a methodassets.LifecycleTask
-// (which holds a slice, so cannot be compared with ==): everything the server's
-// tables also state about a task.
-type lifecycleTaskWords struct {
-	ID, Kind, Title, InLifecyclePhase, Command, Reviews string
-}
-
-func lifecycleTaskWordsOf(lc methodassets.Lifecycle, id MethodTask) lifecycleTaskWords {
-	for _, task := range lc.Tasks {
-		if task.ID == string(id) {
-			return lifecycleTaskWords{task.ID, task.Kind, task.Title, task.Phase, task.Command, task.Reviews}
-		}
-	}
-	return lifecycleTaskWords{}
-}
-
-func TestLifecyclesParity_EveryProfileEqualsItsLifecycle(t *testing.T) {
-	for _, combo := range allLifecycleCombos() {
-		key := LifecycleKeyFor(combo.t, combo.v)
-		t.Run(key, func(t *testing.T) {
-			lc, ok := methodassets.LifecycleFor(key)
-			if !ok {
-				t.Fatalf("method-assets carries no lifecycle %q", key)
-			}
-			profile := ProfileFor(combo.t, combo.v)
-			if len(lc.Phases) != len(profile.Phases) {
-				t.Fatalf("%d lifecycle phases, ProfileFor has %d", len(lc.Phases), len(profile.Phases))
-			}
-			if len(lc.Tasks) != 2*len(profile.Phases) {
-				t.Errorf("%d tasks, want one work task and one gate per phase (%d)", len(lc.Tasks), 2*len(profile.Phases))
-			}
-			for i, pp := range profile.Phases {
-				assertLifecyclePhaseParity(t, combo, lc, lc.Phases[i], pp)
-			}
-		})
-	}
-}
-
-func assertLifecyclePhaseParity(t *testing.T, combo profileCombo, lc methodassets.Lifecycle, got methodassets.LifecyclePhase, pp ProfilePhase) {
-	t.Helper()
-	work, gate := AgentTaskFor(pp.Phase), GateTaskFor(pp.Phase)
-
-	wantPhase := methodassets.LifecyclePhase{
-		ID:            string(pp.Phase),
-		Label:         pp.Label,
-		Weight:        pp.Weight,
-		Gate:          string(gate),
-		ExitCriterion: ExitCriterionFor(combo.t, combo.v, pp.Phase),
-	}
-	if got != wantPhase {
-		t.Errorf("lifecycle phase = %+v, want %+v", got, wantPhase)
-	}
-
-	wantWork := lifecycleTaskWords{
-		string(work), methodassets.LifecycleTaskDispatch, TaskLabelFor(combo.t, combo.v, work),
-		string(pp.Phase), CommandFor(combo.t, combo.v, pp.Phase), "",
-	}
-	if gotWork := lifecycleTaskWordsOf(lc, work); gotWork != wantWork {
-		t.Errorf("work task = %+v, want %+v", gotWork, wantWork)
-	}
-
-	// A construction gate carries no command: who reviews is the review engine's call.
-	wantGate := lifecycleTaskWords{
-		string(gate), methodassets.LifecycleTaskReview, TaskLabelFor(combo.t, combo.v, gate),
-		string(pp.Phase), "", string(work),
-	}
-	if gotGate := lifecycleTaskWordsOf(lc, gate); gotGate != wantGate {
-		t.Errorf("gate task = %+v, want %+v", gotGate, wantGate)
-	}
-}
+// The per-type lifecycle no longer exists twice: profileRows is gone and ProfileFor is
+// an adapter over the data, so a profile-vs-lifecycle comparison compares the data with
+// itself. What these two still hold is the DESIGN rail, whose commands and required
+// kinds are hand tables here (DesignCommandFor, Phase1RequiredKinds) and whose
+// lifecycles ship in the platform: a command renamed on one side alone fails here.
 
 // The requirements and architecture lifecycles are today's design rail, in order:
 // one draft per Phase1RequiredKinds() kind, dispatched by DesignCommandFor's draft
@@ -10273,5 +10205,76 @@ func TestLifecycleKeyFor_CoversEveryTypeAndVariant(t *testing.T) {
 		if _, ok := methodassets.LifecycleFor(got); !ok {
 			t.Errorf("method-assets has no lifecycle for key %q", got)
 		}
+	}
+}
+
+// ---- lifecycle totality (stage 2: the data is the only source) ----
+//
+// profileRows is gone, so profile↔lifecycle parity is tautological and its test with
+// it. What survives is the pair of claims a table cannot make for itself: every
+// (ActivityType, TestingVariant) an activity can carry resolves to a lifecycle, and
+// every lifecycle the platform ships is reachable from one.
+
+func TestEveryActivityTypeResolvesToALifecycle(t *testing.T) {
+	for _, combo := range append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0}) {
+		key := LifecycleKeyFor(combo.t, combo.v)
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Errorf("no lifecycle %q — ProfileFor would silently fall back to service", key)
+			continue
+		}
+		if got := ProfileFor(combo.t, combo.v); len(got.Phases) != len(lc.Phases) {
+			t.Errorf("%s: ProfileFor has %d phases, the lifecycle has %d", key, len(got.Phases), len(lc.Phases))
+		}
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			if CommandFor(combo.t, combo.v, p) == "" {
+				t.Errorf("%s/%s: no dispatch command — the phase walk would dispatch nothing", key, p)
+			}
+			if ExitCriterionFor(combo.t, combo.v, p) == "" {
+				t.Errorf("%s/%s: no exit criterion", key, p)
+			}
+		}
+	}
+}
+
+// designLifecycleKeys are the three lifecycles that have no ActivityType yet: Part B of
+// this stage appends requirements/architecture/projectDesign to the enum and emits them
+// as the plan's fixed prefix. When it does, they move into allProfileCombos and out of
+// here, and this test's failure is the reminder.
+var designLifecycleKeys = []string{"requirements", "architecture", "projectDesign"}
+
+func TestEveryLifecycleIsReachableFromAnActivityType(t *testing.T) {
+	reachable := map[string]bool{}
+	for _, key := range designLifecycleKeys {
+		reachable[key] = true
+	}
+	for _, combo := range append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0}) {
+		reachable[LifecycleKeyFor(combo.t, combo.v)] = true
+	}
+	for _, lc := range methodassets.Lifecycles() {
+		if !reachable[lc.Type] {
+			t.Errorf("lifecycle %q is shipped but no activity type reaches it", lc.Type)
+		}
+		delete(reachable, lc.Type)
+	}
+	for key := range reachable {
+		t.Errorf("activity types reach key %q but the platform ships no such lifecycle", key)
+	}
+}
+
+// A phase a profile does not carry has no command. profileSlug used to fabricate one
+// ("deployment-requirements") for a .claude/commands file that does not exist; the data
+// simply has no dispatch task there, and "" is the honest answer.
+func TestCommandFor_IsEmptyForAPhaseTheProfileDoesNotCarry(t *testing.T) {
+	if got := CommandFor(ActivityTypeDeployment, 0, MethodPhaseRequirements); got != "" {
+		t.Errorf("CommandFor(deployment, requirements) = %q, want \"\"", got)
+	}
+	if got := CommandFor(ActivityTypeIntegration, 0, MethodPhaseConstruction); got != "" {
+		t.Errorf("CommandFor(integration, construction) = %q, want \"\"", got)
 	}
 }

@@ -497,8 +497,8 @@ var encapsulationAllowlistData = map[string][]string{
 		// signals into a canonical ActivityType. Inside projectstate, ResolveConstructionRow
 		// reads it on behalf of the systemdesign Manager's view-model and the construction
 		// pump; its one outside caller is cmd/backfill-attempts (classify), which types each
-		// qualifying activity before recording its backfilled attempts. CommandFor + its
-		// supporting profileSlug (kept unexported; both in projectstateaccess.go) is the
+		// qualifying activity before recording its backfilled attempts. CommandFor
+		// (projectstateaccess.go) is the
 		// (type, variant, phase) → .claude slash-command name mapping the construction
 		// Manager needs to dispatch the right command for an activity
 		// (construction/constructactivity.go; cmd/gen-uiprofiles reads it too). Both are
@@ -519,8 +519,8 @@ var encapsulationAllowlistData = map[string][]string{
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
 		// a total, side-effect-free function of already-public projectstate enum values plus
 		// the new DesignJobMode wire concept; its supporting designKindSlug/
-		// designKindHasCritique stay unexported (same precedent as profileSlug; all of them
-		// live in projectstateaccess.go).
+		// designKindHasCritique stay unexported (same precedent as lifecycleFor/
+		// dispatchTaskIn behind CommandFor; all of them live in projectstateaccess.go).
 		"DesignCommandFor",
 		"DesignJobMode",
 		"DesignJobModeAnswer",
