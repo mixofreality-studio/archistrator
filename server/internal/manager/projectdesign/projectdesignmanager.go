@@ -3263,13 +3263,21 @@ func materializePhase2Draft(
 		return nil, fwmanager.Wrap(fwmanager.FailedPrecondition, err,
 			"cannot materialize the Phase-2 plan from the committed systemDesign")
 	}
-	// LOUD, never a silent empty list: a System that derives no activities means the
-	// architecture is empty or every component is suppressed (generated/provided). Staging
-	// that would reproduce exactly the zero-activity failure this seam exists to prevent,
-	// one phase later and with no trace of where it came from.
-	if len(list.Activities) == 0 {
+	// LOUD, never a silent empty list: a System with no components derives no activities
+	// from the architecture at all. Staging that would reproduce exactly the zero-activity
+	// failure this seam exists to prevent, one phase later and with no trace of where it
+	// came from.
+	//
+	// The condition is the COMPONENT count, not len(list.Activities): the derivation emits
+	// the design prefix (requirements/architecture/projectDesign) for every system
+	// including the empty one — a project before its architecture is committed still owes
+	// the work that produces it — so the activity list is never empty and the old form of
+	// this guard would now be dead code. It is the same reachable rule stated where it is
+	// still true: the empty System was always the only input that produced an empty list
+	// (a fully suppressed architecture still derives N-STP and N-IT).
+	if len(sys.Components) == 0 {
 		return nil, fwmanager.New(fwmanager.FailedPrecondition,
-			fmt.Sprintf("the committed systemDesign (%d components) derives ZERO activities — every component is suppressed (constructionProfile generated/provided) or the architecture is empty; fix slot 5 before staging a plan", len(sys.Components)))
+			"the committed systemDesign holds ZERO components, so it derives ZERO construction activities — fix slot 5 before staging a plan")
 	}
 	if kind == projectstate.KindActivityList {
 		return &list, nil
@@ -3292,9 +3300,9 @@ func materializePhase2Draft(
 
 // materializeNetwork builds slot 10 from a derived plan. Dependencies and the milestone
 // SET with its fan-in are the derivation's, verbatim — a milestone the draft authored but
-// the derivation does not produce is dropped, and M0 keeps the empty dependsOn the
-// derivation gives it (its real predecessors are the design rail, which are not
-// activities; the construction pump resolves an empty-dependsOn milestone as satisfied).
+// the derivation does not produce is dropped, and M0 keeps the [projectDesign] fan-in the
+// derivation gives it (the SDP review is what that activity ends with), never whatever
+// the draft typed.
 // Each milestone's Name and Public are carried across from the authored network by id:
 // they are display decorations with no derivation source (see toProjectStateMilestones).
 // criticalPath is recomputed by ComputeNetwork over the derived graph and written as the

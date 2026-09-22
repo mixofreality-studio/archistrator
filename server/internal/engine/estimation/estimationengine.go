@@ -1310,13 +1310,22 @@ func backwardFloat(idSet map[string]struct{}, deps []NetworkDependency, mileston
 // DerivePlan derives the full activity list and network from the committed System and
 // applies the authored deltas.
 //
-// An EMPTY system is a normal DOMAIN result (an empty plan) — a project may be read
-// before its architecture is committed. The *fweng.Error channel is reserved for
-// contract misuse: a delta that the vocabulary forbids (an override naming no derived
-// activity, an additive carrying a componentId, a missing justification).
+// An EMPTY system is a normal DOMAIN result (the design prefix and nothing else) — a
+// project may be read before its architecture is committed. The *fweng.Error channel is
+// reserved for contract misuse: a delta that the vocabulary forbids (an override naming
+// no derived activity, an additive carrying a componentId, a missing justification).
 func (EstimationEngineImpl) DerivePlan(_ fweng.Context, system SystemView, deltas ActivityListDeltas) (DerivedPlan, error) {
 	if len(system.Components) == 0 {
-		return DerivedPlan{Activities: nil, Dependencies: nil, Milestones: nil}, nil
+		// A project before its architecture is committed still owes its design: the
+		// prefix and M0 are not a function of the System, they are what produces it. The
+		// construction half of the plan — the component activities, the layer-completion
+		// milestones M1-M3 and the sink/source rules — is what an empty System has
+		// nothing to say about.
+		return DerivedPlan{
+			Activities:   designPrefixActivities(),
+			Dependencies: designPrefixDependencies(),
+			Milestones:   []NetworkMilestone{{Id: sdpReviewMilestone, DependsOn: []string{projectDesignActivity}}},
+		}, nil
 	}
 	acts := deriveActivities(system)
 	deps := deriveDependencies(system, acts)
@@ -1414,8 +1423,9 @@ func defaultRiskFor(effortDays float64) int64 {
 // alwaysEmitNoncoding is the noncoding inventory emitted for EVERY project — exactly the
 // noncoding activities Löwy's Table 11-1 gives the construction plan: the system test
 // plan (#4) and system testing (#21). The rest of that table's noncoding list is either
-// earlier or not ours to plan: the design activities (#1-3) are Phases 1-2 of this
-// method and appear only as the M0 milestone; the test harness (#5) is platform-generated
+// emitted elsewhere or not ours to plan: the design activities (#1-3) are the design
+// prefix (designPrefixActivities), emitted for every system rather than only for one
+// with a committed architecture; the test harness (#5) is platform-generated
 // from the system test plan. Build/smoke automation is platform infrastructure,
 // performance testing is not in Table 11-1 (a project that needs it adds a justified
 // additive), and QA is a role booked as indirect cost, not an activity. Fixed efforts —
@@ -1437,6 +1447,105 @@ const systemTestingActivity = "N-IT"
 // construction activities should start before the SDP review"). The source rule hangs
 // every activity with no other predecessor off it.
 const sdpReviewMilestone = "M0"
+
+// The design prefix: Table 11-1 #1-3, Requirements, Architecture and Project Design.
+// They are ACTIVITIES of this plan, not a separate rail — Löwy plans the design work in
+// the same network as the construction work, and M0 (the SDP review) is the event that
+// ends the third of them.
+const (
+	requirementsActivity  = "requirements"
+	architectureActivity  = "architecture"
+	projectDesignActivity = "projectDesign"
+)
+
+// The design prefix's planning durations, in whole 5-day quanta. Deliberately NOT
+// Table 11-1's 15/20/20: those are human-team numbers for a team that writes the
+// mission, glossary, volatilities, use cases and architecture by hand. Here every
+// design task is an agent dispatch with a human review gate, and the observed scale
+// of a full design run on this platform is hours, not weeks. One quantum each is the
+// smallest honest unit the Method's 5-day atom allows. These three constants are the
+// ONE place to tune the front end; a per-project exception is an authored override
+// delta with a justification, exactly as for every other derived effort.
+const (
+	requirementsEffortDays  = 5.0
+	architectureEffortDays  = 5.0
+	projectDesignEffortDays = 5.0
+)
+
+// designPrefixActivities emits the three design activities, in Table 11-1 order. They
+// are componentless (no architecture produces them — they produce the architecture),
+// noncoding, and owned by the system architect, who drives Phases 1 and 2 end to end.
+// Unlike alwaysEmitNoncoding they are emitted for EVERY system including the empty one:
+// a project with no committed architecture still owes the work that produces it.
+func designPrefixActivities() []DerivedActivity {
+	prefix := []struct {
+		Name   string
+		Title  string
+		Effort float64
+	}{
+		{requirementsActivity, "Requirements", requirementsEffortDays},
+		{architectureActivity, "Architecture & Call Chains", architectureEffortDays},
+		{projectDesignActivity, "Project Design (SDP Review · M0)", projectDesignEffortDays},
+	}
+	out := make([]DerivedActivity, 0, len(prefix))
+	for _, p := range prefix {
+		out = append(out, DerivedActivity{
+			Name: p.Name, Title: p.Title, EffortDays: p.Effort,
+			RiskBucket: defaultRiskFor(p.Effort), WorkerClass: "system-architect",
+			Coding: false, ComponentID: "", Derived: true,
+		})
+	}
+	return out
+}
+
+// designPrefixDependencies is the prefix's own chain. It is a fixed serial chain, not a
+// derivation: the Method's phases are ordered by the artifacts they consume (the
+// architecture reads the requirements, the project design reads the architecture), and
+// no System relationship expresses that. requirements carries no row at all — it is the
+// plan's true root, the one activity upstream of the SDP review itself.
+func designPrefixDependencies() []NetworkDependency {
+	return []NetworkDependency{
+		{Activity: architectureActivity, DependsOn: []string{requirementsActivity}},
+		{Activity: projectDesignActivity, DependsOn: []string{architectureActivity}},
+	}
+}
+
+// isDesignPrefix reports whether an activity name is one of the three design activities.
+// The two general edge rules both consult it: the prefix is upstream of M0, and both
+// rules assume an activity is downstream of it.
+func isDesignPrefix(activityName string) bool {
+	switch activityName {
+	case requirementsActivity, architectureActivity, projectDesignActivity:
+		return true
+	}
+	return false
+}
+
+// planOrderLess orders the plan the way Table 11-1 reads it: the design prefix first,
+// in its own fixed order, then everything else by name. Slot 9's declaration order is
+// the pump's selection order and the console's row order, so "requirements" sorting
+// after "U-SPA-web-client" (lowercase sorts after uppercase in ASCII) would put the
+// front end of the project at the bottom of the screen.
+func planOrderLess(a, b string) bool {
+	ra, rb := planOrderRank(a), planOrderRank(b)
+	if ra != rb {
+		return ra < rb
+	}
+	return a < b
+}
+
+// planOrderRank ranks the design prefix ahead of everything else, in Table 11-1 order.
+func planOrderRank(name string) int {
+	switch name {
+	case requirementsActivity:
+		return 0
+	case architectureActivity:
+		return 1
+	case projectDesignActivity:
+		return 2
+	}
+	return 3
+}
 
 // isCodeLayer reports whether a component kind gets a coding activity at all. Resources
 // are provisioned, never coded by us.
@@ -1564,11 +1673,15 @@ func noncodingInventoryActivities() []DerivedActivity {
 	return out
 }
 
-// deriveActivities emits the full derived activity set for the System, sorted by name.
-// It is Löwy's Table 11-1 applied to the architecture.
+// deriveActivities emits the full derived activity set for the System, in plan order
+// (planOrderLess). It is Löwy's Table 11-1 applied to the architecture.
 //
-// Emission rules (each one a mechanical consequence of the architecture):
+// Emission rules (the first is fixed; every other one is a mechanical consequence of
+// the architecture):
 //
+//	requirements,   the design prefix (Table 11-1 #1-3), emitted for EVERY system —
+//	architecture,   including the empty one, because the work that produces the
+//	projectDesign   architecture cannot derive from it
 //	C-<id>          one per code-layer component with constructionProfile == "handwritten"
 //	                (Table 11-1 #11-18: ResourceAccess, Engines, Managers)
 //	(none)          "generated" components — the generator does that work
@@ -1583,7 +1696,9 @@ func noncodingInventoryActivities() []DerivedActivity {
 //	                11-1 gives integration.
 //	N-STP, N-IT     the always-emit noncoding inventory (Table 11-1 #4 and #21)
 func deriveActivities(system SystemView) []DerivedActivity {
-	out := make([]DerivedActivity, 0, len(system.Components)+len(alwaysEmitNoncoding))
+	prefix := designPrefixActivities()
+	out := make([]DerivedActivity, 0, len(prefix)+len(system.Components)+len(alwaysEmitNoncoding))
+	out = append(out, prefix...)
 
 	for _, c := range system.Components {
 		if a, ok := codingActivityFor(c); ok {
@@ -1599,7 +1714,7 @@ func deriveActivities(system SystemView) []DerivedActivity {
 
 	out = append(out, noncodingInventoryActivities()...)
 
-	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	sort.Slice(out, func(i, j int) bool { return planOrderLess(out[i].Name, out[j].Name) })
 	return out
 }
 
@@ -1716,6 +1831,13 @@ func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
 	}
 	var sinks []string
 	for _, a := range acts {
+		// The design prefix is exempt: its successor is M0, a milestone, which
+		// hasSuccessor cannot see — without this skip projectDesign (and, on an empty
+		// system, all three) would feed N-IT and the plan would say system testing waits
+		// on the SDP review.
+		if isDesignPrefix(a.Name) {
+			continue
+		}
 		if a.Name != systemTestingActivity && !hasSuccessor[a.Name] {
 			sinks = append(sinks, a.Name)
 		}
@@ -1733,6 +1855,12 @@ func addSinkEdges(reduced map[string][]string, acts []DerivedActivity) {
 // lies on a path from M0 to N-IT; no island workaround is needed.
 func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 	for _, a := range acts {
+		// The design prefix is exempt: requirements is the plan's true root, and hanging
+		// it off M0 while M0 depends on projectDesign is a cycle —
+		// ResolveDependencySatisfied's cycle guard would report DependencyCycle at the pump.
+		if isDesignPrefix(a.Name) {
+			continue
+		}
 		if len(reduced[a.Name]) == 0 {
 			reduced[a.Name] = []string{sdpReviewMilestone}
 		}
@@ -1743,11 +1871,18 @@ func addSourceEdges(reduced map[string][]string, acts []DerivedActivity) {
 // edges, then the two general rules no relationship expresses — the sink rule (N-IT
 // after every activity nothing else depends on) and the source rule (every activity with
 // no other predecessor after M0). The sink rule runs first, so N-IT is never a root.
+//
+// The design prefix's own chain is appended AFTER both rules, which are exempt from it
+// (see addSinkEdges / addSourceEdges): the prefix runs upstream of M0, where neither
+// general rule applies.
 func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDependency {
 	raw := architectureEdges(system, activityForComponent(acts))
 	reduced := transitiveReduction(raw)
 	addSinkEdges(reduced, acts)
 	addSourceEdges(reduced, acts)
+	for _, d := range designPrefixDependencies() {
+		reduced[d.Activity] = d.DependsOn
+	}
 
 	out := make([]NetworkDependency, 0, len(reduced))
 	for activity, preds := range reduced {
@@ -1760,9 +1895,10 @@ func deriveDependencies(system SystemView, acts []DerivedActivity) []NetworkDepe
 
 // deriveMilestones emits M0-M3. M0 is the SDP-review forced dependency (ch. 11 "About
 // Milestones": "none of the construction activities should start before the SDP
-// review"). Its predecessors are the design phases (Phases 1-2), which are not
-// activities, so it has no fan-in here; its fan-OUT to every root activity is the source
-// rule (addSourceEdges). M1-M3 are layer completions.
+// review"). Its predecessor is projectDesign, the third activity of the design prefix:
+// the SDP review IS what that activity ends with, so the milestone hangs off it. Its
+// fan-OUT to every root activity is the source rule (addSourceEdges), which skips the
+// prefix precisely so this fan-in is not also a fan-out. M1-M3 are layer completions.
 //
 // M4 (Use Cases Demonstrable) is deliberately NOT derived: it depended entirely on the
 // now-removed I-* integration activities (ruling 2) and had no other fan-in of its own,
@@ -1795,7 +1931,7 @@ func deriveMilestones(system SystemView, acts []DerivedActivity) []NetworkMilest
 	}
 
 	return []NetworkMilestone{
-		{Id: "M0"}, // SDP Review Approved — the forced dependency, no fan-in
+		{Id: sdpReviewMilestone, DependsOn: []string{projectDesignActivity}}, // SDP Review Approved
 		{Id: "M1", DependsOn: provisioning},
 		{Id: "M2", DependsOn: engines},
 		{Id: "M3", DependsOn: managers},
@@ -2014,7 +2150,7 @@ func applyDeltas(base []DerivedActivity, deps []NetworkDependency, ms []NetworkM
 	allDeps = append(allDeps, deps...)
 	allDeps = append(allDeps, extraDeps...)
 	sort.Slice(allDeps, func(i, j int) bool { return allDeps[i].Activity < allDeps[j].Activity })
-	sort.Slice(acts, func(i, j int) bool { return acts[i].Name < acts[j].Name })
+	sort.Slice(acts, func(i, j int) bool { return planOrderLess(acts[i].Name, acts[j].Name) })
 
 	return DerivedPlan{Activities: acts, Dependencies: allDeps, Milestones: milestones}, nil
 }

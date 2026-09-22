@@ -5510,18 +5510,24 @@ func TestMaterializePhase2DraftIsInertForEveryOtherKind(t *testing.T) {
 	}
 }
 
-// A System that derives ZERO activities must FAIL LOUDLY rather than stage an empty list.
-// Staging it would reproduce the very defect this seam exists to prevent — the empty plan
-// would just surface one phase later, at the SDP review, with nothing pointing back here.
+// A System that derives ZERO construction activities must FAIL LOUDLY rather than stage a
+// plan with nothing in it. Staging it would reproduce the very defect this seam exists to
+// prevent — the empty plan would just surface one phase later, at the SDP review, with
+// nothing pointing back here.
+//
+// The derivation itself is no longer silent on this input: an empty System still derives
+// the three design-prefix activities (a project before its architecture is committed still
+// owes the work that produces it), so the guard reads the COMPONENT count. What must not
+// happen is a Phase-2 plan staged against an architecture that says nothing.
 func TestMaterializePhase2DraftRefusesToStageAnEmptyDerivedPlan(t *testing.T) {
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&projectstate.System{})
 
 	_, err := materializePhase2Draft(proj, projectstate.KindActivityList, decodeArchivedEmptyActivityList(t))
 	if err == nil {
-		t.Fatal("a System deriving zero activities must be an error, not a silently staged empty list")
+		t.Fatal("a System deriving zero construction activities must be an error, not a silently staged empty plan")
 	}
-	if !strings.Contains(err.Error(), "ZERO activities") {
+	if !strings.Contains(err.Error(), "ZERO construction activities") {
 		t.Errorf("the error must say what went wrong, got %q", err.Error())
 	}
 }
@@ -5678,8 +5684,11 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 	if _, ok := gotByID["MX"]; ok {
 		t.Error("milestone MX is not produced by the derivation and must not be staged")
 	}
-	if m0 := gotByID["M0"]; len(m0.DependsOn) != 0 {
-		t.Errorf("M0 must keep an empty dependsOn (its predecessors are the design rail, not activities), got %v", m0.DependsOn)
+	// The fan-in is the DERIVATION's, never the draft's: the agent authored M0 dependsOn
+	// [C-agent-typed] and the derivation says [projectDesign] — the design prefix's third
+	// activity, which the SDP review ends.
+	if m0 := gotByID["M0"]; !reflect.DeepEqual(m0.DependsOn, []string{"projectDesign"}) {
+		t.Errorf("M0 dependsOn = %v, want the derived [projectDesign], not the draft's own fan-in", m0.DependsOn)
 	}
 }
 

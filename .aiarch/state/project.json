@@ -499,6 +499,18 @@
               "C-construction-manager",
               "C-system-design-manager"
             ]
+          },
+          {
+            "activity": "architecture",
+            "dependsOn": [
+              "requirements"
+            ]
+          },
+          {
+            "activity": "projectDesign",
+            "dependsOn": [
+              "architecture"
+            ]
           }
         ],
         "criticalPath": [
@@ -513,13 +525,19 @@
           "R-construction-pipeline-runtime",
           "R-github",
           "R-operated-runtime",
-          "U-SPA-web-client"
+          "U-SPA-web-client",
+          "architecture",
+          "projectDesign",
+          "requirements"
         ],
         "milestones": [
           {
             "id": "M0",
             "name": "SDP Review Approved",
-            "public": true
+            "public": true,
+            "dependsOn": [
+              "projectDesign"
+            ]
           },
           {
             "id": "M1",
@@ -683,7 +701,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -778,7 +796,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -873,7 +891,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -968,7 +986,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -1082,7 +1100,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -1218,7 +1236,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "network",
+        "upstreamKind": "activityList",
         "upstreamRevision": 3
       }
     },
@@ -10281,6 +10299,30 @@
       "model": {
         "activities": [
           {
+            "name": "requirements",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Requirements"
+          },
+          {
+            "name": "architecture",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Architecture \u0026 Call Chains"
+          },
+          {
+            "name": "projectDesign",
+            "effortDays": 5,
+            "workerClass": "system-architect",
+            "coding": false,
+            "riskBucket": 2,
+            "title": "Project Design (SDP Review · M0)"
+          },
+          {
             "name": "C-agentic-job-access",
             "effortDays": 10,
             "workerClass": "junior-developer",
@@ -10549,8 +10591,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -10561,8 +10605,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized); amended in the same landing for coverage reconciliation",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
