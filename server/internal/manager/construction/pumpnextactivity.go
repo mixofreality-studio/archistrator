@@ -124,6 +124,15 @@ func (wf *workflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput
 	// activity from the same recorded readProject result — a different child id — so the
 	// rule is version-gated: an execution that recorded the old choice replays it.
 	sel := wf.nextEligible(proj, pumpEligibilityRule(ctx))
+	// A design activity is eligible work this pump deliberately does not do. Saying so at
+	// Info keeps a project whose only remaining work is design from reading as an
+	// unexplained quiet tick — the silent-quiescent disguise the blocked arm below exists
+	// to end. No GetVersion fence: no committed plan has ever held a design activity, so
+	// no recorded history can contain a selection this skip would change.
+	if len(sel.SkippedDesign) > 0 {
+		logger.Info("construction pump: skipping design activities — the construction pump does not dispatch design activities; the DeliveryManager does, from stage 4",
+			"projectId", string(in.ProjectID), "activityIds", sel.SkippedDesign)
+	}
 	switch sel.Verdict {
 	case verdictBlocked:
 		// LOUD, DURABLE, APP-VISIBLE (spec §4.3). The log line alone is the failure mode

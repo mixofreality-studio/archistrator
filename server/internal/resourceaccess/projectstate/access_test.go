@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"strings"
@@ -2212,8 +2213,8 @@ func assertConstructionContractsAndPolicySurvived(t *testing.T, back Project) {
 		t.Fatalf("ServiceContracts must survive the round trip, got %+v", back.ServiceContracts)
 	}
 
-	// ReviewPolicy — the phase gate's snapshot source.
-	if !back.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
+	// ReviewPolicy — the phase gate's snapshot source (the DOCUMENT the reviewEngine reads).
+	if !slices.Contains(back.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
 		t.Fatalf("ReviewPolicy gating must survive the round trip, got %+v", back.ReviewPolicy)
 	}
 }
@@ -6293,6 +6294,71 @@ func verifyEnumWireCompleteness(t *testing.T, name string, declaredOrds []int, m
 	}
 }
 
+// The three design activity types (spec 2026-09-20 §5.1). Their wire names ARE the
+// method-assets lifecycle keys, so a plan activity of this type resolves its lifecycle
+// with no special case. Ordinals 7/8/9 are appended, never inserted.
+func TestActivityType_DesignTypesRoundTripAndKeyTheirLifecycles(t *testing.T) {
+	cases := []struct {
+		typ  ActivityType
+		name string
+	}{
+		{ActivityTypeRequirements, "requirements"},
+		{ActivityTypeArchitecture, "architecture"},
+		{ActivityTypeProjectDesign, "projectDesign"},
+	}
+	for _, c := range cases {
+		if got := c.typ.String(); got != c.name {
+			t.Errorf("%d.String() = %q, want %q", int(c.typ), got, c.name)
+		}
+		raw, err := json.Marshal(c.typ)
+		if err != nil {
+			t.Fatalf("marshal %s: %v", c.name, err)
+		}
+		if string(raw) != `"`+c.name+`"` {
+			t.Errorf("marshal %s = %s, want %q", c.name, raw, c.name)
+		}
+		var back ActivityType
+		if err := json.Unmarshal(raw, &back); err != nil || back != c.typ {
+			t.Errorf("round trip %s: got %v, %v", c.name, back, err)
+		}
+		if got := LifecycleKeyFor(c.typ, TestVariantPlan); got != c.name {
+			t.Errorf("LifecycleKeyFor(%s) = %q, want %q", c.name, got, c.name)
+		}
+		if len(ProfileFor(c.typ, TestVariantPlan).Phases) == 0 {
+			t.Errorf("%s has no lifecycle phases — the method-assets pin does not carry it", c.name)
+		}
+	}
+	// 0-6 are untouched and the three are APPENDED: the count is the cheapest proof
+	// that nothing was inserted in the middle of the wire vocabulary.
+	if len(activityTypeNames) != 10 {
+		t.Fatalf("activityTypeNames holds %d types, want 10", len(activityTypeNames))
+	}
+	for ordinal, want := range map[ActivityType]string{7: "requirements", 8: "architecture", 9: "projectDesign"} {
+		if got := activityTypeNames[ordinal]; got != want {
+			t.Errorf("ordinal %d = %q, want %q", int(ordinal), got, want)
+		}
+	}
+}
+
+// The phase shapes the three design lifecycles publish, pinned so a method-assets
+// release that reshapes them fails here rather than silently reshaping the console.
+func TestProfileFor_DesignLifecycleShapes(t *testing.T) {
+	want := map[ActivityType][]string{
+		ActivityTypeRequirements:  {"mission", "glossary", "volatilities", "coreUseCases"},
+		ActivityTypeArchitecture:  {"architecture"},
+		ActivityTypeProjectDesign: {"sdp"},
+	}
+	for typ, ids := range want {
+		var got []string
+		for _, p := range ProfileFor(typ, TestVariantPlan).PhaseIDs() {
+			got = append(got, string(p))
+		}
+		if !slices.Equal(got, ids) {
+			t.Errorf("%s phases = %v, want %v", typ, got, ids)
+		}
+	}
+}
+
 // contractDef is the slice of a $defs entry this test reads: its declared `enum`
 // list, if any. Kept as raw messages because some $defs enums are string-backed
 // (e.g. ActivityMethodPhase, CritiqueVerdict) rather than the integer ordinals
@@ -7248,25 +7314,32 @@ func TestDeriveVariant_TestingPrefixes(t *testing.T) {
 	}
 }
 
-func TestProfileSlug(t *testing.T) {
+// The command family each profile dispatches into, one cell per family: the words the
+// lifecycle data states, not a slug this package composes. profileSlug's own table test
+// retired with it — a UI-design activity still walks the FRONTEND commands and an I-*
+// activity still walks /service-integration, and that is what these rows pin.
+func TestCommandFor_NamesTheProfilesCommandFamily(t *testing.T) {
 	cases := []struct {
 		t    ActivityType
 		v    TestingVariant
+		p    ActivityMethodPhase
 		want string
 	}{
-		{ActivityTypeService, 0, "service"},
-		{ActivityTypeFrontend, 0, "frontend"},
-		{ActivityTypeDeployment, 0, "deployment"},
-		{ActivityTypeDocumentation, 0, "documentation"},
-		{ActivityTypeTesting, TestVariantPlan, "testing-plan"},
-		{ActivityTypeTesting, TestVariantHarness, "testing-harness"},
-		{ActivityTypeTesting, TestVariantPerf, "testing-perf"},
-		{ActivityTypeTesting, TestVariantSystemTest, "testing-systemtest"},
-		{ActivityTypeTesting, TestVariantQAProcess, "testing-qa"},
+		{ActivityTypeService, 0, MethodPhaseRequirements, "service-requirements"},
+		{ActivityTypeFrontend, 0, MethodPhaseRequirements, "frontend-requirements"},
+		{ActivityTypeUIDesign, 0, MethodPhaseDetailedDesign, "frontend-detailed-design"},
+		{ActivityTypeIntegration, 0, MethodPhaseIntegration, "service-integration"},
+		{ActivityTypeDeployment, 0, MethodPhaseConstruction, "deployment-construction"},
+		{ActivityTypeDocumentation, 0, MethodPhaseConstruction, "documentation-construction"},
+		{ActivityTypeTesting, TestVariantPlan, MethodPhaseConstruction, "testing-plan-construction"},
+		{ActivityTypeTesting, TestVariantHarness, MethodPhaseConstruction, "testing-harness-construction"},
+		{ActivityTypeTesting, TestVariantPerf, MethodPhaseConstruction, "testing-perf-construction"},
+		{ActivityTypeTesting, TestVariantSystemTest, MethodPhaseConstruction, "testing-systemtest-construction"},
+		{ActivityTypeTesting, TestVariantQAProcess, MethodPhaseConstruction, "testing-qa-construction"},
 	}
 	for _, c := range cases {
-		if got := profileSlug(c.t, c.v); got != c.want {
-			t.Errorf("profileSlug(%v,%v) = %q, want %q", c.t, c.v, got, c.want)
+		if got := CommandFor(c.t, c.v, c.p); got != c.want {
+			t.Errorf("CommandFor(%v,%v,%q) = %q, want %q", c.t, c.v, c.p, got, c.want)
 		}
 	}
 }
@@ -7280,21 +7353,61 @@ func TestCommandFor(t *testing.T) {
 	}
 }
 
-// TestCommandForTotalOverProfiles asserts CommandFor returns a non-empty,
-// well-formed slug for every phase that ProfileFor actually emits — the command
-// matrix is exactly the flattening of ProfileFor.
+// CommandFor is total over exactly the phases ProfileFor emits: every one names a
+// well-formed command slug. That it names a command file that EXISTS is
+// TestEveryProfilePhaseHasCommandFile, below; the composition rule itself is no longer
+// this package's to state — the lifecycle data carries the name.
 func TestCommandForTotalOverProfiles(t *testing.T) {
+	slug := regexp.MustCompile(`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`)
 	for _, combo := range allProfileCombos() {
 		for _, p := range ProfileFor(combo.t, combo.v).PhaseIDs() {
 			got := CommandFor(combo.t, combo.v, p)
 			if got == "" {
 				t.Errorf("CommandFor(%v,%v,%q) empty", combo.t, combo.v, p)
 			}
-			if want := profileSlug(combo.t, combo.v) + "-" + kebabPhase(p); got != want {
-				t.Errorf("CommandFor = %q, want %q", got, want)
+			if !slug.MatchString(got) {
+				t.Errorf("CommandFor(%v,%v,%q) = %q, not a command slug", combo.t, combo.v, p, got)
 			}
 		}
 	}
+}
+
+// CARRY-OVER from Task 3's review (binding): with cmd/gen-uiprofiles gone, the claim "a
+// profile's command matches its own phase" was covered only by a distinct-count sanity
+// check (TestEveryActivityTypeResolvesToALifecycle asserts CommandFor is non-empty, not
+// that it is the RIGHT command). This is the real oracle: for every (type, variant,
+// carried) phase, CommandFor must equal the lifecycle's own dispatch task's Command for
+// that phase — recomputed HERE straight off methodassets.LifecycleFor's raw Tasks, never
+// through CommandFor's own dispatchTaskIn helper, so a bug in that helper cannot hide
+// behind a test that calls it too.
+func TestCommandFor_MatchesTheLifecyclesDispatchTaskCommand(t *testing.T) {
+	for _, combo := range allActivityTypeCombos() {
+		key := LifecycleKeyFor(combo.t, combo.v)
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Fatalf("no lifecycle %q", key)
+		}
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			want := rawDispatchCommand(lc, ph.ID)
+			if got := CommandFor(combo.t, combo.v, p); got != want {
+				t.Errorf("%s/%s: CommandFor = %q, want the lifecycle's own dispatch task command %q", key, p, got, want)
+			}
+		}
+	}
+}
+
+// rawDispatchCommand is a phase's dispatch-task command read straight off the
+// lifecycle's own Tasks, never through the production dispatchTaskIn helper, so a bug
+// in that helper cannot hide behind a test that calls it too. "" when the phase has no
+// dispatch task at all — projectDesign's `sdp` is one review gate and nothing else.
+func rawDispatchCommand(lc methodassets.Lifecycle, phaseID string) string {
+	for _, task := range lc.Tasks {
+		if task.Phase == phaseID && task.Kind == methodassets.LifecycleTaskDispatch {
+			return task.Command
+		}
+	}
+	return ""
 }
 
 type profileCombo struct {
@@ -7302,7 +7415,9 @@ type profileCombo struct {
 	v TestingVariant
 }
 
-// allProfileCombos enumerates every distinct (type, variant) profile in the domain.
+// allProfileCombos enumerates the CONSTRUCTION (type, variant) profiles: the ones
+// whose phases walk the .claude command matrix. It is deliberately not every type —
+// allActivityTypeCombos is.
 func allProfileCombos() []profileCombo {
 	return []profileCombo{
 		{ActivityTypeService, 0},
@@ -7315,6 +7430,23 @@ func allProfileCombos() []profileCombo {
 		{ActivityTypeTesting, TestVariantSystemTest},
 		{ActivityTypeTesting, TestVariantQAProcess},
 	}
+}
+
+// allActivityTypeCombos enumerates every distinct (type, variant) an activity can
+// carry: the construction profiles, the two types whose phases are not a command
+// family (UIDesign, Integration), and the three design types the plan's fixed prefix
+// uses. Totality over THIS list is what makes
+// TestEveryLifecycleIsReachableFromAnActivityType total — it replaces the seeded
+// designLifecycleKeys set that stood in for the design types while they had no
+// ActivityType.
+func allActivityTypeCombos() []profileCombo {
+	return append(allProfileCombos(),
+		profileCombo{ActivityTypeUIDesign, 0},
+		profileCombo{ActivityTypeIntegration, 0},
+		profileCombo{ActivityTypeRequirements, 0},
+		profileCombo{ActivityTypeArchitecture, 0},
+		profileCombo{ActivityTypeProjectDesign, 0},
+	)
 }
 
 // repoCommandsDir walks up from this test file to the repo root (the dir holding
@@ -7826,123 +7958,22 @@ func TestStaleAck_AppendAndNormalizeSticky(t *testing.T) {
 	}
 }
 
-func TestReviewPolicy_EmptyRequiresNoHuman(t *testing.T) {
-	var p ReviewPolicy
-	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("empty policy must require no human approval (inert)")
-	}
-}
+// The nine TestReviewPolicy_* gate cases MOVED to
+// internal/engine/review/engine_test.go's
+// Test_ProposeReviews_ConstructionGate_MatchesTheRetiredEffectiveGate when
+// EffectiveGate/RequiresHuman moved into the reviewEngine (spec 2026-09-20 §5.4,
+// stage 2). They are transcribed row for row there — this package no longer decides
+// anything about the policy, so there is nothing left here to pin. What stays is the
+// SHAPING of the client's gate-id vocabulary into the stored document, below, and the
+// floor's data list further down.
 
-func TestReviewPolicy_RequiresHumanForGatedPhase(t *testing.T) {
-	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
-		"frontend": {MethodPhaseDetailedDesign},
-	}}
-	if !p.RequiresHuman("frontend", MethodPhaseDetailedDesign) {
-		t.Error("frontend/detailed_design should require human")
-	}
-	if p.RequiresHuman("frontend", MethodPhaseConstruction) {
-		t.Error("frontend/construction not gated")
-	}
-	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("service not gated")
-	}
-}
-
+// TestReviewPolicyFromGateIDs_MapsMockIDs pins the shaping, not a decision: the webApp
+// PolicyPanel's ad-hoc gate id "svc-contract" must land in the committed document as
+// the canonical detailed_design phase, so the mock vocabulary never reaches head-state.
 func TestReviewPolicyFromGateIDs_MapsMockIDs(t *testing.T) {
 	p := ReviewPolicyFromGateIDs(map[string][]string{"service": {"svc-contract"}})
-	if !p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("svc-contract must map to detailed_design")
-	}
-}
-
-// ---- Tests: preset resolution + non-overridable floor (Task 7) --------------
-
-// presetPtr is a small test helper — ReviewPolicy.Preset is *string (modelgen's
-// optional-scalar convention) so literal construction needs an addressable value.
-func presetPtr(s string) *string { return &s }
-
-// TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft is the brief's Step-1 scenario:
-// under the "vibes" preset, a non-floor phase (the detailed-design/contract "draft
-// commit") is auto-approved — no gate.
-func TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
-		t.Error("vibes must auto-approve a draft commit (detailed_design, no floor)")
-	}
-	if p.EffectiveGate("service", MethodPhaseConstruction, false) {
-		t.Error("vibes must auto-approve construction dispatch when the floor is not touched")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch is the brief's Step-1
-// scenario: the non-overridable floor still blocks a flagged (deploy/spend/schema-
-// touching) construction dispatch even under "vibes".
-func TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if !p.EffectiveGate("service", MethodPhaseConstruction, true) {
-		t.Error("the floor must block a flagged construction dispatch even under vibes")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase pins the floor's
-// scope: floorTouched only forces a gate at MethodPhaseConstruction (the dispatch),
-// never at other phases — the floor is about construction dispatch, not the whole
-// activity.
-func TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, true) {
-		t.Error("the floor must not gate phases other than construction dispatch")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_Checkpoints pins the "checkpoints" preset to gating
-// exactly the per-activity contract/architecture commit (detailed_design), the
-// construction dispatch (construction), and the integration pass (integration —
-// founder-ratified; without it an integration-only I-* activity would run entirely
-// ungated) — not requirements/test_plan.
-func TestReviewPolicy_EffectiveGate_Checkpoints(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetCheckpoints)}
-	gated := map[ActivityMethodPhase]bool{
-		MethodPhaseRequirements:   false,
-		MethodPhaseDetailedDesign: true,
-		MethodPhaseTestPlan:       false,
-		MethodPhaseConstruction:   true,
-		MethodPhaseIntegration:    true,
-	}
-	for phase, want := range gated {
-		if got := p.EffectiveGate("service", phase, false); got != want {
-			t.Errorf("checkpoints EffectiveGate(%s) = %v, want %v", phase, got, want)
-		}
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_Full pins the "full" preset to gating every phase —
-// today's approve-everything behavior.
-func TestReviewPolicy_EffectiveGate_Full(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetFull)}
-	for _, phase := range []ActivityMethodPhase{
-		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
-		MethodPhaseConstruction, MethodPhaseIntegration,
-	} {
-		if !p.EffectiveGate("service", phase, false) {
-			t.Errorf("full preset must gate every phase, %s did not gate", phase)
-		}
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap pins the "" / unset
-// preset to legacy/explicit mode: EffectiveGate falls back to RequiresHuman's
-// committed GatedPhasesByType map, unchanged from pre-Task-7 behavior (e.g. the
-// webApp PolicyPanel's ReviewPolicyFromGateIDs output).
-func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
-	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
-		"frontend": {MethodPhaseDetailedDesign},
-	}}
-	if !p.EffectiveGate("frontend", MethodPhaseDetailedDesign, false) {
-		t.Error("legacy mode must honor the explicit GatedPhasesByType map")
-	}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
-		t.Error("legacy mode must not gate an un-configured activity type")
+	if !slices.Contains(p.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
+		t.Errorf("svc-contract must map to detailed_design, got %v", p.GatedPhasesByType["service"])
 	}
 }
 
@@ -7956,14 +7987,15 @@ func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
 // default changes no dispatch decision" — was falsified one day later by the design
 // vibes autogate (2026-07-20): systemdesign/projectdesign set policyAutoApprove from
 // ReviewPolicy.Preset DIRECTLY, so a birth-seeded "vibes" auto-approved every design
-// draft and committed it without the architect. The human design gate — the Method's
+// draft and committed it without the architect (the rails ask the reviewEngine for that
+// verdict now, but the preset is still its only input). The human design gate — the Method's
 // commit authority — was gone for every project ever created, which is what the UC1/UC2
 // agentic E2E system tests exist to prove.
 //
-// Nil keeps CONSTRUCTION behavior byte-identical (EffectiveGate's default arm is
-// RequiresHuman over an empty map — ungated, floor unchanged; see
-// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap), so this only restores
-// the design gate.
+// Nil keeps CONSTRUCTION behavior byte-identical (the reviewEngine's legacy-preset arm
+// looks the phase up in an empty map — ungated, floor unchanged; see
+// Test_ProposeReviews_ConstructionGate_MatchesTheRetiredEffectiveGate's "legacy" row),
+// so this only restores the design gate.
 func TestCreateProject_LeavesReviewPolicyPresetUnset(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID("fresh-project")
@@ -7978,6 +8010,106 @@ func TestCreateProject_LeavesReviewPolicyPresetUnset(t *testing.T) {
 	// value born here — "vibes" above all — silently removes the human design gate.
 	if p.ReviewPolicy.Preset != nil {
 		t.Fatalf("fresh project ReviewPolicy.Preset = %q, want unset (nil) — a birth-seeded preset auto-approves every design draft", *p.ReviewPolicy.Preset)
+	}
+}
+
+// ---- Tests: CodecCarriesEveryMember (the derived-plan writer's loss guard) ---------
+
+// legacyStaleAckSlotJSON is the EXACT shape slots 9 and 10 of the repo's own committed
+// project.json carry today: a staleAck review comment written before the Reopened/Replies
+// members existed and before Status was derived from the reply history. Decoding it runs
+// normalizeReviewThread, which rewrites "addressed" into the derived "answered" and fills
+// the two missing members — so the slot's stored bytes and its codec encoding differ
+// although the codec carries every last field of it.
+const legacyStaleAckSlotJSON = `{"status":"committed","reviewThread":[` +
+	`{"id":"r1c1","anchor":"","anchorText":"","text":"Reviewed — unaffected: Slot-5 system amendment (rev 2)",` +
+	`"authorRole":"architect","round":1,"status":"addressed","response":"","type":"staleAck","addressee":""}]}`
+
+// normalizedStaleAckSlotJSON is what the codec writes for the value above.
+const normalizedStaleAckSlotJSON = `{"status":"committed","reviewThread":[` +
+	`{"id":"r1c1","anchor":"","anchorText":"","text":"Reviewed — unaffected: Slot-5 system amendment (rev 2)",` +
+	`"authorRole":"architect","round":1,"status":"answered","reopened":false,"replies":null,` +
+	`"response":"","type":"staleAck","addressee":""}]}`
+
+// The defect this guard was written for: the derived-plan writer refused to rewrite slots
+// 9 and 10 because their bytes are not their codec encoding — but the whole difference is
+// the codec's OWN normalizer rewriting a legacy Status and filling two members the
+// document predates. Nothing is dropped, so nothing may be refused.
+func TestCodecCarriesEveryMember_ANormalizedLegacyReviewThreadLosesNothing(t *testing.T) {
+	lost, err := CodecCarriesEveryMember(json.RawMessage(legacyStaleAckSlotJSON), json.RawMessage(normalizedStaleAckSlotJSON))
+	if err != nil {
+		t.Fatalf("CodecCarriesEveryMember: %v", err)
+	}
+	if len(lost) != 0 {
+		t.Fatalf("the codec's own normalization drops nothing, got lost=%v", lost)
+	}
+	// And the two really are different bytes — otherwise the test proves nothing.
+	if legacyStaleAckSlotJSON == normalizedStaleAckSlotJSON {
+		t.Fatal("the fixture must reproduce the byte difference the writer refused on")
+	}
+}
+
+// A genuinely foreign change — a member the codec does not carry, which is the change
+// that makes a rewrite lossy — must still be refused, and the guard must NAME it.
+func TestCodecCarriesEveryMember_RefusesWhatTheCodecDrops(t *testing.T) {
+	tests := []struct {
+		name     string
+		stored   string
+		encoded  string
+		wantLost []string
+	}{
+		{
+			name:     "an unknown field the codec never decoded",
+			stored:   `{"status":"committed","legacyOnly":{"note":"hand-authored"}}`,
+			encoded:  `{"status":"committed"}`,
+			wantLost: []string{"legacyOnly"},
+		},
+		{
+			name:     "an unknown field nested inside a carried one",
+			stored:   `{"reviewThread":[{"id":"r1c1","provenance":"hand"}]}`,
+			encoded:  `{"reviewThread":[{"id":"r1c1"}]}`,
+			wantLost: []string{"reviewThread[0].provenance"},
+		},
+		{
+			name:     "a whole comment the encoding no longer holds",
+			stored:   `{"reviewThread":[{"id":"r1c1"},{"id":"r1c2"}]}`,
+			encoded:  `{"reviewThread":[{"id":"r1c1"}]}`,
+			wantLost: []string{"reviewThread[1]"},
+		},
+		{
+			name:     "a structure flattened to a scalar",
+			stored:   `{"model":{"activities":[]}}`,
+			encoded:  `{"model":""}`,
+			wantLost: []string{"model"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lost, err := CodecCarriesEveryMember(json.RawMessage(tt.stored), json.RawMessage(tt.encoded))
+			if err != nil {
+				t.Fatalf("CodecCarriesEveryMember: %v", err)
+			}
+			if !slices.Equal(lost, tt.wantLost) {
+				t.Fatalf("lost = %v, want %v", lost, tt.wantLost)
+			}
+		})
+	}
+}
+
+// Members the ENCODING adds are the normalizer filling in what the document omitted, and
+// an identical member pair loses nothing — the two ends of the range.
+func TestCodecCarriesEveryMember_AddedAndIdenticalMembersAreNotLosses(t *testing.T) {
+	for _, tt := range []struct{ name, stored, encoded string }{
+		{"the normalizer adds a member", `{"id":"r1c1"}`, `{"id":"r1c1","reopened":false,"replies":null}`},
+		{"identical", legacyStaleAckSlotJSON, legacyStaleAckSlotJSON},
+		{"key order alone", `{"a":1,"b":2}`, `{"b":2,"a":1}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lost, err := CodecCarriesEveryMember(json.RawMessage(tt.stored), json.RawMessage(tt.encoded))
+			if err != nil || len(lost) != 0 {
+				t.Fatalf("lost = %v, err = %v", lost, err)
+			}
+		})
 	}
 }
 
@@ -8038,16 +8170,16 @@ func TestProjectDoc_ReviewPolicy_RoundTrip(t *testing.T) {
 	if len(got.ReviewPolicy.GatedPhasesByType) != 2 {
 		t.Fatalf("ReviewPolicy.GatedPhasesByType len = %d, want 2", len(got.ReviewPolicy.GatedPhasesByType))
 	}
-	if !got.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
 		t.Error("service/detailed_design lost across round-trip")
 	}
-	if !got.ReviewPolicy.RequiresHuman("service", MethodPhaseIntegration) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseIntegration) {
 		t.Error("service/integration lost across round-trip")
 	}
-	if !got.ReviewPolicy.RequiresHuman("frontend", MethodPhaseDetailedDesign) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["frontend"], MethodPhaseDetailedDesign) {
 		t.Error("frontend/detailed_design lost across round-trip")
 	}
-	if got.ReviewPolicy.RequiresHuman("frontend", MethodPhaseConstruction) {
+	if slices.Contains(got.ReviewPolicy.GatedPhasesByType["frontend"], MethodPhaseConstruction) {
 		t.Error("frontend/construction should not be gated after round-trip")
 	}
 }
@@ -8723,11 +8855,10 @@ func TestTaskAttempt_PhaseIsDenormalizedFromTask(t *testing.T) {
 			t.Errorf("PhaseForTask(%q) = \"\" — every Figure A-1 task belongs to a phase", task)
 			continue
 		}
-		// Cross-check the denormalized value against the independent grouping table:
-		// the phase stamped on the attempt must be one that actually owns the task.
-		owns := slices.Contains(TasksForPhase(a.Phase), a.Task)
-		if !owns {
-			t.Errorf("attempt %q stamped Phase %v, but TasksForPhase(%v) does not contain %q", a.AttemptID, a.Phase, a.Phase, a.Task)
+		// Cross-check the denormalized value against the independent lookup: the phase
+		// stamped on the attempt must be the one that actually owns the task.
+		if PhaseForTask(a.Task) != a.Phase {
+			t.Errorf("attempt %q stamped Phase %v, but the task belongs to %v", a.AttemptID, a.Phase, PhaseForTask(a.Task))
 		}
 	}
 }
@@ -8782,15 +8913,68 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 	}
 }
 
+// The three reserved design ids classify to their own types and carry the
+// not-dispatchable sentinel with them. The workerClass/coding pair they are authored
+// with (system-architect, coding=false) would otherwise type them as Documentation.
+func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
+	cases := []struct {
+		id   string
+		want ActivityType
+	}{
+		{"requirements", ActivityTypeRequirements},
+		{"architecture", ActivityTypeArchitecture},
+		{"projectDesign", ActivityTypeProjectDesign},
+	}
+	for _, c := range cases {
+		typ, variant, err := ClassifyActivity(c.id, "system-architect", false)
+		if typ != c.want || variant != TestVariantPlan {
+			t.Errorf("%s -> (%s, %s), want (%s, plan)", c.id, typ, variant, c.want)
+		}
+		if !errors.Is(err, ErrDesignActivityNotDispatchable) {
+			t.Errorf("%s: err = %v, want ErrDesignActivityNotDispatchable", c.id, err)
+		}
+		// The VIEW lens must still type it: a design row renders with its lifecycle.
+		if got, ok := ClassifyType(c.id, "system-architect", false, false); !ok || got != c.want {
+			t.Errorf("ClassifyType(%s) = (%s, %v), want (%s, true)", c.id, got, ok, c.want)
+		}
+	}
+	// An ordinary activity is untouched and an unclassifiable one still fails the old way.
+	if _, _, err := ClassifyActivity("C-billing-engine", "junior-developer", true); err != nil {
+		t.Errorf("a coding activity must still classify cleanly: %v", err)
+	}
+	if _, ok := ClassifyType("N-WAT", "", false, false); ok {
+		t.Error("an unclassifiable activity must still be refused, not swept in with design")
+	}
+}
+
+// B3: the command a design lifecycle's work task runs is today's design command, and
+// the projectDesign gate has none because it has no dispatch task at all.
+func TestCommandFor_DesignLifecycles(t *testing.T) {
+	cases := []struct {
+		typ   ActivityType
+		phase ActivityMethodPhase
+		want  string
+	}{
+		{ActivityTypeRequirements, "mission", "mission-draft"},
+		{ActivityTypeRequirements, "glossary", "glossary-draft"},
+		{ActivityTypeRequirements, "volatilities", "volatilities-draft"},
+		{ActivityTypeRequirements, "coreUseCases", "core-use-cases-draft"},
+		{ActivityTypeArchitecture, "architecture", "system-draft"},
+		{ActivityTypeProjectDesign, "sdp", ""},
+	}
+	for _, c := range cases {
+		if got := CommandFor(c.typ, TestVariantPlan, c.phase); got != c.want {
+			t.Errorf("CommandFor(%s, %s) = %q, want %q", c.typ, c.phase, got, c.want)
+		}
+	}
+}
+
 // constructionLedger is the attempt ledger cmd/backfill-attempts writes: one passed
-// attempt per non-conditional task of the given phases, origin backfilled, with a basis.
+// attempt per lifecycle node task (work, then gate), origin backfilled, with a basis.
 func constructionLedger(activityID string, phases ...ActivityMethodPhase) []TaskAttempt {
 	var out []TaskAttempt
 	for _, ph := range phases {
-		for _, task := range TasksForPhase(ph) {
-			if IsConditionalTask(task) {
-				continue
-			}
+		for _, task := range []MethodTask{AgentTaskFor(ph), GateTaskFor(ph)} {
 			out = append(out, constructionAttempt(activityID, task, 1, OutcomePassed))
 		}
 	}
@@ -8969,45 +9153,6 @@ func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
 	}
 }
 
-func TestTasksForPhase_MatchesFigureA2Grouping(t *testing.T) {
-	cases := []struct {
-		phase ActivityMethodPhase
-		want  []MethodTask
-	}{
-		{MethodPhaseRequirements, []MethodTask{TaskSRS, TaskSRSReview}},
-		{MethodPhaseTestPlan, []MethodTask{TaskSTP, TaskSTPReview}},
-		{MethodPhaseDetailedDesign, []MethodTask{TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview}},
-		{MethodPhaseConstruction, []MethodTask{TaskConstruction, TaskTestClient, TaskCodeReview}},
-		{MethodPhaseIntegration, []MethodTask{TaskIntegration, TaskTesting}},
-	}
-	for _, c := range cases {
-		got := TasksForPhase(c.phase)
-		if len(got) != len(c.want) {
-			t.Fatalf("TasksForPhase(%v) = %v, want %v", c.phase, got, c.want)
-		}
-		for i := range got {
-			if got[i] != c.want[i] {
-				t.Errorf("TasksForPhase(%v)[%d] = %q, want %q", c.phase, i, got[i], c.want[i])
-			}
-		}
-	}
-}
-
-func TestTasksForPhase_TwelveTasksTotal(t *testing.T) {
-	all := map[MethodTask]bool{}
-	for _, p := range []ActivityMethodPhase{
-		MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign,
-		MethodPhaseConstruction, MethodPhaseIntegration,
-	} {
-		for _, task := range TasksForPhase(p) {
-			all[task] = true
-		}
-	}
-	if len(all) != 12 {
-		t.Errorf("total distinct tasks = %d, want 12 (Figure A-1)", len(all))
-	}
-}
-
 func TestGateTaskFor_IsTheBinaryExitCriterion(t *testing.T) {
 	cases := map[ActivityMethodPhase]MethodTask{
 		MethodPhaseRequirements:   TaskSRSReview,
@@ -9046,47 +9191,12 @@ func TestAgentTaskFor_IsTheSingleAIWorkTaskPerPhase(t *testing.T) {
 		if isGateTask(want) {
 			t.Errorf("AgentTaskFor(%v) = %q, which is a GATE task — the review, not the work", phase, want)
 		}
-		// Exactly one candidate: every other task in the phase is a gate or conditional.
-		candidates := 0
-		for _, task := range TasksForPhase(phase) {
-			if !isGateTask(task) && !IsConditionalTask(task) {
-				candidates++
-			}
-		}
-		if candidates != 1 {
-			t.Errorf("phase %v has %d non-gate non-conditional tasks, want exactly 1", phase, candidates)
+		if got := GateTaskFor(phase); got == want {
+			t.Errorf("phase %v names %q as both its work and its gate", phase, want)
 		}
 	}
 	if got := AgentTaskFor(ActivityMethodPhase("not-a-phase")); got != "" {
 		t.Errorf("AgentTaskFor(unknown) = %q, want \"\" — no attribution is possible", got)
-	}
-}
-
-func TestIsConditionalTask_OnlySomeConstructionAndTestClient(t *testing.T) {
-	if !IsConditionalTask(TaskSomeConstruction) {
-		t.Error("someConstruction must be conditional-emit")
-	}
-	if !IsConditionalTask(TaskTestClient) {
-		t.Error("testClient must be conditional-emit")
-	}
-	if IsConditionalTask(TaskDetailedDesign) {
-		t.Error("detailedDesign must be invariant, not conditional")
-	}
-}
-
-// Pins gen-uiprofiles' GeneratedTask.label against silent drift: a thirteenth task
-// added to the vocabulary without a conscious label falls through to the map's zero
-// value ("") rather than failing loudly here (the `exhaustive` linter catches the same
-// gap at the taskLabels literal itself; this test catches it at the call boundary too).
-func TestGeneratedTasksAllCarryALabel(t *testing.T) {
-	for _, task := range []MethodTask{
-		TaskSRS, TaskSRSReview, TaskSTP, TaskSTPReview, TaskSomeConstruction,
-		TaskDetailedDesign, TaskDesignReview, TaskConstruction, TaskTestClient,
-		TaskCodeReview, TaskIntegration, TaskTesting,
-	} {
-		if LabelForTask(task) == "" {
-			t.Errorf("task %q has no display label", task)
-		}
 	}
 }
 
@@ -9095,18 +9205,26 @@ func TestPhaseForTask_RoundTrips(t *testing.T) {
 		MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign,
 		MethodPhaseConstruction, MethodPhaseIntegration,
 	} {
-		for _, task := range TasksForPhase(p) {
+		for _, task := range []MethodTask{AgentTaskFor(p), GateTaskFor(p)} {
 			if got := PhaseForTask(task); got != p {
 				t.Errorf("PhaseForTask(%q) = %v, want %v", task, got, p)
 			}
 		}
 	}
+	if got := PhaseForTask(TaskSomeConstruction); got != MethodPhaseDetailedDesign {
+		t.Errorf("PhaseForTask(someConstruction) = %v, want detailed_design", got)
+	}
+	if got := PhaseForTask(TaskTestClient); got != MethodPhaseConstruction {
+		t.Errorf("PhaseForTask(testClient) = %v, want construction", got)
+	}
 }
 
-// The per-type task SET, not merely its size. Spec R1's published counts (service 12 ·
-// frontend 12 · deployment 8 · documentation 8 · uiDesign 5 · integration 2) turn on
-// exactly these rows, and a length assertion passes for any 8 tasks at all — including
-// a set drawn from the wrong phases.
+// The per-type task SET, not merely its size — TasksForProfile's node-only counts
+// (service 10 · frontend 10 · deployment 6 · documentation 6 · uiDesign 4 · integration
+// 2, each two short of Spec R1's full Figure A-1 count because the two sub-attempt
+// tasks are not lifecycle nodes) turn on exactly these rows, and a length assertion
+// passes for any set of the right size at all — including one drawn from the wrong
+// phases.
 func TestTasksForProfile_PerTypeTaskSets(t *testing.T) {
 	cases := []struct {
 		name string
@@ -9115,32 +9233,34 @@ func TestTasksForProfile_PerTypeTaskSets(t *testing.T) {
 	}{
 		{"service", ActivityTypeService, []MethodTask{
 			TaskSRS, TaskSRSReview,
-			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskDetailedDesign, TaskDesignReview,
 			TaskSTP, TaskSTPReview,
-			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskConstruction, TaskCodeReview,
 			TaskIntegration, TaskTesting,
 		}},
 		{"frontend", ActivityTypeFrontend, []MethodTask{
 			TaskSRS, TaskSRSReview,
-			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskDetailedDesign, TaskDesignReview,
 			TaskSTP, TaskSTPReview,
-			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskConstruction, TaskCodeReview,
 			TaskIntegration, TaskTesting,
 		}},
-		// No requirements and no test-plan phase: 3 + 3 + 2 = 8, NOT 9.
+		// No requirements and no test-plan phase: 2 + 2 + 2 = 6, NOT 9. TasksForProfile
+		// emits lifecycle NODES only — the sub-attempt tasks someConstruction/testClient
+		// are not among them (see conditionalTasks).
 		{"deployment", ActivityTypeDeployment, []MethodTask{
-			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
-			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskDetailedDesign, TaskDesignReview,
+			TaskConstruction, TaskCodeReview,
 			TaskIntegration, TaskTesting,
 		}},
 		{"documentation", ActivityTypeDocumentation, []MethodTask{
-			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
-			TaskConstruction, TaskTestClient, TaskCodeReview,
+			TaskDetailedDesign, TaskDesignReview,
+			TaskConstruction, TaskCodeReview,
 			TaskIntegration, TaskTesting,
 		}},
 		{"uiDesign", ActivityTypeUIDesign, []MethodTask{
 			TaskSRS, TaskSRSReview,
-			TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview,
+			TaskDetailedDesign, TaskDesignReview,
 		}},
 		{"integration", ActivityTypeIntegration, []MethodTask{
 			TaskIntegration, TaskTesting,
@@ -9179,126 +9299,26 @@ var allProfiles = []struct {
 	{"testing-qa", ActivityTypeTesting, TestVariantQAProcess},
 }
 
-// Every row of the one profile table is whole — a label, a work word, a gate word and an
-// exit — and a phase the profile does not carry has no exit criterion (the SPA's `absent`
-// body names it instead). The phase subset itself is ProfileFor's, because ProfileFor IS
-// a projection of these rows.
-func TestProfileRows_TotalOverExactlyTheProfilesPhases(t *testing.T) {
-	canonical := []ActivityMethodPhase{
-		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
-		MethodPhaseConstruction, MethodPhaseIntegration,
-	}
+// Every phase a profile carries is whole: a label, a weight and a work/gate pair that
+// are two different tasks. The per-profile WORDS (a test plan's construction gate is
+// "Scenario Review", not "Code Review") left this package with TaskLabelFor; they are
+// the platform data's business now, held by method-assets' own lifecycles_test.go and
+// by the SPA's lifecycleProfiles.test.ts.
+func TestProfileWords_TotalOverExactlyTheProfilesPhases(t *testing.T) {
 	for _, pr := range allProfiles {
-		carried := map[ActivityMethodPhase]bool{}
-		for _, r := range profileRows(pr.typ, pr.variant) {
-			carried[r.phase] = true
-			if r.label == "" || r.work == "" || r.gate == "" || r.exit == "" {
-				t.Errorf("%s: phase %q row %+v has an empty field", pr.name, r.phase, r)
-			}
-			if r.work == r.gate {
-				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, r.phase, r.work)
-			}
-			if got := ExitCriterionFor(pr.typ, pr.variant, r.phase); got != r.exit {
-				t.Errorf("%s: ExitCriterionFor(%q) = %q, want the row's %q", pr.name, r.phase, got, r.exit)
-			}
-		}
-		for _, p := range canonical {
-			if carried[p] {
-				continue
-			}
-			if exit := ExitCriterionFor(pr.typ, pr.variant, p); exit != "" {
-				t.Errorf("%s: phase %q is not in the profile but has exit %q", pr.name, p, exit)
-			}
-		}
-	}
-}
-
-// The vocabulary rule (spec R1.4 rule 4, amended 2026-09-12): outside Service, a phase's
-// Label IS the name of one of its own tasks — the work task, the gate task, or
-// "<work> & <gate>" — so a phase and its tasks never carry near-synonyms. Asserted through
-// the exported surface the SPA's generator reads (ProfileFor + TaskLabelFor), not the
-// private table, so a label that drifts in either place fails here.
-func TestProfileVocabulary_PhaseLabelNamesOneOfItsTasks(t *testing.T) {
-	for _, pr := range allProfiles {
-		if pr.typ == ActivityTypeService {
-			continue // Service reads Figure A-1 verbatim (TestTaskLabelFor_ServiceReadsTheBook).
-		}
+		sum := 0
 		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
-			work := TaskLabelFor(pr.typ, pr.variant, AgentTaskFor(ph.Phase))
-			gate := TaskLabelFor(pr.typ, pr.variant, GateTaskFor(ph.Phase))
-			if ph.Label != work && ph.Label != gate && ph.Label != work+" & "+gate {
-				t.Errorf("%s: phase %q is labelled %q, which names none of its tasks (work %q, gate %q)",
-					pr.name, ph.Phase, ph.Label, work, gate)
+			sum += ph.Weight
+			work, gate := AgentTaskFor(ph.Phase), GateTaskFor(ph.Phase)
+			if ph.Label == "" || work == "" || gate == "" {
+				t.Errorf("%s: phase %q is incomplete: label=%q work=%q gate=%q", pr.name, ph.Phase, ph.Label, work, gate)
+			}
+			if work == gate {
+				t.Errorf("%s: phase %q names its work and its gate the same (%q)", pr.name, ph.Phase, work)
 			}
 		}
-	}
-}
-
-// Rule 4's own worked example: `testing` reads exactly as the phase does.
-func TestTaskLabelFor_TestingReadsItsPhaseLabel(t *testing.T) {
-	if got := TaskLabelFor(ActivityTypeDeployment, TestVariantPlan, TaskTesting); got != "Convergence Verification" {
-		t.Errorf("deployment testing = %q, want \"Convergence Verification\"", got)
-	}
-	if got := TaskLabelFor(ActivityTypeDocumentation, TestVariantPlan, TaskTesting); got != "Doc Review" {
-		t.Errorf("documentation testing = %q, want \"Doc Review\"", got)
-	}
-}
-
-// Within one profile each phase states its OWN exit. One sentence shared by every phase
-// is exactly the defect this table replaced.
-func TestProfileCopy_ExitCriteriaAreDistinctWithinAProfile(t *testing.T) {
-	for _, pr := range allProfiles {
-		seen := map[string]ActivityMethodPhase{}
-		for _, ph := range ProfileFor(pr.typ, pr.variant).Phases {
-			exit := ExitCriterionFor(pr.typ, pr.variant, ph.Phase)
-			if prev, dup := seen[exit]; dup {
-				t.Errorf("%s: %q and %q share the exit %q", pr.name, prev, ph.Phase, exit)
-			}
-			seen[exit] = ph.Phase
-		}
-	}
-}
-
-// Service IS the case Figure A-1 describes: every one of its twelve tasks reads the
-// book's own name.
-func TestTaskLabelFor_ServiceReadsTheBook(t *testing.T) {
-	for _, task := range TasksForProfile(ProfileFor(ActivityTypeService, TestVariantPlan)) {
-		if got, want := TaskLabelFor(ActivityTypeService, TestVariantPlan, task), LabelForTask(task); got != want {
-			t.Errorf("service %q = %q, want the book's %q", task, got, want)
-		}
-	}
-}
-
-// The designer's P1-7 findings, pinned as the profiles that read them: a test plan is
-// not closed by a Code Review, N-IT's first phase does not capture a requirement, and a
-// frontend's Flows phase is not an STP.
-func TestTaskLabelFor_NonServiceProfilesUseTheirOwnWords(t *testing.T) {
-	svcExit := func(p ActivityMethodPhase) string {
-		return ExitCriterionFor(ActivityTypeService, TestVariantPlan, p)
-	}
-	if got := TaskLabelFor(ActivityTypeTesting, TestVariantPlan, TaskCodeReview); got == LabelForTask(TaskCodeReview) {
-		t.Errorf("N-STP's construction gate reads the book's %q", got)
-	}
-	if got := TaskLabelFor(ActivityTypeTesting, TestVariantPlan, TaskTesting); got != "Plan Review" {
-		t.Errorf("N-STP's integration gate = %q, want \"Plan Review\"", got)
-	}
-	if got := ExitCriterionFor(ActivityTypeTesting, TestVariantPlan, MethodPhaseConstruction); got == svcExit(MethodPhaseConstruction) {
-		t.Errorf("N-STP's Plan Authoring exit is the Service construction exit %q", got)
-	}
-	if got := ExitCriterionFor(ActivityTypeTesting, TestVariantSystemTest, MethodPhaseRequirements); got == svcExit(MethodPhaseRequirements) {
-		t.Errorf("N-IT's Smoke Pass exit is the Service requirements exit %q", got)
-	}
-	for _, task := range []MethodTask{TaskSTP, TaskSTPReview} {
-		if got := TaskLabelFor(ActivityTypeFrontend, TestVariantPlan, task); got == LabelForTask(task) {
-			t.Errorf("frontend Flows %q reads the book's %q", task, got)
-		}
-	}
-	// Conditional tasks keep the book's name on every profile.
-	for _, pr := range allProfiles {
-		for _, task := range []MethodTask{TaskSomeConstruction, TaskTestClient} {
-			if got := TaskLabelFor(pr.typ, pr.variant, task); got != LabelForTask(task) {
-				t.Errorf("%s: conditional %q = %q, want the book's %q", pr.name, task, got, LabelForTask(task))
-			}
+		if sum != 100 {
+			t.Errorf("%s: weights sum to %d, want 100", pr.name, sum)
 		}
 	}
 }
@@ -10101,101 +10121,13 @@ func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
 	}
 }
 
-// ---- lifecycles.json parity (unified activity experience, stage 0) ----
+// ---- lifecycles.json, held against this package's remaining hand tables ----
 //
-// method-assets' lifecycles.json becomes the ONE source of the per-type lifecycle
-// in stage 2, when profileRows / phaseTasks / gateTasks leave this package. Until
-// then the lifecycle exists twice, and these tests are what makes that safe: a
-// weight, label, exit criterion, task title or command changed on one side alone
-// fails here.
-
-// lifecycleTypeKey is the method-assets lifecycle key of a profile: the activity
-// type's wire name, qualified by the testing variant's wire name for testing.
-func lifecycleTypeKey(t ActivityType, v TestingVariant) string {
-	if t == ActivityTypeTesting {
-		return t.String() + ":" + v.String()
-	}
-	return t.String()
-}
-
-// allLifecycleCombos is allProfileCombos plus the two single-profile types that
-// list leaves out.
-func allLifecycleCombos() []profileCombo {
-	return append(allProfileCombos(),
-		profileCombo{ActivityTypeUIDesign, 0},
-		profileCombo{ActivityTypeIntegration, 0})
-}
-
-// lifecycleTaskWords is the comparable projection of a methodassets.LifecycleTask
-// (which holds a slice, so cannot be compared with ==): everything the server's
-// tables also state about a task.
-type lifecycleTaskWords struct {
-	ID, Kind, Title, InLifecyclePhase, Command, Reviews string
-}
-
-func lifecycleTaskWordsOf(lc methodassets.Lifecycle, id MethodTask) lifecycleTaskWords {
-	for _, task := range lc.Tasks {
-		if task.ID == string(id) {
-			return lifecycleTaskWords{task.ID, task.Kind, task.Title, task.Phase, task.Command, task.Reviews}
-		}
-	}
-	return lifecycleTaskWords{}
-}
-
-func TestLifecyclesParity_EveryProfileEqualsItsLifecycle(t *testing.T) {
-	for _, combo := range allLifecycleCombos() {
-		key := lifecycleTypeKey(combo.t, combo.v)
-		t.Run(key, func(t *testing.T) {
-			lc, ok := methodassets.LifecycleFor(key)
-			if !ok {
-				t.Fatalf("method-assets carries no lifecycle %q", key)
-			}
-			profile := ProfileFor(combo.t, combo.v)
-			if len(lc.Phases) != len(profile.Phases) {
-				t.Fatalf("%d lifecycle phases, ProfileFor has %d", len(lc.Phases), len(profile.Phases))
-			}
-			if len(lc.Tasks) != 2*len(profile.Phases) {
-				t.Errorf("%d tasks, want one work task and one gate per phase (%d)", len(lc.Tasks), 2*len(profile.Phases))
-			}
-			for i, pp := range profile.Phases {
-				assertLifecyclePhaseParity(t, combo, lc, lc.Phases[i], pp)
-			}
-		})
-	}
-}
-
-func assertLifecyclePhaseParity(t *testing.T, combo profileCombo, lc methodassets.Lifecycle, got methodassets.LifecyclePhase, pp ProfilePhase) {
-	t.Helper()
-	work, gate := AgentTaskFor(pp.Phase), GateTaskFor(pp.Phase)
-
-	wantPhase := methodassets.LifecyclePhase{
-		ID:            string(pp.Phase),
-		Label:         pp.Label,
-		Weight:        pp.Weight,
-		Gate:          string(gate),
-		ExitCriterion: ExitCriterionFor(combo.t, combo.v, pp.Phase),
-	}
-	if got != wantPhase {
-		t.Errorf("lifecycle phase = %+v, want %+v", got, wantPhase)
-	}
-
-	wantWork := lifecycleTaskWords{
-		string(work), methodassets.LifecycleTaskDispatch, TaskLabelFor(combo.t, combo.v, work),
-		string(pp.Phase), CommandFor(combo.t, combo.v, pp.Phase), "",
-	}
-	if gotWork := lifecycleTaskWordsOf(lc, work); gotWork != wantWork {
-		t.Errorf("work task = %+v, want %+v", gotWork, wantWork)
-	}
-
-	// A construction gate carries no command: who reviews is the review engine's call.
-	wantGate := lifecycleTaskWords{
-		string(gate), methodassets.LifecycleTaskReview, TaskLabelFor(combo.t, combo.v, gate),
-		string(pp.Phase), "", string(work),
-	}
-	if gotGate := lifecycleTaskWordsOf(lc, gate); gotGate != wantGate {
-		t.Errorf("gate task = %+v, want %+v", gotGate, wantGate)
-	}
-}
+// The per-type lifecycle no longer exists twice: profileRows is gone and ProfileFor is
+// an adapter over the data, so a profile-vs-lifecycle comparison compares the data with
+// itself. What these two still hold is the DESIGN rail, whose commands and required
+// kinds are hand tables here (DesignCommandFor, Phase1RequiredKinds) and whose
+// lifecycles ship in the platform: a command renamed on one side alone fails here.
 
 // The requirements and architecture lifecycles are today's design rail, in order:
 // one draft per Phase1RequiredKinds() kind, dispatched by DesignCommandFor's draft
@@ -10248,5 +10180,146 @@ func TestLifecyclesParity_ProjectDesignIsOneUndispatchedGate(t *testing.T) {
 	}
 	if want := DesignCommandFor(KindSdpReview, DesignJobModeDraft, ""); gate.Command != want {
 		t.Errorf("projectDesign gate command = %q, want %q", gate.Command, want)
+	}
+}
+
+// The lifecycle-key rule, over EVERY activity type and testing variant, at its ONE
+// production home. A stray variant on a non-testing type is ignored (the zero variant
+// is what every non-testing activity carries), and every key it produces must resolve
+// in the pinned method-assets — a key rule nothing can look up is a silent 404.
+func TestLifecycleKeyFor_CoversEveryTypeAndVariant(t *testing.T) {
+	cases := []struct {
+		typ     ActivityType
+		variant TestingVariant
+		want    string
+	}{
+		{ActivityTypeService, TestVariantPlan, "service"},
+		{ActivityTypeFrontend, TestVariantPlan, "frontend"},
+		{ActivityTypeDeployment, TestVariantPlan, "deployment"},
+		{ActivityTypeDocumentation, TestVariantPlan, "documentation"},
+		{ActivityTypeUIDesign, TestVariantPlan, "uiDesign"},
+		{ActivityTypeIntegration, TestVariantPlan, "integration"},
+		{ActivityTypeTesting, TestVariantPlan, "testing:plan"},
+		{ActivityTypeTesting, TestVariantHarness, "testing:harness"},
+		{ActivityTypeTesting, TestVariantPerf, "testing:perf"},
+		{ActivityTypeTesting, TestVariantSystemTest, "testing:systemTest"},
+		{ActivityTypeTesting, TestVariantQAProcess, "testing:qaProcess"},
+		{ActivityTypeService, TestVariantHarness, "service"},
+	}
+	for _, c := range cases {
+		got := LifecycleKeyFor(c.typ, c.variant)
+		if got != c.want {
+			t.Errorf("LifecycleKeyFor(%s, %s) = %q, want %q", c.typ, c.variant, got, c.want)
+		}
+		if _, ok := methodassets.LifecycleFor(got); !ok {
+			t.Errorf("method-assets has no lifecycle for key %q", got)
+		}
+	}
+}
+
+// ---- lifecycle totality (stage 2: the data is the only source) ----
+//
+// profileRows is gone, so profile↔lifecycle parity is tautological and its test with
+// it. What survives is the pair of claims a table cannot make for itself: every
+// (ActivityType, TestingVariant) an activity can carry resolves to a lifecycle, and
+// every lifecycle the platform ships is reachable from one.
+
+func TestEveryActivityTypeResolvesToALifecycle(t *testing.T) {
+	for _, combo := range allActivityTypeCombos() {
+		key := LifecycleKeyFor(combo.t, combo.v)
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Errorf("no lifecycle %q — ProfileFor would silently fall back to service", key)
+			continue
+		}
+		if got := ProfileFor(combo.t, combo.v); len(got.Phases) != len(lc.Phases) {
+			t.Errorf("%s: ProfileFor has %d phases, the lifecycle has %d", key, len(got.Phases), len(lc.Phases))
+		}
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			// A GATE-ONLY phase carries no dispatch task on purpose — projectDesign's
+			// `sdp` is the M0 review and nothing is dispatched into it — so "" is the
+			// honest command there. The claim is only about the phases the data says
+			// something IS dispatched into.
+			if rawDispatchCommand(lc, ph.ID) != "" && CommandFor(combo.t, combo.v, p) == "" {
+				t.Errorf("%s/%s: no dispatch command — the phase walk would dispatch nothing", key, p)
+			}
+			if ph.ExitCriterion == "" {
+				t.Errorf("%s/%s: no exit criterion", key, p)
+			}
+		}
+	}
+}
+
+func TestEveryLifecycleIsReachableFromAnActivityType(t *testing.T) {
+	reachable := map[string]bool{}
+	for _, combo := range allActivityTypeCombos() {
+		reachable[LifecycleKeyFor(combo.t, combo.v)] = true
+	}
+	for _, lc := range methodassets.Lifecycles() {
+		if !reachable[lc.Type] {
+			t.Errorf("lifecycle %q is shipped but no activity type reaches it", lc.Type)
+		}
+		delete(reachable, lc.Type)
+	}
+	for key := range reachable {
+		t.Errorf("activity types reach key %q but the platform ships no such lifecycle", key)
+	}
+}
+
+// A phase a profile does not carry has no command. profileSlug used to fabricate one
+// ("deployment-requirements") for a .claude/commands file that does not exist; the data
+// simply has no dispatch task there, and "" is the honest answer.
+func TestCommandFor_IsEmptyForAPhaseTheProfileDoesNotCarry(t *testing.T) {
+	if got := CommandFor(ActivityTypeDeployment, 0, MethodPhaseRequirements); got != "" {
+		t.Errorf("CommandFor(deployment, requirements) = %q, want \"\"", got)
+	}
+	if got := CommandFor(ActivityTypeIntegration, 0, MethodPhaseConstruction); got != "" {
+		t.Errorf("CommandFor(integration, construction) = %q, want \"\"", got)
+	}
+}
+
+// A phase id names ONE work task and ONE gate task across every lifecycle the platform
+// ships. That is what lets AgentTaskFor and GateTaskFor take a phase and no activity
+// type — the signature the workflow's phase walk and App A's completion rule both need.
+// A release that made two lifecycles disagree about a phase id would otherwise be
+// resolved silently, by map-insertion order.
+func TestLifecyclePhaseTasksAreUnambiguous(t *testing.T) {
+	type pair struct{ work, gate, source string }
+	seen := map[string]pair{}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, ph := range lc.Phases {
+			got := pair{dispatchTaskIn(lc, ActivityMethodPhase(ph.ID)).ID, ph.Gate, lc.Type}
+			prev, held := seen[ph.ID]
+			if held && (prev.work != got.work || prev.gate != got.gate) {
+				t.Errorf("phase %q: %s says work=%q gate=%q, %s says work=%q gate=%q",
+					ph.ID, prev.source, prev.work, prev.gate, got.source, got.work, got.gate)
+			}
+			if !held {
+				seen[ph.ID] = got
+			}
+		}
+	}
+}
+
+// The same, one level down: a task id belongs to ONE phase across every lifecycle, which
+// is what makes PhaseForTask's denormalized stamp on a TaskAttempt well defined.
+func TestLifecycleTasksBelongToOnePhase(t *testing.T) {
+	seen := map[string]string{}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			if prev, held := seen[task.ID]; held && prev != task.Phase {
+				t.Errorf("task %q is in phase %q and in phase %q", task.ID, prev, task.Phase)
+			}
+			seen[task.ID] = task.Phase
+		}
+	}
+	for task, p := range conditionalTasks {
+		if p == "" {
+			continue
+		}
+		if _, isNode := seen[string(task)]; isNode {
+			t.Errorf("%q is recorded as a sub-attempt of %q but the data carries a node for it", task, p)
+		}
 	}
 }

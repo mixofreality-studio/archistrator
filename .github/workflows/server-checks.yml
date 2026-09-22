@@ -142,13 +142,6 @@ jobs:
       - name: Generated composition-root drift check
         run: make gen-main-check
 
-      # Drift gate for the generated lifecycle-phase table emitted into the
-      # sibling webApp module (cmd/gen-uiprofiles, driving
-      # internal/resourceaccess/projectstate's ProfileFor). Same
-      # regenerate-then-diff shape as the other gen-*-check gates.
-      - name: Generated UI lifecycle-profile drift check
-        run: make gen-uiprofiles-check
-
       # Drift gate for the generated per-activity-type lifecycles emitted into the
       # sibling webApp module (cmd/gen-lifecycles, reading the lifecycles.json of
       # the method-assets release pinned in go.mod). Same regenerate-then-diff

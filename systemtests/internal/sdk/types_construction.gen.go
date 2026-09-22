@@ -169,7 +169,9 @@ type ReviewPolicyInput struct {
 }
 
 type ReviewSet struct {
-	Reviewers []Reviewer `json:"reviewers,omitempty"`
+	Reviewers     []Reviewer `json:"reviewers,omitempty"`
+	RequiresHuman *bool      `json:"requiresHuman,omitempty"`
+	Reason        *string    `json:"reason,omitempty"`
 }
 
 type Reviewer struct {

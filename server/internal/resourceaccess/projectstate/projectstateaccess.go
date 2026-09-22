@@ -42,6 +42,7 @@ import (
 
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 )
 
 // statePathPrefix is the reserved subtree under which aiarch's machine-state lives
@@ -598,15 +599,18 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		// rationale held for exactly one day. The design vibes autogate (2026-07-20)
 		// made the PRESET ITSELF mean "auto-approve every design artifact":
 		// coauthorartifact.go / coauthorphase2artifact.go set policyAutoApprove from
-		// Preset DIRECTLY, not through EffectiveGate. From then on, seeding the preset
-		// at BIRTH silently removed the human design gate from every project ever
-		// created — a co-author session auto-approved its own draft and committed it
+		// Preset DIRECTLY, not through the policy gate method (what today's reviewEngine
+		// decides via ProposeReviews's RequiresHuman verdict — see its own MOVED note
+		// below). From then on, seeding the preset at BIRTH silently removed the human
+		// design gate from every project ever created — a co-author session
+		// auto-approved its own draft and committed it
 		// with approvedBy "policy:vibes", so the architect's approval, which is the
 		// Method's commit authority, was never asked for.
 		//
-		// Nil is behavior-IDENTICAL to vibes for CONSTRUCTION (EffectiveGate's default
-		// arm is RequiresHuman over an empty map — ungated, with the non-overridable
-		// deploy/spend/schema floor unchanged), and it restores the DESIGN gate. The
+		// Nil is behavior-IDENTICAL to vibes for CONSTRUCTION (the reviewEngine's
+		// legacy-preset arm looks the phase up in an empty map — ungated, with the
+		// non-overridable deploy/spend/schema floor unchanged), and it restores the
+		// DESIGN gate, which that same engine now decides for both rails. The
 		// local-first funnel's "vibes by default" is scoped to LOCAL mode (the plan's
 		// Task 7 is titled "Review-policy floor for local mode"), so it belongs to
 		// `archistrator init`'s scaffold — not to this one code path, which first
@@ -7127,6 +7131,9 @@ var activityTypeNames = map[ActivityType]string{
 	ActivityTypeDocumentation: "documentation",
 	ActivityTypeUIDesign:      "uiDesign",
 	ActivityTypeIntegration:   "integration",
+	ActivityTypeRequirements:  "requirements",
+	ActivityTypeArchitecture:  "architecture",
+	ActivityTypeProjectDesign: "projectDesign",
 }
 var activityTypeByName = invert(activityTypeNames)
 
@@ -7762,6 +7769,16 @@ func CoarseBuildStatus(phases []PhaseCompletion, _ ActivityMethodPhase) Activity
 // ActivityTypeIntegration — an I-* use-case integration activity: wiring and verifying
 // already-constructed components end-to-end. It has no construction of its own.
 
+// ActivityTypeRequirements — Table 11-1 #1: the mission → glossary → volatilities →
+// core-use-cases chain that used to be the design rail's first four steps, carried in
+// the plan as one activity with those four phases.
+
+// ActivityTypeArchitecture — Table 11-1 #2: the System model and its four views, drawn
+// and validated against the call chains in a single phase.
+
+// ActivityTypeProjectDesign — Table 11-1 #3: the deterministic SDP review. Its one
+// phase holds one task, the M0 gate — nothing is dispatched into it.
+
 // String returns the canonical wire name.
 func (t ActivityType) String() string {
 	switch t {
@@ -7777,11 +7794,17 @@ func (t ActivityType) String() string {
 		return "uiDesign"
 	case ActivityTypeIntegration:
 		return "integration"
+	case ActivityTypeRequirements:
+		return "requirements"
+	case ActivityTypeArchitecture:
+		return "architecture"
+	case ActivityTypeProjectDesign:
+		return "projectDesign"
 	case ActivityTypeService:
 		// The zero value (== ActivityKindService, the legacy alias).
 		return "service"
 	}
-	// Unreachable for the seven defined ActivityType values above (the exhaustive
+	// Unreachable for the ten defined ActivityType values above (the exhaustive
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "service"
@@ -7930,145 +7953,52 @@ func (pr Profile) toPhaseCompletions() []PhaseCompletion {
 	return out
 }
 
-// profileRow is ONE phase of ONE profile, in full: the canonical phase id, its weight and
-// display Label (what ProfileFor projects), and the profile's own words for that phase's
-// AI-work task (AgentTaskFor), its gate task (GateTaskFor) and its binary exit criterion.
-//
-// One row per phase, one table per profile, so the phase subset is stated exactly once:
-// the words sit beside the Label and Weight they describe and cannot drift into a second
-// switch that restates which phases a profile carries (architect R1.4 ruling, fix C).
-//
-// Only the words vary per profile. The Figure A-1 task KEYS, which of them a profile
-// emits, each phase's gate, the weights and every AttemptID are profile-invariant — they
-// come from phaseTasks / gateTasks and are never tabulated here.
-//
-// Vocabulary rule (pinned by TestProfileVocabulary_PhaseLabelNamesOneOfItsTasks): outside
-// Service, a phase's label IS the name of one of its own tasks — the work task, the gate
-// task, or "<work> & <gate>" — so a phase and its tasks never carry near-synonyms. Service
-// reads Figure A-1 verbatim. The two conditional tasks (someConstruction, testClient) are
-// not tabulated at all: they keep the book's name on every profile, since they render only
-// when a real attempt exists and the book's word is the honest name for unscheduled work.
-type profileRow struct {
-	phase  ActivityMethodPhase
-	weight int
-	label  string
-	work   string
-	gate   string
-	exit   string
+// THE LIFECYCLE IS DATA, NOT A GO TABLE. profileRows used to state each activity type's
+// phases, weights, labels, work/gate words and exit criteria right here — platform-fixed
+// method content in a ResourceAccess package, which is the wrong layer for it (spec §3).
+// The one source is now lifecycles.json in the method-assets release pinned in go.mod:
+// the same bytes cmd/gen-lifecycles renders into the webApp, so the server and the SPA
+// cannot disagree about what a Service activity's Detailed Design phase is called or
+// weighs. What remains here is the ADAPTER — the questions this package's callers
+// already ask, answered out of that data.
+
+// lifecycleFor is the total lookup behind every function below. An activity type outside
+// the data falls back to the service lifecycle, exactly as profileRows' default arm did:
+// every caller (hydrateConstructionActivity, ResolveConstructionRow, phaseSetFor) passes
+// a value ClassifyActivity produced, and TestEveryActivityTypeResolvesToALifecycle pins
+// that each of those resolves, so the fallback is unreachable rather than lenient.
+func lifecycleFor(t ActivityType, v TestingVariant) methodassets.Lifecycle {
+	if lc, ok := methodassets.LifecycleFor(LifecycleKeyFor(t, v)); ok {
+		return lc
+	}
+	lc, _ := methodassets.LifecycleFor(ActivityTypeService.String())
+	return lc
+}
+
+// dispatchTaskIn is a lifecycle phase's single work task — what an agent is dispatched
+// to do, as opposed to the review that gates it. The zero task for a phase the lifecycle
+// does not carry, and for a phase whose work is not dispatched at all (projectDesign's
+// gate stands over a computed artifact).
+func dispatchTaskIn(lc methodassets.Lifecycle, p ActivityMethodPhase) methodassets.LifecycleTask {
+	for _, task := range lc.Tasks {
+		if task.Phase == string(p) && task.Kind == methodassets.LifecycleTaskDispatch {
+			return task
+		}
+	}
+	return methodassets.LifecycleTask{}
 }
 
 // ProfileFor returns the canonical-phase profile for an activity type (and testing
-// variant, meaningful only when t == ActivityTypeTesting). All ids are canonical;
-// bespoke phase ids are gone. Weights sum to 100 within each profile. It is a
-// projection of profileRows — the one table that also carries each phase's words.
+// variant, meaningful only when t == ActivityTypeTesting): the phases that type's
+// lifecycle carries, in lifecycle order, with their earned-value weights and labels.
+// Weights sum to 100 within each profile (the platform's own lifecycles_test.go).
 func ProfileFor(t ActivityType, v TestingVariant) Profile {
-	rows := profileRows(t, v)
-	phases := make([]ProfilePhase, len(rows))
-	for i, r := range rows {
-		phases[i] = ProfilePhase{Phase: r.phase, Weight: r.weight, Label: r.label}
+	lc := lifecycleFor(t, v)
+	phases := make([]ProfilePhase, len(lc.Phases))
+	for i, ph := range lc.Phases {
+		phases[i] = ProfilePhase{Phase: ActivityMethodPhase(ph.ID), Weight: ph.Weight, Label: ph.Label}
 	}
 	return Profile{Phases: phases}
-}
-
-// profileRows is THE per-profile table: every phase a profile carries, in dispatch order,
-// with its weight, Label, work/gate task words and exit criterion.
-func profileRows(t ActivityType, v TestingVariant) []profileRow {
-	switch t {
-	case ActivityTypeFrontend:
-		// Code-as-design: design-heavy, construction is data-wiring.
-		return []profileRow{
-			{MethodPhaseRequirements, 15, "UX Requirements", "UX Requirements", "UX Requirements Review", "The UX requirements for this surface are written and pass review"},
-			{MethodPhaseDetailedDesign, 25, "Design", "Design", "Design Review", "The UI design for this surface is drawn and passes design review"},
-			{MethodPhaseTestPlan, 10, "Flows", "Flows", "Flow Review", "The user flows this surface must support are written as tests and pass review"},
-			{MethodPhaseConstruction, 35, "Construction", "Construction", "Code Review", "The surface is built and passes code review, not merely checked in"},
-			{MethodPhaseIntegration, 15, "Integration", "Integration", "Flow Testing", "The surface is wired to its managers and its flows pass against the integrated system"},
-		}
-	case ActivityTypeTesting:
-		return profileRowsForTestingVariant(v)
-	case ActivityTypeDeployment:
-		return []profileRow{
-			{MethodPhaseDetailedDesign, 25, "Provisioning Spec", "Provisioning Spec", "Spec Review", "The provisioning spec is written and passes review"},
-			{MethodPhaseConstruction, 50, "Construction", "Construction", "Change Review", "The infrastructure change is built and passes review"},
-			{MethodPhaseIntegration, 25, "Convergence Verification", "Rollout", "Convergence Verification", "The rollout converges on the desired state and is verified"},
-		}
-	case ActivityTypeDocumentation:
-		return []profileRow{
-			{MethodPhaseDetailedDesign, 20, "Outline", "Outline", "Outline Review", "The outline is written and passes review"},
-			{MethodPhaseConstruction, 60, "Authoring", "Authoring", "Editorial Review", "The document is written and passes editorial review"},
-			{MethodPhaseIntegration, 20, "Doc Review", "Publishing", "Doc Review", "The document is published beside the system it describes and signed off"},
-		}
-	case ActivityTypeUIDesign:
-		// A UI-design activity produces a CONCEPT, not code: it stops at the design
-		// artifact, and the SPA surfaces that realize it are separate Frontend
-		// activities. Hence no test-plan/construction/integration phases at all.
-		return []profileRow{
-			{MethodPhaseRequirements, 40, "UX Requirements", "UX Requirements", "UX Requirements Review", "The UX requirements are written and pass review"},
-			{MethodPhaseDetailedDesign, 60, "Design Concept", "Design Concept", "Concept Review", "The UI design concept is produced and passes concept review"},
-		}
-	case ActivityTypeIntegration:
-		// An I-* activity IS the integration of already-constructed components: it has
-		// no requirements/design/construction of its own, only the integration pass.
-		return []profileRow{
-			{MethodPhaseIntegration, 100, "Integration", "Integration", "Integration Testing", "The components are integrated and their integration tests pass"},
-		}
-	case ActivityTypeService: // the zero value — the canonical five, same as default.
-		return serviceRows()
-	default: // ActivityTypeService — the canonical five.
-		return serviceRows()
-	}
-}
-
-// serviceRows is the canonical five in the book's own words — a Service activity IS the
-// case Figure A-1 describes, so its task words are exactly LabelForTask's.
-func serviceRows() []profileRow {
-	return []profileRow{
-		{MethodPhaseRequirements, 15, "Requirements", "SRS", "SRS Review", "The SRS is written and passes SRS review"},
-		{MethodPhaseDetailedDesign, 20, "Detailed Design", "Detailed Design", "Design Review", "The service contract is designed and passes design review"},
-		{MethodPhaseTestPlan, 10, "Test Plan", "STP", "STP Review", "This component's test plan is written and passes STP review"},
-		{MethodPhaseConstruction, 40, "Construction", "Construction", "Code Review", "The code is written and passes code review, not merely checked in"},
-		{MethodPhaseIntegration, 15, "Integration", "Integration", "Testing", "The component is integrated and its tests pass"},
-	}
-}
-
-func profileRowsForTestingVariant(v TestingVariant) []profileRow {
-	switch v {
-	case TestVariantHarness:
-		return []profileRow{
-			{MethodPhaseDetailedDesign, 15, "Harness Design", "Harness Design", "Design Review", "The harness design is drawn and passes design review"},
-			{MethodPhaseConstruction, 70, "Harness Construction", "Harness Construction", "Code Review", "The harness is built and passes code review"},
-			{MethodPhaseIntegration, 15, "Harness Review", "Harness Integration", "Harness Review", "The harness drives the plan's scenarios against the integrated system and passes review"},
-		}
-	case TestVariantPerf:
-		return []profileRow{
-			{MethodPhaseDetailedDesign, 25, "Perf Scenario Design", "Perf Scenario Design", "Scenario Review", "The performance scenarios and their targets are designed and pass review"},
-			{MethodPhaseConstruction, 50, "Rig Construction", "Rig Construction", "Code Review", "The performance rig is built and passes code review"},
-			{MethodPhaseIntegration, 25, "Rig Review", "Rig Integration", "Rig Review", "The rig runs against the integrated system and its results pass review"},
-		}
-	case TestVariantSystemTest:
-		return []profileRow{
-			{MethodPhaseRequirements, 10, "Smoke Pass", "Smoke Pass", "Testability Check", "A smoke pass runs over the integrated build and shows it is testable"},
-			{MethodPhaseConstruction, 45, "Use-Case Execution", "Use-Case Execution", "Results Review", "Every use case has run against the real build and its results are reviewed"},
-			{MethodPhaseIntegration, 45, "Regression & Sign-off", "Regression", "Sign-off", "The regression run is green and the system test is signed off"},
-		}
-	case TestVariantQAProcess:
-		return []profileRow{
-			{MethodPhaseDetailedDesign, 40, "Gate Definition", "Gate Definition", "Gate Review", "The quality gates are defined and pass review"},
-			{MethodPhaseConstruction, 60, "Process Audit", "Process Audit", "Audit Review", "The process audit is done and its findings pass review"},
-		}
-	case TestVariantPlan: // the zero value (N-STP) — same as default.
-		return testPlanRows()
-	default: // TestVariantPlan (N-STP)
-		return testPlanRows()
-	}
-}
-
-// testPlanRows is N-STP's: it writes the black-box scenarios, it does not write code.
-func testPlanRows() []profileRow {
-	return []profileRow{
-		{MethodPhaseRequirements, 20, "Use-Case Trace", "Use-Case Trace", "Trace Review", "Every core use case is traced to the scenarios that will exercise it, and the trace passes review"},
-		{MethodPhaseConstruction, 45, "Plan Authoring", "Plan Authoring", "Scenario Review", "The black-box scenarios are written and pass scenario review"},
-		{MethodPhaseIntegration, 35, "Plan Review", "Plan Assembly", "Plan Review", "The assembled system test plan passes review and is signed off"},
-	}
 }
 
 // constructionprogress.go implements the App-A §2 weighted-progress formulas as
@@ -8207,6 +8137,33 @@ func deriveVariant(activityID string) TestingVariant {
 	}
 }
 
+// ErrDesignActivityNotDispatchable is returned by ClassifyActivity, WITH the resolved
+// design ActivityType, for the three reserved design-prefix ids. The pair is the point:
+// a design activity IS classifiable — the console, QueryActivityView and the backfill
+// all need its type and its lifecycle — but it is not DISPATCHABLE by the construction
+// pump, which would run its design command as a construction pipeline (08-30 S2 ruling).
+// Stage 4's DeliveryManager dispatches it; until then callers select on errors.Is.
+var ErrDesignActivityNotDispatchable = errors.New(
+	"projectstate: design activities are not dispatched by the construction pump")
+
+// designActivityTypes is the exact-id table for the three reserved design activities
+// DerivePlan emits as the plan's fixed prefix. An EXACT id match is the whole rule: the
+// derivation is the only writer of these ids (validateAdditive refuses an additive that
+// shadows one), so the match is stable and total, and no new ActivityItem field has to
+// be invented to carry a fact the id already states.
+var designActivityTypes = map[string]ActivityType{
+	"requirements":  ActivityTypeRequirements,
+	"architecture":  ActivityTypeArchitecture,
+	"projectDesign": ActivityTypeProjectDesign,
+}
+
+// designActivityType reports the design ActivityType of one of the three reserved
+// design-prefix ids, and false for every other activity.
+func designActivityType(id string) (ActivityType, bool) {
+	t, ok := designActivityTypes[id]
+	return t, ok
+}
+
 // ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
 // pair from the three facts that EXIST AT DISPATCH TIME: its id, the owning
 // workerClass, and the coding flag — all three authored into the committed Phase-2
@@ -8224,6 +8181,10 @@ func deriveVariant(activityID string) TestingVariant {
 //
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
+//  0. one of the three reserved design ids (designActivityType) → its design type,
+//     WITH ErrDesignActivityNotDispatchable. It must be checked FIRST: all three are
+//     authored system-architect/coding=false, so rule 6 would type them Documentation
+//     and the pump would run a design slash-command as a construction pipeline.
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
 //     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
@@ -8235,9 +8196,16 @@ func deriveVariant(activityID string) TestingVariant {
 //  8. otherwise                       → error (the activity is unclassifiable; repair
 //     is to amend workerClass or coding in the committed activity list)
 //
+// Rule 0's error is the ONLY one that comes back with a meaningful type: every other
+// error arm means "no type could be resolved". Callers therefore select on errors.Is —
+// a caller that only asks `err != nil` refuses a row it could have rendered.
+//
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (TestVariantPlan) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
+	if typ, ok := designActivityType(id); ok {
+		return typ, TestVariantPlan, ErrDesignActivityNotDispatchable
+	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
 		return ActivityTypeTesting, deriveVariant(id), nil
@@ -8287,7 +8255,11 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, true
 	}
 	typ, _, err := ClassifyActivity(id, workerClass, coding)
-	if err != nil {
+	// The view lens asks "can this row be rendered honestly", and a design activity can:
+	// it has a type, a lifecycle and committed artifacts behind it. Only the PUMP cares
+	// that it is not dispatchable, so only the pump selects on the sentinel. Anything
+	// else ClassifyActivity refuses is genuinely untypeable and stays refused.
+	if err != nil && !errors.Is(err, ErrDesignActivityNotDispatchable) {
 		return ActivityTypeService, false
 	}
 	return typ, true
@@ -8708,6 +8680,11 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 			Produced: true,
 			Note:     "Construction output recorded in the implementation log.",
 		})
+	case ActivityTypeRequirements, ActivityTypeArchitecture, ActivityTypeProjectDesign:
+		// A design activity's product is a committed artifact SLOT, not a file the
+		// corpus can observe, so it contributes no ProducedArtifact from corpus
+		// evidence. Empty ON PURPOSE: exhaustive wants the arm, and inventing a
+		// produced artifact here would fabricate one.
 	default:
 		out = append(out, ProducedArtifact{
 			Kind:     "code",
@@ -8720,58 +8697,35 @@ func DeriveProduced(p CorpusPresence, componentName string, typ ActivityType) []
 	return out
 }
 
-// profileSlug is the .claude/commands filename stem for an activity profile.
-// For testing it encodes the variant (testing-plan/harness/perf/systemtest/qa);
-// all other types map 1:1 to their wire name.
-func profileSlug(t ActivityType, v TestingVariant) string {
-	switch t {
-	case ActivityTypeFrontend:
-		return "frontend"
-	case ActivityTypeUIDesign:
-		// A UI-design activity walks the FRONTEND command family's first two phases
-		// (/frontend-requirements, /frontend-detailed-design) — the same prompts, run
-		// by the ui-designer worker class. No new command files are needed.
-		return "frontend"
-	case ActivityTypeIntegration:
-		// An I-* activity walks /service-integration — the generic integration prompt.
-		return "service"
-	case ActivityTypeDeployment:
-		return "deployment"
-	case ActivityTypeDocumentation:
-		return "documentation"
-	case ActivityTypeTesting:
-		switch v {
-		case TestVariantHarness:
-			return "testing-harness"
-		case TestVariantPerf:
-			return "testing-perf"
-		case TestVariantSystemTest:
-			return "testing-systemtest"
-		case TestVariantQAProcess:
-			return "testing-qa"
-		case TestVariantPlan: // the zero value — same as default.
-			return "testing-plan"
-		default: // TestVariantPlan
-			return "testing-plan"
-		}
-	case ActivityTypeService: // the zero value — same as default.
-		return "service"
-	default: // ActivityTypeService
-		return "service"
-	}
-}
-
-// kebabPhase renders a canonical phase id as a command slug segment
-// (detailed_design -> detailed-design).
-func kebabPhase(p ActivityMethodPhase) string {
-	return strings.ReplaceAll(string(p), "_", "-")
-}
-
-// CommandFor returns the .claude slash-command name for a (type, variant, phase)
-// cell: "<profileSlug>-<phaseSlug>". It is total over exactly the phases
-// ProfileFor(t, v) emits, and matches a .claude/commands/<name>.md file.
+// CommandFor returns the .claude slash-command name for a (type, variant, phase) cell:
+// the command of that phase's dispatch task, as the lifecycle states it. It matches a
+// .claude/commands/<name>.md file.
+//
+// "" for a phase the profile does not carry. profileSlug used to compose a name for any
+// phase at all — "deployment-requirements" for a profile with no requirements phase, a
+// command file that has never existed. A caller walking ProfileFor's phases never asked
+// that question; a caller that does now gets an honest empty answer instead of a
+// dispatch that would 404.
 func CommandFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
-	return profileSlug(t, v) + "-" + kebabPhase(p)
+	return dispatchTaskIn(lifecycleFor(t, v), p).Command
+}
+
+// LifecycleKeyFor is the method-assets lifecycle key of an activity: the activity
+// type's wire name, and "testing:<variant wire name>" for a testing activity (so QA is
+// "testing:qaProcess").
+//
+// THE ONE PRODUCTION STATEMENT OF THE RULE. Stage 0 carried it twice — once in the
+// construction Manager, once as a test-only copy here — because the parity test it
+// protected could not reach across packages into a _test.go. Stage 2 deletes the Go
+// lifecycle tables that duplication existed to guard, so the rule that names the data
+// collapses to one home, beside CommandFor: this package owns ActivityType,
+// TestingVariant and the String() wire names the key is spelled from, and it is where
+// every lifecycle lookup in the server now starts.
+func LifecycleKeyFor(t ActivityType, v TestingVariant) string {
+	if t == ActivityTypeTesting {
+		return t.String() + ":" + v.String()
+	}
+	return t.String()
 }
 
 // MethodTask is one of the twelve internal tasks of Figure A-1 (Löwy, Righting
@@ -8802,80 +8756,78 @@ const (
 	TaskTesting          MethodTask = "testing"
 )
 
-// phaseTasks is the Figure A-2 grouping: which tasks make up each lifecycle phase.
-// Order within a phase is execution order.
-var phaseTasks = map[ActivityMethodPhase][]MethodTask{
-	MethodPhaseRequirements:   {TaskSRS, TaskSRSReview},
-	MethodPhaseTestPlan:       {TaskSTP, TaskSTPReview},
-	MethodPhaseDetailedDesign: {TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview},
-	MethodPhaseConstruction:   {TaskConstruction, TaskTestClient, TaskCodeReview},
-	MethodPhaseIntegration:    {TaskIntegration, TaskTesting},
-}
-
-// gateTasks is the binary exit criterion per phase (App A: "the Construction phase is
-// complete once you have had the code review, not simply when the code is checked in").
-var gateTasks = map[ActivityMethodPhase]MethodTask{
-	MethodPhaseRequirements:   TaskSRSReview,
-	MethodPhaseTestPlan:       TaskSTPReview,
-	MethodPhaseDetailedDesign: TaskDesignReview,
-	MethodPhaseConstruction:   TaskCodeReview,
-	MethodPhaseIntegration:    TaskTesting,
-}
-
-// conditionalTasks are emitted ONLY when a real attempt record exists for them.
-// someConstruction is Löwy's pre-design spike and our agentic detailed-design dispatch
-// is a single episode; testClient is the tandem partner of Construction and often does
-// not exist for a deployment or a doc. Rendering a row for work that never happened is
-// the "view states something false" failure this stage exists to remove.
+// lifecyclePhaseTasks is the phase-keyed work/gate pair, folded once over EVERY
+// lifecycle the pinned method-assets ships. phaseTasks and gateTasks used to state the
+// same thing as hand-authored maps here; the data states it per lifecycle now.
 //
-// Listed exhaustively (all twelve MethodTask values, not just the two conditional
-// ones) so `exhaustive` (check: [switch, map] in .golangci.yml) fails the build the
-// moment a thirteenth task is added without a conscious true/false call — the same
-// protection a switch's default case would lose.
-var conditionalTasks = map[MethodTask]bool{
-	TaskSRS:              false,
-	TaskSRSReview:        false,
-	TaskSTP:              false,
-	TaskSTPReview:        false,
-	TaskSomeConstruction: true,
-	TaskDetailedDesign:   false,
-	TaskDesignReview:     false,
-	TaskConstruction:     false,
-	TaskTestClient:       true,
-	TaskCodeReview:       false,
-	TaskIntegration:      false,
-	TaskTesting:          false,
-}
+// A PHASE ID keys it, not a (type, phase) pair, for two reasons. The callers that ask
+// hold a phase and no activity type — the workflow's phase walk (AgentTaskFor) and App
+// A's completion rule (phaseCompleteFromAttempts → GateTaskFor) — and the data says the
+// answer does not vary: the eleven construction lifecycles share the canonical five
+// phase ids and name the same work and gate task under each, while the three design
+// lifecycles use phase ids that collide with none of them.
+// TestLifecyclePhaseTasksAreUnambiguous is what keeps that true; without it a release
+// that made two lifecycles disagree would be resolved silently by insertion order.
+var lifecyclePhaseTasks = buildLifecyclePhaseTasks()
 
-// TasksForPhase returns the Figure A-1 tasks belonging to a lifecycle phase, in
-// execution order. An unknown phase returns nil.
-func TasksForPhase(p ActivityMethodPhase) []MethodTask {
-	src := phaseTasks[p]
-	if len(src) == 0 {
-		return nil
+type lifecyclePhaseTaskPair struct{ work, gate MethodTask }
+
+func buildLifecyclePhaseTasks() map[ActivityMethodPhase]lifecyclePhaseTaskPair {
+	out := map[ActivityMethodPhase]lifecyclePhaseTaskPair{}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			out[p] = lifecyclePhaseTaskPair{
+				work: MethodTask(dispatchTaskIn(lc, p).ID),
+				gate: MethodTask(ph.Gate),
+			}
+		}
 	}
-	out := make([]MethodTask, len(src))
-	copy(out, src)
 	return out
 }
 
-// GateTaskFor returns the task whose success IS the phase's binary exit criterion.
-func GateTaskFor(p ActivityMethodPhase) MethodTask { return gateTasks[p] }
+// conditionalTasks is the sub-attempt rule of the Figure A-1 vocabulary: the two tasks
+// that are NOT nodes of any lifecycle. someConstruction is Löwy's pre-design spike and
+// testClient is Construction's tandem partner; spec §3 keeps both as conditional
+// sub-attempts of their phase's work task, so lifecycles.json carries no node for either
+// and lifecyclePhaseTasks cannot answer for them — but the attempt ledger does record
+// them, and every TaskAttempt carries a denormalized Phase. The value is the lifecycle
+// phase such an attempt belongs to; "" means the task IS a lifecycle node.
+//
+// Listed exhaustively (all twelve MethodTask values, not just the two) so `exhaustive`
+// (check: [switch, map] in .golangci.yml) fails the build the moment a thirteenth task
+// is added without a conscious call, rather than defaulting it to "a real node".
+var conditionalTasks = map[MethodTask]ActivityMethodPhase{
+	TaskSRS:              "",
+	TaskSRSReview:        "",
+	TaskSTP:              "",
+	TaskSTPReview:        "",
+	TaskSomeConstruction: MethodPhaseDetailedDesign,
+	TaskDetailedDesign:   "",
+	TaskDesignReview:     "",
+	TaskConstruction:     "",
+	TaskTestClient:       MethodPhaseConstruction,
+	TaskCodeReview:       "",
+	TaskIntegration:      "",
+	TaskTesting:          "",
+}
 
-// isGateTask reports whether a task is some phase's binary exit criterion.
+// GateTaskFor returns the task whose success IS the phase's binary exit criterion.
+func GateTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].gate }
+
+// isGateTask reports whether a task is some lifecycle phase's binary exit criterion.
 func isGateTask(t MethodTask) bool {
-	for _, gate := range gateTasks {
-		if gate == t {
+	for _, pair := range lifecyclePhaseTasks {
+		if pair.gate == t {
 			return true
 		}
 	}
 	return false
 }
 
-// AgentTaskFor returns the phase's single AI-WORK task: the one task in the phase that
-// is neither the phase's gate (which reviews that work) nor conditional-emit. Derived
-// from phaseTasks/gateTasks/conditionalTasks rather than tabulated, so the vocabulary
-// cannot grow a second table that drifts from the first.
+// AgentTaskFor returns the phase's single AI-WORK task: the task an agent is dispatched
+// to do, which the phase's gate then reviews. "" for a phase outside the vocabulary, for
+// which no attribution is possible at all.
 //
 // This is the task an agent-work dispatch's episode is attributed to. R1's load-bearing
 // distinction — "an AI task opens an episode, a review task opens the artifact under
@@ -8883,106 +8835,35 @@ func isGateTask(t MethodTask) bool {
 // WROTE the detailed design would be recorded as having reviewed it, and a send-back
 // would render designReview#1, designReview#2 (two review attempts, zero design
 // attempts) instead of detailedDesign#1 → designReview#1 → detailedDesign#2.
-//
-// Total over the five canonical phases (srs, stp, detailedDesign, construction,
-// integration — pinned by TestAgentTaskFor_IsTheSingleAIWorkTaskPerPhase); "" only for
-// a phase outside the vocabulary, for which no attribution is possible at all.
-func AgentTaskFor(p ActivityMethodPhase) MethodTask {
-	for _, t := range phaseTasks[p] {
-		if isGateTask(t) || IsConditionalTask(t) {
-			continue
-		}
-		return t
-	}
-	return ""
-}
+func AgentTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].work }
 
-// IsConditionalTask reports whether a task is emitted only when an attempt exists.
-func IsConditionalTask(t MethodTask) bool { return conditionalTasks[t] }
-
-// taskLabels is the human-readable display label per Figure A-1 task, the vocabulary
-// cmd/gen-uiprofiles emits onto GeneratedTask.label so the SPA renders task rows without
-// hand-authoring its own twelve strings — the exact hand-mirror
-// lifecycleTemplates.gen.ts's own header documents this codebase already paid to clean
-// up once.
-//
-// Listed exhaustively (all twelve MethodTask values), same discipline as
-// conditionalTasks above: `exhaustive` (check: [switch, map] in .golangci.yml) fails the
-// build the moment a thirteenth task is added without a conscious label, rather than
-// silently emitting an empty string for it.
-var taskLabels = map[MethodTask]string{
-	TaskSRS:              "SRS",
-	TaskSRSReview:        "SRS Review",
-	TaskSTP:              "STP",
-	TaskSTPReview:        "STP Review",
-	TaskSomeConstruction: "Some Construction",
-	TaskDetailedDesign:   "Detailed Design",
-	TaskDesignReview:     "Design Review",
-	TaskConstruction:     "Construction",
-	TaskTestClient:       "Test Client",
-	TaskCodeReview:       "Code Review",
-	TaskIntegration:      "Integration",
-	TaskTesting:          "Testing",
-}
-
-// LabelForTask returns the human-readable display label for a Figure A-1 task.
-func LabelForTask(t MethodTask) string { return taskLabels[t] }
-
-// TaskLabelFor returns the display label of a Figure A-1 task as ONE profile names it:
-// the profile's own word for the phase's work and gate tasks (profileRows), and the book's
-// name (LabelForTask) for the two conditional tasks and for a task in a phase the profile
-// does not carry. The task KEY never varies — only this label does.
-func TaskLabelFor(t ActivityType, v TestingVariant, task MethodTask) string {
-	p := PhaseForTask(task)
-	r, ok := profileRowFor(t, v, p)
-	if !ok {
-		return LabelForTask(task)
-	}
-	if task == AgentTaskFor(p) {
-		return r.work
-	}
-	if task == GateTaskFor(p) {
-		return r.gate
-	}
-	return LabelForTask(task)
-}
-
-// profileRowFor looks up one phase's row within a profile; false for a phase the profile
-// does not carry.
-func profileRowFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) (profileRow, bool) {
-	for _, r := range profileRows(t, v) {
-		if r.phase == p {
-			return r, true
-		}
-	}
-	return profileRow{}, false
-}
-
-// ExitCriterionFor returns a lifecycle phase's binary exit criterion as ONE profile
-// states it, or "" for a phase that profile does not carry.
-func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
-	r, _ := profileRowFor(t, v, p)
-	return r.exit
-}
-
-// PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when
-// the task is unknown).
+// PhaseForTask returns the lifecycle phase a task belongs to: the phase whose work or
+// gate it is, or — for the two sub-attempt tasks, which no lifecycle carries a node for
+// — the phase their work task belongs to. The empty phase when the task is unknown.
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
-	for p, tasks := range phaseTasks {
-		if slices.Contains(tasks, t) {
+	for p, pair := range lifecyclePhaseTasks {
+		if pair.work == t || pair.gate == t {
 			return p
 		}
 	}
-	return ""
+	return conditionalTasks[t]
 }
 
-// TasksForProfile returns every task an activity with this profile can have, in phase
-// order then execution order. This is the ROW SET of the list view: it is derived from
-// the profile, never from storage, so the tasks that have not happened still render.
+// TasksForProfile returns every task an activity with this profile can have as a
+// lifecycle NODE: each phase's work task then its gate task, in phase order. This is the
+// ROW SET of the list view: it is derived from the profile, never from storage, so the
+// tasks that have not happened still render. The two sub-attempt tasks are excluded by
+// construction rather than by a filter — they are not nodes (see conditionalTasks).
 func TasksForProfile(pr Profile) []MethodTask {
-	out := make([]MethodTask, 0, 12)
+	out := make([]MethodTask, 0, 2*len(pr.Phases))
 	for _, ph := range pr.Phases {
-		out = append(out, TasksForPhase(ph.Phase)...)
+		pair := lifecyclePhaseTasks[ph.Phase]
+		if pair.work != "" {
+			out = append(out, pair.work)
+		}
+		if pair.gate != "" {
+			out = append(out, pair.gate)
+		}
 	}
 	return out
 }
@@ -9276,6 +9157,88 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 	return thread
 }
 
+// CodecCarriesEveryMember reports which JSON members, if any, the project codec would
+// DROP by rewriting stored as encoded — where encoded is the codec's own encoding of the
+// value stored decoded to. It returns the sorted dot/index path of every member present
+// in stored at any depth that encoded no longer holds; an empty result means the codec
+// carries all of it.
+//
+// It exists because a writer that re-materializes part of the committed document
+// (`make derived-plan-write`) has to answer one question before it replaces a member's
+// bytes with the codec's: does the codec carry everything that member held? Byte
+// identity is the wrong test for that. The codec NORMALIZES on decode — normalizeReviewThread
+// below rewrites a legacy comment Status into the form the current vocabulary derives and
+// fills the members a pre-Reopened/Replies document omitted — so a member that
+// round-trips perfectly WELL can still differ byte-for-byte, and a writer that demanded
+// byte identity would refuse to land the codec's own documented upgrade. Refusing the
+// codec's normalizer is not safety; it is a writer that can never again rewrite a member
+// the vocabulary has moved past.
+//
+// What is genuinely unsafe is LOSS: a member the codec does not carry (an unknown field,
+// a value it cannot represent) vanishes from the encoding without a trace, and a
+// comparison of decoded values cannot see it — what the model never held, it cannot miss.
+// That is exactly what this reports, and it is the half no equality check can supply.
+// (The complementary half — that the codec's encoding decodes back to the same Project —
+// the caller asserts over the whole document.)
+//
+// Structural, and deliberately NOT a list of the normalizations the codec performs today:
+// it asks the general question every one of them answers the same way.
+func CodecCarriesEveryMember(stored, encoded json.RawMessage) ([]string, error) {
+	var storedValue, encodedValue any
+	if err := json.Unmarshal(stored, &storedValue); err != nil {
+		return nil, fmt.Errorf("read the stored member: %w", err)
+	}
+	if err := json.Unmarshal(encoded, &encodedValue); err != nil {
+		return nil, fmt.Errorf("read the encoded member: %w", err)
+	}
+	var lost []string
+	collectDroppedMembers(storedValue, encodedValue, "", &lost)
+	slices.Sort(lost)
+	return lost, nil
+}
+
+// collectDroppedMembers walks stored and encoded in step, appending the path of every
+// member stored holds that encoded does not. A member the encoding ADDS is the normalizer
+// filling in what the document omitted, and is not a loss. A scalar holds no members of
+// its own, so a scalar leaf contributes nothing either way — whether its VALUE changed is
+// the caller's question, not this one's.
+func collectDroppedMembers(stored, encoded any, path string, lost *[]string) {
+	switch value := stored.(type) {
+	case map[string]any:
+		held, ok := encoded.(map[string]any)
+		if !ok {
+			*lost = append(*lost, path)
+			return
+		}
+		for key, child := range value {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			carried, present := held[key]
+			if !present {
+				*lost = append(*lost, childPath)
+				continue
+			}
+			collectDroppedMembers(child, carried, childPath, lost)
+		}
+	case []any:
+		held, ok := encoded.([]any)
+		if !ok {
+			*lost = append(*lost, path)
+			return
+		}
+		for i, child := range value {
+			childPath := fmt.Sprintf("%s[%d]", path, i)
+			if i >= len(held) {
+				*lost = append(*lost, childPath)
+				continue
+			}
+			collectDroppedMembers(child, held[i], childPath, lost)
+		}
+	}
+}
+
 // normalizeReviewThread derives every non-sticky entry's Status from its reply
 // history: the thread is ANSWERED iff its last utterance is agent-authored, and
 // OPEN otherwise (no replies at all, or the reviewer got the last word). That one
@@ -9449,23 +9412,22 @@ func migrateLegacyReviewThread(thread []ReviewComment, draftedBy, at string) []R
 }
 
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a
-// human approval gate during construction. It composes with the reviewEngine (which
-// computes WHO reviews): the engine gives the reviewer set; this policy says whether a
-// human must sign off before the phase advances. The zero value gates nothing — the
-// construction loop then behaves exactly as before this feature ("pure vibes").
+// human approval gate. It is the DOCUMENT, not the decision: the reviewEngine
+// (internal/engine/review) computes both WHO reviews and WHETHER a human must sign off,
+// and reads this document to do it. The zero value gates nothing — the construction
+// loop then behaves exactly as before this feature ("pure vibes").
 
 // GatedPhasesByType maps an ActivityType wire name ("service"/"frontend"/"testing"/...)
-// to the canonical phases that require human approval for that type.
-
-// RequiresHuman reports whether a phase of the given activity type requires human approval.
-func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {
-	return slices.Contains(p.GatedPhasesByType[activityType], phase)
-}
+// to the canonical phases that require human approval for that type. It is the
+// legacy/explicit mode's data, handed to the engine as the "" preset's fallback.
 
 // Review preset values for ReviewPolicy.Preset (Task 7, local-first sophistication
-// dial). "" (nil/unset) is the legacy/explicit mode — RequiresHuman's committed
-// GatedPhasesByType map, unchanged pre-preset behavior (e.g. the webApp PolicyPanel's
-// ReviewPolicyFromGateIDs output).
+// dial). "" (nil/unset) is the legacy/explicit mode — the committed GatedPhasesByType
+// map, unchanged pre-preset behavior (e.g. the webApp PolicyPanel's
+// ReviewPolicyFromGateIDs output). The vocabulary lives here because the WRITE path
+// validates against it (constructionManager.RecordReviewPolicy) and the webApp's
+// PolicyPanel writes it; the engine holds its own copy of the three strings and decides
+// what they MEAN.
 const (
 	// ReviewPresetVibes auto-approves every draft/step — nothing gated beyond the
 	// non-overridable floor (see ContractTouchesReviewFloor).
@@ -9482,7 +9444,9 @@ const (
 // whose contract touches one of these keywords always requires human approval —
 // deploy/spend/schema-shaped operations stay gated under every preset, including
 // "vibes". Case-insensitive substring match against each contract operation's Name.
-// No preset value can widen or narrow this list.
+// No preset value can widen or narrow this list. The list lives here because it is read
+// off a projectstate.ServiceContract, a type no Engine may import; the boolean it
+// produces is what the reviewEngine is handed.
 var reviewFloorKeywords = []string{"deploy", "spend", "schema"}
 
 // ContractTouchesReviewFloor reports whether contract carries an operation whose name
@@ -9501,48 +9465,14 @@ func ContractTouchesReviewFloor(contract ServiceContract) bool {
 	return false
 }
 
-// EffectiveGate resolves the Preset switch for (activityType, phase) and THEN applies
-// the non-overridable floor: a MethodPhaseConstruction dispatch with floorTouched=true
-// (the activity's committed contract touches deploy/spend/schema, per
-// ContractTouchesReviewFloor) always requires human approval — no preset, including
-// "vibes", can bypass it. This is the construction phase gate's ONLY preset-aware
-// entry point (constructactivity.go's runPhaseGate); RequiresHuman stays the pure
-// explicit-map lookup for backward compatibility (webApp PolicyPanel gate ids, and the
-// legacy/explicit "" preset fallback below).
-//
-// checkpoints gates the per-activity contract/architecture commit
-// (MethodPhaseDetailedDesign), the construction dispatch (MethodPhaseConstruction) and
-// the integration pass (MethodPhaseIntegration) — the funnel checkpoints this
-// per-activity, per-phase mechanism can express.
-// The funnel's remaining checkpoint ("SDP commit") is a projectDesignManager artifact
-// commit with no ActivityMethodPhase analog; that workflow gates it unconditionally
-// today, independent of ReviewPolicy — see docs/superpowers/sdd/task-7-report.md.
-//
-// MethodPhaseIntegration is in the list because ActivityTypeIntegration's profile is
-// integration-ONLY (100% weight, one phase): without it an I-* activity would be the
-// one activity family that runs entirely ungated under "checkpoints", which is exactly
-// backwards — an integration activity is where a use case is first exercised end to
-// end (founder-ratified).
-func (p ReviewPolicy) EffectiveGate(activityType string, phase ActivityMethodPhase, floorTouched bool) bool {
-	if phase == MethodPhaseConstruction && floorTouched {
-		return true
-	}
-	preset := ""
-	if p.Preset != nil {
-		preset = *p.Preset
-	}
-	switch preset {
-	case ReviewPresetVibes:
-		return false
-	case ReviewPresetFull:
-		return true
-	case ReviewPresetCheckpoints:
-		return phase == MethodPhaseDetailedDesign || phase == MethodPhaseConstruction ||
-			phase == MethodPhaseIntegration
-	default:
-		return p.RequiresHuman(activityType, phase)
-	}
-}
+// EffectiveGate and RequiresHuman MOVED into the reviewEngine
+// (internal/engine/review's requiresHuman/constructionGate) when ProposeReviews took the
+// activity type, the lifecycle phase, this policy document and the floor flag — spec
+// 2026-09-20 §5.4, stage 2. One component now decides both halves of the review
+// question, which is what stops the kind table and the gate policy drifting apart
+// again. This package keeps the DOCUMENT, the preset vocabulary, the shaping of the
+// client's gate-id vocabulary into it (ReviewPolicyFromGateIDs) and the floor's data
+// (ContractTouchesReviewFloor); it decides nothing.
 
 // gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids to canonical phases, so the
 // mock vocabulary never reaches head-state. Canonical ids pass through in ReviewPolicyFromGateIDs.

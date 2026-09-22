@@ -978,6 +978,11 @@ func TestDeriveActivitiesAlwaysEmitsTheTestingInventory(t *testing.T) {
 // Purity: identical input must give a byte-identical, stably ordered result. Map
 // iteration order leaking into the output would make every downstream CPM solve
 // nondeterministic.
+//
+// The order is PLAN order, not plain ascending: the design prefix leads in its own fixed
+// Table 11-1 order and everything else follows by name (planOrderLess). Slot 9's
+// declaration order is the pump's selection order and the console's row order, so a plain
+// ascending sort would bury "requirements" below "U-SPA-web-client".
 func TestDeriveActivitiesIsDeterministicAndSorted(t *testing.T) {
 	first := deriveActivities(sampleSystem())
 	for range 20 {
@@ -992,9 +997,13 @@ func TestDeriveActivitiesIsDeterministicAndSorted(t *testing.T) {
 		}
 	}
 	for i := 1; i < len(first); i++ {
-		if first[i-1].Name >= first[i].Name {
-			t.Fatalf("not sorted ascending by name at %d: %q then %q", i, first[i-1].Name, first[i].Name)
+		if !planOrderLess(first[i-1].Name, first[i].Name) {
+			t.Fatalf("not sorted in plan order at %d: %q then %q", i, first[i-1].Name, first[i].Name)
 		}
+	}
+	if want := []string{"requirements", "architecture", "projectDesign"}; len(first) < 3 ||
+		first[0].Name != want[0] || first[1].Name != want[1] || first[2].Name != want[2] {
+		t.Fatalf("the plan must open with %v, got %+v", want, first[:min(3, len(first))])
 	}
 }
 
@@ -1277,6 +1286,11 @@ func TestDeriveDependenciesSourceRuleHangsEveryRootOffM0(t *testing.T) {
 // Together the two rules make the network one graph from M0 to N-IT: every activity has
 // a predecessor (so it has a CPM node and cannot start before the SDP review) and every
 // activity but N-IT has a successor (so none is an island off the schedule).
+//
+// The design prefix sits OUTSIDE that span, on purpose: `requirements` is the plan's true
+// root and so has no predecessor at all, and `projectDesign`'s only successor is M0 — a
+// milestone, which this activity-only index cannot see. Both are asserted explicitly
+// below rather than skipped, so an exemption that silently widened would still fail.
 func TestDeriveDependenciesLeavesNoIsland(t *testing.T) {
 	for _, headless := range []bool{false, true} {
 		sys := edgeSystem()
@@ -1294,15 +1308,21 @@ func TestDeriveDependenciesLeavesNoIsland(t *testing.T) {
 			}
 		}
 		for _, a := range acts {
-			if len(deps[a.Name]) == 0 {
-				t.Errorf("headless=%v: %s has no predecessor", headless, a.Name)
+			wantNoPredecessor := a.Name == "requirements"
+			if got := len(deps[a.Name]) == 0; got != wantNoPredecessor {
+				t.Errorf("headless=%v: %s has predecessors %v, wantNoPredecessor=%v",
+					headless, a.Name, deps[a.Name], wantNoPredecessor)
 			}
-			if a.Name != "N-IT" && !hasSuccessor[a.Name] {
-				t.Errorf("headless=%v: %s has no successor", headless, a.Name)
+			// projectDesign's successor is the M0 milestone, not an activity.
+			wantNoActivitySuccessor := a.Name == "N-IT" || a.Name == "projectDesign"
+			if got := !hasSuccessor[a.Name]; got != wantNoActivitySuccessor {
+				t.Errorf("headless=%v: %s hasActivitySuccessor=%v, want %v",
+					headless, a.Name, hasSuccessor[a.Name], !wantNoActivitySuccessor)
 			}
 		}
-		if len(deps) != len(acts) {
-			t.Errorf("headless=%v: %d dependency rows for %d activities, want one each", headless, len(deps), len(acts))
+		// One row per activity except `requirements`, which is the plan's root.
+		if len(deps) != len(acts)-1 {
+			t.Errorf("headless=%v: %d dependency rows for %d activities, want one each but the root", headless, len(deps), len(acts))
 		}
 	}
 }
@@ -1325,10 +1345,11 @@ func TestDeriveMilestones(t *testing.T) {
 	if got := byID["M3"].DependsOn; !reflect.DeepEqual(got, []string{"C-order-manager"}) {
 		t.Errorf("M3 (managers complete) dependsOn = %v, want [C-order-manager]", got)
 	}
-	// M0's predecessors are the design phases (Phases 1-2), which are not activities, so
-	// it has no fan-in; its fan-OUT to every root activity is the source rule.
-	if got := byID["M0"].DependsOn; len(got) != 0 {
-		t.Errorf("M0 (SDP review) dependsOn = %v, want none", got)
+	// M0's predecessor is projectDesign, the third activity of the design prefix — the
+	// SDP review is what that activity ends with. Its fan-OUT to every root activity is
+	// the source rule, which skips the prefix so this fan-in is not also a fan-out.
+	if got := byID["M0"].DependsOn; !reflect.DeepEqual(got, []string{"projectDesign"}) {
+		t.Errorf("M0 (SDP review) dependsOn = %v, want [projectDesign]", got)
 	}
 	// M4 (Use Cases Demonstrable) depended entirely on the now-removed I-* integration
 	// activities (ruling 2) and had no other fan-in, so it must not be derived.
@@ -1544,15 +1565,17 @@ func TestAdditiveMilestoneShadowingADerivedOneIsRejected(t *testing.T) {
 	}
 }
 
-// An empty System is a normal DOMAIN result (a project read before its architecture is
-// committed), never an error.
-func TestDerivePlanOnEmptySystemIsAnEmptyPlanNotAnError(t *testing.T) {
+// A project whose architecture is not committed yet still owes requirements and
+// architecture — that is the whole point of one plan. It is a normal DOMAIN result (a
+// project read before its architecture is committed), never an error, and it derives the
+// prefix and M0 and nothing else (M1-M3 are layer completions with no layer to complete).
+func TestDerivePlanEmptySystemStillOwesItsDesign(t *testing.T) {
 	plan, err := NewEstimationEngine().DerivePlan(fweng.Context{}, SystemView{}, ActivityListDeltas{})
 	if err != nil {
 		t.Fatalf("empty System must be a domain result, got error %v", err)
 	}
-	if len(plan.Activities) != 0 {
-		t.Errorf("empty System produced %d activities", len(plan.Activities))
+	if len(plan.Activities) != 3 || len(plan.Milestones) != 1 || plan.Milestones[0].Id != "M0" {
+		t.Fatalf("empty system: %d activities, milestones %+v", len(plan.Activities), plan.Milestones)
 	}
 }
 
@@ -1761,12 +1784,12 @@ func TestParityEmitsNoIntegrationActivities(t *testing.T) {
 }
 
 // table11_1Set is Löwy's Table 11-1 applied to the committed architecture (architect
-// ruling A1, 2026-09-12): #4 test plan, #9-10 the vendor resources, #11-13 the
-// ResourceAccess components, #14-16 the Engines, #17-18 the Managers, #19 the one
-// UI-surface client, #21 system testing. #1-3 are Phases 1-2 (the M0 milestone), #5
-// (harness) is platform-generated, #6-8 (logging/security/pub-sub) are provided
-// utilities.
+// ruling A1, 2026-09-12): #1-3 the design prefix, #4 test plan, #9-10 the vendor
+// resources, #11-13 the ResourceAccess components, #14-16 the Engines, #17-18 the
+// Managers, #19 the one UI-surface client, #21 system testing. #5 (harness) is
+// platform-generated, #6-8 (logging/security/pub-sub) are provided utilities.
 var table11_1Set = []string{
+	"requirements", "architecture", "projectDesign",
 	"N-STP",
 	"R-construction-pipeline-runtime", "R-github", "R-merchant-gateway", "R-operated-runtime",
 	"C-agentic-job-access", "C-artifact-access", "C-billing-state-access", "C-episode-access",
@@ -1801,13 +1824,15 @@ func TestParityDerivesExactlyTheTable11_1ActivitySet(t *testing.T) {
 // The network over the committed architecture: one dependency row per activity; the
 // client app depends (after transitive reduction) on exactly the managers it calls that
 // no other called manager already reaches; system testing depends on the two sinks; and
-// the 18 roots — the four vendor resources, the seven engines, the six ResourceAccess
-// components that front no vendor resource, and the test plan — each hang off M0.
+// the 18 CONSTRUCTION roots — the four vendor resources, the seven engines, the six
+// ResourceAccess components that front no vendor resource, and the test plan — each hang
+// off M0. The design prefix is not among them: it runs UPSTREAM of M0.
 func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	plan := parityPlan(t)
 	deps := depsByActivity(plan.Dependencies)
-	if len(plan.Dependencies) != len(table11_1Set) {
-		t.Errorf("derived %d dependency rows, want one per activity (%d)", len(plan.Dependencies), len(table11_1Set))
+	// One row per activity but `requirements`, which is the plan's root and has none.
+	if len(plan.Dependencies) != len(table11_1Set)-1 {
+		t.Errorf("derived %d dependency rows, want one per activity but the root (%d)", len(plan.Dependencies), len(table11_1Set)-1)
 	}
 	if want := []string{"C-billing-manager", "C-construction-manager", "C-system-design-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
 		t.Errorf("U-SPA-web-client dependsOn = %v, want %v", deps["U-SPA-web-client"], want)
@@ -1820,6 +1845,9 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 		if slices.Contains(preds, "M0") {
 			if len(preds) != 1 {
 				t.Errorf("%s dependsOn %v; M0 is for activities with NO other predecessor", activity, preds)
+			}
+			if isDesignPrefix(activity) {
+				t.Errorf("%s hangs off M0, but M0 depends on projectDesign — that is a cycle", activity)
 			}
 			roots = append(roots, activity)
 		}
@@ -1834,6 +1862,101 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	} {
 		if !slices.Contains(roots, want) {
 			t.Errorf("%s is not hung off M0 (dependsOn %v)", want, deps[want])
+		}
+	}
+}
+
+// Spec 2026-09-20 §5.1: the plan opens with a fixed three-activity design prefix and M0
+// depends on the last of them. Before this, M0 had no fan-in at all and the design rail
+// was invisible to the network.
+func TestDerivedPlanEmitsDesignPrefixAndM0(t *testing.T) {
+	plan := parityPlan(t)
+	assertDesignPrefixLeadsThePlan(t, plan)
+	assertDesignPrefixChainsIntoM0(t, plan)
+	assertConstructionHangsOffM0NotThePrefix(t, plan)
+}
+
+// assertDesignPrefixLeadsThePlan: the three activities exist, in Table 11-1 order, at the
+// head of the plan, and each is a componentless, noncoding, architect-owned activity with
+// a real effort.
+func assertDesignPrefixLeadsThePlan(t *testing.T, plan DerivedPlan) {
+	t.Helper()
+	names := make([]string, 0, len(plan.Activities))
+	byName := map[string]DerivedActivity{}
+	for _, a := range plan.Activities {
+		names = append(names, a.Name)
+		byName[a.Name] = a
+	}
+	if len(names) < 3 || names[0] != "requirements" || names[1] != "architecture" || names[2] != "projectDesign" {
+		t.Fatalf("the plan must open with the design prefix, got %v", names[:min(3, len(names))])
+	}
+	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
+		a := byName[id]
+		if a.ComponentID != "" || a.Coding || a.WorkerClass != "system-architect" || a.EffortDays <= 0 || !a.Derived {
+			t.Errorf("%s = %+v, want a derived, noncoding, componentless architect activity", id, a)
+		}
+	}
+}
+
+// assertDesignPrefixChainsIntoM0: the prefix is a serial chain rooted at requirements, and
+// it does NOT hang off M0 — M0 hangs off IT.
+func assertDesignPrefixChainsIntoM0(t *testing.T, plan DerivedPlan) {
+	t.Helper()
+	deps := depsByActivity(plan.Dependencies)
+	if len(deps["requirements"]) != 0 {
+		t.Errorf("requirements is the plan's root; got dependsOn %v", deps["requirements"])
+	}
+	if !slices.Equal(deps["architecture"], []string{"requirements"}) {
+		t.Errorf("architecture dependsOn %v, want [requirements]", deps["architecture"])
+	}
+	if !slices.Equal(deps["projectDesign"], []string{"architecture"}) {
+		t.Errorf("projectDesign dependsOn %v, want [architecture]", deps["projectDesign"])
+	}
+	var m0 NetworkMilestone
+	for _, m := range plan.Milestones {
+		if m.Id == "M0" {
+			m0 = m
+		}
+	}
+	if !slices.Equal(m0.DependsOn, []string{"projectDesign"}) {
+		t.Fatalf("M0 dependsOn %v, want [projectDesign] — the SDP review IS the milestone's predecessor", m0.DependsOn)
+	}
+}
+
+// assertConstructionHangsOffM0NotThePrefix: M0 still fans OUT to every construction root,
+// no construction root accidentally acquired a design activity as a predecessor, and N-IT
+// is still the only sink — the prefix must not be swept into the sink rule.
+func assertConstructionHangsOffM0NotThePrefix(t *testing.T, plan DerivedPlan) {
+	t.Helper()
+	for _, d := range plan.Dependencies {
+		if isDesignPrefix(d.Activity) {
+			continue
+		}
+		for _, p := range d.DependsOn {
+			if isDesignPrefix(p) {
+				t.Errorf("%s depends directly on the design activity %s; construction hangs off M0, not off the prefix", d.Activity, p)
+			}
+		}
+	}
+	for _, p := range depsByActivity(plan.Dependencies)["N-IT"] {
+		if isDesignPrefix(p) {
+			t.Errorf("system testing depends on %s; the design prefix ends at M0, not at N-IT", p)
+		}
+	}
+}
+
+// The three ids are reserved: an additive may not shadow one (the existing
+// exclusion-in-disguise guard, proved for the new names).
+func TestDerivePlanDesignPrefixIdsAreReserved(t *testing.T) {
+	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
+		_, err := NewEstimationEngine().DerivePlan(fweng.Context{}, loadSystemFixture(t), ActivityListDeltas{
+			Additive: []AdditiveActivity{{
+				Name: id, Title: "x", EffortDays: 5, RiskBucket: 2,
+				WorkerClass: "system-architect", Justification: "none",
+			}}})
+		var fe *fweng.Error
+		if !errors.As(err, &fe) || fe.Kind != fweng.ContractMisuse {
+			t.Errorf("an additive named %q must be refused, got %v", id, err)
 		}
 	}
 }

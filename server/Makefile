@@ -1,6 +1,6 @@
 # aiarch server — developer make targets.
 
-.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-uiprofiles gen-uiprofiles-check gen-lifecycles gen-lifecycles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
+.PHONY: test test-short fmt vet fix fix-check lint sumtype-check method-check encapsulation-check gen-models gen-models-check gen-fakes gen-fakes-check gen gen-client gen-client-check gen-internal-tools gen-internal-tools-check gen-temporal gen-temporal-check gen-sdk gen-sdk-check gen-config gen-config-check gen-lifecycles gen-lifecycles-check claude-assets derived-plan-check derived-plan-write construction-state-reset
 
 # claude-assets — materialize the .claude method prompt surface (agents/commands/
 # skills) into the repo root from the method-assets lib pinned in go.mod. The
@@ -78,7 +78,7 @@ gen-internal-tools:
 gen-internal-tools-check: gen-internal-tools
 	git diff --exit-code -- internal/resourceaccess/projectstate/toolcatalog.gen.go
 
-gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-uiprofiles gen-lifecycles
+gen: gen-models gen-fakes gen-client gen-internal-tools gen-temporal gen-sdk gen-config gen-lifecycles
 
 # gen-temporal — ONE appgen run (cmd/appgen, driving framework-go-app-generator's
 # temporalgen + transportgen + configgen) that emits, from a single project.json
@@ -151,22 +151,6 @@ gen-main: gen-temporal
 gen-main-check: gen-temporal
 	git diff --exit-code -- cmd/server/main.gen.go
 
-# gen-uiprofiles — the per-ActivityKind canonical lifecycle phase table
-# (id/phase/name/weight, cmd/gen-uiprofiles) emitted into the sibling webApp
-# module at ../webApp/src/components/construction/lifecycleTemplates.gen.ts,
-# straight from internal/resourceaccess/projectstate/projectstateaccess.go's
-# ProfileFor. No project.json read (Profile is a closed static enumeration),
-# so this needs no `-project`/`-id` flags, unlike the other gen-* targets.
-gen-uiprofiles:
-	GOWORK=off go run ./cmd/gen-uiprofiles
-
-# gen-uiprofiles-check — drift gate for the generated lifecycle-phase table in
-# the sibling webApp module, same regenerate-then-diff shape as the other
-# gen-*-check gates. The path is repo-relative so `git diff` works from the
-# server working directory (server-checks.yml).
-gen-uiprofiles-check: gen-uiprofiles
-	git diff --exit-code -- ../webApp/src/components/construction/lifecycleTemplates.gen.ts
-
 # gen-lifecycles — the per-activity-type lifecycle (phases + the dispatch/review
 # task DAG, cmd/gen-lifecycles) emitted into the sibling webApp module at
 # ../webApp/src/components/activity/lifecycles.gen.ts, straight from the
@@ -176,7 +160,7 @@ gen-lifecycles:
 	GOWORK=off go run ./cmd/gen-lifecycles
 
 # gen-lifecycles-check — drift gate for the generated lifecycles, the same
-# regenerate-then-diff shape as gen-uiprofiles-check. `git diff` is blind to an
+# regenerate-then-diff shape as the other gen-*-check gates. `git diff` is blind to an
 # UNTRACKED file, so the ls-files line fails the gate when the generated file was
 # never committed at all. A method-assets pin bump that changes lifecycles.json
 # turns this red until `make gen-lifecycles` is re-run and committed.

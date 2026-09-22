@@ -102,6 +102,9 @@ const (
 	ActivityTypeDocumentation ActivityType = 4
 	ActivityTypeUIDesign      ActivityType = 5
 	ActivityTypeIntegration   ActivityType = 6
+	ActivityTypeRequirements  ActivityType = 7
+	ActivityTypeArchitecture  ActivityType = 8
+	ActivityTypeProjectDesign ActivityType = 9
 )
 
 type AnchoredComment struct {

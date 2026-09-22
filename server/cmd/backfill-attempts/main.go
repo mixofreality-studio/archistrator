@@ -151,6 +151,213 @@ func signOffBasis(s founderSignOff, description string) string {
 	return fmt.Sprintf("%s (%s) + founderSignOff[%s]=%q", s.Artifact.Ref, description, s.Date, s.Quote)
 }
 
+// ---- the design prefix: the artifact IS the work product ------------------------------
+//
+// The three design activities DerivePlan puts in front of the plan (requirements →
+// architecture → projectDesign) are componentless, so there is no code to read, and no
+// founder sign-off is recorded for them. Inventing one would be a fabrication. The real
+// evidence is already in the file this tool is rewriting: the artifact slots those
+// activities produce are committed, and a committed slot has been through its review.
+
+// designSlot is one committed artifact slot a design activity produces. Its evidence is
+// two facts read straight out of project.json: the slot's review status, and a count of
+// what the slot holds.
+type designSlot struct {
+	// Ref is the slot's member of project.json, e.g. "systemDesign".
+	Ref string
+	// Of reaches the slot in the committed state.
+	Of func(projectstate.Project) projectstate.ArtifactSlot
+	// Describe counts what the slot's model holds ("37 components, 18 views"). It fails
+	// when the model is absent, of the wrong type, or empty: a committed status over
+	// nothing is not evidence, exactly as a founder sign-off over nothing is not.
+	Describe func(projectstate.ArtifactModel) (string, error)
+}
+
+// countedSlot builds a designSlot from a typed counter over the slot's model. count is
+// what makes the artifact non-empty — a zero count fails the slot — and description is
+// the phrase the basis carries.
+func countedSlot[T any](
+	ref string,
+	of func(projectstate.Project) projectstate.ArtifactSlot,
+	counted func(*T) (int, string),
+) designSlot {
+	return designSlot{
+		Ref: ref,
+		Of:  of,
+		Describe: func(m projectstate.ArtifactModel) (string, error) {
+			// Asserted through any: *T cannot be asserted from the interface directly,
+			// because the compiler cannot see a type parameter implementing ArtifactModel.
+			model, ok := any(m).(*T)
+			if !ok || model == nil {
+				return "", fmt.Errorf("slot .%s holds %T, not the model it is declared to hold", ref, m)
+			}
+			count, description := counted(model)
+			if count == 0 {
+				return "", fmt.Errorf("slot .%s is committed but empty", ref)
+			}
+			return description, nil
+		},
+	}
+}
+
+// solutionSlot is one of the four option slots, all of the same model. A Solution has no
+// collection to count; its staffing cap is what an authored option always carries and a
+// zero-value slot never does.
+func solutionSlot(ref string, of func(projectstate.Project) projectstate.ArtifactSlot) designSlot {
+	return countedSlot(ref, of, func(s *projectstate.Solution) (int, string) {
+		return s.StaffingCap, fmt.Sprintf("staffing cap %d", s.StaffingCap)
+	})
+}
+
+// designActivitySlots is every artifact slot each design activity produces, in the order
+// its lifecycle produces them. The sets are Table 11-1's own division of Phase 1 and
+// Phase 2 into the three activities; together they are every slot of the two phases
+// except .standardCheck, which is Design Health rendered on read and carries no
+// committed artifact of its own.
+var designActivitySlots = map[string][]designSlot{
+	"requirements": {
+		countedSlot("mission", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Mission },
+			func(m *projectstate.MissionStatement) (int, string) {
+				return len(m.Objectives), fmt.Sprintf("%d objectives", len(m.Objectives))
+			}),
+		countedSlot("glossary", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Glossary },
+			func(m *projectstate.Glossary) (int, string) {
+				return len(m.Items), fmt.Sprintf("%d terms", len(m.Items))
+			}),
+		countedSlot("scrubbedRequirements", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ScrubbedRequirements },
+			func(m *projectstate.ScrubbedRequirements) (int, string) {
+				return len(m.Items), fmt.Sprintf("%d required behaviors", len(m.Items))
+			}),
+		countedSlot("volatilities", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Volatilities },
+			func(m *projectstate.Volatilities) (int, string) {
+				return len(m.Items), fmt.Sprintf("%d areas of volatility", len(m.Items))
+			}),
+		countedSlot("coreUseCases", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CoreUseCases },
+			func(m *projectstate.CoreUseCases) (int, string) {
+				return len(m.Decisions), fmt.Sprintf("%d decisions", len(m.Decisions))
+			}),
+	},
+	"architecture": {
+		countedSlot("systemDesign", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SystemDesign },
+			func(m *projectstate.System) (int, string) {
+				return len(m.Components), fmt.Sprintf("%d components, %d views", len(m.Components), len(m.DynamicViews))
+			}),
+		countedSlot("operationalConcepts", func(p projectstate.Project) projectstate.ArtifactSlot { return p.OperationalConcepts },
+			func(m *projectstate.DeploymentOperationsModel) (int, string) {
+				return len(m.InfraBuildingBlocks), fmt.Sprintf("%d infrastructure building blocks", len(m.InfraBuildingBlocks))
+			}),
+	},
+	"projectDesign": {
+		countedSlot("planningAssumptions", func(p projectstate.Project) projectstate.ArtifactSlot { return p.PlanningAssumptions },
+			func(m *projectstate.PlanningAssumptions) (int, string) {
+				return len(m.Resources), fmt.Sprintf("%d resources", len(m.Resources))
+			}),
+		countedSlot("activityList", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ActivityList },
+			func(m *projectstate.ActivityList) (int, string) {
+				return len(m.Activities), fmt.Sprintf("%d activities", len(m.Activities))
+			}),
+		countedSlot("network", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Network },
+			func(m *projectstate.Network) (int, string) {
+				return len(m.Dependencies), fmt.Sprintf("%d dependencies, %d milestones", len(m.Dependencies), len(m.Milestones))
+			}),
+		solutionSlot("normalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.NormalSolution }),
+		solutionSlot("subcriticalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SubcriticalSolution }),
+		solutionSlot("compressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CompressedSolution }),
+		solutionSlot("decompressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.DecompressedSolution }),
+		countedSlot("riskModel", func(p projectstate.Project) projectstate.ArtifactSlot { return p.RiskModel },
+			func(m *projectstate.RiskModel) (int, string) {
+				return len(m.Rows), fmt.Sprintf("%d rows", len(m.Rows))
+			}),
+		countedSlot("sdpReview", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SdpReview },
+			func(m *projectstate.SdpReview) (int, string) {
+				return len(m.Options), fmt.Sprintf("%d options", len(m.Options))
+			}),
+	},
+}
+
+// designPhaseArtifact is the slot each design lifecycle PHASE produces. A design
+// activity is unlike every other evidence path here in that it does not produce one
+// artifact: Requirements produces four, one per phase. So its evidence is resolved per
+// TASK rather than per activity — EvidenceRef is the UI's click target, and a Glossary
+// row that opened the Core Use Cases would be a click-through that lies about what it
+// shows, which is exactly what evidenceFor's own doc comment forbids. The whole evidence
+// stays in the Basis, which names every slot the activity's qualification read.
+//
+// Keyed on the PHASE, not on (activity, phase): the three design lifecycles use phase ids
+// that collide with none of the eleven construction lifecycles' canonical five (see
+// projectstate's lifecyclePhaseTasks, whose TestLifecyclePhaseTasksAreUnambiguous keeps
+// that true), so the phase alone names the artifact unambiguously.
+//
+// Not every design slot appears here, and that is correct: .scrubbedRequirements,
+// .operationalConcepts and the eight Phase-2 slots beneath .sdpReview have no lifecycle
+// phase of their own. They back the activity's QUALIFICATION, which is what the Basis
+// records; they are not the product of any single task.
+//
+// The five CANONICAL construction phases are listed too, mapped to "" — the same
+// precedent as projectstate's conditionalTasks. `exhaustive` (check: [switch, map])
+// requires every declared ActivityMethodPhase member, so a sixth canonical phase fails
+// the build here and forces a conscious call rather than defaulting to "a design phase
+// with no artifact". The six design phase ids are lifecycle DATA, not declared constants,
+// which is why they are spelled as literals.
+var designPhaseArtifact = map[projectstate.ActivityMethodPhase]string{
+	"mission":                              "mission",
+	"glossary":                             "glossary",
+	"volatilities":                         "volatilities",
+	"coreUseCases":                         "coreUseCases",
+	"architecture":                         "systemDesign",
+	"sdp":                                  "sdpReview",
+	projectstate.MethodPhaseRequirements:   "",
+	projectstate.MethodPhaseDetailedDesign: "",
+	projectstate.MethodPhaseTestPlan:       "",
+	projectstate.MethodPhaseConstruction:   "",
+	projectstate.MethodPhaseIntegration:    "",
+}
+
+// isDesignActivity asks the CLASSIFIER, not a second table: ClassifyActivity returns
+// projectstate.ErrDesignActivityNotDispatchable together with the design type for exactly
+// the three reserved design ids, so this tool and the construction pump cannot end up
+// disagreeing about which activities those are.
+func isDesignActivity(a projectstate.ActivityItem) bool {
+	_, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding)
+	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
+}
+
+// designSlotEvidence is the evidence path for a design-prefix activity: every artifact
+// slot the activity produces is committed in project.json with a committed review
+// status. It is the artifact analogue of fullyImplemented's "read the code" — the
+// artifact IS the work product, and a committed slot is the same kind of fact a
+// contract-plus-implementation file is. An activity whose slots are not all committed
+// does not qualify: that is real design work still owed.
+func designSlotEvidence(activityID string, p projectstate.Project) verdict {
+	slots, ok := designActivitySlots[activityID]
+	if !ok {
+		return verdict{ActivityID: activityID, Reason: "the classifier calls this a design activity but no slot set records what it produces"}
+	}
+	cites := make([]string, 0, len(slots))
+	for _, s := range slots {
+		slot := s.Of(p)
+		if slot.Status != projectstate.ReviewCommitted {
+			return verdict{ActivityID: activityID, Reason: fmt.Sprintf(
+				"slot .%s is not committed (review status %d) — that is real design work still owed", s.Ref, slot.Status)}
+		}
+		description, err := s.Describe(slot.Model)
+		if err != nil {
+			return verdict{ActivityID: activityID, Reason: "a committed design slot does not stand: " + err.Error()}
+		}
+		cites = append(cites, fmt.Sprintf("%s (%s, committed)", s.Ref, description))
+	}
+	basis := "committed design artifacts: " + strings.Join(cites, "; ")
+	// No ArtifactRef: that field means "ONE artifact backs every task of this activity",
+	// which is true of a sign-off and false of a design activity. evidenceFor resolves a
+	// design task's artifact from its phase (designPhaseArtifact) instead.
+	return verdict{
+		ActivityID: activityID,
+		Qualifies:  true,
+		Reason:     "design slots: " + basis,
+		Basis:      basis,
+	}
+}
+
 // verdict is one activity's outcome: whether it qualifies, why, and — when it does —
 // what its attempts cite.
 type verdict struct {
@@ -228,6 +435,11 @@ func evaluate(in inputs) ([]verdict, error) {
 		component, hasComponent := components[a.ComponentID]
 		var v verdict
 		switch {
+		case isDesignActivity(a):
+			// FIRST, before hasComponent: a design activity is componentless, so it would
+			// otherwise fall to signedOff and report "no evidence path" for work whose
+			// artifacts are sitting committed in this very file.
+			v = designSlotEvidence(a.Name, in.Project)
 		case hasComponent && component.Kind == projectstate.CompResource:
 			resources = append(resources, a) // decided below, once every RA is known.
 			continue
@@ -792,16 +1004,25 @@ func inferredFromAccess(activityID string, resource projectstate.Component, sys 
 }
 
 // evidenceFor points one task's attempt at the artifact that backs it, and at NOTHING
-// when none does. Detailed design and its review were read off the contract;
-// construction and its review off the code at the cited commit. A sign-off backs every
-// task with the artifact it approved. The remaining tasks exist because of a ruling, not
-// a file, so they carry no evidence ref: handing the UI a contract to open under a row
-// labelled "Testing" would be a click-through that lies about what it shows. The basis
-// still says exactly where each row came from.
+// when none does. A design task is backed by the slot its own PHASE produced; detailed
+// design and its review were read off the contract; construction and its review off the
+// code at the cited commit. A sign-off backs every task with the artifact it approved.
+// The remaining tasks exist because of a ruling, not a file, so they carry no evidence
+// ref: handing the UI a contract to open under a row labelled "Testing" would be a
+// click-through that lies about what it shows. The basis still says exactly where each
+// row came from.
 //
-// Every task is listed, with no default case, so `exhaustive` fails the build the moment
-// a thirteenth is added without a conscious call about what backs it.
+// The design rule is FIRST and is keyed on the phase, not on the verdict, because it is
+// the only per-TASK artifact rule here — everything below it is per-activity. It cannot
+// catch a construction task: no construction lifecycle carries any of the six design
+// phase ids (designPhaseArtifact).
+//
+// Every remaining task is listed, with no default case, so `exhaustive` fails the build
+// the moment a thirteenth is added without a conscious call about what backs it.
 func evidenceFor(task projectstate.MethodTask, v verdict) projectstate.EvidenceRef {
+	if ref := designPhaseArtifact[projectstate.PhaseForTask(task)]; ref != "" {
+		return projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: ref}
+	}
 	if v.ArtifactRef != "" {
 		return projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: v.ArtifactRef}
 	}
@@ -852,10 +1073,11 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 // integrated, and those tasks stay unattempted — real work for the pump to record.
 func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.TestingVariant, now time.Time) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
+	// TasksForProfile emits a profile's lifecycle NODES only: the sub-attempt tasks
+	// (someConstruction, testClient) are not among them, which is the right answer here
+	// for the reason the paragraph above gives — inventing one would assert a pre-design
+	// spike or a test client that may never have existed.
 	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, variant)) {
-		if projectstate.IsConditionalTask(task) {
-			continue
-		}
 		if v.IntegrationPending != "" && projectstate.PhaseForTask(task) == projectstate.MethodPhaseIntegration {
 			continue
 		}

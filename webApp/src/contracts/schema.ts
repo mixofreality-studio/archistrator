@@ -962,6 +962,10 @@ export interface components {
       };
     };
     ConstructionReviewSet: {
+      /** @description The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose. */
+      reason?: string;
+      /** @description Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself. */
+      requiresHuman?: boolean;
       reviewers?: null | components['schemas']['ConstructionReviewer'][];
     };
     ConstructionReviewer: {
@@ -1849,7 +1853,7 @@ export interface components {
     };
     SystemDesignActivityMethodPhase: string;
     /** @enum {integer} */
-    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     SystemDesignAnchoredComment: {
       anchorText: string;
       jsonPath: string;

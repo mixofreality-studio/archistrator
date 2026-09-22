@@ -497,11 +497,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// signals into a canonical ActivityType. Inside projectstate, ResolveConstructionRow
 		// reads it on behalf of the systemdesign Manager's view-model and the construction
 		// pump; its one outside caller is cmd/backfill-attempts (classify), which types each
-		// qualifying activity before recording its backfilled attempts. CommandFor + its
-		// supporting profileSlug (kept unexported; both in projectstateaccess.go) is the
+		// qualifying activity before recording its backfilled attempts. CommandFor
+		// (projectstateaccess.go) is the
 		// (type, variant, phase) → .claude slash-command name mapping the construction
 		// Manager needs to dispatch the right command for an activity
-		// (construction/constructactivity.go; cmd/gen-uiprofiles reads it too). Both are
+		// (construction/constructactivity.go). Both are
 		// total, side-effect-free functions of already-public
 		// projectstate enum values; there is nothing to generate a contract op for.
 		//
@@ -512,15 +512,22 @@ var encapsulationAllowlistData = map[string][]string{
 		// classification and the dispatch classification cannot drift apart. Same category:
 		// total (modulo its unclassifiable error), side-effect-free, over already-public
 		// projectstate enum values.
+		//
+		// ErrDesignActivityNotDispatchable is ClassifyActivity's typed sentinel for the
+		// three reserved design ids: it comes back WITH the resolved design type, so a
+		// caller must be able to tell "not dispatchable" from "not classifiable". It is
+		// read from internal/manager/construction (dispatchSelectionFor), a different
+		// package, which selects on errors.Is to go quiet instead of blocking.
 		"ClassifyActivity",
 		"ClassifyType",
+		"ErrDesignActivityNotDispatchable",
 		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
 		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
 		// a total, side-effect-free function of already-public projectstate enum values plus
 		// the new DesignJobMode wire concept; its supporting designKindSlug/
-		// designKindHasCritique stay unexported (same precedent as profileSlug; all of them
-		// live in projectstateaccess.go).
+		// designKindHasCritique stay unexported (same precedent as lifecycleFor/
+		// dispatchTaskIn behind CommandFor; all of them live in projectstateaccess.go).
 		"DesignCommandFor",
 		"DesignJobMode",
 		"DesignJobModeAnswer",
@@ -539,12 +546,10 @@ var encapsulationAllowlistData = map[string][]string{
 		// to be exported to be tested, and three of them (IsGateTask, WorstOrigin,
 		// LatestAttempt) were removed from this list for exactly that reason.
 		//
-		//	TasksForPhase   → cmd/gen-uiprofiles: emits each phase's task rows into the
-		//	                  SPA's generated lifecycle template.
-		//	GateTaskFor     → cmd/gen-uiprofiles: flags which of those rows is the phase's
-		//	                  binary exit criterion.
-		//	IsConditionalTask → cmd/gen-uiprofiles: flags the two rows rendered only when a
-		//	                  real attempt record exists.
+		// gen-uiprofiles is gone (stage 2): the SPA's lifecycle table is rendered from
+		// method-assets by cmd/gen-lifecycles, not from this package, so the five names
+		// whose only outside caller it was left with it.
+		//
 		//	TasksForProfile → cmd/backfill-attempts: the per-activity task row set the
 		//	                  backfill walks.
 		//	PhaseForTask    → cmd/backfill-attempts: the denormalized Phase stamp on every
@@ -555,30 +560,21 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  never be inlined — see its own doc comment.
 		//	AgentTaskFor    → the construction Manager (constructactivity.go): which Figure
 		//	                  A-1 task an agent-work dispatch's episode is attributed to.
+		//	GateTaskFor     → the construction Manager (constructactivity.go): the phase's
+		//	                  binary exit criterion, and cmd/backfill-attempts' integration
+		//	                  filter via PhaseForTask.
 		//	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
 		//	                  provenance contagion roll-up stamped onto each wire row.
-		//	LabelForTask    → cmd/gen-uiprofiles: the human-readable label emitted onto
-		//	                  each generated task row's GeneratedTask.label field, so the
-		//	                  SPA renders task names without hand-authoring its own
-		//	                  twelve-string copy of this same vocabulary.
-		//	TaskLabelFor    → cmd/gen-uiprofiles: the PER-PROFILE label of each task (a
-		//	                  test plan's construction gate is "Scenario Review", not the
-		//	                  book's "Code Review"), emitted onto GeneratedTask.label; the
-		//	                  book's name still travels as GeneratedTask.bookLabel.
-		//	ExitCriterionFor → cmd/gen-uiprofiles: each profile phase's binary exit
-		//	                  criterion, emitted onto GeneratedPhase.exitCriterion — the
-		//	                  SPA used to hand-author five generic sentences for all eleven
-		//	                  profiles (designer P1-7).
+		//	LifecycleKeyFor → the construction Manager (constructionmanager.go,
+		//	                  QueryActivityView): the method-assets lifecycle key of an
+		//	                  activity. ONE production home for the rule, which stage 0
+		//	                  deliberately carried twice.
 		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
-		"ExitCriterionFor",
 		"GateTaskFor",
-		"IsConditionalTask",
-		"LabelForTask",
+		"LifecycleKeyFor",
 		"PhaseForTask",
-		"TaskLabelFor",
-		"TasksForPhase",
 		"TasksForProfile",
 		// CONSTRUCTION-ROW RESOLUTION (Task 7a, architect ruling Q2, 2026-09-12). Same
 		// category as the ledger helpers above: total, side-effect-free functions over
@@ -640,7 +636,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"OperatorNote",
 		"PendingOperatorNotes",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
-		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
+		// category as ClassifyActivity/TasksForProfile above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the
 		// caller resolves from the committed System) — no clone, no read, no write, no
 		// clock, so there is no contract operation to generate for it. Exported because
@@ -898,22 +894,35 @@ var encapsulationAllowlistData = map[string][]string{
 		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
 		// value stored in head-state. It is the client-facing constructor for ReviewPolicy
 		// and must be exported for the client layer (cmd/server/construction_dryrun.go and
-		// generated web handlers) to call. ReviewPolicy itself is contract surface via the
-		// Project aggregate's ReviewPolicy field; only the constructor free-func needs
-		// allowlisting.
+		// generated web handlers) to call. It DECIDES nothing — it is pure shaping of the
+		// client's vocabulary INTO the stored document the reviewEngine later reads.
+		// ReviewPolicy itself is contract surface via the Project aggregate's ReviewPolicy
+		// field; only the constructor free-func needs allowlisting.
 		"ReviewPolicyFromGateIDs",
 		// REVIEW-PRESET vocabulary + non-overridable-floor helpers (Task 7, local-first
 		// sophistication dial). ReviewPresetVibes/Checkpoints/Full are the closed
 		// ReviewPolicy.Preset wire values (same category as the ReviewComment status
 		// vocabulary above — plain-string consts owned here; ReviewPolicy.Preset itself
-		// is generated contract surface). ContractTouchesReviewFloor is the pure
-		// classification helper the construction Manager's snapshot (constructactivity.go's
+		// is generated contract surface); the WRITE path validates against them and the
+		// webApp's PolicyPanel writes them, while the reviewEngine holds its own copy and
+		// decides what they mean. ContractTouchesReviewFloor is the pure classification
+		// helper the construction Manager's snapshot (constructactivity.go's
 		// loadReviewSnapshot) calls to seed the floor — exported because it is invoked
-		// from internal/manager/construction, a different package.
+		// from internal/manager/construction, a different package. It reads a
+		// projectstate.ServiceContract, a type no Engine may import, so it stays here and
+		// FEEDS the engine the boolean rather than deciding the gate.
 		"ReviewPresetVibes",
 		"ReviewPresetCheckpoints",
 		"ReviewPresetFull",
 		"ContractTouchesReviewFloor",
+		// CODEC SELF-DESCRIPTION: CodecCarriesEveryMember answers "does this codec carry
+		// everything that member held?" for a writer that re-materializes part of the
+		// committed document in place (`make derived-plan-write`, in
+		// internal/manager/projectdesign). Only THIS package can answer it — it owns
+		// EncodeProjectJSON/DecodeProjectJSON and the normalizations they apply — and the
+		// caller is a different package, so it is exported. It is a pure structural
+		// predicate over two JSON values; it decides nothing about project state.
+		"CodecCarriesEveryMember",
 		"RiskModel",
 		"RiskModel.Kind",
 		"RiskRow",

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -24,6 +25,7 @@ import (
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -1636,6 +1638,103 @@ func Test_CoAuthor_VibesPolicy_AutoApproves_NoHumanSignal(t *testing.T) {
 	}
 	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindPlanningAssumptions {
 		t.Fatalf("the auto-approve must commit the artifact, got committed=%v", ps.committed)
+	}
+}
+
+// designActivityFor must never send a Phase-2 artifact DRAFT to the projectDesign
+// lifecycle's `sdp` phase: the engine makes that row always-human because M0 approves
+// spend, so mapping the nine drafts there would gate nine sessions that auto-approve
+// under vibes today.
+func Test_DesignActivityFor_Phase2KindsAreNotTheSdpGate(t *testing.T) {
+	for _, kind := range []projectstate.ArtifactKind{
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
+		projectstate.KindRiskModel, projectstate.KindSdpReview,
+	} {
+		typ, lifecyclePhase := designActivityFor(kind)
+		if typ != review.ActivityTypeProjectDesign {
+			t.Errorf("%s: activity type %q, want projectDesign", kind, typ)
+		}
+		if lifecyclePhase == "sdp" {
+			t.Errorf("%s: mapped to the always-human M0 gate; a Phase-2 draft is not that gate", kind)
+		}
+		if lifecyclePhase != kind.WireName() {
+			t.Errorf("%s: lifecycle phase %q, want the kind's own wire name %q", kind, lifecyclePhase, kind.WireName())
+		}
+	}
+}
+
+// The engine's copy of the policy document must not drift from the stored one, and the
+// three Managers' copies of this adapter must not drift from each other.
+func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
+	preset := projectstate.ReviewPresetCheckpoints
+	in := projectstate.ReviewPolicy{Preset: &preset, GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseIntegration}}}
+	got := engineReviewPolicy(in)
+	if got.Preset != projectstate.ReviewPresetCheckpoints {
+		t.Errorf("preset = %q", got.Preset)
+	}
+	if !slices.Equal(got.GatedPhasesByType["service"], []string{"detailed_design", "integration"}) {
+		t.Errorf("gated phases = %v", got.GatedPhasesByType["service"])
+	}
+	if engineReviewPolicy(projectstate.ReviewPolicy{}).Preset != "" {
+		t.Error("a nil preset must read as the legacy/explicit mode, not panic")
+	}
+}
+
+// The Phase-2 rail's autogate is the reviewEngine's answer now (spec 2026-09-20 §5.4),
+// asked with (projectDesign, <this artifact's own wire name>). Behaviour is unchanged:
+// vibes auto-approves the draft; every other preset — the unset legacy "" included —
+// holds for the human. The nine Phase-2 artifact DRAFTS are deliberately NOT the `sdp`
+// M0 gate the engine makes always-human: mapping them there would gate nine drafts that
+// auto-approve under vibes today.
+func Test_DesignSession_AutogateMatchesTheEngine(t *testing.T) {
+	for _, tc := range []struct {
+		preset string
+		auto   bool
+	}{
+		{projectstate.ReviewPresetVibes, true},
+		{projectstate.ReviewPresetCheckpoints, false},
+		{projectstate.ReviewPresetFull, false},
+		{"", false},
+	} {
+		t.Run("preset="+tc.preset, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			id := ProjectID(uuid.NewString())
+			proj := planningAssumptionsReadBack(projectstate.ProjectID(id))
+			if tc.preset != "" {
+				preset := tc.preset
+				proj.ReviewPolicy.Preset = &preset
+			}
+			ps := &fakeProjectState{project: proj}
+			wf := newWorkflows()
+			registerCoAuthor(env, wf, ps, newFakePipeline())
+			if !tc.auto {
+				env.RegisterDelayedCallback(func() {
+					env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+				}, 30*time.Second)
+			}
+			env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			var outcome coAuthorOutcome
+			if err := env.GetWorkflowResult(&outcome); err != nil {
+				t.Fatalf("decode outcome: %v", err)
+			}
+			want := coAuthorWithdrawn
+			if tc.auto {
+				want = coAuthorApproved
+			}
+			if outcome != want {
+				t.Fatalf("preset %q: outcome %d, want %d (auto=%v)", tc.preset, outcome, want, tc.auto)
+			}
+			if got := len(ps.committed); got != map[bool]int{true: 1, false: 0}[tc.auto] {
+				t.Fatalf("preset %q: committed %v", tc.preset, ps.committed)
+			}
+		})
 	}
 }
 
@@ -5411,18 +5510,24 @@ func TestMaterializePhase2DraftIsInertForEveryOtherKind(t *testing.T) {
 	}
 }
 
-// A System that derives ZERO activities must FAIL LOUDLY rather than stage an empty list.
-// Staging it would reproduce the very defect this seam exists to prevent — the empty plan
-// would just surface one phase later, at the SDP review, with nothing pointing back here.
+// A System that derives ZERO construction activities must FAIL LOUDLY rather than stage a
+// plan with nothing in it. Staging it would reproduce the very defect this seam exists to
+// prevent — the empty plan would just surface one phase later, at the SDP review, with
+// nothing pointing back here.
+//
+// The derivation itself is no longer silent on this input: an empty System still derives
+// the three design-prefix activities (a project before its architecture is committed still
+// owes the work that produces it), so the guard reads the COMPONENT count. What must not
+// happen is a Phase-2 plan staged against an architecture that says nothing.
 func TestMaterializePhase2DraftRefusesToStageAnEmptyDerivedPlan(t *testing.T) {
 	proj := projectstate.Project{}
 	proj.SystemDesign = committedSlot(&projectstate.System{})
 
 	_, err := materializePhase2Draft(proj, projectstate.KindActivityList, decodeArchivedEmptyActivityList(t))
 	if err == nil {
-		t.Fatal("a System deriving zero activities must be an error, not a silently staged empty list")
+		t.Fatal("a System deriving zero construction activities must be an error, not a silently staged empty plan")
 	}
-	if !strings.Contains(err.Error(), "ZERO activities") {
+	if !strings.Contains(err.Error(), "ZERO construction activities") {
 		t.Errorf("the error must say what went wrong, got %q", err.Error())
 	}
 }
@@ -5579,8 +5684,11 @@ func TestMaterializePhase2DraftKeepsAuthoredMilestoneNameAndPublic(t *testing.T)
 	if _, ok := gotByID["MX"]; ok {
 		t.Error("milestone MX is not produced by the derivation and must not be staged")
 	}
-	if m0 := gotByID["M0"]; len(m0.DependsOn) != 0 {
-		t.Errorf("M0 must keep an empty dependsOn (its predecessors are the design rail, not activities), got %v", m0.DependsOn)
+	// The fan-in is the DERIVATION's, never the draft's: the agent authored M0 dependsOn
+	// [C-agent-typed] and the derivation says [projectDesign] — the design prefix's third
+	// activity, which the SDP review ends.
+	if m0 := gotByID["M0"]; !reflect.DeepEqual(m0.DependsOn, []string{"projectDesign"}) {
+		t.Errorf("M0 dependsOn = %v, want the derived [projectDesign], not the draft's own fan-in", m0.DependsOn)
 	}
 }
 
@@ -6207,6 +6315,24 @@ func rewriteState(raw []byte, edit func(*projectstate.Project) error) ([]byte, [
 	if err != nil {
 		return nil, nil, err
 	}
+	// What the codec writes must survive its OWN round trip: encode, decode and encode
+	// again has to give the same bytes. A member that is a fixed point cannot mean
+	// anything other than what the document already meant — so a byte difference between
+	// the document and the codec's encoding of that member is the codec NORMALIZING a
+	// legacy form into the current one, not a rewrite that changes the datum. That is the
+	// second half of "this rewrite is safe"; the first is spliceMember's loss check
+	// (nothing the codec does not carry is dropped). One half no decoded comparison can
+	// see, one half no structural comparison can see. Checked PER MEMBER, not over the
+	// document: members no writer may touch (serviceContracts' raw $defs, slots 4-6)
+	// legitimately re-order under the codec, and they must not veto a slot rewrite.
+	reproj, err := decodeState(before)
+	if err != nil {
+		return nil, nil, fmt.Errorf("re-decode the codec's own encoding: %w", err)
+	}
+	stable, err := encodeCompact(reproj)
+	if err != nil {
+		return nil, nil, err
+	}
 	if err := edit(&proj); err != nil {
 		return nil, nil, err
 	}
@@ -6214,7 +6340,7 @@ func rewriteState(raw []byte, edit func(*projectstate.Project) error) ([]byte, [
 	if err != nil {
 		return nil, nil, err
 	}
-	spliced, changed, err := spliceMembers(body, before, after, "")
+	spliced, changed, err := spliceMembers(body, before, stable, after, "")
 	if err != nil {
 		return nil, nil, err
 	}
@@ -6310,12 +6436,16 @@ type stateMember struct {
 // differs takes the after encoding, or is dropped when after omits it. Slots are compared
 // one level down, so an edit to one slot rewrites that slot alone. It returns the path of
 // every member it rewrote.
-func spliceMembers(raw, before, after []byte, path string) ([]byte, []string, error) {
+func spliceMembers(raw, before, stable, after []byte, path string) ([]byte, []string, error) {
 	members, err := objectMembers(raw)
 	if err != nil {
 		return nil, nil, err
 	}
 	was, err := memberValues(before)
+	if err != nil {
+		return nil, nil, err
+	}
+	fixed, err := memberValues(stable)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -6329,7 +6459,7 @@ func spliceMembers(raw, before, after []byte, path string) ([]byte, []string, er
 	out := make([]stateMember, 0, len(members))
 	var changed []string
 	for _, m := range members {
-		kept, rewritten, err := spliceMember(m, was[m.key], now[m.key], memberPath(path, m.key))
+		kept, rewritten, err := spliceMember(m, was[m.key], fixed[m.key], now[m.key], memberPath(path, m.key))
 		if err != nil {
 			return nil, nil, err
 		}
@@ -6342,28 +6472,52 @@ func spliceMembers(raw, before, after []byte, path string) ([]byte, []string, er
 // spliceMember resolves one member for spliceMembers: kept holds zero or one member.
 //
 // A member the edit changes is replaced by its codec encoding, so the codec must carry
-// ALL of it: the document's bytes for that member have to BE its codec encoding before
-// the edit. Otherwise replacing it silently drops whatever the codec does not carry (an
+// ALL of it. Otherwise replacing it silently drops whatever the codec does not carry (an
 // unknown field, a value it cannot represent), and confirmSplice cannot see the loss —
 // it compares codec output with codec output. The committed document holds such members
 // today (slots 4-6, serviceContracts, testingState); no writer may change them.
-func spliceMember(m stateMember, was, now json.RawMessage, path string) (kept []stateMember, changed []string, err error) {
+//
+// "The codec carries all of it" is asked of projectstate.CodecCarriesEveryMember, which
+// names every member the encoding would DROP. It used to be asked as byte identity —
+// the member's document bytes had to BE its codec encoding — and that was the wrong
+// question, which is the defect this fixes (ruling 2026-09-22, found by the stage-2
+// slot-5 amendment). The codec NORMALIZES on decode: slots 9 and 10 of this repo's own
+// document carry a staleAck comment written before Status was derived and before the
+// Reopened/Replies members existed, so decoding rewrites "addressed" to "answered" and
+// fills the two members. Nothing is lost — but the bytes differ, so byte identity
+// refused, and NO derived-plan rewrite could land at all while the committed document
+// held a legacy form. Refusing the codec's own documented normalizer is not safety; the
+// normalized bytes landing in the splice IS the upgrade, and it is what we want.
+//
+// The complementary half — that what the codec writes decodes back to the same Project,
+// so a rewrite cannot change what the document MEANS — is asserted once per rewrite over
+// the whole document in rewriteState.
+func spliceMember(m stateMember, was, fixed, now json.RawMessage, path string) (kept []stateMember, changed []string, err error) {
 	switch {
 	case bytes.Equal(was, now):
 		return []stateMember{m}, nil, nil
 	case now == nil:
 		return nil, []string{path}, nil
 	case path == "slots":
-		value, changed, err := spliceMembers(m.value, was, now, path)
+		value, changed, err := spliceMembers(m.value, was, fixed, now, path)
 		if err != nil {
 			return nil, nil, err
 		}
 		return []stateMember{{key: m.key, value: value}}, changed, nil
-	case !bytes.Equal(m.value, was):
-		return nil, nil, fmt.Errorf("the edit changes %s, whose bytes in the document are not its codec encoding; the codec does not carry all of it, so rewriting it would silently drop the rest — refusing", path)
-	default:
-		return []stateMember{{key: m.key, value: now}}, []string{path}, nil
 	}
+	if !bytes.Equal(m.value, was) {
+		lost, lerr := projectstate.CodecCarriesEveryMember(m.value, was)
+		if lerr != nil {
+			return nil, nil, fmt.Errorf("compare %s with its codec encoding: %w", path, lerr)
+		}
+		if len(lost) > 0 {
+			return nil, nil, fmt.Errorf("the edit changes %s, and the codec does not carry %v; rewriting it would silently drop them — refusing", path, lost)
+		}
+		if !bytes.Equal(was, fixed) {
+			return nil, nil, fmt.Errorf("the edit changes %s, and the codec's encoding of it does not survive its own round trip; the rewrite would not be stable — refusing", path)
+		}
+	}
+	return []stateMember{{key: m.key, value: now}}, []string{path}, nil
 }
 
 // addedMember names a member the edit introduced that raw does not hold, or "".
@@ -6634,6 +6788,11 @@ func assertRefusedUntouched(t *testing.T, raw []byte, allowed map[string]bool, e
 // not carry would vanish from it without a trace — confirmSplice compares codec output
 // with codec output and cannot see the loss. Slot 11 is a member the reset may change;
 // an unknown field in it must stop the write, not be dropped.
+//
+// This is the case that survives the 2026-09-22 ruling: the guard stopped asking for byte
+// identity (which also refused the codec's own normalizer) and started asking what the
+// codec DROPS — so a genuinely foreign byte change is still refused, and now the refusal
+// names the member that would be lost.
 func TestRewriteStateFileRefusesToRewriteAMemberTheCodecDoesNotCarry(t *testing.T) {
 	var buf bytes.Buffer
 	if err := json.Compact(&buf, stateFixture(t, constructionResetFixture(t))); err != nil {
@@ -6648,7 +6807,8 @@ func TestRewriteStateFileRefusesToRewriteAMemberTheCodecDoesNotCarry(t *testing.
 	planted := bytes.Replace(compact, key, append(append([]byte{}, key...), []byte(`"extraUnknown":1,`)...), 1)
 	raw := reindentFixture(t, planted, "  ")
 
-	assertRefusedUntouched(t, raw, resetMembers(), resetConstructionState, "the edit changes "+slot+", whose bytes in the document are not its codec encoding")
+	assertRefusedUntouched(t, raw, resetMembers(), resetConstructionState,
+		"the edit changes "+slot+", and the codec does not carry [extraUnknown]")
 }
 
 // A document that is not in the canonical two-space indent is refused rather than

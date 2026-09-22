@@ -328,8 +328,8 @@ const prettierPrintWidth = 100
 // two further spaces, which is how prettier breaks an over-long property. Width is
 // measured in CHARACTERS, as prettier measures it, not bytes.
 //
-// Copied from cmd/gen-uiprofiles (two package mains cannot share a helper, and the
-// layering gate leaves no internal package to hold one); that copy dies in stage 2.
+// Originally copied from cmd/gen-uiprofiles, deleted in stage 2 (two package mains
+// cannot share a helper, and the layering gate leaves no internal package to hold one).
 func writeProp(b *strings.Builder, indent, key, literal string) {
 	line := indent + key + ": " + literal + ","
 	if utf8.RuneCountInString(line) <= prettierPrintWidth {

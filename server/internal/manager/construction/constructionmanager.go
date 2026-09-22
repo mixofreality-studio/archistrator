@@ -800,7 +800,7 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 			"activity %s (workerClass %q, coding=%v) matches no activity-classification rule, so it has no lifecycle — amend workerClass or coding in the committed activity list",
 			id, item.WorkerClass, item.Coding))
 	}
-	key := lifecycleTypeKey(typ, variant)
+	key := projectstate.LifecycleKeyFor(typ, variant)
 	lc, ok := methodassets.LifecycleFor(key)
 	if !ok {
 		return ActivityView{}, newError(fwm.Infrastructure, "the platform's method assets carry no lifecycle for activity type "+key)
@@ -1004,9 +1004,10 @@ func sessionStageName(s ConstructionStage) string {
 // full) while PRESERVING the committed GatedPhasesByType map (UpdateReviewPolicy's
 // surface — the two ops write disjoint halves of the same ReviewPolicy).
 //
-// The preset is validated HERE, at the write path: EffectiveGate's read path
-// deliberately treats an unrecognized preset as the legacy explicit-map fallback,
-// and with an empty map that gates NOTHING — the documented fail-open corner. A
+// The preset is validated HERE, at the write path: the reviewEngine's read path
+// (ProposeReviews, keyed off this policy's Preset) deliberately treats an
+// unrecognized preset as the legacy explicit-map fallback, and with an empty map
+// that gates NOTHING — the documented fail-open corner. A
 // closed write vocabulary (rejecting unknowns as ContractMisuse) is what keeps a
 // typo'd preset from silently degrading a project to "gate nothing".
 func (m *constructionManager) SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error {
@@ -1292,8 +1293,9 @@ func validatePhaseDecision(phase string, decision PhaseDecision) error {
 // activityTypeName returns the canonical activity-type wire name
 // ("service"/"frontend"/"testing"/…) for the activity's STAMPED type. These are the
 // exact keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the
-// webApp PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(),
-// phase). It reads the stamped Type rather than re-deriving from the id: re-deriving
+// webApp PolicyPanel must emit) — the gate consults the reviewEngine's
+// ProposeReviews(activityTypeName(), phase, …), reading its RequiresHuman
+// verdict. It reads the stamped Type rather than re-deriving from the id: re-deriving
 // would let the gate map be keyed by a different type than the phases being walked.
 func (a constructionActivity) activityTypeName() string {
 	return a.Type.String()
@@ -1357,6 +1359,11 @@ type pumpSelection struct {
 	BlockedActivityID    string
 	BlockedReason        string
 	BlockedFailureReason projectstate.FailureReason
+	// SkippedDesign names every design activity the scan walked past this tick. A design
+	// activity is eligible work the CONSTRUCTION pump does not do (stage 4's
+	// DeliveryManager does), so it is reported, never blocked — it rides every verdict,
+	// including a dispatch of some later activity.
+	SkippedDesign []string
 }
 
 // eligibilityRule is which activities the pump's selection may pick. It is chosen by the
@@ -1435,9 +1442,18 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	// exactly the failure mode this change closes for milestone dependencies.
 	var problemActivityID, problemReason string
 	var problemKind projectstate.FailureReason
+	// skippedDesign collects the design activities walked past below. The skip is
+	// deliberately ahead of the dependency check: a design activity is not this pump's
+	// work whatever its dependencies say, so the report names every unfinished one, not
+	// only the one whose turn it happened to be.
+	var skippedDesign []string
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !eligibleUnder(rule, name, item, proj.ActivityConstruction) {
+			continue
+		}
+		if isDesignActivity(name, item) {
+			skippedDesign = append(skippedDesign, name)
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
@@ -1461,9 +1477,10 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 				BlockedReason: fmt.Sprintf(
 					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
 					problemActivityID, problemReason),
+				SkippedDesign: skippedDesign,
 			}
 		}
-		return pumpSelection{Verdict: verdictQuiescent}
+		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: skippedDesign}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -1473,7 +1490,20 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	})
 
 	chosen := candidates[0].activity
-	return dispatchSelectionFor(proj, chosen, itemByName[chosen])
+	sel := dispatchSelectionFor(proj, chosen, itemByName[chosen])
+	// The scan's skips ride whatever verdict the chosen activity produced: a tick that
+	// dispatched something else still reports the design work it walked past.
+	sel.SkippedDesign = append(skippedDesign, sel.SkippedDesign...)
+	return sel
+}
+
+// isDesignActivity reports whether the construction pump must walk past this activity:
+// ClassifyActivity types it but refuses it for dispatch, because running a design
+// lifecycle's slash-command as a construction pipeline is the N-ENV defect in a new
+// costume (08-30 S2 ruling). Stage 4's DeliveryManager is what dispatches these.
+func isDesignActivity(name string, item projectstate.ActivityItem) bool {
+	_, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
+	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
 }
 
 // dispatchSelectionFor resolves the CHOSEN activity into its dispatchable selection:
@@ -1508,6 +1538,14 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
 	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
+	// A design activity is CLASSIFIED and still refused: the scan above already walks
+	// past it, so reaching here means some other path chose it, and going quiet is the
+	// only safe answer. NEVER verdictBlocked — that writes RecordActivityFailed, which
+	// is sticky and has no reopen path, so blocking here would terminally fail the very
+	// activity stage 4 exists to run.
+	if errors.Is(cerr, projectstate.ErrDesignActivityNotDispatchable) {
+		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: []string{chosen}}
+	}
 	if cerr != nil {
 		return pumpSelection{
 			Verdict:              verdictBlocked,
@@ -1953,8 +1991,9 @@ type constructState struct {
 	// floorTouched is the Task 7 non-overridable-floor snapshot: whether the
 	// activity's committed contract (start-snapshot, B5-style — never re-read
 	// mid-loop) touches deploy/spend/schema (projectstate.ContractTouchesReviewFloor).
-	// Consulted by runPhaseGate via ReviewPolicy.EffectiveGate to force a human gate
-	// at MethodPhaseConstruction regardless of preset, including "vibes".
+	// Consulted by runPhaseGate via the reviewEngine's ProposeReviews (this is the
+	// floor flag it passes) to force a human gate at MethodPhaseConstruction
+	// regardless of preset, including "vibes".
 	floorTouched bool
 
 	// mergeCompleted is the LIVE in-memory skip-guard for the local merge step
@@ -3089,15 +3128,6 @@ func committedActivityItem(proj projectstate.Project, id string) (projectstate.A
 		}
 	}
 	return projectstate.ActivityItem{}, false
-}
-
-// lifecycleTypeKey is the method-assets lifecycle key: the activity type's wire name,
-// and "testing:<variant wire name>" for a testing activity (partAB decision D2).
-func lifecycleTypeKey(t projectstate.ActivityType, v projectstate.TestingVariant) string {
-	if t == projectstate.ActivityTypeTesting {
-		return t.String() + ":" + v.String()
-	}
-	return t.String()
 }
 
 // liveSessionFor asks the activity's session only while its row is Running: a

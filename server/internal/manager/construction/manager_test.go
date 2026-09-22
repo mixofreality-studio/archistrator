@@ -946,8 +946,8 @@ func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projec
 // TestUpdateReviewPolicy asserts that UpdateReviewPolicy maps the ReviewPolicyInput
 // through projectstate.ReviewPolicyFromGateIDs and calls RecordReviewPolicy with the
 // resulting typed ReviewPolicy. The ad-hoc gate id "svc-contract" maps to
-// MethodPhaseDetailedDesign for the "service" activity type; after the call,
-// RequiresHuman("service", MethodPhaseDetailedDesign) must be true on the persisted policy.
+// MethodPhaseDetailedDesign for the "service" activity type; after the call, the
+// persisted document must list that phase under "service".
 func TestUpdateReviewPolicy(t *testing.T) {
 	fake := &fakeReviewPolicyTransition{version: 7}
 	// The version read moved to the base projectStateAccess port (constructionTransitionAccess.ReadProject
@@ -972,8 +972,8 @@ func TestUpdateReviewPolicy(t *testing.T) {
 	}
 	// "svc-contract" is the ad-hoc gate id that maps to MethodPhaseDetailedDesign
 	// via projectstate.gateIDToPhase; ReviewPolicyFromGateIDs must translate it.
-	if !fake.lastPolicy.RequiresHuman("service", projectstate.MethodPhaseDetailedDesign) {
-		t.Fatalf("expected service/detailed_design to require human, got policy=%+v", fake.lastPolicy)
+	if !slices.Contains(fake.lastPolicy.GatedPhasesByType["service"], projectstate.MethodPhaseDetailedDesign) {
+		t.Fatalf("expected service/detailed_design to be gated, got policy=%+v", fake.lastPolicy)
 	}
 }
 
@@ -1596,6 +1596,109 @@ func projWithActivities(acts []projectstate.ActivityItem, deps []projectstate.Ne
 	}
 }
 
+// planWithDesignPrefix is the derived plan's fixed design prefix exactly as DerivePlan
+// emits it (Task 9): requirements → architecture → projectDesign, each authored
+// system-architect/coding=false and componentless, with no construction row against any
+// of them. It is the fixture for BOTH sides of this rule — the pump that must walk past
+// them and the read that must serve them — because they are the same three rows.
+func planWithDesignPrefix() projectstate.Project {
+	return projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "requirements", Title: "Requirements", WorkerClass: "system-architect"},
+			{Name: "architecture", Title: "Architecture & Call Chains", WorkerClass: "system-architect"},
+			{Name: "projectDesign", Title: "Project Design (SDP Review · M0)", WorkerClass: "system-architect"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "architecture", DependsOn: []string{"requirements"}},
+			{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+		},
+	)
+}
+
+// The pump walks past a design activity and says so. It must NOT block it: blocking
+// records a sticky RecordActivityFailed with no reopen path, which would poison the
+// activity stage 4 is built to run.
+func Test_NextEligible_SkipsDesignActivitiesWithoutBlockingThem(t *testing.T) {
+	proj := planWithDesignPrefix() // requirements/architecture/projectDesign not started
+	sel := nextEligibleActivity(proj, eligibleNotStarted)
+	if sel.Verdict == verdictBlocked {
+		t.Fatalf("a design activity must never be blocked: %+v", sel)
+	}
+	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture", "projectDesign"}) {
+		t.Errorf("skipped = %v, want every design activity named", sel.SkippedDesign)
+	}
+	if sel.Verdict != verdictQuiescent {
+		t.Errorf("with only design work eligible the pump is quiescent, got %+v", sel)
+	}
+}
+
+// Defense in depth: if a design activity somehow reaches the dispatch resolver, it goes
+// quiet rather than blocking or dispatching.
+func Test_DispatchSelectionFor_DesignActivityGoesQuiet(t *testing.T) {
+	sel := dispatchSelectionFor(planWithDesignPrefix(), "architecture",
+		projectstate.ActivityItem{Name: "architecture", WorkerClass: "system-architect"})
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("got %+v, want quiescent", sel)
+	}
+}
+
+// M0 ON THE SHAPE THE DERIVED PLAN ACTUALLY HAS (Task 9 + 10). A milestone never carries
+// a Done record of its own, so M0 is satisfied only DERIVEDLY — every activity it depends
+// on is Done — and since Task 9 that is projectDesign, whose ENTIRE lifecycle is one gate
+// task (the sdp phase has no dispatch task at all, so the backfill writes a single passed
+// sdpReview attempt and nothing else).
+//
+// That makes a long, silent chain load-bearing for the whole project: one attempt →
+// phaseCompleteFromAttempts → projectDesign reads Done → M0 satisfied → every construction
+// activity behind M0 is eligible. Break any link and the pump does not fail; it goes
+// QUIESCENT, and a project with 29 activities to build looks finished. So the chain is
+// pinned end to end here, and pinned NEGATIVELY too, so the assertion cannot pass for some
+// reason other than the attempt.
+func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T) {
+	plan := func() projectstate.Project {
+		proj := planWithDesignPrefix()
+		list, _ := proj.ActivityList.Model.(*projectstate.ActivityList)
+		list.Activities = append(list.Activities, projectstate.ActivityItem{
+			Name: "C-TLM", Title: "TodoListManager", WorkerClass: "junior-developer",
+			Coding: true, ComponentID: "todo-list-manager",
+		})
+		proj.Network = makeCommittedNetworkWithMilestones(
+			[]projectstate.NetworkDependency{
+				{Activity: "architecture", DependsOn: []string{"requirements"}},
+				{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+				{Activity: "C-TLM", DependsOn: []string{"M0"}},
+			},
+			[]projectstate.NetworkMilestone{
+				{ID: "M0", Name: "SDP Review Approved", Public: true, DependsOn: []string{"projectDesign"}},
+			},
+		)
+		return proj
+	}
+
+	// The backfilled row, exactly as cmd/backfill-attempts writes it: the gate attempt
+	// alone, no stored Phase and no stored Phases.
+	done := plan()
+	done.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+		"projectDesign": {ActivityID: "projectDesign", Attempts: []projectstate.TaskAttempt{
+			ledgerAttempt("projectDesign", projectstate.GateTaskFor("sdp"), 1, projectstate.OutcomePassed),
+		}},
+	}
+	sel := nextEligibleActivity(done, eligibleDispatchable)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "C-TLM" {
+		t.Fatalf("want C-TLM dispatched behind a satisfied M0, got %+v", sel)
+	}
+	// The design activities were walked past on the same tick, not blocked, not dispatched.
+	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture"}) {
+		t.Errorf("skipped = %v, want the two design activities still not started", sel.SkippedDesign)
+	}
+
+	// Without that one attempt M0 is unsatisfied and the pump has nothing to do — which is
+	// what proves the dispatch above came from the ledger and not from somewhere else.
+	if sel := nextEligibleActivity(plan(), eligibleDispatchable); sel.Verdict != verdictQuiescent {
+		t.Fatalf("with projectDesign unfinished the pump must be quiescent, got %+v", sel)
+	}
+}
+
 // The regression the whole change exists for: a fresh project with NO service
 // contracts must still dispatch its first coding activity.
 func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
@@ -1783,15 +1886,14 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 }
 
 // passedLedger is the attempt ledger cmd/backfill-attempts writes for an activity: one
-// passed attempt per non-conditional task of the given phases, origin backfilled, with a
+// passed attempt per lifecycle node task (work, then gate), origin backfilled, with a
 // basis. The row it goes on carries NO stored phase fields — that is the backfill's shape.
 func passedLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
 	for _, ph := range phases {
-		for _, task := range projectstate.TasksForPhase(ph) {
-			if projectstate.IsConditionalTask(task) {
-				continue
-			}
+		for _, task := range []projectstate.MethodTask{
+			projectstate.AgentTaskFor(ph), projectstate.GateTaskFor(ph),
+		} {
 			out = append(out, ledgerAttempt(activityID, task, 1, projectstate.OutcomePassed))
 		}
 	}
@@ -2979,29 +3081,48 @@ func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ interven
 
 var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 
-// fakeReview returns a scripted reviewer set — but only for a call the REAL engine
-// accepts. It used to accept anything, which is how the Manager passed a lifecycle
-// phase's wire name as the artifact kind for months with every test green. Satisfies
-// the PUBLISHED review.ReviewEngine directly (Task 6 — no Manager-local seam). The
-// scripted `set` is the ENGINE's own review.ReviewSet — reviewSetFromEngine
-// (adapters.go) bridges it onto the façade ReviewSet the same way production does.
-// kinds records each artifactKind the Manager passed, in call order; err, when set, is
-// returned instead (the engine-refusal path).
+// fakeReview returns a scripted answer — but only for a call the REAL engine accepts.
+// It used to accept anything, which is how the Manager passed a lifecycle phase's wire
+// name as the artifact kind for months with every test green. Satisfies the PUBLISHED
+// review.ReviewEngine directly (no Manager-local seam). The scripted `set` is the
+// ENGINE's own review.ReviewSet — reviewSetFromEngine (adapters.go) bridges it onto the
+// façade ReviewSet the same way production does. calls records what the Manager passed,
+// in call order; err, when set, is returned instead (the engine-refusal path).
+//
+// Validating through the real engine first is exactly the guard that catches a Manager
+// passing an activity type or a lifecycle phase the engine does not know.
 type fakeReview struct {
 	set   review.ReviewSet
 	err   error
-	kinds []review.ReviewArtifactKind
+	calls []fakeReviewCall
 }
 
-func (r *fakeReview) ProposeReviews(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind review.ReviewArtifactKind, graph string, contracts []string) (review.ReviewSet, error) {
-	r.kinds = append(r.kinds, artifactKind)
-	if _, err := review.NewReviewEngine().ProposeReviews(rc, change, componentID, artifactKind, graph, contracts); err != nil {
+type fakeReviewCall struct {
+	activityType   review.ActivityType
+	lifecyclePhase string
+	floorTouched   bool
+	policy         review.ReviewPolicy
+}
+
+func (r *fakeReview) ProposeReviews(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType,
+	lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string,
+) (review.ReviewSet, error) {
+	r.calls = append(r.calls, fakeReviewCall{activityType, lifecyclePhase, floorTouched, policy})
+	answer, err := review.NewReviewEngine().ProposeReviews(rc, change, activityType, lifecyclePhase, componentID,
+		policy, floorTouched, contracts)
+	if err != nil {
 		return review.ReviewSet{}, fmt.Errorf("fakeReview: the real engine refuses this call: %w", err)
 	}
 	if r.err != nil {
 		return review.ReviewSet{}, r.err
 	}
-	return r.set, nil
+	// The GATE VERDICT is always the real engine's: it is the project's committed
+	// policy, and a fake that scripted it would let a Manager-side gate regression pass.
+	// Only the ROSTER is scriptable, and only when a test says so.
+	if r.set.Reviewers != nil {
+		answer.Reviewers = r.set.Reviewers
+	}
+	return answer, nil
 }
 
 var _ review.ReviewEngine = (*fakeReview)(nil)
@@ -5418,6 +5539,12 @@ func vibesPreset() projectstate.ReviewPolicy {
 	return projectstate.ReviewPolicy{Preset: &p}
 }
 
+// fullPreset builds a ReviewPolicy with the "full" preset (every phase gated).
+func fullPreset() projectstate.ReviewPolicy {
+	p := projectstate.ReviewPresetFull
+	return projectstate.ReviewPolicy{Preset: &p}
+}
+
 // deployTouchingContract builds a ServiceContract whose Interface carries a
 // deploy-shaped operation — trips ContractTouchesReviewFloor.
 func deployTouchingContract() projectstate.ServiceContract {
@@ -7588,73 +7715,118 @@ func Test_SessionView_PhaseGate_CarriesTheReviewerSet(t *testing.T) {
 	}
 }
 
-// Every (type, variant, profile phase) the pump can dispatch — with and without a
-// component — gets reviewers from the REAL engine. This is the totality proof: no gate
-// can lose its reviewer set to the Manager's argument again.
-func Test_ReviewArtifactKindFor_IsTotalOverEveryDispatchablePhase(t *testing.T) {
-	types := []projectstate.ActivityType{
-		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend, projectstate.ActivityTypeTesting,
-		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation,
-		projectstate.ActivityTypeUIDesign, projectstate.ActivityTypeIntegration,
-	}
-	variants := []projectstate.TestingVariant{
-		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,
-		projectstate.TestVariantSystemTest, projectstate.TestVariantQAProcess,
-	}
-	eng := review.NewReviewEngine()
-	for _, typ := range types {
-		for _, v := range variants {
-			for _, p := range projectstate.ProfileFor(typ, v).PhaseIDs() {
-				for _, componentID := range []string{"comp-1", ""} {
-					act := constructionActivity{ActivityID: "A", Type: typ, Variant: v, ComponentID: componentID}
-					kind := reviewArtifactKindFor(act, p)
-					set, err := eng.ProposeReviews(fweng.Context{}, review.ReviewChange{ActivityID: "A", ComponentID: componentID}, componentID, kind, "", nil)
-					if err != nil || len(set.Reviewers) == 0 {
-						t.Errorf("%s/%s/%s component=%q → %s: reviewers=%v err=%v", typ, v, p, componentID, kind, set.Reviewers, err)
-					}
-				}
-			}
-		}
-	}
-}
+// The (activity type, lifecycle phase) -> review kind table MOVED into the reviewEngine
+// when ProposeReviews took the activity type (spec 2026-09-20 §5.4, stage 2). Its two
+// tests — the totality proof over every dispatchable cell and the hand-checkable rows —
+// live in internal/engine/review/engine_test.go now
+// (Test_ProposeReviews_IsTotalOverEveryTypeAndPhase, Test_ProposeReviews_PerKind).
+// What the Manager still owes is below: that it hands the engine the activity's TYPE
+// and the phase's wire name, and that it obeys the verdict it gets back.
 
-// The rows a reader would check by hand.
-func Test_ReviewArtifactKindFor_PinnedRows(t *testing.T) {
-	svc := constructionActivity{Type: projectstate.ActivityTypeService, ComponentID: "c"}
-	spa := constructionActivity{Type: projectstate.ActivityTypeFrontend, ComponentID: "web-client"}
-	ui := constructionActivity{Type: projectstate.ActivityTypeUIDesign, ComponentID: "web-client"}
-	res := constructionActivity{Type: projectstate.ActivityTypeDeployment, ComponentID: "github"}
-	stp := constructionActivity{Type: projectstate.ActivityTypeTesting, Variant: projectstate.TestVariantPlan}
-	bare := constructionActivity{Type: projectstate.ActivityTypeService} // nonstructural: no component
-	cases := []struct {
-		name string
-		act  constructionActivity
-		p    projectstate.ActivityMethodPhase
-		want review.ReviewArtifactKind
+// The Manager asks the engine ONCE per gate and obeys its RequiresHuman. Under vibes
+// the gate does not suspend; with the floor touched at construction it does, whatever
+// the preset says; under "full" it suspends at the very first phase. This is the same
+// behaviour the retired ReviewPolicy.EffectiveGate gave, now decided in one place —
+// the REAL engine is wired here, so a drift in the engine's table fails this test.
+func Test_PhaseGate_ObeysTheEnginesRequiresHuman(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		policy   projectstate.ReviewPolicy
+		floor    bool
+		suspends bool
 	}{
-		{"service requirements", svc, projectstate.MethodPhaseRequirements, review.ReviewKindNoncoding},
-		{"service detailed design", svc, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
-		{"service test plan", svc, projectstate.MethodPhaseTestPlan, review.ReviewKindNoncoding},
-		{"service construction", svc, projectstate.MethodPhaseConstruction, review.ReviewKindConstruction},
-		{"service integration", svc, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-		{"frontend design", spa, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
-		{"frontend construction", spa, projectstate.MethodPhaseConstruction, review.ReviewKindUICode},
-		{"uiDesign concept", ui, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
-		{"deployment spec", res, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
-		{"deployment convergence", res, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-		{"N-STP plan review", stp, projectstate.MethodPhaseIntegration, review.ReviewKindNoncoding},
-		{"no component: design degrades", bare, projectstate.MethodPhaseDetailedDesign, review.ReviewKindNoncoding},
-		{"no component: integration stands", bare, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-	}
-	for _, c := range cases {
-		if got := reviewArtifactKindFor(c.act, c.p); got != c.want {
-			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
-		}
+		{"vibes walks through", vibesPreset(), false, false},
+		{"vibes stops at a floor-touching construction dispatch", vibesPreset(), true, true},
+		{"full stops at the first phase", fullPreset(), false, true},
+		{"the legacy empty policy walks through", projectstate.ReviewPolicy{}, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			ps := newFakeProjectStateWithPolicy(c.policy)
+			if c.floor {
+				ps.project.ServiceContracts = map[string]projectstate.ServiceContract{"comp-1": deployTouchingContract()}
+			}
+			deps := gateDeps(ps)
+			deps.Review = review.NewReviewEngine()
+			registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+			// Deliberately NO signal: a gate that opens can only stay open.
+			b12Run(env)
+			// The floor guards the CONSTRUCTION dispatch only, so the phases before it
+			// still complete; "full" gates from requirements onwards.
+			firstGated := "construction"
+			if !c.floor {
+				firstGated = "requirements"
+			}
+			if got := ps.phaseCompleted("C-Orders", firstGated); got == c.suspends {
+				t.Fatalf("%s: phase %q completed=%v with no approval signal, want completed=%v",
+					c.name, firstGated, got, !c.suspends)
+			}
+		})
 	}
 }
 
-// An engine refusal is shown on the view and the gate still works.
-func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) {
+// The Manager passes the activity's TYPE and the lifecycle phase's wire name — never a
+// kind it computed itself — plus the floor flag and the stored policy document.
+func Test_PhaseGate_PassesTypeAndPhaseToTheEngine(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	fake := &fakeReview{set: review.ReviewSet{
+		Reviewers: []review.Reviewer{{Role: "architect", Perspective: "architecture", ReferenceArtifact: "architecture"}},
+	}}
+	deps := gateDeps(ps)
+	deps.Review = fake
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(fake.calls) == 0 {
+		t.Fatal("the engine was never asked")
+	}
+	for i, want := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
+		if i >= len(fake.calls) {
+			t.Fatalf("the engine was asked %d times, want one call per phase: %+v", len(fake.calls), fake.calls)
+		}
+		if fake.calls[i].activityType != review.ActivityTypeService || fake.calls[i].lifecyclePhase != want {
+			t.Fatalf("call %d: the engine was asked with %+v, want (service, %q)", i, fake.calls[i], want)
+		}
+		if fake.calls[i].floorTouched {
+			t.Errorf("call %d: no contract is committed, so the floor must read false", i)
+		}
+	}
+	// The stored document reaches the engine intact: the legacy gate map, re-keyed.
+	if got := fake.calls[0].policy.GatedPhasesByType["service"]; !slices.Equal(got, []string{"detailed_design"}) {
+		t.Errorf("the engine got gatedPhasesByType[service] = %v, want the stored document", got)
+	}
+}
+
+// The engine's copy of the policy document must not drift from the stored one.
+func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
+	preset := projectstate.ReviewPresetCheckpoints
+	in := projectstate.ReviewPolicy{Preset: &preset, GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseIntegration}}}
+	got := engineReviewPolicy(in)
+	if got.Preset != projectstate.ReviewPresetCheckpoints {
+		t.Errorf("preset = %q", got.Preset)
+	}
+	if !slices.Equal(got.GatedPhasesByType["service"], []string{"detailed_design", "integration"}) {
+		t.Errorf("gated phases = %v", got.GatedPhasesByType["service"])
+	}
+	if engineReviewPolicy(projectstate.ReviewPolicy{}).Preset != "" {
+		t.Error("a nil preset must read as the legacy/explicit mode, not panic")
+	}
+}
+
+// An engine refusal is LOUD but never costly: it is logged and shown (reviewSetError)
+// and the gate OPENS rather than failing the activity or holding it without a roster.
+// Failing closed would gate phases that run ungated today — before the engine owned the
+// gate verdict a refusal could not reach the decision at all — and stage 2 is not
+// allowed to make that behaviour change. No approval signal is registered here: the
+// activity must finish on its own.
+func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndOpensTheGate(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
@@ -7662,25 +7834,24 @@ func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) 
 	fr := &fakeReview{err: errors.New("policy produced an empty reviewer set")}
 	deps.Review = fr
 	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
-	var atGate ConstructionSessionView
-	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
-	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
 	b12Run(env)
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("an engine refusal must not fail the activity: %v", err)
 	}
-	if atGate.Stage != StageAwaitingApproval || atGate.ReviewSet != nil {
-		t.Fatalf("stage=%v reviewSet=%+v, want awaitingApproval with no set", atGate.Stage, atGate.ReviewSet)
+	for _, phase := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
+		if !ps.phaseCompleted("C-Orders", phase) {
+			t.Fatalf("a refusal must open the gate, but %s never completed", phase)
+		}
 	}
-	if atGate.ReviewSetError == nil || !strings.Contains(*atGate.ReviewSetError, "empty reviewer set") {
-		t.Fatalf("reviewSetError = %v, want the engine's reason", atGate.ReviewSetError)
+	done := b12View(t, env)
+	if done.ReviewSetError == nil || !strings.Contains(*done.ReviewSetError, "empty reviewer set") {
+		t.Fatalf("reviewSetError = %v, want the engine's reason on the view", done.ReviewSetError)
 	}
-	if len(fr.kinds) == 0 || fr.kinds[0] != review.ReviewKindDetailedDesign {
-		t.Fatalf("the Manager asked for kinds %v, want the detailed_design gate to ask for %s", fr.kinds, review.ReviewKindDetailedDesign)
+	if done.ReviewSet != nil {
+		t.Fatalf("a refusal leaves no roster, got %+v", done.ReviewSet)
 	}
-	// I1: the refusal is the closed occurrence's, and goes with it.
-	if done := b12View(t, env); done.ReviewSetError != nil {
-		t.Fatalf("the decision must clear the refusal, got reviewSetError=%v", *done.ReviewSetError)
+	if len(fr.calls) == 0 || fr.calls[0].activityType != review.ActivityTypeService || fr.calls[0].lifecyclePhase != "requirements" {
+		t.Fatalf("the Manager asked with %+v, want the first phase of a service activity", fr.calls)
 	}
 }
 
@@ -9593,14 +9764,34 @@ func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
 	}
 }
 
-// An id the committed plan does not hold is NotFound — which is also the answer for the
-// requirements, architecture and projectDesign activities until stage 2 makes them real.
+// An id the committed plan does not hold is NotFound. Stage 0 also listed the three
+// design ids here, because the derived plan did not hold them yet; stage 2 puts them in
+// it, so they are served (TestQueryActivityView_ServesTheDesignPrefix) rather than 404'd.
 func TestQueryActivityView_UnknownActivityIsNotFound(t *testing.T) {
 	m := avManager(nil, ledgerChain(), &fakeEpisodes{})
-	for _, id := range []string{"C-nope", "requirements", "architecture", "projectDesign"} {
+	for _, id := range []string{"C-nope"} {
 		_, err := m.QueryActivityView(testCtx(), "p", ActivityID(id))
 		if e := asConstructionError(t, err); e.Kind != fwmanager.NotFound || !strings.Contains(e.Detail, id) {
 			t.Fatalf("%s: want NotFound naming it, got %s %q", id, e.Kind, e.Detail)
+		}
+	}
+}
+
+// Stage 0 returned NotFound for these three because they were not activities yet. They
+// are now, and each one serves its method-assets lifecycle.
+func TestQueryActivityView_ServesTheDesignPrefix(t *testing.T) {
+	want := map[string]struct{ phases, tasks int }{
+		"requirements":  {4, 8},
+		"architecture":  {1, 2},
+		"projectDesign": {1, 1},
+	}
+	for id, w := range want {
+		v, err := avManager(nil, planWithDesignPrefix(), &fakeEpisodes{}).QueryActivityView(testCtx(), "p", ActivityID(id))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if v.Type != id || len(v.Phases) != w.phases || len(v.Tasks) != w.tasks {
+			t.Errorf("%s: type=%s phases=%d tasks=%d, want %s/%d/%d", id, v.Type, len(v.Phases), len(v.Tasks), id, w.phases, w.tasks)
 		}
 	}
 }
@@ -9786,35 +9977,31 @@ func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
 	}
 }
 
-// The lifecycle key rule, over EVERY activity type and testing variant, and every key
-// resolves in the pinned method-assets. A stray variant on a non-testing type is ignored
-// (the zero variant is what every non-testing activity carries).
-func TestLifecycleTypeKey_CoversEveryTypeAndVariant(t *testing.T) {
-	cases := []struct {
+// QueryActivityView looks the activity's lifecycle up by projectstate.LifecycleKeyFor;
+// the key RULE is pinned in projectstate (TestLifecycleKeyFor_CoversEveryTypeAndVariant).
+// What is the Manager's business is that the pinned method-assets answers for every key
+// this Manager can build — an unresolvable key surfaces as an Infrastructure error at a
+// read the Activity Experience makes on every poll.
+func TestQueryActivityView_EveryLifecycleKeyResolvesInThePinnedAssets(t *testing.T) {
+	for _, c := range []struct {
 		typ     projectstate.ActivityType
 		variant projectstate.TestingVariant
-		want    string
 	}{
-		{projectstate.ActivityTypeService, projectstate.TestVariantPlan, "service"},
-		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan, "frontend"},
-		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan, "deployment"},
-		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan, "documentation"},
-		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan, "uiDesign"},
-		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan, "integration"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan, "testing:plan"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness, "testing:harness"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf, "testing:perf"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest, "testing:systemTest"},
-		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess, "testing:qaProcess"},
-		{projectstate.ActivityTypeService, projectstate.TestVariantHarness, "service"},
-	}
-	for _, c := range cases {
-		got := lifecycleTypeKey(c.typ, c.variant)
-		if got != c.want {
-			t.Errorf("lifecycleTypeKey(%s, %s) = %q, want %q", c.typ, c.variant, got, c.want)
-		}
-		if _, ok := methodassets.LifecycleFor(got); !ok {
-			t.Errorf("method-assets has no lifecycle for key %q", got)
+		{projectstate.ActivityTypeService, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeFrontend, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeDeployment, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeDocumentation, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeUIDesign, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeIntegration, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPlan},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantHarness},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantPerf},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantSystemTest},
+		{projectstate.ActivityTypeTesting, projectstate.TestVariantQAProcess},
+	} {
+		key := projectstate.LifecycleKeyFor(c.typ, c.variant)
+		if _, ok := methodassets.LifecycleFor(key); !ok {
+			t.Errorf("method-assets has no lifecycle for key %q", key)
 		}
 	}
 }
