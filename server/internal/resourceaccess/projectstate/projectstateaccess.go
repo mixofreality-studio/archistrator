@@ -605,9 +605,10 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		// with approvedBy "policy:vibes", so the architect's approval, which is the
 		// Method's commit authority, was never asked for.
 		//
-		// Nil is behavior-IDENTICAL to vibes for CONSTRUCTION (EffectiveGate's default
-		// arm is RequiresHuman over an empty map — ungated, with the non-overridable
-		// deploy/spend/schema floor unchanged), and it restores the DESIGN gate. The
+		// Nil is behavior-IDENTICAL to vibes for CONSTRUCTION (the reviewEngine's
+		// legacy-preset arm looks the phase up in an empty map — ungated, with the
+		// non-overridable deploy/spend/schema floor unchanged), and it restores the
+		// DESIGN gate, which that same engine now decides for both rails. The
 		// local-first funnel's "vibes by default" is scoped to LOCAL mode (the plan's
 		// Task 7 is titled "Review-policy floor for local mode"), so it belongs to
 		// `archistrator init`'s scaffold — not to this one code path, which first
@@ -9112,6 +9113,88 @@ func appendReviewComments(thread []ReviewComment, round int64, comments []Review
 	return thread
 }
 
+// CodecCarriesEveryMember reports which JSON members, if any, the project codec would
+// DROP by rewriting stored as encoded — where encoded is the codec's own encoding of the
+// value stored decoded to. It returns the sorted dot/index path of every member present
+// in stored at any depth that encoded no longer holds; an empty result means the codec
+// carries all of it.
+//
+// It exists because a writer that re-materializes part of the committed document
+// (`make derived-plan-write`) has to answer one question before it replaces a member's
+// bytes with the codec's: does the codec carry everything that member held? Byte
+// identity is the wrong test for that. The codec NORMALIZES on decode — normalizeReviewThread
+// below rewrites a legacy comment Status into the form the current vocabulary derives and
+// fills the members a pre-Reopened/Replies document omitted — so a member that
+// round-trips perfectly WELL can still differ byte-for-byte, and a writer that demanded
+// byte identity would refuse to land the codec's own documented upgrade. Refusing the
+// codec's normalizer is not safety; it is a writer that can never again rewrite a member
+// the vocabulary has moved past.
+//
+// What is genuinely unsafe is LOSS: a member the codec does not carry (an unknown field,
+// a value it cannot represent) vanishes from the encoding without a trace, and a
+// comparison of decoded values cannot see it — what the model never held, it cannot miss.
+// That is exactly what this reports, and it is the half no equality check can supply.
+// (The complementary half — that the codec's encoding decodes back to the same Project —
+// the caller asserts over the whole document.)
+//
+// Structural, and deliberately NOT a list of the normalizations the codec performs today:
+// it asks the general question every one of them answers the same way.
+func CodecCarriesEveryMember(stored, encoded json.RawMessage) ([]string, error) {
+	var storedValue, encodedValue any
+	if err := json.Unmarshal(stored, &storedValue); err != nil {
+		return nil, fmt.Errorf("read the stored member: %w", err)
+	}
+	if err := json.Unmarshal(encoded, &encodedValue); err != nil {
+		return nil, fmt.Errorf("read the encoded member: %w", err)
+	}
+	var lost []string
+	collectDroppedMembers(storedValue, encodedValue, "", &lost)
+	slices.Sort(lost)
+	return lost, nil
+}
+
+// collectDroppedMembers walks stored and encoded in step, appending the path of every
+// member stored holds that encoded does not. A member the encoding ADDS is the normalizer
+// filling in what the document omitted, and is not a loss. A scalar holds no members of
+// its own, so a scalar leaf contributes nothing either way — whether its VALUE changed is
+// the caller's question, not this one's.
+func collectDroppedMembers(stored, encoded any, path string, lost *[]string) {
+	switch value := stored.(type) {
+	case map[string]any:
+		held, ok := encoded.(map[string]any)
+		if !ok {
+			*lost = append(*lost, path)
+			return
+		}
+		for key, child := range value {
+			childPath := key
+			if path != "" {
+				childPath = path + "." + key
+			}
+			carried, present := held[key]
+			if !present {
+				*lost = append(*lost, childPath)
+				continue
+			}
+			collectDroppedMembers(child, carried, childPath, lost)
+		}
+	case []any:
+		held, ok := encoded.([]any)
+		if !ok {
+			*lost = append(*lost, path)
+			return
+		}
+		for i, child := range value {
+			childPath := fmt.Sprintf("%s[%d]", path, i)
+			if i >= len(held) {
+				*lost = append(*lost, childPath)
+				continue
+			}
+			collectDroppedMembers(child, held[i], childPath, lost)
+		}
+	}
+}
+
 // normalizeReviewThread derives every non-sticky entry's Status from its reply
 // history: the thread is ANSWERED iff its last utterance is agent-authored, and
 // OPEN otherwise (no replies at all, or the reviewer got the last word). That one
@@ -9285,23 +9368,22 @@ func migrateLegacyReviewThread(thread []ReviewComment, draftedBy, at string) []R
 }
 
 // ReviewPolicy is the per-project, committed configuration of WHICH phases require a
-// human approval gate during construction. It composes with the reviewEngine (which
-// computes WHO reviews): the engine gives the reviewer set; this policy says whether a
-// human must sign off before the phase advances. The zero value gates nothing — the
-// construction loop then behaves exactly as before this feature ("pure vibes").
+// human approval gate. It is the DOCUMENT, not the decision: the reviewEngine
+// (internal/engine/review) computes both WHO reviews and WHETHER a human must sign off,
+// and reads this document to do it. The zero value gates nothing — the construction
+// loop then behaves exactly as before this feature ("pure vibes").
 
 // GatedPhasesByType maps an ActivityType wire name ("service"/"frontend"/"testing"/...)
-// to the canonical phases that require human approval for that type.
-
-// RequiresHuman reports whether a phase of the given activity type requires human approval.
-func (p ReviewPolicy) RequiresHuman(activityType string, phase ActivityMethodPhase) bool {
-	return slices.Contains(p.GatedPhasesByType[activityType], phase)
-}
+// to the canonical phases that require human approval for that type. It is the
+// legacy/explicit mode's data, handed to the engine as the "" preset's fallback.
 
 // Review preset values for ReviewPolicy.Preset (Task 7, local-first sophistication
-// dial). "" (nil/unset) is the legacy/explicit mode — RequiresHuman's committed
-// GatedPhasesByType map, unchanged pre-preset behavior (e.g. the webApp PolicyPanel's
-// ReviewPolicyFromGateIDs output).
+// dial). "" (nil/unset) is the legacy/explicit mode — the committed GatedPhasesByType
+// map, unchanged pre-preset behavior (e.g. the webApp PolicyPanel's
+// ReviewPolicyFromGateIDs output). The vocabulary lives here because the WRITE path
+// validates against it (constructionManager.RecordReviewPolicy) and the webApp's
+// PolicyPanel writes it; the engine holds its own copy of the three strings and decides
+// what they MEAN.
 const (
 	// ReviewPresetVibes auto-approves every draft/step — nothing gated beyond the
 	// non-overridable floor (see ContractTouchesReviewFloor).
@@ -9318,7 +9400,9 @@ const (
 // whose contract touches one of these keywords always requires human approval —
 // deploy/spend/schema-shaped operations stay gated under every preset, including
 // "vibes". Case-insensitive substring match against each contract operation's Name.
-// No preset value can widen or narrow this list.
+// No preset value can widen or narrow this list. The list lives here because it is read
+// off a projectstate.ServiceContract, a type no Engine may import; the boolean it
+// produces is what the reviewEngine is handed.
 var reviewFloorKeywords = []string{"deploy", "spend", "schema"}
 
 // ContractTouchesReviewFloor reports whether contract carries an operation whose name
@@ -9337,48 +9421,14 @@ func ContractTouchesReviewFloor(contract ServiceContract) bool {
 	return false
 }
 
-// EffectiveGate resolves the Preset switch for (activityType, phase) and THEN applies
-// the non-overridable floor: a MethodPhaseConstruction dispatch with floorTouched=true
-// (the activity's committed contract touches deploy/spend/schema, per
-// ContractTouchesReviewFloor) always requires human approval — no preset, including
-// "vibes", can bypass it. This is the construction phase gate's ONLY preset-aware
-// entry point (constructactivity.go's runPhaseGate); RequiresHuman stays the pure
-// explicit-map lookup for backward compatibility (webApp PolicyPanel gate ids, and the
-// legacy/explicit "" preset fallback below).
-//
-// checkpoints gates the per-activity contract/architecture commit
-// (MethodPhaseDetailedDesign), the construction dispatch (MethodPhaseConstruction) and
-// the integration pass (MethodPhaseIntegration) — the funnel checkpoints this
-// per-activity, per-phase mechanism can express.
-// The funnel's remaining checkpoint ("SDP commit") is a projectDesignManager artifact
-// commit with no ActivityMethodPhase analog; that workflow gates it unconditionally
-// today, independent of ReviewPolicy — see docs/superpowers/sdd/task-7-report.md.
-//
-// MethodPhaseIntegration is in the list because ActivityTypeIntegration's profile is
-// integration-ONLY (100% weight, one phase): without it an I-* activity would be the
-// one activity family that runs entirely ungated under "checkpoints", which is exactly
-// backwards — an integration activity is where a use case is first exercised end to
-// end (founder-ratified).
-func (p ReviewPolicy) EffectiveGate(activityType string, phase ActivityMethodPhase, floorTouched bool) bool {
-	if phase == MethodPhaseConstruction && floorTouched {
-		return true
-	}
-	preset := ""
-	if p.Preset != nil {
-		preset = *p.Preset
-	}
-	switch preset {
-	case ReviewPresetVibes:
-		return false
-	case ReviewPresetFull:
-		return true
-	case ReviewPresetCheckpoints:
-		return phase == MethodPhaseDetailedDesign || phase == MethodPhaseConstruction ||
-			phase == MethodPhaseIntegration
-	default:
-		return p.RequiresHuman(activityType, phase)
-	}
-}
+// EffectiveGate and RequiresHuman MOVED into the reviewEngine
+// (internal/engine/review's requiresHuman/constructionGate) when ProposeReviews took the
+// activity type, the lifecycle phase, this policy document and the floor flag — spec
+// 2026-09-20 §5.4, stage 2. One component now decides both halves of the review
+// question, which is what stops the kind table and the gate policy drifting apart
+// again. This package keeps the DOCUMENT, the preset vocabulary, the shaping of the
+// client's gate-id vocabulary into it (ReviewPolicyFromGateIDs) and the floor's data
+// (ContractTouchesReviewFloor); it decides nothing.
 
 // gateIDToPhase maps the webApp PolicyPanel's ad-hoc gate ids to canonical phases, so the
 // mock vocabulary never reaches head-state. Canonical ids pass through in ReviewPolicyFromGateIDs.

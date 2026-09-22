@@ -452,6 +452,10 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",
 		"runStartedAt": "When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.",
 	},
+	reflect.TypeFor[mgr.ReviewSet](): {
+		"reason":        "The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose.",
+		"requiresHuman": "Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself.",
+	},
 	reflect.TypeFor[mgr.TaskRevisionView](): {
 		"attemptIds": "Every attempt of the revision, as \"<activityId>:<task>:<n>\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate.",
 		"comments":   "The anchored comments that rode with a send-back. Empty unless outcome is sentBack.",

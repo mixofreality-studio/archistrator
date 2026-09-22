@@ -342,8 +342,7 @@
             "dependsOn": [
               "C-artifact-access",
               "C-intervention-engine",
-              "C-project-design-manager",
-              "C-review-engine"
+              "C-project-design-manager"
             ]
           },
           {
@@ -416,6 +415,7 @@
               "C-estimation-engine",
               "C-operation-estimation-engine",
               "C-project-state-access",
+              "C-review-engine",
               "C-source-control-access"
             ]
           },
@@ -445,6 +445,7 @@
               "C-episode-access",
               "C-estimation-engine",
               "C-project-state-access",
+              "C-review-engine",
               "C-source-control-access"
             ]
           },
@@ -567,8 +568,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -579,8 +582,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized); amended in the same landing for coverage reconciliation",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -639,8 +644,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -651,8 +658,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -663,8 +672,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -672,7 +683,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -728,8 +739,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -740,8 +753,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -752,8 +767,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -761,7 +778,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -817,8 +834,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -829,8 +848,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -841,8 +862,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -850,7 +873,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -906,8 +929,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -918,8 +943,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -930,8 +957,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -939,7 +968,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -1014,8 +1043,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -1026,8 +1057,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -1038,8 +1071,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -1047,7 +1082,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -1144,8 +1179,10 @@
           "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -1156,8 +1193,10 @@
           "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
           "authorRole": "architect",
           "round": 1,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         },
@@ -1168,8 +1207,10 @@
           "text": "Reviewed — unaffected: network amendment (rev 2, activityList/episode-access coverage wave — C-EA dependency row added to the network): no impact on this artifact",
           "authorRole": "architect",
           "round": 2,
-          "status": "addressed",
+          "status": "answered",
           "response": "",
+          "replies": null,
+          "reopened": false,
           "type": "staleAck",
           "addressee": ""
         }
@@ -1177,7 +1218,7 @@
       "revisions": 1,
       "staleBasis": true,
       "staleBasisCause": {
-        "upstreamKind": "activityList",
+        "upstreamKind": "network",
         "upstreamRevision": 3
       }
     },
@@ -5799,7 +5840,19 @@
             "from": "construction-manager",
             "to": "review-engine",
             "mode": "sync",
-            "label": "ProposeReviews(change, componentId, artifactKind, architectureGraph, contracts) → ReviewSet"
+            "label": "ProposeReviews(change, activityType, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet"
+          },
+          {
+            "from": "system-design-manager",
+            "to": "review-engine",
+            "mode": "sync",
+            "label": "ProposeReviews(change, activityType, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet"
+          },
+          {
+            "from": "project-design-manager",
+            "to": "review-engine",
+            "mode": "sync",
+            "label": "ProposeReviews(change, activityType, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet"
           },
           {
             "from": "operations-manager",
@@ -6180,6 +6233,12 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "readProject(projectId) → head-state incl. ResearchInput + committed prior slots"
+                  },
+                  {
+                    "from": "system-design-manager",
+                    "to": "review-engine",
+                    "mode": "sync",
+                    "label": "ProposeReviews(change, activityType, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet — snapshot this session's review gate at start: who critiques the draft, and whether a human must approve it (the vibes autogate)"
                   }
                 ]
               },
@@ -6455,6 +6514,12 @@
                     "to": "project-state-access",
                     "mode": "sync",
                     "label": "readProject → sdpReview + chosenOption"
+                  },
+                  {
+                    "from": "project-design-manager",
+                    "to": "review-engine",
+                    "mode": "sync",
+                    "label": "ProposeReviews(change, projectDesign, lifecyclePhase, componentId, policy, floorTouched, contracts) → ReviewSet — the Phase-2 rail's review gate; its sdp (M0) row is the non-overridable spend floor, so that decision always holds for a human"
                   }
                 ]
               },
@@ -16869,6 +16934,14 @@
               "items": {
                 "$ref": "#/$defs/Reviewer"
               }
+            },
+            "requiresHuman": {
+              "type": "boolean",
+              "description": "Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself."
+            },
+            "reason": {
+              "type": "string",
+              "description": "The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose."
             }
           },
           "additionalProperties": false
@@ -27274,6 +27347,59 @@
           ],
           "additionalProperties": false
         },
+        "ActivityType": {
+          "type": "string",
+          "enum": [
+            "service",
+            "frontend",
+            "testing",
+            "deployment",
+            "documentation",
+            "uiDesign",
+            "integration",
+            "requirements",
+            "architecture",
+            "projectDesign"
+          ],
+          "x-enum-varnames": [
+            "ActivityTypeService",
+            "ActivityTypeFrontend",
+            "ActivityTypeTesting",
+            "ActivityTypeDeployment",
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration",
+            "ActivityTypeRequirements",
+            "ActivityTypeArchitecture",
+            "ActivityTypeProjectDesign"
+          ],
+          "x-go-base": "string"
+        },
+        "ReviewPolicy": {
+          "type": "object",
+          "properties": {
+            "GatedPhasesByType": {
+              "type": "object",
+              "additionalProperties": {
+                "type": [
+                  "null",
+                  "array"
+                ],
+                "items": {
+                  "type": "string"
+                }
+              }
+            },
+            "Preset": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "GatedPhasesByType",
+            "Preset"
+          ],
+          "additionalProperties": false
+        },
         "ReviewArtifactKind": {
           "type": "string",
           "enum": [
@@ -27305,10 +27431,22 @@
               "items": {
                 "$ref": "#/$defs/Reviewer"
               }
+            },
+            "RequiresHuman": {
+              "type": "boolean"
+            },
+            "Reason": {
+              "type": "string"
+            },
+            "ArtifactKind": {
+              "$ref": "#/$defs/ReviewArtifactKind"
             }
           },
           "required": [
-            "Reviewers"
+            "Reviewers",
+            "RequiresHuman",
+            "Reason",
+            "ArtifactKind"
           ],
           "additionalProperties": false
         },
@@ -27351,21 +27489,33 @@
                 }
               },
               {
+                "name": "activityType",
+                "schema": {
+                  "$ref": "#/$defs/ActivityType"
+                }
+              },
+              {
+                "name": "lifecyclePhase",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
                 "name": "componentID",
                 "schema": {
                   "type": "string"
                 }
               },
               {
-                "name": "artifactKind",
+                "name": "policy",
                 "schema": {
-                  "$ref": "#/$defs/ReviewArtifactKind"
+                  "$ref": "#/$defs/ReviewPolicy"
                 }
               },
               {
-                "name": "architectureGraph",
+                "name": "floorTouched",
                 "schema": {
-                  "type": "string"
+                  "type": "boolean"
                 }
               },
               {

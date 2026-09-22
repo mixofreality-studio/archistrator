@@ -1,13 +1,16 @@
 package systemdesign
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 	"time"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -421,11 +424,25 @@ func (wf *workflows) beginCoAuthorSession(ctx workflow.Context, in coAuthorInput
 
 	// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): snapshot the review policy at
 	// session start — a vibes preset auto-approves this session's drafts at the review gate
-	// (awaitReviewGate), honoring ReviewPolicy exactly like construction. Keyed on the Preset
-	// DIRECTLY (vibes ⇒ auto; checkpoints/full/legacy-"" ⇒ human), NOT EffectiveGate (that is
-	// construction's (activityType,phase) vocabulary — one legible rule here). Snapshot-at-start
+	// (awaitReviewGate), honoring ReviewPolicy exactly like construction. Snapshot-at-start
 	// mirrors construction: a policy change applies to the NEXT session, not one in flight.
-	state.policyAutoApprove = proj.ReviewPolicy.Preset != nil && *proj.ReviewPolicy.Preset == projectstate.ReviewPresetVibes
+	//
+	// The review engine owns the autogate RULE now (spec 2026-09-20 §5.4): it is asked
+	// once, here, with this artifact's design activity type and lifecycle phase, and its
+	// answer is the same one the inline Preset check gave — vibes auto-approves, every
+	// other preset (including the unset legacy value) holds for the human. A refusal
+	// reads as "a human must decide", the safe arm for a design gate. A pure engine call
+	// emits no commands, so the "design-vibes-autogate" GetVersion fence above still
+	// governs replay and no new fence is needed.
+	designType, lifecyclePhase := designActivityFor(toPSKind(in.ArtifactKind))
+	gateSet, perr := review.NewReviewEngine().ProposeReviews(fweng.Context{Context: context.Background()},
+		review.ReviewChange{ActivityID: string(in.ProjectID)}, designType, lifecyclePhase, "",
+		engineReviewPolicy(proj.ReviewPolicy), false, nil)
+	if perr != nil {
+		workflow.GetLogger(ctx).Error("review engine refused to decide the design gate; the session holds for a human",
+			"projectId", string(in.ProjectID), "artifactKind", artifactKindString(in.ArtifactKind), "err", perr.Error())
+	}
+	state.policyAutoApprove = perr == nil && !gateSet.RequiresHuman
 
 	// Capture the committed CoreUseCases once (founder extension, 2026-07-05): the
 	// KindSystem read-back check needs it to flag a System draft that leaves any
@@ -3564,6 +3581,74 @@ func critiqueCriticFor(kind projectstate.ArtifactKind) (ActiveRole, bool) {
 	default:
 		return ActiveRoleNone, false
 	}
+}
+
+// designActivityFor maps an artifact kind onto the DESIGN activity the reviewEngine
+// keys its rows on: the activity type and the lifecycle phase within it. It is the
+// design rail's half of the vocabulary the engine's tables are total over (spec
+// 2026-09-20 §5.4, stage 2); the construction rail's half is the ActivityMethodPhase
+// wire names.
+//
+// The requirements activity carries the four business-alignment / volatility steps.
+// scrubbedRequirements shares the GLOSSARY phase deliberately: the scrubbing pass runs
+// with the glossary inside the-method-requirements-analysis step and shares its gate.
+// The architecture activity carries the System draft and the two architect-owned
+// documents that hang off it (operational concepts, standard check).
+//
+// EVERY Phase-2 kind maps to the projectDesign type at the kind's OWN wire name, and
+// deliberately NOT to the phase id "sdp". "sdp" is the M0 gate of the projectDesign
+// lifecycle, which the engine makes always-human because M0 approves spend; the nine
+// Phase-2 artifact DRAFTS are not that gate, and mapping them there would gate nine
+// drafts that auto-approve under vibes today. Pinned by
+// Test_DesignActivityFor_Phase2KindsAreNotTheSdpGate.
+func designActivityFor(kind projectstate.ArtifactKind) (review.ActivityType, string) {
+	switch kind {
+	case projectstate.KindMission:
+		return review.ActivityTypeRequirements, "mission"
+	case projectstate.KindGlossary, projectstate.KindScrubbedRequirements:
+		return review.ActivityTypeRequirements, "glossary"
+	case projectstate.KindVolatilities:
+		return review.ActivityTypeRequirements, "volatilities"
+	case projectstate.KindCoreUseCases:
+		return review.ActivityTypeRequirements, "coreUseCases"
+	case projectstate.KindSystem, projectstate.KindOperationalConcepts, projectstate.KindStandardCheck:
+		return review.ActivityTypeArchitecture, "architecture"
+	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
+		projectstate.KindRiskModel, projectstate.KindSdpReview:
+		return review.ActivityTypeProjectDesign, kind.WireName()
+	}
+	// An out-of-vocabulary kind cannot reach here through the typed façade; route it to
+	// the architect's own step so the engine still answers rather than refusing.
+	return review.ActivityTypeArchitecture, "architecture"
+}
+
+// engineReviewPolicy converts the COMMITTED policy document into the reviewEngine's own
+// copy — Preset dereferenced (nil ⇒ "", the legacy/explicit mode), GatedPhasesByType
+// re-keyed to the phases' wire names because an Engine may not import projectstate (F3).
+//
+// BYTE-IDENTICAL COPY in internal/manager/construction/constructactivity.go and
+// internal/manager/projectdesign/coauthorphase2artifact.go: three packages, and no
+// shared home for a five-line conversion that would not cost an
+// internal/arch_test.go allowlist entry. Edit all three together; their parity is
+// pinned by Test_EngineReviewPolicy_CarriesTheStoredDocument in each package.
+func engineReviewPolicy(p projectstate.ReviewPolicy) review.ReviewPolicy {
+	out := review.ReviewPolicy{}
+	if p.Preset != nil {
+		out.Preset = *p.Preset
+	}
+	if len(p.GatedPhasesByType) > 0 {
+		out.GatedPhasesByType = make(map[string][]string, len(p.GatedPhasesByType))
+		for typ, phases := range p.GatedPhasesByType {
+			names := make([]string, 0, len(phases))
+			for _, ph := range phases {
+				names = append(names, ph.String())
+			}
+			out.GatedPhasesByType[typ] = names
+		}
+	}
+	return out
 }
 
 // sameArtifactModel PROMOTED to projectstate.SameArtifactModel

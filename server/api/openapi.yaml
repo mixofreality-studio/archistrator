@@ -542,6 +542,12 @@ components:
         ConstructionReviewSet:
             additionalProperties: false
             properties:
+                reason:
+                    description: The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose.
+                    type: string
+                requiresHuman:
+                    description: 'Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself.'
+                    type: boolean
                 reviewers:
                     items:
                         $ref: '#/components/schemas/ConstructionReviewer'

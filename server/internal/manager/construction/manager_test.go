@@ -946,8 +946,8 @@ func (f *fakeReviewPolicyTransition) RecordReviewPolicy(_ fwra.Context, _ projec
 // TestUpdateReviewPolicy asserts that UpdateReviewPolicy maps the ReviewPolicyInput
 // through projectstate.ReviewPolicyFromGateIDs and calls RecordReviewPolicy with the
 // resulting typed ReviewPolicy. The ad-hoc gate id "svc-contract" maps to
-// MethodPhaseDetailedDesign for the "service" activity type; after the call,
-// RequiresHuman("service", MethodPhaseDetailedDesign) must be true on the persisted policy.
+// MethodPhaseDetailedDesign for the "service" activity type; after the call, the
+// persisted document must list that phase under "service".
 func TestUpdateReviewPolicy(t *testing.T) {
 	fake := &fakeReviewPolicyTransition{version: 7}
 	// The version read moved to the base projectStateAccess port (constructionTransitionAccess.ReadProject
@@ -972,8 +972,8 @@ func TestUpdateReviewPolicy(t *testing.T) {
 	}
 	// "svc-contract" is the ad-hoc gate id that maps to MethodPhaseDetailedDesign
 	// via projectstate.gateIDToPhase; ReviewPolicyFromGateIDs must translate it.
-	if !fake.lastPolicy.RequiresHuman("service", projectstate.MethodPhaseDetailedDesign) {
-		t.Fatalf("expected service/detailed_design to require human, got policy=%+v", fake.lastPolicy)
+	if !slices.Contains(fake.lastPolicy.GatedPhasesByType["service"], projectstate.MethodPhaseDetailedDesign) {
+		t.Fatalf("expected service/detailed_design to be gated, got policy=%+v", fake.lastPolicy)
 	}
 }
 
@@ -2978,29 +2978,48 @@ func (i *fakeIntervention) DecideOnSettlementFailure(_ fweng.Context, _ interven
 
 var _ intervention.InterventionEngine = (*fakeIntervention)(nil)
 
-// fakeReview returns a scripted reviewer set — but only for a call the REAL engine
-// accepts. It used to accept anything, which is how the Manager passed a lifecycle
-// phase's wire name as the artifact kind for months with every test green. Satisfies
-// the PUBLISHED review.ReviewEngine directly (Task 6 — no Manager-local seam). The
-// scripted `set` is the ENGINE's own review.ReviewSet — reviewSetFromEngine
-// (adapters.go) bridges it onto the façade ReviewSet the same way production does.
-// kinds records each artifactKind the Manager passed, in call order; err, when set, is
-// returned instead (the engine-refusal path).
+// fakeReview returns a scripted answer — but only for a call the REAL engine accepts.
+// It used to accept anything, which is how the Manager passed a lifecycle phase's wire
+// name as the artifact kind for months with every test green. Satisfies the PUBLISHED
+// review.ReviewEngine directly (no Manager-local seam). The scripted `set` is the
+// ENGINE's own review.ReviewSet — reviewSetFromEngine (adapters.go) bridges it onto the
+// façade ReviewSet the same way production does. calls records what the Manager passed,
+// in call order; err, when set, is returned instead (the engine-refusal path).
+//
+// Validating through the real engine first is exactly the guard that catches a Manager
+// passing an activity type or a lifecycle phase the engine does not know.
 type fakeReview struct {
 	set   review.ReviewSet
 	err   error
-	kinds []review.ReviewArtifactKind
+	calls []fakeReviewCall
 }
 
-func (r *fakeReview) ProposeReviews(rc fweng.Context, change review.ReviewChange, componentID string, artifactKind review.ReviewArtifactKind, graph string, contracts []string) (review.ReviewSet, error) {
-	r.kinds = append(r.kinds, artifactKind)
-	if _, err := review.NewReviewEngine().ProposeReviews(rc, change, componentID, artifactKind, graph, contracts); err != nil {
+type fakeReviewCall struct {
+	activityType   review.ActivityType
+	lifecyclePhase string
+	floorTouched   bool
+	policy         review.ReviewPolicy
+}
+
+func (r *fakeReview) ProposeReviews(rc fweng.Context, change review.ReviewChange, activityType review.ActivityType,
+	lifecyclePhase string, componentID string, policy review.ReviewPolicy, floorTouched bool, contracts []string,
+) (review.ReviewSet, error) {
+	r.calls = append(r.calls, fakeReviewCall{activityType, lifecyclePhase, floorTouched, policy})
+	answer, err := review.NewReviewEngine().ProposeReviews(rc, change, activityType, lifecyclePhase, componentID,
+		policy, floorTouched, contracts)
+	if err != nil {
 		return review.ReviewSet{}, fmt.Errorf("fakeReview: the real engine refuses this call: %w", err)
 	}
 	if r.err != nil {
 		return review.ReviewSet{}, r.err
 	}
-	return r.set, nil
+	// The GATE VERDICT is always the real engine's: it is the project's committed
+	// policy, and a fake that scripted it would let a Manager-side gate regression pass.
+	// Only the ROSTER is scriptable, and only when a test says so.
+	if r.set.Reviewers != nil {
+		answer.Reviewers = r.set.Reviewers
+	}
+	return answer, nil
 }
 
 var _ review.ReviewEngine = (*fakeReview)(nil)
@@ -5417,6 +5436,12 @@ func vibesPreset() projectstate.ReviewPolicy {
 	return projectstate.ReviewPolicy{Preset: &p}
 }
 
+// fullPreset builds a ReviewPolicy with the "full" preset (every phase gated).
+func fullPreset() projectstate.ReviewPolicy {
+	p := projectstate.ReviewPresetFull
+	return projectstate.ReviewPolicy{Preset: &p}
+}
+
 // deployTouchingContract builds a ServiceContract whose Interface carries a
 // deploy-shaped operation — trips ContractTouchesReviewFloor.
 func deployTouchingContract() projectstate.ServiceContract {
@@ -7587,75 +7612,118 @@ func Test_SessionView_PhaseGate_CarriesTheReviewerSet(t *testing.T) {
 	}
 }
 
-// Every (type, variant, profile phase) the pump can dispatch — with and without a
-// component — gets reviewers from the REAL engine. This is the totality proof: no gate
-// can lose its reviewer set to the Manager's argument again.
-func Test_ReviewArtifactKindFor_IsTotalOverEveryDispatchablePhase(t *testing.T) {
-	types := []projectstate.ActivityType{
-		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend, projectstate.ActivityTypeTesting,
-		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation,
-		projectstate.ActivityTypeUIDesign, projectstate.ActivityTypeIntegration,
-		projectstate.ActivityTypeRequirements, projectstate.ActivityTypeArchitecture,
-		projectstate.ActivityTypeProjectDesign,
-	}
-	variants := []projectstate.TestingVariant{
-		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,
-		projectstate.TestVariantSystemTest, projectstate.TestVariantQAProcess,
-	}
-	eng := review.NewReviewEngine()
-	for _, typ := range types {
-		for _, v := range variants {
-			for _, p := range projectstate.ProfileFor(typ, v).PhaseIDs() {
-				for _, componentID := range []string{"comp-1", ""} {
-					act := constructionActivity{ActivityID: "A", Type: typ, Variant: v, ComponentID: componentID}
-					kind := reviewArtifactKindFor(act, p)
-					set, err := eng.ProposeReviews(fweng.Context{}, review.ReviewChange{ActivityID: "A", ComponentID: componentID}, componentID, kind, "", nil)
-					if err != nil || len(set.Reviewers) == 0 {
-						t.Errorf("%s/%s/%s component=%q → %s: reviewers=%v err=%v", typ, v, p, componentID, kind, set.Reviewers, err)
-					}
-				}
-			}
-		}
-	}
-}
+// The (activity type, lifecycle phase) -> review kind table MOVED into the reviewEngine
+// when ProposeReviews took the activity type (spec 2026-09-20 §5.4, stage 2). Its two
+// tests — the totality proof over every dispatchable cell and the hand-checkable rows —
+// live in internal/engine/review/engine_test.go now
+// (Test_ProposeReviews_IsTotalOverEveryTypeAndPhase, Test_ProposeReviews_PerKind).
+// What the Manager still owes is below: that it hands the engine the activity's TYPE
+// and the phase's wire name, and that it obeys the verdict it gets back.
 
-// The rows a reader would check by hand.
-func Test_ReviewArtifactKindFor_PinnedRows(t *testing.T) {
-	svc := constructionActivity{Type: projectstate.ActivityTypeService, ComponentID: "c"}
-	spa := constructionActivity{Type: projectstate.ActivityTypeFrontend, ComponentID: "web-client"}
-	ui := constructionActivity{Type: projectstate.ActivityTypeUIDesign, ComponentID: "web-client"}
-	res := constructionActivity{Type: projectstate.ActivityTypeDeployment, ComponentID: "github"}
-	stp := constructionActivity{Type: projectstate.ActivityTypeTesting, Variant: projectstate.TestVariantPlan}
-	bare := constructionActivity{Type: projectstate.ActivityTypeService} // nonstructural: no component
-	cases := []struct {
-		name string
-		act  constructionActivity
-		p    projectstate.ActivityMethodPhase
-		want review.ReviewArtifactKind
+// The Manager asks the engine ONCE per gate and obeys its RequiresHuman. Under vibes
+// the gate does not suspend; with the floor touched at construction it does, whatever
+// the preset says; under "full" it suspends at the very first phase. This is the same
+// behaviour the retired ReviewPolicy.EffectiveGate gave, now decided in one place —
+// the REAL engine is wired here, so a drift in the engine's table fails this test.
+func Test_PhaseGate_ObeysTheEnginesRequiresHuman(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		policy   projectstate.ReviewPolicy
+		floor    bool
+		suspends bool
 	}{
-		{"service requirements", svc, projectstate.MethodPhaseRequirements, review.ReviewKindNoncoding},
-		{"service detailed design", svc, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
-		{"service test plan", svc, projectstate.MethodPhaseTestPlan, review.ReviewKindNoncoding},
-		{"service construction", svc, projectstate.MethodPhaseConstruction, review.ReviewKindConstruction},
-		{"service integration", svc, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-		{"frontend design", spa, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
-		{"frontend construction", spa, projectstate.MethodPhaseConstruction, review.ReviewKindUICode},
-		{"uiDesign concept", ui, projectstate.MethodPhaseDetailedDesign, review.ReviewKindUIDesign},
-		{"deployment spec", res, projectstate.MethodPhaseDetailedDesign, review.ReviewKindDetailedDesign},
-		{"deployment convergence", res, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-		{"N-STP plan review", stp, projectstate.MethodPhaseIntegration, review.ReviewKindNoncoding},
-		{"no component: design degrades", bare, projectstate.MethodPhaseDetailedDesign, review.ReviewKindNoncoding},
-		{"no component: integration stands", bare, projectstate.MethodPhaseIntegration, review.ReviewKindIntegration},
-	}
-	for _, c := range cases {
-		if got := reviewArtifactKindFor(c.act, c.p); got != c.want {
-			t.Errorf("%s: got %s, want %s", c.name, got, c.want)
-		}
+		{"vibes walks through", vibesPreset(), false, false},
+		{"vibes stops at a floor-touching construction dispatch", vibesPreset(), true, true},
+		{"full stops at the first phase", fullPreset(), false, true},
+		{"the legacy empty policy walks through", projectstate.ReviewPolicy{}, false, false},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			ps := newFakeProjectStateWithPolicy(c.policy)
+			if c.floor {
+				ps.project.ServiceContracts = map[string]projectstate.ServiceContract{"comp-1": deployTouchingContract()}
+			}
+			deps := gateDeps(ps)
+			deps.Review = review.NewReviewEngine()
+			registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+			// Deliberately NO signal: a gate that opens can only stay open.
+			b12Run(env)
+			// The floor guards the CONSTRUCTION dispatch only, so the phases before it
+			// still complete; "full" gates from requirements onwards.
+			firstGated := "construction"
+			if !c.floor {
+				firstGated = "requirements"
+			}
+			if got := ps.phaseCompleted("C-Orders", firstGated); got == c.suspends {
+				t.Fatalf("%s: phase %q completed=%v with no approval signal, want completed=%v",
+					c.name, firstGated, got, !c.suspends)
+			}
+		})
 	}
 }
 
-// An engine refusal is shown on the view and the gate still works.
-func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) {
+// The Manager passes the activity's TYPE and the lifecycle phase's wire name — never a
+// kind it computed itself — plus the floor flag and the stored policy document.
+func Test_PhaseGate_PassesTypeAndPhaseToTheEngine(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	fake := &fakeReview{set: review.ReviewSet{
+		Reviewers: []review.Reviewer{{Role: "architect", Perspective: "architecture", ReferenceArtifact: "architecture"}},
+	}}
+	deps := gateDeps(ps)
+	deps.Review = fake
+	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if len(fake.calls) == 0 {
+		t.Fatal("the engine was never asked")
+	}
+	for i, want := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
+		if i >= len(fake.calls) {
+			t.Fatalf("the engine was asked %d times, want one call per phase: %+v", len(fake.calls), fake.calls)
+		}
+		if fake.calls[i].activityType != review.ActivityTypeService || fake.calls[i].lifecyclePhase != want {
+			t.Fatalf("call %d: the engine was asked with %+v, want (service, %q)", i, fake.calls[i], want)
+		}
+		if fake.calls[i].floorTouched {
+			t.Errorf("call %d: no contract is committed, so the floor must read false", i)
+		}
+	}
+	// The stored document reaches the engine intact: the legacy gate map, re-keyed.
+	if got := fake.calls[0].policy.GatedPhasesByType["service"]; !slices.Equal(got, []string{"detailed_design"}) {
+		t.Errorf("the engine got gatedPhasesByType[service] = %v, want the stored document", got)
+	}
+}
+
+// The engine's copy of the policy document must not drift from the stored one.
+func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
+	preset := projectstate.ReviewPresetCheckpoints
+	in := projectstate.ReviewPolicy{Preset: &preset, GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseIntegration}}}
+	got := engineReviewPolicy(in)
+	if got.Preset != projectstate.ReviewPresetCheckpoints {
+		t.Errorf("preset = %q", got.Preset)
+	}
+	if !slices.Equal(got.GatedPhasesByType["service"], []string{"detailed_design", "integration"}) {
+		t.Errorf("gated phases = %v", got.GatedPhasesByType["service"])
+	}
+	if engineReviewPolicy(projectstate.ReviewPolicy{}).Preset != "" {
+		t.Error("a nil preset must read as the legacy/explicit mode, not panic")
+	}
+}
+
+// An engine refusal is LOUD but never costly: it is logged and shown (reviewSetError)
+// and the gate OPENS rather than failing the activity or holding it without a roster.
+// Failing closed would gate phases that run ungated today — before the engine owned the
+// gate verdict a refusal could not reach the decision at all — and stage 2 is not
+// allowed to make that behaviour change. No approval signal is registered here: the
+// activity must finish on its own.
+func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndOpensTheGate(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
@@ -7663,25 +7731,24 @@ func Test_SessionView_PhaseGate_ShowsAnEngineRefusalAndStillGates(t *testing.T) 
 	fr := &fakeReview{err: errors.New("policy produced an empty reviewer set")}
 	deps.Review = fr
 	registerConstruct(env, newWorkflows(deps), ps, newFakePipeline())
-	var atGate ConstructionSessionView
-	env.RegisterDelayedCallback(func() { atGate = b12View(t, env) }, 10*time.Second)
-	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
 	b12Run(env)
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("an engine refusal must not fail the activity: %v", err)
 	}
-	if atGate.Stage != StageAwaitingApproval || atGate.ReviewSet != nil {
-		t.Fatalf("stage=%v reviewSet=%+v, want awaitingApproval with no set", atGate.Stage, atGate.ReviewSet)
+	for _, phase := range []string{"requirements", "detailed_design", "test_plan", "construction", "integration"} {
+		if !ps.phaseCompleted("C-Orders", phase) {
+			t.Fatalf("a refusal must open the gate, but %s never completed", phase)
+		}
 	}
-	if atGate.ReviewSetError == nil || !strings.Contains(*atGate.ReviewSetError, "empty reviewer set") {
-		t.Fatalf("reviewSetError = %v, want the engine's reason", atGate.ReviewSetError)
+	done := b12View(t, env)
+	if done.ReviewSetError == nil || !strings.Contains(*done.ReviewSetError, "empty reviewer set") {
+		t.Fatalf("reviewSetError = %v, want the engine's reason on the view", done.ReviewSetError)
 	}
-	if len(fr.kinds) == 0 || fr.kinds[0] != review.ReviewKindDetailedDesign {
-		t.Fatalf("the Manager asked for kinds %v, want the detailed_design gate to ask for %s", fr.kinds, review.ReviewKindDetailedDesign)
+	if done.ReviewSet != nil {
+		t.Fatalf("a refusal leaves no roster, got %+v", done.ReviewSet)
 	}
-	// I1: the refusal is the closed occurrence's, and goes with it.
-	if done := b12View(t, env); done.ReviewSetError != nil {
-		t.Fatalf("the decision must clear the refusal, got reviewSetError=%v", *done.ReviewSetError)
+	if len(fr.calls) == 0 || fr.calls[0].activityType != review.ActivityTypeService || fr.calls[0].lifecyclePhase != "requirements" {
+		t.Fatalf("the Manager asked with %+v, want the first phase of a service activity", fr.calls)
 	}
 }
 

@@ -7,6 +7,21 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 )
 
+type ActivityType string
+
+const (
+	ActivityTypeService       ActivityType = "service"
+	ActivityTypeFrontend      ActivityType = "frontend"
+	ActivityTypeTesting       ActivityType = "testing"
+	ActivityTypeDeployment    ActivityType = "deployment"
+	ActivityTypeDocumentation ActivityType = "documentation"
+	ActivityTypeUIDesign      ActivityType = "uiDesign"
+	ActivityTypeIntegration   ActivityType = "integration"
+	ActivityTypeRequirements  ActivityType = "requirements"
+	ActivityTypeArchitecture  ActivityType = "architecture"
+	ActivityTypeProjectDesign ActivityType = "projectDesign"
+)
+
 type ReviewArtifactKind string
 
 const (
@@ -24,8 +39,16 @@ type ReviewChange struct {
 	ContentAddress string `json:"ContentAddress"`
 }
 
+type ReviewPolicy struct {
+	GatedPhasesByType map[string][]string `json:"GatedPhasesByType"`
+	Preset            string              `json:"Preset"`
+}
+
 type ReviewSet struct {
-	Reviewers []Reviewer `json:"Reviewers"`
+	Reviewers     []Reviewer         `json:"Reviewers"`
+	RequiresHuman bool               `json:"RequiresHuman"`
+	Reason        string             `json:"Reason"`
+	ArtifactKind  ReviewArtifactKind `json:"ArtifactKind"`
 }
 
 type Reviewer struct {
@@ -37,7 +60,7 @@ type Reviewer struct {
 
 // ReviewEngine is the generated service-contract interface for this component.
 type ReviewEngine interface {
-	ProposeReviews(rc fweng.Context, change ReviewChange, componentID string, artifactKind ReviewArtifactKind, architectureGraph string, contracts []string) (ReviewSet, error)
+	ProposeReviews(rc fweng.Context, change ReviewChange, activityType ActivityType, lifecyclePhase string, componentID string, policy ReviewPolicy, floorTouched bool, contracts []string) (ReviewSet, error)
 }
 
 // ReviewEngineImpl is the generated concrete ReviewEngine. Engines are pure (no

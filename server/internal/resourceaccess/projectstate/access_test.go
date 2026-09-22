@@ -2213,8 +2213,8 @@ func assertConstructionContractsAndPolicySurvived(t *testing.T, back Project) {
 		t.Fatalf("ServiceContracts must survive the round trip, got %+v", back.ServiceContracts)
 	}
 
-	// ReviewPolicy — the phase gate's snapshot source.
-	if !back.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
+	// ReviewPolicy — the phase gate's snapshot source (the DOCUMENT the reviewEngine reads).
+	if !slices.Contains(back.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
 		t.Fatalf("ReviewPolicy gating must survive the round trip, got %+v", back.ReviewPolicy)
 	}
 }
@@ -7958,123 +7958,22 @@ func TestStaleAck_AppendAndNormalizeSticky(t *testing.T) {
 	}
 }
 
-func TestReviewPolicy_EmptyRequiresNoHuman(t *testing.T) {
-	var p ReviewPolicy
-	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("empty policy must require no human approval (inert)")
-	}
-}
+// The nine TestReviewPolicy_* gate cases MOVED to
+// internal/engine/review/engine_test.go's
+// Test_ProposeReviews_ConstructionGate_MatchesTheRetiredEffectiveGate when
+// EffectiveGate/RequiresHuman moved into the reviewEngine (spec 2026-09-20 §5.4,
+// stage 2). They are transcribed row for row there — this package no longer decides
+// anything about the policy, so there is nothing left here to pin. What stays is the
+// SHAPING of the client's gate-id vocabulary into the stored document, below, and the
+// floor's data list further down.
 
-func TestReviewPolicy_RequiresHumanForGatedPhase(t *testing.T) {
-	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
-		"frontend": {MethodPhaseDetailedDesign},
-	}}
-	if !p.RequiresHuman("frontend", MethodPhaseDetailedDesign) {
-		t.Error("frontend/detailed_design should require human")
-	}
-	if p.RequiresHuman("frontend", MethodPhaseConstruction) {
-		t.Error("frontend/construction not gated")
-	}
-	if p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("service not gated")
-	}
-}
-
+// TestReviewPolicyFromGateIDs_MapsMockIDs pins the shaping, not a decision: the webApp
+// PolicyPanel's ad-hoc gate id "svc-contract" must land in the committed document as
+// the canonical detailed_design phase, so the mock vocabulary never reaches head-state.
 func TestReviewPolicyFromGateIDs_MapsMockIDs(t *testing.T) {
 	p := ReviewPolicyFromGateIDs(map[string][]string{"service": {"svc-contract"}})
-	if !p.RequiresHuman("service", MethodPhaseDetailedDesign) {
-		t.Error("svc-contract must map to detailed_design")
-	}
-}
-
-// ---- Tests: preset resolution + non-overridable floor (Task 7) --------------
-
-// presetPtr is a small test helper — ReviewPolicy.Preset is *string (modelgen's
-// optional-scalar convention) so literal construction needs an addressable value.
-func presetPtr(s string) *string { return &s }
-
-// TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft is the brief's Step-1 scenario:
-// under the "vibes" preset, a non-floor phase (the detailed-design/contract "draft
-// commit") is auto-approved — no gate.
-func TestReviewPolicy_EffectiveGate_VibesAutoApprovesDraft(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
-		t.Error("vibes must auto-approve a draft commit (detailed_design, no floor)")
-	}
-	if p.EffectiveGate("service", MethodPhaseConstruction, false) {
-		t.Error("vibes must auto-approve construction dispatch when the floor is not touched")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch is the brief's Step-1
-// scenario: the non-overridable floor still blocks a flagged (deploy/spend/schema-
-// touching) construction dispatch even under "vibes".
-func TestReviewPolicy_EffectiveGate_FloorBlocksFlaggedDispatch(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if !p.EffectiveGate("service", MethodPhaseConstruction, true) {
-		t.Error("the floor must block a flagged construction dispatch even under vibes")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase pins the floor's
-// scope: floorTouched only forces a gate at MethodPhaseConstruction (the dispatch),
-// never at other phases — the floor is about construction dispatch, not the whole
-// activity.
-func TestReviewPolicy_EffectiveGate_FloorOnlyGuardsConstructionPhase(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetVibes)}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, true) {
-		t.Error("the floor must not gate phases other than construction dispatch")
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_Checkpoints pins the "checkpoints" preset to gating
-// exactly the per-activity contract/architecture commit (detailed_design), the
-// construction dispatch (construction), and the integration pass (integration —
-// founder-ratified; without it an integration-only I-* activity would run entirely
-// ungated) — not requirements/test_plan.
-func TestReviewPolicy_EffectiveGate_Checkpoints(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetCheckpoints)}
-	gated := map[ActivityMethodPhase]bool{
-		MethodPhaseRequirements:   false,
-		MethodPhaseDetailedDesign: true,
-		MethodPhaseTestPlan:       false,
-		MethodPhaseConstruction:   true,
-		MethodPhaseIntegration:    true,
-	}
-	for phase, want := range gated {
-		if got := p.EffectiveGate("service", phase, false); got != want {
-			t.Errorf("checkpoints EffectiveGate(%s) = %v, want %v", phase, got, want)
-		}
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_Full pins the "full" preset to gating every phase —
-// today's approve-everything behavior.
-func TestReviewPolicy_EffectiveGate_Full(t *testing.T) {
-	p := ReviewPolicy{Preset: presetPtr(ReviewPresetFull)}
-	for _, phase := range []ActivityMethodPhase{
-		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
-		MethodPhaseConstruction, MethodPhaseIntegration,
-	} {
-		if !p.EffectiveGate("service", phase, false) {
-			t.Errorf("full preset must gate every phase, %s did not gate", phase)
-		}
-	}
-}
-
-// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap pins the "" / unset
-// preset to legacy/explicit mode: EffectiveGate falls back to RequiresHuman's
-// committed GatedPhasesByType map, unchanged from pre-Task-7 behavior (e.g. the
-// webApp PolicyPanel's ReviewPolicyFromGateIDs output).
-func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
-	p := ReviewPolicy{GatedPhasesByType: map[string][]ActivityMethodPhase{
-		"frontend": {MethodPhaseDetailedDesign},
-	}}
-	if !p.EffectiveGate("frontend", MethodPhaseDetailedDesign, false) {
-		t.Error("legacy mode must honor the explicit GatedPhasesByType map")
-	}
-	if p.EffectiveGate("service", MethodPhaseDetailedDesign, false) {
-		t.Error("legacy mode must not gate an un-configured activity type")
+	if !slices.Contains(p.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
+		t.Errorf("svc-contract must map to detailed_design, got %v", p.GatedPhasesByType["service"])
 	}
 }
 
@@ -8088,14 +7987,15 @@ func TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap(t *testing.T) {
 // default changes no dispatch decision" — was falsified one day later by the design
 // vibes autogate (2026-07-20): systemdesign/projectdesign set policyAutoApprove from
 // ReviewPolicy.Preset DIRECTLY, so a birth-seeded "vibes" auto-approved every design
-// draft and committed it without the architect. The human design gate — the Method's
+// draft and committed it without the architect (the rails ask the reviewEngine for that
+// verdict now, but the preset is still its only input). The human design gate — the Method's
 // commit authority — was gone for every project ever created, which is what the UC1/UC2
 // agentic E2E system tests exist to prove.
 //
-// Nil keeps CONSTRUCTION behavior byte-identical (EffectiveGate's default arm is
-// RequiresHuman over an empty map — ungated, floor unchanged; see
-// TestReviewPolicy_EffectiveGate_LegacyFallsBackToExplicitMap), so this only restores
-// the design gate.
+// Nil keeps CONSTRUCTION behavior byte-identical (the reviewEngine's legacy-preset arm
+// looks the phase up in an empty map — ungated, floor unchanged; see
+// Test_ProposeReviews_ConstructionGate_MatchesTheRetiredEffectiveGate's "legacy" row),
+// so this only restores the design gate.
 func TestCreateProject_LeavesReviewPolicyPresetUnset(t *testing.T) {
 	store, cred, ctx := newLocalGitStore(t)
 	id := ProjectID("fresh-project")
@@ -8110,6 +8010,106 @@ func TestCreateProject_LeavesReviewPolicyPresetUnset(t *testing.T) {
 	// value born here — "vibes" above all — silently removes the human design gate.
 	if p.ReviewPolicy.Preset != nil {
 		t.Fatalf("fresh project ReviewPolicy.Preset = %q, want unset (nil) — a birth-seeded preset auto-approves every design draft", *p.ReviewPolicy.Preset)
+	}
+}
+
+// ---- Tests: CodecCarriesEveryMember (the derived-plan writer's loss guard) ---------
+
+// legacyStaleAckSlotJSON is the EXACT shape slots 9 and 10 of the repo's own committed
+// project.json carry today: a staleAck review comment written before the Reopened/Replies
+// members existed and before Status was derived from the reply history. Decoding it runs
+// normalizeReviewThread, which rewrites "addressed" into the derived "answered" and fills
+// the two missing members — so the slot's stored bytes and its codec encoding differ
+// although the codec carries every last field of it.
+const legacyStaleAckSlotJSON = `{"status":"committed","reviewThread":[` +
+	`{"id":"r1c1","anchor":"","anchorText":"","text":"Reviewed — unaffected: Slot-5 system amendment (rev 2)",` +
+	`"authorRole":"architect","round":1,"status":"addressed","response":"","type":"staleAck","addressee":""}]}`
+
+// normalizedStaleAckSlotJSON is what the codec writes for the value above.
+const normalizedStaleAckSlotJSON = `{"status":"committed","reviewThread":[` +
+	`{"id":"r1c1","anchor":"","anchorText":"","text":"Reviewed — unaffected: Slot-5 system amendment (rev 2)",` +
+	`"authorRole":"architect","round":1,"status":"answered","reopened":false,"replies":null,` +
+	`"response":"","type":"staleAck","addressee":""}]}`
+
+// The defect this guard was written for: the derived-plan writer refused to rewrite slots
+// 9 and 10 because their bytes are not their codec encoding — but the whole difference is
+// the codec's OWN normalizer rewriting a legacy Status and filling two members the
+// document predates. Nothing is dropped, so nothing may be refused.
+func TestCodecCarriesEveryMember_ANormalizedLegacyReviewThreadLosesNothing(t *testing.T) {
+	lost, err := CodecCarriesEveryMember(json.RawMessage(legacyStaleAckSlotJSON), json.RawMessage(normalizedStaleAckSlotJSON))
+	if err != nil {
+		t.Fatalf("CodecCarriesEveryMember: %v", err)
+	}
+	if len(lost) != 0 {
+		t.Fatalf("the codec's own normalization drops nothing, got lost=%v", lost)
+	}
+	// And the two really are different bytes — otherwise the test proves nothing.
+	if legacyStaleAckSlotJSON == normalizedStaleAckSlotJSON {
+		t.Fatal("the fixture must reproduce the byte difference the writer refused on")
+	}
+}
+
+// A genuinely foreign change — a member the codec does not carry, which is the change
+// that makes a rewrite lossy — must still be refused, and the guard must NAME it.
+func TestCodecCarriesEveryMember_RefusesWhatTheCodecDrops(t *testing.T) {
+	tests := []struct {
+		name     string
+		stored   string
+		encoded  string
+		wantLost []string
+	}{
+		{
+			name:     "an unknown field the codec never decoded",
+			stored:   `{"status":"committed","legacyOnly":{"note":"hand-authored"}}`,
+			encoded:  `{"status":"committed"}`,
+			wantLost: []string{"legacyOnly"},
+		},
+		{
+			name:     "an unknown field nested inside a carried one",
+			stored:   `{"reviewThread":[{"id":"r1c1","provenance":"hand"}]}`,
+			encoded:  `{"reviewThread":[{"id":"r1c1"}]}`,
+			wantLost: []string{"reviewThread[0].provenance"},
+		},
+		{
+			name:     "a whole comment the encoding no longer holds",
+			stored:   `{"reviewThread":[{"id":"r1c1"},{"id":"r1c2"}]}`,
+			encoded:  `{"reviewThread":[{"id":"r1c1"}]}`,
+			wantLost: []string{"reviewThread[1]"},
+		},
+		{
+			name:     "a structure flattened to a scalar",
+			stored:   `{"model":{"activities":[]}}`,
+			encoded:  `{"model":""}`,
+			wantLost: []string{"model"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			lost, err := CodecCarriesEveryMember(json.RawMessage(tt.stored), json.RawMessage(tt.encoded))
+			if err != nil {
+				t.Fatalf("CodecCarriesEveryMember: %v", err)
+			}
+			if !slices.Equal(lost, tt.wantLost) {
+				t.Fatalf("lost = %v, want %v", lost, tt.wantLost)
+			}
+		})
+	}
+}
+
+// Members the ENCODING adds are the normalizer filling in what the document omitted, and
+// an identical member pair loses nothing — the two ends of the range.
+func TestCodecCarriesEveryMember_AddedAndIdenticalMembersAreNotLosses(t *testing.T) {
+	for _, tt := range []struct{ name, stored, encoded string }{
+		{"the normalizer adds a member", `{"id":"r1c1"}`, `{"id":"r1c1","reopened":false,"replies":null}`},
+		{"identical", legacyStaleAckSlotJSON, legacyStaleAckSlotJSON},
+		{"key order alone", `{"a":1,"b":2}`, `{"b":2,"a":1}`},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			lost, err := CodecCarriesEveryMember(json.RawMessage(tt.stored), json.RawMessage(tt.encoded))
+			if err != nil || len(lost) != 0 {
+				t.Fatalf("lost = %v, err = %v", lost, err)
+			}
+		})
 	}
 }
 
@@ -8170,16 +8170,16 @@ func TestProjectDoc_ReviewPolicy_RoundTrip(t *testing.T) {
 	if len(got.ReviewPolicy.GatedPhasesByType) != 2 {
 		t.Fatalf("ReviewPolicy.GatedPhasesByType len = %d, want 2", len(got.ReviewPolicy.GatedPhasesByType))
 	}
-	if !got.ReviewPolicy.RequiresHuman("service", MethodPhaseDetailedDesign) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseDetailedDesign) {
 		t.Error("service/detailed_design lost across round-trip")
 	}
-	if !got.ReviewPolicy.RequiresHuman("service", MethodPhaseIntegration) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["service"], MethodPhaseIntegration) {
 		t.Error("service/integration lost across round-trip")
 	}
-	if !got.ReviewPolicy.RequiresHuman("frontend", MethodPhaseDetailedDesign) {
+	if !slices.Contains(got.ReviewPolicy.GatedPhasesByType["frontend"], MethodPhaseDetailedDesign) {
 		t.Error("frontend/detailed_design lost across round-trip")
 	}
-	if got.ReviewPolicy.RequiresHuman("frontend", MethodPhaseConstruction) {
+	if slices.Contains(got.ReviewPolicy.GatedPhasesByType["frontend"], MethodPhaseConstruction) {
 		t.Error("frontend/construction should not be gated after round-trip")
 	}
 }

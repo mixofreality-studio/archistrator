@@ -20,6 +20,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
 	estimationfake "github.com/mixofreality-studio/archistrator/server/internal/engine/estimation/fake"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
@@ -2015,6 +2016,128 @@ func Test_CoAuthor_VibesPolicy_AutoApproves_NoHumanSignal(t *testing.T) {
 	}
 	if len(ps.committed) != 1 || ps.committed[0] != projectstate.KindMission {
 		t.Fatalf("the auto-approve must commit the artifact, got committed=%v", ps.committed)
+	}
+}
+
+// designActivityFor must never send a Phase-2 artifact DRAFT to the projectDesign
+// lifecycle's `sdp` phase: the engine makes that row always-human because M0 approves
+// spend, so mapping the nine drafts there would gate nine sessions that auto-approve
+// under vibes today. Every Phase-1 kind keeps the (type, phase) pair its critique round
+// implies.
+func Test_DesignActivityFor_Phase2KindsAreNotTheSdpGate(t *testing.T) {
+	for _, kind := range []projectstate.ArtifactKind{
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
+		projectstate.KindRiskModel, projectstate.KindSdpReview,
+	} {
+		typ, lifecyclePhase := designActivityFor(kind)
+		if typ != review.ActivityTypeProjectDesign {
+			t.Errorf("%s: activity type %q, want projectDesign", kind, typ)
+		}
+		if lifecyclePhase == "sdp" {
+			t.Errorf("%s: mapped to the always-human M0 gate; a Phase-2 draft is not that gate", kind)
+		}
+		if lifecyclePhase != kind.WireName() {
+			t.Errorf("%s: lifecycle phase %q, want the kind's own wire name %q", kind, lifecyclePhase, kind.WireName())
+		}
+	}
+	for _, c := range []struct {
+		kind  projectstate.ArtifactKind
+		typ   review.ActivityType
+		phase string
+	}{
+		{projectstate.KindMission, review.ActivityTypeRequirements, "mission"},
+		{projectstate.KindGlossary, review.ActivityTypeRequirements, "glossary"},
+		{projectstate.KindScrubbedRequirements, review.ActivityTypeRequirements, "glossary"},
+		{projectstate.KindVolatilities, review.ActivityTypeRequirements, "volatilities"},
+		{projectstate.KindCoreUseCases, review.ActivityTypeRequirements, "coreUseCases"},
+		{projectstate.KindSystem, review.ActivityTypeArchitecture, "architecture"},
+		{projectstate.KindOperationalConcepts, review.ActivityTypeArchitecture, "architecture"},
+		{projectstate.KindStandardCheck, review.ActivityTypeArchitecture, "architecture"},
+	} {
+		typ, lifecyclePhase := designActivityFor(c.kind)
+		if typ != c.typ || lifecyclePhase != c.phase {
+			t.Errorf("%s → (%s, %q), want (%s, %q)", c.kind, typ, lifecyclePhase, c.typ, c.phase)
+		}
+	}
+}
+
+// The engine's copy of the policy document must not drift from the stored one, and the
+// three Managers' copies of this adapter must not drift from each other.
+func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
+	preset := projectstate.ReviewPresetCheckpoints
+	in := projectstate.ReviewPolicy{Preset: &preset, GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+		"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseIntegration}}}
+	got := engineReviewPolicy(in)
+	if got.Preset != projectstate.ReviewPresetCheckpoints {
+		t.Errorf("preset = %q", got.Preset)
+	}
+	if !slices.Equal(got.GatedPhasesByType["service"], []string{"detailed_design", "integration"}) {
+		t.Errorf("gated phases = %v", got.GatedPhasesByType["service"])
+	}
+	if engineReviewPolicy(projectstate.ReviewPolicy{}).Preset != "" {
+		t.Error("a nil preset must read as the legacy/explicit mode, not panic")
+	}
+}
+
+// The design rail's autogate is the reviewEngine's answer now (spec 2026-09-20 §5.4).
+// Behaviour is unchanged and this table is the proof: vibes auto-approves the draft at
+// the review gate; every other preset — including the unset legacy "" — holds for the
+// human. A wrongly-answering engine would auto-APPROVE before the WITHDRAW lands, so
+// coAuthorWithdrawn is what pins the human arm.
+func Test_DesignSession_AutogateMatchesTheEngine(t *testing.T) {
+	for _, tc := range []struct {
+		preset string
+		auto   bool
+	}{
+		{projectstate.ReviewPresetVibes, true},
+		{projectstate.ReviewPresetCheckpoints, false},
+		{projectstate.ReviewPresetFull, false},
+		{"", false},
+	} {
+		t.Run("preset="+tc.preset, func(t *testing.T) {
+			var ts testsuite.WorkflowTestSuite
+			env := ts.NewTestWorkflowEnvironment()
+			id := ProjectID(uuid.NewString())
+			policy := projectstate.ReviewPolicy{}
+			if tc.preset != "" {
+				preset := tc.preset
+				policy.Preset = &preset
+			}
+			ps := &fakeProjectState{project: projectstate.Project{
+				ID:           projectstate.ProjectID(id),
+				Version:      2,
+				Mission:      committedSlot(mustMission(t)),
+				Glossary:     awaitingSlot(mustGlossary(t), projectstate.CritiqueVerdictApprove, ""),
+				ReviewPolicy: policy,
+			}}
+			wf := newWorkflows()
+			registerCoAuthor(env, wf, ps, newFakePipeline())
+			if !tc.auto {
+				env.RegisterDelayedCallback(func() {
+					env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+				}, 30*time.Second)
+			}
+			env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindGlossary})
+			if err := env.GetWorkflowError(); err != nil {
+				t.Fatalf("workflow error: %v", err)
+			}
+			var outcome coAuthorOutcome
+			if err := env.GetWorkflowResult(&outcome); err != nil {
+				t.Fatalf("decode outcome: %v", err)
+			}
+			want := coAuthorWithdrawn
+			if tc.auto {
+				want = coAuthorApproved
+			}
+			if outcome != want {
+				t.Fatalf("preset %q: outcome %d, want %d (auto=%v)", tc.preset, outcome, want, tc.auto)
+			}
+			if got := len(ps.committed); got != map[bool]int{true: 1, false: 0}[tc.auto] {
+				t.Fatalf("preset %q: committed %v", tc.preset, ps.committed)
+			}
+		})
 	}
 }
 

@@ -930,7 +930,42 @@ func reviewSetFromEngine(set review.ReviewSet) ReviewSet {
 		}
 		reviewers = append(reviewers, cr)
 	}
-	return ReviewSet{Reviewers: reviewers}
+	// The gate verdict rides onto the façade beside the roster: the two are one answer
+	// from one call. Both are *T on the façade (additive optional properties), so a
+	// pre-stage-2 client that never reads them decodes unchanged.
+	human, reason := set.RequiresHuman, set.Reason
+	return ReviewSet{Reviewers: reviewers, RequiresHuman: &human, Reason: &reason}
+}
+
+// engineReviewPolicy converts the COMMITTED policy document (projectstate's storage
+// shape) into the reviewEngine's own copy. An adapter rather than a cast for two real
+// divergences: Preset is *string here and a plain string there (nil ⇒ "", the
+// legacy/explicit mode), and GatedPhasesByType is keyed to the typed
+// ActivityMethodPhase here and to that phase's WIRE NAME there — an Engine may not
+// import projectstate (F3), so the engine keys on the strings the two rails already
+// share.
+//
+// The two design-rail Managers carry a byte-identical copy of this function
+// (systemdesign/coauthorartifact.go, projectdesign/coauthorphase2artifact.go): three
+// packages with no shared home that would not cost an internal/arch_test.go allowlist
+// entry for a five-line conversion. Edit all three together; their parity is pinned by
+// Test_EngineReviewPolicy_CarriesTheStoredDocument in each package.
+func engineReviewPolicy(p projectstate.ReviewPolicy) review.ReviewPolicy {
+	out := review.ReviewPolicy{}
+	if p.Preset != nil {
+		out.Preset = *p.Preset
+	}
+	if len(p.GatedPhasesByType) > 0 {
+		out.GatedPhasesByType = make(map[string][]string, len(p.GatedPhasesByType))
+		for typ, phases := range p.GatedPhasesByType {
+			names := make([]string, 0, len(phases))
+			for _, ph := range phases {
+				names = append(names, ph.String())
+			}
+			out.GatedPhasesByType[typ] = names
+		}
+	}
+	return out
 }
 
 // maxVarianceAttempts bounds the dispatch→review→variance supervision loop
@@ -1459,43 +1494,35 @@ func (wf *workflows) runPhaseGate(
 		*headVersion = v
 	}
 
-	// Inert policy (or a phase this policy does not gate) → complete immediately (no
-	// suspend). completePhase marks the in-memory set UNCONDITIONALLY. EffectiveGate
-	// (Task 7) resolves the ReviewPolicy.Preset switch (vibes/checkpoints/full,
-	// falling back to RequiresHuman's explicit map when Preset is unset) and THEN
-	// applies the non-overridable floor via state.floorTouched — a
-	// deploy/spend/schema-touching contract's construction dispatch stays gated
-	// under every preset, including "vibes".
-	if !policy.EffectiveGate(in.Activity.activityTypeName(), phase, state.floorTouched) {
+	// ONE call decides both halves of the review question: who reviews (the engine's
+	// reviewer rows) and whether a human must sign off (the project's committed
+	// ReviewPolicy plus the non-overridable deploy/spend/schema floor). It used to be
+	// two lookups in two components, which is how the kind table and the gate policy
+	// drifted apart. An engine refusal is LOGGED and SHOWN (reviewSetError) and opens
+	// the gate rather than failing the activity — the set is display-only in v1 and a
+	// roster defect must not cost the work. A call that only assigns and logs emits no
+	// commands, so this still needs no version gate and every replay fixture replays
+	// unchanged.
+	//
+	// I1 — the roster and the gate occurrence are the same fact: the set is published
+	// exactly when the gate opens, on EVERY entry including a redraft's re-entry at the
+	// same phase, and leaveHumanStage takes it down with the occurrence it belonged to.
+	// The proposal is pure and deterministic over (type, phase, policy, floor,
+	// snapshot contracts), so a re-entry re-derives the identical answer.
+	set, err := wf.proposeReviewSet(in, phase, policy, state)
+	if err != nil {
+		workflow.GetLogger(ctx).Error("review engine refused to propose reviewers; the gate opens without a reviewer set",
+			"activityId", in.ActivityID, "lifecyclePhase", phase.String(), "err", err.Error())
+		state.reviewSet, state.reviewSetError = nil, err.Error()
 		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
-
-	wf.surfaceReviewSet(ctx, in, phase, state)
-
-	return wf.awaitPhaseDecision(ctx, in, phase, state, gf, headVersion, gitOn, cred)
-}
-
-// surfaceReviewSet puts the gate occurrence ABOUT TO OPEN on the session view: its
-// reviewer roster, or the engine's refusal to propose one. The set is display-only in
-// v1 — the human Approve/SendBack is the enforced gate — so an engine refusal does not
-// fail the activity; it is LOGGED and SHOWN (reviewSetError), never dropped.
-//
-// It runs on EVERY gate entry, including a redraft's re-entry at the same phase, because
-// leaveHumanStage takes the roster down with the occurrence it belonged to (I1): the pair
-// (enter, leave) keeps "a roster is showing" and "a gate is open" the same fact. The
-// proposal is pure and deterministic over (activity, phase, snapshot contracts), so
-// re-entry re-derives the identical set. An assignment and a log line emit no commands,
-// so this needs no version gate (same argument as the human stage below) and every
-// replay fixture replays unchanged.
-func (wf *workflows) surfaceReviewSet(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) {
-	state.reviewSet, state.reviewSetError = nil, ""
-	if rs, e := wf.proposeReviewSet(in, phase, state); e != nil {
-		state.reviewSetError = e.Error()
-		workflow.GetLogger(ctx).Error("review engine refused to propose reviewers; the gate opens without a reviewer set",
-			"activityId", in.ActivityID, "phase", phase.String(), "err", e.Error())
-	} else {
-		state.reviewSet = &rs // NOTE: *ReviewSet (B6)
+	if set.RequiresHuman == nil || !*set.RequiresHuman {
+		state.reviewSet, state.reviewSetError = nil, ""
+		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 	}
+	state.reviewSet, state.reviewSetError = &set, "" // NOTE: *ReviewSet (B6)
+
+	return wf.awaitPhaseDecision(ctx, in, phase, state, set, gf, headVersion, gitOn, cred)
 }
 
 // awaitPhaseDecision is the suspend + redraft loop of the gate (extracted so
@@ -1503,11 +1530,17 @@ func (wf *workflows) surfaceReviewSet(ctx workflow.Context, in constructActivity
 // decision channel until a decision for THIS phase arrives, then acts on it: Approve
 // completes the phase; SendBack redrafts THIS phase in place (its OWN redraft budget,
 // NOT the variance budget); on redraft exhaustion it keeps awaiting the human.
+//
+// set is the answer runPhaseGate already got from the engine. A re-entry RE-PUBLISHES it
+// rather than re-asking: the engine is pure over inputs that do not change inside a
+// gate, so the re-derived answer would be identical, and carrying it keeps I1 exact —
+// the roster that goes back up is the one that belonged to this gate.
 func (wf *workflows) awaitPhaseDecision(
 	ctx workflow.Context,
 	in constructActivityInput,
 	phase projectstate.ActivityMethodPhase,
 	state *constructState,
+	set ReviewSet,
 	gf *gitForward,
 	headVersion *projectstate.Version,
 	gitOn bool,
@@ -1536,7 +1569,7 @@ func (wf *workflows) awaitPhaseDecision(
 				workflow.GetLogger(ctx).Warn("phase redraft budget exhausted; keep awaiting human decision",
 					"activityId", in.ActivityID, "phase", phase.String())
 				state.leaveHumanStage(ctx, activityType, gateOutcomeSentBackExhausted)
-				wf.surfaceReviewSet(ctx, in, phase, state)
+				state.reviewSet, state.reviewSetError = &set, ""
 				state.enterPhaseGate(ctx, phase.String(), redraft)
 				continue
 			}
@@ -1550,7 +1583,7 @@ func (wf *workflows) awaitPhaseDecision(
 			if _, e := wf.runPipeline(ctx, in, phase, state, gf, headVersion); e != nil {
 				return false, e
 			}
-			wf.surfaceReviewSet(ctx, in, phase, state)
+			state.reviewSet, state.reviewSetError = &set, ""
 			state.enterPhaseGate(ctx, phase.String(), redraft)
 		default:
 			// Unknown decision: ignore and keep awaiting the human.
@@ -2124,9 +2157,18 @@ func (wf *workflows) runLocalMergeStep(
 		return false, false, nil
 	}
 
-	// The Task-7 gate, consulted at MethodPhaseConstruction: this is what makes
-	// vibes auto-merge, checkpoints/full hold, and the risk floor hold ALWAYS.
-	if policy.EffectiveGate(in.Activity.activityTypeName(), projectstate.MethodPhaseConstruction, state.floorTouched) {
+	// The gate, consulted at MethodPhaseConstruction through the SAME engine call the
+	// phase gates use: this is what makes vibes auto-merge, checkpoints/full hold, and
+	// the risk floor hold ALWAYS. Only the verdict is read — the merge has no roster to
+	// show. A refusal reads as "no hold", matching runPhaseGate's conservative arm: the
+	// merge is what the vibes profile does unattended today, and an engine defect must
+	// not strand the branch. It is logged either way.
+	mergeSet, mErr := wf.proposeReviewSet(in, projectstate.MethodPhaseConstruction, policy, state)
+	if mErr != nil {
+		workflow.GetLogger(ctx).Error("review engine refused to decide the merge gate; the merge proceeds unheld",
+			"activityId", in.ActivityID, "err", mErr.Error())
+	}
+	if mErr == nil && mergeSet.RequiresHuman != nil && *mergeSet.RequiresHuman {
 		state.redraftExhausted = false
 		state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateKey, 0)
 		ch := workflow.GetSignalChannel(ctx, signalPhaseDecision)
@@ -2230,89 +2272,34 @@ func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivi
 	})
 }
 
-// proposeReviewSet builds the review.ReviewChange + artifactKind for this
-// activity/phase and calls the PURE published review.ReviewEngine directly
-// (deterministic, replay-safe). The contracts are sourced from the start-snapshot
-// project (B5); the architecture graph is still passed empty — historically it was
-// not carried across the pump's local envelope, and although the shared
-// projectstate.ProjectEnvelope (B8 follow-up) now carries every populated slot, the
-// reviewer set is display-only in v1, so the empty-graph behavior is deliberately
-// preserved (earmark: feed the committed SystemDesign here when the reviewer set
-// becomes enforcing).
-// reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto this
-// component's generated façade ReviewSet (contract.gen.go) — a real divergence, not
-// an identity mirror (see deps.go's reviewEngine retirement note).
-func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState) (ReviewSet, error) {
+// proposeReviewSet is the Manager's SINGLE review decision point: it hands the engine
+// the activity's TYPE, the lifecycle phase's wire name, the committed policy document
+// and the floor flag, and gets back the whole answer — the roster, whether a human must
+// sign off, and the one-line reason. The call is to the PURE published
+// review.ReviewEngine, directly (deterministic, replay-safe).
+//
+// The (activity type, lifecycle phase) → review kind table MOVED into
+// internal/engine/review when ProposeReviews took the activity type (spec 2026-09-20
+// §5.4, stage 2), taking the "no component degrades to a sign-off" rule with it; the
+// engine owns the whole table now, so the Manager cannot pass a kind the engine does
+// not know.
+//
+// The contracts are sourced from the start-snapshot project (B5). The architectureGraph
+// parameter is GONE: every production call passed "" and the v1 policy ignored it — a
+// parameter that is always empty is a lie the compiler cannot catch (earmark: feed the
+// committed SystemDesign through `contracts`' successor when the reviewer set becomes
+// enforcing). reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto
+// this component's generated façade ReviewSet (contract.gen.go) — a real divergence,
+// not an identity mirror.
+func (wf *workflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, policy projectstate.ReviewPolicy, state *constructState) (ReviewSet, error) {
 	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
 	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
-		change, in.Activity.ComponentID, reviewArtifactKindFor(in.Activity, phase), "", state.reviewContracts)
+		change, review.ActivityType(in.Activity.activityTypeName()), phase.String(),
+		in.Activity.ComponentID, engineReviewPolicy(policy), state.floorTouched, state.reviewContracts)
 	if err != nil {
 		return ReviewSet{}, err
 	}
 	return reviewSetFromEngine(set), nil
-}
-
-// reviewArtifactKindFor is the TOTAL (activity type, lifecycle phase) → review kind
-// table: all 35 cells are decided, so it returns no error and no bool, and a gate can
-// never again go without reviewers because of what the Manager passed. It replaces
-// phase.String(), whose wire names ("detailed_design") were never in the engine's
-// vocabulary ("DetailedDesign") — the engine refused every call and the gate dropped
-// the error.
-//
-// It lives here, not in the engine, because its inputs are projectstate types no Engine
-// imports and an Engine package exports only its generated surface; the engine owns the
-// VOCABULARY (the generated review.ReviewArtifactKind), so a wrong value does not
-// compile. Spec 2026-09-20 §5.4 moves the table into the engine with the generalized
-// ProposeReviews(activityType, …) signature (stage 2).
-//
-// A component-scoped kind for an activity with NO component degrades to Noncoding:
-// there is no contract or UI design to hold the work against, so the architect signs it
-// off. The guard below MIRRORS the engine's unexported componentScoped rule (which kinds
-// need a component) and must move with it — until stage 2 dissolves the duplication by
-// giving ProposeReviews the activity type and letting the engine own the whole table.
-// Off-profile cells (a phase the type's profile does not carry) are decided too, so
-// a profile change cannot make this partial. The rows are justified in the plan
-// (docs/superpowers/plans/2026-09-21-activity-experience-stage0.md, Task 6).
-func reviewArtifactKindFor(act constructionActivity, p projectstate.ActivityMethodPhase) review.ReviewArtifactKind {
-	kind := review.ReviewKindNoncoding
-	switch act.Type {
-	case projectstate.ActivityTypeService, projectstate.ActivityTypeDeployment:
-		kind = componentReviewKind(p, review.ReviewKindDetailedDesign, review.ReviewKindConstruction)
-	case projectstate.ActivityTypeFrontend, projectstate.ActivityTypeUIDesign:
-		kind = componentReviewKind(p, review.ReviewKindUIDesign, review.ReviewKindUICode)
-	case projectstate.ActivityTypeIntegration:
-		kind = componentReviewKind(p, review.ReviewKindNoncoding, review.ReviewKindNoncoding)
-	case projectstate.ActivityTypeTesting, projectstate.ActivityTypeDocumentation:
-		// A document or a test asset with no architecture component; its "integration"
-		// phase is a label (Plan Review, Sign-off, Doc Review), not a call-chain integration.
-	case projectstate.ActivityTypeRequirements, projectstate.ActivityTypeArchitecture,
-		projectstate.ActivityTypeProjectDesign:
-		// The design types' reviewer rows move into the engine in Task 8. Until then
-		// they fall through to ReviewKindNoncoding — the architect's sign-off — which
-		// is unreachable in any case: the pump refuses to dispatch a design activity
-		// (Task 10).
-	}
-	if act.ComponentID == "" && kind != review.ReviewKindIntegration {
-		return review.ReviewKindNoncoding
-	}
-	return kind
-}
-
-// componentReviewKind is one row of the table for a type that designs and then builds:
-// its documents (requirements, test plan) are signed off, its design and its build take
-// the row's two kinds, and its integration is reviewed against the call chains.
-func componentReviewKind(p projectstate.ActivityMethodPhase, design, build review.ReviewArtifactKind) review.ReviewArtifactKind {
-	switch p {
-	case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan:
-		return review.ReviewKindNoncoding
-	case projectstate.MethodPhaseDetailedDesign:
-		return design
-	case projectstate.MethodPhaseConstruction:
-		return build
-	case projectstate.MethodPhaseIntegration:
-		return review.ReviewKindIntegration
-	}
-	return review.ReviewKindNoncoding
 }
 
 // snapshotContractKeys derives the deterministic (sorted) set of contract identifiers

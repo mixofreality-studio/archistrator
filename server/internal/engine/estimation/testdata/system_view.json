@@ -371,6 +371,14 @@
    "to": "review-engine"
   },
   {
+   "from": "system-design-manager",
+   "to": "review-engine"
+  },
+  {
+   "from": "project-design-manager",
+   "to": "review-engine"
+  },
+  {
    "from": "operations-manager",
    "to": "intervention-engine"
   },

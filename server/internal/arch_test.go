@@ -887,22 +887,35 @@ var encapsulationAllowlistData = map[string][]string{
 		// ad-hoc gate-id vocabulary (e.g. "svc-contract") into the canonical ReviewPolicy
 		// value stored in head-state. It is the client-facing constructor for ReviewPolicy
 		// and must be exported for the client layer (cmd/server/construction_dryrun.go and
-		// generated web handlers) to call. ReviewPolicy itself is contract surface via the
-		// Project aggregate's ReviewPolicy field; only the constructor free-func needs
-		// allowlisting.
+		// generated web handlers) to call. It DECIDES nothing — it is pure shaping of the
+		// client's vocabulary INTO the stored document the reviewEngine later reads.
+		// ReviewPolicy itself is contract surface via the Project aggregate's ReviewPolicy
+		// field; only the constructor free-func needs allowlisting.
 		"ReviewPolicyFromGateIDs",
 		// REVIEW-PRESET vocabulary + non-overridable-floor helpers (Task 7, local-first
 		// sophistication dial). ReviewPresetVibes/Checkpoints/Full are the closed
 		// ReviewPolicy.Preset wire values (same category as the ReviewComment status
 		// vocabulary above — plain-string consts owned here; ReviewPolicy.Preset itself
-		// is generated contract surface). ContractTouchesReviewFloor is the pure
-		// classification helper the construction Manager's snapshot (constructactivity.go's
+		// is generated contract surface); the WRITE path validates against them and the
+		// webApp's PolicyPanel writes them, while the reviewEngine holds its own copy and
+		// decides what they mean. ContractTouchesReviewFloor is the pure classification
+		// helper the construction Manager's snapshot (constructactivity.go's
 		// loadReviewSnapshot) calls to seed the floor — exported because it is invoked
-		// from internal/manager/construction, a different package.
+		// from internal/manager/construction, a different package. It reads a
+		// projectstate.ServiceContract, a type no Engine may import, so it stays here and
+		// FEEDS the engine the boolean rather than deciding the gate.
 		"ReviewPresetVibes",
 		"ReviewPresetCheckpoints",
 		"ReviewPresetFull",
 		"ContractTouchesReviewFloor",
+		// CODEC SELF-DESCRIPTION: CodecCarriesEveryMember answers "does this codec carry
+		// everything that member held?" for a writer that re-materializes part of the
+		// committed document in place (`make derived-plan-write`, in
+		// internal/manager/projectdesign). Only THIS package can answer it — it owns
+		// EncodeProjectJSON/DecodeProjectJSON and the normalizations they apply — and the
+		// caller is a different package, so it is exported. It is a pure structural
+		// predicate over two JSON values; it decides nothing about project state.
+		"CodecCarriesEveryMember",
 		"RiskModel",
 		"RiskModel.Kind",
 		"RiskRow",
