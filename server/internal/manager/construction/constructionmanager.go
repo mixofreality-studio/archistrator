@@ -1004,9 +1004,10 @@ func sessionStageName(s ConstructionStage) string {
 // full) while PRESERVING the committed GatedPhasesByType map (UpdateReviewPolicy's
 // surface — the two ops write disjoint halves of the same ReviewPolicy).
 //
-// The preset is validated HERE, at the write path: EffectiveGate's read path
-// deliberately treats an unrecognized preset as the legacy explicit-map fallback,
-// and with an empty map that gates NOTHING — the documented fail-open corner. A
+// The preset is validated HERE, at the write path: the reviewEngine's read path
+// (ProposeReviews, keyed off this policy's Preset) deliberately treats an
+// unrecognized preset as the legacy explicit-map fallback, and with an empty map
+// that gates NOTHING — the documented fail-open corner. A
 // closed write vocabulary (rejecting unknowns as ContractMisuse) is what keeps a
 // typo'd preset from silently degrading a project to "gate nothing".
 func (m *constructionManager) SetReviewPolicy(rc fwm.Context, projectID ProjectID, preset string) error {
@@ -1292,8 +1293,9 @@ func validatePhaseDecision(phase string, decision PhaseDecision) error {
 // activityTypeName returns the canonical activity-type wire name
 // ("service"/"frontend"/"testing"/…) for the activity's STAMPED type. These are the
 // exact keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the
-// webApp PolicyPanel must emit) — the gate consults RequiresHuman(activityTypeName(),
-// phase). It reads the stamped Type rather than re-deriving from the id: re-deriving
+// webApp PolicyPanel must emit) — the gate consults the reviewEngine's
+// ProposeReviews(activityTypeName(), phase, …), reading its RequiresHuman
+// verdict. It reads the stamped Type rather than re-deriving from the id: re-deriving
 // would let the gate map be keyed by a different type than the phases being walked.
 func (a constructionActivity) activityTypeName() string {
 	return a.Type.String()
@@ -1989,8 +1991,9 @@ type constructState struct {
 	// floorTouched is the Task 7 non-overridable-floor snapshot: whether the
 	// activity's committed contract (start-snapshot, B5-style — never re-read
 	// mid-loop) touches deploy/spend/schema (projectstate.ContractTouchesReviewFloor).
-	// Consulted by runPhaseGate via ReviewPolicy.EffectiveGate to force a human gate
-	// at MethodPhaseConstruction regardless of preset, including "vibes".
+	// Consulted by runPhaseGate via the reviewEngine's ProposeReviews (this is the
+	// floor flag it passes) to force a human gate at MethodPhaseConstruction
+	// regardless of preset, including "vibes".
 	floorTouched bool
 
 	// mergeCompleted is the LIVE in-memory skip-guard for the local merge step

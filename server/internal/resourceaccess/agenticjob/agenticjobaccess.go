@@ -1113,9 +1113,10 @@ func (dryRunPipeline) CancelAgenticJob(_ fwra.Context, _ PipelineHandle) error {
 // (DispatchInputs["job"]=DispatchJobMerge — submitMergeJob below): a --no-ff
 // merge of activity/<id> into the default branch + branch delete, performed in a
 // throwaway clone and pushed (the projectstate GitStore's own write mechanism).
-// The merge DECISION stays the Manager's (ReviewPolicy.EffectiveGate + the
-// Task-7 risk floor gate the merge behind human approval); this realisation only
-// executes it — the same decide/perform split the cloud PR rail has.
+// The merge DECISION stays the Manager's (the reviewEngine's ProposeReviews —
+// RequiresHuman — plus the Task-7 risk floor gate the merge behind human
+// approval); this realisation only executes it — the same decide/perform split
+// the cloud PR rail has.
 //
 // NO FAKE SUCCESS STATES: every PipelinePhase this realisation reports is derived
 // from an ACTUAL subprocess outcome (exit code, timeout, explicit cancel) or an
@@ -1370,11 +1371,11 @@ func (a *localExecAccess) SubmitAgenticJob(rc fwra.Context, spec PipelineSpec) (
 	// activity branch into the repo's default branch (and deletes the branch),
 	// synchronously, recording a terminal run the Manager's existing observe poll
 	// reads. The Manager sends this ONLY in the local (rail-dormant) profile,
-	// AFTER the ReviewPolicy.EffectiveGate hold (if any) has cleared — the RA
-	// stays policy-free (it executes; the Manager decides). A merge conflict is a
-	// FAILED run with a diagnostic (the Manager's intervention path), never a
-	// partial merge — the merge happens in a throwaway clone and nothing is
-	// pushed unless it completed cleanly.
+	// AFTER the reviewEngine's ProposeReviews hold (its RequiresHuman verdict, if
+	// any) has cleared — the RA stays policy-free (it executes; the Manager
+	// decides). A merge conflict is a FAILED run with a diagnostic (the Manager's
+	// intervention path), never a partial merge — the merge happens in a
+	// throwaway clone and nothing is pushed unless it completed cleanly.
 	if spec.DispatchInputs[DispatchInputJobKey] == DispatchJobMerge {
 		return a.submitMergeJob(rc, activityID)
 	}
@@ -3828,11 +3829,12 @@ func removeWorktree(repoPath, workDir string) error {
 
 // ---------------------------------------------------------------------------
 // Policy-gated local merge job (local-merge-and-policy Commit 1). The Manager —
-// the ONLY policy authority (ReviewPolicy.EffectiveGate + the Task-7 risk
-// floor) — dispatches this job through the frozen Submit surface via
-// DispatchInputs["job"]="merge" once its gate has cleared; this RA only
-// EXECUTES the merge, mirroring the division of labor the PR rail has in the
-// cloud profile (interventionEngine/policy DECIDES, the executor PERFORMS).
+// the ONLY policy authority (the reviewEngine's ProposeReviews/RequiresHuman
+// verdict + the Task-7 risk floor) — dispatches this job through the frozen
+// Submit surface via DispatchInputs["job"]="merge" once its gate has cleared;
+// this RA only EXECUTES the merge, mirroring the division of labor the PR rail
+// has in the cloud profile (interventionEngine/policy DECIDES, the executor
+// PERFORMS).
 // ---------------------------------------------------------------------------
 
 // DispatchInputJobKey is the DispatchInputs key that selects a non-default job

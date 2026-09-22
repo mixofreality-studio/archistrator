@@ -636,7 +636,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"OperatorNote",
 		"PendingOperatorNotes",
 		// LAYER-STACK PROJECTION (task 11, construction-UI-rewrite stage A). Same
-		// category as ClassifyActivity/TasksForPhase above: a total, side-effect-free
+		// category as ClassifyActivity/TasksForProfile above: a total, side-effect-free
 		// function of an already-public projectstate value (a Layer.String() value the
 		// caller resolves from the committed System) — no clone, no read, no write, no
 		// clock, so there is no contract operation to generate for it. Exported because

@@ -599,9 +599,11 @@ func (s *GitStore) CreateProject(ctx context.Context, projectID ProjectID, owner
 		// rationale held for exactly one day. The design vibes autogate (2026-07-20)
 		// made the PRESET ITSELF mean "auto-approve every design artifact":
 		// coauthorartifact.go / coauthorphase2artifact.go set policyAutoApprove from
-		// Preset DIRECTLY, not through EffectiveGate. From then on, seeding the preset
-		// at BIRTH silently removed the human design gate from every project ever
-		// created — a co-author session auto-approved its own draft and committed it
+		// Preset DIRECTLY, not through the policy gate method (what today's reviewEngine
+		// decides via ProposeReviews's RequiresHuman verdict — see its own MOVED note
+		// below). From then on, seeding the preset at BIRTH silently removed the human
+		// design gate from every project ever created — a co-author session
+		// auto-approved its own draft and committed it
 		// with approvedBy "policy:vibes", so the architect's approval, which is the
 		// Method's commit authority, was never asked for.
 		//

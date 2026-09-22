@@ -1100,9 +1100,10 @@ func (wf *workflows) runAttempt(
 	// --- Step 1: dispatch (the former per-activity worker-class cast is retired). The
 	// handOffEngine is gone: agent-class selection collapsed to the platform's single
 	// "agent" dispatch default, and automated-vs-human routing is now the project's
-	// review-policy preset, applied per phase by the runPhaseGate gate below (via
-	// reviewPolicy.EffectiveGate) rather than an up-front worker-class decision. Every
-	// activity dispatches; a human is inserted where the review policy requires one.
+	// review-policy preset, applied per phase by the runPhaseGate gate below (via the
+	// reviewEngine's ProposeReviews/RequiresHuman verdict) rather than an up-front
+	// worker-class decision. Every activity dispatches; a human is inserted where
+	// the review policy requires one.
 
 	// --- Step 2a: open the per-activity branch + PR and mirror it (git-forward,
 	// C-MCN-GIT). Lazy + once: the row is born on the first dispatch and reused on
@@ -1145,8 +1146,9 @@ func (wf *workflows) runAttempt(
 
 	// --- Step 5b (local-merge-and-policy Commit 1): the policy-gated LOCAL merge.
 	// In the rail-dormant local profile nothing else lands activity/<id> on main —
-	// consult the SAME EffectiveGate the construction dispatch uses (vibes → auto,
-	// checkpoints/full → hold for approval, risk floor → always hold) and dispatch
+	// consult the SAME reviewEngine call (ProposeReviews/RequiresHuman) the
+	// construction dispatch uses (vibes → auto, checkpoints/full → hold for
+	// approval, risk floor → always hold) and dispatch
 	// the merge job through the pipeline seam. A merge failure (conflict) routes
 	// through the SAME intervention path a failed phase pipeline takes. -----------
 	mergeFailed, mergeDone, mErr := wf.runLocalMergeStep(ctx, in, attempt, reviewPolicy, state, headVersion, overrideCh, gitOn, startedCred)
@@ -1731,8 +1733,8 @@ func (wf *workflows) completePhase(
 // rail-dormant local profile (the local construction executor — gitOn without a
 // PR rail) the commits land on activity/<id> and NOTHING else merges them: this
 // step is what finishes the git-forward story there. The DECISION reuses the
-// Task-7 machinery verbatim — ReviewPolicy.EffectiveGate at
-// MethodPhaseConstruction with the non-overridable risk floor — so:
+// Task-7 machinery verbatim — the reviewEngine's ProposeReviews/RequiresHuman
+// verdict at MethodPhaseConstruction with the non-overridable risk floor — so:
 //   - vibes (and the legacy empty policy)   → auto-merge, no hold;
 //   - checkpoints / full                    → hold at an approval gate (the
 //     SAME suspend/approve machinery as the phase gates, keyed mergeGateKey)
