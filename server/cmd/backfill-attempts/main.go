@@ -852,10 +852,11 @@ func classify(item projectstate.ActivityItem, hasContract bool) (projectstate.Ac
 // integrated, and those tasks stay unattempted — real work for the pump to record.
 func attemptsFor(v verdict, typ projectstate.ActivityType, variant projectstate.TestingVariant, now time.Time) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
+	// TasksForProfile emits a profile's lifecycle NODES only: the sub-attempt tasks
+	// (someConstruction, testClient) are not among them, which is the right answer here
+	// for the reason the paragraph above gives — inventing one would assert a pre-design
+	// spike or a test client that may never have existed.
 	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, variant)) {
-		if projectstate.IsConditionalTask(task) {
-			continue
-		}
 		if v.IntegrationPending != "" && projectstate.PhaseForTask(task) == projectstate.MethodPhaseIntegration {
 			continue
 		}

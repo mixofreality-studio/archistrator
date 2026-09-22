@@ -7966,16 +7966,6 @@ func dispatchTaskIn(lc methodassets.Lifecycle, p ActivityMethodPhase) methodasse
 	return methodassets.LifecycleTask{}
 }
 
-// lifecyclePhaseIn is the named phase of a lifecycle; false when it carries no such phase.
-func lifecyclePhaseIn(lc methodassets.Lifecycle, p ActivityMethodPhase) (methodassets.LifecyclePhase, bool) {
-	for _, ph := range lc.Phases {
-		if ph.ID == string(p) {
-			return ph, true
-		}
-	}
-	return methodassets.LifecyclePhase{}, false
-}
-
 // ProfileFor returns the canonical-phase profile for an activity type (and testing
 // variant, meaningful only when t == ActivityTypeTesting): the phases that type's
 // lifecycle carries, in lifecycle order, with their earned-value weights and labels.
@@ -8697,80 +8687,78 @@ const (
 	TaskTesting          MethodTask = "testing"
 )
 
-// phaseTasks is the Figure A-2 grouping: which tasks make up each lifecycle phase.
-// Order within a phase is execution order.
-var phaseTasks = map[ActivityMethodPhase][]MethodTask{
-	MethodPhaseRequirements:   {TaskSRS, TaskSRSReview},
-	MethodPhaseTestPlan:       {TaskSTP, TaskSTPReview},
-	MethodPhaseDetailedDesign: {TaskSomeConstruction, TaskDetailedDesign, TaskDesignReview},
-	MethodPhaseConstruction:   {TaskConstruction, TaskTestClient, TaskCodeReview},
-	MethodPhaseIntegration:    {TaskIntegration, TaskTesting},
-}
-
-// gateTasks is the binary exit criterion per phase (App A: "the Construction phase is
-// complete once you have had the code review, not simply when the code is checked in").
-var gateTasks = map[ActivityMethodPhase]MethodTask{
-	MethodPhaseRequirements:   TaskSRSReview,
-	MethodPhaseTestPlan:       TaskSTPReview,
-	MethodPhaseDetailedDesign: TaskDesignReview,
-	MethodPhaseConstruction:   TaskCodeReview,
-	MethodPhaseIntegration:    TaskTesting,
-}
-
-// conditionalTasks are emitted ONLY when a real attempt record exists for them.
-// someConstruction is Löwy's pre-design spike and our agentic detailed-design dispatch
-// is a single episode; testClient is the tandem partner of Construction and often does
-// not exist for a deployment or a doc. Rendering a row for work that never happened is
-// the "view states something false" failure this stage exists to remove.
+// lifecyclePhaseTasks is the phase-keyed work/gate pair, folded once over EVERY
+// lifecycle the pinned method-assets ships. phaseTasks and gateTasks used to state the
+// same thing as hand-authored maps here; the data states it per lifecycle now.
 //
-// Listed exhaustively (all twelve MethodTask values, not just the two conditional
-// ones) so `exhaustive` (check: [switch, map] in .golangci.yml) fails the build the
-// moment a thirteenth task is added without a conscious true/false call — the same
-// protection a switch's default case would lose.
-var conditionalTasks = map[MethodTask]bool{
-	TaskSRS:              false,
-	TaskSRSReview:        false,
-	TaskSTP:              false,
-	TaskSTPReview:        false,
-	TaskSomeConstruction: true,
-	TaskDetailedDesign:   false,
-	TaskDesignReview:     false,
-	TaskConstruction:     false,
-	TaskTestClient:       true,
-	TaskCodeReview:       false,
-	TaskIntegration:      false,
-	TaskTesting:          false,
-}
+// A PHASE ID keys it, not a (type, phase) pair, for two reasons. The callers that ask
+// hold a phase and no activity type — the workflow's phase walk (AgentTaskFor) and App
+// A's completion rule (phaseCompleteFromAttempts → GateTaskFor) — and the data says the
+// answer does not vary: the eleven construction lifecycles share the canonical five
+// phase ids and name the same work and gate task under each, while the three design
+// lifecycles use phase ids that collide with none of them.
+// TestLifecyclePhaseTasksAreUnambiguous is what keeps that true; without it a release
+// that made two lifecycles disagree would be resolved silently by insertion order.
+var lifecyclePhaseTasks = buildLifecyclePhaseTasks()
 
-// TasksForPhase returns the Figure A-1 tasks belonging to a lifecycle phase, in
-// execution order. An unknown phase returns nil.
-func TasksForPhase(p ActivityMethodPhase) []MethodTask {
-	src := phaseTasks[p]
-	if len(src) == 0 {
-		return nil
+type lifecyclePhaseTaskPair struct{ work, gate MethodTask }
+
+func buildLifecyclePhaseTasks() map[ActivityMethodPhase]lifecyclePhaseTaskPair {
+	out := map[ActivityMethodPhase]lifecyclePhaseTaskPair{}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, ph := range lc.Phases {
+			p := ActivityMethodPhase(ph.ID)
+			out[p] = lifecyclePhaseTaskPair{
+				work: MethodTask(dispatchTaskIn(lc, p).ID),
+				gate: MethodTask(ph.Gate),
+			}
+		}
 	}
-	out := make([]MethodTask, len(src))
-	copy(out, src)
 	return out
 }
 
-// GateTaskFor returns the task whose success IS the phase's binary exit criterion.
-func GateTaskFor(p ActivityMethodPhase) MethodTask { return gateTasks[p] }
+// conditionalTasks is the sub-attempt rule of the Figure A-1 vocabulary: the two tasks
+// that are NOT nodes of any lifecycle. someConstruction is Löwy's pre-design spike and
+// testClient is Construction's tandem partner; spec §3 keeps both as conditional
+// sub-attempts of their phase's work task, so lifecycles.json carries no node for either
+// and lifecyclePhaseTasks cannot answer for them — but the attempt ledger does record
+// them, and every TaskAttempt carries a denormalized Phase. The value is the lifecycle
+// phase such an attempt belongs to; "" means the task IS a lifecycle node.
+//
+// Listed exhaustively (all twelve MethodTask values, not just the two) so `exhaustive`
+// (check: [switch, map] in .golangci.yml) fails the build the moment a thirteenth task
+// is added without a conscious call, rather than defaulting it to "a real node".
+var conditionalTasks = map[MethodTask]ActivityMethodPhase{
+	TaskSRS:              "",
+	TaskSRSReview:        "",
+	TaskSTP:              "",
+	TaskSTPReview:        "",
+	TaskSomeConstruction: MethodPhaseDetailedDesign,
+	TaskDetailedDesign:   "",
+	TaskDesignReview:     "",
+	TaskConstruction:     "",
+	TaskTestClient:       MethodPhaseConstruction,
+	TaskCodeReview:       "",
+	TaskIntegration:      "",
+	TaskTesting:          "",
+}
 
-// isGateTask reports whether a task is some phase's binary exit criterion.
+// GateTaskFor returns the task whose success IS the phase's binary exit criterion.
+func GateTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].gate }
+
+// isGateTask reports whether a task is some lifecycle phase's binary exit criterion.
 func isGateTask(t MethodTask) bool {
-	for _, gate := range gateTasks {
-		if gate == t {
+	for _, pair := range lifecyclePhaseTasks {
+		if pair.gate == t {
 			return true
 		}
 	}
 	return false
 }
 
-// AgentTaskFor returns the phase's single AI-WORK task: the one task in the phase that
-// is neither the phase's gate (which reviews that work) nor conditional-emit. Derived
-// from phaseTasks/gateTasks/conditionalTasks rather than tabulated, so the vocabulary
-// cannot grow a second table that drifts from the first.
+// AgentTaskFor returns the phase's single AI-WORK task: the task an agent is dispatched
+// to do, which the phase's gate then reviews. "" for a phase outside the vocabulary, for
+// which no attribution is possible at all.
 //
 // This is the task an agent-work dispatch's episode is attributed to. R1's load-bearing
 // distinction — "an AI task opens an episode, a review task opens the artifact under
@@ -8778,90 +8766,35 @@ func isGateTask(t MethodTask) bool {
 // WROTE the detailed design would be recorded as having reviewed it, and a send-back
 // would render designReview#1, designReview#2 (two review attempts, zero design
 // attempts) instead of detailedDesign#1 → designReview#1 → detailedDesign#2.
-//
-// Total over the five canonical phases (srs, stp, detailedDesign, construction,
-// integration — pinned by TestAgentTaskFor_IsTheSingleAIWorkTaskPerPhase); "" only for
-// a phase outside the vocabulary, for which no attribution is possible at all.
-func AgentTaskFor(p ActivityMethodPhase) MethodTask {
-	for _, t := range phaseTasks[p] {
-		if isGateTask(t) || IsConditionalTask(t) {
-			continue
-		}
-		return t
-	}
-	return ""
-}
+func AgentTaskFor(p ActivityMethodPhase) MethodTask { return lifecyclePhaseTasks[p].work }
 
-// IsConditionalTask reports whether a task is emitted only when an attempt exists.
-func IsConditionalTask(t MethodTask) bool { return conditionalTasks[t] }
-
-// taskLabels is the human-readable display label per Figure A-1 task, the vocabulary
-// cmd/gen-uiprofiles emits onto GeneratedTask.label so the SPA renders task rows without
-// hand-authoring its own twelve strings — the exact hand-mirror
-// lifecycleTemplates.gen.ts's own header documents this codebase already paid to clean
-// up once.
-//
-// Listed exhaustively (all twelve MethodTask values), same discipline as
-// conditionalTasks above: `exhaustive` (check: [switch, map] in .golangci.yml) fails the
-// build the moment a thirteenth task is added without a conscious label, rather than
-// silently emitting an empty string for it.
-var taskLabels = map[MethodTask]string{
-	TaskSRS:              "SRS",
-	TaskSRSReview:        "SRS Review",
-	TaskSTP:              "STP",
-	TaskSTPReview:        "STP Review",
-	TaskSomeConstruction: "Some Construction",
-	TaskDetailedDesign:   "Detailed Design",
-	TaskDesignReview:     "Design Review",
-	TaskConstruction:     "Construction",
-	TaskTestClient:       "Test Client",
-	TaskCodeReview:       "Code Review",
-	TaskIntegration:      "Integration",
-	TaskTesting:          "Testing",
-}
-
-// LabelForTask returns the human-readable display label for a Figure A-1 task.
-func LabelForTask(t MethodTask) string { return taskLabels[t] }
-
-// TaskLabelFor returns the display label of a Figure A-1 task as ONE profile names it:
-// the lifecycle task's own title (a test plan's construction gate is "Scenario Review",
-// not the book's "Code Review"), and the book's name (LabelForTask) for a task the
-// lifecycle carries no node for — the two conditional sub-attempts, and any task in a
-// phase this profile does not carry. The task KEY never varies; only this label does.
-func TaskLabelFor(t ActivityType, v TestingVariant, task MethodTask) string {
-	for _, tk := range lifecycleFor(t, v).Tasks {
-		if tk.ID == string(task) {
-			return tk.Title
-		}
-	}
-	return LabelForTask(task)
-}
-
-// ExitCriterionFor returns a lifecycle phase's binary exit criterion as ONE profile
-// states it, or "" for a phase that profile does not carry.
-func ExitCriterionFor(t ActivityType, v TestingVariant, p ActivityMethodPhase) string {
-	ph, _ := lifecyclePhaseIn(lifecycleFor(t, v), p)
-	return ph.ExitCriterion
-}
-
-// PhaseForTask returns the lifecycle phase a task belongs to (the empty phase when
-// the task is unknown).
+// PhaseForTask returns the lifecycle phase a task belongs to: the phase whose work or
+// gate it is, or — for the two sub-attempt tasks, which no lifecycle carries a node for
+// — the phase their work task belongs to. The empty phase when the task is unknown.
 func PhaseForTask(t MethodTask) ActivityMethodPhase {
-	for p, tasks := range phaseTasks {
-		if slices.Contains(tasks, t) {
+	for p, pair := range lifecyclePhaseTasks {
+		if pair.work == t || pair.gate == t {
 			return p
 		}
 	}
-	return ""
+	return conditionalTasks[t]
 }
 
-// TasksForProfile returns every task an activity with this profile can have, in phase
-// order then execution order. This is the ROW SET of the list view: it is derived from
-// the profile, never from storage, so the tasks that have not happened still render.
+// TasksForProfile returns every task an activity with this profile can have as a
+// lifecycle NODE: each phase's work task then its gate task, in phase order. This is the
+// ROW SET of the list view: it is derived from the profile, never from storage, so the
+// tasks that have not happened still render. The two sub-attempt tasks are excluded by
+// construction rather than by a filter — they are not nodes (see conditionalTasks).
 func TasksForProfile(pr Profile) []MethodTask {
-	out := make([]MethodTask, 0, 12)
+	out := make([]MethodTask, 0, 2*len(pr.Phases))
 	for _, ph := range pr.Phases {
-		out = append(out, TasksForPhase(ph.Phase)...)
+		pair := lifecyclePhaseTasks[ph.Phase]
+		if pair.work != "" {
+			out = append(out, pair.work)
+		}
+		if pair.gate != "" {
+			out = append(out, pair.gate)
+		}
 	}
 	return out
 }

@@ -1783,15 +1783,14 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 }
 
 // passedLedger is the attempt ledger cmd/backfill-attempts writes for an activity: one
-// passed attempt per non-conditional task of the given phases, origin backfilled, with a
+// passed attempt per lifecycle node task (work, then gate), origin backfilled, with a
 // basis. The row it goes on carries NO stored phase fields — that is the backfill's shape.
 func passedLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
 	for _, ph := range phases {
-		for _, task := range projectstate.TasksForPhase(ph) {
-			if projectstate.IsConditionalTask(task) {
-				continue
-			}
+		for _, task := range []projectstate.MethodTask{
+			projectstate.AgentTaskFor(ph), projectstate.GateTaskFor(ph),
+		} {
 			out = append(out, ledgerAttempt(activityID, task, 1, projectstate.OutcomePassed))
 		}
 	}

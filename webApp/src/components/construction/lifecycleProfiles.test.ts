@@ -1,19 +1,17 @@
 /**
  * The construction console's profile view over the method-assets lifecycles.
  *
- * While BOTH generated tables exist, this pins the adapter against the one the
- * console renders from today: every phase and every task row, field for field.
- * Task 4 deletes lifecycleTemplates.gen.ts and with it this comparison; the
- * invariants below it (sub-attempt rows, book labels, canonical keys) stay.
+ * This pins the invariants the console's rendering depends on — sub-attempt rows,
+ * book labels, canonical keys — read through the exported adapter, not a generated
+ * comparison table (lifecycleTemplates.gen.ts is gone; the console reads
+ * lifecycles.gen.ts, method-assets' own data, directly).
  */
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import { GENERATED_TEMPLATES, GENERATED_TESTING_VARIANTS } from './lifecycleTemplates.gen.ts';
 import { profileFor, SERVICE_PROFILE } from './lifecycleProfiles.ts';
 import type { ActivityKind } from './KindBadge';
-import type { TestingVariantName } from '../../contracts/types';
 
 const KINDS: readonly ActivityKind[] = [
   'service',
@@ -24,25 +22,6 @@ const KINDS: readonly ActivityKind[] = [
   'uiDesign',
   'integration',
 ];
-const VARIANTS: readonly TestingVariantName[] = [
-  'plan',
-  'harness',
-  'perf',
-  'systemTest',
-  'qaProcess',
-];
-
-void test('every kind profile equals the table the console renders today', () => {
-  for (const kind of KINDS) {
-    assert.deepEqual(profileFor(kind, undefined), GENERATED_TEMPLATES[kind], kind);
-  }
-});
-
-void test('every testing variant profile equals the table it renders today', () => {
-  for (const variant of VARIANTS) {
-    assert.deepEqual(profileFor('testing', variant), GENERATED_TESTING_VARIANTS[variant], variant);
-  }
-});
 
 void test('an unclassified row has no profile', () => {
   assert.equal(profileFor(undefined, undefined), undefined);

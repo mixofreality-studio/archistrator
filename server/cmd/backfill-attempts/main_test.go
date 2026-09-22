@@ -647,14 +647,11 @@ func backfillFixture(t *testing.T) (projectstate.Project, map[string]verdict) {
 }
 
 // profileTasks is the profile's non-conditional task set for one activity type/variant.
+// TasksForProfile already excludes the two sub-attempt tasks by construction (they are
+// not lifecycle nodes), so this is a direct pass-through kept as its own name for the
+// tests below that read it as "what the tool ought to derive".
 func profileTasks(typ projectstate.ActivityType, v projectstate.TestingVariant) []projectstate.MethodTask {
-	var out []projectstate.MethodTask
-	for _, task := range projectstate.TasksForProfile(projectstate.ProfileFor(typ, v)) {
-		if !projectstate.IsConditionalTask(task) {
-			out = append(out, task)
-		}
-	}
-	return out
+	return projectstate.TasksForProfile(projectstate.ProfileFor(typ, v))
 }
 
 // Every qualifying activity gets exactly one passed attempt per non-conditional task of

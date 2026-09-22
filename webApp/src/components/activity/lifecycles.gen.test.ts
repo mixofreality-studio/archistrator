@@ -5,20 +5,16 @@
  *
  * Structural validity is proven where the data is authored (method-assets'
  * ValidateLifecycle) and again by the generator; these pins are about what reaches
- * the webApp — the shapes the graph draws, the key rule callers use, and agreement
- * with lifecycleTemplates.gen.ts, which the construction console still renders from
- * until stage 2 replaces it.
+ * the webApp — the shapes the graph draws and the key rule callers use.
+ * lifecycleTemplates.gen.ts, the generated table this file used to agree against, is
+ * gone (stage 2): the construction console reads this file's own data directly through
+ * `construction/lifecycleProfiles.ts` now, so there is nothing left to compare.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import { LIFECYCLES, lifecycleFor, type LifecycleDef } from './lifecycles.gen.ts';
-import {
-  GENERATED_TEMPLATES,
-  GENERATED_TESTING_VARIANTS,
-  type GeneratedPhase,
-} from '../construction/lifecycleTemplates.gen.ts';
 
 function mustLifecycle(typeKey: string): LifecycleDef {
   const found = lifecycleFor(typeKey);
@@ -137,41 +133,5 @@ void test('a review shares its revision group with the dispatch it judges', () =
       assert.equal(judged.kind, 'dispatch', `${l.type}: ${t.id}`);
       assert.equal(judged.revisionGroup, t.revisionGroup, `${l.type}: ${t.id}`);
     }
-  }
-});
-
-/** A lifecycle, projected onto what lifecycleTemplates.gen.ts also states. */
-function asTemplate(l: LifecycleDef): unknown[] {
-  return l.phases.map((p) => ({
-    id: l.tasks.find((t) => t.phase === p.id && t.kind === 'dispatch')?.command,
-    phase: p.id,
-    name: p.label,
-    weight: p.weight,
-    exitCriterion: p.exitCriterion,
-    tasks: l.tasks.filter((t) => t.phase === p.id).map((t) => [t.id, t.title, t.id === p.gate]),
-  }));
-}
-
-/** The same projection of a generated phase table; conditional tasks are not nodes. */
-function templateOf(phases: readonly GeneratedPhase[]): unknown[] {
-  return phases.map((p) => ({
-    id: p.id,
-    phase: p.phase,
-    name: p.name,
-    weight: p.weight,
-    exitCriterion: p.exitCriterion,
-    tasks: p.tasks.filter((t) => !t.conditional).map((t) => [t.task, t.label, t.gate]),
-  }));
-}
-
-void test('each lifecycle agrees with the phase table the console still renders from', () => {
-  for (const [kind, phases] of Object.entries(GENERATED_TEMPLATES)) {
-    const key = kind === 'testing' ? 'testing:plan' : kind;
-    assert.deepEqual(asTemplate(mustLifecycle(key)), templateOf(phases), key);
-  }
-  // The key rule callers use: `testing:${TestingVariantName}`, for all five variants.
-  for (const [variant, phases] of Object.entries(GENERATED_TESTING_VARIANTS)) {
-    const key = `testing:${variant}`;
-    assert.deepEqual(asTemplate(mustLifecycle(key)), templateOf(phases), key);
   }
 });

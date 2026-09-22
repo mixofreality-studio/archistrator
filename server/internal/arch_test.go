@@ -501,7 +501,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// (projectstateaccess.go) is the
 		// (type, variant, phase) → .claude slash-command name mapping the construction
 		// Manager needs to dispatch the right command for an activity
-		// (construction/constructactivity.go; cmd/gen-uiprofiles reads it too). Both are
+		// (construction/constructactivity.go). Both are
 		// total, side-effect-free functions of already-public
 		// projectstate enum values; there is nothing to generate a contract op for.
 		//
@@ -539,12 +539,10 @@ var encapsulationAllowlistData = map[string][]string{
 		// to be exported to be tested, and three of them (IsGateTask, WorstOrigin,
 		// LatestAttempt) were removed from this list for exactly that reason.
 		//
-		//	TasksForPhase   → cmd/gen-uiprofiles: emits each phase's task rows into the
-		//	                  SPA's generated lifecycle template.
-		//	GateTaskFor     → cmd/gen-uiprofiles: flags which of those rows is the phase's
-		//	                  binary exit criterion.
-		//	IsConditionalTask → cmd/gen-uiprofiles: flags the two rows rendered only when a
-		//	                  real attempt record exists.
+		// gen-uiprofiles is gone (stage 2): the SPA's lifecycle table is rendered from
+		// method-assets by cmd/gen-lifecycles, not from this package, so the five names
+		// whose only outside caller it was left with it.
+		//
 		//	TasksForProfile → cmd/backfill-attempts: the per-activity task row set the
 		//	                  backfill walks.
 		//	PhaseForTask    → cmd/backfill-attempts: the denormalized Phase stamp on every
@@ -555,35 +553,21 @@ var encapsulationAllowlistData = map[string][]string{
 		//	                  never be inlined — see its own doc comment.
 		//	AgentTaskFor    → the construction Manager (constructactivity.go): which Figure
 		//	                  A-1 task an agent-work dispatch's episode is attributed to.
+		//	GateTaskFor     → the construction Manager (constructactivity.go): the phase's
+		//	                  binary exit criterion, and cmd/backfill-attempts' integration
+		//	                  filter via PhaseForTask.
 		//	AttemptsWorstOrigin → the systemdesign Manager's construction view-model: the
 		//	                  provenance contagion roll-up stamped onto each wire row.
-		//	LabelForTask    → cmd/gen-uiprofiles: the human-readable label emitted onto
-		//	                  each generated task row's GeneratedTask.label field, so the
-		//	                  SPA renders task names without hand-authoring its own
-		//	                  twelve-string copy of this same vocabulary.
 		//	LifecycleKeyFor → the construction Manager (constructionmanager.go,
 		//	                  QueryActivityView): the method-assets lifecycle key of an
 		//	                  activity. ONE production home for the rule, which stage 0
 		//	                  deliberately carried twice.
-		//	TaskLabelFor    → cmd/gen-uiprofiles: the PER-PROFILE label of each task (a
-		//	                  test plan's construction gate is "Scenario Review", not the
-		//	                  book's "Code Review"), emitted onto GeneratedTask.label; the
-		//	                  book's name still travels as GeneratedTask.bookLabel.
-		//	ExitCriterionFor → cmd/gen-uiprofiles: each profile phase's binary exit
-		//	                  criterion, emitted onto GeneratedPhase.exitCriterion — the
-		//	                  SPA used to hand-author five generic sentences for all eleven
-		//	                  profiles (designer P1-7).
 		"AgentTaskFor",
 		"AttemptID",
 		"AttemptsWorstOrigin",
-		"ExitCriterionFor",
 		"GateTaskFor",
-		"IsConditionalTask",
-		"LabelForTask",
 		"LifecycleKeyFor",
 		"PhaseForTask",
-		"TaskLabelFor",
-		"TasksForPhase",
 		"TasksForProfile",
 		// CONSTRUCTION-ROW RESOLUTION (Task 7a, architect ruling Q2, 2026-09-12). Same
 		// category as the ledger helpers above: total, side-effect-free functions over

@@ -11599,15 +11599,14 @@ func TestProjectStateToContract_CarriesTheRecordedPause(t *testing.T) {
 	}
 }
 
-// pendingLedger is a backfill-shaped attempt ledger: every non-conditional task of each
-// named phase, attempt 1, passed.
+// pendingLedger is a backfill-shaped attempt ledger: one passed attempt per lifecycle
+// node task (work, then gate) of each named phase, attempt 1, passed.
 func pendingLedger(activityID string, phases ...projectstate.ActivityMethodPhase) []projectstate.TaskAttempt {
 	var out []projectstate.TaskAttempt
 	for _, ph := range phases {
-		for _, task := range projectstate.TasksForPhase(ph) {
-			if projectstate.IsConditionalTask(task) {
-				continue
-			}
+		for _, task := range []projectstate.MethodTask{
+			projectstate.AgentTaskFor(ph), projectstate.GateTaskFor(ph),
+		} {
 			out = append(out, projectstate.TaskAttempt{
 				AttemptID:  projectstate.AttemptID(activityID, task, 1),
 				Task:       task,
