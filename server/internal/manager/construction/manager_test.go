@@ -1596,6 +1596,52 @@ func projWithActivities(acts []projectstate.ActivityItem, deps []projectstate.Ne
 	}
 }
 
+// planWithDesignPrefix is the derived plan's fixed design prefix exactly as DerivePlan
+// emits it (Task 9): requirements → architecture → projectDesign, each authored
+// system-architect/coding=false and componentless, with no construction row against any
+// of them. It is the fixture for BOTH sides of this rule — the pump that must walk past
+// them and the read that must serve them — because they are the same three rows.
+func planWithDesignPrefix() projectstate.Project {
+	return projWithActivities(
+		[]projectstate.ActivityItem{
+			{Name: "requirements", Title: "Requirements", WorkerClass: "system-architect"},
+			{Name: "architecture", Title: "Architecture & Call Chains", WorkerClass: "system-architect"},
+			{Name: "projectDesign", Title: "Project Design (SDP Review · M0)", WorkerClass: "system-architect"},
+		},
+		[]projectstate.NetworkDependency{
+			{Activity: "architecture", DependsOn: []string{"requirements"}},
+			{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+		},
+	)
+}
+
+// The pump walks past a design activity and says so. It must NOT block it: blocking
+// records a sticky RecordActivityFailed with no reopen path, which would poison the
+// activity stage 4 is built to run.
+func Test_NextEligible_SkipsDesignActivitiesWithoutBlockingThem(t *testing.T) {
+	proj := planWithDesignPrefix() // requirements/architecture/projectDesign not started
+	sel := nextEligibleActivity(proj, eligibleNotStarted)
+	if sel.Verdict == verdictBlocked {
+		t.Fatalf("a design activity must never be blocked: %+v", sel)
+	}
+	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture", "projectDesign"}) {
+		t.Errorf("skipped = %v, want every design activity named", sel.SkippedDesign)
+	}
+	if sel.Verdict != verdictQuiescent {
+		t.Errorf("with only design work eligible the pump is quiescent, got %+v", sel)
+	}
+}
+
+// Defense in depth: if a design activity somehow reaches the dispatch resolver, it goes
+// quiet rather than blocking or dispatching.
+func Test_DispatchSelectionFor_DesignActivityGoesQuiet(t *testing.T) {
+	sel := dispatchSelectionFor(planWithDesignPrefix(), "architecture",
+		projectstate.ActivityItem{Name: "architecture", WorkerClass: "system-architect"})
+	if sel.Verdict != verdictQuiescent {
+		t.Fatalf("got %+v, want quiescent", sel)
+	}
+}
+
 // The regression the whole change exists for: a fresh project with NO service
 // contracts must still dispatch its first coding activity.
 func TestNextEligibleActivity_DispatchesWithNoServiceContracts(t *testing.T) {
@@ -9661,14 +9707,34 @@ func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
 	}
 }
 
-// An id the committed plan does not hold is NotFound — which is also the answer for the
-// requirements, architecture and projectDesign activities until stage 2 makes them real.
+// An id the committed plan does not hold is NotFound. Stage 0 also listed the three
+// design ids here, because the derived plan did not hold them yet; stage 2 puts them in
+// it, so they are served (TestQueryActivityView_ServesTheDesignPrefix) rather than 404'd.
 func TestQueryActivityView_UnknownActivityIsNotFound(t *testing.T) {
 	m := avManager(nil, ledgerChain(), &fakeEpisodes{})
-	for _, id := range []string{"C-nope", "requirements", "architecture", "projectDesign"} {
+	for _, id := range []string{"C-nope"} {
 		_, err := m.QueryActivityView(testCtx(), "p", ActivityID(id))
 		if e := asConstructionError(t, err); e.Kind != fwmanager.NotFound || !strings.Contains(e.Detail, id) {
 			t.Fatalf("%s: want NotFound naming it, got %s %q", id, e.Kind, e.Detail)
+		}
+	}
+}
+
+// Stage 0 returned NotFound for these three because they were not activities yet. They
+// are now, and each one serves its method-assets lifecycle.
+func TestQueryActivityView_ServesTheDesignPrefix(t *testing.T) {
+	want := map[string]struct{ phases, tasks int }{
+		"requirements":  {4, 8},
+		"architecture":  {1, 2},
+		"projectDesign": {1, 1},
+	}
+	for id, w := range want {
+		v, err := avManager(nil, planWithDesignPrefix(), &fakeEpisodes{}).QueryActivityView(testCtx(), "p", ActivityID(id))
+		if err != nil {
+			t.Fatalf("%s: %v", id, err)
+		}
+		if v.Type != id || len(v.Phases) != w.phases || len(v.Tasks) != w.tasks {
+			t.Errorf("%s: type=%s phases=%d tasks=%d, want %s/%d/%d", id, v.Type, len(v.Phases), len(v.Tasks), id, w.phases, w.tasks)
 		}
 	}
 }

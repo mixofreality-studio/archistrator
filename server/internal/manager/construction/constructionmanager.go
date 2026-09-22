@@ -1357,6 +1357,11 @@ type pumpSelection struct {
 	BlockedActivityID    string
 	BlockedReason        string
 	BlockedFailureReason projectstate.FailureReason
+	// SkippedDesign names every design activity the scan walked past this tick. A design
+	// activity is eligible work the CONSTRUCTION pump does not do (stage 4's
+	// DeliveryManager does), so it is reported, never blocked — it rides every verdict,
+	// including a dispatch of some later activity.
+	SkippedDesign []string
 }
 
 // eligibilityRule is which activities the pump's selection may pick. It is chosen by the
@@ -1435,9 +1440,18 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	// exactly the failure mode this change closes for milestone dependencies.
 	var problemActivityID, problemReason string
 	var problemKind projectstate.FailureReason
+	// skippedDesign collects the design activities walked past below. The skip is
+	// deliberately ahead of the dependency check: a design activity is not this pump's
+	// work whatever its dependencies say, so the report names every unfinished one, not
+	// only the one whose turn it happened to be.
+	var skippedDesign []string
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !eligibleUnder(rule, name, item, proj.ActivityConstruction) {
+			continue
+		}
+		if isDesignActivity(name, item) {
+			skippedDesign = append(skippedDesign, name)
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
@@ -1461,9 +1475,10 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 				BlockedReason: fmt.Sprintf(
 					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
 					problemActivityID, problemReason),
+				SkippedDesign: skippedDesign,
 			}
 		}
-		return pumpSelection{Verdict: verdictQuiescent}
+		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: skippedDesign}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -1473,7 +1488,20 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	})
 
 	chosen := candidates[0].activity
-	return dispatchSelectionFor(proj, chosen, itemByName[chosen])
+	sel := dispatchSelectionFor(proj, chosen, itemByName[chosen])
+	// The scan's skips ride whatever verdict the chosen activity produced: a tick that
+	// dispatched something else still reports the design work it walked past.
+	sel.SkippedDesign = append(skippedDesign, sel.SkippedDesign...)
+	return sel
+}
+
+// isDesignActivity reports whether the construction pump must walk past this activity:
+// ClassifyActivity types it but refuses it for dispatch, because running a design
+// lifecycle's slash-command as a construction pipeline is the N-ENV defect in a new
+// costume (08-30 S2 ruling). Stage 4's DeliveryManager is what dispatches these.
+func isDesignActivity(name string, item projectstate.ActivityItem) bool {
+	_, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
+	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
 }
 
 // dispatchSelectionFor resolves the CHOSEN activity into its dispatchable selection:
@@ -1508,6 +1536,14 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
 	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
+	// A design activity is CLASSIFIED and still refused: the scan above already walks
+	// past it, so reaching here means some other path chose it, and going quiet is the
+	// only safe answer. NEVER verdictBlocked — that writes RecordActivityFailed, which
+	// is sticky and has no reopen path, so blocking here would terminally fail the very
+	// activity stage 4 exists to run.
+	if errors.Is(cerr, projectstate.ErrDesignActivityNotDispatchable) {
+		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: []string{chosen}}
+	}
 	if cerr != nil {
 		return pumpSelection{
 			Verdict:              verdictBlocked,

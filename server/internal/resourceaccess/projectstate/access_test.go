@@ -8913,6 +8913,62 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 	}
 }
 
+// The three reserved design ids classify to their own types and carry the
+// not-dispatchable sentinel with them. The workerClass/coding pair they are authored
+// with (system-architect, coding=false) would otherwise type them as Documentation.
+func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
+	cases := []struct {
+		id   string
+		want ActivityType
+	}{
+		{"requirements", ActivityTypeRequirements},
+		{"architecture", ActivityTypeArchitecture},
+		{"projectDesign", ActivityTypeProjectDesign},
+	}
+	for _, c := range cases {
+		typ, variant, err := ClassifyActivity(c.id, "system-architect", false)
+		if typ != c.want || variant != TestVariantPlan {
+			t.Errorf("%s -> (%s, %s), want (%s, plan)", c.id, typ, variant, c.want)
+		}
+		if !errors.Is(err, ErrDesignActivityNotDispatchable) {
+			t.Errorf("%s: err = %v, want ErrDesignActivityNotDispatchable", c.id, err)
+		}
+		// The VIEW lens must still type it: a design row renders with its lifecycle.
+		if got, ok := ClassifyType(c.id, "system-architect", false, false); !ok || got != c.want {
+			t.Errorf("ClassifyType(%s) = (%s, %v), want (%s, true)", c.id, got, ok, c.want)
+		}
+	}
+	// An ordinary activity is untouched and an unclassifiable one still fails the old way.
+	if _, _, err := ClassifyActivity("C-billing-engine", "junior-developer", true); err != nil {
+		t.Errorf("a coding activity must still classify cleanly: %v", err)
+	}
+	if _, ok := ClassifyType("N-WAT", "", false, false); ok {
+		t.Error("an unclassifiable activity must still be refused, not swept in with design")
+	}
+}
+
+// B3: the command a design lifecycle's work task runs is today's design command, and
+// the projectDesign gate has none because it has no dispatch task at all.
+func TestCommandFor_DesignLifecycles(t *testing.T) {
+	cases := []struct {
+		typ   ActivityType
+		phase ActivityMethodPhase
+		want  string
+	}{
+		{ActivityTypeRequirements, "mission", "mission-draft"},
+		{ActivityTypeRequirements, "glossary", "glossary-draft"},
+		{ActivityTypeRequirements, "volatilities", "volatilities-draft"},
+		{ActivityTypeRequirements, "coreUseCases", "core-use-cases-draft"},
+		{ActivityTypeArchitecture, "architecture", "system-draft"},
+		{ActivityTypeProjectDesign, "sdp", ""},
+	}
+	for _, c := range cases {
+		if got := CommandFor(c.typ, TestVariantPlan, c.phase); got != c.want {
+			t.Errorf("CommandFor(%s, %s) = %q, want %q", c.typ, c.phase, got, c.want)
+		}
+	}
+}
+
 // constructionLedger is the attempt ledger cmd/backfill-attempts writes: one passed
 // attempt per lifecycle node task (work, then gate), origin backfilled, with a basis.
 func constructionLedger(activityID string, phases ...ActivityMethodPhase) []TaskAttempt {

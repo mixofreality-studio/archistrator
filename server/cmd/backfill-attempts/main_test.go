@@ -121,6 +121,47 @@ func fixtureProject() projectstate.Project {
 	return p
 }
 
+// designPrefixProject is fixtureProject with the derived plan's fixed design prefix in
+// front of it and every design slot committed and non-empty — the shape this
+// repository's own committed state is in. The fixture's own slots (systemDesign,
+// activityList, network) are already committed, so only the rest are filled here.
+func designPrefixProject() projectstate.Project {
+	p := fixtureProject()
+	list := p.ActivityList.Model.(*projectstate.ActivityList)
+	p.ActivityList = committedSlot(&projectstate.ActivityList{Activities: append([]projectstate.ActivityItem{
+		{Name: "requirements", WorkerClass: "system-architect"},
+		{Name: "architecture", WorkerClass: "system-architect"},
+		{Name: "projectDesign", WorkerClass: "system-architect"},
+	}, list.Activities...)})
+	network := p.Network.Model.(*projectstate.Network)
+	network.Dependencies = append([]projectstate.NetworkDependency{
+		{Activity: "architecture", DependsOn: []string{"requirements"}},
+		{Activity: "projectDesign", DependsOn: []string{"architecture"}},
+	}, network.Dependencies...)
+	network.Milestones[0].DependsOn = []string{"projectDesign"}
+
+	p.Mission = committedSlot(&projectstate.MissionStatement{Objectives: []projectstate.Objective{{}, {}}})
+	p.Glossary = committedSlot(&projectstate.Glossary{Items: []projectstate.GlossaryItem{{}, {}, {}}})
+	p.ScrubbedRequirements = committedSlot(&projectstate.ScrubbedRequirements{Items: []projectstate.Requirement{{}}})
+	p.Volatilities = committedSlot(&projectstate.Volatilities{Items: []projectstate.Volatility{{}, {}}})
+	p.CoreUseCases = committedSlot(&projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{{}}})
+	p.OperationalConcepts = committedSlot(&projectstate.DeploymentOperationsModel{
+		InfraBuildingBlocks: []projectstate.InfraBlock{{}, {}},
+	})
+	p.PlanningAssumptions = committedSlot(&projectstate.PlanningAssumptions{Resources: []string{"a", "b"}})
+	p.NormalSolution = committedSlot(&projectstate.Solution{StaffingCap: 6})
+	p.SubcriticalSolution = committedSlot(&projectstate.Solution{StaffingCap: 4})
+	p.CompressedSolution = committedSlot(&projectstate.Solution{StaffingCap: 6})
+	p.DecompressedSolution = committedSlot(&projectstate.Solution{StaffingCap: 6})
+	p.RiskModel = committedSlot(&projectstate.RiskModel{Rows: []projectstate.RiskRow{{}, {}}})
+	p.SdpReview = committedSlot(&projectstate.SdpReview{Options: []projectstate.SdpOptionRow{{}, {}}})
+	return p
+}
+
+func committedSlot(m projectstate.ArtifactModel) projectstate.ArtifactSlot {
+	return projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: m, Revisions: 1}
+}
+
 // implSource is a hand-written Go file whose receiver recv has one method per op.
 func implSource(pkg, recv string, ops ...string) string {
 	var b strings.Builder
@@ -1477,5 +1518,139 @@ func TestIntegrationRuling_IsStatedPlainly(t *testing.T) {
 		if strings.Contains(integrationRulingRef, doubt) {
 			t.Errorf("the cited ruling carries %q: %q", doubt, integrationRulingRef)
 		}
+	}
+}
+
+// ---- the design prefix ------------------------------------------------------------
+
+// All three design activities qualify on their committed slots, each basis names every
+// slot it read with its count, and each attempt points at the activity's exit artifact.
+func TestDesignSlotEvidence_TheThreeQualifyOnTheirCommittedSlots(t *testing.T) {
+	vs := evaluateFixture(t, designPrefixProject(), fixtureServer(t))
+	want := map[string]struct {
+		refs        []string
+		exit        string
+		description string
+	}{
+		"requirements":  {[]string{"mission", "glossary", "scrubbedRequirements", "volatilities", "coreUseCases"}, "coreUseCases", "3 terms"},
+		"architecture":  {[]string{"systemDesign", "operationalConcepts"}, "systemDesign", "8 components, 0 views"},
+		"projectDesign": {[]string{"planningAssumptions", "activityList", "network", "normalSolution", "subcriticalSolution", "compressedSolution", "decompressedSolution", "riskModel", "sdpReview"}, "sdpReview", "2 options"},
+	}
+	for id, w := range want {
+		v := vs[id]
+		if !v.Qualifies {
+			t.Errorf("%s did not qualify: %s", id, v.Reason)
+			continue
+		}
+		if v.IntegrationPending != "" {
+			t.Errorf("%s: integration pending %q — the prefix depends only on the prefix", id, v.IntegrationPending)
+		}
+		for _, ref := range w.refs {
+			if !strings.Contains(v.Basis, ref+" (") {
+				t.Errorf("%s: basis does not cite slot .%s: %s", id, ref, v.Basis)
+			}
+		}
+		if !strings.Contains(v.Basis, w.description) {
+			t.Errorf("%s: basis does not count its artifacts (%s): %s", id, w.description, v.Basis)
+		}
+		if strings.Count(v.Basis, ", committed)") != len(w.refs) {
+			t.Errorf("%s: basis must say committed once per slot: %s", id, v.Basis)
+		}
+		if v.ArtifactRef != w.exit {
+			t.Errorf("%s: artifact ref = %q, want the exit artifact %q", id, v.ArtifactRef, w.exit)
+		}
+		if v.ContractRef != "" || v.CodeRef != "" || len(v.Files) != 0 {
+			t.Errorf("%s: a design activity reads no code, got %+v", id, v)
+		}
+	}
+}
+
+// Every task of a backfilled design activity is a passed, backfilled attempt stamped
+// with its exit artifact — 8 for Requirements, 2 for Architecture, 1 for Project Design.
+func TestBackfill_TheDesignPrefixGetsOnePassedAttemptPerLifecycleTask(t *testing.T) {
+	p := designPrefixProject()
+	vs, err := evaluate(inputs{Project: p, ServerRoot: fixtureServer(t), Head: fixtureHead})
+	if err != nil {
+		t.Fatalf("evaluate: %v", err)
+	}
+	if _, err := backfill(&p, vs, time.Now().UTC()); err != nil {
+		t.Fatalf("backfill: %v", err)
+	}
+	for id, want := range map[string]int{"requirements": 8, "architecture": 2, "projectDesign": 1} {
+		row := p.ActivityConstruction[id]
+		if len(row.Attempts) != want {
+			t.Errorf("%s: %d attempts, want %d (%v)", id, len(row.Attempts), want, tasksOf(row))
+		}
+		for _, a := range row.Attempts {
+			if a.Outcome != projectstate.OutcomePassed || a.Provenance.Origin != projectstate.OriginBackfilled {
+				t.Errorf("%s: %s is %s/%s", id, a.AttemptID, a.Outcome, a.Provenance.Origin)
+			}
+			if a.Evidence.Kind != projectstate.EvidenceArtifact || a.Evidence.Ref == "" {
+				t.Errorf("%s: %s carries evidence %+v, want the exit artifact", id, a.AttemptID, a.Evidence)
+			}
+			if a.Phase == "" {
+				t.Errorf("%s: %s has no phase stamp", id, a.AttemptID)
+			}
+		}
+	}
+	if got := len(p.ActivityConstruction["projectDesign"].Attempts); got == 1 {
+		if task := p.ActivityConstruction["projectDesign"].Attempts[0].Task; task != "sdpReview" {
+			t.Errorf("projectDesign's one task is %q, want the sdpReview gate", task)
+		}
+	}
+}
+
+// An uncommitted slot is real design work still owed: the activity does not qualify, and
+// the run names the slot that failed it.
+func TestDesignSlotEvidence_AnUncommittedSlotDoesNotQualify(t *testing.T) {
+	for _, c := range []struct {
+		activity, ref string
+		mutate        func(p *projectstate.Project)
+	}{
+		{"requirements", "volatilities", func(p *projectstate.Project) { p.Volatilities.Status = projectstate.ReviewAwaitingReview }},
+		{"architecture", "operationalConcepts", func(p *projectstate.Project) { p.OperationalConcepts.Status = projectstate.ReviewRejected }},
+		{"projectDesign", "riskModel", func(p *projectstate.Project) { p.RiskModel = projectstate.ArtifactSlot{} }},
+	} {
+		t.Run(c.activity+"/"+c.ref, func(t *testing.T) {
+			p := designPrefixProject()
+			c.mutate(&p)
+			v := evaluateFixture(t, p, fixtureServer(t))[c.activity]
+			if v.Qualifies {
+				t.Fatalf("%s qualified with .%s uncommitted: %s", c.activity, c.ref, v.Basis)
+			}
+			if !strings.Contains(v.Reason, c.ref) || !strings.Contains(v.Reason, "still owed") {
+				t.Errorf("reason = %q, want it to name .%s as design work still owed", v.Reason, c.ref)
+			}
+		})
+	}
+}
+
+// A committed slot holding nothing is not evidence either — the same rule that stops a
+// founder sign-off standing over an empty artifact.
+func TestDesignSlotEvidence_ACommittedButEmptySlotDoesNotQualify(t *testing.T) {
+	p := designPrefixProject()
+	p.Glossary = committedSlot(&projectstate.Glossary{})
+	v := evaluateFixture(t, p, fixtureServer(t))["requirements"]
+	if v.Qualifies {
+		t.Fatalf("requirements qualified on an empty glossary: %s", v.Basis)
+	}
+	if !strings.Contains(v.Reason, "glossary") || !strings.Contains(v.Reason, "empty") {
+		t.Errorf("reason = %q, want it to name the empty slot", v.Reason)
+	}
+}
+
+// The tool's design-slot table and the classifier's design-id rule must name the same
+// three activities: a fourth in either place, unpaired, is a silent gap.
+func TestDesignSlotEvidence_CoversExactlyTheClassifiersDesignActivities(t *testing.T) {
+	for id := range designActivitySlots {
+		if !isDesignActivity(projectstate.ActivityItem{Name: id, WorkerClass: "system-architect"}) {
+			t.Errorf("%s has a design slot set but the classifier does not call it a design activity", id)
+		}
+		if designExitArtifact[id] == "" {
+			t.Errorf("%s has a slot set but no exit artifact to point its attempts at", id)
+		}
+	}
+	if len(designActivitySlots) != len(designExitArtifact) {
+		t.Errorf("%d slot sets vs %d exit artifacts", len(designActivitySlots), len(designExitArtifact))
 	}
 }

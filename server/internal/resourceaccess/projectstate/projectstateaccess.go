@@ -8135,6 +8135,33 @@ func deriveVariant(activityID string) TestingVariant {
 	}
 }
 
+// ErrDesignActivityNotDispatchable is returned by ClassifyActivity, WITH the resolved
+// design ActivityType, for the three reserved design-prefix ids. The pair is the point:
+// a design activity IS classifiable — the console, QueryActivityView and the backfill
+// all need its type and its lifecycle — but it is not DISPATCHABLE by the construction
+// pump, which would run its design command as a construction pipeline (08-30 S2 ruling).
+// Stage 4's DeliveryManager dispatches it; until then callers select on errors.Is.
+var ErrDesignActivityNotDispatchable = errors.New(
+	"projectstate: design activities are not dispatched by the construction pump")
+
+// designActivityTypes is the exact-id table for the three reserved design activities
+// DerivePlan emits as the plan's fixed prefix. An EXACT id match is the whole rule: the
+// derivation is the only writer of these ids (validateAdditive refuses an additive that
+// shadows one), so the match is stable and total, and no new ActivityItem field has to
+// be invented to carry a fact the id already states.
+var designActivityTypes = map[string]ActivityType{
+	"requirements":  ActivityTypeRequirements,
+	"architecture":  ActivityTypeArchitecture,
+	"projectDesign": ActivityTypeProjectDesign,
+}
+
+// designActivityType reports the design ActivityType of one of the three reserved
+// design-prefix ids, and false for every other activity.
+func designActivityType(id string) (ActivityType, bool) {
+	t, ok := designActivityTypes[id]
+	return t, ok
+}
+
 // ClassifyActivity determines an activity's canonical (ActivityType, TestingVariant)
 // pair from the three facts that EXIST AT DISPATCH TIME: its id, the owning
 // workerClass, and the coding flag — all three authored into the committed Phase-2
@@ -8152,6 +8179,10 @@ func deriveVariant(activityID string) TestingVariant {
 //
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
+//  0. one of the three reserved design ids (designActivityType) → its design type,
+//     WITH ErrDesignActivityNotDispatchable. It must be checked FIRST: all three are
+//     authored system-architect/coding=false, so rule 6 would type them Documentation
+//     and the pump would run a design slash-command as a construction pipeline.
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
 //     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
@@ -8163,9 +8194,16 @@ func deriveVariant(activityID string) TestingVariant {
 //  8. otherwise                       → error (the activity is unclassifiable; repair
 //     is to amend workerClass or coding in the committed activity list)
 //
+// Rule 0's error is the ONLY one that comes back with a meaningful type: every other
+// error arm means "no type could be resolved". Callers therefore select on errors.Is —
+// a caller that only asks `err != nil` refuses a row it could have rendered.
+//
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (TestVariantPlan) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
+	if typ, ok := designActivityType(id); ok {
+		return typ, TestVariantPlan, ErrDesignActivityNotDispatchable
+	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
 		return ActivityTypeTesting, deriveVariant(id), nil
@@ -8215,7 +8253,11 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, true
 	}
 	typ, _, err := ClassifyActivity(id, workerClass, coding)
-	if err != nil {
+	// The view lens asks "can this row be rendered honestly", and a design activity can:
+	// it has a type, a lifecycle and committed artifacts behind it. Only the PUMP cares
+	// that it is not dispatchable, so only the pump selects on the sentinel. Anything
+	// else ClassifyActivity refuses is genuinely untypeable and stays refused.
+	if err != nil && !errors.Is(err, ErrDesignActivityNotDispatchable) {
 		return ActivityTypeService, false
 	}
 	return typ, true

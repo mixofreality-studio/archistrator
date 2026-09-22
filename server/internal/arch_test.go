@@ -512,8 +512,15 @@ var encapsulationAllowlistData = map[string][]string{
 		// classification and the dispatch classification cannot drift apart. Same category:
 		// total (modulo its unclassifiable error), side-effect-free, over already-public
 		// projectstate enum values.
+		//
+		// ErrDesignActivityNotDispatchable is ClassifyActivity's typed sentinel for the
+		// three reserved design ids: it comes back WITH the resolved design type, so a
+		// caller must be able to tell "not dispatchable" from "not classifiable". It is
+		// read from internal/manager/construction (dispatchSelectionFor), a different
+		// package, which selects on errors.Is to go quiet instead of blocking.
 		"ClassifyActivity",
 		"ClassifyType",
+		"ErrDesignActivityNotDispatchable",
 		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
 		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
