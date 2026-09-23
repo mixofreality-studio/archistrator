@@ -1557,6 +1557,15 @@ func isCodeLayer(kind string) bool {
 	return false
 }
 
+// buildStatusPlanned marks a component the design declares but no code implements yet.
+// The alignment gate exempts it from ALIGN-MISSING-PKG on exactly that ground
+// (framework-go/methodcheck/align.go), and the plan must agree with the gate: a
+// component with no code has no construction work, so it derives no activity. This is
+// not an optimization — slot 9 is the pump's dispatch queue, and nextEligibleActivity
+// has no second opinion about whether an activity SHOULD be built, only about whether
+// its dependencies are done. Emitting C-<planned component> hands it to a build agent.
+const buildStatusPlanned = "planned"
+
 // codingActivityFor emits the C-* coding activity for a handwritten code-layer
 // component, or false when the component doesn't qualify: generated transport (the
 // generator does that work), a non-code-layer kind such as resource, or a "provided"
@@ -1574,6 +1583,9 @@ func isCodeLayer(kind string) bool {
 // A client with a UI surface gets its ONE activity from clientAppActivityFor instead,
 // whatever its constructionProfile — one activity per component, never two.
 func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if c.BuildStatus == buildStatusPlanned {
+		return DerivedActivity{}, false
+	}
 	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
 		return DerivedActivity{}, false
 	}
@@ -1596,6 +1608,9 @@ func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
 // provisioningActivityFor emits the R-* provisioning activity for a vendor resource.
 // Owned stores get none — their schema/deploy work arrives as additive noncoding.
 func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if c.BuildStatus == buildStatusPlanned {
+		return DerivedActivity{}, false
+	}
 	if c.Kind != "resource" || c.Provisioning != "vendor" {
 		return DerivedActivity{}, false
 	}
@@ -1625,6 +1640,9 @@ func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
 // (architectureEdges routes those relationships, because activityForComponent indexes
 // this activity by its client).
 func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool) {
+	if c.BuildStatus == buildStatusPlanned {
+		return DerivedActivity{}, false
+	}
 	if c.Kind != "client" || !c.UiSurface {
 		return DerivedActivity{}, false
 	}
@@ -1687,6 +1705,8 @@ func noncodingInventoryActivities() []DerivedActivity {
 //	(none)          "generated" components — the generator does that work
 //	(none)          "provided" components — platform/third-party supplied, nothing to build
 //	                (Table 11-1 #6-8 are BUILT utilities; here they are provided)
+//	(none)          buildStatus "planned" components, WHATEVER their layer — designed but
+//	                not yet implemented, so there is no code to build (buildStatusPlanned)
 //	R-<id>          one per Resource with provisioning == "vendor" (Table 11-1 #9-10)
 //	(none)          owned stores — schema/deploy work arrives as additive noncoding
 //	U-SPA-<client>  one per client with a UI surface (Table 11-1 #19, "Client App")

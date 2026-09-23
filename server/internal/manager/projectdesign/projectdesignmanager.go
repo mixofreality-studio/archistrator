@@ -3113,13 +3113,16 @@ func derefBool(p *bool) bool { return p != nil && *p }
 
 // toEstimationSystemView converts the canonical System to the estimation Engine's OWN
 // slim SystemView at the call boundary. Only what the derivation reads crosses:
-// identity, kind, and the three typed doctrine attributes (constructionProfile,
-// provisioning, uiSurface).
+// identity, kind, and the four typed doctrine attributes (constructionProfile,
+// provisioning, uiSurface, buildStatus) — the fourth of which decides whether there is
+// anything to build at all.
 //
 // An unauthored constructionProfile defaults to "handwritten" — the CONSERVATIVE
 // direction. Defaulting to "generated" would silently delete real planned work, which
 // is the one failure mode this whole derivation design exists to prevent. An
-// unauthored provisioning defaults to "owned" (no vendor assumed).
+// unauthored provisioning defaults to "owned" (no vendor assumed). An unauthored
+// buildStatus defaults to "" — the same conservative direction: only an explicit
+// "planned" says the component has no code to build yet.
 func toEstimationSystemView(sys projectstate.System) estimation.SystemView {
 	comps := make([]estimation.SystemComponent, 0, len(sys.Components))
 	for _, c := range sys.Components {
@@ -3130,6 +3133,7 @@ func toEstimationSystemView(sys projectstate.System) estimation.SystemView {
 			ConstructionProfile: derefString(c.ConstructionProfile, "handwritten"),
 			Provisioning:        derefString(c.Provisioning, "owned"),
 			UiSurface:           derefBool(c.UiSurface),
+			BuildStatus:         derefString(c.BuildStatus, ""),
 		})
 	}
 	rels := make([]estimation.SystemRelationship, 0, len(sys.Relationships))

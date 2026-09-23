@@ -19607,6 +19607,10 @@
             },
             "uiSurface": {
               "type": "boolean"
+            },
+            "buildStatus": {
+              "type": "string",
+              "description": "The component's build state: empty (the default — built or to be built), \"planned\" (designed, no code yet — derives no activity), or \"external\" (supplied outside the project). Read by the plan derivation: a planned component yields no construction activity, because the pump dispatches whatever slot 9 holds."
             }
           },
           "required": [
@@ -19615,7 +19619,8 @@
             "kind",
             "constructionProfile",
             "provisioning",
-            "uiSurface"
+            "uiSurface",
+            "buildStatus"
           ],
           "additionalProperties": false
         },

@@ -5930,6 +5930,13 @@ func TestFixtureSystemViewMatchesLiveCommittedSystem(t *testing.T) {
 		if l.UiSurface != f.UiSurface {
 			t.Errorf("component %q: fixture uiSurface %v, live committed System uiSurface %v — the fixture has drifted from the committed System", f.ID, f.UiSurface, l.UiSurface)
 		}
+		// buildStatus joins the comparison because it is now the field that decides
+		// whether a component derives any construction activity AT ALL: a "planned"
+		// component has no code to build, so the derivation skips it. Fixture drift on
+		// this one field silently changes the size of the plan, not just a label.
+		if l.BuildStatus != f.BuildStatus {
+			t.Errorf("component %q: fixture buildStatus %q, live committed System buildStatus %q — the fixture has drifted from the committed System", f.ID, f.BuildStatus, l.BuildStatus)
+		}
 	}
 
 	// I1 (2026-08-10): relationships were never compared here, so the 74-relationship

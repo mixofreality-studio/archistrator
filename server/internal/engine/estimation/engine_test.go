@@ -925,6 +925,40 @@ func TestDeriveActivitiesClientAppFollowsUISurfaceNotConstructionProfile(t *test
 	}
 }
 
+// A planned component is DESIGNED but not yet implemented: the model declares it so the
+// architecture can be reasoned about and the alignment gate can exempt it, and there is
+// by definition no code to build. Deriving a C-* for it would put a dispatchable activity
+// in slot 9, and the pump has no second opinion — nextEligibleActivity dispatches anything
+// whose dependencies are Done. Every emitter must skip it, whatever its layer.
+func TestDeriveActivitiesEmitsNothingForAPlannedComponent(t *testing.T) {
+	sys := sampleSystem()
+	sys.Components = append(sys.Components,
+		SystemComponent{ID: "delivery-manager", Name: "DeliveryManager", Kind: "manager", ConstructionProfile: "handwritten", BuildStatus: "planned"},
+		SystemComponent{ID: "ledger-db", Name: "LedgerDB", Kind: "resource", Provisioning: "vendor", BuildStatus: "planned"},
+		SystemComponent{ID: "desk-client", Name: "DeskClient", Kind: "client", ConstructionProfile: "handwritten", UiSurface: true, BuildStatus: "planned"},
+	)
+	for _, a := range deriveActivities(sys) {
+		switch a.ComponentID {
+		case "delivery-manager", "ledger-db", "desk-client":
+			t.Errorf("emitted %s for %s, which is buildStatus=planned — it has no code to build, and the pump would dispatch it", a.Name, a.ComponentID)
+		}
+	}
+}
+
+// The skip is keyed on "planned" ALONE. "external" marks a component the platform does
+// not build either, but it is already covered by constructionProfile "provided" and by
+// kind, and widening the skip would silently drop work the moment a marker is authored
+// loosely (message-bus carries no buildStatus though three sibling utilities do).
+func TestDeriveActivitiesStillBuildsAComponentWithNoBuildStatus(t *testing.T) {
+	sys := sampleSystem()
+	got := names(deriveActivities(sys))
+	for _, want := range []string{"C-order-manager", "C-pricing-engine", "C-order-access"} {
+		if _, ok := got[want]; !ok {
+			t.Errorf("%s disappeared — the planned skip must not catch an unmarked component", want)
+		}
+	}
+}
+
 // uiSurface is a SEPARATE axis from constructionProfile: web-client is generated
 // (no C-*) AND carries a UI surface (SPA work is real). Collapsing them loses the SPA.
 func TestDeriveActivitiesNoSPAWorkWithoutAUISurface(t *testing.T) {
@@ -1222,6 +1256,52 @@ func TestDeriveDependenciesDropsEdgesToComponentsWithNoActivity(t *testing.T) {
 		if strings.Contains(p, "order-db") {
 			t.Errorf("edge to the owned store order-db survived: %v", got["C-order-access"])
 		}
+	}
+}
+
+// A planned component is wired into the architecture like any other — it exists in the
+// model precisely so its relationships can be reasoned about — so skipping its activity
+// is only half the rule: its EDGES must go too. activityForComponent leaves it unindexed
+// and architectureEdges drops both sides, which is what keeps a planned predecessor from
+// arriving at the CPM solve as the empty string or as an undefined node. The neighbours
+// it sits between keep the edges they authored themselves; nothing is rewritten THROUGH
+// it, because a component with no work cannot carry a dependency.
+func TestDeriveDependenciesDropsEdgesThroughAPlannedComponent(t *testing.T) {
+	sys := edgeSystem()
+	sys.Components = append(sys.Components,
+		SystemComponent{ID: "delivery-manager", Name: "DeliveryManager", Kind: "manager", ConstructionProfile: "handwritten", BuildStatus: "planned"})
+	sys.Relationships = append(sys.Relationships,
+		SystemRelationship{From: "web-client", To: "delivery-manager"},
+		SystemRelationship{From: "delivery-manager", To: "order-access"})
+
+	acts := deriveActivities(sys)
+	known := make(map[string]bool, len(acts))
+	for _, a := range acts {
+		known[a.Name] = true
+	}
+	for _, m := range deriveMilestones(sys, acts) {
+		known[m.Id] = true
+	}
+	deps := deriveDependencies(sys, acts)
+	for _, d := range deps {
+		if strings.Contains(d.Activity, "delivery-manager") {
+			t.Errorf("planned delivery-manager has its own dependency row %+v; it derives no activity", d)
+		}
+		for _, p := range d.DependsOn {
+			switch {
+			case p == "":
+				t.Errorf("activity %q has an EMPTY predecessor — an edge touching the planned component leaked through", d.Activity)
+			case !known[p]:
+				t.Errorf("activity %q depends on %q, which is not a derived activity; a planned component must not become a phantom CPM node", d.Activity, p)
+			}
+		}
+	}
+
+	// The client's own authored edge is untouched: dropping the planned component
+	// removes only the edges that named it.
+	got := depsByActivity(deps)
+	if want := []string{"C-order-manager"}; !reflect.DeepEqual(got["U-SPA-web-client"], want) {
+		t.Errorf("U-SPA-web-client dependsOn = %v, want %v — the planned component must not disturb its neighbours", got["U-SPA-web-client"], want)
 	}
 }
 

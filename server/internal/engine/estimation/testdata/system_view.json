@@ -17,6 +17,7 @@
    "uiSurface": false
   },
   {
+   "buildStatus": "planned",
    "constructionProfile": "generated",
    "id": "scheduler-client",
    "kind": "client",
@@ -265,6 +266,7 @@
    "uiSurface": false
   },
   {
+   "buildStatus": "external",
    "constructionProfile": "provided",
    "id": "security",
    "kind": "utility",
@@ -273,6 +275,7 @@
    "uiSurface": false
   },
   {
+   "buildStatus": "external",
    "constructionProfile": "provided",
    "id": "logging",
    "kind": "utility",
@@ -281,6 +284,7 @@
    "uiSurface": false
   },
   {
+   "buildStatus": "external",
    "constructionProfile": "provided",
    "id": "diagnostics",
    "kind": "utility",

@@ -171,6 +171,7 @@ type SystemComponent struct {
 	ConstructionProfile string `json:"constructionProfile"`
 	Provisioning        string `json:"provisioning"`
 	UiSurface           bool   `json:"uiSurface"`
+	BuildStatus         string `json:"buildStatus"`
 }
 
 type SystemRelationship struct {
