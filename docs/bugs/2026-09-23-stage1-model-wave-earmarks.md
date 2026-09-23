@@ -16,6 +16,14 @@ Stage 1 shipped the volatility merge and the planned-component derivation rule o
 ## Deferred to stage 3
 - `activityExecutionAccess` (spec §5.3): reproduced — as a `planned` RA without relationships it fires SYS-RA-ORPHAN (Error); with relationships, DV-REL-COVERAGE (Error) until a dynamic view exercises them, which cannot be authored honestly while `gitActivityStatusAccess`/`constructionTransitionAccess`/`designSessionAccess` are what the code calls. Model it with its code.
 
+## Owed waiver (slot 3, next project.json edit — stage 3 or 4)
+- The three Managers now share `Project Delivery Workflow` as a TRANSITIONAL facet group (until stage 4 collapses them into `delivery-manager`). The §2h waiver still says "exactly one named encapsulator (or a ratified facet group)" without naming this group. Add one sentence naming the group and its expiry. Also ratify the vocabulary: `Design Conformance Rules` passes VOL-GLOSS on the single shared term `design`; a Glossary entry for it would make the name resolve for the right reason.
+
+## Process rules (earned 2026-09-23)
+- The self-amendment loop runs `validate --slot <every slot edited>` as well as `--slot System` (VOL-GLOSS was invisible to `--slot System`).
+- Never two implementers on `project.json` concurrently, even in disjoint regions (T1/T4 collided; T1 had to surgically revert its own hunks).
+- `make method-check` does not carry the DH-* family; `validate` does.
+
 ## Model hygiene (next System pass)
 - `message-bus` carries no `buildStatus` while the other three `provided` utilities carry `"external"`; nothing reads it, but it is inconsistent.
 - `designhealthengine.go:22` and `systemdesignmanager.go:132` comments name the retired "System Design Phase Workflow" volatility; six `uitests/preview-fixtures/**` snapshots embed the 19-volatility world.
