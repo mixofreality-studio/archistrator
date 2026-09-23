@@ -10323,3 +10323,561 @@ func TestLifecycleTasksBelongToOnePhase(t *testing.T) {
 		}
 	}
 }
+
+// ===========================================================================
+// activityExecutionAccess — the fifth contract facet (stage 3 task 3).
+//
+// The facet is ADDITIVE: it is exercised here against the same git-local
+// substrate the other four facets' tests use, through the same
+// applyMutationOnBranchFiles funnel, so its idempotency comes from the same
+// dedup-first probe and its conflict semantics from the same ref-CAS.
+// ===========================================================================
+
+// newExecutionStore is newConstructionStore plus the facet under test and an opened
+// activity — every verb below but OpenActivity needs a row to write onto.
+func newExecutionStore(t *testing.T) (ActivityExecutionAccess, *GitStore, ProjectID, Version, RepoCredential) {
+	t.Helper()
+	store, id, v, cred := newConstructionStore(t)
+	return &activityExecutionAccess{store: store, minter: localCredentialMinter{}}, store, id, v, cred
+}
+
+func execRC() fwra.Context { return fwra.Context{Context: context.Background()} }
+
+// openTestActivity opens C-X so the verbs under test have a row, and returns the
+// version after the open.
+func openTestActivity(t *testing.T, a ActivityExecutionAccess, id ProjectID, v Version, cred RepoCredential) Version {
+	t.Helper()
+	v2, err := a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("wf:open"))
+	if err != nil {
+		t.Fatalf("OpenActivity: %v", err)
+	}
+	return v2
+}
+
+// openRoundFixture opens one review round on C-X and returns the version after it.
+func openRoundFixture(t *testing.T, a ActivityExecutionAccess, id ProjectID, v Version, cred RepoCredential) Version {
+	t.Helper()
+	v2, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{
+		RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
+		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
+		Reviewers:  []RoundReviewer{{Role: "architect", Actor: "system-architect", Required: true}},
+	}, cred, fwra.IdempotencyKey("wf:round-1"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound: %v", err)
+	}
+	return v2
+}
+
+// TestOpenActivity_BirthsTheRowAndPinsItsLifecycle — OpenActivity is the fold of
+// RecordActivityStarted + RecordPhaseStarted: it births the row, stamps the type pair
+// the dispatcher classified, seeds the phase set from THAT pair, and pins the lifecycle
+// the task DAG was resolved against so a mid-flight method-assets release cannot
+// re-shape an activity that is already running.
+func TestOpenActivity_BirthsTheRowAndPinsItsLifecycle(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+
+	v2 := openTestActivity(t, a, id, v, cred)
+	if v2 != v+1 {
+		t.Fatalf("version = %d, want %d", v2, v+1)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if row.Phase != ActivityConstructionRunning {
+		t.Fatalf("Phase = %v, want Running", row.Phase)
+	}
+	if row.Type != ActivityTypeService {
+		t.Fatalf("Type = %v, want service", row.Type)
+	}
+	if row.StartedAt == nil {
+		t.Fatal("StartedAt must be stamped by the store")
+	}
+	if len(row.Phases) != len(phaseSetFor(ActivityTypeService, TestVariantPlan)) {
+		t.Fatalf("Phases = %d, want the service profile's %d", len(row.Phases), len(phaseSetFor(ActivityTypeService, TestVariantPlan)))
+	}
+	if row.Pin == nil || row.Pin.TypeKey != "service" || row.Pin.AssetsVersion != "v0.9.0" {
+		t.Fatalf("lifecycle pin = %+v, want the pin the caller opened against", row.Pin)
+	}
+}
+
+// TestOpenReviewRound_IsIdempotentUnderRetry — two appends of the SAME deterministic
+// RoundID under retry produce ONE round. This is the property the whole ledger rests
+// on: Temporal retries an activity, and an append that is not idempotent doubles the
+// history it is supposed to record.
+func TestOpenReviewRound_IsIdempotentUnderRetry(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	in := ReviewRoundInput{
+		RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
+		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
+		Reviewers:  []RoundReviewer{{Role: "architect", Actor: "system-architect", Required: true}},
+	}
+	v1, err := a.OpenReviewRound(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound: %v", err)
+	}
+	v2, err := a.OpenReviewRound(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k1"))
+	if err != nil || v2 != v1 {
+		t.Fatalf("a retry of the same idempotencyKey must replay, not re-apply: v1=%d v2=%d err=%v", v1, v2, err)
+	}
+	exec, err := a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if len(exec.Reviews) != 1 {
+		t.Fatalf("one round, appended once; got %d: %+v", len(exec.Reviews), exec.Reviews)
+	}
+	if exec.Reviews[0].Outcome != RoundPending {
+		t.Fatalf("a freshly opened round is pending; got %q", exec.Reviews[0].Outcome)
+	}
+	if exec.Reviews[0].OpenedAt == "" {
+		t.Fatal("OpenedAt must be stamped by the store")
+	}
+}
+
+// TestOpenReviewRound_ADifferentKeyForTheSameRoundStillAppendsOnce — the dedup ledger
+// covers the RETRY; the round id covers the RE-ISSUE. A caller that mints a fresh
+// idempotencyKey for a round it already opened must still not double the history.
+func TestOpenReviewRound_ADifferentKeyForTheSameRoundStillAppendsOnce(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	if _, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{
+		RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
+		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
+	}, cred, fwra.IdempotencyKey("a-different-key")); err != nil {
+		t.Fatalf("re-opening the same round must be a no-op success: %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if len(exec.Reviews) != 1 {
+		t.Fatalf("one round id, one round; got %d", len(exec.Reviews))
+	}
+}
+
+// TestAppendReviewVerdict_CarriesItsCommentsInTheSameCommit — a verdict and its comments
+// land in ONE commit (spec §5.3, "AppendReviewVerdict (verdict + its comments in one
+// commit)"). A crash between them would leave a round whose verdict cites comments
+// nobody can read.
+func TestAppendReviewVerdict_CarriesItsCommentsInTheSameCommit(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	if _, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
+			Summary: "contract too wide", AttemptID: "C-X:detailedDesign:1"},
+		[]ReviewComment{{Anchor: "ops[3]", Text: "split this op", AuthorRole: "architect", Type: "changeRequest"}},
+		nil, cred, fwra.IdempotencyKey("k2")); err != nil {
+		t.Fatalf("AppendReviewVerdict: %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	r := exec.Reviews[0]
+	if len(r.Verdicts) != 1 || len(r.Thread) != 1 {
+		t.Fatalf("verdict and comment must land together; verdicts=%d thread=%d", len(r.Verdicts), len(r.Thread))
+	}
+	if r.Verdicts[0].At == "" {
+		t.Fatal("the store stamps the verdict clock, not the caller")
+	}
+	if r.Thread[0].ID != ReviewCommentID(1, 0) || r.Thread[0].Status != ReviewCommentOpen {
+		t.Fatalf("the store mints the comment id and opens it, exactly as the artifact ledger does: %+v", r.Thread[0])
+	}
+	if r.Outcome != RoundPending {
+		t.Fatalf("a verdict does not decide the round; outcome=%q", r.Outcome)
+	}
+}
+
+// TestAppendReviewVerdict_IsIdempotentOnItsOwnContent — the same verdict re-appended
+// under a FRESH idempotencyKey appends once. A verdict is identified by who cast it, on
+// what, and how — not by the key the caller happened to mint.
+func TestAppendReviewVerdict_IsIdempotentOnItsOwnContent(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	verdict := ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect",
+		Verdict: VerdictApprove, Summary: "good", AttemptID: "C-X:detailedDesign:1"}
+	var err error
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k3")); err != nil {
+		t.Fatalf("AppendReviewVerdict: %v", err)
+	}
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k4")); err != nil {
+		t.Fatalf("AppendReviewVerdict (re-issue): %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if len(exec.Reviews[0].Verdicts) != 1 {
+		t.Fatalf("one verdict, appended once; got %d", len(exec.Reviews[0].Verdicts))
+	}
+}
+
+// TestDecideReviewRound_IsTerminalAndAppendOnly — DecideReviewRound stamps the outcome,
+// it never rewrites a verdict or a comment, and a second decision on a decided round is
+// refused.
+func TestDecideReviewRound_IsTerminalAndAppendOnly(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	var err error
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
+			Summary: "no", AttemptID: "C-X:detailedDesign:1"},
+		[]ReviewComment{{Anchor: "ops[0]", Text: "name the failure", AuthorRole: "architect", Type: "changeRequest"}},
+		nil, cred, fwra.IdempotencyKey("k5")); err != nil {
+		t.Fatalf("AppendReviewVerdict: %v", err)
+	}
+	if v, err = a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundSentBack, "system-architect", cred, fwra.IdempotencyKey("k6")); err != nil {
+		t.Fatalf("DecideReviewRound: %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	r := exec.Reviews[0]
+	if r.Outcome != RoundSentBack || r.DecidedBy != "system-architect" || r.DecidedAt == "" {
+		t.Fatalf("decision not stamped: %+v", r)
+	}
+	if len(r.Verdicts) != 1 || len(r.Thread) != 1 {
+		t.Fatalf("deciding must not rewrite the ledger; verdicts=%d thread=%d", len(r.Verdicts), len(r.Thread))
+	}
+
+	_, err = a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundPassed, "someone-else", cred, fwra.IdempotencyKey("k7"))
+	if err == nil {
+		t.Fatal("a decided round is terminal; a second, different decision must be refused")
+	}
+	if got := kindOfErr(err); got != fwra.Conflict {
+		t.Fatalf("second decision error class = %v, want Conflict", got)
+	}
+	if _, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "pm", Actor: "product-manager", Verdict: VerdictApprove, Summary: "late", AttemptID: "C-X:detailedDesign:1"},
+		nil, nil, cred, fwra.IdempotencyKey("k8")); err == nil {
+		t.Fatal("a decided round takes no further verdicts")
+	}
+}
+
+// TestDecideReviewRound_RefusesPendingAsADecision — "pending" is the state a round is in
+// before it is decided, never a decision. Allowing it would silently un-decide a round.
+func TestDecideReviewRound_RefusesPendingAsADecision(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	_, err := a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundPending, "system-architect", cred, fwra.IdempotencyKey("k9"))
+	if err == nil || kindOfErr(err) != fwra.ContractMisuse {
+		t.Fatalf("deciding a round 'pending' must be ContractMisuse; got %v", err)
+	}
+}
+
+// TestSetReviewCommentStatus_WalksTheRoundsThread — the comment vocabulary and its legal
+// transitions are the artifact ledger's, reused verbatim; only the ledger it walks moved.
+func TestSetReviewCommentStatus_WalksTheRoundsThread(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	var err error
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack, Summary: "no", AttemptID: "C-X:detailedDesign:1"},
+		[]ReviewComment{{Anchor: "ops[0]", Text: "split", AuthorRole: "architect", Type: "changeRequest"}},
+		nil, cred, fwra.IdempotencyKey("k10")); err != nil {
+		t.Fatalf("AppendReviewVerdict: %v", err)
+	}
+	if v, err = a.SetReviewCommentStatus(execRC(), id, v, "C-X", "C-X:designReview:1", ReviewCommentID(1, 0), ReviewCommentResolved, cred, fwra.IdempotencyKey("k11")); err != nil {
+		t.Fatalf("SetReviewCommentStatus: %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if exec.Reviews[0].Thread[0].Status != ReviewCommentResolved {
+		t.Fatalf("status = %q, want resolved", exec.Reviews[0].Thread[0].Status)
+	}
+	if _, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "C-X:designReview:1", "nope", ReviewCommentResolved, cred, fwra.IdempotencyKey("k12")); err == nil ||
+		kindOfErr(err) != fwra.NotFound {
+		t.Fatalf("an unknown comment id must be NotFound; got %v", err)
+	}
+}
+
+// TestRecordAttemptOutcome_AppendsOnceAndResolvesInPlace — an attempt is opened pending
+// and resolved later under a DIFFERENT idempotencyKey; that is one attempt, not two, and
+// the AttemptID format the episode ledger joins on is preserved verbatim.
+func TestRecordAttemptOutcome_AppendsOnceAndResolvesInPlace(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	in := TaskAttemptInput{AttemptID: AttemptID("C-X", TaskDetailedDesign, 1), TaskID: TaskDetailedDesign,
+		Attempt: 1, Actor: ActorAgent, Outcome: OutcomePending, EvidenceKind: EvidenceEpisode, EvidenceRef: "ep-1"}
+	var err error
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k13")); err != nil {
+		t.Fatalf("RecordAttemptOutcome (open): %v", err)
+	}
+	in.Outcome = OutcomePassed
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k14")); err != nil {
+		t.Fatalf("RecordAttemptOutcome (resolve): %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if len(exec.Attempts) != 1 {
+		t.Fatalf("one attempt id, one attempt; got %d", len(exec.Attempts))
+	}
+	at := exec.Attempts[0]
+	if at.AttemptID != "C-X:detailedDesign:1" {
+		t.Fatalf("AttemptID = %q — the episode ledger's TargetRef join depends on this format", at.AttemptID)
+	}
+	if at.Outcome != OutcomePassed || at.EndedAt == nil {
+		t.Fatalf("a resolved attempt carries its outcome and an end stamp: %+v", at)
+	}
+	if at.Phase != PhaseForTask(TaskDetailedDesign) {
+		t.Fatalf("Phase = %q, want the task's own phase %q", at.Phase, PhaseForTask(TaskDetailedDesign))
+	}
+	if at.Provenance.Origin != OriginObserved {
+		t.Fatalf("a live write is observed, not synthesized; got %q", at.Provenance.Origin)
+	}
+
+	in.Outcome = OutcomeFailed
+	if _, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k15")); err == nil {
+		t.Fatal("a resolved attempt must not be re-resolved differently; one id names one attempt")
+	}
+}
+
+// TestRecordActivityOutcome_FoldsExitedAndFailed — the one verb carries both terminals
+// the two retired ones did, and the failure arm keeps the closed reason vocabulary.
+func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
+	for _, tt := range []struct {
+		name      string
+		outcome   ActivityOutcome
+		reason    FailureReason
+		wantPhase ActivityConstructionPhase
+		wantBuild ActivityBuildStatus
+	}{
+		{"completed", ActivityOutcomeCompleted, FailureReasonUnknown, ActivityConstructionDone, BuildIntegrated},
+		{"skipped", ActivityOutcomeSkipped, FailureReasonUnknown, ActivityConstructionDone, BuildInReview},
+		{"failed", ActivityOutcomeUnknown, PipelineFailed, ActivityConstructionFailed, BuildFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, store, id, v, cred := newExecutionStore(t)
+			v = openTestActivity(t, a, id, v, cred)
+			if _, err := a.RecordActivityOutcome(execRC(), id, v, "C-X", tt.outcome, tt.reason, "detail", cred, fwra.IdempotencyKey("k16")); err != nil {
+				t.Fatalf("RecordActivityOutcome: %v", err)
+			}
+			row := readConstruction(t, store, id, cred, "C-X")
+			if row.Phase != tt.wantPhase || row.BuildStatus != tt.wantBuild {
+				t.Fatalf("phase/build = %v/%v, want %v/%v", row.Phase, row.BuildStatus, tt.wantPhase, tt.wantBuild)
+			}
+			if row.CompletedAt == nil {
+				t.Fatal("a terminal outcome stamps CompletedAt")
+			}
+		})
+	}
+}
+
+// TestRecordOperatorNote_FoldsTheDeliveryStamp — the retired pair (RecordOperatorNote +
+// RecordOperatorNoteDelivered) is one verb: recording a note already addressed to an
+// attempt costs one commit, not two.
+func TestRecordOperatorNote_FoldsTheDeliveryStamp(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	note := OperatorNoteInput{NoteID: "n1", Kind: NoteSendBack, Gate: "detailed_design", Text: "tighten it"}
+	var err error
+	if v, err = a.RecordOperatorNote(execRC(), id, v, "C-X", note, "C-X:detailedDesign:2", cred, fwra.IdempotencyKey("k17")); err != nil {
+		t.Fatalf("RecordOperatorNote: %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if len(row.OperatorNotes) != 1 {
+		t.Fatalf("one note; got %d", len(row.OperatorNotes))
+	}
+	n := row.OperatorNotes[0]
+	if n.DeliveredToAttemptID != "C-X:detailedDesign:2" || n.DeliveredAt == nil {
+		t.Fatalf("the delivery stamp must ride the same commit: %+v", n)
+	}
+	if len(PendingOperatorNotes(row)) != 0 {
+		t.Fatal("a note delivered at record time is not pending")
+	}
+	// An undelivered note is still the ordinary case, and still pending.
+	if _, err = a.RecordOperatorNote(execRC(), id, v, "C-X",
+		OperatorNoteInput{NoteID: "n2", Kind: NoteRetry, Gate: "", Text: "retry it"}, "", cred, fwra.IdempotencyKey("k18")); err != nil {
+		t.Fatalf("RecordOperatorNote (undelivered): %v", err)
+	}
+	if got := len(PendingOperatorNotes(readConstruction(t, store, id, cred, "C-X"))); got != 1 {
+		t.Fatalf("pending notes = %d, want 1", got)
+	}
+}
+
+// TestStageTaskOutput_StagesTheModelAndNamesWhereItLanded — staging writes the task's
+// output and hands back the ref the caller needs to cite, carrying the resulting version
+// INSIDE the ref (the contract dialect admits one result per operation).
+func TestStageTaskOutput_StagesTheModelAndNamesWhereItLanded(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	env, err := EncodeModel(&MissionStatement{Vision: "v", Mission: "m"})
+	if err != nil {
+		t.Fatalf("EncodeModel: %v", err)
+	}
+	ref, err := a.StageTaskOutput(execRC(), id, v, "C-X", "detailedDesign", "", env, cred, fwra.IdempotencyKey("k19"))
+	if err != nil {
+		t.Fatalf("StageTaskOutput: %v", err)
+	}
+	if ref.ActivityID != "C-X" || ref.TaskID != "detailedDesign" || ref.Version != v+1 {
+		t.Fatalf("StagedRef = %+v, want C-X/detailedDesign at version %d", ref, v+1)
+	}
+	proj, err := store.ReadProject(execRC(), id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Mission.Status != ReviewAwaitingReview {
+		t.Fatalf("the staged model must be awaiting review; got %v", proj.Mission.Status)
+	}
+	// An empty envelope stages nothing, and saying so is better than a version bump that
+	// records no fact: construction's own output is staged on the branch by the agent and
+	// recorded through RecordAttemptOutcome's evidence, not here.
+	if _, err := a.StageTaskOutput(execRC(), id, ref.Version, "C-X", "construction", "", ModelEnvelope{}, cred, fwra.IdempotencyKey("k20")); err == nil ||
+		kindOfErr(err) != fwra.ContractMisuse {
+		t.Fatalf("an empty envelope must be ContractMisuse; got %v", err)
+	}
+}
+
+// TestCommitActivityArtifacts_AppendsProducedOnce — the commit half of the family is
+// append-only and idempotent on what it names, like every other verb here.
+func TestCommitActivityArtifacts_AppendsProducedOnce(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	in := CommitArtifactsInput{TaskID: TaskConstruction, Commit: "abc123", ApprovedBy: "system-architect", DraftedBy: "junior-developer",
+		Artifacts: []ProducedArtifact{{Kind: "code", Title: "orders", Source: "server/internal/x", Produced: true}}}
+	var err error
+	if v, err = a.CommitActivityArtifacts(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k21")); err != nil {
+		t.Fatalf("CommitActivityArtifacts: %v", err)
+	}
+	if _, err = a.CommitActivityArtifacts(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k22")); err != nil {
+		t.Fatalf("CommitActivityArtifacts (re-issue): %v", err)
+	}
+	row := readConstruction(t, store, id, cred, "C-X")
+	if len(row.Produced) != 1 {
+		t.Fatalf("one artifact, appended once; got %d: %+v", len(row.Produced), row.Produced)
+	}
+	if row.Produced[0].Note == "" {
+		t.Fatal("the commit's provenance must be recorded on what it committed")
+	}
+}
+
+// TestAcknowledgeStaleBasis_IsScopedToAnActivity — the activity-scoped form is not a
+// rename of the project-scoped one: it refuses an activity it has no row for, which is
+// exactly what "scoped to an activity" has to mean if it means anything. The slot
+// transition itself is the project-scoped verb's, reused verbatim and already covered by
+// its own tests, so what is asserted here is the scoping and the guards.
+func TestAcknowledgeStaleBasis_IsScopedToAnActivity(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-NOPE", KindMission, "unaffected", cred, fwra.IdempotencyKey("k25")); err == nil ||
+		kindOfErr(err) != fwra.NotFound {
+		t.Fatalf("an activity with no row must be NotFound; got %v", err)
+	}
+	// The slot guard still fires underneath: mission is not committed here, so the
+	// acknowledgement has nothing to clear and says so rather than writing.
+	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-X", KindMission, "unaffected", cred, fwra.IdempotencyKey("k26")); err == nil ||
+		kindOfErr(err) != fwra.ContractMisuse {
+		t.Fatalf("acknowledging a slot that is not committed must be ContractMisuse; got %v", err)
+	}
+}
+
+// TestActivityExecutionVerbs_RefuseEmptyIdentifiers — `required` in the contract schema
+// dialect is PRESENCE-only, so non-emptiness lives here, in the implementation
+// (2026-08-13 contract-strictness ruling). Every verb guards its own ids.
+func TestActivityExecutionVerbs_RefuseEmptyIdentifiers(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	k := fwra.IdempotencyKey("kx")
+
+	for _, tt := range []struct {
+		name string
+		call func() error
+	}{
+		{"OpenActivity/activityID", func() error {
+			_, err := a.OpenActivity(execRC(), id, v, "", ActivityTypeService, TestVariantPlan, LifecyclePin{TypeKey: "service", AssetsVersion: "x"}, cred, k)
+			return err
+		}},
+		{"OpenActivity/pin", func() error {
+			_, err := a.OpenActivity(execRC(), id, v, "C-Y", ActivityTypeService, TestVariantPlan, LifecyclePin{}, cred, k)
+			return err
+		}},
+		{"StageTaskOutput/taskID", func() error {
+			_, err := a.StageTaskOutput(execRC(), id, v, "C-X", "", "", ModelEnvelope{Kind: KindMission}, cred, k)
+			return err
+		}},
+		{"RecordAttemptOutcome/attemptID", func() error {
+			_, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{TaskID: TaskDetailedDesign, Attempt: 1}, cred, k)
+			return err
+		}},
+		{"RecordAttemptOutcome/taskID", func() error {
+			_, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{AttemptID: "a", Attempt: 1}, cred, k)
+			return err
+		}},
+		{"OpenReviewRound/roundID", func() error {
+			_, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
+			return err
+		}},
+		{"OpenReviewRound/subjectRef", func() error {
+			_, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{RoundID: "r", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
+			return err
+		}},
+		{"AppendReviewVerdict/roundID", func() error {
+			_, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "", ReviewVerdict{ReviewerRole: "architect", Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
+			return err
+		}},
+		{"AppendReviewVerdict/reviewerRole", func() error {
+			_, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "r", ReviewVerdict{Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
+			return err
+		}},
+		{"SetReviewCommentStatus/commentID", func() error {
+			_, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "r", "", ReviewCommentResolved, cred, k)
+			return err
+		}},
+		{"SetReviewCommentStatus/status", func() error {
+			_, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "r", "c", "banana", cred, k)
+			return err
+		}},
+		{"DecideReviewRound/decidedBy", func() error {
+			_, err := a.DecideReviewRound(execRC(), id, v, "C-X", "r", RoundPassed, "", cred, k)
+			return err
+		}},
+		{"CommitActivityArtifacts/taskID", func() error {
+			_, err := a.CommitActivityArtifacts(execRC(), id, v, "C-X", CommitArtifactsInput{ApprovedBy: "a", DraftedBy: "d"}, cred, k)
+			return err
+		}},
+		{"RecordActivityOutcome/activityID", func() error {
+			_, err := a.RecordActivityOutcome(execRC(), id, v, "", ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, k)
+			return err
+		}},
+		{"RecordOperatorNote/noteID", func() error {
+			_, err := a.RecordOperatorNote(execRC(), id, v, "C-X", OperatorNoteInput{Kind: NoteRetry, Text: "t"}, "", cred, k)
+			return err
+		}},
+		{"AcknowledgeStaleBasis/note", func() error {
+			_, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-X", KindMission, "  ", cred, k)
+			return err
+		}},
+		{"ReadActivityExecution/activityID", func() error {
+			_, err := a.ReadActivityExecution(execRC(), id, "")
+			return err
+		}},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.call()
+			if err == nil {
+				t.Fatal("an empty or unknown required identifier must be refused, not written")
+			}
+			if got := kindOfErr(err); got != fwra.ContractMisuse {
+				t.Fatalf("error class = %v, want ContractMisuse (err=%v)", got, err)
+			}
+		})
+	}
+}
+
+// TestReadActivityExecution_IsNotFoundForAnUnopenedActivity — the narrow read says
+// "there is no such activity" rather than handing back an empty pair of ledgers that
+// reads as "this activity did nothing".
+func TestReadActivityExecution_IsNotFoundForAnUnopenedActivity(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	_ = openTestActivity(t, a, id, v, cred)
+
+	if _, err := a.ReadActivityExecution(execRC(), id, "C-NOPE"); err == nil ||
+		kindOfErr(err) != fwra.NotFound {
+		t.Fatalf("an unopened activity must be NotFound; got %v", err)
+	}
+}

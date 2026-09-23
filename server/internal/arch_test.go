@@ -433,6 +433,12 @@ var encapsulationAllowlistData = map[string][]string{
 		"NewGitHubGitActivityStatusAccess",
 		"NewGitLocalDesignSessionAccess",
 		"NewGitHubDesignSessionAccess",
+		// activityExecutionAccess (stage 3): the FIFTH facet's variant constructors, in the
+		// same VARIANT-CONSTRUCTOR category as the four pairs above and for the same reason
+		// — composegen's generated composition root calls them by name per profile.
+		"NewActivityExecutionAccess",
+		"NewGitLocalActivityExecutionAccess",
+		"NewGitHubActivityExecutionAccess",
 		"ActivityDiagram",
 		"ActivityEdge",
 		"ActivityItem",

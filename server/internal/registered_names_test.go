@@ -67,6 +67,27 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // deliberate (e.g. an activity rename, which IS allowed per the ratified "clean
 // cut" — Global Constraints), and update this literal.
 var registeredTemporalNamesGolden = []string{
+	// activityExecutionAccess (stage 3, task 3) — the twelve verbs of the fifth contract
+	// facet, registered on the construction Manager's worker because it took the dep.
+	// DELIBERATE, and PURELY ADDITIVE: this update adds twelve names and removes none,
+	// which is the whole point of the additive shape. The three facets these verbs
+	// supersede keep every one of their registered names, so the thirteen construction
+	// replay fixtures stay byte-identical and an in-flight execution keeps finding the
+	// activity type its history recorded. Task 5 switches the workflow onto these behind
+	// workflow.GetVersion; the deletions are a post-drain commit, and THAT update will
+	// remove names and needs the drain note with it.
+	"activityExecutionAccess.acknowledgeStaleBasis",
+	"activityExecutionAccess.appendReviewVerdict",
+	"activityExecutionAccess.commitActivityArtifacts",
+	"activityExecutionAccess.decideReviewRound",
+	"activityExecutionAccess.openActivity",
+	"activityExecutionAccess.openReviewRound",
+	"activityExecutionAccess.readActivityExecution",
+	"activityExecutionAccess.recordActivityOutcome",
+	"activityExecutionAccess.recordAttemptOutcome",
+	"activityExecutionAccess.recordOperatorNote",
+	"activityExecutionAccess.setReviewCommentStatus",
+	"activityExecutionAccess.stageTaskOutput",
 	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.cancelAgenticJob",
@@ -277,7 +298,7 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	construction.RegisterManagerWorker(&reg, constructionMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)

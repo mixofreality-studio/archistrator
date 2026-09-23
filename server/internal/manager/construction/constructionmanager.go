@@ -153,6 +153,15 @@ type constructionManager struct {
 	// through the generated invoker surface (Acts.EpisodesAppendEpisode) inside the
 	// workflows; this field exists to thread it into genActivities.
 	episodes episode.EpisodeAccess
+
+	// activityExecution (stage 3) is the generated activityExecutionAccess dep — the
+	// fifth facet of the one project-state component, owner of the per-activity attempt
+	// and review-round ledgers. Taking the dep HERE is what registers its twelve
+	// Temporal activities on this Manager's worker, which is the precondition for task
+	// 5: the construction child workflow switches onto them behind workflow.GetVersion,
+	// with the old branch still calling the deprecated-in-place facets whose activity
+	// names the replay fixtures record. Nothing in this wave CALLS these verbs yet.
+	activityExecution projectstate.ActivityExecutionAccess
 }
 
 // Compile-time proof the concrete constructionManager satisfies the generated port.
@@ -173,6 +182,7 @@ func newConstructionManager(
 	constructionTransition projectstate.ConstructionTransitionAccess,
 	gitActivityStatus projectstate.GitActivityStatusAccess,
 	designSession projectstate.DesignSessionAccess,
+	activityExecution projectstate.ActivityExecutionAccess,
 	messageBus messagebus.MessageBus,
 	episodes episode.EpisodeAccess,
 	escalationWaitTimeout time.Duration,
@@ -190,6 +200,7 @@ func newConstructionManager(
 		constructionTransition: constructionTransition,
 		gitActivityStatus:      gitActivityStatus,
 		designSession:          designSession,
+		activityExecution:      activityExecution,
 		messageBus:             messageBus,
 		episodes:               episodes,
 		escalationWaitTimeout:  escalationWaitTimeout,

@@ -195,6 +195,18 @@ func generateMain(m *projectmodel.Model) {
 			"designSessionAccess/GitLocal": {
 				{GoType: "string"}, // repoURL
 			},
+			// activityExecutionAccess (stage 3) is the FIFTH facet over the same one
+			// component, package and git substrate — so it takes the identical tuples as
+			// its four siblings above, for the identical reason.
+			"activityExecutionAccess/GitLocal": {
+				{GoType: "string"}, // repoURL
+			},
+			"activityExecutionAccess/GitHub": {
+				{GoType: "string"}, // webHost
+				{GoType: "string"}, // account
+				{GoType: "projectstate.ProjectCatalog", GoImport: projectstatePkg},
+				{GoType: "projectstate.CredentialMinter", GoImport: projectstatePkg},
+			},
 			// episodeAccess/LocalFS (Task 8) reuses the SAME shared-repo repoURL
 			// setting (cfg.ProjectStateGitRepoURL) the constructionTransitionAccess/
 			// GitActivityStatusAccess/DesignSessionAccess GitLocal arms above already

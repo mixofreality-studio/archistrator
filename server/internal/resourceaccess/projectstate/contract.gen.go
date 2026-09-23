@@ -38,6 +38,12 @@ type ActivityEdge struct {
 	Guard string   `json:"guard"`
 }
 
+type ActivityExecution struct {
+	ActivityID string        `json:"activityId"`
+	Attempts   []TaskAttempt `json:"attempts,omitempty"`
+	Reviews    []ReviewRound `json:"reviews,omitempty"`
+}
+
 type ActivityGitStatus struct {
 	ActivityID     string       `json:"ActivityID"`
 	BranchName     string       `json:"BranchName"`
@@ -212,6 +218,14 @@ const (
 	ClassCore    Classification = 0
 	ClassNonCore Classification = 1
 )
+
+type CommitArtifactsInput struct {
+	TaskID     MethodTask         `json:"taskId"`
+	Commit     string             `json:"commit"`
+	Artifacts  []ProducedArtifact `json:"artifacts,omitempty"`
+	ApprovedBy string             `json:"approvedBy"`
+	DraftedBy  string             `json:"draftedBy"`
+}
 
 type Component struct {
 	ID                       string        `json:"id"`
@@ -494,6 +508,11 @@ const (
 	LayerUtility        Layer = 5
 )
 
+type LifecyclePin struct {
+	TypeKey       string `json:"typeKey"`
+	AssetsVersion string `json:"assetsVersion"`
+}
+
 type MissionStatement struct {
 	Vision     string      `json:"vision"`
 	Objectives []Objective `json:"objectives"`
@@ -755,6 +774,48 @@ type ReviewReply struct {
 	At         string `json:"at"`
 }
 
+type ReviewRound struct {
+	RoundID    string             `json:"roundId"`
+	TaskID     MethodTask         `json:"taskId"`
+	Reviews    MethodTask         `json:"reviews"`
+	Round      int64              `json:"round"`
+	SubjectRef SubjectRef         `json:"subjectRef"`
+	Reviewers  []RoundReviewer    `json:"reviewers,omitempty"`
+	Verdicts   []ReviewVerdict    `json:"verdicts,omitempty"`
+	Thread     []ReviewComment    `json:"thread,omitempty"`
+	Outcome    ReviewRoundOutcome `json:"outcome"`
+	DecidedBy  string             `json:"decidedBy"`
+	OpenedAt   string             `json:"openedAt"`
+	DecidedAt  string             `json:"decidedAt"`
+}
+
+type ReviewRoundInput struct {
+	RoundID    string          `json:"roundId"`
+	TaskID     MethodTask      `json:"taskId"`
+	Reviews    MethodTask      `json:"reviews"`
+	Round      int64           `json:"round"`
+	SubjectRef SubjectRef      `json:"subjectRef"`
+	Reviewers  []RoundReviewer `json:"reviewers,omitempty"`
+}
+
+type ReviewRoundOutcome string
+
+const (
+	RoundPending   ReviewRoundOutcome = "pending"
+	RoundPassed    ReviewRoundOutcome = "passed"
+	RoundSentBack  ReviewRoundOutcome = "sentBack"
+	RoundWithdrawn ReviewRoundOutcome = "withdrawn"
+)
+
+type ReviewVerdict struct {
+	ReviewerRole string      `json:"reviewerRole"`
+	Actor        string      `json:"actor"`
+	Verdict      VerdictKind `json:"verdict"`
+	Summary      string      `json:"summary"`
+	AttemptID    string      `json:"attemptId"`
+	At           string      `json:"at"`
+}
+
 type RiskModel struct {
 	Rows              []RiskRow    `json:"rows"`
 	TooRiskyThreshold float64      `json:"tooRiskyThreshold"`
@@ -772,6 +833,12 @@ type RiskRow struct {
 	TotalCost       Money        `json:"totalCost"`
 	Included        bool         `json:"included"`
 	ExclusionReason string       `json:"exclusionReason"`
+}
+
+type RoundReviewer struct {
+	Role     string `json:"role"`
+	Actor    string `json:"actor"`
+	Required bool   `json:"required"`
 }
 
 type SRSRecord struct {
@@ -845,8 +912,28 @@ type Solution struct {
 	CriticalSpeedup     float64          `json:"criticalSpeedup"`
 }
 
+type StagedRef struct {
+	ActivityID string  `json:"activityId"`
+	TaskID     string  `json:"taskId"`
+	Branch     string  `json:"branch"`
+	Version    Version `json:"version"`
+}
+
 type StandardCheck struct {
 	Items []CheckItem `json:"items"`
+}
+
+type SubjectKind string
+
+const (
+	SubjectCommit      SubjectKind = "commit"
+	SubjectArtifact    SubjectKind = "artifact"
+	SubjectPullRequest SubjectKind = "pullRequest"
+)
+
+type SubjectRef struct {
+	Kind SubjectKind `json:"kind"`
+	Ref  string      `json:"ref"`
 }
 
 type System struct {
@@ -855,6 +942,16 @@ type System struct {
 	DynamicViews  []DynamicView  `json:"dynamicViews"`
 	Waivers       []CheckItem    `json:"waivers,omitempty"`
 	Attestations  []CheckItem    `json:"attestations,omitempty"`
+}
+
+type TaskAttemptInput struct {
+	AttemptID    string       `json:"attemptId"`
+	TaskID       MethodTask   `json:"taskId"`
+	Attempt      int64        `json:"attempt"`
+	Actor        TaskActor    `json:"actor"`
+	Outcome      TaskOutcome  `json:"outcome"`
+	EvidenceKind EvidenceKind `json:"evidenceKind"`
+	EvidenceRef  string       `json:"evidenceRef"`
 }
 
 type TestPlanRecord struct {
@@ -921,6 +1018,14 @@ type UseCaseDecision struct {
 
 type VenueKind string
 
+type VerdictKind string
+
+const (
+	VerdictApprove  VerdictKind = "approve"
+	VerdictSendBack VerdictKind = "sendBack"
+	VerdictWaive    VerdictKind = "waive"
+)
+
 type Version int64
 
 type Volatilities struct {
@@ -945,6 +1050,22 @@ type WorkerRateSpec struct {
 	ModelID             string  `json:"modelId"`
 	MegatokensInPerDay  float64 `json:"megatokensInPerDay"`
 	MegatokensOutPerDay float64 `json:"megatokensOutPerDay"`
+}
+
+// ActivityExecutionAccess is the generated service-contract interface for this component.
+type ActivityExecutionAccess interface {
+	OpenActivity(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	StageTaskOutput(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, taskID string, branch string, model ModelEnvelope, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (StagedRef, error)
+	RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ReadActivityExecution(rc fwra.Context, projectID ProjectID, activityID string) (ActivityExecution, error)
 }
 
 // ConstructionTransitionAccess is the generated service-contract interface for this component.

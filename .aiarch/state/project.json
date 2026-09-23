@@ -5406,7 +5406,7 @@
             "name": "ProjectStateAccess",
             "kind": "resourceAccess",
             "layer": "resourceAccess",
-            "encapsulates": "Encapsulates the Source Control Target volatility for project state (B-12): one component, four contract facets — project-state (stage/commit/reject/withdraw artifact, advancePhase, research and operating-model writes), construction-transition (the cred-threaded construction head-state transition verbs), git-activity-status (the per-activity git-forward head-state mirror), and design-session (the branch-aware design-session verbs) — all atomic business verbs over the git-as-DB typed aggregate, hiding ref-CAS commit mechanics and the idempotency dedup ledger so the substrate could change without touching Managers. Facets are contracts, not components (ratified facet doctrine — see operational concepts).",
+            "encapsulates": "Encapsulates the Source Control Target volatility for project state (B-12): one component, five contract facets — project-state (stage/commit/reject/withdraw artifact, advancePhase, research, operating-model and project-scoped operator writes), construction-transition (the cred-threaded construction head-state transition verbs), git-activity-status (the per-activity git-forward head-state mirror), design-session (the branch-aware design-session verbs), and activity-execution (the append-only attempt and review-round ledgers per activity, and the stage → review → commit verb family that writes them) — all atomic business verbs over the git-as-DB typed aggregate, hiding ref-CAS commit mechanics and the idempotency dedup ledger so the substrate could change without touching Managers. Facets are contracts, not components (ratified facet doctrine — see operational concepts).",
             "encapsulatesVolatilities": [
               "Source Control Target"
             ],
@@ -5424,7 +5424,11 @@
               "recordActivityWorkItemOpened",
               "recordChangeReviewed",
               "recordActivityExited",
-              "recordOperatorPaused"
+              "recordOperatorPaused",
+              "openActivity",
+              "stageTaskOutput",
+              "appendReviewVerdict",
+              "commitActivityArtifacts"
             ],
             "contractKey": "projectStateAccess",
             "constructionProfile": "handwritten",
@@ -5941,7 +5945,7 @@
             "from": "construction-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject / record activity transitions (started, branch opened, CI observed, reviewed, merged, exited)"
+            "label": "readProject / record activity transitions (started, branch opened, CI observed, reviewed, merged, exited) / open·stage·review·commit one activity's execution ledgers"
           },
           {
             "from": "construction-manager",
@@ -9809,6 +9813,24 @@
             },
             {
               "component": "gitActivityStatusAccess",
+              "presence": "required",
+              "provides": [],
+              "settings": [],
+              "perProfile": {
+                "local": {
+                  "variant": "GitLocal",
+                  "infra": []
+                },
+                "cloud": {
+                  "variant": "GitHub",
+                  "infra": [
+                    "github-app"
+                  ]
+                }
+              }
+            },
+            {
+              "component": "activityExecutionAccess",
               "presence": "required",
               "provides": [],
               "settings": [],
@@ -14393,6 +14415,1436 @@
     "SupervisionCap": 3
   },
   "serviceContracts": {
+    "activityExecutionAccess": {
+      "component": "projectStateAccess",
+      "layer": "ResourceAccess",
+      "goPackage": "internal/resourceaccess/projectstate",
+      "railAuthority": true,
+      "title": "activityExecutionAccess contract",
+      "notes": "The one staging -> review -> commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3: the three facets it supersedes (constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess) are deprecated IN PLACE, not deleted, because their Temporal activity names are recorded in nine of the thirteen construction replay fixtures (five of them pre-* histories that are never re-captured) and the SDK matches a scheduled activity on lastPartOfName(activityType). Task 5 switches the construction child workflow onto these verbs behind workflow.GetVersion, with the old branch still calling the old ops; the deletion is a post-drain commit in stage 4. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -> re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention.",
+      "$defs": {
+        "ActivityOutcome": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3
+          ],
+          "x-enum-varnames": [
+            "ActivityOutcomeUnknown",
+            "ActivityOutcomeCompleted",
+            "ActivityOutcomeSkipped",
+            "ActivityOutcomeTakenOver"
+          ],
+          "x-go-base": "int"
+        },
+        "ActivityType": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "x-enum-varnames": [
+            "ActivityTypeService",
+            "ActivityTypeFrontend",
+            "ActivityTypeTesting",
+            "ActivityTypeDeployment",
+            "ActivityTypeDocumentation",
+            "ActivityTypeUIDesign",
+            "ActivityTypeIntegration",
+            "ActivityTypeRequirements",
+            "ActivityTypeArchitecture",
+            "ActivityTypeProjectDesign"
+          ],
+          "x-go-base": "int"
+        },
+        "ArtifactKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9,
+            10,
+            11,
+            12,
+            13,
+            14,
+            15,
+            16
+          ],
+          "x-enum-varnames": [
+            "KindMission",
+            "KindGlossary",
+            "KindScrubbedRequirements",
+            "KindVolatilities",
+            "KindCoreUseCases",
+            "KindSystem",
+            "KindOperationalConcepts",
+            "KindStandardCheck",
+            "KindPlanningAssumptions",
+            "KindActivityList",
+            "KindNetwork",
+            "KindNormalSolution",
+            "KindSubcriticalSolution",
+            "KindCompressedSolution",
+            "KindDecompressedSolution",
+            "KindRiskModel",
+            "KindSdpReview"
+          ],
+          "x-go-base": "int"
+        },
+        "FailureReason": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6,
+            7,
+            8,
+            9
+          ],
+          "x-enum-varnames": [
+            "FailureReasonUnknown",
+            "PipelineFailed",
+            "PipelineCancelled",
+            "PipelineTimedOut",
+            "VarianceExhausted",
+            "EscalationTimedOut",
+            "ComponentUnresolved",
+            "DependencyUnresolved",
+            "DependencyCycle",
+            "ActivityUnclassifiable"
+          ],
+          "x-go-base": "int"
+        },
+        "NoteComment": {
+          "type": "object",
+          "properties": {
+            "jsonPath": {
+              "type": "string",
+              "x-go-name": "JSONPath",
+              "description": "Where the comment is anchored in the artifact under review, as a JSONPath."
+            },
+            "text": {
+              "type": "string",
+              "description": "The comment, verbatim."
+            }
+          },
+          "required": [
+            "jsonPath",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "OperatorNoteInput": {
+          "type": "object",
+          "properties": {
+            "noteId": {
+              "type": "string",
+              "x-go-name": "NoteID",
+              "description": "The caller's deterministic id for this note. Recording the same id again with identical content changes nothing; with different content it is refused."
+            },
+            "kind": {
+              "$ref": "#/$defs/OperatorNoteKind",
+              "description": "Why the note was written."
+            },
+            "gate": {
+              "type": "string",
+              "description": "The gate the note was written at: a lifecycle phase's wire name, \"merge\" or \"takeover\"; empty when none applies."
+            },
+            "text": {
+              "type": "string",
+              "description": "The operator's note, verbatim. Must not be blank."
+            },
+            "comments": {
+              "type": [
+                "null",
+                "array"
+              ],
+              "items": {
+                "$ref": "#/$defs/NoteComment"
+              },
+              "description": "Anchored comments that ride with the note."
+            }
+          },
+          "required": [
+            "noteId",
+            "kind",
+            "gate",
+            "text"
+          ],
+          "additionalProperties": false
+        },
+        "OperatorNoteKind": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4,
+            5,
+            6
+          ],
+          "x-enum-varnames": [
+            "OperatorNoteKindUnknown",
+            "NoteSendBack",
+            "NoteRetry",
+            "NoteTakeover",
+            "NoteReassign",
+            "NoteSkip",
+            "NoteRequeue"
+          ],
+          "x-go-base": "int",
+          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue (re-queueing a failed activity). 0 is the unknown sentinel and is refused."
+        },
+        "ProducedArtifact": {
+          "type": "object",
+          "properties": {
+            "Kind": {
+              "type": "string"
+            },
+            "Title": {
+              "type": "string"
+            },
+            "Source": {
+              "type": "string"
+            },
+            "Produced": {
+              "type": "boolean"
+            },
+            "Note": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "Kind",
+            "Title",
+            "Source",
+            "Produced",
+            "Note"
+          ],
+          "additionalProperties": false
+        },
+        "ProjectID": {
+          "type": "string"
+        },
+        "RepoCredential": {
+          "type": "object",
+          "properties": {
+            "Bytes": {
+              "type": "string",
+              "contentEncoding": "base64",
+              "x-go-type": "[]byte"
+            },
+            "ExpiresAt": {
+              "type": "string",
+              "format": "date-time",
+              "x-go-import": "time",
+              "x-go-type": "time.Time"
+            }
+          },
+          "required": [
+            "Bytes",
+            "ExpiresAt"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewComment": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string"
+            },
+            "response": {
+              "type": "string"
+            },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewCommentReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "anchorText",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "replies",
+            "reopened",
+            "type",
+            "addressee"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewCommentReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewReply": {
+          "type": "object",
+          "properties": {
+            "commentId": {
+              "type": "string",
+              "x-go-name": "CommentID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "commentId",
+            "authorRole",
+            "text",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        "TestingVariant": {
+          "type": "integer",
+          "enum": [
+            0,
+            1,
+            2,
+            3,
+            4
+          ],
+          "x-enum-varnames": [
+            "TestVariantPlan",
+            "TestVariantHarness",
+            "TestVariantPerf",
+            "TestVariantSystemTest",
+            "TestVariantQAProcess"
+          ],
+          "x-go-base": "int"
+        },
+        "Version": {
+          "type": "integer"
+        },
+        "LifecyclePin": {
+          "type": "object",
+          "properties": {
+            "typeKey": {
+              "type": "string",
+              "description": "The lifecycles.json type key whose task DAG this activity runs. Pinned at open so a method-assets release landing mid-flight cannot re-shape an activity that is already running."
+            },
+            "assetsVersion": {
+              "type": "string",
+              "description": "The method-assets release the type key was resolved against, recorded verbatim so a later reader can tell which lifecycle shape the ledger below was written under."
+            }
+          },
+          "required": [
+            "typeKey",
+            "assetsVersion"
+          ],
+          "additionalProperties": false,
+          "description": "What an activity's task DAG was pinned to when it opened."
+        },
+        "StagedRef": {
+          "type": "object",
+          "properties": {
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID",
+              "description": "The activity whose task output was staged."
+            },
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "description": "The lifecycle task whose output was staged."
+            },
+            "branch": {
+              "type": "string",
+              "description": "The branch the output was staged on; empty means the project's default branch."
+            },
+            "version": {
+              "$ref": "#/$defs/Version",
+              "description": "The project-state version the staging commit produced — the same token every other verb on this contract returns, carried INSIDE the ref because the contract dialect admits exactly one result per operation."
+            }
+          },
+          "required": [
+            "activityId",
+            "taskId",
+            "branch",
+            "version"
+          ],
+          "additionalProperties": false,
+          "description": "Where one task's staged output landed, and at which state version."
+        },
+        "TaskAttemptInput": {
+          "type": "object",
+          "properties": {
+            "attemptId": {
+              "type": "string",
+              "x-go-name": "AttemptID",
+              "description": "The deterministic \"<activityId>:<taskId>:<n>\" id (projectstate.AttemptID). Recording it twice appends once — the episode ledger's TargetRef joins on this exact string, so its format is frozen."
+            },
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "x-go-type": "MethodTask",
+              "description": "The Figure A-1 task this attempt executed."
+            },
+            "attempt": {
+              "type": "integer",
+              "description": "1-based attempt number within (activity, task)."
+            },
+            "actor": {
+              "type": "string",
+              "x-go-type": "TaskActor",
+              "description": "Who performed the attempt."
+            },
+            "outcome": {
+              "type": "string",
+              "x-go-type": "TaskOutcome",
+              "description": "The attempt's terminal state; pending while it is still running."
+            },
+            "evidenceKind": {
+              "type": "string",
+              "x-go-type": "EvidenceKind",
+              "description": "What the evidence ref points at."
+            },
+            "evidenceRef": {
+              "type": "string",
+              "description": "The evidence itself — a commit, an episode id, an artifact ref."
+            }
+          },
+          "required": [
+            "attemptId",
+            "taskId",
+            "attempt",
+            "actor",
+            "outcome",
+            "evidenceKind",
+            "evidenceRef"
+          ],
+          "additionalProperties": false,
+          "description": "One execution of one lifecycle task, as the caller states it. The store denormalises the phase, stamps the clock and the provenance, and appends."
+        },
+        "SubjectKind": {
+          "type": "string",
+          "enum": [
+            "commit",
+            "artifact",
+            "pullRequest"
+          ],
+          "x-enum-varnames": [
+            "SubjectCommit",
+            "SubjectArtifact",
+            "SubjectPullRequest"
+          ],
+          "x-go-base": "string",
+          "description": "What a review round is judging."
+        },
+        "SubjectRef": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "$ref": "#/$defs/SubjectKind",
+              "description": "What the ref names."
+            },
+            "ref": {
+              "type": "string",
+              "description": "The subject itself: a commit sha, an artifact kind's wire name, or a pull-request ref."
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false,
+          "description": "The exact thing a review round judged — without it a verdict cites nothing."
+        },
+        "RoundReviewer": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "description": "The reviewer's Method role (architect, productManager, qaEngineer, ...)."
+            },
+            "actor": {
+              "type": "string",
+              "description": "The agent or person filling that role for this round."
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Whether the round cannot be decided passed without this reviewer's verdict."
+            }
+          },
+          "required": [
+            "role",
+            "actor",
+            "required"
+          ],
+          "additionalProperties": false,
+          "description": "One seat on a round's reviewer roster, as the reviewEngine computed it."
+        },
+        "VerdictKind": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "sendBack",
+            "waive"
+          ],
+          "x-enum-varnames": [
+            "VerdictApprove",
+            "VerdictSendBack",
+            "VerdictWaive"
+          ],
+          "x-go-base": "string",
+          "description": "One reviewer's judgement. It is NOT the round's outcome — the round is decided separately, by DecideReviewRound."
+        },
+        "ReviewVerdict": {
+          "type": "object",
+          "properties": {
+            "reviewerRole": {
+              "type": "string",
+              "description": "The roster role this verdict was cast under."
+            },
+            "actor": {
+              "type": "string",
+              "description": "Who cast it."
+            },
+            "verdict": {
+              "$ref": "#/$defs/VerdictKind",
+              "description": "The judgement."
+            },
+            "summary": {
+              "type": "string",
+              "description": "The reviewer's prose, verbatim."
+            },
+            "attemptId": {
+              "type": "string",
+              "x-go-name": "AttemptID",
+              "description": "The attempt this verdict judged, by its AttemptID — the join back to the ledger and to that attempt's episode."
+            },
+            "at": {
+              "type": "string",
+              "description": "RFC3339, stamped by the store, never by the caller. Empty on input."
+            }
+          },
+          "required": [
+            "reviewerRole",
+            "actor",
+            "verdict",
+            "summary",
+            "attemptId",
+            "at"
+          ],
+          "additionalProperties": false,
+          "description": "One reviewer's judgement inside a round, appended with its comments in ONE commit."
+        },
+        "ReviewRoundOutcome": {
+          "type": "string",
+          "enum": [
+            "pending",
+            "passed",
+            "sentBack",
+            "withdrawn"
+          ],
+          "x-enum-varnames": [
+            "RoundPending",
+            "RoundPassed",
+            "RoundSentBack",
+            "RoundWithdrawn"
+          ],
+          "x-go-base": "string",
+          "description": "A round's terminal state. Pending is the zero value: a round that has verdicts but has not been decided."
+        },
+        "ReviewRoundInput": {
+          "type": "object",
+          "properties": {
+            "roundId": {
+              "type": "string",
+              "x-go-name": "RoundID",
+              "description": "The deterministic \"<activityId>:<reviewTaskId>:<n>\" id. Opening it twice opens ONE round — the property the whole ledger rests on under Temporal retry."
+            },
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "x-go-type": "MethodTask",
+              "description": "The REVIEW task this round is an attempt of."
+            },
+            "reviews": {
+              "type": "string",
+              "x-go-type": "MethodTask",
+              "description": "The work task this round judges."
+            },
+            "round": {
+              "type": "integer",
+              "x-go-type": "int64",
+              "description": "1-based round number within (activity, review task)."
+            },
+            "subjectRef": {
+              "$ref": "#/$defs/SubjectRef",
+              "description": "What is being judged."
+            },
+            "reviewers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RoundReviewer"
+              },
+              "description": "The roster, as the reviewEngine computed it at open time."
+            }
+          },
+          "required": [
+            "roundId",
+            "taskId",
+            "reviews",
+            "round",
+            "subjectRef"
+          ],
+          "additionalProperties": false,
+          "description": "A review round as the caller opens it. Everything after open is appended."
+        },
+        "ReviewRound": {
+          "type": "object",
+          "properties": {
+            "roundId": {
+              "type": "string",
+              "x-go-name": "RoundID",
+              "description": "The deterministic round id."
+            },
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "x-go-type": "MethodTask",
+              "description": "The REVIEW task this round is an attempt of."
+            },
+            "reviews": {
+              "type": "string",
+              "x-go-type": "MethodTask",
+              "description": "The work task this round judges."
+            },
+            "round": {
+              "type": "integer",
+              "x-go-type": "int64",
+              "description": "1-based round number within (activity, review task)."
+            },
+            "subjectRef": {
+              "$ref": "#/$defs/SubjectRef",
+              "description": "What was judged."
+            },
+            "reviewers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/RoundReviewer"
+              },
+              "description": "The roster at open time."
+            },
+            "verdicts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewVerdict"
+              },
+              "description": "Append-only: every verdict cast in this round, in the order cast."
+            },
+            "thread": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewComment"
+              },
+              "description": "The round's anchored comment thread, normalised by the same ApplyReviewBatch the artifact ledger uses."
+            },
+            "outcome": {
+              "$ref": "#/$defs/ReviewRoundOutcome",
+              "description": "Pending until DecideReviewRound stamps it; terminal after."
+            },
+            "decidedBy": {
+              "type": "string",
+              "description": "Who decided the round; empty while pending."
+            },
+            "openedAt": {
+              "type": "string",
+              "description": "RFC3339, stamped by the store at open."
+            },
+            "decidedAt": {
+              "type": "string",
+              "description": "RFC3339, stamped by the store at decide; empty while pending."
+            }
+          },
+          "required": [
+            "roundId",
+            "taskId",
+            "reviews",
+            "round",
+            "subjectRef",
+            "outcome",
+            "openedAt",
+            "decidedBy",
+            "decidedAt"
+          ],
+          "additionalProperties": false,
+          "description": "One append-only review round: its subject, its roster, its verdicts, its thread, and — once — its decision."
+        },
+        "CommitArtifactsInput": {
+          "type": "object",
+          "properties": {
+            "taskId": {
+              "type": "string",
+              "x-go-name": "TaskID",
+              "x-go-type": "MethodTask",
+              "description": "The task whose output is being committed."
+            },
+            "commit": {
+              "type": "string",
+              "description": "The commit the artifacts landed in; empty when the substrate has none."
+            },
+            "artifacts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ProducedArtifact"
+              },
+              "description": "What the activity produced, in the shape the construction row already records."
+            },
+            "approvedBy": {
+              "type": "string",
+              "description": "Who approved the commit."
+            },
+            "draftedBy": {
+              "type": "string",
+              "description": "Who produced what was committed."
+            }
+          },
+          "required": [
+            "taskId",
+            "commit",
+            "approvedBy",
+            "draftedBy"
+          ],
+          "additionalProperties": false,
+          "description": "The commit half of the stage → review → commit family: what landed, from which task, on whose approval."
+        },
+        "ActivityExecution": {
+          "type": "object",
+          "properties": {
+            "activityId": {
+              "type": "string",
+              "x-go-name": "ActivityID",
+              "description": "The activity these ledgers belong to."
+            },
+            "attempts": {
+              "type": "array",
+              "items": {
+                "type": "object"
+              },
+              "x-go-type": "[]TaskAttempt",
+              "description": "The append-only Figure A-1 attempt ledger."
+            },
+            "reviews": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewRound"
+              },
+              "description": "The append-only review-round ledger."
+            }
+          },
+          "required": [
+            "activityId"
+          ],
+          "additionalProperties": false,
+          "description": "One activity's two append-only execution ledgers, read narrowly — ReadProject stays for whole-aggregate readers."
+        }
+      },
+      "interface": {
+        "name": "ActivityExecutionAccess",
+        "layer": "resourceaccess",
+        "operations": [
+          {
+            "name": "OpenActivity",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "typ",
+                "schema": {
+                  "$ref": "#/$defs/ActivityType"
+                }
+              },
+              {
+                "name": "variant",
+                "schema": {
+                  "$ref": "#/$defs/TestingVariant"
+                }
+              },
+              {
+                "name": "pin",
+                "schema": {
+                  "$ref": "#/$defs/LifecyclePin"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "StageTaskOutput",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "taskID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "branch",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "model",
+                "schema": {
+                  "x-go-type": "ModelEnvelope"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/StagedRef"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordAttemptOutcome",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "attempt",
+                "schema": {
+                  "$ref": "#/$defs/TaskAttemptInput"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "OpenReviewRound",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "round",
+                "schema": {
+                  "$ref": "#/$defs/ReviewRoundInput"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "AppendReviewVerdict",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "roundID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "verdict",
+                "schema": {
+                  "$ref": "#/$defs/ReviewVerdict"
+                }
+              },
+              {
+                "name": "comments",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewComment"
+                  }
+                }
+              },
+              {
+                "name": "replies",
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/ReviewReply"
+                  }
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "SetReviewCommentStatus",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "roundID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "commentID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "status",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "DecideReviewRound",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "roundID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "outcome",
+                "schema": {
+                  "$ref": "#/$defs/ReviewRoundOutcome"
+                }
+              },
+              {
+                "name": "decidedBy",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "CommitActivityArtifacts",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "artifacts",
+                "schema": {
+                  "$ref": "#/$defs/CommitArtifactsInput"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordActivityOutcome",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "outcome",
+                "schema": {
+                  "$ref": "#/$defs/ActivityOutcome"
+                }
+              },
+              {
+                "name": "reason",
+                "schema": {
+                  "$ref": "#/$defs/FailureReason"
+                }
+              },
+              {
+                "name": "detail",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "RecordOperatorNote",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "note",
+                "schema": {
+                  "$ref": "#/$defs/OperatorNoteInput"
+                }
+              },
+              {
+                "name": "deliveredToAttemptID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "AcknowledgeStaleBasis",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "expectedVersion",
+                "schema": {
+                  "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "kind",
+                "schema": {
+                  "$ref": "#/$defs/ArtifactKind"
+                }
+              },
+              {
+                "name": "note",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              {
+                "name": "cred",
+                "schema": {
+                  "$ref": "#/$defs/RepoCredential"
+                }
+              },
+              {
+                "name": "idempotencyKey",
+                "schema": {
+                  "x-go-type": "fwra.IdempotencyKey"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/Version"
+            },
+            "error": true
+          },
+          {
+            "name": "ReadActivityExecution",
+            "params": [
+              {
+                "name": "projectID",
+                "schema": {
+                  "$ref": "#/$defs/ProjectID"
+                }
+              },
+              {
+                "name": "activityID",
+                "schema": {
+                  "type": "string"
+                }
+              }
+            ],
+            "result": {
+              "$ref": "#/$defs/ActivityExecution"
+            },
+            "error": true
+          }
+        ]
+      }
+    },
     "agenticJobAccess": {
       "component": "agenticJobAccess",
       "layer": "ResourceAccess",
@@ -16347,6 +17799,10 @@
         {
           "name": "designSession",
           "component": "designSessionAccess"
+        },
+        {
+          "name": "activityExecution",
+          "component": "activityExecutionAccess"
         },
         {
           "name": "messageBus",
@@ -18315,7 +19771,8 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "DEPRECATED IN PLACE (stage 3 task 3) — superseded by activityExecutionAccess, deleted after the stage-4 drain, NOT now: every op below is a registered Temporal activity whose name nine of the thirteen construction replay fixtures already record (five of them pre-* histories that are never re-captured), and the SDK matches a scheduled activity on lastPartOfName(activityType), so retiring a name is a command-sequence change for an in-flight execution. Task 5 moves the construction child workflow onto the new verbs behind workflow.GetVersion, with the old branch still calling these. Supersession map: RecordPhaseStarted → OpenActivity; RecordPhaseCompleted + RecordChangeReviewed → DecideReviewRound; RecordActivityExited + RecordActivityFailed → RecordActivityOutcome; RecordServiceContractProduced + RecordPhaseArtifactProduced → CommitActivityArtifacts; RecordOperatorNote + RecordOperatorNoteDelivered → RecordOperatorNote. RecordOperatorPaused / RecordOperatorResumed / RecordReviewPolicy are NOT superseded — they are project-scoped, not activity-scoped, and stay here until stage 4 moves them to projectStateAccess."
     },
     "designSessionAccess": {
       "component": "projectStateAccess",
@@ -18856,7 +20313,8 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "PARTIALLY SUPERSEDED by activityExecutionAccess, and untouched in stage 3 task 3. The review/staging verbs (StageArtifactForReviewOnBranch → StageTaskOutput; CommitArtifactWithProvenance → CommitActivityArtifacts; RejectArtifactOnBranchWithComments + SeedReviewCommentsOnBranch → AppendReviewVerdict; SetReviewCommentStatusOnBranch → SetReviewCommentStatus) are artifact-kind-scoped and carry no activityId/taskId/roundId, which the new verbs require. The mapping exists — stage 2's designActivityFor(kind) resolves an artifact kind to its design activity type and lifecycle phase, so a design round's activityID is the prefix activity id (requirements / architecture / projectDesign), its taskID that phase's review task, and its round the slot's round — but applying it is the design rails' dual-write, which is stage 3 task 6. ReadProjectOnBranch / ReconcileBranchFromMain / WithdrawArtifactOnBranch are branch mechanics, not review, and are not superseded at all. No op is deleted before stage 4."
     },
     "episodeAccess": {
       "component": "episodeAccess",
@@ -20380,7 +21838,8 @@
             "error": true
           }
         ]
-      }
+      },
+      "notes": "DEPRECATED IN PLACE (stage 3 task 3) — superseded by activityExecutionAccess, deleted after the stage-4 drain, NOT now: every op below is a registered Temporal activity whose name nine of the thirteen construction replay fixtures already record (five of them pre-* histories that are never re-captured), and the SDK matches a scheduled activity on lastPartOfName(activityType), so retiring a name is a command-sequence change for an in-flight execution. Task 5 moves the construction child workflow onto the new verbs behind workflow.GetVersion, with the old branch still calling these. Supersession map: RecordActivityStarted → OpenActivity; RecordActivityCompleted → RecordActivityOutcome; RecordActivityMerged → CommitActivityArtifacts. RecordActivityBranchOpened / RecordActivityCIObserved / RecordActivityArchApproved are NOT superseded — they are the git-forward PR/CI mirror, not execution, and survive the fold."
     },
     "interventionEngine": {
       "component": "interventionEngine",
@@ -27422,7 +28881,7 @@
           }
         ]
       },
-      "notes": "Factored into four facets over the frozen core port: BranchAwareProjectStateAccess (2 ops — projectstate.go:58), ConstructionTransitionAccess (10 ops — construction_transition_port.go), GitActivityStatusAccess (4 ops — gitactivity.go), and the ProjectCatalog seam (1 op — gitstore.go:134); catalog split (CreateProject/ListProjects → projectCatalogAccess) fires on the next core-port op addition."
+      "notes": "The core port of a component that now publishes FIVE contract facets over one git substrate and one Go package: projectStateAccess (9 ops — the slots, the plan, the catalog seam), constructionTransitionAccess (12), gitActivityStatusAccess (6), designSessionAccess (8) and activityExecutionAccess (12, added in stage 3 task 3). The three middle facets are deprecated in place — see their own notes. Catalog split (CreateProject/ListProjects → projectCatalogAccess) fires on the next core-port op addition."
     },
     "revenueLedgerAccess": {
       "component": "billingStateAccess",
