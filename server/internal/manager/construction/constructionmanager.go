@@ -2785,6 +2785,53 @@ func sendBackNotesFor(notes []projectstate.OperatorNote, p projectstate.Activity
 	return out
 }
 
+// lowestAttempt is the smallest attempt number the list holds for the task, and whether
+// it holds any at all. A gate whose ledger starts at #2 has room at #1 beneath it.
+func lowestAttempt(attempts []projectstate.TaskAttempt, task projectstate.MethodTask) (int, bool) {
+	low, held := 0, false
+	for _, a := range attempts {
+		if a.Task == task && (!held || a.Attempt < low) {
+			low, held = a.Attempt, true
+		}
+	}
+	return low, held
+}
+
+// appendPreLedgerRejections is N4's reconstruction half: the phase's send-back notes the
+// ledger holds no rejection for. They are the OLDEST notes (tails aligned like R4 —
+// notes exist only since B1.1, so it is the oldest rejections that have no note and the
+// oldest notes that have no recorded rejection), and they are OLDER than every attempt
+// the gate has recorded. So they must SORT BEFORE the ledger's own: phaseRevisions orders
+// a gate's revisions by .Attempt and reviewEvidenceState reads the LAST one, so numbering
+// a reconstruction after the ledger's highest turns a passed, merged gate into sentBack.
+// Renumbering a recorded attempt is forbidden (N1 keeps the ledger verbatim), so the
+// block is placed immediately BELOW the lowest recorded number instead:
+// lowest-unrecorded .. lowest-1, which runs to 0 and below on a gate whose ledger already
+// starts at #1. That block is contiguous and strictly below anything recorded, so the
+// AttemptIDs stay unique and the placement deterministic, and "≤ 0" reads as exactly what
+// it is — an attempt from before this gate kept a ledger. A gate with NO recorded attempt
+// has no ledger to sit under and numbers from 1, exactly as it always did.
+func appendPreLedgerRejections(out []projectstate.TaskAttempt, activityID string, gate projectstate.MethodTask, p projectstate.ActivityMethodPhase, notes []projectstate.OperatorNote) []projectstate.TaskAttempt {
+	unrecorded := len(notes) - ledgerRejections(out, gate)
+	if unrecorded <= 0 {
+		return out
+	}
+	n := 1
+	if lowest, held := lowestAttempt(out, gate); held {
+		n = lowest - unrecorded
+	}
+	for _, note := range notes[:unrecorded] {
+		at := note.RecordedAt
+		out = append(out, projectstate.TaskAttempt{
+			AttemptID: projectstate.AttemptID(activityID, gate, n), Task: gate, Phase: p, Attempt: n,
+			EndedAt: &at, Outcome: projectstate.OutcomeRejected,
+			Provenance: reconstructed("operatorNotes[" + note.NoteID + "]"),
+		})
+		n++
+	}
+	return out
+}
+
 // appendRunningAttempt is N3: the dispatch a live session is running now, which has no
 // episode until it ends.
 func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
@@ -2827,30 +2874,26 @@ func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row p
 	for _, pc := range resolved {
 		p := pc.Phase
 		gate := projectstate.GateTaskFor(p)
-		n, passed := highestAttempt(out, gate), false
+		passed := false
 		for _, a := range out {
 			passed = passed || (a.Task == gate && a.Outcome == projectstate.OutcomePassed)
 		}
+		// A send-back note and a RECORDED rejection of the same gate are one event, not
+		// two. The workflow records both (the note is how the feedback reaches the next
+		// dispatch — PendingOperatorNotes), so reconstructing one attempt per note on top
+		// of the ledger would double every revision. Only the notes the ledger has no
+		// rejection for are reconstructed, and they go BELOW it — see the function.
+		out = appendPreLedgerRejections(out, activityID, gate, p, sendBackNotesFor(row.OperatorNotes, p))
+		// The newest attempt continues the ledger's numbering, AFTER the reconstruction
+		// (which either sits below the ledger or, on a gate with no ledger at all, IS the
+		// numbering so far).
+		n := highestAttempt(out, gate)
 		add := func(outcome projectstate.TaskOutcome, started, ended *time.Time, basis string) {
 			n++
 			out = append(out, projectstate.TaskAttempt{
 				AttemptID: projectstate.AttemptID(activityID, gate, n), Task: gate, Phase: p, Attempt: n,
 				StartedAt: started, EndedAt: ended, Outcome: outcome, Provenance: reconstructed(basis),
 			})
-		}
-		// A send-back note and a RECORDED rejection of the same gate are one event, not
-		// two. The workflow records both (the note is how the feedback reaches the next
-		// dispatch — PendingOperatorNotes), so reconstructing one attempt per note on top
-		// of the ledger would double every revision AND leave a rejection as the gate's
-		// LAST attempt on an activity whose gate has passed. Tails aligned, like R4: notes
-		// exist only since B1.1, so it is the OLDEST rejections that have no note and the
-		// OLDEST notes that have no recorded rejection.
-		notes := sendBackNotesFor(row.OperatorNotes, p)
-		if unrecorded := len(notes) - ledgerRejections(out, gate); unrecorded > 0 {
-			for _, note := range notes[:unrecorded] {
-				at := note.RecordedAt
-				add(projectstate.OutcomeRejected, nil, &at, "operatorNotes["+note.NoteID+"]")
-			}
 		}
 		switch {
 		case pc.Completed && !passed:
@@ -2948,6 +2991,11 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 			extra = append(extra, a) // R2: a conditional task is a sub-attempt of the work task
 		}
 	}
+	// .Attempt is the total order of a task's attempts, and for a gate it INCLUDES the
+	// pre-ledger rejections N4 reconstructs from send-back notes, which carry numbers
+	// below the ledger's lowest — 0 and down — precisely so this sort puts them first
+	// (appendPreLedgerRejections says why). The revision number below is the position
+	// in this order, never the attempt number, so a "≤ 0" attempt is still revision 1.
 	byAttempt := func(x, y projectstate.TaskAttempt) int { return cmp.Compare(x.Attempt, y.Attempt) }
 	slices.SortStableFunc(main, byAttempt)
 	slices.SortStableFunc(gate, byAttempt)

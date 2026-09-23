@@ -9850,6 +9850,72 @@ func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t 
 	}
 }
 
+// ENTRY CRITERION (a), spec §8 — the STRADDLING row, end to end. The ledger holds a real
+// rejection AND the real pass that followed it; an OLDER send-back note has no ledger
+// match because it predates the ledger. Numbering the reconstructed rejection after the
+// ledger's highest made it the gate's LAST attempt, so phaseRevisions (which sorts by
+// .Attempt) put it last and reviewEvidenceState read a passed, merged gate as sentBack.
+// A pre-ledger rejection is the OLDEST revision and must sort first.
+func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "older, from before the ledger"),
+			avSendBack("detailed_design", "the recorded rejection's own note"),
+		},
+		Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
+		},
+	}
+	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, ""), "designReview")
+	if want := []string{revSentBack, revSentBack, revPassed}; !slices.Equal(avOutcomes(v), want) {
+		t.Fatalf("designReview revisions = %v, want %v (the pre-ledger note is the OLDEST revision):\n%s", avOutcomes(v), want, avDump(attempts))
+	}
+	if v.State != taskPassed {
+		t.Fatalf("the gate passed on its last revision; designReview reads %q:\n%s", v.State, avDump(attempts))
+	}
+}
+
+// The ledger may hold MORE rejections than the phase has notes — a rejection recorded
+// with no note, or a note the operator never wrote. The subtraction goes negative and
+// must add nothing at all.
+func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDesignReview, 3, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "only one note survived")},
+		Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
+		},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	var gates []projectstate.TaskAttempt
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates = append(gates, a)
+		}
+	}
+	if len(gates) != 3 {
+		t.Fatalf("3 recorded gate attempts and 1 note ⇒ nothing reconstructed; got %d:\n%s", len(gates), avDump(got))
+	}
+	for _, a := range gates {
+		if a.Provenance.Origin != projectstate.OriginObserved {
+			t.Fatalf("%s is reconstructed (%s); the ledger already held every rejection:\n%s", a.AttemptID, a.Provenance.Origin, avDump(got))
+		}
+	}
+}
+
 // ENTRY CRITERION (b), spec §8. ResolveConstructionRow reconciles the stored phase
 // slice against the profile — dropping stored phases the profile does not carry and
 // materializing profile phases the store never had — and QueryActivityView threw that
