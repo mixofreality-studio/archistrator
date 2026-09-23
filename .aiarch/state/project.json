@@ -1256,14 +1256,15 @@
               "The architect user must have a conversational surface for each Method artifact in which they can co-author with an automated assistant."
             ],
             "volatilityHint": [
-              "System Design Phase Workflow"
+              "Project Delivery Workflow"
             ]
           },
           {
             "id": "B-03",
             "statement": "The platform must enforce phase ordering and gate progression on artifact validity.",
             "volatilityHint": [
-              "System Design Phase Workflow",
+              "Project Delivery Workflow",
+              "Design Conformance Rules",
               "Review Policy"
             ]
           },
@@ -1274,7 +1275,7 @@
               "The platform must produce, for a planned system, multiple options (normal, decompressed, compressed, subcritical) with duration, cost, and risk."
             ],
             "volatilityHint": [
-              "Project Design Phase Workflow",
+              "Project Delivery Workflow",
               "Construction Estimation Model"
             ]
           },
@@ -1366,7 +1367,7 @@
               "The platform orchestrates construction; the build/test/push runs on the user's own GitHub Actions (cloud) or a local runner (LOCAL), dispatched and observed by aiarch via the ConstructionPipelineAccess seam."
             ],
             "volatilityHint": [
-              "Construction Phase Workflow",
+              "Project Delivery Workflow",
               "Agentic Job Venue",
               "Source Control Target"
             ]
@@ -1375,7 +1376,7 @@
             "id": "B-14",
             "statement": "The platform must support pause, replay, override, and human takeover of any in-flight construction activity.",
             "volatilityHint": [
-              "Construction Phase Workflow",
+              "Project Delivery Workflow",
               "Intervention Policy",
               "Review Policy",
               "Workflow Execution Substrate"
@@ -1441,8 +1442,20 @@
       "model": {
         "items": [
           {
-            "name": "System Design Phase Workflow",
-            "rationale": "The sequence of Phase 1 activities (business alignment → requirements analysis → volatility identification → core use cases → architecture → operational concepts → standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months will encounter an evolved Phase 1 step set, and the platform must absorb that evolution without being rebuilt. Evolves independently of Phase 2.",
+            "name": "Project Delivery Workflow",
+            "rationale": "How a project's activities are scheduled and how one activity's task DAG advances: dispatch → collect → review → gate → advance. System design, project design and construction were authored as three separate phase-workflow volatilities, which was a description of the 2026-07 implementation (three Managers, three rails, three UIs) rather than of the business: an agent generates an artifact, agents and humans review it, and the activity advances through its own life cycle (Righting Software App. A) — identically for a Requirements activity, an Architecture activity and a Service activity. Requirements, Architecture and Project Design are activities 1–3 of the project network (Table 11-1), fenced from construction by milestone M0, so there is ONE sequence and ONE axis of change along it: the lifecycle shape per activity type, who must review what, when a human is required, how a send-back re-opens work, and how the pump chooses what runs next. All of that evolves for every customer at once as the Method practice matures, and none of it evolves independently of the rest — the reason three entries were always one.",
+            "axis": "sameCustomerOverTime",
+            "traces": [
+              "B-02",
+              "B-03",
+              "B-04",
+              "B-13",
+              "B-14"
+            ]
+          },
+          {
+            "name": "Design Conformance Rules",
+            "rationale": "WHICH Method rules judge a draft, and HOW their findings are computed: the rule inventory (counts, layer rules, chain coverage, traceability joins, design↔code alignment, drift) evolves with the Method doctrine release over release, independently of the delivery choreography that asks for the verdict. It was authored as an evaluation facet of the System Design Phase Workflow volatility, which was only ever true of the rail that happened to call it; once the three phase workflows merge, a rule inventory is plainly not a facet of how activities are scheduled. Stands alone so DesignHealthEngine's 1:1 volatility-to-encapsulator relationship is real rather than a shared-facet waiver. Platform-wide, so axis 1.",
             "axis": "sameCustomerOverTime",
             "traces": [
               "B-02",
@@ -1450,25 +1463,8 @@
             ]
           },
           {
-            "name": "Project Design Phase Workflow",
-            "rationale": "The sequence of Phase 2 activities (planning assumptions → activity list → network → normal/decompressed/subcritical/compressed → risk modeling → SDP review) will evolve as project-planning sophistication grows: cone-of-uncertainty intervals replacing 5-day quanta, new option types, a new operational-risk curve. Evolves independently of Phase 1 — improvements to the SDP review do not in themselves change requirements scrubbing. Lives on axis 1 because the platform evolves it for everyone at once.",
-            "axis": "sameCustomerOverTime",
-            "traces": [
-              "B-04"
-            ]
-          },
-          {
-            "name": "Construction Phase Workflow",
-            "rationale": "The sequence of Phase 3 activities (hand-off model → per-component contract design → construction → weekly tracking → scope-change handling) will evolve as construction practice matures: continuous earned-value replacing weekly tracking, automatic contract-drafting at hand-off, AI-driven scope-change proposals. Evolves independently of Phase 1 and Phase 2.",
-            "axis": "sameCustomerOverTime",
-            "traces": [
-              "B-13",
-              "B-14"
-            ]
-          },
-          {
             "name": "Operation Phase Workflow",
-            "rationale": "The choreography by which the platform operates a delivered system — the deploy-after-construction ceremony, reconcile cadence, the health→intervention→autoscale sequencing, delinquency application, withdraw — will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the three Method-phase workflow volatilities: what varies is the Manager's activity sequence, NOT the policies it consults (Intervention Policy, Autoscaling Policy) nor the runtime it drives (Operated Runtime) nor where it records state (Operational State Store). Evolves independently of the delivery phases and of the billing cycle.",
+            "rationale": "The choreography by which the platform operates a delivered system — the deploy-after-construction ceremony, reconcile cadence, the health→intervention→autoscale sequencing, delinquency application, withdraw — will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the Project Delivery Workflow volatility the three Method-phase workflow volatilities merged into: what varies is the Manager's activity sequence, NOT the policies it consults (Intervention Policy, Autoscaling Policy) nor the runtime it drives (Operated Runtime) nor where it records state (Operational State Store). Evolves independently of the delivery phases and of the billing cycle.",
             "axis": "sameCustomerOverTime",
             "traces": [
               "B-08",
@@ -1620,6 +1616,21 @@
             "name": "Work Tracking",
             "reason": "Descoped by founder ruling (2026-07-20): the customer's external work-item tracker is not a platform concern; programmatic extensibility (objective 8 — agents over MCP, apps over the API) is the surface through which external trackers can sync. WorkItemAccess and WorkItemTracker removed with it.",
             "class": "foldedInto"
+          },
+          {
+            "name": "System Design Phase Workflow",
+            "reason": "Merged into Project Delivery Workflow (2026-09-23, spec §4): system design, project design and construction are one activity sequence fenced by M0 (R1), so their choreography varies on one axis, not three. Its rule-evaluation facet — which Method rules judge a draft — split out as the stand-alone Design Conformance Rules volatility instead of riding along.",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Project Design Phase Workflow",
+            "reason": "Merged into Project Delivery Workflow (2026-09-23, spec §4): under R7 project design is deterministic — one review task (SDP Review · M0) over an engine-computed artifact — so there is no separate drafting choreography left to vary. The estimation model it used to carry remains its own volatility (Construction Estimation Model).",
+            "class": "foldedInto"
+          },
+          {
+            "name": "Construction Phase Workflow",
+            "reason": "Merged into Project Delivery Workflow (2026-09-23, spec §4): per-activity execution choreography is the SAME choreography the design activities run, differing only in data (the lifecycle) and strategy (command, worker class, artifact codec) — never in a branch on design-vs-construction (spec §5.2).",
+            "class": "foldedInto"
           }
         ],
         "waivers": [
@@ -1627,7 +1638,7 @@
             "section": "§2h",
             "guideline": "Volatility count within 6–15 target range.",
             "status": "waived",
-            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 19 volatilities — 13 same-customer-over-time, 6 all-customers-at-one-moment — still over the 6-15 target. Down from 22: Customer Interaction Transport folded into Channel, Construction Hand-Off Policy folded into Review Policy, Work Tracking descoped; the three folds are recorded in the volatilities rejected ledger. Every remaining entry has exactly one named encapsulator (or a ratified facet group) and requirement traces. Re-evaluate if the count grows past 25."
+            "justification": "WAIVED (Refreshed 2026-09-23 (stage-1 model wave)): 18 volatilities — 12 same-customer-over-time, 6 all-customers-at-one-moment — still over the 6-15 target. Down from 19: the three phase-workflow volatilities (System Design / Project Design / Construction) merged into one Project Delivery Workflow, and DesignHealthEngine's rule inventory split out as the stand-alone Design Conformance Rules; both moves are recorded in the volatilities rejected ledger. Every remaining entry has exactly one named encapsulator (or a ratified facet group) and requirement traces. Re-evaluate if the count grows past 25."
           }
         ]
       },
@@ -5216,9 +5227,9 @@
             "name": "SystemDesignManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "Encapsulates the System Design Phase Workflow volatility (B-02, B-03): the Phase-1 artifact co-authoring sequence, the per-artifact human review gate, back-edge amendments with staleness propagation/acknowledgement, and the Phase-1 seal — the rail choreography evolves without disturbing Engines or ResourceAccess.",
+            "encapsulates": "Encapsulates the Project Delivery Workflow volatility (B-02, B-03) for the Phase-1 activities: the artifact co-authoring sequence, the per-artifact human review gate, back-edge amendments with staleness propagation/acknowledgement, and the Phase-1 seal. A shared owner with ProjectDesignManager and ConstructionManager until stage 4 of the unified-activity-experience wave replaces all three with DeliveryManager — the doctrine allows a ratified facet group, and this one is explicitly transitional.",
             "encapsulatesVolatilities": [
-              "System Design Phase Workflow"
+              "Project Delivery Workflow"
             ],
             "atomicBusinessVerbs": [],
             "contractKey": "systemDesignManager",
@@ -5231,9 +5242,9 @@
             "name": "ProjectDesignManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "Encapsulates the Project Design Phase Workflow volatility (B-04): how Phase-2 options are drafted, estimated, presented at SDP review, and committed — the option set and review choreography change over time while all estimation math stays in Engines.",
+            "encapsulates": "Encapsulates the Project Delivery Workflow volatility (B-04) for the Phase-2 activity: how options are drafted, estimated, presented at SDP review, and committed — all estimation math stays in Engines. A shared owner with SystemDesignManager and ConstructionManager until stage 4 replaces all three with DeliveryManager.",
             "encapsulatesVolatilities": [
-              "Project Design Phase Workflow"
+              "Project Delivery Workflow"
             ],
             "atomicBusinessVerbs": [],
             "contractKey": "projectDesignManager",
@@ -5246,9 +5257,9 @@
             "name": "ConstructionManager",
             "kind": "manager",
             "layer": "manager",
-            "encapsulates": "Encapsulates the Construction Phase Workflow volatility (B-13, B-14): per-activity execution choreography — hand-off, branch/PR rail, agentic-job dispatch, review routing, variance intervention, pause/override/takeover — which shifts as the construction operating model evolves.",
+            "encapsulates": "Encapsulates the Project Delivery Workflow volatility (B-13, B-14) for the construction activities: per-activity execution choreography — hand-off, branch/PR rail, agentic-job dispatch, review routing, variance intervention, pause/override/takeover. A shared owner with SystemDesignManager and ProjectDesignManager until stage 4 replaces all three with DeliveryManager.",
             "encapsulatesVolatilities": [
-              "Construction Phase Workflow"
+              "Project Delivery Workflow"
             ],
             "atomicBusinessVerbs": [],
             "contractKey": "constructionManager",
@@ -5381,9 +5392,9 @@
             "name": "DesignHealthEngine",
             "kind": "engine",
             "layer": "engine",
-            "encapsulates": "Encapsulates the design-conformance evaluation activity of the System Design Phase Workflow volatility (B-02, B-03): WHICH Method rules judge a draft (counts, layer rules, chain coverage, traceability joins, drift) and HOW findings are computed — the rule inventory evolves with the Method doctrine release over release while the Manager's gate choreography stays put. Pure computation over the typed project state SystemDesignManager passes in (no I/O). Shared typed owner of the volatility with SystemDesignManager (workflow facet vs evaluation facet). Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release.",
+            "encapsulates": "Encapsulates the Design Conformance Rules volatility (B-02, B-03): WHICH Method rules judge a draft (counts, layer rules, chain coverage, traceability joins, drift) and HOW findings are computed — the rule inventory evolves with the Method doctrine release over release while the delivery choreography that asks for the verdict stays put. Pure computation over the typed project state the calling Manager passes in (no I/O). Sole owner of its volatility since 2026-09-23: it was authored as an evaluation facet of the System Design Phase Workflow, which stopped being a coherent claim when the three phase workflows merged into one delivery workflow. Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release.",
             "encapsulatesVolatilities": [
-              "System Design Phase Workflow"
+              "Design Conformance Rules"
             ],
             "atomicBusinessVerbs": [],
             "constructionProfile": "handwritten",
@@ -8948,7 +8959,7 @@
             "section": "§2d",
             "guideline": "Golden Engines-to-Managers ratio — fewer Engines than Managers (the book's expectation).",
             "status": "waived",
-            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 7 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. design-health-engine joined the Engine set 2026-08-01 (founder ruling R-F: its call carries the ci-check business verdict in uc1's chain — an evaluation Strategy, not ambient infrastructure); its 1:1 relationship holds as a shared System Design Phase Workflow facet with the Manager (workflow choreography vs rule evaluation). Re-evaluate at the next scope-change replan."
+            "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 7 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. design-health-engine joined the Engine set 2026-08-01 (founder ruling R-F: its call carries the ci-check business verdict in uc1's chain — an evaluation Strategy, not ambient infrastructure); since 2026-09-23 it is the SOLE owner of the Design Conformance Rules volatility, so its 1:1 relationship no longer rests on a shared System Design Phase Workflow facet. Re-evaluate at the next scope-change replan."
           },
           {
             "section": "§naming",
@@ -19607,6 +19618,10 @@
             },
             "uiSurface": {
               "type": "boolean"
+            },
+            "buildStatus": {
+              "type": "string",
+              "description": "The component's build state: empty (the default — built or to be built), \"planned\" (designed, no code yet — derives no activity), or \"external\" (supplied outside the project). Read by the plan derivation: a planned component yields no construction activity, because the pump dispatches whatever slot 9 holds."
             }
           },
           "required": [
@@ -19615,7 +19630,8 @@
             "kind",
             "constructionProfile",
             "provisioning",
-            "uiSurface"
+            "uiSurface",
+            "buildStatus"
           ],
           "additionalProperties": false
         },
