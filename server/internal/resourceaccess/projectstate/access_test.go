@@ -10881,3 +10881,222 @@ func TestReadActivityExecution_IsNotFoundForAnUnopenedActivity(t *testing.T) {
 		t.Fatalf("an unopened activity must be NotFound; got %v", err)
 	}
 }
+
+// ---- Fix round 1: the findings the review reproduced -----------------------
+
+// TestAppendReviewVerdict_KeepsEveryReviewersComments — a round has a ROSTER, and the
+// artifact ledger's batch-indexed id minting drops the second reviewer's first comment
+// onto the first reviewer's r1c1 and silently skips it. A review ledger that loses a
+// required reviewer's only comment is worse than no ledger.
+func TestAppendReviewVerdict_KeepsEveryReviewersComments(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	var err error
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
+			Summary: "too wide", AttemptID: "C-X:detailedDesign:1"},
+		[]ReviewComment{{Anchor: "ops[3]", Text: "split this op", AuthorRole: "architect", Type: "changeRequest"}},
+		nil, cred, fwra.IdempotencyKey("m1")); err != nil {
+		t.Fatalf("AppendReviewVerdict (architect): %v", err)
+	}
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+		ReviewVerdict{ReviewerRole: "qaEngineer", Actor: "qa-engineer", Verdict: VerdictSendBack,
+			Summary: "no test plan", AttemptID: "C-X:detailedDesign:1"},
+		[]ReviewComment{{Anchor: "ops[7]", Text: "where is the failure path tested", AuthorRole: "qaEngineer", Type: "changeRequest"}},
+		nil, cred, fwra.IdempotencyKey("m2")); err != nil {
+		t.Fatalf("AppendReviewVerdict (qa): %v", err)
+	}
+
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	r := exec.Reviews[0]
+	if len(r.Verdicts) != 2 {
+		t.Fatalf("both reviewers' verdicts must be recorded; got %d", len(r.Verdicts))
+	}
+	if len(r.Thread) != 2 {
+		t.Fatalf("both reviewers' comments must survive; got %d: %+v", len(r.Thread), r.Thread)
+	}
+	if r.Thread[0].ID == r.Thread[1].ID {
+		t.Fatalf("two comments, two ids; both are %q", r.Thread[0].ID)
+	}
+	roles := map[string]string{r.Thread[0].AuthorRole: r.Thread[0].Text, r.Thread[1].AuthorRole: r.Thread[1].Text}
+	if roles["architect"] != "split this op" || roles["qaEngineer"] != "where is the failure path tested" {
+		t.Fatalf("each comment must keep its own author and text: %+v", roles)
+	}
+}
+
+// TestAppendReviewVerdict_AReissuedBatchStillAppendsOnce — the round mints ids from the
+// thread it lands on, so it cannot dedup on the minted id the way the artifact ledger
+// does. It dedups on CONTENT instead, which has to hold under a fresh idempotency key —
+// that is what makes a Temporal retry of the same batch a no-op.
+func TestAppendReviewVerdict_AReissuedBatchStillAppendsOnce(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	v = openRoundFixture(t, a, id, v, cred)
+
+	batch := []ReviewComment{
+		{Anchor: "ops[3]", Text: "split this op", AuthorRole: "architect", Type: "changeRequest"},
+		{Anchor: "ops[4]", Text: "and name the failure", AuthorRole: "architect", Type: "changeRequest"},
+	}
+	verdict := ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
+		Summary: "two things", AttemptID: "C-X:detailedDesign:1"}
+	var err error
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m3")); err != nil {
+		t.Fatalf("AppendReviewVerdict: %v", err)
+	}
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m4")); err != nil {
+		t.Fatalf("AppendReviewVerdict (re-issue under a fresh key): %v", err)
+	}
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	if got := len(exec.Reviews[0].Thread); got != 2 {
+		t.Fatalf("a re-issued batch appends once; thread holds %d: %+v", got, exec.Reviews[0].Thread)
+	}
+	if len(exec.Reviews[0].Verdicts) != 1 {
+		t.Fatalf("and so does its verdict; got %d", len(exec.Reviews[0].Verdicts))
+	}
+}
+
+// TestOpenActivity_PinsTheLifecycleOnce — the pin names the lifecycle the
+// ledger was written under. A re-open that quietly re-pinned would retro-date every
+// attempt and round already recorded to a DAG they were never written against.
+func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	// Re-opening with the SAME pin is the ordinary retry: a no-op success.
+	v2, err := a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m5"))
+	if err != nil {
+		t.Fatalf("re-opening with the same pin must succeed: %v", err)
+	}
+	if got := readConstruction(t, store, id, cred, "C-X").Pin; got == nil || got.AssetsVersion != "v0.9.0" {
+		t.Fatalf("pin = %+v, want the original", got)
+	}
+	// A DIFFERENT pin is refused, and the message names both so the caller can see which
+	// release moved under it.
+	_, err = a.OpenActivity(execRC(), id, v2, "C-X", ActivityTypeService, TestVariantPlan,
+		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.10.0"}, cred, fwra.IdempotencyKey("m6"))
+	if err == nil || kindOfErr(err) != fwra.ContractMisuse {
+		t.Fatalf("re-pinning must be ContractMisuse; got %v", err)
+	}
+	if !strings.Contains(err.Error(), "v0.9.0") || !strings.Contains(err.Error(), "v0.10.0") {
+		t.Fatalf("the refusal must name both pins; got %v", err)
+	}
+	if got := readConstruction(t, store, id, cred, "C-X").Pin; got.AssetsVersion != "v0.9.0" {
+		t.Fatalf("a refused re-pin must not have written; pin = %+v", got)
+	}
+}
+
+// TestOpenActivity_RefusesToResurrectAFinishedActivity — a terminal row's ledgers are the
+// record of a finished activity. Re-opening it in place would leave Running and Done the
+// same row with nothing saying which came first, and the completion stamp would describe
+// a run that is notionally still going.
+func TestOpenActivity_RefusesToResurrectAFinishedActivity(t *testing.T) {
+	for _, tt := range []struct {
+		name    string
+		outcome ActivityOutcome
+		reason  FailureReason
+	}{
+		{"done", ActivityOutcomeCompleted, FailureReasonUnknown},
+		{"failed", ActivityOutcomeUnknown, PipelineFailed},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			a, store, id, v, cred := newExecutionStore(t)
+			v = openTestActivity(t, a, id, v, cred)
+			v, err := a.RecordActivityOutcome(execRC(), id, v, "C-X", tt.outcome, tt.reason, "d", cred, fwra.IdempotencyKey("m7"))
+			if err != nil {
+				t.Fatalf("RecordActivityOutcome: %v", err)
+			}
+			before := readConstruction(t, store, id, cred, "C-X")
+
+			_, err = a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+				LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m8"))
+			if err == nil || kindOfErr(err) != fwra.Conflict {
+				t.Fatalf("re-opening an exited activity must be a Conflict; got %v", err)
+			}
+			after := readConstruction(t, store, id, cred, "C-X")
+			if after.Phase != before.Phase || after.BuildStatus != before.BuildStatus || after.CompletedAt == nil {
+				t.Fatalf("the terminal row must be untouched: before=%v/%v after=%v/%v",
+					before.Phase, before.BuildStatus, after.Phase, after.BuildStatus)
+			}
+		})
+	}
+}
+
+// TestOpenReviewRound_StampsObservedProvenance — a round carries where its record came
+// from, in the same closed vocabulary an attempt carries. Without it a round the
+// migration reconstructed reads exactly like one a reviewer actually cast.
+func TestOpenReviewRound_StampsObservedProvenance(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	_ = openRoundFixture(t, a, id, v, cred)
+
+	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
+	p := exec.Reviews[0].Provenance
+	if p.Origin != OriginObserved {
+		t.Fatalf("a live write is observed; got %q", p.Origin)
+	}
+	if p.GeneratedAt == nil {
+		t.Fatal("provenance must carry when the record was produced")
+	}
+	if err := p.Validate(); err != nil {
+		t.Fatalf("the stamped provenance must satisfy the shared rule: %v", err)
+	}
+}
+
+// TestReviewRound_RoundTripsThroughCodecCarryingEveryMember — the round is a new member
+// of the stored aggregate, so the codec has to carry ALL of it: a field the encoder drops
+// vanishes without a trace, and comparing decoded values cannot see the loss.
+func TestReviewRound_RoundTripsThroughCodecCarryingEveryMember(t *testing.T) {
+	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	p := Project{ID: "p", Version: 1}
+	p.ActivityConstruction = map[string]ActivityConstructionStatus{"C-X": {
+		ActivityID: "C-X",
+		Type:       ActivityTypeService,
+		Pin:        &LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"},
+		Reviews: []ReviewRound{{
+			RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
+			SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
+			Reviewers:  []RoundReviewer{{Role: "architect", Actor: "system-architect", Required: true}},
+			Verdicts: []ReviewVerdict{{ReviewerRole: "architect", Actor: "system-architect",
+				Verdict: VerdictAbstain, Summary: "not mine to judge", AttemptID: "C-X:detailedDesign:1", At: at.Format(time.RFC3339)}},
+			Thread: []ReviewComment{{ID: "r1c1", Anchor: "ops[0]", AnchorText: "Op", Text: "split",
+				AuthorRole: "architect", Round: 1, Status: ReviewCommentOpen, Replies: []ReviewCommentReply{}, Type: "changeRequest"}},
+			Outcome: RoundSentBack, DecidedBy: "system-architect",
+			OpenedAt: at.Format(time.RFC3339), DecidedAt: at.Format(time.RFC3339),
+			Provenance: AttemptProvenance{Origin: OriginBackfilled, Generator: "cmd/migrate-activity-execution@abc1234",
+				GeneratedAt: &at, Basis: "operatorNotes[0]"},
+		}},
+	}}
+
+	raw, err := EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("encode: %v", err)
+	}
+	got, ok, err := DecodeProjectJSON(raw, "p")
+	if err != nil || !ok {
+		t.Fatalf("decode: ok=%v err=%v", ok, err)
+	}
+	reEncoded, err := EncodeProjectJSON(got)
+	if err != nil {
+		t.Fatalf("re-encode: %v", err)
+	}
+	lost, err := CodecCarriesEveryMember(raw, reEncoded)
+	if err != nil {
+		t.Fatalf("CodecCarriesEveryMember: %v", err)
+	}
+	if len(lost) != 0 {
+		t.Fatalf("the codec drops %v", lost)
+	}
+	r := got.ActivityConstruction["C-X"].Reviews[0]
+	if r.Provenance.Origin != OriginBackfilled || r.Provenance.Basis != "operatorNotes[0]" {
+		t.Fatalf("provenance must survive the round-trip: %+v", r.Provenance)
+	}
+	if r.Verdicts[0].Verdict != VerdictAbstain || r.Outcome != RoundSentBack || r.DecidedAt == "" {
+		t.Fatalf("the round's own members must survive: %+v", r)
+	}
+	if pin := got.ActivityConstruction["C-X"].Pin; pin == nil || pin.TypeKey != "service" {
+		t.Fatalf("the lifecycle pin must survive: %+v", pin)
+	}
+}

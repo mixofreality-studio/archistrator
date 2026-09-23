@@ -14964,12 +14964,12 @@
           "enum": [
             "approve",
             "sendBack",
-            "waive"
+            "abstain"
           ],
           "x-enum-varnames": [
             "VerdictApprove",
             "VerdictSendBack",
-            "VerdictWaive"
+            "VerdictAbstain"
           ],
           "x-go-base": "string",
           "description": "One reviewer's judgement. It is NOT the round's outcome — the round is decided separately, by DecideReviewRound."
@@ -15141,6 +15141,11 @@
             "decidedAt": {
               "type": "string",
               "description": "RFC3339, stamped by the store at decide; empty while pending."
+            },
+            "provenance": {
+              "type": "object",
+              "x-go-type": "AttemptProvenance",
+              "description": "Where this round's record came from, in the same closed vocabulary an attempt carries: observed for a live write, backfilled for one the migration reconstructed (which must name its basis), synthesized for one derived from nothing. Without it a reconstructed round reads exactly like a recorded one, which is the single worst lie this ledger could tell."
             }
           },
           "required": [
@@ -15152,7 +15157,8 @@
             "outcome",
             "openedAt",
             "decidedBy",
-            "decidedAt"
+            "decidedAt",
+            "provenance"
           ],
           "additionalProperties": false,
           "description": "One append-only review round: its subject, its roster, its verdicts, its thread, and — once — its decision."

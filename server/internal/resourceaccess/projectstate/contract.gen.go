@@ -787,6 +787,7 @@ type ReviewRound struct {
 	DecidedBy  string             `json:"decidedBy"`
 	OpenedAt   string             `json:"openedAt"`
 	DecidedAt  string             `json:"decidedAt"`
+	Provenance AttemptProvenance  `json:"provenance"`
 }
 
 type ReviewRoundInput struct {
@@ -1023,7 +1024,7 @@ type VerdictKind string
 const (
 	VerdictApprove  VerdictKind = "approve"
 	VerdictSendBack VerdictKind = "sendBack"
-	VerdictWaive    VerdictKind = "waive"
+	VerdictAbstain  VerdictKind = "abstain"
 )
 
 type Version int64

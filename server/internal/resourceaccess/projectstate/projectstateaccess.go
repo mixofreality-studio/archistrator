@@ -9705,7 +9705,36 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 	}
 	now := a.store.now()
 	return a.store.applyMutation(rc.Context, "OpenActivity", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		var refused error
 		upsertActivityConstruction(p, activityID, func(cs *ActivityConstructionStatus) {
+			// TERMINAL IS TERMINAL. A row that has already exited carries two ledgers that
+			// are the record of a FINISHED activity; re-opening it in place would leave
+			// Running and Done the same row with nothing saying which came first, and the
+			// completion stamp RecordActivityOutcome wrote would now describe a run that is
+			// notionally still going. RecordActivityOutcome protects the first terminal fact
+			// by never overwriting CompletedAt; that write-once rule cannot be honoured here
+			// by keeping the old value and reporting success, because the caller would be
+			// told it re-opened an activity it did not. So this refuses, matching the
+			// facet's own explicit terminality precedent (DecideReviewRound). A genuine
+			// requeue mints a new execution rather than resurrecting a closed one.
+			if cs.Phase == ActivityConstructionDone || cs.Phase == ActivityConstructionFailed {
+				refused = fwra.New(fwra.Conflict, fmt.Sprintf(
+					"projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, cs.Phase))
+				return
+			}
+			// The pin is WRITE-ONCE for the same reason StartedAt and Phases are: it names
+			// the lifecycle the ledger below was written under, so a re-open that quietly
+			// re-pinned would retro-date every attempt and round already recorded to a DAG
+			// they were never written against.
+			if cs.Pin == nil {
+				held := pin
+				cs.Pin = &held
+			} else if *cs.Pin != pin {
+				refused = execMisuse("OpenActivity", fmt.Sprintf(
+					"activity %s is pinned to lifecycle %s@%s and cannot be re-pinned to %s@%s; the ledger was written under the first",
+					activityID, cs.Pin.TypeKey, cs.Pin.AssetsVersion, pin.TypeKey, pin.AssetsVersion))
+				return
+			}
 			cs.Type = typ
 			cs.Variant = variant
 			cs.Phase = ActivityConstructionRunning
@@ -9717,10 +9746,8 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 				t := now
 				cs.StartedAt = &t
 			}
-			held := pin
-			cs.Pin = &held
 		})
-		return nil
+		return refused
 	})
 }
 
@@ -9832,6 +9859,7 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 				return nil // already open: a no-op success, not a second round
 			}
 		}
+		opened := now
 		cs.Reviews = append(cs.Reviews, ReviewRound{
 			RoundID:    round.RoundID,
 			TaskID:     round.TaskID,
@@ -9840,7 +9868,10 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 			SubjectRef: round.SubjectRef,
 			Reviewers:  slices.Clone(round.Reviewers),
 			Outcome:    RoundPending,
-			OpenedAt:   now.UTC().Format(time.RFC3339),
+			OpenedAt:   opened.UTC().Format(time.RFC3339),
+			// A live write is OBSERVED. The migration tool stamps backfilled (and must name
+			// its basis) so a reconstructed round can never be read as a recorded one.
+			Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &opened},
 		})
 		return nil
 	})
@@ -9862,10 +9893,8 @@ func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID
 	case verdict.AttemptID == "":
 		return 0, execMisuse("AppendReviewVerdict", "empty attemptId — a verdict that names no attempt cannot be joined back to what it judged")
 	}
-	switch verdict.Verdict {
-	case VerdictApprove, VerdictSendBack, VerdictWaive:
-	default:
-		return 0, execMisuse("AppendReviewVerdict", fmt.Sprintf("unknown verdict %q", verdict.Verdict))
+	if err := validateVerdictKind(verdict.Verdict); err != nil {
+		return 0, err
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "AppendReviewVerdict", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityConstructionStatus) error {
@@ -9882,13 +9911,97 @@ func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID
 		if !reviewVerdictPresent(r.Verdicts, stamped) {
 			r.Verdicts = append(r.Verdicts, stamped)
 		}
-		thread, err := ApplyReviewBatch(r.Thread, r.Round, comments, replies)
+		thread, err := applyRoundReviewBatch(r.Thread, r.Round, comments, replies)
 		if err != nil {
 			return err
 		}
 		r.Thread = thread
 		return nil
 	})
+}
+
+// applyRoundReviewBatch is ApplyReviewBatch for a ROUND's thread.
+//
+// It exists because the artifact ledger's appendReviewComments mints its ids from the
+// batch's own index — r<round>c<i+1> — and SKIPS an id already present. One reviewer per
+// round, one batch per round, that is correct and idempotent. A round has a ROSTER: when a
+// second reviewer appends their first comment to the same round, its minted id collides
+// with the first reviewer's r1c1, the skip fires, and the comment is silently DROPPED. A
+// review ledger that loses a required reviewer's only comment is worse than no ledger, so
+// the round mints from the thread it is appending to, not from the batch.
+//
+// Idempotency moves with it: the artifact path leans on the minted id to dedup a re-issue,
+// which this cannot do (the id now depends on where the comment lands). So a re-issue is
+// caught on CONTENT instead — same author, same anchor, same text — BEFORE anything is
+// minted, which is the stronger key anyway: it converges whether or not the caller re-uses
+// an idempotency key, and it is what makes a Temporal retry of the same batch a no-op.
+//
+// Replies and the closing normalize are the artifact ledger's own, reused verbatim: the
+// utterance rules and the answered/reopened derivation must never differ between the two
+// ledgers, and the way to guarantee that is to call the same code.
+func applyRoundReviewBatch(thread []ReviewComment, round int64, comments []ReviewComment, replies []ReviewReply) ([]ReviewComment, error) {
+	for _, c := range comments {
+		if roundCommentPresent(thread, c) {
+			continue
+		}
+		thread = append(thread, ReviewComment{
+			// Deterministic given the thread it lands on, and unique across the round: the
+			// index only ever grows, and the id carries the round with it.
+			ID:         reviewCommentID(round, len(thread)),
+			Anchor:     c.Anchor,
+			AnchorText: c.AnchorText,
+			Text:       c.Text,
+			AuthorRole: c.AuthorRole,
+			Round:      round,
+			Status:     ReviewCommentOpen,
+			Type:       c.Type,
+			Addressee:  c.Addressee,
+		})
+	}
+	for _, r := range replies {
+		if reviewReplyPresent(thread, r) {
+			continue
+		}
+		var err error
+		if thread, err = appendReviewReply(thread, r.CommentID, r.AuthorRole, r.Text, r.At); err != nil {
+			return nil, err
+		}
+	}
+	return normalizeReviewThread(thread), nil
+}
+
+// roundCommentPresent identifies a round comment by WHO wrote it, WHERE, and WHAT — the
+// content key a re-issue converges on, since the minted id is not available to the caller.
+func roundCommentPresent(thread []ReviewComment, c ReviewComment) bool {
+	for _, held := range thread {
+		if held.AuthorRole == c.AuthorRole && held.Anchor == c.Anchor && held.Text == c.Text {
+			return true
+		}
+	}
+	return false
+}
+
+// validateVerdictKind is exhaustive over the closed vocabulary with NO default arm: the
+// trailing return is the out-of-vocabulary catch, so adding a member without naming it
+// here is a gate failure rather than a value that quietly validates.
+func validateVerdictKind(v VerdictKind) error {
+	switch v {
+	case VerdictApprove, VerdictSendBack, VerdictAbstain:
+		return nil
+	}
+	return execMisuse("AppendReviewVerdict", fmt.Sprintf("unknown verdict %q", v))
+}
+
+// validateRoundDecision is validateVerdictKind's shape for the round's own vocabulary.
+// Pending is named explicitly because it IS a member — it is just never a decision.
+func validateRoundDecision(o ReviewRoundOutcome) error {
+	switch o {
+	case RoundPassed, RoundSentBack, RoundWithdrawn:
+		return nil
+	case RoundPending:
+		return execMisuse("DecideReviewRound", "'pending' is the state a round is in before it is decided, never a decision")
+	}
+	return execMisuse("DecideReviewRound", fmt.Sprintf("unknown outcome %q", o))
 }
 
 // reviewVerdictPresent is AppendReviewVerdict's re-issue guard: a verdict is
@@ -9938,12 +10051,8 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 	if decidedBy == "" {
 		return 0, execMisuse("DecideReviewRound", "empty decidedBy")
 	}
-	switch outcome {
-	case RoundPassed, RoundSentBack, RoundWithdrawn:
-	case RoundPending:
-		return 0, execMisuse("DecideReviewRound", "'pending' is the state a round is in before it is decided, never a decision")
-	default:
-		return 0, execMisuse("DecideReviewRound", fmt.Sprintf("unknown outcome %q", outcome))
+	if err := validateRoundDecision(outcome); err != nil {
+		return 0, err
 	}
 	now := a.store.now()
 	return a.onActivity(rc, "DecideReviewRound", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityConstructionStatus) error {
