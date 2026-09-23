@@ -2763,6 +2763,30 @@ func highestAttempt(attempts []projectstate.TaskAttempt, task projectstate.Metho
 	return n
 }
 
+// ledgerRejections counts the gate task's rejections ALREADY in out — the ones a real
+// run recorded. N4 reconstructs only the send-backs beyond them.
+func ledgerRejections(out []projectstate.TaskAttempt, gate projectstate.MethodTask) int {
+	n := 0
+	for _, a := range out {
+		if a.Task == gate && a.Outcome == projectstate.OutcomeRejected {
+			n++
+		}
+	}
+	return n
+}
+
+// sendBackNotesFor is the phase's send-back notes in recorded order (append-only slice
+// order IS RecordedAt order).
+func sendBackNotesFor(notes []projectstate.OperatorNote, p projectstate.ActivityMethodPhase) []projectstate.OperatorNote {
+	out := make([]projectstate.OperatorNote, 0, len(notes))
+	for _, note := range notes {
+		if note.Kind == projectstate.NoteSendBack && note.Gate == string(p) {
+			out = append(out, note)
+		}
+	}
+	return out
+}
+
 // appendRunningAttempt is N3: the dispatch a live session is running now, which has no
 // episode until it ends.
 func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
@@ -2814,8 +2838,16 @@ func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row p
 				StartedAt: started, EndedAt: ended, Outcome: outcome, Provenance: reconstructed(basis),
 			})
 		}
-		for _, note := range row.OperatorNotes {
-			if note.Kind == projectstate.NoteSendBack && note.Gate == string(p) {
+		// A send-back note and a RECORDED rejection of the same gate are one event, not
+		// two. The workflow records both (the note is how the feedback reaches the next
+		// dispatch — PendingOperatorNotes), so reconstructing one attempt per note on top
+		// of the ledger would double every revision AND leave a rejection as the gate's
+		// LAST attempt on an activity whose gate has passed. Tails aligned, like R4: notes
+		// exist only since B1.1, so it is the OLDEST rejections that have no note and the
+		// OLDEST notes that have no recorded rejection.
+		notes := sendBackNotesFor(row.OperatorNotes, p)
+		if unrecorded := len(notes) - ledgerRejections(out, gate); unrecorded > 0 {
+			for _, note := range notes[:unrecorded] {
 				at := note.RecordedAt
 				add(projectstate.OutcomeRejected, nil, &at, "operatorNotes["+note.NoteID+"]")
 			}

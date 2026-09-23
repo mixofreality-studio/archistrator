@@ -9513,6 +9513,16 @@ func avOutcomes(v taskView) []string {
 	return out
 }
 
+// avDump prints one normalized attempt per line — task/attempt/outcome — so a derivation
+// failure reads as the ledger it produced rather than as a struct dump.
+func avDump(attempts []projectstate.TaskAttempt) string {
+	var b strings.Builder
+	for _, a := range attempts {
+		fmt.Fprintf(&b, "\t%s/%d/%s\n", a.Task, a.Attempt, a.Outcome)
+	}
+	return b.String()
+}
+
 var avSRSPassed = []projectstate.TaskAttempt{
 	avObserved(projectstate.TaskSRS, 1, projectstate.OutcomePassed),
 	avObserved(projectstate.TaskSRSReview, 1, projectstate.OutcomePassed),
@@ -9741,6 +9751,88 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 	got := normalizeAttempts("C-X", row, nil, live)
 	if len(got) != 1 || got[0].AttemptID != "C-X:designReview:1" || got[0].Outcome != projectstate.OutcomePending || got[0].StartedAt == nil || !got[0].StartedAt.Equal(since) {
 		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
+	}
+}
+
+// ENTRY CRITERION (a), spec §8. Once the workflow persists a gate rejection (stage 3
+// Task 5) the send-back note that accompanies it is EVIDENCE OF THAT ATTEMPT, not of
+// another one. N4 used to append one rejected attempt per note unconditionally and
+// number it after the ledger's highest, so a single send-back read as two revisions AND
+// the last gate attempt was a rejection on an activity whose gate had already passed.
+func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "tighten the contract"),
+		},
+		Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
+		},
+	}
+	got := normalizeAttempts("C-X", row, nil, nil)
+	gates := 0
+	var last projectstate.TaskOutcome
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+			last = a.Outcome
+		}
+	}
+	if gates != 2 {
+		t.Fatalf("the ledger holds 2 designReview attempts and the note is evidence of the first; got %d:\n%s", gates, avDump(got))
+	}
+	if last != projectstate.OutcomePassed {
+		t.Fatalf("the gate passed on revision 2; the last designReview attempt reads %q", last)
+	}
+}
+
+// The reconstruction path is unchanged for a row that predates the ledger: a note with
+// NO recorded rejection is still the only evidence there is.
+func TestNormalizeAttempts_ANoteWithoutALedgerRejectionIsStillReconstructed(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID:    "C-X",
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "tighten the contract")},
+	}
+	got := normalizeAttempts("C-X", row, nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview && a.Outcome == projectstate.OutcomeRejected {
+			gates++
+		}
+	}
+	if gates != 1 {
+		t.Fatalf("a note with no ledger rejection must still reconstruct one; got %d:\n%s", gates, avDump(got))
+	}
+}
+
+// Tails aligned: two notes, one recorded rejection — the NEWER note is the recorded
+// one, so only the OLDER is reconstructed.
+func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "older"),
+			avSendBack("detailed_design", "newer"),
+		},
+	}
+	got := normalizeAttempts("C-X", row, nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+		}
+	}
+	if gates != 2 {
+		t.Fatalf("2 notes, 1 recorded rejection ⇒ exactly 1 reconstructed; got %d designReview attempts:\n%s", gates, avDump(got))
 	}
 }
 
