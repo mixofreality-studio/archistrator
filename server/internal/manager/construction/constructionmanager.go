@@ -794,7 +794,7 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 	}
 	row := proj.ActivityConstruction[id]
 	row.ActivityID = id
-	typ, variant, _, classified := projectstate.ResolveConstructionRow(row, item)
+	typ, variant, resolved, classified := projectstate.ResolveConstructionRow(row, item)
 	if !classified {
 		return ActivityView{}, newError(fwm.FailedPrecondition, fmt.Sprintf(
 			"activity %s (workerClass %q, coding=%v) matches no activity-classification rule, so it has no lifecycle — amend workerClass or coding in the committed activity list",
@@ -817,8 +817,8 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 	// The gate is the session's awaitingGate verbatim: a lifecycle-phase id matches a
 	// phase, and the merge hold and an escalation simply match none.
 	liveGate, _ := liveApprovalGate(live)
-	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, records, live), row.OperatorNotes, liveGate)
-	view := activityViewFrom(activityID, item, typ, variant, lc, tasks)
+	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, liveGate)
+	view := activityViewFrom(activityID, item, typ, variant, lc, resolved, tasks)
 	view.State = activityViewState(coarse, live)
 	// The roster and the engine's refusal to produce one are the SAME fact about the live
 	// gate, so they travel together under the one condition: a refusal without a live gate
@@ -2676,18 +2676,16 @@ type taskView struct {
 	Revisions []taskRevision
 }
 
-// canonicalMethodPhases is the order reconstructed gate attempts are emitted in.
-var canonicalMethodPhases = []projectstate.ActivityMethodPhase{
-	projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan,
-	projectstate.MethodPhaseConstruction, projectstate.MethodPhaseIntegration,
-}
-
 // normalizeAttempts builds the one attempt list the derivation reads (rules N1–N4): the
 // ledger verbatim, then a work attempt per episode the ledger does not hold, then the
-// dispatch running now, then the gate attempts the send-back notes, the stored phase
+// dispatch running now, then the gate attempts the send-back notes, the RESOLVED phase
 // completions and the live gate imply. Everything it adds is stamped backfilled —
 // "reconstructed from real evidence recorded elsewhere" — with the evidence as its basis.
-func normalizeAttempts(activityID string, row projectstate.ActivityConstructionStatus, episodes []episode.EpisodeRecord, live *ConstructionSessionView) []projectstate.TaskAttempt {
+//
+// resolved is projectstate.ResolveConstructionRow's third return, never row.Phases: the
+// phase set a row HAS and the completion state it is IN are one fact with one rule
+// (ResolvePhaseCompletions), and every reader of this row derives from that one answer.
+func normalizeAttempts(activityID string, row projectstate.ActivityConstructionStatus, resolved []projectstate.PhaseCompletion, episodes []episode.EpisodeRecord, live *ConstructionSessionView) []projectstate.TaskAttempt {
 	out := slices.Clone(row.Attempts)
 	index := make(map[string]int, len(out))
 	for i, a := range out {
@@ -2715,7 +2713,7 @@ func normalizeAttempts(activityID string, row projectstate.ActivityConstructionS
 		})
 	}
 	out = appendRunningAttempt(out, activityID, row, live)
-	return appendGateAttempts(out, activityID, row, live)
+	return appendGateAttempts(out, activityID, row, resolved, live)
 }
 
 // parseAttemptRef reads "<activityId>:<task>:<n>" (projectstate.AttemptID). A legacy
@@ -2818,14 +2816,16 @@ func liveApprovalGate(live *ConstructionSessionView) (string, *time.Time) {
 	return *live.AwaitingGate, live.AwaitingSince
 }
 
-// appendGateAttempts is N4, in canonical phase order.
-func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
+// appendGateAttempts is N4, over the resolved phase set.
+func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, resolved []projectstate.PhaseCompletion, live *ConstructionSessionView) []projectstate.TaskAttempt {
 	liveGate, liveSince := liveApprovalGate(live)
-	stored := make(map[projectstate.ActivityMethodPhase]projectstate.PhaseCompletion, len(row.Phases))
-	for _, pc := range row.Phases {
-		stored[pc.Phase] = pc
-	}
-	for _, p := range canonicalMethodPhases {
+	// ResolveConstructionRow's reconciled set IS the phase inventory and the completion
+	// state, in profile order. There is no second inventory: canonicalMethodPhases was one,
+	// and two inventories over one row is exactly what ResolvePhaseCompletions exists to
+	// remove ("when the two disagree, the profile wins"). Reading row.Phases here instead
+	// reconstructed a passed gate for a phase the row's read-time lifecycle does not have.
+	for _, pc := range resolved {
+		p := pc.Phase
 		gate := projectstate.GateTaskFor(p)
 		n, passed := highestAttempt(out, gate), false
 		for _, a := range out {
@@ -2853,8 +2853,8 @@ func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row p
 			}
 		}
 		switch {
-		case stored[p].Completed && !passed:
-			add(projectstate.OutcomePassed, nil, stored[p].CompletedAt, "phases["+string(p)+"].completed")
+		case pc.Completed && !passed:
+			add(projectstate.OutcomePassed, nil, pc.CompletedAt, "phases["+string(p)+"].completed")
 		case liveGate == string(p):
 			add(projectstate.OutcomePending, liveSince, nil, "session.awaitingGate")
 		}
@@ -3204,7 +3204,7 @@ func activityViewState(coarse projectstate.ActivityConstructionPhase, live *Cons
 
 // activityViewFrom assembles the contract view. Every array is non-nil: the wire carries
 // [] for "none", never null.
-func activityViewFrom(activityID ActivityID, item projectstate.ActivityItem, typ projectstate.ActivityType, variant projectstate.TestingVariant, lc methodassets.Lifecycle, tasks []taskView) ActivityView {
+func activityViewFrom(activityID ActivityID, item projectstate.ActivityItem, typ projectstate.ActivityType, variant projectstate.TestingVariant, lc methodassets.Lifecycle, resolved []projectstate.PhaseCompletion, tasks []taskView) ActivityView {
 	states := make(map[string]string, len(tasks))
 	revisions := make(map[string][]taskRevision, len(tasks))
 	for _, t := range tasks {
@@ -3219,9 +3219,19 @@ func activityViewFrom(activityID ActivityID, item projectstate.ActivityItem, typ
 		view.Variant = strPtrOrNil(variant.String())
 	}
 	view.ComponentID = strPtrOrNil(item.ComponentID)
+	done := make(map[projectstate.ActivityMethodPhase]bool, len(resolved))
+	for _, pc := range resolved {
+		done[pc.Phase] = pc.Completed
+	}
 	for _, ph := range lc.Phases {
+		// ONE rule: ResolvePhaseCompletions. The gate task's derived STATE is a view of
+		// the same evidence, but it is derived through normalizeAttempts' reconstruction
+		// and can disagree with the resolver over a partial row — and a screen that
+		// disagrees with the pump about whether a phase is done is the defect this
+		// collapses.
 		view.Phases = append(view.Phases, ActivityLifecyclePhase{
-			ID: ph.ID, Label: ph.Label, Weight: int64(ph.Weight), GateTaskID: ph.Gate, Completed: states[ph.Gate] == taskPassed,
+			ID: ph.ID, Label: ph.Label, Weight: int64(ph.Weight), GateTaskID: ph.Gate,
+			Completed: done[projectstate.ActivityMethodPhase(ph.ID)],
 		})
 	}
 	for _, t := range lc.Tasks {

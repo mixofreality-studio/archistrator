@@ -9490,6 +9490,14 @@ func avObserved(task projectstate.MethodTask, n int, outcome projectstate.TaskOu
 	return avAttempt(task, n, outcome, projectstate.OriginObserved)
 }
 
+// avResolved is what QueryActivityView hands normalizeAttempts for a service row: the
+// ONE reconciled phase set, never the raw row.Phases. The C-X fixtures are all service
+// activities, so the profile is fixed and the variant unused.
+func avResolved(row projectstate.ActivityConstructionStatus) []projectstate.PhaseCompletion {
+	profile := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan)
+	return projectstate.ResolvePhaseCompletions(profile, row.Phases, row.Attempts)
+}
+
 func avSendBack(gate, text string, comments ...projectstate.NoteComment) projectstate.OperatorNote {
 	return projectstate.OperatorNote{NoteID: "n-" + text, Kind: projectstate.NoteSendBack, Gate: gate, Text: text, Comments: comments}
 }
@@ -9710,7 +9718,7 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 		{EpisodeID: "ep-other", TargetRef: "C-XY:srs:1"}, // another activity sharing the prefix
 	}
 	live := &ConstructionSessionView{Stage: StagePipelineRunning}
-	got := normalizeAttempts("C-X", row, episodes, live)
+	got := normalizeAttempts("C-X", row, avResolved(row), episodes, live)
 
 	type key struct {
 		id      string
@@ -9748,7 +9756,7 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 	since := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
 	row := projectstate.ActivityConstructionStatus{ActivityID: "C-X", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}}}
 	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: ptrTo("detailed_design"), AwaitingSince: &since}
-	got := normalizeAttempts("C-X", row, nil, live)
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, live)
 	if len(got) != 1 || got[0].AttemptID != "C-X:designReview:1" || got[0].Outcome != projectstate.OutcomePending || got[0].StartedAt == nil || !got[0].StartedAt.Equal(since) {
 		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
 	}
@@ -9775,7 +9783,7 @@ func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing
 			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
 		},
 	}
-	got := normalizeAttempts("C-X", row, nil, nil)
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
 	gates := 0
 	var last projectstate.TaskOutcome
 	for _, a := range got {
@@ -9796,10 +9804,16 @@ func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing
 // NO recorded rejection is still the only evidence there is.
 func TestNormalizeAttempts_ANoteWithoutALedgerRejectionIsStillReconstructed(t *testing.T) {
 	row := projectstate.ActivityConstructionStatus{
-		ActivityID:    "C-X",
+		ActivityID: "C-X",
+		// A row that predates the ledger still carries the phase slice the pump seeded
+		// (RecordPhaseStarted writes it all-false); Attempts is the new half. Without it
+		// ResolvePhaseCompletions is honest-empty — the row asserts nothing, so there is
+		// no phase inventory to hang a reconstructed gate attempt on, which is correct:
+		// a note on an activity the pump never started is not evidence of a gate.
+		Phases:        []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}},
 		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "tighten the contract")},
 	}
-	got := normalizeAttempts("C-X", row, nil, nil)
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
 	gates := 0
 	for _, a := range got {
 		if a.Task == projectstate.TaskDesignReview && a.Outcome == projectstate.OutcomeRejected {
@@ -9824,7 +9838,7 @@ func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t 
 			avSendBack("detailed_design", "newer"),
 		},
 	}
-	got := normalizeAttempts("C-X", row, nil, nil)
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
 	gates := 0
 	for _, a := range got {
 		if a.Task == projectstate.TaskDesignReview {
@@ -9833,6 +9847,58 @@ func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t 
 	}
 	if gates != 2 {
 		t.Fatalf("2 notes, 1 recorded rejection ⇒ exactly 1 reconstructed; got %d designReview attempts:\n%s", gates, avDump(got))
+	}
+}
+
+// ENTRY CRITERION (b), spec §8. ResolveConstructionRow reconciles the stored phase
+// slice against the profile — dropping stored phases the profile does not carry and
+// materializing profile phases the store never had — and QueryActivityView threw that
+// reconciliation away while N4 re-derived completion from the raw slice. Two rules for
+// one fact. A row stamped at dispatch as one type and classified at read as another is
+// the case the resolver exists for, and the raw slice reconstructs a passed gate for a
+// phase this activity's lifecycle does not have.
+func TestNormalizeAttempts_GateCompletionComesFromTheResolvedSetOnly(t *testing.T) {
+	row := projectstate.ActivityConstructionStatus{
+		ActivityID: "N-STP",
+		// Seeded from the zero-value (service) phase set at dispatch; the read-time
+		// classification is testing/plan, whose profile is requirements + construction
+		// + integration and carries no detailed_design phase at all.
+		Phases: []projectstate.PhaseCompletion{
+			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
+		},
+	}
+	item := projectstate.ActivityItem{Name: "N-STP", WorkerClass: "test-engineer", Coding: false}
+	_, _, resolved, classified := projectstate.ResolveConstructionRow(row, item)
+	if !classified {
+		t.Fatalf("N-STP must classify; the fixture is wrong")
+	}
+	got := normalizeAttempts("N-STP", row, resolved, nil, nil)
+	for _, a := range got {
+		if a.Phase == projectstate.MethodPhaseDetailedDesign {
+			t.Fatalf("a detailed_design gate attempt on an activity whose resolved profile has no such phase: %+v\nresolved=%+v", a, resolved)
+		}
+	}
+}
+
+// The view's phase completion and the resolver's must be the SAME fact. A row whose
+// gate task has a passed ATTEMPT but whose stored slice says otherwise (or vice versa)
+// used to render one answer on the Activity Experience and another to the pump.
+func TestActivityViewFrom_PhaseCompletionIsTheResolvedSet(t *testing.T) {
+	lc := avServiceLifecycle()
+	resolved := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseRequirements, Completed: true},
+		{Phase: projectstate.MethodPhaseDetailedDesign, Completed: false},
+	}
+	// No task views at all: the derived task states are all pending, so the OLD rule
+	// (states[ph.Gate] == taskPassed) says nothing is complete.
+	// TestingVariant is an int enum; a service row's variant is never read (only a
+	// testing row emits one), so the zero value stands for "no variant".
+	got := activityViewFrom("C-X", projectstate.ActivityItem{Name: "C-X"}, projectstate.ActivityTypeService, projectstate.TestVariantPlan, lc, resolved, nil)
+	for _, ph := range got.Phases {
+		want := ph.ID == string(projectstate.MethodPhaseRequirements)
+		if ph.Completed != want {
+			t.Fatalf("phase %s completed=%v, want %v — the view must report the resolved set", ph.ID, ph.Completed, want)
+		}
 	}
 }
 
