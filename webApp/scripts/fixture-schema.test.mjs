@@ -45,6 +45,18 @@ void test('every uitests fixture passes the OAS-generated schema (and there are 
 const firstIncompletePhase = (phases) =>
   (phases ?? []).find((p) => !p.Completed)?.Phase ?? '';
 
+// The GATE task of each lifecycle phase, mirroring projectstate's own lifecyclePhaseTasks
+// (the method-assets lifecycles' `gate`). Service and frontend agree on all five; the
+// short profiles (testing/deployment/documentation) name a subset of the same phases, so
+// one table answers for every profile a fixture carries.
+const GATE_TASK = {
+  requirements: 'srsReview',
+  detailed_design: 'designReview',
+  test_plan: 'stpReview',
+  construction: 'codeReview',
+  integration: 'testing',
+};
+
 void test('every construction fixture row is one the server could serve', () => {
   const { files } = validateFixtureTree(UITESTS_FIXTURES, { validate });
   const offences = [];
@@ -62,9 +74,33 @@ void test('every construction fixture row is one the server could serve', () => 
       if ((row.CurrentPhase ?? '') !== wantPhase) {
         offences.push(`${where}: CurrentPhase ${JSON.stringify(row.CurrentPhase)}, derived ${JSON.stringify(wantPhase)}`);
       }
-      const wantEvidence = row.classified ? (row.Phases ?? []).length > 0 : false;
+      // `hasBuildEvidence` is `len(resolved) > 0`, and `resolved` is nil for an empty
+      // ledger (projectstate.ResolvePhaseCompletions returns nil when there are no
+      // attempts). So for a classified row it is exactly "the ledger is non-empty" — and
+      // the emitted `Phases` must agree, being the same resolved set.
+      const wantEvidence = row.classified ? (row.attempts ?? []).length > 0 : false;
       if (row.hasBuildEvidence !== wantEvidence) {
-        offences.push(`${where}: hasBuildEvidence ${row.hasBuildEvidence}, derived ${wantEvidence}`);
+        offences.push(`${where}: hasBuildEvidence ${row.hasBuildEvidence}, derived ${wantEvidence} from ${(row.attempts ?? []).length} attempts`);
+      }
+      if (((row.Phases ?? []).length > 0) !== wantEvidence) {
+        offences.push(`${where}: ${(row.Phases ?? []).length} emitted phases over ${(row.attempts ?? []).length} attempts — the phase set IS the resolved ledger`);
+      }
+      // THE LEDGER IS THE ONLY THING THAT CAN COMPLETE A PHASE. App A's binary exit
+      // criterion, as projectstate.phaseCompleteFromAttempts implements it: a phase is
+      // complete iff its GATE task's LATEST attempt passed. A work attempt is not a gate,
+      // and a fixture that marks a phase complete without one is asserting a completion
+      // no server could derive — which is how `built-surface-link` came to claim an
+      // integrated surface over a single `construction` attempt.
+      for (const phase of row.Phases ?? []) {
+        if (!phase.Completed) continue;
+        const gate = GATE_TASK[phase.Phase];
+        const attempts = (row.attempts ?? []).filter((a) => a.task === gate);
+        const latest = attempts.at(-1);
+        if (latest?.outcome !== 'passed') {
+          offences.push(
+            `${where}: ${phase.Phase} is Completed but its gate ${gate ?? '(unknown)'} has ${attempts.length === 0 ? 'no attempt' : `latest outcome ${String(latest?.outcome)}`}`
+          );
+        }
       }
     }
   }

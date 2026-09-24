@@ -11466,9 +11466,13 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		}},
 		{"AcknowledgeStaleBasis", func(_ *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			// The activity-scoped slot transition: it guards on the row existing but writes
-			// the SLOT, so it is the one verb of the twelve that stamps no row version.
-			// Named here rather than omitted, so the exception is a recorded decision, and
-			// its error is deliberately unread — the slot it targets may not be committed.
+			// the SLOT, so it stamps no row version. It is one of TWO such verbs on the
+			// facet — StageTaskOutput is the other, staging a task's output on the branch
+			// through stageArtifactForReviewOnBranch and returning a StagedRef rather than
+			// a Version, so it has no row transition to stamp and no place in this loop.
+			// Named here rather than omitted, so both exceptions are recorded decisions,
+			// and this one's error is deliberately unread — the slot it targets may not be
+			// committed.
 			_, _ = a.AcknowledgeStaleBasis(execRC(), id, v, activity, KindSystem, "seen", cred, "k-ack")
 		}},
 	}

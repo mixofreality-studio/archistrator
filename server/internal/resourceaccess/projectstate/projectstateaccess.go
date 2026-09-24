@@ -7810,18 +7810,27 @@ func (r LegacyActivityConstructionRow) integratedGateAttempts(held []TaskAttempt
 				n = a.Attempt + 1
 			}
 		}
-		out = append(out, TaskAttempt{
+		minted := TaskAttempt{
 			AttemptID: AttemptID(r.ActivityID, gate, n),
 			Task:      gate,
 			Phase:     pc.Phase,
 			Attempt:   n,
-			EndedAt:   pc.CompletedAt,
-			Outcome:   OutcomePassed,
+			// The agent, matching applyPhaseCompletion and cmd/backfill-attempts: the three
+			// synthesizers must agree, or the same reconstructed gate would read as done by
+			// somebody different depending on which one minted it.
+			Actor:   ActorAgent,
+			EndedAt: pc.CompletedAt,
+			Outcome: OutcomePassed,
 			Provenance: AttemptProvenance{
 				Origin: OriginBackfilled,
 				Basis:  "legacy activityConstruction.phases",
 			},
-		})
+		}
+		// Accumulated, not just appended: two phases of one profile could name the SAME
+		// gate task, and numbering each against the ORIGINAL ledger alone would mint the
+		// same AttemptID twice — and an AttemptID is the episode ledger's join key.
+		held = append(held, minted)
+		out = append(out, minted)
 	}
 	return out
 }
