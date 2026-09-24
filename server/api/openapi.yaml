@@ -621,7 +621,17 @@ components:
                 text:
                     type: string
                 type:
+                    description: 'What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.'
+                    enum:
+                        - changeRequest
+                        - question
+                        - staleAck
                     type: string
+                    x-enum-varnames:
+                        - ThreadChangeRequest
+                        - ThreadQuestion
+                        - ThreadStaleAck
+                    x-go-base: string
                     x-go-name: Type
             required:
                 - id

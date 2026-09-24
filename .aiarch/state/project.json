@@ -18333,7 +18333,19 @@
             },
             "type": {
               "type": "string",
-              "x-go-name": "Type"
+              "enum": [
+                "changeRequest",
+                "question",
+                "staleAck"
+              ],
+              "x-enum-varnames": [
+                "ThreadChangeRequest",
+                "ThreadQuestion",
+                "ThreadStaleAck"
+              ],
+              "x-go-base": "string",
+              "x-go-name": "Type",
+              "description": "What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on."
             },
             "addressee": {
               "type": "string"

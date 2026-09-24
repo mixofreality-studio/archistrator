@@ -187,12 +187,21 @@ void test('the activity-experience design fixtures are recorded, valid, and answ
 // derivation's own rules in constructionmanager.go:
 //
 //   - the round's facts travel together: a revision with any of them carries the round
-//     number too, and a round a run wrote is `observed`, never `backfilled`;
-//   - a DECIDED round says who decided it and when; a PENDING one says neither and cites
-//     NO attempt, because the rail writes the gate attempt only when the round is decided
-//     (which is why every gate a human is looking at right now has a round and no attempt);
+//     number and the subject (the store refuses a round with an empty one), and a round a
+//     run wrote is `observed`, never `backfilled`;
+//   - a round is OPENED before it is judged, and the store stamps openedAt there, so a
+//     round-backed revision ALWAYS has a startedAt; a DECIDED round says who decided it
+//     and when, and its endedAt IS that decidedAt;
+//   - a PENDING round says neither and cites NO attempt, because the rail writes the gate
+//     attempt only when the round is decided (which is why every gate a human is looking
+//     at right now has a round and no attempt);
 //   - a reconstruction offers `note` and `comments` and nothing a round owns;
 //   - a dispatch revision has no round at all.
+//
+// `thread` and `verdicts` are NOT required of every round: both are omitempty on the wire,
+// so a round nobody has commented on carries no thread at all rather than an empty array.
+// A DECIDED round does carry a verdict — the rails append the deciding reviewer's before
+// they stamp the terminal.
 const ROUND_ONLY = ['verdicts', 'thread', 'reviewers', 'subjectRef', 'decidedBy', 'decidedAt'];
 
 void test('the activity-experience fixtures hold a persisted round AND a reconstruction', () => {
@@ -218,17 +227,33 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
         }
         persisted += 1;
         if (rev.provenance !== 'observed') offences.push(`${where}: a round a run wrote is observed, not ${rev.provenance}`);
-        for (const k of ['verdicts', 'thread', 'reviewers', 'subjectRef']) {
+        for (const k of ['subjectRef', 'reviewers']) {
           if (rev[k] === undefined) offences.push(`${where}: a persisted round carries ${k}`);
         }
+        if (rev.startedAt === undefined) offences.push(`${where}: a round is opened before it is judged, so it has a startedAt`);
         const decided = rev.outcome === 'passed' || rev.outcome === 'sentBack';
         if (decided !== (rev.decidedBy !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedBy ${rev.decidedBy}`);
         if (decided !== (rev.decidedAt !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedAt ${rev.decidedAt}`);
+        if ((rev.endedAt ?? undefined) !== rev.decidedAt) {
+          offences.push(`${where}: a round ends when it is decided — endedAt ${rev.endedAt} vs decidedAt ${rev.decidedAt}`);
+        }
         if (!decided && rev.attemptIds.length > 0) {
           offences.push(`${where}: an undecided round has no gate attempt yet, but cites ${rev.attemptIds}`);
         }
-        if (rev.outcome === 'sentBack' && !rev.verdicts.some((v) => v.verdict === 'sendBack')) {
+        if (decided && (rev.verdicts ?? []).length === 0) {
+          offences.push(`${where}: a decided round carries the deciding reviewer's verdict`);
+        }
+        if (rev.outcome === 'sentBack' && !(rev.verdicts ?? []).some((v) => v.verdict === 'sendBack')) {
           offences.push(`${where}: a sentBack round was sent back by someone`);
+        }
+        // `note` is the send-back's prose and nothing else: a round that PASSED over one
+        // reviewer's dissent still holds that dissent in `verdicts`, and rendering it as
+        // the revision's note would say the work was returned when it was not.
+        if ((rev.note !== undefined) !== (rev.outcome === 'sentBack')) {
+          offences.push(`${where}: outcome ${rev.outcome} vs note ${JSON.stringify(rev.note)}`);
+        }
+        if ((rev.thread ?? []).length !== rev.commentCount || (rev.comments ?? []).length !== rev.commentCount) {
+          offences.push(`${where}: comments are the thread's flat projection — ${(rev.thread ?? []).length} thread, ${(rev.comments ?? []).length} comments, count ${rev.commentCount}`);
         }
       }
     }

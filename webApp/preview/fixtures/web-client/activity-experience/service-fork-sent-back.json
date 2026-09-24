@@ -50,7 +50,7 @@
                 { "role": "human", "actor": "operator", "required": true } ],
               "verdicts": [
                 { "reviewerRole": "architect", "actor": "architect", "verdict": "approve", "summary": "One verb, minor units. The contract reads.", "at": "2026-09-19T11:56:30Z", "attemptId": "C-billing-state-access:detailedDesign:3" } ],
-              "thread": [], "provenance": "observed" } ] },
+              "provenance": "observed" } ] },
           { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "locked", "revisions": [] },
           { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
           { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },

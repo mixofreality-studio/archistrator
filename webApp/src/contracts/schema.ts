@@ -1000,7 +1000,11 @@ export interface components {
        */
       status: 'open' | 'answered' | 'resolved';
       text: string;
-      type: string;
+      /**
+       * @description What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.
+       * @enum {string}
+       */
+      type: 'changeRequest' | 'question' | 'staleAck';
     };
     ConstructionReviewThreadReply: {
       /** @description RFC3339, verbatim from the ledger. */

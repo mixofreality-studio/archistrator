@@ -467,6 +467,7 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 	},
 	reflect.TypeFor[mgr.ReviewThreadComment](): {
 		"status": "Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind.",
+		"type":   "What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.",
 	},
 	reflect.TypeFor[mgr.ReviewThreadReply](): {
 		"at": "RFC3339, verbatim from the ledger.",

@@ -22,11 +22,11 @@
           { "id": "srsReview", "kind": "review", "title": "UX Requirements Review", "phase": "requirements", "dependsOn": ["srs"], "reviews": "srs", "state": "locked", "revisions": [] },
           { "id": "detailedDesign", "kind": "dispatch", "title": "Design", "phase": "detailed_design", "dependsOn": ["srsReview"], "state": "locked", "revisions": [] },
           { "id": "designReview", "kind": "review", "title": "Design Review", "phase": "detailed_design", "dependsOn": ["detailedDesign"], "reviews": "detailedDesign", "state": "locked", "revisions": [] },
-          { "id": "stp", "kind": "dispatch", "title": "Flows", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "locked", "revisions": [] },
-          { "id": "stpReview", "kind": "review", "title": "Flow Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "locked", "revisions": [] },
           { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "locked", "revisions": [] },
           { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
           { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "stp", "kind": "dispatch", "title": "Flows", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "locked", "revisions": [] },
+          { "id": "stpReview", "kind": "review", "title": "Flow Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "locked", "revisions": [] },
           { "id": "testing", "kind": "review", "title": "Flow Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
         ]
       }

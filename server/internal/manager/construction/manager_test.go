@@ -10696,6 +10696,59 @@ func TestDeriveTaskViews_APendingRoundWithNoGateAttemptIsTheRevision(t *testing.
 	}
 }
 
+// THE BOUNDARY INSIDE ONE GATE. A row mid-flight when the ledger arrived has gate attempts
+// recorded BEFORE any round, and the first round it opens is numbered off that ledger, so
+// it starts above them. Those attempts are real, recorded send-backs; "any round at this
+// gate wins outright" would drop them out of the history altogether.
+func TestDeriveTaskViews_ARecordedAttemptBelowTheFirstRoundSurvives(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected), // pre-round: no round was ever opened for it
+		avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+	)
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "the send-back the ledger recorded before rounds existed")}
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 2, projectstate.RoundPassed)}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed}) {
+		t.Fatalf("the pre-round rejection is revision 1 and the round is revision 2; got %v", got)
+	}
+	pre := gate.Revisions[0]
+	if pre.Note != "the send-back the ledger recorded before rounds existed" {
+		t.Fatalf("a pre-round revision keeps its note; got %+v", pre)
+	}
+	if len(pre.Verdicts) != 0 || pre.DecidedBy != "" {
+		t.Fatalf("a pre-round revision has no round facts; got %+v", pre)
+	}
+	if !slices.Equal(pre.AttemptIDs, []string{"C-X:designReview:1"}) {
+		t.Fatalf("it is the RECORDED attempt, not a reconstruction of one; got %v", pre.AttemptIDs)
+	}
+	if gate.Revisions[1].N != 2 || gate.Revisions[1].Round != 2 {
+		t.Fatalf("the round-backed revision continues the numbering; got n=%d round=%d", gate.Revisions[1].N, gate.Revisions[1].Round)
+	}
+	if gate.State != taskPassed {
+		t.Fatalf("the LAST revision decides the gate's state, and the round passed; got %q", gate.State)
+	}
+}
+
+// Its two null cases, so the split cannot quietly grow a third behaviour: a gate whose
+// ledger starts AT the first round loses nothing to it, and a design gate (rounds, no
+// attempts at all) is unchanged.
+func TestDeriveTaskViews_TheSplitIsANoOpWhenNothingPrecedesTheRounds(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+	)
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundSentBack)}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, nil, rounds, ""), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack}) {
+		t.Fatalf("attempt 1 IS round 1 — one revision, not two; got %v", got)
+	}
+	if gate.Revisions[0].Provenance != projectstate.OriginObserved || gate.Revisions[0].Round != 1 {
+		t.Fatalf("and it is the ROUND's revision; got %+v", gate.Revisions[0])
+	}
+}
+
 // A gate that already has a round must not also have its phase completion reconstructed
 // into a second, passed attempt: that is the double count Task 1 removed for notes, in
 // its round-shaped form.

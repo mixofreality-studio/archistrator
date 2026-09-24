@@ -3136,10 +3136,53 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 		workRevs = append(workRevs, dispatchRevision(i+1, seg))
 	}
 	live := liveGate == ph.ID
-	if persisted := roundsForTask(rounds, projectstate.MethodTask(ph.Gate)); len(persisted) > 0 {
-		return workRevs, roundRevisions(persisted, gate, live)
+	persisted := roundsForTask(rounds, projectstate.MethodTask(ph.Gate))
+	if len(persisted) == 0 {
+		return workRevs, reconstructedReviewRevisions(gate, notes, ph.ID, live)
 	}
-	return workRevs, reconstructedReviewRevisions(gate, notes, ph.ID, live)
+	// THE BOUNDARY IS INSIDE ONE GATE, not between gates. A row mid-flight when the round
+	// ledger arrived has gate attempts the ledger recorded BEFORE any round existed, and
+	// the first round it opens is numbered off that ledger (seedResumeFromLedger seeds the
+	// counter from both), so it starts at 2 or higher. "Any round wins outright" would
+	// drop attempt #1 — a real, recorded send-back — out of the history entirely.
+	//
+	// So the split is by NUMBER: every gate attempt below the lowest round number is a
+	// review from before the rounds and reconstructs as it always did (with its note, and
+	// with its own provenance); the rounds take it from there. A gate whose ledger starts
+	// at or above the lowest round has no such attempts and this costs it nothing, which
+	// is every gate on the design rails — they record no attempts at all.
+	pre, joined := splitAtLowestRound(gate, persisted)
+	// live is FALSE for the pre-round block on purpose: a session waiting at this gate is
+	// waiting at the OPEN ROUND, never at an attempt recorded before the rounds began.
+	gateRevs = reconstructedReviewRevisions(pre, notes, ph.ID, false)
+	// ONE offset, fixed before the append: the rounds continue the numbering after the
+	// whole pre-round block, they do not each start after the one before them.
+	before := len(gateRevs)
+	for _, rev := range roundRevisions(persisted, joined, live) {
+		rev.N += before
+		gateRevs = append(gateRevs, rev)
+	}
+	return workRevs, gateRevs
+}
+
+// splitAtLowestRound cuts a gate's recorded attempts at the lowest round number the row
+// holds for it: pre is the attempts from before the rounds began, joined is the rest —
+// the ones a round can settle (roundRevisions joins them by number).
+func splitAtLowestRound(gate []projectstate.TaskAttempt, rounds []projectstate.ReviewRound) (pre, joined []projectstate.TaskAttempt) {
+	lowest := rounds[0].Round
+	for _, r := range rounds[1:] {
+		if r.Round < lowest {
+			lowest = r.Round
+		}
+	}
+	for _, a := range gate {
+		if int64(a.Attempt) < lowest {
+			pre = append(pre, a)
+		} else {
+			joined = append(joined, a)
+		}
+	}
+	return pre, joined
 }
 
 // roundRevisions turns the PERSISTED rounds for one review task into that task's
@@ -3152,6 +3195,12 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 // parse nothing else in this repo does (equality is all any code asks of a round id). So
 // the attempt this round settled is found as "the gate attempt whose number is the round's
 // number", which is true on both rails and false for neither.
+//
+// EARMARK, stage 4. That join is unique only while the design rails record NO attempts.
+// Two artifact kinds share the architecture gate and each counts its own rounds, so once
+// the design rail writes its attempt ledger, two rounds numbered 1 would both bind the one
+// attempt numbered 1. The fix belongs where the ambiguity is born — a round that names the
+// attempt it judged, as ReviewVerdict.AttemptID already does — not in a wider join here.
 //
 // A ROUND WITH NO GATE ATTEMPT IS NORMAL, not a gap. The construction rail opens the round
 // when the gate is reached and writes the gate attempt only when the round is DECIDED, so
@@ -3166,7 +3215,7 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 			N: i + 1, Outcome: roundOutcome(r.Outcome, live), Round: r.Round,
 			Verdicts: r.Verdicts, Thread: r.Thread, Reviewers: r.Reviewers, SubjectRef: r.SubjectRef,
 			DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, Provenance: r.Provenance.Origin,
-			Note: humanVerdictSummary(r.Verdicts), Comments: threadAnchors(r.Thread),
+			Note: sendBackNote(r), Comments: threadAnchors(r.Thread),
 			StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
 		}
 		for _, a := range gate {
@@ -3188,6 +3237,12 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 // its gate, which is the part a reader must not be lied to about. "Failed" overstates the
 // drama (a withdrawal is deliberate, not a fault); giving it its own wire value belongs
 // with the Activity Experience screen that will render it (stage 5).
+//
+// Its neighbour, same earmark: a round STRANDED pending by a run that died renders
+// `running` for as long as it is the gate's last round — and with no session there is no
+// live gate, so it never even reads awaitingHuman. Both rails state that crash window and
+// both leave it to the stage-4 sweep, which is the only thing that can know the run is
+// gone; RoundWithdrawn is the terminal it will stamp.
 func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 	switch o {
 	case projectstate.RoundPassed:
@@ -3221,13 +3276,22 @@ func threadAnchors(thread []projectstate.ReviewComment) []projectstate.NoteComme
 	return out
 }
 
-// humanVerdictSummary is the round's send-back note: the LAST send-back verdict's summary,
-// which is the prose the operator typed into the decision that closed the round. It
-// replaces the OperatorNote the reconstruction had to go looking for — same words, read
-// off the record that owns them instead of matched to it by position.
-func humanVerdictSummary(verdicts []projectstate.ReviewVerdict) string {
+// sendBackNote is the round's send-back note: the LAST send-back verdict's summary, which
+// is the prose the operator typed into the decision that closed the round. It replaces the
+// OperatorNote the reconstruction had to go looking for — same words, read off the record
+// that owns them instead of matched to it by position.
+//
+// ONLY on a round DECIDED sentBack, which is what `note` means on the wire ("omitted unless
+// outcome is sentBack"). A round that passed can still hold a send-back verdict — one
+// reviewer dissented and the gate went through anyway — and rendering that dissent as the
+// revision's send-back note would say the work was returned when it was not. The dissent
+// is not lost: it is a row in `verdicts`, which is the whole point of carrying them.
+func sendBackNote(r projectstate.ReviewRound) string {
+	if r.Outcome != projectstate.RoundSentBack {
+		return ""
+	}
 	note := ""
-	for _, v := range verdicts {
+	for _, v := range r.Verdicts {
 		if v.Verdict == projectstate.VerdictSendBack && v.Summary != "" {
 			note = v.Summary
 		}
