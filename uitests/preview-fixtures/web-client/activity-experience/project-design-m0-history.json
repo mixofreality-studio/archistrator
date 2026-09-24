@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/activity/projectDesign?task=sdpReview&rev=1",
   "title": "Activity Experience — the M0 gate, read at its DECIDED first round",
-  "note": "The M0 gate with a SECOND round, opened at its first (spec §7.2 R1: a non-latest revision is read-only). The story is the one the spec names: the first M0 approval bound a plan, the Architecture was then amended, the plan went stale and was recomputed, and round 2 is awaiting the human again. Round 1 is therefore a decided, persisted round — a subject, a roster, a human verdict and a resolved thread — and the route opens it, so the screen must render the read-only history: the banner and Back to latest, this round's verdicts and thread, the CURRENT artifact under the history caption, NO submit bar, no stale surface (the sdpReview slot is stale in this capture, and a past round is not where it is reconciled), and no focusable option card. Same systemDesignGetProject capture as project-design-m0.json, byte for byte.",
+  "note": "The M0 gate with a SECOND round, opened at its first (spec §7.2 R1: a non-latest revision is read-only). The story is the one the spec names: the first M0 approval bound a plan, the Architecture was then amended, the plan went stale and was recomputed, and round 2 is awaiting the human again. Round 1 is therefore a decided, persisted round — a subject, a roster, a human verdict and a resolved thread — and the route opens it, so the screen must render the read-only history: the banner and Back to latest, this round's verdicts and thread, the CURRENT artifact under the history caption, NO submit bar, no stale surface (the sdpReview slot is stale in this capture, and a past round is not where it is reconciled), and no focusable option card. Same systemDesignGetProject capture as project-design-m0.json, byte for byte. Task 12 corrected the round's one anchor: sdpOptionAnchor takes the option's SOLUTION KIND (`compressedSolution`), and the fixture carried `compressed`, which matches no option row — so the card could only fall into the margin's UNPLACED group, and §7.5 gap 1 (CommentableList's ReadOnlyRow enrols every row of a READ-ONLY surface, so a past round's thread still sits level with what it was about) was proved nowhere. Task 12 gave the round a SECOND comment, anchored to an activity-list row (`$.activities[name=\"C-review-engine\"]`). That is the anchor CommentableList's ReadOnlyRow enrols on the M0 body's ActivityListView, so the card sits LEVEL with the row it is about even though the whole surface is read-only — §7.5 gap 1, which nothing else in the fixture set could prove. The first comment stays on its option anchor and stays UNPLACED, which is honest and is the control: SdpReviewView hand-rolls its option rows and enrols no anchor for them, so an option comment has nothing to sit beside. One card in each group is what proves placement discriminates.",
   "ops": {
     "compositionGetUserinfo": {
       "result": {
@@ -21315,11 +21315,15 @@
                   "projectDesign:sdpReview:1"
                 ],
                 "round": 1,
-                "commentCount": 1,
+                "commentCount": 2,
                 "comments": [
                   {
-                    "jsonPath": "$.options[kind=compressed]",
+                    "jsonPath": "$.options[kind=compressedSolution]",
                     "text": "Compression at 28% with no death-zone activity — why is normal still the recommendation?"
+                  },
+                  {
+                    "jsonPath": "$.activities[name=\"C-review-engine\"]",
+                    "text": "C-ReviewEngine at 15 days is the longest single activity on the critical path. Is that the estimate, or the contract it has to satisfy?"
                   }
                 ],
                 "subjectRef": {
@@ -21346,7 +21350,7 @@
                 "thread": [
                   {
                     "id": "m0r1c1",
-                    "anchor": "$.options[kind=compressed]",
+                    "anchor": "$.options[kind=compressedSolution]",
                     "anchorText": "Compressed",
                     "text": "Compression at 28% with no death-zone activity — why is normal still the recommendation?",
                     "authorRole": "operator",
@@ -21361,6 +21365,26 @@
                         "authorRole": "architect",
                         "text": "Because the compressed network has two 0-float chains and no float left to absorb a single slip; normal keeps 11 days.",
                         "at": "2026-09-18T08:51:20Z"
+                      }
+                    ]
+                  },
+                  {
+                    "id": "m0r1c2",
+                    "anchor": "$.activities[name=\"C-review-engine\"]",
+                    "anchorText": "C-review-engine",
+                    "text": "C-ReviewEngine at 15 days is the longest single activity on the critical path. Is that the estimate, or the contract it has to satisfy?",
+                    "authorRole": "operator",
+                    "round": 1,
+                    "status": "resolved",
+                    "reopened": false,
+                    "type": "question",
+                    "addressee": "architect",
+                    "replies": [
+                      {
+                        "id": "m0r1c2a1",
+                        "authorRole": "architect",
+                        "text": "The estimate. Its contract is five ops; the 15 days are the routing table and the policy floor, both of which the standard check reads.",
+                        "at": "2026-09-18T08:56:04Z"
                       }
                     ]
                   }
