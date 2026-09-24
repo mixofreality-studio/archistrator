@@ -81,7 +81,12 @@ test('the guarded test is the default export of the support module', () => {
 
 test('no file imports the unguarded test from @playwright/test', () => {
   const files = sources();
-  expect(files.length).toBeGreaterThan(30);
+  // A floor on the SCAN, not on the suite (see the sibling floor in
+  // meta/project-creation-guard.spec.ts): it fails if `sources()` ever stops
+  // walking tests/ and this check starts passing over an empty list. Stage 5
+  // Task 13 retired 38 spec files with the screens they drove, taking the tree
+  // from 45 .ts files to 22, so the floor moves with it.
+  expect(files.length).toBeGreaterThan(18);
   const offenders = files
     .filter((f) => !UNGUARDED_ALLOWED.has(f))
     .flatMap((f) =>
