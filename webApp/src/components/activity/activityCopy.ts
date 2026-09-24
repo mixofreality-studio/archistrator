@@ -63,6 +63,85 @@ export function artifactUnavailable(classification: string): string {
   return `No artifact view for a ${classification} activity yet. Its episodes and review history are below.`;
 }
 
+/**
+ * Why a task whose activity kind DOES have a view still shows no artifact: the
+ * artifact belongs to another phase of the same lifecycle. That rule is
+ * `ARTIFACT_PHASES` (taskArtifactFor.ts, ported from `bodyDispatch.ts:89`), and
+ * it is what stops the service contract being labelled the SRS's artifact.
+ * Deliberately a DIFFERENT sentence from {@link artifactUnavailable}: "this kind
+ * has no view" and "this kind's view belongs to another phase" are different
+ * facts, and only one of them is a gap in the product.
+ */
+export function artifactNotOfThisPhase(classification: string): string {
+  return `A ${classification} activity's artifact belongs to another phase of its lifecycle, so this task has none to show. Its review history is below.`;
+}
+
+/**
+ * A review task whose artifact kind could not be resolved at all — the lifecycle
+ * table names none for it, and nothing is guessed from its id. Shared by the
+ * artifact panel and the verb table, which must refuse for the same reason.
+ */
+export const NO_ARTIFACT_KIND =
+  'This task names no artifact kind, so there is nothing to show and nothing to decide on here.';
+
+/**
+ * The three honest absences of the activity → component → contract JOIN
+ * (contracts/serviceContracts.ts), said on the review body. They are different
+ * facts — a gap a person should fix, a component that is never contracted, and
+ * committed data that does not place this activity at all — so they are three
+ * sentences and not one.
+ */
+export const CONTRACT_MISSING =
+  'No service contract is recorded for this component yet, so there is nothing for this review to show.';
+export const CONTRACT_BY_DESIGN =
+  'This component is a resource or a utility: it is provisioned or shared, never contracted here.';
+export const CONTRACT_UNRESOLVED =
+  'The committed architecture and activity list do not place this activity, so its contract cannot be resolved.';
+
+/** A classified artifact whose activity has no construction record to draw from. */
+export const NO_CONSTRUCTION_RECORD =
+  'Nothing has been recorded against this activity yet, so its artifact has nothing to draw from.';
+
+/** The navigation off the M0 gate: the plan changes by amending what it derives from (R7). */
+export const AMEND_ARCHITECTURE = 'Amend Architecture';
+
+/** One proposed reviewer, as the live review set describes them. */
+export function reviewerChipLabel(reviewer: {
+  role: string;
+  perspective: string;
+  mayAmend: boolean;
+}): string {
+  const parts = [reviewer.role];
+  if (reviewer.perspective.length > 0) parts.push(reviewer.perspective);
+  parts.push(reviewer.mayAmend ? 'may amend' : 'advises only');
+  return parts.join(' · ');
+}
+
+/**
+ * One seat of the roster a persisted round was OPENED with — a different fact
+ * from the live proposal above: it names the actor who filled the role, and
+ * whether the round could be decided without them.
+ */
+export function rosterSeatLabel(seat: { role: string; actor: string; required: boolean }): string {
+  const parts = [seat.role];
+  if (seat.actor.length > 0) parts.push(seat.actor);
+  parts.push(seat.required ? 'required' : 'optional');
+  return parts.join(' · ');
+}
+
+/** One recorded verdict, verbatim: who answered, what they said, and when. */
+export function verdictLine(verdict: {
+  reviewerRole: string;
+  verdict: string;
+  summary?: string | undefined;
+  at: string;
+}): string {
+  const parts = [verdict.reviewerRole, verdict.verdict];
+  if (verdict.summary !== undefined && verdict.summary.length > 0) parts.push(verdict.summary);
+  if (verdict.at.length > 0) parts.push(verdict.at);
+  return parts.join(' · ');
+}
+
 /** Why a construction thread offers no Resolve / Reopen / Ask (R2). */
 export const CONSTRUCTION_THREAD_READ_ONLY =
   'Construction review threads are recorded, but cannot be resolved, reopened or replied to from here yet.';
@@ -166,11 +245,3 @@ export function notDispatchedYet(locked: boolean): string {
  */
 export const NO_EPISODE_CAPTURED =
   'No episode was captured for this revision, so there is no turn-by-turn timeline to show.';
-
-/**
- * The stand-in body for a REVIEW task until Task 9 lands the real one. Honest
- * about what is missing rather than rendering an empty review that reads as
- * "nobody said anything".
- */
-export const REVIEW_BODY_NOT_YET =
-  'The review body — the reviewers, the artifact and the decision — is not built yet. The revision history above is live.';

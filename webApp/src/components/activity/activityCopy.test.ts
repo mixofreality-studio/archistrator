@@ -5,19 +5,28 @@ import {
   ACTIVITY_LOADING,
   ACTIVITY_NOT_IN_PLAN,
   activityReadFailed,
+  AMEND_ARCHITECTURE,
+  artifactNotOfThisPhase,
   artifactUnavailable,
   CONSTRUCTION_THREAD_READ_ONLY,
+  CONTRACT_BY_DESIGN,
+  CONTRACT_MISSING,
+  CONTRACT_UNRESOLVED,
   dispatchRoleLine,
   DISPATCH_JOB_NOTE,
   eyebrowFor,
   historyBanner,
   HISTORY_ARTIFACT_CAPTION,
+  NO_ARTIFACT_KIND,
+  NO_CONSTRUCTION_RECORD,
   NO_EPISODE_CAPTURED,
   notDispatchedYet,
   planIndexFor,
-  REVIEW_BODY_NOT_YET,
+  reviewerChipLabel,
   reviewSetRefused,
+  rosterSeatLabel,
   subAttemptsLine,
+  verdictLine,
 } from './activityCopy.ts';
 
 void test('the eyebrow names the activity and its type, or its plan position when it has one', () => {
@@ -63,7 +72,62 @@ void test('the standing sentences say the thing they exist to say', () => {
   assert.match(ACTIVITY_NOT_IN_PLAN, /committed activity list/);
   assert.match(ACTIVITY_LOADING, /Reading this activity/);
   assert.match(NO_EPISODE_CAPTURED, /No episode was captured/);
-  assert.match(REVIEW_BODY_NOT_YET, /not built yet/);
+  assert.match(NO_ARTIFACT_KIND, /names no artifact kind/);
+  assert.match(NO_CONSTRUCTION_RECORD, /Nothing has been recorded/);
+  assert.equal(AMEND_ARCHITECTURE, 'Amend Architecture');
+});
+
+void test('an artifact that belongs to another phase is a DIFFERENT sentence from one with no view', () => {
+  assert.equal(
+    artifactNotOfThisPhase('service'),
+    "A service activity's artifact belongs to another phase of its lifecycle, so this task has none to show. Its review history is below."
+  );
+  assert.notEqual(artifactNotOfThisPhase('service'), artifactUnavailable('service'));
+});
+
+void test('the three contract absences are three different facts', () => {
+  assert.match(CONTRACT_MISSING, /No service contract is recorded/);
+  assert.match(CONTRACT_BY_DESIGN, /resource or a utility/);
+  assert.match(CONTRACT_UNRESOLVED, /do not place this activity/);
+  assert.equal(new Set([CONTRACT_MISSING, CONTRACT_BY_DESIGN, CONTRACT_UNRESOLVED]).size, 3);
+});
+
+void test('a reviewer chip says whether they may amend, in words', () => {
+  assert.equal(
+    reviewerChipLabel({ role: 'architect', perspective: 'layering', mayAmend: true }),
+    'architect · layering · may amend'
+  );
+  assert.equal(
+    reviewerChipLabel({ role: 'qaEngineer', perspective: '', mayAmend: false }),
+    'qaEngineer · advises only'
+  );
+});
+
+void test('a roster seat names the actor who filled it and whether it could be skipped', () => {
+  assert.equal(
+    rosterSeatLabel({ role: 'architect', actor: 'system-architect', required: true }),
+    'architect · system-architect · required'
+  );
+  assert.equal(
+    rosterSeatLabel({ role: 'productManager', actor: '', required: false }),
+    'productManager · optional'
+  );
+});
+
+void test('a verdict line is the record verbatim, and omits what the record does not carry', () => {
+  assert.equal(
+    verdictLine({
+      reviewerRole: 'architect',
+      verdict: 'approve',
+      summary: 'layering holds',
+      at: '2026-09-12T10:00:00Z',
+    }),
+    'architect · approve · layering holds · 2026-09-12T10:00:00Z'
+  );
+  assert.equal(
+    verdictLine({ reviewerRole: 'qaEngineer', verdict: 'abstain', at: '' }),
+    'qaEngineer · abstain'
+  );
 });
 
 void test('only the three design activities carry a plan position', () => {

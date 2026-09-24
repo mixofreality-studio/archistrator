@@ -6,7 +6,7 @@
  * (submitSDPDecision rejectAll). Ported visual design from ux-mock SdpReview, bound
  * to the real typed SdpReview candidate model via api/projectAdapters.toSdpReviewView.
  */
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -95,6 +95,8 @@ export function SdpReviewView({
   readOnly = false,
   onCommit,
   onRejectAll,
+  decision = 'own',
+  onChoose,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
   /** A decision mutation is in flight — disable the gate. */
@@ -103,6 +105,28 @@ export function SdpReviewView({
   readOnly?: boolean;
   onCommit: (optionId: string) => void;
   onRejectAll: (feedback: string) => void;
+  /**
+   * WHERE the decision is made. `'own'` (the default) is today's terminal gate —
+   * choose an option, Commit & unlock Phase 3, Reject all — exactly as the
+   * Project Design experience has always rendered it, and every existing caller
+   * is untouched.
+   *
+   * `'chooser'` keeps the option radiogroup and DROPS both verbs, for a surface
+   * that owns the decision itself: the Activity Experience routes every review
+   * verb through ONE SubmitBar (spec §7.2), and the M0 gate has no send-back at
+   * all (spec R7) — so a second Commit button and a live Reject all would be
+   * both a duplicate verb and a verb that does not exist here. The standing
+   * choice is reported through {@link onChoose} instead. The Phase-2 twin of
+   * `SubmitBar.allowSendBack` (RULING R11).
+   */
+  decision?: 'own' | 'chooser';
+  /**
+   * The option the reader currently has selected, reported on every change AND
+   * once on mount (the architect's recommendation) — a controlling surface must
+   * know which plan its own Approve would commit before anything is touched.
+   * Give it a STABLE identity (a `useState` setter, or `useCallback`).
+   */
+  onChoose?: ((optionId: string) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
   const { setAnchor } = useComments();
@@ -162,6 +186,14 @@ export function SdpReviewView({
     });
   };
 
+  const selected = chosen.length > 0 ? chosen : (view.options[0]?.optionId ?? '');
+
+  // Report the standing choice upward. Above the early return because a hook
+  // cannot sit after one; a no-op when nobody is listening (`decision: 'own'`).
+  useEffect(() => {
+    onChoose?.(selected);
+  }, [selected, onChoose]);
+
   if (view.options.length === 0) {
     return (
       <Typography sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
@@ -169,8 +201,6 @@ export function SdpReviewView({
       </Typography>
     );
   }
-
-  const selected = chosen.length > 0 ? chosen : (view.options[0]?.optionId ?? '');
 
   // time–cost: duration (days) × build cost (major units)
   const costPts: ScatterPoint[] = view.options.map((o) => ({
@@ -448,14 +478,18 @@ export function SdpReviewView({
               color: t.accentText,
             }}
           >
-            {readOnly ? 'DECISION CAPTURE — COMMITTED' : 'DECISION CAPTURE — THE SDP GATE'}
+            {readOnly
+              ? 'DECISION CAPTURE — COMMITTED'
+              : decision === 'chooser'
+                ? 'DECISION CAPTURE — CHOOSE THE OPTION'
+                : 'DECISION CAPTURE — THE SDP GATE'}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <AuthoredBadge label={readOnly ? 'committed' : 'you decide'} t={t} />
         </Box>
 
         <Box sx={{ p: 2.5 }}>
-          {rejecting && !readOnly ? (
+          {rejecting && !readOnly && decision === 'own' ? (
             <RejectAll
               feedback={feedback}
               pending={pending}
@@ -527,35 +561,41 @@ export function SdpReviewView({
                   <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
                     {readOnly
                       ? 'This decision is already bound as the plan of record.'
-                      : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
+                      : decision === 'chooser'
+                        ? 'Approving this review binds it as the plan of record and unlocks Phase 3 (Construction).'
+                        : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
                   </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1 }} />
-                <Button
-                  color="inherit"
-                  data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
-                  disabled={pending || readOnly}
-                  startIcon={<ReplayIcon />}
-                  sx={{ color: t.muted }}
-                  variant="text"
-                  onClick={() => {
-                    setRejecting(true);
-                  }}
-                >
-                  Reject all
-                </Button>
-                <Button
-                  color="primary"
-                  data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
-                  disabled={pending || readOnly || selected.length === 0}
-                  startIcon={<CheckIcon />}
-                  variant="contained"
-                  onClick={() => {
-                    onCommit(selected);
-                  }}
-                >
-                  Commit &amp; unlock Phase 3
-                </Button>
+                {decision === 'own' ? (
+                  <>
+                    <Button
+                      color="inherit"
+                      data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
+                      disabled={pending || readOnly}
+                      startIcon={<ReplayIcon />}
+                      sx={{ color: t.muted }}
+                      variant="text"
+                      onClick={() => {
+                        setRejecting(true);
+                      }}
+                    >
+                      Reject all
+                    </Button>
+                    <Button
+                      color="primary"
+                      data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
+                      disabled={pending || readOnly || selected.length === 0}
+                      startIcon={<CheckIcon />}
+                      variant="contained"
+                      onClick={() => {
+                        onCommit(selected);
+                      }}
+                    >
+                      Commit &amp; unlock Phase 3
+                    </Button>
+                  </>
+                ) : null}
               </Box>
             </>
           )}
