@@ -261,6 +261,6 @@ type ProjectDesignManager interface {
 // builder newProjectDesignManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
-	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, billingEstimator, designSession, episodes, repo)
+func NewProjectDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, estimator estimation.EstimationEngine, operationEstimator operationestimation.OperationEstimationEngine, billingEstimator billing.BillingEngine, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, episodes episode.EpisodeAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) ProjectDesignManager {
+	return newProjectDesignManager(client, projectState, pipeline, rail, estimator, operationEstimator, billingEstimator, designSession, activityExecution, episodes, repo)
 }

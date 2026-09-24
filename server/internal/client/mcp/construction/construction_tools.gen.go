@@ -39,7 +39,7 @@ func (h *Handler) Register(srv *mcp.Server) {
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionUpdateReviewPolicy", Description: "Replace the construction review-routing policy (which reviewers gate which produced artifacts) for a project.", InputSchema: updateReviewPolicyInputSchema(), OutputSchema: updateReviewPolicyOutputSchema()}, h.handleUpdateReviewPolicy)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionListEpisodesForActivity", Description: "List the agentic episode records (dispatch runs, or gaps) captured against one construction activity. Read-only.", InputSchema: listEpisodesForActivityInputSchema(), OutputSchema: listEpisodesForActivityOutputSchema()}, h.handleListEpisodesForActivity)
 	mcp.AddTool(srv, &mcp.Tool{Name: "constructionGetEpisodeTimeline", Description: "Return one agentic episode's full timeline: its record (usage, cost, outcome, lineage) plus the sequenced trace events mined from its run. Read-only.", InputSchema: getEpisodeTimelineInputSchema(), OutputSchema: getEpisodeTimelineOutputSchema()}, h.handleGetEpisodeTimeline)
-	mcp.AddTool(srv, &mcp.Tool{Name: "constructionQueryActivityView", Description: "Return one construction activity's whole lifecycle in one read: its task DAG (every task, its dependencies, its state) grouped into the lifecycle phases and their earned-value weights, each task's revision history with the episode, send-back note and anchored comments behind it, and the reviewer set at the gate it is waiting at. Read-only.", InputSchema: queryActivityViewInputSchema(), OutputSchema: queryActivityViewOutputSchema()}, h.handleQueryActivityView)
+	mcp.AddTool(srv, &mcp.Tool{Name: "constructionQueryActivityView", Description: "Return one construction activity's whole lifecycle in one read: its task DAG (every task, its dependencies, its state) grouped into the lifecycle phases and their earned-value weights, each task's revision history, and the reviewer set at the gate it is waiting at. A review revision backed by a persisted round carries that round's verdicts, comment thread with replies and resolutions, reviewer roster, subject and round number, and who decided it and when; one reconstructed from a row that predates the round ledger carries the episode, send-back note and anchored comments behind it instead, and says so in its provenance. Read-only.", InputSchema: queryActivityViewInputSchema(), OutputSchema: queryActivityViewOutputSchema()}, h.handleQueryActivityView)
 }
 
 type executeNextActivityInput struct {
@@ -452,17 +452,46 @@ var contractFieldDescriptions = map[reflect.Type]map[string]string{
 		"open":         "True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed).",
 		"runStartedAt": "When the pump's CURRENT run started. A cascading pump starts a new run for every activity it dispatches, so this is the current run's start, not the cascade's. Omitted when the pump is not open.",
 	},
+	reflect.TypeFor[mgr.ReviewRosterSeat](): {
+		"actor":    "The agent or person filling that role for this round.",
+		"required": "Whether the round could not be decided passed without this reviewer's verdict.",
+		"role":     "The reviewer's Method role (architect, productManager, qaEngineer, ...).",
+	},
 	reflect.TypeFor[mgr.ReviewSet](): {
 		"reason":        "The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose.",
 		"requiresHuman": "Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself.",
 	},
+	reflect.TypeFor[mgr.ReviewSubjectRef](): {
+		"kind": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.",
+		"ref":  "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored.",
+	},
+	reflect.TypeFor[mgr.ReviewThreadComment](): {
+		"status": "Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind.",
+		"type":   "What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.",
+	},
+	reflect.TypeFor[mgr.ReviewThreadReply](): {
+		"at": "RFC3339, verbatim from the ledger.",
+	},
+	reflect.TypeFor[mgr.ReviewVerdictView](): {
+		"actor":     "The agent or person who gave it. Omitted when the role alone identifies the reviewer.",
+		"at":        "RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant.",
+		"attemptId": "The gate attempt this verdict was given at.",
+		"summary":   "The reviewer's one-line reason, verbatim.",
+	},
 	reflect.TypeFor[mgr.TaskRevisionView](): {
 		"attemptIds": "Every attempt of the revision, as \"<activityId>:<task>:<n>\" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate.",
-		"comments":   "The anchored comments that rode with a send-back. Empty unless outcome is sentBack.",
+		"comments":   "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there.",
+		"decidedAt":  "RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision.",
+		"decidedBy":  "Who decided the round. Omitted while it is undecided and on a reconstructed revision.",
 		"endedAt":    "Omitted while any attempt of the revision is unresolved.",
 		"episodeId":  "The episode of the attempt that reached the gate (else the latest). Omitted on a review task and where no episode was captured.",
 		"n":          "1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it.",
-		"note":       "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded.",
+		"note":       "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position.",
+		"reviewers":  "The roster the round was opened with, as the reviewEngine computed it. Empty on a reconstructed revision: a pre-ledger row recorded who reviewed nowhere.",
+		"round":      "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give.",
+		"subjectRef": "What this revision judged. The artifact as of a non-latest revision is read from it. Omitted on a reconstructed revision, which has no record of its subject.",
+		"thread":     "The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6.",
+		"verdicts":   "Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row.",
 	},
 }
 

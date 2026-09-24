@@ -36,7 +36,7 @@ interface WireRow {
   hasBuildEvidence: boolean;
 }
 interface Wire {
-  ActivityConstruction?: Record<string, WireRow>;
+  activityExecution?: Record<string, WireRow>;
 }
 
 // Every non-GET is aborted by the shared dispatch guard (support/dispatchGuard).
@@ -54,7 +54,7 @@ async function serveEdited(
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
-    const row = wire.ActivityConstruction?.[activityId];
+    const row = wire.activityExecution?.[activityId];
     if (row === undefined) throw new Error(`no row ${activityId} in the read`);
     edit(row);
     await route.fulfill({ response, json: wire });

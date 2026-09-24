@@ -68,9 +68,9 @@ async function unrecordedActivityIds(
   });
   expect(res.status()).toBe(200);
   const data = (await res.json()) as {
-    ActivityConstruction?: Record<string, { ActivityID: string; recorded: boolean }>;
+    activityExecution?: Record<string, { ActivityID: string; recorded: boolean }>;
   };
-  return Object.values(data.ActivityConstruction ?? {})
+  return Object.values(data.activityExecution ?? {})
     .filter((r) => !r.recorded)
     .map((r) => r.ActivityID)
     .sort();
@@ -248,7 +248,7 @@ interface WireRow {
 }
 interface WireProject {
   constructionStarted?: boolean;
-  ActivityConstruction?: Record<string, WireRow>;
+  activityExecution?: Record<string, WireRow>;
 }
 
 interface Harness {
@@ -335,7 +335,7 @@ async function harness(
  *  probes its session. */
 function inConstruction(activityId: string): (wire: WireProject) => void {
   return (wire) => {
-    const row = wire.ActivityConstruction?.[activityId];
+    const row = wire.activityExecution?.[activityId];
     if (row === undefined) throw new Error(`no row ${activityId} in the read`);
     row.classified = true;
     row.hasBuildEvidence = true;
@@ -354,7 +354,7 @@ const PICKUP_AT = '2026-09-13T00:00:00Z';
  *  (BuildInReview). Its row state is "awaiting you", which is work in flight. */
 function inReview(activityId: string): (wire: WireProject) => void {
   return (wire) => {
-    const row = wire.ActivityConstruction?.[activityId];
+    const row = wire.activityExecution?.[activityId];
     if (row === undefined) throw new Error(`no row ${activityId} in the read`);
     row.classified = true;
     row.hasBuildEvidence = true;
@@ -809,7 +809,7 @@ test('a fresh pickup with no build evidence yet: its live session alone holds Be
   await page.clock.install();
   const h = await harness(page, (route) => route.abort());
   h.edit.fn = (wire) => {
-    const row = wire.ActivityConstruction?.[PICKED];
+    const row = wire.activityExecution?.[PICKED];
     if (row === undefined) throw new Error(`no row ${PICKED} in the read`);
     row.classified = true;
     row.recorded = true;
@@ -846,7 +846,7 @@ test('a fresh pickup with no build evidence yet: its live session alone holds Be
 // its pump runs. A probe still pending, or one that failed without answering, is
 // in flight; only an answer ("no session") gives Begin back.
 function freshPickup(wire: WireProject): void {
-  const row = wire.ActivityConstruction?.[PICKED];
+  const row = wire.activityExecution?.[PICKED];
   if (row === undefined) throw new Error(`no row ${PICKED} in the read`);
   row.classified = true;
   row.recorded = true;

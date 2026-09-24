@@ -17,12 +17,12 @@ import (
 // construction".
 func TestGetProjectOutputCarriesContractFieldDescriptions(t *testing.T) {
 	s := getProjectOutputSchema()
-	row := s.Properties["result"].Properties["ActivityConstruction"].AdditionalProperties
+	row := s.Properties["result"].Properties["activityExecution"].AdditionalProperties
 	if row == nil {
-		t.Fatalf("get-project output schema has no ActivityConstruction row schema")
+		t.Fatalf("get-project output schema has no activityExecution row schema")
 	}
 	for prop, want := range map[string]string{
-		"recorded":    ".activityConstruction",
+		"recorded":    ".activityExecution",
 		"worstOrigin": "Omitted when recorded is false",
 		"BuildStatus": "hasBuildEvidence is false",
 		"Phase":       "hasBuildEvidence is false",

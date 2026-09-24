@@ -74,7 +74,7 @@ const serverDir = "server"
 const generatorID = "cmd/backfill-attempts"
 
 // constructionMember is the one top-level project.json member this tool may write.
-const constructionMember = "activityConstruction"
+const constructionMember = "activityExecution"
 
 // founderRuling is the ruling that turns "fully implemented" into "done, reviewed and
 // integrated", quoted verbatim so the sentence a reader finds in a committed basis is
@@ -1117,7 +1117,7 @@ func validateAttempts(attempts []projectstate.TaskAttempt) error {
 	return nil
 }
 
-// backfill applies the verdicts to p.ActivityConstruction. Nothing in p is touched until
+// backfill applies the verdicts to p.ActivityExecution. Nothing in p is touched until
 // every check below has passed; any refusal leaves p exactly as it was given.
 //
 //   - A QUALIFYING activity's attempts are validated. An existing row keeps every field
@@ -1135,7 +1135,7 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 	if err != nil {
 		return 0, err
 	}
-	if err := deQualified(p.ActivityConstruction, verdicts); err != nil {
+	if err := deQualified(p.ActivityExecution, verdicts); err != nil {
 		return 0, err
 	}
 	items := make(map[string]projectstate.ActivityItem, len(list.Activities))
@@ -1143,7 +1143,7 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 		items[a.Name] = a
 	}
 	type planned struct {
-		row      projectstate.ActivityConstructionStatus
+		row      projectstate.ActivityExecution
 		attempts []projectstate.TaskAttempt
 	}
 	var writes []planned
@@ -1162,19 +1162,19 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 		if err := validateAttempts(attempts); err != nil {
 			return 0, err
 		}
-		row, attempts, err := rowFor(p.ActivityConstruction, v, typ, variant, attempts)
+		row, attempts, err := rowFor(p.ActivityExecution, v, typ, variant, attempts)
 		if err != nil {
 			return 0, err
 		}
 		writes = append(writes, planned{row: row, attempts: attempts})
 	}
-	if len(writes) > 0 && p.ActivityConstruction == nil {
-		p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{}
+	if len(writes) > 0 && p.ActivityExecution == nil {
+		p.ActivityExecution = map[string]projectstate.ActivityExecution{}
 	}
 	total := 0
 	for _, w := range writes {
 		w.row.Attempts = w.attempts
-		p.ActivityConstruction[w.row.ActivityID] = w.row
+		p.ActivityExecution[w.row.ActivityID] = w.row
 		total += len(w.attempts)
 	}
 	return total, nil
@@ -1190,7 +1190,7 @@ func backfill(p *projectstate.Project, verdicts []verdict, now time.Time) (int, 
 // true record of what the evidence showed when it was written. Keeping it would leave a
 // row that is wrong. A done activity going undone is a regression, and a human decides
 // what to do about it — so the tool stops and says so.
-func deQualified(rows map[string]projectstate.ActivityConstructionStatus, verdicts []verdict) error {
+func deQualified(rows map[string]projectstate.ActivityExecution, verdicts []verdict) error {
 	var regressed []string
 	for _, v := range verdicts {
 		if v.Qualifies {
@@ -1220,16 +1220,16 @@ func ownBackfill(a projectstate.TaskAttempt) bool {
 // every field; it is refused unless every attempt it holds is this generator's own
 // backfill, and when that backfill is exactly what this run derived again, its attempts
 // are kept as they stand — the original generatedAt and citation included.
-func rowFor(rows map[string]projectstate.ActivityConstructionStatus, v verdict,
+func rowFor(rows map[string]projectstate.ActivityExecution, v verdict,
 	typ projectstate.ActivityType, variant projectstate.TestingVariant, fresh []projectstate.TaskAttempt,
-) (projectstate.ActivityConstructionStatus, []projectstate.TaskAttempt, error) {
+) (projectstate.ActivityExecution, []projectstate.TaskAttempt, error) {
 	row, exists := rows[v.ActivityID]
 	if !exists {
-		return projectstate.ActivityConstructionStatus{ActivityID: v.ActivityID, Type: typ, Variant: variant}, fresh, nil
+		return projectstate.ActivityExecution{ActivityID: v.ActivityID, Type: typ, Variant: variant}, fresh, nil
 	}
 	for _, a := range row.Attempts {
 		if !ownBackfill(a) {
-			return row, nil, fmt.Errorf("activityConstruction[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
+			return row, nil, fmt.Errorf("activityExecution[%s] already holds attempt %s (origin %q, generator %q) — refusing to overwrite real history",
 				v.ActivityID, a.AttemptID, a.Provenance.Origin, a.Provenance.Generator)
 		}
 	}
@@ -1294,7 +1294,7 @@ func recite(a projectstate.TaskAttempt, from, to string) projectstate.TaskAttemp
 // ---- the writer -----------------------------------------------------------------------
 //
 // The state file is decoded and re-encoded through the projectstate codec, and exactly
-// one top-level member — .activityConstruction — is spliced back into the ORIGINAL bytes.
+// one top-level member — .activityExecution — is spliced back into the ORIGINAL bytes.
 // Every other member keeps its bytes, which matters for more than a tidy diff: the codec
 // does not carry updatedAt or activityListOverrides, so a whole-document rewrite would
 // silently drop both.
@@ -1413,7 +1413,7 @@ func encodeCompact(p projectstate.Project) ([]byte, error) {
 	return out.Bytes(), nil
 }
 
-// spliceConstruction puts the codec's encoding of .activityConstruction into the original
+// spliceConstruction puts the codec's encoding of .activityExecution into the original
 // document and changes nothing else.
 //
 //   - The member is REPLACED in place when the document holds it. Before that, its
@@ -1467,7 +1467,7 @@ func spliceConstruction(body, before, after []byte) ([]byte, error) {
 }
 
 // onlyConstructionEdited refuses an edit whose codec encoding moved any member but
-// .activityConstruction.
+// .activityExecution.
 func onlyConstructionEdited(was, now []member) error {
 	for _, m := range now {
 		if m.key != constructionMember && !bytes.Equal(m.value, valueOf(was, m.key)) {
@@ -1491,7 +1491,7 @@ func roundTripsExactly(held, encoded json.RawMessage) error {
 		return err
 	}
 	if !bytes.Equal(compact.Bytes(), encoded) {
-		return errors.New("the committed .activityConstruction does not survive a codec round trip byte-for-byte (the codec would drop or reshape part of it) — replacing it would lose data; refusing")
+		return errors.New("the committed .activityExecution does not survive a codec round trip byte-for-byte (the codec would drop or reshape part of it) — replacing it would lose data; refusing")
 	}
 	return nil
 }
@@ -1513,11 +1513,11 @@ func codecPosition(original, encoded []member) (int, error) {
 			at = i + 1
 		}
 	}
-	return 0, errors.New("the codec's encoding holds no activityConstruction member to place")
+	return 0, errors.New("the codec's encoding holds no activityExecution member to place")
 }
 
 // rewrite applies edit to the project document raw and returns the rewritten bytes.
-// Nothing outside .activityConstruction changes, and that is proved three ways before it
+// Nothing outside .activityExecution changes, and that is proved three ways before it
 // is returned: the fidelity gate on the input, a byte comparison of every other member,
 // and a decode of the result that must re-encode to exactly the codec's encoding of the
 // edited Project.
@@ -1549,7 +1549,7 @@ func rewrite(raw []byte, edit func(*projectstate.Project) error) ([]byte, error)
 	// builds its output from the original members and swaps only the construction member,
 	// and the codec re-encodes what it decoded — so no test can reach either. They stay on
 	// purpose, as tripwires: an edit to the splicer that reached another member, or a
-	// codec whose encoding of .activityConstruction stopped being a fixed point, would
+	// codec whose encoding of .activityExecution stopped being a fixed point, would
 	// otherwise be written to the state file silently.
 	if err := confirmOnlyConstructionMoved(body, spliced); err != nil {
 		return nil, err
@@ -1573,7 +1573,7 @@ func rewrite(raw []byte, edit func(*projectstate.Project) error) ([]byte, error)
 	return out.Bytes(), nil
 }
 
-// confirmOnlyConstructionMoved proves every member other than .activityConstruction is
+// confirmOnlyConstructionMoved proves every member other than .activityExecution is
 // byte-identical, and in the same order, in the rewritten document.
 func confirmOnlyConstructionMoved(original, rewritten []byte) error {
 	was, err := members(original)

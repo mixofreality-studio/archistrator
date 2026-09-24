@@ -802,7 +802,7 @@ export interface ConstructionRow {
    */
   hasBuildEvidence: boolean;
   /**
-   * Whether a stored `.activityConstruction` head-state row backs this row at all
+   * Whether a stored `.activityExecution` head-state row backs this row at all
    * (server: Recorded). `false` is a PLANNED-NO-RECORD row: the committed activity
    * list names the activity and nothing has been recorded for it yet, so it carries
    * no attempts, no evidence and no `worstOrigin`. The one explicit signal — read it

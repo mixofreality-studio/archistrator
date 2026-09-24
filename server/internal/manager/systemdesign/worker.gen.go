@@ -34,6 +34,18 @@ func RegisterWorker(w worker.Worker, mf genWorkerManifest) {
 		w.RegisterWorkflowWithOptions(wf.Fn, workflow.RegisterOptions{Name: wf.Name})
 	}
 	acts := &mf.Activities
+	w.RegisterActivityWithOptions(acts.ActivityExecutionAcknowledgeStaleBasis, activity.RegisterOptions{Name: "activityExecutionAccess.acknowledgeStaleBasis"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionCommitActivityArtifacts, activity.RegisterOptions{Name: "activityExecutionAccess.commitActivityArtifacts"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionReadActivityExecution, activity.RegisterOptions{Name: "activityExecutionAccess.readActivityExecution"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionRecordActivityOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordActivityOutcome"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionRecordAttemptOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordAttemptOutcome"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote, activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus, activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
+	w.RegisterActivityWithOptions(acts.ActivityExecutionStageTaskOutput, activity.RegisterOptions{Name: "activityExecutionAccess.stageTaskOutput"})
 	w.RegisterActivityWithOptions(acts.PipelineCancelAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.cancelAgenticJob"})
 	w.RegisterActivityWithOptions(acts.PipelineObserveAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.observeAgenticJob"})
 	w.RegisterActivityWithOptions(acts.PipelineSubmitAgenticJob, activity.RegisterOptions{Name: "agenticJobAccess.submitAgenticJob"})

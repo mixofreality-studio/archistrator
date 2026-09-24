@@ -51,7 +51,7 @@ interface WireRow {
   pendingResume?: { fromPhase: string; waitsOn: WireDep[] };
 }
 interface Wire {
-  ActivityConstruction?: Record<string, WireRow>;
+  activityExecution?: Record<string, WireRow>;
 }
 
 interface Pending {
@@ -64,7 +64,7 @@ async function readWire(request: APIRequestContext): Promise<WireRow[]> {
   const res = await request.get(READ);
   expect(res.ok()).toBe(true);
   const wire = (await res.json()) as Wire;
-  return Object.values(wire.ActivityConstruction ?? {});
+  return Object.values(wire.activityExecution ?? {});
 }
 
 async function readPending(request: APIRequestContext): Promise<Pending[]> {
@@ -121,7 +121,7 @@ async function serveNextInLine(page: Page): Promise<void> {
   await page.route(`**/system-design/get-project/archistrator**`, async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
-    const row = wire.ActivityConstruction?.[BILLING];
+    const row = wire.activityExecution?.[BILLING];
     if (row?.pendingResume === undefined) throw new Error(`no pending ${BILLING} in the read`);
     row.pendingResume.waitsOn = [];
     await route.fulfill({ response, json: wire });

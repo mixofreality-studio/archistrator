@@ -10,6 +10,7 @@ import (
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
@@ -321,6 +322,15 @@ func (wf *workflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in coA
 		// feedback as round-0 OPEN ledger entries on the staged session branch. Once only.
 		amendmentSeeded = wf.maybeSeedAmendment(ctx, in, gf, &headVersion, amendmentSeeded, state)
 
+		// ROUND LEDGER (stage 3 task 6): the draft has entered awaitingReview, so the review
+		// occurrence it is about to be judged in exists — open the round with the roster the
+		// engine computed and the subject it judges. A redraft's re-entry opens a NEW round.
+		// It sits HERE rather than inside finishDraftRound because this is the spine's own
+		// AwaitingReview boundary, the same place the systemdesign twin opens its round, and
+		// because a round opened before the amendment seed would predate its own thread.
+		// Inert off the fence.
+		wf.openDesignRound(ctx, in, gf, reviewRound, state)
+
 		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
 		// fault is CONTAINED as coAuthorReAwait (QA F35): the staged draft is intact, so we
 		// re-suspend at THIS gate (carrying a queryable notice) and await the next decision —
@@ -457,6 +467,10 @@ func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput
 	} else {
 		proj = p
 		headVersion = p.Version
+		// The round ledger is a MAIN-side write, so it starts from main's tip (see
+		// coAuthorState.ledgerVersion). A NotFound leaves it 0, which applyRecovering's
+		// re-read resolves on the first write.
+		state.ledgerVersion = p.Version
 	}
 
 	// REPLAY SAFETY (design-vibes-autogate): resolve the vibes-autogate version gate ONCE, at
@@ -464,6 +478,13 @@ func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput
 	// here → replay resolves DefaultVersion → the autogate stays OFF for its whole run (the
 	// human gate), while every post-deploy session records v1 and may auto-approve.
 	state.vibesAutogateEnabled = workflow.GetVersion(ctx, "design-vibes-autogate", workflow.DefaultVersion, 1) >= 1
+
+	// REPLAY SAFETY (design-round-ledger): resolve the round-ledger fence ONCE, here, for
+	// the same reason and with the same discipline. Every write it gates is a Temporal
+	// Activity, so a session suspended at its gate when this deploys has a history with no
+	// marker at this point: it replays DefaultVersion, writes no round for its whole run,
+	// and its recorded command sequence is unchanged.
+	state.roundLedgerEnabled = workflow.GetVersion(ctx, changeDesignRoundLedger, workflow.DefaultVersion, 1) >= 1
 
 	// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): snapshot the review policy at
 	// session start — a vibes preset auto-approves this session's drafts at the review gate,
@@ -486,6 +507,16 @@ func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput
 			"projectId", string(in.ProjectID), "artifactKind", artifactKindString(in.ArtifactKind), "err", perr.Error())
 	}
 	state.policyAutoApprove = perr == nil && !gateSet.RequiresHuman
+	// The SAME engine answer is the round's ROSTER (stage 3 task 6). Snapshot it here rather
+	// than asking again at the gate: a second call would be a second chance to disagree with
+	// the gate decision the session is already running under.
+	if perr == nil {
+		state.roundReviewers = designRoundReviewers(gateSet)
+	}
+	// And the round NUMBERING is seeded from the durable ledger, here, before any round is
+	// opened: a second session of this kind continues the review history rather than
+	// re-minting the first session's ids (designRoundID's two-sessions hazard).
+	wf.seedRoundBaseFromLedger(ctx, in, state)
 
 	feedback := ReviewFeedback{}
 	if in.Feedback != nil {
@@ -982,6 +1013,22 @@ func (wf *workflows) coAuthorApplyDecision(
 			return coAuthorContinue, coAuthorUnknown, nil
 		}
 		*headVersion = newVersion
+		// ROUND LEDGER (stage 3 task 6): the SAME send-back, as a verdict carrying the SAME
+		// comments the slot thread just received, then the round's terminal. Two ledgers, one
+		// content — the property the dual-write exists for.
+		rejectComments := feedbackToLedgerComments(sig.Feedback)
+		wf.appendDesignVerdict(ctx, in, state, projectstate.ReviewVerdict{
+			ReviewerRole: designRoleHuman,
+			Actor:        designActorOperator,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      notes,
+			AttemptID:    state.round.attemptID,
+			// nil replies: SubmitReviewDecision refuses a replyTo outright on this rail
+			// (checkNoReplyTo, ruling P13), so a Phase-2 batch is fresh threads only and the
+			// reply half of the slot write is nil too. The round's pairing is inert here until
+			// Stage 2 routes the margin's reply box into Phase 2.
+		}, rejectComments, newSlotCommentIDs(*reviewRound, rejectComments), nil)
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundSentBack, designActorOperator)
 		// The reject folded the architect's anchored comments into the ledger
 		// (feedbackToLedgerComments, above), so this feedback is durably seeded — the pre-dispatch
 		// failed-gate seed skips it (no double-seed).
@@ -1018,6 +1065,10 @@ func (wf *workflows) coAuthorApplyDecision(
 		}); err != nil {
 			return coAuthorProceed, coAuthorUnknown, err
 		}
+		// ROUND LEDGER (stage 3 task 6): a withdrawn session's open round is CLOSED, not
+		// abandoned. RoundWithdrawn exists for exactly this, and a round left pending forever
+		// is the shape the stage-4 sweep has to clean up.
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundWithdrawn, designActorOperator)
 		state.stage = StageWithdrawn
 		state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
 		return coAuthorReturn, coAuthorWithdrawn, nil
@@ -1143,6 +1194,18 @@ func (wf *workflows) coAuthorApprove(
 		logger.Warn("approve post-merge commit fault; returning to AwaitingReview for re-approve", "error", err.Error())
 		return wf.reAwaitAfterApproveFault(state, approveFailedReason(err)), coAuthorUnknown, nil
 	}
+	// ROUND LEDGER (stage 3 task 6): the approve is recorded only once it has actually
+	// HAPPENED — after the merge and the commit. Every earlier exit from this function is a
+	// contained fault that returns the session to the gate, and a round stamped passed for a
+	// decision that did not land is the kind of lie this wave exists to end.
+	actor := designApproverActor(approver)
+	wf.appendDesignVerdict(ctx, in, state, projectstate.ReviewVerdict{
+		ReviewerRole: designRoleHuman,
+		Actor:        actor,
+		Verdict:      projectstate.VerdictApprove,
+		AttemptID:    state.round.attemptID,
+	}, nil, nil, nil)
+	wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundPassed, actor)
 	state.stage = StageCommitted
 	state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
 	return coAuthorReturn, coAuthorApproved, nil
@@ -1285,6 +1348,13 @@ func (wf *workflows) awaitDraftFailedRecovery(
 			}); err != nil {
 				return coAuthorUnknown, false, err
 			}
+			// ROUND LEDGER (stage 3 task 6): this gate IS reachable with a round open — a
+			// draft that staged, opened its round and was then approved onto a NOT-GREEN pull
+			// request lands here. Withdrawing without closing that round left it pending
+			// forever with no run alive to settle it, which is the one shape the stage-4 sweep
+			// exists to clean up and the one this workflow can avoid outright. A no-op when no
+			// round is open, which on this rail is every session today.
+			wf.decideDesignRound(ctx, projectID, state, projectstate.RoundWithdrawn, designActorOperator)
 			return coAuthorWithdrawn, false, nil
 		}
 		// A non-actionable review decision at the failed gate: stay suspended.
@@ -2207,6 +2277,592 @@ type setCommentStatusSignal struct {
 	Status    string
 }
 
+// ---------------------------------------------------------------------------
+// THE ROUND LEDGER (spec 2026-09-20 §5.3, stage 3 task 6) — the design rail's
+// DUAL-WRITE.
+//
+// Every review decision this rail takes is now recorded TWICE: once where it has always
+// been recorded (the artifact slot's ReviewThread + status, which the SPA still reads
+// through GetSessionState → committedSessionView → reviewThreadToView) and once as a
+// ReviewRound on the activity execution ledger, through activityExecutionAccess. The slot
+// write is not a legacy path to be cut over here — deleting it would blank the design
+// review UI for the length of the wave, so it stays until stage 6 re-points the SPA.
+//
+// What the round carries that the thread never could: the ROSTER the review engine
+// computed, the VERDICTS (the critic's and the human's, each with its role and its
+// summary), the SUBJECT the round judged, the round NUMBER as a first-class field, and
+// the terminal — passed, sent back or withdrawn — with who decided it. A vibes preset
+// auto-approving with nothing in the data to show for it is the defect this wave exists
+// to end, and on this rail the auto-approver's own name lands in DecidedBy.
+//
+// KEYED LIKE A CONSTRUCTION ROUND, from the same tables. The activity id is the design
+// PREFIX activity the derived plan carries (requirements / architecture / projectDesign)
+// — designActivityFor(kind) resolves the kind to it — and the task id is that lifecycle
+// phase's gate task, read out of method-assets through the SAME projectstate.GateTaskFor
+// / AgentTaskFor tables the construction child workflow reads. Nothing here names a task
+// id literally: a round that cited a task the pinned lifecycle does not carry would be a
+// round no reader could place in the DAG, which is exactly what the LifecyclePin exists
+// to prevent.
+//
+// AND ON THIS RAIL THAT RESOLUTION FAILS FOR EVERY KIND, SO NOTHING IS WRITTEN YET.
+// method-assets v0.9.0 models the projectDesign lifecycle as ONE phase — "sdp", the M0
+// gate — with one review task, "sdpReview", that judges no dispatch task; and the nine
+// Phase-2 artifact drafts this rail co-authors map to their OWN wire names rather than to
+// "sdp" (designActivityFor, deliberately: mapping them there would gate nine drafts behind
+// the always-human spend floor). So no Phase-2 kind has a review task to key a round on.
+// That is stated rather than papered over: inventing "planningAssumptionsReview" would put
+// a task id in the ledger that the PINNED lifecycle does not carry, and every reader
+// deriving a phase from it would find a task that is not in the DAG.
+//
+// EARMARKS, both tracked for stage 4 and the platform: (a) extending the projectDesign
+// lifecycle with the nine drafts and their reviews is a method-assets release (a founder
+// STOP), and the moment it lands this code lights up with no edit; (b) a reply to a comment
+// from an EARLIER, already-decided round is dropped from the round ledger — see
+// roundRepliesFor; (c) comments seeded straight onto the slot (an amendment's reopening
+// feedback, a failed-gate feedback seed, an asked question) never reach a round, so a later
+// resolve of one is not mirrored — see mirrorCommentStatus.
+// ---------------------------------------------------------------------------
+
+// changeDesignRoundLedger is the ONE version marker gating every round-ledger write on
+// this rail. One id, not one per write point, for the reason task 5 gives on the
+// construction rail: the writes are one feature and a session is either on it or off it,
+// where separate ids would admit a half-fenced session that opens a round and never
+// decides it. It is resolved ONCE at session start (beginCoAuthorSession), the same
+// discipline as "design-vibes-autogate": a session in flight at deploy time has no marker
+// there, so it replays DefaultVersion and runs its WHOLE life on the old command sequence.
+const changeDesignRoundLedger = "design-round-ledger"
+
+// The design gate's ledger vocabulary.
+const (
+	// reviewerUtteranceRole is the role a REVIEWER's own utterance carries, named here as
+	// it is in the systemdesign twin. It differs from reviewAuthorRole ("architect", the
+	// role stamped on the comments the reviewer OPENS) because the derive rule reads it:
+	// projectstate.isReviewerRole treats "architect" and "pm" as AGENT roles, so a reviewer
+	// utterance stamped "architect" would leave the thread reading as answered by its own
+	// author. Phase 2 routes no reply utterances yet (SubmitReviewDecision refuses a replyTo
+	// outright, ruling P13), so today it is the verdict role alone.
+	reviewerUtteranceRole = "architect-user"
+	// designRoleHuman is the role the human reviewer's verdict carries. It is the SAME wire
+	// label their thread utterances carry, because it is the same person: a round whose
+	// verdict said "architect" and whose comments said "architect-user" would read as two
+	// reviewers.
+	designRoleHuman = reviewerUtteranceRole
+	// designActorOperator is who the platform can honestly name when a decision signal
+	// carries no identity of its own. An approve DOES carry one (the approver, or the
+	// vibes auto-approver), and that name is used instead wherever it is present.
+	designActorOperator = "operator"
+)
+
+// designApproverActor is WHO the platform can honestly say approved a design gate: the
+// identity the approve signal carried — a person, or the vibes auto-approver — falling back
+// to the operator when the signal named nobody. Never fabricated.
+func designApproverActor(approver string) string {
+	if approver == "" {
+		return designActorOperator
+	}
+	return approver
+}
+
+// designRoundKey is one design artifact kind's coordinates on the execution ledger.
+type designRoundKey struct {
+	// activityID is the design prefix activity the round hangs off — the id the derived
+	// plan carries for it, which is the design activity type's own wire name.
+	activityID string
+	// typ is that same activity type in the store's vocabulary, for OpenActivity.
+	typ projectstate.ActivityType
+	// gate is the lifecycle phase's REVIEW task — the task this round IS an occurrence of.
+	gate projectstate.MethodTask
+	// work is the dispatch task the gate judges — the round's Reviews field, which the
+	// store refuses to leave empty ("a round that judges no task judges nothing").
+	work projectstate.MethodTask
+}
+
+// designRoundKeyFor resolves an artifact kind onto those coordinates, or reports that the
+// pinned lifecycles carry no review task for it (see the section doc). Pure table lookup
+// over designActivityFor + the method-assets-derived phase→task tables; no literals.
+func designRoundKeyFor(kind projectstate.ArtifactKind) (designRoundKey, bool) {
+	designType, lifecyclePhase := designActivityFor(kind)
+	psType, ok := psActivityTypeFor(designType)
+	if !ok {
+		return designRoundKey{}, false
+	}
+	p := projectstate.ActivityMethodPhase(lifecyclePhase)
+	gate, work := projectstate.GateTaskFor(p), projectstate.AgentTaskFor(p)
+	if gate == "" || work == "" {
+		return designRoundKey{}, false
+	}
+	return designRoundKey{activityID: string(designType), typ: psType, gate: gate, work: work}, true
+}
+
+// psActivityTypeFor maps the review engine's activity-type vocabulary onto the store's.
+// The two are the same names either side of a layer boundary the engine cannot cross.
+// Exhaustive with no default arm — the trailing return is the out-of-vocabulary catch, so
+// a new member is a build-time decision rather than a value that silently classifies as
+// "not a design type". The seven construction types are named and refused: they never
+// reach a design rail, and a design round keyed on one would be a fabrication.
+func psActivityTypeFor(t review.ActivityType) (projectstate.ActivityType, bool) {
+	switch t {
+	case review.ActivityTypeRequirements:
+		return projectstate.ActivityTypeRequirements, true
+	case review.ActivityTypeArchitecture:
+		return projectstate.ActivityTypeArchitecture, true
+	case review.ActivityTypeProjectDesign:
+		return projectstate.ActivityTypeProjectDesign, true
+	case review.ActivityTypeService, review.ActivityTypeFrontend, review.ActivityTypeTesting,
+		review.ActivityTypeDeployment, review.ActivityTypeDocumentation, review.ActivityTypeUIDesign,
+		review.ActivityTypeIntegration:
+		return 0, false
+	}
+	return 0, false
+}
+
+// designRoundID names ONE design review round. It deliberately does NOT use
+// projectstate.AttemptID's <activityId>:<taskId>:<n>, and the artifact kind in the middle
+// is the reason: several kinds share one lifecycle phase (scrubbedRequirements shares the
+// glossary phase; operationalConcepts and standardCheck share the architecture phase), so
+// two independent co-author sessions would mint the SAME three-part id for their own first
+// round. OpenReviewRound is idempotent on that id — the property the whole ledger rests on
+// — so the second session's round would silently vanish into the first's, and its verdicts
+// would append to a round that judged a different artifact. That is precisely the history
+// corruption this wave exists to end, so the kind is part of the key.
+//
+// THE TWO-SESSIONS HAZARD, and the seed that closes it. The kind settles collisions
+// BETWEEN kinds; it does nothing about the same kind co-authored TWICE. reviewRound is a
+// per-SESSION counter that starts at 0, so a second pass at an artifact already reviewed
+// once would mint round 1 all over again. The store would resolve that id to the round the
+// FIRST session opened and left decided, and this rail's round writes are best-effort: the
+// second session's verdicts and comments would either be refused (a decided round is
+// terminal — a Conflict this rail only logs) or, worse, land on a round whose SubjectRef
+// names the first session's draft. Neither leaves a reader any way to tell the two reviews
+// apart.
+//
+// seedRoundBaseFromLedger closes it by reading the durable ledger at session start and
+// starting this session's numbering ABOVE every round it already holds for this kind's
+// gate — the same thing the construction rail's seedResumeFromLedger does, and for the
+// same reason. The SLOT thread's own 0-based per-session counter is NOT changed: it is
+// still the design read path for the length of the wave, and the migration keyed on it.
+func designRoundID(k designRoundKey, kind projectstate.ArtifactKind, round int) string {
+	return fmt.Sprintf("%s%d", designRoundIDPrefix(k, kind), round)
+}
+
+// designRoundIDPrefix is everything designRoundID mints ahead of the round number: the
+// coordinates that identify the REVIEW HISTORY a round belongs to, shared by every round
+// of one kind at one gate. Split out so the seed can recognize this writer's own ids
+// without parsing them apart — the doctrine is that nothing may PARSE a RoundID (joins
+// use (TaskID, Round)), and matching a prefix this same function mints is not parsing.
+func designRoundIDPrefix(k designRoundKey, kind projectstate.ArtifactKind) string {
+	return fmt.Sprintf("%s:%s:%s:", k.activityID, k.gate, kind.WireName())
+}
+
+// seedRoundBaseFromLedger starts this session's round numbering above every round the
+// DURABLE ledger already holds for this artifact kind's gate (see designRoundID's
+// two-sessions hazard). Called ONCE, at session start, inside the changeDesignRoundLedger
+// fence — a session that replays DefaultVersion makes no call here, exactly as it makes
+// none of the round writes the seed exists to serve.
+//
+// Best-effort like every other round-ledger touch: a kind with no review task in the
+// pinned lifecycle, an activity with no row yet (the ordinary first session — NotFound),
+// or a read that fails all leave the base at 0, which is the numbering this rail had
+// before the seed existed. On THIS rail no Phase-2 kind resolves to a review task today
+// (Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle), so the seed makes
+// no call at all — it is here, identical to its systemdesign twin, because the two rails
+// are edited together and a fix to one must not be a divergence from the other.
+func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorInput, state *coAuthorState) {
+	if !state.roundLedgerEnabled {
+		return
+	}
+	kind := toPSKind(in.ArtifactKind)
+	key, ok := designRoundKeyFor(kind)
+	if !ok {
+		return
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), key.activityID)
+	if err != nil {
+		if !isReadNotFound(err) {
+			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; this session numbers its rounds from zero",
+				"activityId", key.activityID, "artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+		}
+		return
+	}
+	state.roundBase = ledgerRoundBase(row, key, kind)
+}
+
+// ledgerRoundBase is the highest round number the row's review ledger holds for ONE
+// kind's gate. Pure over a value already in workflow history, so it is replay-safe.
+//
+// A round belongs to this history when it is an occurrence of the same gate task AND
+// carries the id prefix this rail mints for this kind. Both halves are needed: TaskID
+// alone would sweep in the other kinds that share the gate, and the prefix alone would
+// trust an id shape the store does not enforce.
+func ledgerRoundBase(row projectstate.ActivityExecution, key designRoundKey, kind projectstate.ArtifactKind) int {
+	prefix := designRoundIDPrefix(key, kind)
+	base := 0
+	for _, r := range row.Reviews {
+		if r.TaskID != key.gate || !strings.HasPrefix(r.RoundID, prefix) {
+			continue
+		}
+		if int(r.Round) > base {
+			base = int(r.Round)
+		}
+	}
+	return base
+}
+
+// designRound is the round this session currently has open at the human gate.
+type designRound struct {
+	key designRoundKey
+	// roundID is the store key; empty means "no round is open", which every write point
+	// below treats as "write nothing" rather than as an error.
+	roundID string
+	// number is the round's 1-based occurrence number ON THE DURABLE LEDGER: the ledger's
+	// own base for this kind's gate (seedRoundBaseFromLedger) plus the session's 0-based
+	// slot round plus one. The slot ledger's counter is 0-based (its comment ids are r0c1,
+	// r1c1 …) and OpenReviewRound refuses a round below 1, so a FIRST session's round is
+	// the slot round plus one; a second session of the same kind continues above the first.
+	// Stated here because the comment-id mirror below mints from THIS number, not from the
+	// slot's — which is what keeps the pairing right once the two diverge.
+	number int
+	// subject is what the round judges.
+	subject projectstate.SubjectRef
+	// attemptID is the draft attempt this round's verdicts judged, in the ledger's own key
+	// format. The design rail does not yet WRITE the attempt ledger (stage 3 gives it
+	// rounds only), so nothing joins to this id today; it is minted in the canonical format
+	// so it joins the moment the rail records its draft attempts. EARMARK: stage 4.
+	attemptID string
+}
+
+// roundCommentRef locates one comment on the round ledger — the round it landed in and the
+// id the store minted for it there.
+type roundCommentRef struct {
+	roundID   string
+	commentID string
+}
+
+// designSubjectRef names WHAT a design round judges. The commit sha of the draft is NOT
+// knowable to this workflow — the design job's agent pushes it and the workflow only ever
+// reads back a typed model and a version — so the honest subject is the pull request the
+// reviewer actually opens when there is one, and the staged artifact on its branch when
+// there is not. Deterministic: both halves come from recorded Activity results.
+func designSubjectRef(gf gitSession, kind projectstate.ArtifactKind) projectstate.SubjectRef {
+	if gf.enabled && gf.prRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: gf.prRef}
+	}
+	if branch := gf.readBackBranch(); branch != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind.WireName() + "@" + branch}
+	}
+	return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind.WireName()}
+}
+
+// designRoundReviewers is the roster the round persists: the rows the review engine
+// computed for this design gate, plus the human row when the policy holds for a person.
+// The engine's rows are NOT Required — the design rail dispatches no reviewer from them —
+// and a row marked required that nothing waits for would make the round claim a gate it
+// never had. Same rule, same reason, as the construction rail's roundReviewers.
+func designRoundReviewers(set review.ReviewSet) []projectstate.RoundReviewer {
+	out := make([]projectstate.RoundReviewer, 0, len(set.Reviewers)+1)
+	for _, r := range set.Reviewers {
+		out = append(out, projectstate.RoundReviewer{Role: r.Role, Actor: r.Role, Required: false})
+	}
+	if set.RequiresHuman {
+		out = append(out, projectstate.RoundReviewer{Role: designRoleHuman, Actor: designActorOperator, Required: true})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// openDesignRound opens the round for the gate the session has just reached. It is called
+// on EVERY entry to the AwaitingReview gate. Nothing is appended to it here: Phase 2 runs
+// no critique round, so the round's first verdict is the human's own (see the section's
+// note on the missing critic).
+//
+// WHICH RE-ENTRIES ARE A NEW ROUND, AND WHICH ARE THE SAME ONE. The round id is minted
+// from the SLOT's review-round counter, so the counter decides:
+//
+//   - A SEND-BACK redraft is a NEW round. The reject arm bumps reviewRound after deciding
+//     the round sentBack, so the re-stage mints the next id and the ledger shows the
+//     send-back and its retry as two rounds rather than one mutated row.
+//   - A RETRY at the StageDraftFailed gate re-enters the SAME round. Nothing on that path
+//     bumps reviewRound — an approve onto a not-green pull request, or any post-read-back
+//     fault, lands at that gate with the round still PENDING — so the re-stage remints the
+//     same id and OpenReviewRound resolves it to the round already open. That is the
+//     honest record: one review occurrence that the reviewer has not settled yet. It is
+//     also harmless to re-walk, because every write here converges — OpenReviewRound is
+//     idempotent on the id and, under the single-branch topology, the subject is the same
+//     pull request either way. A Withdraw at that gate now decides that round withdrawn
+//     rather than stranding it (the decideDesignRound call in awaitDraftFailedRecovery).
+//
+// It is also where the activity row is born: OpenActivity is idempotent and write-once on
+// the pin, so a second Phase-2 kind under the projectDesign prefix activity resumes the row
+// the first kind opened rather than re-dating it.
+//
+// THE CRASH WINDOW, STATED, exactly as the construction rail states it: a session that
+// dies between the open and the decision leaves this round PENDING forever. A resume is a
+// fresh workflow that opens the NEXT round (the slot's round counter is durable), so
+// nothing collides and nothing is duplicated — but nobody goes back to close this one.
+// Closing an abandoned round needs to know the session is gone, which a workflow cannot
+// know about itself; the stage-4 sweep owns it, and RoundWithdrawn exists for it.
+func (wf *workflows) openDesignRound(
+	ctx workflow.Context,
+	in coAuthorInput,
+	gf gitSession,
+	reviewRound int,
+	state *coAuthorState,
+) {
+	state.round = designRound{}
+	if !state.roundLedgerEnabled {
+		return
+	}
+	kind := toPSKind(in.ArtifactKind)
+	key, ok := designRoundKeyFor(kind)
+	if !ok {
+		// Not a fault: the pinned lifecycles carry no review task for this kind (see the
+		// section doc). Logged, because a silent absence is what this wave is replacing.
+		workflow.GetLogger(ctx).Info("round ledger: no review task in the pinned lifecycle for this kind; no round is opened",
+			"artifactKind", artifactKindString(in.ArtifactKind))
+		return
+	}
+	if !wf.openDesignActivity(ctx, in, key, state) {
+		return
+	}
+	// The LEDGER's number, not the session's: state.roundBase is what the durable ledger
+	// already holds for this kind's gate (seedRoundBaseFromLedger), so a second session of
+	// the same kind continues the history instead of re-minting the first session's ids.
+	// Zero for a first session, which leaves the numbering exactly as it was.
+	n := state.roundBase + reviewRound + 1
+	round := designRound{
+		key:       key,
+		roundID:   designRoundID(key, kind, n),
+		number:    n,
+		subject:   designSubjectRef(gf, kind),
+		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected, key.activityID,
+			projectstate.ReviewRoundInput{
+				RoundID:    round.roundID,
+				TaskID:     key.gate,
+				Reviews:    key.work,
+				Round:      int64(round.number),
+				SubjectRef: round.subject,
+				Reviewers:  state.roundReviewers,
+			}, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		// Best-effort, exactly like the thread reload beside it: the slot write is still the
+		// read path for the length of the wave, so a ledger miss must not cost the reviewer
+		// their gate. The round simply does not exist, and every write point below is a
+		// no-op without it.
+		workflow.GetLogger(ctx).Error("round ledger: could not open the review round; the session continues on the slot ledger alone",
+			"artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.round = round
+}
+
+// openDesignActivity births the execution row and pins the lifecycle in force, once per
+// session. The pin is what stops a method-assets release landing mid-session from
+// re-shaping the DAG the rounds below were written under.
+func (wf *workflows) openDesignActivity(ctx workflow.Context, in coAuthorInput, key designRoundKey, state *coAuthorState) bool {
+	if state.activityOpened {
+		return true
+	}
+	pin := projectstate.LifecyclePin{
+		TypeKey:       projectstate.LifecycleKeyFor(key.typ, projectstate.TestVariantPlan),
+		AssetsVersion: methodassets.Version(),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			key.activityID, key.typ, projectstate.TestVariantPlan, pin, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not open the design activity row; no round is written this session",
+			"activityId", key.activityID, "err", err.Error())
+		return false
+	}
+	state.ledgerVersion = v
+	state.activityOpened = true
+	return true
+}
+
+// NO CRITIC VERDICT ON THIS RAIL. Phase 2 has no critique step at all — the plan is
+// COMPUTED, not drafted, so the review engine's own designReviewersFor returns an empty
+// roster for projectDesign and the only judge is the human at M0. The systemdesign twin's
+// appendCriticVerdict has deliberately no counterpart here rather than a stub that would
+// invite someone to fabricate one.
+
+// appendDesignVerdict lands one reviewer's judgement, the comments it cites and the
+// utterances it answers on the open round, in ONE commit. It also remembers where each
+// comment landed, so a later resolve / reopen of that comment can be mirrored onto the
+// round without reading it back.
+//
+// slotReplies are the reviewer's queued replies as the SLOT ledger received them, keyed on
+// SLOT comment ids; roundRepliesFor re-keys the ones this round can actually take.
+//
+// A no-op when no round is open, and best-effort when one is: the slot ledger is still the
+// read path, so a round write that faults must not take the reviewer's decision with it.
+func (wf *workflows) appendDesignVerdict(
+	ctx workflow.Context,
+	in coAuthorInput,
+	state *coAuthorState,
+	verdict projectstate.ReviewVerdict,
+	comments []projectstate.ReviewComment,
+	slotIDs []string,
+	slotReplies []projectstate.ReviewReply,
+) {
+	if state.round.roundID == "" {
+		return
+	}
+	replies := state.roundRepliesFor(slotReplies)
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.round.key.activityID, state.round.roundID, verdict, comments, replies, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not append the verdict; the slot ledger still carries the decision",
+			"roundId", state.round.roundID, "reviewerRole", verdict.ReviewerRole, "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.rememberRoundComments(slotIDs, len(comments))
+}
+
+// roundRepliesFor re-keys the reviewer's queued replies from the SLOT ledger's comment ids
+// onto the ROUND ledger's, keeping only the ones whose parent comment lives in the round
+// this append is landing on.
+//
+// THE REST ARE DROPPED FROM THE ROUND LEDGER, DELIBERATELY. AppendReviewVerdict appends a
+// reply to the thread of the round it is given, and a reply naming a comment that is not in
+// that thread makes the whole append fail — so a reply to an EARLIER round's comment cannot
+// be mirrored at all: that round is already decided, and a decided round is terminal, which
+// is the store's own rule and not one this workflow may route around. The slot ledger still
+// carries it, and the slot ledger is still the read path for the length of the wave.
+// EARMARK (stage 4/6): cross-round replies need a verb that appends to a decided round's
+// thread, or the round model needs the conversation to outlive its round.
+//
+// Today the kept set is empty in practice: each design round takes exactly one comment
+// batch (the human's send-back), so a reply — which by construction answers a thread that
+// ALREADY existed when the batch was split — always names an earlier round. The pairing is
+// written and tested anyway, because the moment a round takes a second batch the silent
+// alternative is a reviewer utterance mis-attached to the wrong comment.
+func (s *coAuthorState) roundRepliesFor(slotReplies []projectstate.ReviewReply) []projectstate.ReviewReply {
+	if len(slotReplies) == 0 || s.round.roundID == "" {
+		return nil
+	}
+	out := make([]projectstate.ReviewReply, 0, len(slotReplies))
+	for _, r := range slotReplies {
+		ref, ok := s.roundComments[r.CommentID]
+		if !ok || ref.roundID != s.round.roundID {
+			continue
+		}
+		held := r
+		held.CommentID = ref.commentID
+		out = append(out, held)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// rememberRoundComments records the slot-comment-id → round-comment-id pairing for the
+// batch just appended, so a resolve / reopen filed against the SLOT's id can be mirrored
+// onto the round.
+//
+// The pairing is computed, not read back, because both stores mint deterministically from
+// the batch's own index: the slot stamps r{slotRound}c{i+1} (appendReviewComments) and the
+// round stamps r{roundNumber}c{i+1} (applyRoundReviewBatch, onto a thread this rail only
+// ever appends to once per round). The two differ ONLY in the round number, which is the
+// +1 offset designRound.number documents. A batch whose two halves disagree in length is
+// not paired at all rather than paired wrongly.
+func (s *coAuthorState) rememberRoundComments(slotIDs []string, appended int) {
+	if len(slotIDs) != appended || appended == 0 {
+		return
+	}
+	if s.roundComments == nil {
+		s.roundComments = map[string]roundCommentRef{}
+	}
+	for i, slotID := range slotIDs {
+		s.roundComments[slotID] = roundCommentRef{
+			roundID:   s.round.roundID,
+			commentID: projectstate.ReviewCommentID(int64(s.round.number), i),
+		}
+	}
+}
+
+// decideDesignRound stamps the round's terminal — a separate, later fact from the verdicts
+// on it, which is why the store makes it a second verb and not a field of the first.
+// decidedBy is WHO settled it: the approver's own name where the signal carried one (the
+// vibes auto-approver included, which is how an auto-approved design gate stops being
+// invisible), and the operator otherwise.
+func (wf *workflows) decideDesignRound(
+	ctx workflow.Context,
+	projectID ProjectID,
+	state *coAuthorState,
+	outcome projectstate.ReviewRoundOutcome,
+	decidedBy string,
+) {
+	if state.round.roundID == "" {
+		return
+	}
+	if decidedBy == "" {
+		decidedBy = designActorOperator
+	}
+	v, err := wf.applyRecovering(ctx, projectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(projectID), expected,
+			state.round.key.activityID, state.round.roundID, outcome, decidedBy, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not decide the review round; it stays pending for the stage-4 sweep",
+			"roundId", state.round.roundID, "outcome", string(outcome), "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	// The round is settled: the next gate entry opens a fresh one.
+	state.round = designRound{}
+}
+
+// mirrorCommentStatus applies the reviewer's resolve / reopen to the ROUND thread as well
+// as the slot thread. It fires only for comments this session itself appended to a round
+// (rememberRoundComments): a comment seeded straight onto the slot — an amendment's
+// reopening feedback, a failed-gate feedback seed, an asked question — has no round
+// counterpart to move, and naming one would be a NotFound on every retry the Activity is
+// given. EARMARK: those three seed doors join the round ledger in stage 4.
+func (wf *workflows) mirrorCommentStatus(ctx workflow.Context, in coAuthorInput, state *coAuthorState, sig setCommentStatusSignal) {
+	ref, ok := state.roundComments[sig.CommentID]
+	if !ok {
+		return
+	}
+	key, ok := designRoundKeyFor(toPSKind(in.ArtifactKind))
+	if !ok {
+		return
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionSetReviewCommentStatus(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			key.activityID, ref.roundID, ref.commentID, sig.Status, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not mirror the comment status; the slot ledger carries it",
+			"commentId", sig.CommentID, "status", sig.Status, "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+}
+
+// newSlotCommentIDs names the ids the SLOT ledger is about to mint for a fresh batch in
+// round slotRound — r{slotRound}c{i+1}, the store's own deterministic minting — so the
+// round-side pairing can be built without a read-back. Comments are the only half that
+// mints ids; replies land inside threads that already have one.
+func newSlotCommentIDs(slotRound int, comments []projectstate.ReviewComment) []string {
+	out := make([]string, 0, len(comments))
+	for i := range comments {
+		out = append(out, projectstate.ReviewCommentID(int64(slotRound), i))
+	}
+	return out
+}
+
 // feedbackToLedgerComments converts the architect's inbound anchored comments (on a Reject's
 // ReviewFeedback) into the projectstate.ReviewComment shape the append verb stamps into the
 // durable thread. Only Anchor / AnchorText / Text / AuthorRole are filled — id / round / open
@@ -2358,6 +3014,9 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 		return
 	}
 	*headVersion = newVersion
+	// ROUND LEDGER (stage 3 task 6): the same transition on the round's own copy of the
+	// comment. Inert off the fence and for a comment this session did not append to a round.
+	wf.mirrorCommentStatus(ctx, in, state, sig)
 	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
 		state.reviewThread = thread
 	}

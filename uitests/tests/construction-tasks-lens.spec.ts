@@ -50,7 +50,7 @@ interface WireRow {
   [k: string]: unknown;
 }
 interface Wire {
-  ActivityConstruction?: Record<string, WireRow>;
+  activityExecution?: Record<string, WireRow>;
   reviewPolicy?: unknown;
 }
 
@@ -97,7 +97,7 @@ async function serveOwed(
     );
     const wire = (await response.json()) as Wire;
     for (const [id, e] of Object.entries(edits)) {
-      const row = wire.ActivityConstruction?.[id];
+      const row = wire.activityExecution?.[id];
       if (row === undefined) throw new Error(`no row ${id} in the read`);
       Object.assign(
         row,
@@ -378,7 +378,7 @@ test('a gate on an activity started after the page loaded appears without a relo
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
-    const row = wire.ActivityConstruction?.[GATE];
+    const row = wire.activityExecution?.[GATE];
     if (row === undefined) throw new Error(`no row ${GATE} in the read`);
     if (startedYet) {
       Object.assign(row, {
@@ -678,7 +678,7 @@ test('"stop asking" on a construction gate says the risk floor may still ask (ro
   // holds under every policy (a contract touching deploy, spend or schema).
   await serveOwed(page, initialStages(), undefined, (wire) => {
     wire.reviewPolicy = { gatedPhasesByType: {}, preset: 'checkpoints' };
-    const row = wire.ActivityConstruction?.[GATE];
+    const row = wire.activityExecution?.[GATE];
     if (row !== undefined) row['CurrentPhase'] = 'construction';
   });
   await openTasks(page);
@@ -1159,7 +1159,7 @@ test('M2/MP8: the list task row reads the owed mark: the gate task awaits you', 
   page,
 }) => {
   await serveOwed(page, initialStages(), undefined, (wire) => {
-    const r = wire.ActivityConstruction?.[GATE];
+    const r = wire.activityExecution?.[GATE];
     if (r === undefined) throw new Error(`no row ${GATE} in the read`);
     // An open (outcome '') observed attempt on the gate task: the task is running.
     r['attempts'] = [
@@ -1194,7 +1194,7 @@ test('M2/MP1: after a 500, a failure-stopped row is no evidence of the pump: Beg
   page,
 }) => {
   await serveOwed(page, {}, [FAILED], (wire) => {
-    const r = wire.ActivityConstruction?.[FAILED];
+    const r = wire.activityExecution?.[FAILED];
     if (r !== undefined) r['BuildStatus'] = BUILD.inConstruction;
   });
   const dispatched: string[] = [];
@@ -1226,7 +1226,7 @@ test('M2/MP7: Observed only cannot enable Begin: the label reads the raw rows', 
 }) => {
   const RECONSTRUCTED = 'C-billing-engine';
   await serveOwed(page, {}, [], (wire) => {
-    const r = wire.ActivityConstruction?.[RECONSTRUCTED];
+    const r = wire.activityExecution?.[RECONSTRUCTED];
     if (r === undefined) throw new Error(`no row ${RECONSTRUCTED} in the read`);
     r['BuildStatus'] = BUILD.inReview;
   });
@@ -1256,7 +1256,7 @@ test('M2/MP6: a project read asked for before the gate left never says "now in" 
   const stages = initialStages();
   const phase = { current: 'detailed_design', served: 0 };
   await serveOwed(page, stages, undefined, (wire) => {
-    const r = wire.ActivityConstruction?.[GATE];
+    const r = wire.activityExecution?.[GATE];
     if (r !== undefined) r['CurrentPhase'] = phase.current;
     phase.served += 1;
   });
@@ -1314,7 +1314,7 @@ test('a recorded failure is not work in flight: Begin stays offered beside it (m
   page,
 }) => {
   await serveOwed(page, {}, [FAILED], (wire) => {
-    const r = wire.ActivityConstruction?.[FAILED];
+    const r = wire.activityExecution?.[FAILED];
     if (r !== undefined) r['BuildStatus'] = BUILD.inConstruction;
   });
   await openTasks(page);

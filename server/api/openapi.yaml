@@ -539,6 +539,23 @@ components:
             required:
                 - gatedPhasesByType
             type: object
+        ConstructionReviewRosterSeat:
+            additionalProperties: false
+            properties:
+                actor:
+                    description: The agent or person filling that role for this round.
+                    type: string
+                required:
+                    description: Whether the round could not be decided passed without this reviewer's verdict.
+                    type: boolean
+                role:
+                    description: The reviewer's Method role (architect, productManager, qaEngineer, ...).
+                    type: string
+            required:
+                - role
+                - actor
+                - required
+            type: object
         ConstructionReviewSet:
             additionalProperties: false
             properties:
@@ -554,6 +571,134 @@ components:
                     type:
                         - "null"
                         - array
+            type: object
+        ConstructionReviewSubjectRef:
+            additionalProperties: false
+            properties:
+                kind:
+                    description: What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.
+                    enum:
+                        - commit
+                        - artifact
+                        - pullRequest
+                    type: string
+                ref:
+                    description: 'What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact''s own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored.'
+                    type: string
+            required:
+                - kind
+                - ref
+            type: object
+        ConstructionReviewThreadComment:
+            additionalProperties: false
+            properties:
+                addressee:
+                    type: string
+                anchor:
+                    type: string
+                anchorText:
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                reopened:
+                    type: boolean
+                replies:
+                    items:
+                        $ref: '#/components/schemas/ConstructionReviewThreadReply'
+                    type: array
+                round:
+                    type: integer
+                status:
+                    description: Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind.
+                    enum:
+                        - open
+                        - answered
+                        - resolved
+                    type: string
+                text:
+                    type: string
+                type:
+                    description: 'What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.'
+                    enum:
+                        - changeRequest
+                        - question
+                        - staleAck
+                    type: string
+                    x-enum-varnames:
+                        - ThreadChangeRequest
+                        - ThreadQuestion
+                        - ThreadStaleAck
+                    x-go-base: string
+                    x-go-name: Type
+            required:
+                - id
+                - anchor
+                - text
+                - authorRole
+                - round
+                - status
+                - replies
+                - reopened
+                - type
+            type: object
+        ConstructionReviewThreadReply:
+            additionalProperties: false
+            properties:
+                at:
+                    description: RFC3339, verbatim from the ledger.
+                    type: string
+                authorRole:
+                    type: string
+                id:
+                    type: string
+                    x-go-name: ID
+                text:
+                    type: string
+            required:
+                - id
+                - authorRole
+                - text
+                - at
+            type: object
+        ConstructionReviewVerdictKind:
+            description: One reviewer's answer in a round. Agent and human verdicts are the same kind of row; abstain is a reviewer who was asked and declined, which is not silence.
+            enum:
+                - approve
+                - sendBack
+                - abstain
+            type: string
+            x-enum-varnames:
+                - VerdictApprove
+                - VerdictSendBack
+                - VerdictAbstain
+            x-go-base: string
+        ConstructionReviewVerdictView:
+            additionalProperties: false
+            properties:
+                actor:
+                    description: The agent or person who gave it. Omitted when the role alone identifies the reviewer.
+                    type: string
+                at:
+                    description: 'RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant.'
+                    type: string
+                attemptId:
+                    description: The gate attempt this verdict was given at.
+                    type: string
+                    x-go-name: AttemptID
+                reviewerRole:
+                    type: string
+                summary:
+                    description: The reviewer's one-line reason, verbatim.
+                    type: string
+                verdict:
+                    $ref: '#/components/schemas/ConstructionReviewVerdictKind'
+            required:
+                - reviewerRole
+                - verdict
+                - at
             type: object
         ConstructionReviewer:
             additionalProperties: false
@@ -645,10 +790,16 @@ components:
                 commentCount:
                     type: integer
                 comments:
-                    description: The anchored comments that rode with a send-back. Empty unless outcome is sentBack.
+                    description: The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there.
                     items:
                         $ref: '#/components/schemas/ConstructionTaskRevisionComment'
                     type: array
+                decidedAt:
+                    description: RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision.
+                    type: string
+                decidedBy:
+                    description: Who decided the round. Omitted while it is undecided and on a reconstructed revision.
+                    type: string
                 endedAt:
                     description: Omitted while any attempt of the revision is unresolved.
                     format: date-time
@@ -665,12 +816,20 @@ components:
                     description: 1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it.
                     type: integer
                 note:
-                    description: The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded.
+                    description: The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position.
                     type: string
                 outcome:
                     $ref: '#/components/schemas/ConstructionTaskRevisionOutcome'
                 provenance:
                     $ref: '#/components/schemas/ConstructionTaskRevisionProvenance'
+                reviewers:
+                    description: 'The roster the round was opened with, as the reviewEngine computed it. Empty on a reconstructed revision: a pre-ledger row recorded who reviewed nowhere.'
+                    items:
+                        $ref: '#/components/schemas/ConstructionReviewRosterSeat'
+                    type: array
+                round:
+                    description: The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give.
+                    type: integer
                 startedAt:
                     format: date-time
                     type:
@@ -678,6 +837,19 @@ components:
                         - string
                     x-go-import: time
                     x-go-type: time.Time
+                subjectRef:
+                    $ref: '#/components/schemas/ConstructionReviewSubjectRef'
+                    description: What this revision judged. The artifact as of a non-latest revision is read from it. Omitted on a reconstructed revision, which has no record of its subject.
+                thread:
+                    description: The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6.
+                    items:
+                        $ref: '#/components/schemas/ConstructionReviewThreadComment'
+                    type: array
+                verdicts:
+                    description: Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row.
+                    items:
+                        $ref: '#/components/schemas/ConstructionReviewVerdictView'
+                    type: array
             required:
                 - "n"
                 - outcome
@@ -3173,9 +3345,9 @@ components:
                         - array
                 pendingResume:
                     $ref: '#/components/schemas/SystemDesignPendingResume'
-                    description: 'Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
+                    description: 'Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
                 recorded:
-                    description: 'True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.'
+                    description: 'True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.'
                     type: boolean
                 startedAt:
                     format: date-time
@@ -4102,10 +4274,6 @@ components:
         SystemDesignProjectState:
             additionalProperties: false
             properties:
-                ActivityConstruction:
-                    additionalProperties:
-                        $ref: '#/components/schemas/SystemDesignActivityConstructionStatus'
-                    type: object
                 GitRows:
                     additionalProperties:
                         $ref: '#/components/schemas/SystemDesignActivityGitStatus'
@@ -4138,12 +4306,17 @@ components:
                         - array
                 Version:
                     type: integer
+                activityExecution:
+                    additionalProperties:
+                        $ref: '#/components/schemas/SystemDesignActivityConstructionStatus'
+                    description: 'One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row''s derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale.'
+                    type: object
                 constructionProgress:
                     $ref: '#/components/schemas/SystemDesignConstructionProgress'
                     type:
                         - "null"
                 constructionStarted:
-                    description: 'True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.'
+                    description: 'True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume.'
                     type: boolean
                 operatingModel:
                     $ref: '#/components/schemas/SystemDesignOperatingModel'
@@ -4167,7 +4340,7 @@ components:
                 - Research
                 - Slots
                 - GitRows
-                - ActivityConstruction
+                - activityExecution
                 - ServiceContracts
                 - operatingModel
                 - constructionStarted

@@ -40,18 +40,19 @@ var allowedTopLevel = map[string]bool{
 // allowedCmd is the exhaustive set of immediate subdirectory names under
 // server/cmd/.
 var allowedCmd = map[string]bool{
-	"aiarch-state-mcp":     true,
-	"appgen":               true,
-	"archistrator":         true,
-	"backfill-attempts":    true,
-	"clientgen":            true,
-	"gen-lifecycles":       true,
-	"gen-systemtests":      true,
-	"gen-uitests-episodes": true,
-	"gen-uitests-fixtures": true,
-	"internaltoolsgen":     true,
-	"modelgen":             true,
-	"server":               true,
+	"aiarch-state-mcp":           true,
+	"appgen":                     true,
+	"archistrator":               true,
+	"backfill-attempts":          true,
+	"clientgen":                  true,
+	"gen-lifecycles":             true,
+	"gen-systemtests":            true,
+	"gen-uitests-episodes":       true,
+	"gen-uitests-fixtures":       true,
+	"internaltoolsgen":           true,
+	"migrate-activity-execution": true,
+	"modelgen":                   true,
+	"server":                     true,
 }
 
 // gitLsFiles runs `git -C <root> ls-files` and returns the tracked paths. It

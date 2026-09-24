@@ -6919,7 +6919,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject → binary activity exits + phase transitions (activityConstruction ledger)"
+              "label": "readProject → binary activity exits + phase transitions (activityExecution ledger)"
              }
             ]
            },
@@ -10322,7 +10322,7 @@
      }
     ],
     "GitRows": {},
-    "ActivityConstruction": {
+    "activityExecution": {
      "C-agentic-job-access": {
       "ActivityID": "C-agentic-job-access",
       "Type": 0,
@@ -10341,7 +10341,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "agenticJobAccess",
         "Label": "Detailed Design"
        },
        {
@@ -10355,7 +10355,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -10578,7 +10578,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "artifactAccess",
         "Label": "Detailed Design"
        },
        {
@@ -10592,7 +10592,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -10815,7 +10815,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "autoscalerEngine",
         "Label": "Detailed Design"
        },
        {
@@ -10829,7 +10829,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -11052,7 +11052,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "billingEngine",
         "Label": "Detailed Design"
        },
        {
@@ -11066,7 +11066,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -11289,7 +11289,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "billingManager",
         "Label": "Detailed Design"
        },
        {
@@ -11303,7 +11303,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "86e3d26b16355255f4bc5d195ff8765a478ceea1",
         "Label": "Construction"
        },
        {
@@ -11314,7 +11314,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -11521,7 +11521,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "constructionManager",
         "Label": "Detailed Design"
        },
        {
@@ -11535,7 +11535,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -11776,7 +11776,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "episodeAccess",
         "Label": "Detailed Design"
        },
        {
@@ -11790,7 +11790,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -12013,7 +12013,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "estimationEngine",
         "Label": "Detailed Design"
        },
        {
@@ -12027,7 +12027,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -12250,7 +12250,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "interventionEngine",
         "Label": "Detailed Design"
        },
        {
@@ -12264,7 +12264,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -12505,7 +12505,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "operatedRuntimeAccess",
         "Label": "Detailed Design"
        },
        {
@@ -12519,7 +12519,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -12742,7 +12742,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "operatedSystemStateAccess",
         "Label": "Detailed Design"
        },
        {
@@ -12756,7 +12756,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -12979,7 +12979,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "operationEstimationEngine",
         "Label": "Detailed Design"
        },
        {
@@ -12993,7 +12993,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -13216,7 +13216,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "operationsManager",
         "Label": "Detailed Design"
        },
        {
@@ -13230,7 +13230,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -13453,7 +13453,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "projectDesignManager",
         "Label": "Detailed Design"
        },
        {
@@ -13467,7 +13467,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -13690,7 +13690,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "projectStateAccess",
         "Label": "Detailed Design"
        },
        {
@@ -13704,7 +13704,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -13927,7 +13927,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "reviewEngine",
         "Label": "Detailed Design"
        },
        {
@@ -13941,7 +13941,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "a4421a8dbb9aac2f8d086fc8ce848ccf96914629",
         "Label": "Construction"
        },
        {
@@ -14164,7 +14164,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "sourceControlAccess",
         "Label": "Detailed Design"
        },
        {
@@ -14178,7 +14178,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -14401,7 +14401,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "systemDesignManager",
         "Label": "Detailed Design"
        },
        {
@@ -14415,7 +14415,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "86e3d26b16355255f4bc5d195ff8765a478ceea1",
         "Label": "Construction"
        },
        {
@@ -14426,7 +14426,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -14611,7 +14611,7 @@
         "Phase": "detailed_design",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "usageAccess",
         "Label": "Detailed Design"
        },
        {
@@ -14625,7 +14625,7 @@
         "Phase": "construction",
         "Weight": 40,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "98eeae5806ed1ad2631accdb82cc9bfe73545882",
         "Label": "Construction"
        },
        {
@@ -14859,21 +14859,21 @@
         "Phase": "requirements",
         "Weight": 20,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "testingState.systemTestPlan",
         "Label": "Use-Case Trace"
        },
        {
         "Phase": "construction",
         "Weight": 45,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "testingState.systemTestPlan",
         "Label": "Plan Authoring"
        },
        {
         "Phase": "integration",
         "Weight": 35,
         "Completed": true,
-        "ArtifactRef": "",
+        "ArtifactRef": "testingState.systemTestPlan",
         "Label": "Plan Review"
        }
       ],

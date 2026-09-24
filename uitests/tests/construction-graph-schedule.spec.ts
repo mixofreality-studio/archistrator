@@ -51,7 +51,7 @@ async function truth(request: APIRequestContext): Promise<Truth> {
   const res = await request.get(`${BASE}/api/v1/system-design/get-project/archistrator`);
   expect(res.ok()).toBe(true);
   const body = (await res.json()) as {
-    ActivityConstruction: Record<string, unknown>;
+    activityExecution: Record<string, unknown>;
     Slots: { kind: string; model: { model: Record<string, unknown> } }[];
   };
   const model = (kind: string): Record<string, unknown> =>
@@ -59,7 +59,7 @@ async function truth(request: APIRequestContext): Promise<Truth> {
   const network = model('network') as { computed?: Record<string, Computed> };
   const list = model('activityList') as { activities?: { name: string; effortDays: number }[] };
   return {
-    activityIds: Object.keys(body.ActivityConstruction),
+    activityIds: Object.keys(body.activityExecution),
     computed: network.computed ?? {},
     effort: Object.fromEntries((list.activities ?? []).map((a) => [a.name, a.effortDays])),
   };

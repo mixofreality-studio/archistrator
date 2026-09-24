@@ -67,7 +67,7 @@ function wireProjectState(
   rows: Record<string, WireConstructionStatus>
 ): Schemas['SystemDesignProjectState'] {
   return {
-    ActivityConstruction: rows,
+    activityExecution: rows,
     GitRows: {},
     Name: 'fixture',
     Owner: 'fixture-owner',

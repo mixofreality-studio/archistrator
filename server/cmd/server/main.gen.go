@@ -103,6 +103,18 @@ type Hooks interface {
 	// managers are supplied for transports the generated server does not mount.
 	ExtraMounts(root *http.ServeMux, cfg *Config, dev web.DevConfig, validator security.Validator, managers WebManagers)
 
+	// ActivityExecutionAccessGitHubArgs supplies the activityExecutionAccess GitHub variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	ActivityExecutionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter)
+
+	// ActivityExecutionAccessGitLocalArgs supplies the activityExecutionAccess GitLocal variant's constructor
+	// arguments the deployment model cannot express (composition-root ports /
+	// typed values). Read from cfg; the returned tuple is spread into the
+	// generated variant constructor call.
+	ActivityExecutionAccessGitLocalArgs(cfg *Config) string
+
 	// AgenticJobAccessGitHubActionsArgs supplies the agenticJobAccess GitHubActions variant's constructor
 	// arguments the deployment model cannot express (composition-root ports /
 	// typed values). Read from cfg; the returned tuple is spread into the
@@ -180,6 +192,12 @@ type Hooks interface {
 	// typed values). Read from cfg; the returned tuple is spread into the
 	// generated variant constructor call.
 	SourceControlAccessGitLocalArgs(cfg *Config) string
+
+	// FinalizeActivityExecutionAccess is called immediately after activityExecutionAccess's construction
+	// (presence required). Return v unchanged unless
+	// composition policy needs to swap or wrap it (e.g. a construction
+	// dry-run stub swap-in) — the identity implementation is always correct.
+	FinalizeActivityExecutionAccess(cfg *Config, v projectstate.ActivityExecutionAccess) projectstate.ActivityExecutionAccess
 
 	// FinalizeAgenticJobAccess is called immediately after agenticJobAccess's construction
 	// (presence optional-dormant). Return v unchanged unless
@@ -395,6 +413,22 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	}
 
 	// ResourceAccess — one binding per component, variant-selected by profile.
+	var activityExecutionAccess projectstate.ActivityExecutionAccess
+	switch profile {
+	case "cloud":
+		v, err := projectstate.NewGitHubActivityExecutionAccess(hooks.ActivityExecutionAccessGitHubArgs(cfg))
+		if err != nil {
+			return err
+		}
+		activityExecutionAccess = v
+		logger.Info("activityExecutionAccess (GitHub) ready")
+	case "local":
+		activityExecutionAccess = projectstate.NewGitLocalActivityExecutionAccess(hooks.ActivityExecutionAccessGitLocalArgs(cfg))
+		logger.Info("activityExecutionAccess (GitLocal) ready")
+	default:
+		return errors.New("activityExecutionAccess: no ResourceAccess variant for the active profile")
+	}
+	activityExecutionAccess = hooks.FinalizeActivityExecutionAccess(cfg, activityExecutionAccess)
 	var agenticJobAccess agenticjob.AgenticJobAccess
 	switch profile {
 	case "cloud":
@@ -597,7 +631,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, messageBus, episodeAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
+	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
 	if hooks.RegisterConstructionManagerWorker(cfg) {
 		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
 		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
@@ -629,7 +663,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
 	if hooks.RegisterProjectDesignManagerWorker(cfg) {
 		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
 		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
@@ -641,7 +675,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
 	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
+	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
 	if hooks.RegisterSystemDesignManagerWorker(cfg) {
 		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
 		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)

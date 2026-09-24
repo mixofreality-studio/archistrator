@@ -709,7 +709,7 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 		"N-STP":           projectstate.ActivityTypeTesting,
 	}
 	var rows []string
-	for id := range p.ActivityConstruction {
+	for id := range p.ActivityExecution {
 		rows = append(rows, id)
 	}
 	sort.Strings(rows)
@@ -717,7 +717,7 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 		t.Fatalf("rows = %v, want exactly the qualifying set %v", rows, want)
 	}
 	for id, typ := range wantType {
-		row := p.ActivityConstruction[id]
+		row := p.ActivityExecution[id]
 		if row.Type != typ {
 			t.Errorf("%s: type = %v, want %v", id, row.Type, typ)
 		}
@@ -746,7 +746,7 @@ func TestBackfill_EveryAttemptIsValidBackfilledAndCoversTheProfile(t *testing.T)
 // Each attempt points at what backs it, and at nothing when only a ruling does.
 func TestBackfill_EvidenceRefsPointOnlyAtWhatBacksTheTask(t *testing.T) {
 	p, _ := backfillFixture(t)
-	for _, a := range p.ActivityConstruction["C-gamma-access"].Attempts {
+	for _, a := range p.ActivityExecution["C-gamma-access"].Attempts {
 		var want projectstate.EvidenceRef
 		switch a.Task {
 		case projectstate.TaskDetailedDesign, projectstate.TaskDesignReview:
@@ -758,12 +758,12 @@ func TestBackfill_EvidenceRefsPointOnlyAtWhatBacksTheTask(t *testing.T) {
 			t.Errorf("%s: evidence = %+v, want %+v", a.AttemptID, a.Evidence, want)
 		}
 	}
-	for _, a := range p.ActivityConstruction["N-STP"].Attempts {
+	for _, a := range p.ActivityExecution["N-STP"].Attempts {
 		if a.Evidence != (projectstate.EvidenceRef{Kind: projectstate.EvidenceArtifact, Ref: "testingState.systemTestPlan"}) {
 			t.Errorf("%s: evidence = %+v, want the signed-off artifact", a.AttemptID, a.Evidence)
 		}
 	}
-	for _, a := range p.ActivityConstruction["R-gamma-store"].Attempts {
+	for _, a := range p.ActivityExecution["R-gamma-store"].Attempts {
 		if a.Evidence != (projectstate.EvidenceRef{}) {
 			t.Errorf("%s: evidence = %+v, want none — an inference has no artifact", a.AttemptID, a.Evidence)
 		}
@@ -795,7 +795,7 @@ func TestBackfill_NeverOverwritesRealHistory(t *testing.T) {
 		t.Fatal(err)
 	}
 	observed := projectstate.TaskAttempt{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}}
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"C-alpha-manager": {ActivityID: "C-alpha-manager", Attempts: []projectstate.TaskAttempt{observed}},
 	}
 	if _, err := backfill(&p, vs, time.Now()); err == nil || !strings.Contains(err.Error(), "real history") {
@@ -804,13 +804,13 @@ func TestBackfill_NeverOverwritesRealHistory(t *testing.T) {
 
 	prior := observed
 	prior.Provenance = projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "earlier run"}
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"C-alpha-manager": {ActivityID: "C-alpha-manager", FailureDetail: "kept", Attempts: []projectstate.TaskAttempt{prior}},
 	}
 	if _, err := backfill(&p, vs, time.Now()); err != nil {
 		t.Fatalf("re-running over this tool's own backfill: %v", err)
 	}
-	row := p.ActivityConstruction["C-alpha-manager"]
+	row := p.ActivityExecution["C-alpha-manager"]
 	if row.FailureDetail != "kept" || len(row.Attempts) < 2 || row.Attempts[0].Provenance.Basis == "earlier run" {
 		t.Errorf("row = %+v, want its fields kept and its attempts replaced", row)
 	}
@@ -828,14 +828,14 @@ func TestBackfill_RefusesARowBackfilledByAnotherGenerator(t *testing.T) {
 	theirs := projectstate.TaskAttempt{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{
 		Origin: projectstate.OriginBackfilled, Generator: "cmd/some-other-tool", Basis: "their basis",
 	}}
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"C-alpha-manager": {ActivityID: "C-alpha-manager", Attempts: []projectstate.TaskAttempt{theirs}},
 	}
 	_, err = backfill(&p, vs, time.Now())
 	if err == nil || !strings.Contains(err.Error(), "real history") || !strings.Contains(err.Error(), "cmd/some-other-tool") {
 		t.Fatalf("want a refusal naming the other generator, got %v", err)
 	}
-	if got := p.ActivityConstruction["C-alpha-manager"].Attempts; len(got) != 1 || got[0].Provenance.Basis != "their basis" {
+	if got := p.ActivityExecution["C-alpha-manager"].Attempts; len(got) != 1 || got[0].Provenance.Basis != "their basis" {
 		t.Errorf("the other generator's row was touched: %+v", got)
 	}
 }
@@ -855,7 +855,7 @@ func backfilledThenRegressed(t *testing.T, regress func(p *projectstate.Project,
 	if _, err := backfill(&p, vs, time.Date(2026, 9, 12, 0, 0, 0, 0, time.UTC)); err != nil {
 		t.Fatalf("first backfill: %v", err)
 	}
-	snapshot, err := json.Marshal(p.ActivityConstruction)
+	snapshot, err := json.Marshal(p.ActivityExecution)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -880,12 +880,12 @@ func refusedUntouched(t *testing.T, p projectstate.Project, snapshot []byte, vs 
 			t.Errorf("error = %q\nwant it to contain %q", err, w)
 		}
 	}
-	after, mErr := json.Marshal(p.ActivityConstruction)
+	after, mErr := json.Marshal(p.ActivityExecution)
 	if mErr != nil {
 		t.Fatal(mErr)
 	}
 	if !bytes.Equal(after, snapshot) {
-		t.Error("the refused run changed .activityConstruction; want nothing written")
+		t.Error("the refused run changed .activityExecution; want nothing written")
 	}
 }
 
@@ -929,7 +929,7 @@ func TestBackfill_ANonQualifierWithoutThisGeneratorsAttemptsIsNotARegression(t *
 	if err != nil {
 		t.Fatal(err)
 	}
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"N-IT": {ActivityID: "N-IT", Attempts: []projectstate.TaskAttempt{
 			{AttemptID: "N-IT:testing:1", Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved}},
 		}},
@@ -1000,14 +1000,14 @@ func rewriteFixture(t *testing.T, p projectstate.Project, raw []byte) ([]byte, e
 	})
 }
 
-// The live file has no .activityConstruction member (the codec omits an empty map). The
+// The live file has no .activityExecution member (the codec omits an empty map). The
 // writer ADDS it — at the codec's own position, after slots — and every other member,
 // including the two the codec does not carry, keeps its exact bytes and order.
 func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing.T) {
 	p := fixtureProject()
 	p.ConstructionProgress = &projectstate.ConstructionProgress{TotalWeeks: 49}
 	raw := stateDocument(t, p)
-	if bytes.Contains(raw, []byte(`"activityConstruction"`)) {
+	if bytes.Contains(raw, []byte(`"activityExecution"`)) {
 		t.Fatal("fixture already holds the member")
 	}
 
@@ -1020,9 +1020,9 @@ func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing
 	for _, m := range after {
 		keys = append(keys, m.key)
 	}
-	at := strings.Index(strings.Join(keys, ","), "slots,activityConstruction,constructionProgress")
+	at := strings.Index(strings.Join(keys, ","), "slots,activityExecution,constructionProgress")
 	if at < 0 {
-		t.Errorf("member order = %v, want activityConstruction between slots and constructionProgress", keys)
+		t.Errorf("member order = %v, want activityExecution between slots and constructionProgress", keys)
 	}
 	var kept []member
 	for _, m := range after {
@@ -1042,18 +1042,18 @@ func TestRewrite_AddsTheMemberAtTheCodecPositionAndTouchesNothingElse(t *testing
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(back.ActivityConstruction) != 4 {
-		t.Errorf("decoded %d rows, want the 4 qualifying activities", len(back.ActivityConstruction))
+	if len(back.ActivityExecution) != 4 {
+		t.Errorf("decoded %d rows, want the 4 qualifying activities", len(back.ActivityExecution))
 	}
 }
 
 // The coordinator's finding against Task 4's splicer: a replaced member must go in as
-// exact bytes or be checked against the original. A committed .activityConstruction the
+// exact bytes or be checked against the original. A committed .activityExecution the
 // codec cannot round-trip byte-for-byte (here, a field it does not carry) would lose data
 // in the replacement, and a codec-vs-codec check cannot see the loss — so it is refused.
 func TestRewrite_RefusesToReplaceAMemberTheCodecCannotRoundTrip(t *testing.T) {
 	p := fixtureProject()
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-beta-engine": {ActivityID: "C-beta-engine"}}
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{"C-beta-engine": {ActivityID: "C-beta-engine"}}
 	raw := stateDocument(t, p)
 	lossy := bytes.Replace(raw, []byte(`"activityID": "C-beta-engine",`),
 		[]byte(`"activityID": "C-beta-engine",
@@ -1074,8 +1074,8 @@ func TestRewrite_RefusesToReplaceAMemberTheCodecCannotRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, kept := back.ActivityConstruction["C-beta-engine"]; !kept || len(back.ActivityConstruction) != 5 {
-		t.Errorf("rows = %d, want the untouched row kept plus the 4 qualifying ones", len(back.ActivityConstruction))
+	if _, kept := back.ActivityExecution["C-beta-engine"]; !kept || len(back.ActivityExecution) != 5 {
+		t.Errorf("rows = %d, want the untouched row kept plus the 4 qualifying ones", len(back.ActivityExecution))
 	}
 }
 
@@ -1101,12 +1101,12 @@ func TestRewrite_RefusesAnEditOutsideItsMember(t *testing.T) {
 	}
 }
 
-// A document holding .activityConstruction twice is refused. Which copy counts is up to
+// A document holding .activityExecution twice is refused. Which copy counts is up to
 // the reader, and without the refusal the splice would rewrite both copies and write a
 // document that still holds the member twice.
 func TestRewrite_RefusesADocumentHoldingTheMemberTwice(t *testing.T) {
 	p := fixtureProject()
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-beta-engine": {ActivityID: "C-beta-engine"}}
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{"C-beta-engine": {ActivityID: "C-beta-engine"}}
 	var dup []member
 	for _, m := range topLevel(t, stateDocument(t, p)) {
 		dup = append(dup, m)
@@ -1119,7 +1119,7 @@ func TestRewrite_RefusesADocumentHoldingTheMemberTwice(t *testing.T) {
 		t.Fatal(err)
 	}
 	raw.WriteByte('\n')
-	if _, err := rewriteFixture(t, p, raw.Bytes()); err == nil || !strings.Contains(err.Error(), `member "activityConstruction" twice`) {
+	if _, err := rewriteFixture(t, p, raw.Bytes()); err == nil || !strings.Contains(err.Error(), `member "activityExecution" twice`) {
 		t.Fatalf("want a refusal naming the duplicated member, got %v", err)
 	}
 }
@@ -1154,7 +1154,7 @@ func constructionAttempt(t *testing.T, doc []byte, id string) projectstate.TaskA
 	if err != nil {
 		t.Fatal(err)
 	}
-	for _, a := range p.ActivityConstruction[id].Attempts {
+	for _, a := range p.ActivityExecution[id].Attempts {
 		if a.Task == projectstate.TaskConstruction {
 			return a
 		}
@@ -1202,8 +1202,9 @@ func TestRewrite_ReRunIsByteIdenticalUnlessTheEvidenceChanged(t *testing.T) {
 }
 
 // The systemdesign view-model's constructionStarted (Begin versus Resume) reads a stored
-// row's Phase, Phases, StartedAt, FailureReason and FailureDetail as fields only the pump
-// writes. That trust is safe only while this tool never writes them: a row it creates
+// row's StartedAt, CompletedAt, FailureReason and FailureDetail as fields only the pump
+// writes (the coarse roll-up and phase set it also used to name are derived since stage-3
+// task 4, so there is nothing there for this tool to write). That trust is safe only while this tool never writes them: a row it creates
 // carries none of them, and a re-run over a row it backfilled earlier keeps whatever that
 // row held.
 // pumpOwnedFieldsSet names every pump-owned field this row carries a value for. Folded
@@ -1213,15 +1214,13 @@ func TestRewrite_ReRunIsByteIdenticalUnlessTheEvidenceChanged(t *testing.T) {
 // CompletedAt sits beside StartedAt: it is the OTHER pump-resolved clock stamp
 // (RecordActivityCompleted / RecordActivityFailed server-resolve it), and a backfilled
 // row carrying one would be asserting a completion time nobody observed.
-func pumpOwnedFieldsSet(row projectstate.ActivityConstructionStatus) []string {
+func pumpOwnedFieldsSet(row projectstate.ActivityExecution) []string {
 	var out []string
 	for _, f := range []struct {
 		name string
 		set  bool
 		val  any
 	}{
-		{"phase", row.Phase != projectstate.ActivityConstructionNotStarted, row.Phase},
-		{"phases", len(row.Phases) != 0, row.Phases},
 		{"startedAt", row.StartedAt != nil, row.StartedAt},
 		{"completedAt", row.CompletedAt != nil, row.CompletedAt},
 		{"failureReason", row.FailureReason != projectstate.FailureReasonUnknown, row.FailureReason},
@@ -1237,10 +1236,10 @@ func pumpOwnedFieldsSet(row projectstate.ActivityConstructionStatus) []string {
 
 func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 	p, _ := backfillFixture(t)
-	if len(p.ActivityConstruction) == 0 {
+	if len(p.ActivityExecution) == 0 {
 		t.Fatal("the fixture backfilled no row; the test would pass vacuously")
 	}
-	for id, row := range p.ActivityConstruction {
+	for id, row := range p.ActivityExecution {
 		if wrote := pumpOwnedFieldsSet(row); len(wrote) != 0 {
 			t.Errorf("%s: backfill wrote pump-owned state: %s", id, strings.Join(wrote, ", "))
 		}
@@ -1253,24 +1252,21 @@ func TestBackfill_NeverWritesThePumpsFields(t *testing.T) {
 	}
 	started := time.Date(2026, 9, 1, 0, 0, 0, 0, time.UTC)
 	completed := time.Date(2026, 9, 2, 0, 0, 0, 0, time.UTC)
-	held := projectstate.ActivityConstructionStatus{
+	held := projectstate.ActivityExecution{
 		ActivityID:  "C-alpha-manager",
-		Phase:       projectstate.ActivityConstructionDone,
-		Phases:      []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseIntegration, Weight: 20, Completed: true}},
 		StartedAt:   &started,
 		CompletedAt: &completed,
 		Attempts: []projectstate.TaskAttempt{{AttemptID: "C-alpha-manager:srs:1", Provenance: projectstate.AttemptProvenance{
 			Origin: projectstate.OriginBackfilled, Generator: generatorID, Basis: "earlier run"}}},
 	}
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-alpha-manager": held}
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{"C-alpha-manager": held}
 	if _, err := backfill(&p, vs, time.Now()); err != nil {
 		t.Fatalf("re-running over this tool's own backfill: %v", err)
 	}
-	row := p.ActivityConstruction["C-alpha-manager"]
-	if row.Phase != held.Phase || !reflect.DeepEqual(row.Phases, held.Phases) ||
-		row.StartedAt != held.StartedAt || row.CompletedAt != held.CompletedAt {
-		t.Errorf("re-run changed pump-owned state: phase=%v phases=%v startedAt=%v completedAt=%v, want %v %v %v %v",
-			row.Phase, row.Phases, row.StartedAt, row.CompletedAt, held.Phase, held.Phases, held.StartedAt, held.CompletedAt)
+	row := p.ActivityExecution["C-alpha-manager"]
+	if row.StartedAt != held.StartedAt || row.CompletedAt != held.CompletedAt {
+		t.Errorf("re-run changed pump-owned state: startedAt=%v completedAt=%v, want %v %v",
+			row.StartedAt, row.CompletedAt, held.StartedAt, held.CompletedAt)
 	}
 }
 
@@ -1330,7 +1326,7 @@ func backfillWith(t *testing.T, p projectstate.Project) (projectstate.Project, m
 }
 
 // tasksOf is a row's attempted tasks, in ledger order.
-func tasksOf(row projectstate.ActivityConstructionStatus) []projectstate.MethodTask {
+func tasksOf(row projectstate.ActivityExecution) []projectstate.MethodTask {
 	var out []projectstate.MethodTask
 	for _, a := range row.Attempts {
 		out = append(out, a.Task)
@@ -1354,7 +1350,7 @@ func withoutIntegration(tasks []projectstate.MethodTask) []projectstate.MethodTa
 // running-in-review — never NotStarted (fresh work), never Done (unblocking dependents).
 func assertIntegrationPending(t *testing.T, p projectstate.Project, vs map[string]verdict, id, clause string) {
 	t.Helper()
-	row := p.ActivityConstruction[id]
+	row := p.ActivityExecution[id]
 	want := withoutIntegration(profileTasks(row.Type, row.Variant))
 	if got := tasksOf(row); !reflect.DeepEqual(got, want) {
 		t.Errorf("%s: tasks = %v, want every non-conditional task but Integration's %v", id, got, want)
@@ -1381,7 +1377,7 @@ func assertIntegrationPending(t *testing.T, p projectstate.Project, vs map[strin
 // Integration being pending, and the pump reads the row as Done and integrated.
 func assertDone(t *testing.T, p projectstate.Project, vs map[string]verdict, id string) {
 	t.Helper()
-	row := p.ActivityConstruction[id]
+	row := p.ActivityExecution[id]
 	if got, want := tasksOf(row), profileTasks(row.Type, row.Variant); !reflect.DeepEqual(got, want) {
 		t.Errorf("%s: tasks = %v, want the whole profile %v", id, got, want)
 	}
@@ -1519,16 +1515,16 @@ func TestIntegration_ReRunsAreIdempotentAndOnlyTheGatedRowMoves(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	for id, row := range was.ActivityConstruction {
+	for id, row := range was.ActivityExecution {
 		if id == "C-alpha-manager" {
 			continue
 		}
-		if !reflect.DeepEqual(now.ActivityConstruction[id], row) {
+		if !reflect.DeepEqual(now.ActivityExecution[id], row) {
 			t.Errorf("%s moved although no dependency of it changed", id)
 		}
 	}
-	alpha := now.ActivityConstruction["C-alpha-manager"]
-	if got, want := tasksOf(alpha), withoutIntegration(tasksOf(was.ActivityConstruction["C-alpha-manager"])); !reflect.DeepEqual(got, want) {
+	alpha := now.ActivityExecution["C-alpha-manager"]
+	if got, want := tasksOf(alpha), withoutIntegration(tasksOf(was.ActivityExecution["C-alpha-manager"])); !reflect.DeepEqual(got, want) {
 		t.Errorf("C-alpha-manager: tasks = %v, want its earlier backfill minus Integration %v", got, want)
 	}
 }
@@ -1626,7 +1622,7 @@ func TestBackfill_EveryDesignAttemptCitesItsOwnPhasesArtifact(t *testing.T) {
 	}
 	got := map[string]string{}
 	for _, id := range []string{"requirements", "architecture", "projectDesign"} {
-		for _, a := range p.ActivityConstruction[id].Attempts {
+		for _, a := range p.ActivityExecution[id].Attempts {
 			if a.Evidence.Kind != projectstate.EvidenceArtifact {
 				t.Errorf("%s: evidence kind %q, want artifact", a.AttemptID, a.Evidence.Kind)
 			}
@@ -1651,7 +1647,7 @@ func TestBackfill_TheDesignPrefixGetsOnePassedAttemptPerLifecycleTask(t *testing
 		t.Fatalf("backfill: %v", err)
 	}
 	for id, want := range map[string]int{"requirements": 8, "architecture": 2, "projectDesign": 1} {
-		row := p.ActivityConstruction[id]
+		row := p.ActivityExecution[id]
 		if len(row.Attempts) != want {
 			t.Errorf("%s: %d attempts, want %d (%v)", id, len(row.Attempts), want, tasksOf(row))
 		}
@@ -1667,8 +1663,8 @@ func TestBackfill_TheDesignPrefixGetsOnePassedAttemptPerLifecycleTask(t *testing
 			}
 		}
 	}
-	if got := len(p.ActivityConstruction["projectDesign"].Attempts); got == 1 {
-		if task := p.ActivityConstruction["projectDesign"].Attempts[0].Task; task != "sdpReview" {
+	if got := len(p.ActivityExecution["projectDesign"].Attempts); got == 1 {
+		if task := p.ActivityExecution["projectDesign"].Attempts[0].Task; task != "sdpReview" {
 			t.Errorf("projectDesign's one task is %q, want the sdpReview gate", task)
 		}
 	}

@@ -71,6 +71,9 @@ const OUTPUT_NAMES = {
   ConstructionActivityTaskState: 'ActivityTaskState',
   ConstructionTaskRevisionOutcome: 'TaskRevisionOutcome',
   ConstructionTaskRevisionProvenance: 'TaskRevisionProvenance',
+  // one reviewer's answer inside a persisted review round (stage 3); string-valued,
+  // so the wire value IS the app string and there is no derivation to verify.
+  ConstructionReviewVerdictKind: 'ReviewVerdictKind',
   OperationsAutoscaleAction: 'AutoscaleAction',
   OperationsAutoscalerMode: 'AutoscalerMode',
   OperationsDesiredStateReason: 'DesiredStateReason',

@@ -53,9 +53,9 @@ async function zoomOf(page: Page): Promise<number> {
 async function plannedActivity(request: APIRequestContext): Promise<string | undefined> {
   const res = await request.get(`${BASE}/api/v1/system-design/get-project/archistrator`);
   const body = (await res.json()) as {
-    ActivityConstruction: Record<string, { worstOrigin?: string; classified?: boolean }>;
+    activityExecution: Record<string, { worstOrigin?: string; classified?: boolean }>;
   };
-  return Object.entries(body.ActivityConstruction).find(
+  return Object.entries(body.activityExecution).find(
     ([, r]) => r.worstOrigin === undefined && r.classified === true
   )?.[0];
 }

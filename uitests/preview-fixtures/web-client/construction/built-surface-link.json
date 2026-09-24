@@ -6919,7 +6919,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject → binary activity exits + phase transitions (activityConstruction ledger)"
+              "label": "readProject → binary activity exits + phase transitions (activityExecution ledger)"
              }
             ]
            },
@@ -10322,7 +10322,7 @@
      }
     ],
     "GitRows": {},
-    "ActivityConstruction": {
+    "activityExecution": {
      "U-SPA-web-client": {
       "ActivityID": "U-SPA-web-client",
       "Type": 1,
@@ -10361,7 +10361,7 @@
        {
         "Phase": "integration",
         "Weight": 15,
-        "Completed": false,
+        "Completed": true,
         "ArtifactRef": "",
         "Label": "Integration"
        }
@@ -10386,9 +10386,171 @@
       "layerBand": "layered",
       "attempts": [
        {
+        "attemptId": "U-SPA-web-client:srs:1",
+        "task": "srs",
+        "phase": "requirements",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:srsReview:1",
+        "task": "srsReview",
+        "phase": "requirements",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:detailedDesign:1",
+        "task": "detailedDesign",
+        "phase": "detailed_design",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:designReview:1",
+        "task": "designReview",
+        "phase": "detailed_design",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:stp:1",
+        "task": "stp",
+        "phase": "test_plan",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:stpReview:1",
+        "task": "stpReview",
+        "phase": "test_plan",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
         "attemptId": "U-SPA-web-client:construction:1",
         "task": "construction",
         "phase": "construction",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:codeReview:1",
+        "task": "codeReview",
+        "phase": "construction",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:integration:1",
+        "task": "integration",
+        "phase": "integration",
+        "attempt": 1,
+        "actor": "agent",
+        "outcome": "passed",
+        "evidence": {
+         "kind": "",
+         "ref": ""
+        },
+        "provenance": {
+         "origin": "backfilled",
+         "generator": "uitests/preview-fixtures (test-local)",
+         "generatedAt": "2026-09-13T00:00:00Z",
+         "basis": "TEST-ONLY preview fixture: a built surface, so the pane offers its route. Not a real attempt."
+        }
+       },
+       {
+        "attemptId": "U-SPA-web-client:testing:1",
+        "task": "testing",
+        "phase": "integration",
         "attempt": 1,
         "actor": "agent",
         "outcome": "passed",

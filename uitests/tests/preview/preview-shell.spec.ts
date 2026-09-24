@@ -80,9 +80,9 @@ test.describe('preview shell: the real app over fixtures', () => {
     const data = fixture('construction', 'resting');
     const project = data.ops['systemDesignGetProject']?.result as {
       Name: string;
-      ActivityConstruction: Record<string, unknown>;
+      activityExecution: Record<string, unknown>;
     };
-    const activityIds = Object.keys(project.ActivityConstruction);
+    const activityIds = Object.keys(project.activityExecution);
     expect(activityIds.length).toBeGreaterThan(0);
 
     const offBundle = await openState(page, 'construction', 'resting');
@@ -111,14 +111,14 @@ test.describe('preview shell: the real app over fixtures', () => {
       Phases: unknown[];
     }
     const project = fixture('construction', 'unclassified-row').ops['systemDesignGetProject']
-      ?.result as { ActivityConstruction: Record<string, Row> };
-    const rows = Object.values(project.ActivityConstruction);
+      ?.result as { activityExecution: Record<string, Row> };
+    const rows = Object.values(project.activityExecution);
     // The fixture's whole point (spec §9 AC4): exactly one row the server could
     // not type — ClassifyType's ok=false — carrying no phases on the wire.
     const unknownIds = rows.filter((r) => !r.classified).map((r) => r.ActivityID);
     expect(unknownIds).toEqual(['C-usage-access']);
     const unknownId = unknownIds[0] ?? '';
-    expect(project.ActivityConstruction[unknownId]?.Phases).toEqual([]);
+    expect(project.activityExecution[unknownId]?.Phases).toEqual([]);
     // A typed neighbour, as the control below.
     const knownId = rows.find((r) => r.classified && r.Phases.length > 0)?.ActivityID ?? '';
     expect(knownId).not.toEqual('');
@@ -245,9 +245,9 @@ test.describe('preview shell: the construction detail, Begin and the owed gate (
     // A dispatch from this state must be LOUD: execute-next-activity has no fixture.
     expect(data.ops['constructionExecuteNextActivity']).toBeUndefined();
     const project = data.ops['systemDesignGetProject']?.result as {
-      ActivityConstruction: Record<string, { ActivityID: string; recorded: boolean }>;
+      activityExecution: Record<string, { ActivityID: string; recorded: boolean }>;
     };
-    const unrecorded = Object.values(project.ActivityConstruction)
+    const unrecorded = Object.values(project.activityExecution)
       .filter((r) => !r.recorded)
       .map((r) => r.ActivityID)
       .sort();

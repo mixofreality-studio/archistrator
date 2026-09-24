@@ -805,6 +805,13 @@ func (h *appHooks) DesignSessionAccessGitHubArgs(cfg *Config) (string, string, p
 	return h.projectStateCloudPorts(cfg)
 }
 
+// ActivityExecutionAccessGitHubArgs supplies the FIFTH facet (stage 3) the same CLOUD
+// ports as its four siblings: it is one more contract over the one git substrate, not a
+// second store, so it must never be handed raw github-app credentials of its own.
+func (h *appHooks) ActivityExecutionAccessGitHubArgs(cfg *Config) (string, string, projectstate.ProjectCatalog, projectstate.CredentialMinter) {
+	return h.projectStateCloudPorts(cfg)
+}
+
 // ConstructionTransitionAccessGitLocalArgs / GitActivityStatusAccessGitLocalArgs /
 // DesignSessionAccessGitLocalArgs (B6) supply the SAME LOCAL repoURL setting
 // projectStateAccess's own GitLocal arm reads (cfg.ProjectStateGitRepoURL) — a hook
@@ -819,6 +826,12 @@ func (h *appHooks) GitActivityStatusAccessGitLocalArgs(cfg *Config) string {
 }
 
 func (h *appHooks) DesignSessionAccessGitLocalArgs(cfg *Config) string {
+	return cfg.ProjectStateGitRepoURL
+}
+
+// ActivityExecutionAccessGitLocalArgs reads the SAME binding-scoped setting its four
+// siblings read — one on-disk repo, five facets over it.
+func (h *appHooks) ActivityExecutionAccessGitLocalArgs(cfg *Config) string {
 	return cfg.ProjectStateGitRepoURL
 }
 
@@ -975,6 +988,13 @@ func (h *appHooks) FinalizeGitActivityStatusAccess(_ *Config, v projectstate.Git
 }
 
 func (h *appHooks) FinalizeDesignSessionAccess(_ *Config, v projectstate.DesignSessionAccess) projectstate.DesignSessionAccess {
+	return v
+}
+
+// FinalizeActivityExecutionAccess is identity for the same reason the other three are:
+// the facet is profile-switched exactly like projectStateAccess, with no orthogonal
+// toggle of its own.
+func (h *appHooks) FinalizeActivityExecutionAccess(_ *Config, v projectstate.ActivityExecutionAccess) projectstate.ActivityExecutionAccess {
 	return v
 }
 

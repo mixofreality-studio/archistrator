@@ -60,7 +60,7 @@ func asProjectDesignError(t *testing.T, err error) *fwmanager.Error {
 // ---- RequestArtifactDraft ---------------------------------------------------
 
 func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -68,7 +68,7 @@ func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -77,7 +77,7 @@ func Test_RequestArtifactDraft_Phase1Kind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is assembled, not co-authored.
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -336,7 +336,7 @@ func Test_RequestArtifactDraft_Phase2PredecessorUncommitted_FailedPrecondition(t
 	pid := ProjectID(uuid.NewString())
 	// activityList requested while its predecessor planningAssumptions is uncommitted.
 	ps := &fakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid)}}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
 	pde := asProjectDesignError(t, err)
 	if pde.Kind != fwmanager.FailedPrecondition {
@@ -351,7 +351,7 @@ func Test_RequestArtifactDraft_Phase2PredecessorUncommitted_FailedPrecondition(t
 func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{notFound: true}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for missing project row, got %d", got)
@@ -362,7 +362,7 @@ func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 // without any head-state read (mirrors the SPA unlocking it without a sealed Phase 1),
 // so a nil projectState is safe.
 func Test_CheckPhase2Predecessor_FirstKind_NoRead(t *testing.T) {
-	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.checkPhase2Predecessor(context.Background(), ProjectID(uuid.NewString()), KindPlanningAssumptions); err != nil {
 		t.Fatalf("planningAssumptions has no predecessor; gate must pass, got %v", err)
 	}
@@ -372,7 +372,7 @@ func Test_CheckPhase2Predecessor_FirstKind_NoRead(t *testing.T) {
 func Test_CheckPhase2Predecessor_Committed_Proceeds(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &fakeProjectState{project: committedPhase2Project(pid, KindPlanningAssumptions)}
-	m := newProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.checkPhase2Predecessor(context.Background(), pid, KindActivityList); err != nil {
 		t.Fatalf("committed predecessor; gate must pass, got %v", err)
 	}
@@ -404,7 +404,7 @@ func Test_Phase2PredecessorKind(t *testing.T) {
 // ---- RequestSDPCommit -------------------------------------------------------
 
 func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestSDPCommit(fwmanager.Context{Context: context.Background()}, ProjectID(""))
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -414,7 +414,7 @@ func Test_RequestSDPCommit_EmptyProjectID(t *testing.T) {
 // ---- SubmitSDPDecision ------------------------------------------------------
 
 func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), SDPCommit, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -422,7 +422,7 @@ func Test_SubmitSDPDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	// nil optionId.
@@ -440,7 +440,7 @@ func Test_SubmitSDPDecision_CommitRequiresOptionID(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, pid, SDPRejectAll, nil, nil)
@@ -455,7 +455,7 @@ func Test_SubmitSDPDecision_RejectAllRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitSDPDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), SDPDecisionUnknown, nil, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -465,7 +465,7 @@ func Test_SubmitSDPDecision_UnknownDecision(t *testing.T) {
 // ---- SubmitReviewDecision (per-artifact OQ-3 gate) --------------------------
 
 func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -473,7 +473,7 @@ func Test_SubmitReviewDecision_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	pid := ProjectID(uuid.NewString())
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, pid, KindActivityList, ReviewReject, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -487,7 +487,7 @@ func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// A Phase-1 kind is a Client bug for the Phase-2 Manager.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindMission, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -496,7 +496,7 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	// The SDP review is not gated via the per-artifact reviewDecision signal.
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindSdpReview, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -505,7 +505,7 @@ func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindNetwork, ReviewDecisionUnknown, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -515,7 +515,7 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 // ---- AdvanceToConstruction --------------------------------------------------
 
 func Test_AdvanceToConstruction_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, ProjectID(""), false)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -530,7 +530,7 @@ func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testin
 	proj := committedPhase2Project(pid, KindPlanningAssumptions, KindActivityList, KindNetwork)
 	proj.Network.StaleBasis = true
 	ps := &fakeProjectState{project: proj}
-	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	_, err := m.AdvanceToConstruction(fwmanager.Context{Context: context.Background()}, pid, false)
 	pde := asProjectDesignError(t, err)
@@ -581,7 +581,7 @@ func Test_AdvanceToConstruction_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
 // ---- GetSessionState --------------------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), KindPlanningAssumptions)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -635,7 +635,7 @@ func Test_RequestArtifactDraft_DeliversFeedbackViaRedraftSignal(t *testing.T) {
 	// index 0 (a normal/retry draft, not an amendment). The point under test is DELIVERY.
 	ps := &fakeProjectState{notFound: true}
 	fc := &recordingStartClient{}
-	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, ps, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 
 	const notes = "resources must be plain strings, not objects"
 	if _, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()}, pid, KindPlanningAssumptions, &ReviewFeedback{Notes: notes}); err != nil {
@@ -1276,6 +1276,245 @@ func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectsta
 	env.RegisterActivityWithOptions(acts.DesignSessionWithdrawArtifactOnBranch, activity.RegisterOptions{Name: "designSessionAccess.withdrawArtifactOnBranch"})
 	env.RegisterActivityWithOptions(acts.DesignSessionSetReviewCommentStatusOnBranch, activity.RegisterOptions{Name: "designSessionAccess.setReviewCommentStatusOnBranch"})
 	env.RegisterActivityWithOptions(acts.DesignSessionSeedReviewCommentsOnBranch, activity.RegisterOptions{Name: "designSessionAccess.seedReviewCommentsOnBranch"})
+	registerGenActivityExecution(env, ps)
+}
+
+// ---- the ROUND LEDGER double (stage 3, task 6) -----------------------------
+
+// testLedgerClock is the fixed clock the execution-ledger double stamps, so a row a test
+// reads back is comparable between runs.
+var testLedgerClock = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+// fakeActivityExecution is the in-memory activityExecutionAccess the design workflow tests
+// dual-write their review rounds through. Hand-rolled rather than the generated
+// FakeActivityExecutionAccess for the reason the construction twin gives: these tests
+// assert on the ROWS a session produced — "a send-back is a round, sentBack, carrying the
+// same comments the slot thread got" — and a double whose every op is a func field records
+// calls, not state.
+//
+// It holds the rules those assertions depend on and no more: one id names one round, a
+// decided round takes no further verdict, and the round's thread mints its ids the way
+// applyRoundReviewBatch does. The rest of the contract is the real facet's and is pinned by
+// its own access_test.go.
+type fakeActivityExecution struct {
+	*fakeProjectState
+}
+
+var _ projectstate.ActivityExecutionAccess = fakeActivityExecution{}
+
+// baseProjectState lets registerGenActivities reach the shared in-memory store through
+// whichever specialized fake a test wired, since every one of them embeds *fakeProjectState.
+func (f *fakeProjectState) baseProjectState() *fakeProjectState { return f }
+
+// execLedgerBase is that reach, as an interface — satisfied by promotion.
+type execLedgerBase interface {
+	baseProjectState() *fakeProjectState
+}
+
+// upsertExecution mirrors the store's single write-back point. Callers hold the lock.
+func (f *fakeProjectState) upsertExecution(activityID string, mutate func(*projectstate.ActivityExecution)) projectstate.Version {
+	if f.project.ActivityExecution == nil {
+		f.project.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	}
+	row := f.project.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	mutate(&row)
+	row.Version++
+	f.project.ActivityExecution[activityID] = row
+	return f.bump()
+}
+
+// execution reads back the execution row a session wrote.
+func (f *fakeProjectState) execution(activityID string) projectstate.ActivityExecution {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.project.ActivityExecution[activityID]
+}
+
+// rounds is the review ledger of one activity, in append order.
+func (f *fakeProjectState) rounds(activityID string) []projectstate.ReviewRound {
+	return f.execution(activityID).Reviews
+}
+
+func (f fakeActivityExecution) applyExecution(activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.upsertExecution(activityID, mutate), nil
+}
+
+func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.Type, row.Variant = typ, variant
+		if row.Pin == nil {
+			held := pin
+			row.Pin = &held
+		}
+		if row.StartedAt == nil {
+			t := testLedgerClock
+			row.StartedAt = &t
+		}
+	})
+}
+
+func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			if row.Reviews[i].RoundID == round.RoundID {
+				return // already open: a no-op success, not a second round
+			}
+		}
+		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+			RoundID:    round.RoundID,
+			TaskID:     round.TaskID,
+			Reviews:    round.Reviews,
+			Round:      round.Round,
+			SubjectRef: round.SubjectRef,
+			Reviewers:  append([]projectstate.RoundReviewer(nil), round.Reviewers...),
+			Outcome:    projectstate.RoundPending,
+			OpenedAt:   testLedgerClock.Format(time.RFC3339),
+			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
+		})
+	})
+}
+
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	var refused error
+	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			// Build the new thread in a LOCAL and commit it only if every reply found its
+			// parent. The real store applies the batch inside one mutation that either lands
+			// whole or raises, and a double that half-applied would hide exactly the bug
+			// roundRepliesFor exists to prevent: the comments landing while the utterance is
+			// refused.
+			thread := append([]projectstate.ReviewComment(nil), r.Thread...)
+			for _, c := range comments {
+				held := c
+				// The same id the real applyRoundReviewBatch mints: from the THREAD it lands
+				// on, not from the batch — which is what the workflow's slot→round pairing
+				// predicts.
+				held.ID = projectstate.ReviewCommentID(r.Round, len(thread))
+				held.Round, held.Status = r.Round, projectstate.ReviewCommentOpen
+				thread = append(thread, held)
+			}
+			// A reply lands INSIDE the thread it answers, and one naming a comment this
+			// round's thread does not hold FAILS the whole append — the real store's rule
+			// (appendReviewReply returns NotFound and AppendReviewVerdict propagates it).
+			for _, rep := range replies {
+				found := false
+				for j := range thread {
+					if thread[j].ID != rep.CommentID {
+						continue
+					}
+					thread[j].Replies = append(append([]projectstate.ReviewCommentReply(nil), thread[j].Replies...),
+						projectstate.ReviewCommentReply{
+							ID:         fmt.Sprintf("%su%d", rep.CommentID, len(thread[j].Replies)+1),
+							AuthorRole: rep.AuthorRole, Text: rep.Text, At: rep.At,
+						})
+					found = true
+					break
+				}
+				if !found {
+					refused = fwra.New(fwra.NotFound, "fakeActivityExecution.AppendReviewVerdict: reply names comment "+rep.CommentID+", which round "+roundID+" does not hold")
+					return
+				}
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			r.Thread = thread
+			return
+		}
+	})
+	if refused != nil {
+		return 0, refused
+	}
+	return v, err
+}
+
+func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			return
+		}
+	})
+}
+
+func (f fakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, commentID string, status string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID {
+				continue
+			}
+			for j := range r.Thread {
+				if r.Thread[j].ID == commentID {
+					r.Thread[j].Status = status
+					return
+				}
+			}
+		}
+	})
+}
+
+// The six verbs no design rail calls: the attempt ledger, the staging/commit verbs and the
+// stale-basis ack all stay on the construction rail and the designSession facet in this
+// wave. Inert stubs, matching the stubRail precedent for an unused portion of a wide
+// contract.
+
+func (fakeActivityExecution) RecordAttemptOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.TaskAttemptInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+	return projectstate.StagedRef{}, nil
+}
+
+func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	return f.execution(activityID), nil
+}
+
+// registerGenActivityExecution registers the six ROUND-LEDGER activities the design rails
+// read and dual-write through, under the names the generated RegisterWorker uses in
+// production. It is called from registerGenActivities so EVERY workflow test has them: the
+// dual-write is unconditional behind the fence, and a test env missing them would exercise
+// the best-effort miss path instead of the feature.
+func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess) {
+	base, ok := ps.(execLedgerBase)
+	if !ok {
+		return
+	}
+	acts := &genActivities{ActivityExecution: fakeActivityExecution{base.baseProjectState()}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionReadActivityExecution, activity.RegisterOptions{Name: "activityExecutionAccess.readActivityExecution"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus, activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 }
 
 // registerName builds the workflow.RegisterOptions naming a registered workflow.
@@ -4473,7 +4712,7 @@ func Test_checkReviewPrecondition_Matrix(t *testing.T) {
 
 func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageDrafting}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil)
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("approve while drafting must FailedPrecondition, got %d", got)
@@ -4485,7 +4724,7 @@ func Test_SubmitReviewDecision_Approve_WhileDrafting_FailsWithoutSignal(t *testi
 
 func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 	fc := &fakeQueryClient{stage: StageAwaitingReview}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	if err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil); err != nil {
 		t.Fatalf("approve at AwaitingReview must succeed, got %v", err)
 	}
@@ -4498,7 +4737,7 @@ func Test_SubmitReviewDecision_Approve_AtAwaitingReview_Signals(t *testing.T) {
 
 func Test_GetSessionState_BeforePhase2_CleanNotFound(t *testing.T) {
 	fc := &fakeQueryClient{queryErr: serviceerror.NewNotFound("workflow not found for ID: gtdapp:8")}
-	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := newProjectDesignManager(fc, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID("gtdapp"), KindPlanningAssumptions)
 	e := asProjectDesignError(t, err)
 	if e.Kind != fwmanager.NotFound {
@@ -4980,7 +5219,7 @@ func Test_CoAuthor_CancelledWithLateEpisode_RecordsTheEpisodeNotAGap(t *testing.
 // read ops (Task 9): every other dep stays nil since those ops touch only
 // episodes.
 func episodeMgr(eps episode.EpisodeAccess) ProjectDesignManager {
-	return NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, eps, nil)
+	return NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, nil)
 }
 
 // sampleEpisodeRecord returns a fully-populated ledger record (every optional
@@ -5837,7 +6076,7 @@ func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {
 // It no longer decodes core use cases (Task 10a): the founder's ruling drops I-*
 // integration activities entirely, which were the only thing that ever read them, and
 // MaterializeActivityPlan no longer takes a use-case-id parameter to feed. It no longer
-// returns the .activityConstruction keys either (2026-09-12): those were the legacy
+// returns the .activityExecution keys either (2026-09-12): those were the legacy
 // short-name rows the deleted alias table joined onto the derived ids, and the founder's
 // D9 ruling removed both.
 //
@@ -6186,7 +6425,7 @@ func writeDerivedPlan(p *projectstate.Project) error {
 // resetConstructionState is the founder's D9 reset (2026-09-12: "i essentially want no
 // legacy rows/activities ... just delete the old stuff"), applied once the plan is
 // materialized from Table 11-1:
-//   - .activityConstruction is emptied. Every row was keyed by a legacy short id, and none
+//   - .activityExecution is emptied. Every row was keyed by a legacy short id, and none
 //     of the rows that carried history names an activity the derived plan holds. A first
 //     real run holds no row until the pump starts an activity; the codec omits an empty
 //     map, so the member disappears rather than becoming {}.
@@ -6201,7 +6440,7 @@ func writeDerivedPlan(p *projectstate.Project) error {
 //     carried; TotalWeeks' own basis is the SDP option flagged stale alongside it. The EV
 //     curve itself is computed at read (computeEVAtRead), from the same empty record.
 func resetConstructionState(p *projectstate.Project) error {
-	p.ActivityConstruction = nil
+	p.ActivityExecution = nil
 	if cp := p.ConstructionProgress; cp != nil {
 		recomputed := *cp
 		recomputed.Week = 0
@@ -6277,11 +6516,11 @@ func derivedPlanMembers() map[string]bool {
 
 // resetMembers is what resetConstructionState may change.
 func resetMembers() map[string]bool {
-	return withPlanDependents("activityConstruction", "constructionProgress")
+	return withPlanDependents("activityExecution", "constructionProgress")
 }
 
 // rewriteStateFile applies edit to the project document at path and writes back only the
-// members the edit changed, returning their paths ("activityConstruction", "slots/11",
+// members the edit changed, returning their paths ("activityExecution", "slots/11",
 // …). allowed names the members the edit may change; any other change fails the write.
 // Nothing is written when nothing changed.
 func rewriteStateFile(path string, allowed map[string]bool, edit func(*projectstate.Project) error) ([]string, error) {
@@ -6650,7 +6889,7 @@ func constructionResetFixture(t *testing.T) projectstate.Project {
 	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindActivityList), Revisions: 3}
 	p.NormalSolution = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindNormalSolution), Revisions: 1}
 	p.SdpReview = readBackSlot(model(projectstate.KindSdpReview))
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-BM": {ActivityID: "C-BM"}}
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{"C-BM": {ActivityID: "C-BM"}}
 	p.ConstructionProgress = &projectstate.ConstructionProgress{
 		Week: 49, TotalWeeks: 49, HandOffModel: "Senior hand-off", SupervisionCap: 3,
 		Points: []projectstate.EvPoint{{Week: 49, EarnedPct: 100, PlannedPct: 100, Note: "legacy"}},
@@ -6679,7 +6918,7 @@ func TestResetConstructionStateRewritesOnlyItsMembers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rewriteStateFile: %v", err)
 	}
-	want := []string{"activityConstruction", "constructionProgress", slotMember(projectstate.KindNormalSolution)}
+	want := []string{"activityExecution", "constructionProgress", slotMember(projectstate.KindNormalSolution)}
 	sort.Strings(changed)
 	if !reflect.DeepEqual(changed, want) {
 		t.Errorf("changed members = %v, want %v", changed, want)
@@ -6694,7 +6933,7 @@ func TestResetConstructionStateRewritesOnlyItsMembers(t *testing.T) {
 			t.Errorf("the rewrite lost %s", keep)
 		}
 	}
-	if bytes.Contains(got, []byte(`"activityConstruction"`)) {
+	if bytes.Contains(got, []byte(`"activityExecution"`)) {
 		t.Error("an empty construction record must be omitted, the codec's shape for 'no rows'")
 	}
 	proj, err := decodeState(got)
@@ -6738,8 +6977,8 @@ func TestRewriteStateFileRefusesAMemberOutsideItsAllowedSet(t *testing.T) {
 
 	allowed := map[string]bool{"constructionProgress": true, slotMember(projectstate.KindNormalSolution): true}
 	_, err := rewriteStateFile(path, allowed, resetConstructionState)
-	if err == nil || !strings.Contains(err.Error(), "activityConstruction") {
-		t.Fatalf("want a refusal naming activityConstruction, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "activityExecution") {
+		t.Fatalf("want a refusal naming activityExecution, got %v", err)
 	}
 	got, _ := os.ReadFile(path)
 	if !bytes.Equal(got, raw) {
@@ -7009,7 +7248,7 @@ func assertDerivedMilestonesMatch(t *testing.T, gotMilestones, committedMileston
 // `required` is presence-only, so "" passed through; it also KEYS the ack's
 // idempotency, so blank acks collapsed onto one key (2026-08-13 audit).
 func Test_AcknowledgeStaleBasis_RequiresNote(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	for _, note := range []string{"", "   "} {
 		err := m.AcknowledgeStaleBasis(fwmanager.Context{Context: context.Background()},
 			ProjectID(uuid.NewString()), KindPlanningAssumptions, note)
@@ -7023,10 +7262,200 @@ func Test_AcknowledgeStaleBasis_RequiresNote(t *testing.T) {
 // envelope with empty notes steers nothing while claiming to steer;
 // SubmitReviewDecision already rejected this shape, so the two must agree.
 func Test_RequestArtifactDraft_RejectsEmptyFeedbackEnvelope(t *testing.T) {
-	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	m := NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	_, err := m.RequestArtifactDraft(fwmanager.Context{Context: context.Background()},
 		ProjectID(uuid.NewString()), KindPlanningAssumptions, &ReviewFeedback{Notes: "  "})
 	if got := asProjectDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for a present-but-empty feedback envelope, got %d", got)
+	}
+}
+
+// ---- THE ROUND-LEDGER DUAL-WRITE (stage 3, task 6) -------------------------
+
+// THE PHASE-2 RAIL CARRIES THE SAME DUAL-WRITE CODE AND WRITES NOTHING WITH IT TODAY, and
+// that is a fact worth pinning rather than a gap worth hiding.
+//
+// A design round is keyed on its lifecycle phase's REVIEW task, read out of method-assets
+// through the same projectstate.GateTaskFor / AgentTaskFor tables the construction child
+// workflow reads. The projectDesign lifecycle (method-assets v0.9.0) models ONE phase —
+// "sdp", the M0 gate — and the nine Phase-2 artifact DRAFTS this rail co-authors map to
+// their own wire names instead (designActivityFor, deliberately: mapping them to "sdp"
+// would gate nine drafts behind the always-human spend floor). So no Phase-2 kind resolves
+// to a review task, and the rail opens no round.
+//
+// Synthesizing one — "planningAssumptionsReview" — is the one option ruled out: it would
+// put a task id in the ledger that the PINNED lifecycle does not carry, which is precisely
+// what LifecyclePin exists to prevent, and every reader deriving a phase from it would find
+// a task that is not in the DAG.
+//
+// EARMARK: extending the projectDesign lifecycle with the nine drafts and their reviews is
+// a method-assets release (a platform release is its own founder STOP). The moment it
+// lands, this test flips and the rail writes rounds with no code change — which is what the
+// second half asserts.
+func Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle(t *testing.T) {
+	for _, kind := range []projectstate.ArtifactKind{
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
+		projectstate.KindRiskModel,
+		// KindSdpReview is here deliberately: it is the one kind the projectDesign lifecycle
+		// names a task for ("sdpReview"), yet designActivityFor maps it to the PHASE id
+		// "sdpReview" while the lifecycle's only phase is "sdp" — so it does not resolve
+		// either. (This rail refuses to co-author it at the door in any case; the SDP review
+		// is assembled, not drafted.)
+		projectstate.KindSdpReview,
+	} {
+		if key, ok := designRoundKeyFor(kind); ok {
+			t.Fatalf("%s now resolves to review task %q — the projectDesign lifecycle has grown its drafts, so drop this test and assert the rounds instead", kind.WireName(), key.gate)
+		}
+	}
+	// The resolution itself is sound — it is the DATA that is missing. Given a phase the
+	// pinned lifecycles DO carry, the same function keys a round on that phase's own tasks.
+	p := projectstate.ActivityMethodPhase("sdp")
+	if got := projectstate.GateTaskFor(p); got != "sdpReview" {
+		t.Fatalf("the projectDesign lifecycle's only gate is sdpReview; got %q", got)
+	}
+}
+
+// THE ROUND NUMBERING IS SEEDED FROM THE DURABLE LEDGER, NOT FROM THE SESSION. reviewRound
+// is a per-SESSION counter starting at zero, so a second co-author session of the same kind
+// would re-mint the first session's round ids; OpenReviewRound is idempotent on an id, so
+// the second session's round would vanish into the first's and its verdicts would land on a
+// round that judged another draft. seedRoundBaseFromLedger reads the row at session start
+// and ledgerRoundBase is the arithmetic it seeds with.
+//
+// Asserted on the PURE function because this rail opens no round today (no Phase-2 kind
+// resolves to a review task — see above), so there is no session to drive it through. The
+// code is identical to systemdesign's, where the workflow-level tests live: the two rails
+// are edited together precisely so a fix to one is not a divergence from the other.
+func Test_LedgerRoundBase_CountsOnlyTheKindsOwnRoundsAtThatGate(t *testing.T) {
+	// A key the pinned projectDesign lifecycle DOES carry (the M0 gate), so the arithmetic
+	// is exercised against real task ids rather than invented ones.
+	key := designRoundKey{
+		activityID: "projectDesign", typ: projectstate.ActivityTypeProjectDesign,
+		gate: projectstate.GateTaskFor(projectstate.ActivityMethodPhase("sdp")),
+		work: projectstate.AgentTaskFor(projectstate.ActivityMethodPhase("sdp")),
+	}
+	row := projectstate.ActivityExecution{Reviews: []projectstate.ReviewRound{
+		{RoundID: designRoundID(key, projectstate.KindNetwork, 1), TaskID: key.gate, Round: 1},
+		{RoundID: designRoundID(key, projectstate.KindNetwork, 2), TaskID: key.gate, Round: 2},
+		{RoundID: designRoundID(key, projectstate.KindRiskModel, 5), TaskID: key.gate, Round: 5},
+		{RoundID: "projectDesign:someOtherGate:network:9", TaskID: "someOtherGate", Round: 9},
+	}}
+	if got := ledgerRoundBase(row, key, projectstate.KindNetwork); got != 2 {
+		t.Fatalf("network's base is its own highest round, 2 — not another kind's and not another gate's; got %d", got)
+	}
+	if got := ledgerRoundBase(row, key, projectstate.KindRiskModel); got != 5 {
+		t.Fatalf("riskModel's base is its own 5; got %d", got)
+	}
+	if got := ledgerRoundBase(row, key, projectstate.KindPlanningAssumptions); got != 0 {
+		t.Fatalf("a kind with no round of its own starts at 0, so its first round is 1; got %d", got)
+	}
+	if got := ledgerRoundBase(projectstate.ActivityExecution{}, key, projectstate.KindNetwork); got != 0 {
+		t.Fatalf("an activity with no row (the ordinary first session) is a base of 0; got %d", got)
+	}
+}
+
+// AND THE RAIL STAYS GREEN AND SILENT. A Phase-2 send-back still writes its slot thread and
+// still loops to a redraft, and it leaves the execution ledger untouched rather than a
+// half-written round — the honest outcome of the resolution above.
+func Test_CoAuthorPhase2_Reject_WritesTheSlotThreadAndNoRound(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	pipe := newFakePipeline()
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	const rejectNotes = "rework the staffing assumptions"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the dual-write must not crash the Phase-2 session: %v", err)
+	}
+	if len(ps.rejected) != 1 || ps.rejected[0].notes != rejectNotes {
+		t.Fatalf("the legacy slot write must still happen; got %v", ps.rejected)
+	}
+	if rounds := ps.rounds("projectDesign"); len(rounds) != 0 {
+		t.Fatalf("no Phase-2 kind resolves to a review task today, so no round may be invented; got %+v", rounds)
+	}
+	if exec := ps.execution("projectDesign"); exec.StartedAt != nil {
+		t.Fatal("an activity row is not opened for a session that can write no round")
+	}
+}
+
+// Test_WorkerManifest_ThreadsEveryDependency is the systemdesign/construction twin of the
+// same gate: activityExecutionAccess's activities are REGISTERED from the genActivities
+// struct's fields, so a dep the manifest never threads is a nil-receiver panic INSIDE the
+// Activity — invisible to every unit test, because the tests register their own
+// genActivities. Reflection, not a hand list.
+func Test_WorkerManifest_ThreadsEveryDependency(t *testing.T) {
+	acts := reflect.ValueOf(fullyWiredProjectDesignManager().WorkerManifest().Activities)
+	for i := range acts.NumField() {
+		if acts.Field(i).IsNil() {
+			t.Errorf("genActivities.%s is nil in WorkerManifest: its registered activities would panic on first call",
+				acts.Type().Field(i).Name)
+		}
+	}
+}
+
+// fullyWiredProjectDesignManager builds the Manager with EVERY published dependency
+// non-nil, which is the only state in which the manifest's threading can be checked.
+func fullyWiredProjectDesignManager() *projectDesignManager {
+	ps := &fakeProjectState{}
+	return newProjectDesignManager(
+		nil,
+		ps,
+		newFakePipeline(),
+		&scriptedRail{},
+		estimation.NewEstimationEngine(),
+		operationestimation.NewOperationEstimationEngine(),
+		billing.NewBillingEngine(),
+		projectstate.NewDesignSessionAccess(ps),
+		fakeActivityExecution{ps},
+		&fakeEpisodes{},
+		func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false },
+	)
+}
+
+// THE FAILED-GATE WITHDRAW CLOSES THE OPEN ROUND ON THIS RAIL TOO. It writes no round
+// today (no Phase-2 kind resolves to a review task — see above), so what this pins is that
+// the call is THERE and inert rather than missing: the systemdesign twin's version of this
+// gate was reachable with a round wide open and left it pending forever, and the two rails
+// are edited together precisely so a fix to one is not a divergence from the other.
+func Test_CoAuthorPhase2_WithdrawAtTheFailedGate_LeavesNoPendingRound(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	// The draft job FAILS terminally, landing the session at StageDraftFailed.
+	pipe := newFakePipeline(pipelineFailed)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate withdraw must not crash the session: %v", err)
+	}
+	for _, r := range ps.rounds("projectDesign") {
+		if r.Outcome == projectstate.RoundPending {
+			t.Fatalf("no round may be left pending by a session that knows it is ending; got %+v", r)
+		}
+	}
+	if len(ps.withdrawn) == 0 {
+		t.Fatalf("the failed-gate withdraw must still record the slot withdraw; got %v", ps.withdrawn)
 	}
 }

@@ -40,7 +40,7 @@ test.beforeEach(async ({ request }) => {
 });
 
 interface Wire {
-  ActivityConstruction?: Record<string, Record<string, unknown>>;
+  activityExecution?: Record<string, Record<string, unknown>>;
 }
 
 interface ServeOptions {
@@ -74,7 +74,7 @@ async function serveOwed(page: Page, opts: ServeOptions = {}): Promise<void> {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
     for (const [id, edit] of Object.entries(rows)) {
-      const row = wire.ActivityConstruction?.[id];
+      const row = wire.activityExecution?.[id];
       if (row === undefined) throw new Error(`no row ${id} in the read`);
       Object.assign(
         row,
@@ -208,7 +208,7 @@ test('an owed gate reads awaiting you on its lifecycle segment too, not only on 
 }) => {
   await serveOwed(page, {
     alsoEdit: (wire) => {
-      const r = wire.ActivityConstruction?.[GATE];
+      const r = wire.activityExecution?.[GATE];
       if (r === undefined) throw new Error(`no row ${GATE} in the read`);
       // An open (outcome '') observed attempt on the gate task, as MP8 serves it:
       // the tick is running, and only the owed gate makes it awaiting you.
@@ -242,7 +242,7 @@ test("a reconstructed owed lane's hover-card line carries the owed chip, in the 
     alsoEdit: (wire) => {
       // A backfilled row carries no finish stamp the pump never wrote; with the
       // start stamp serveOwed adds, it is a probe candidate and its session is asked.
-      const r = wire.ActivityConstruction?.[RECONSTRUCTED];
+      const r = wire.activityExecution?.[RECONSTRUCTED];
       if (r === undefined) throw new Error(`no row ${RECONSTRUCTED} in the read`);
       delete r['completedAt'];
     },
@@ -267,7 +267,7 @@ async function serveFreshPickup(page: Page, atGate: boolean): Promise<void> {
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as Wire;
-    const r = wire.ActivityConstruction?.[GATE];
+    const r = wire.activityExecution?.[GATE];
     if (r === undefined) throw new Error(`no row ${GATE} in the read`);
     Object.assign(r, {
       recorded: true,

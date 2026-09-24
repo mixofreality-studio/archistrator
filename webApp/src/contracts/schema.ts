@@ -961,12 +961,74 @@ export interface components {
         [key: string]: string[];
       };
     };
+    ConstructionReviewRosterSeat: {
+      /** @description The agent or person filling that role for this round. */
+      actor: string;
+      /** @description Whether the round could not be decided passed without this reviewer's verdict. */
+      required: boolean;
+      /** @description The reviewer's Method role (architect, productManager, qaEngineer, ...). */
+      role: string;
+    };
     ConstructionReviewSet: {
       /** @description The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose. */
       reason?: string;
       /** @description Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself. */
       requiresHuman?: boolean;
       reviewers?: null | components['schemas']['ConstructionReviewer'][];
+    };
+    ConstructionReviewSubjectRef: {
+      /**
+       * @description What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.
+       * @enum {string}
+       */
+      kind: 'commit' | 'artifact' | 'pullRequest';
+      /** @description What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored. */
+      ref: string;
+    };
+    ConstructionReviewThreadComment: {
+      addressee?: string;
+      anchor: string;
+      anchorText?: string;
+      authorRole: string;
+      id: string;
+      reopened: boolean;
+      replies: components['schemas']['ConstructionReviewThreadReply'][];
+      round: number;
+      /**
+       * @description Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind.
+       * @enum {string}
+       */
+      status: 'open' | 'answered' | 'resolved';
+      text: string;
+      /**
+       * @description What the comment asks of its addressee: a change, an answer, or an acknowledgement that the thing it was anchored to has moved on.
+       * @enum {string}
+       */
+      type: 'changeRequest' | 'question' | 'staleAck';
+    };
+    ConstructionReviewThreadReply: {
+      /** @description RFC3339, verbatim from the ledger. */
+      at: string;
+      authorRole: string;
+      id: string;
+      text: string;
+    };
+    /**
+     * @description One reviewer's answer in a round. Agent and human verdicts are the same kind of row; abstain is a reviewer who was asked and declined, which is not silence.
+     * @enum {string}
+     */
+    ConstructionReviewVerdictKind: 'approve' | 'sendBack' | 'abstain';
+    ConstructionReviewVerdictView: {
+      /** @description The agent or person who gave it. Omitted when the role alone identifies the reviewer. */
+      actor?: string;
+      /** @description RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant. */
+      at: string;
+      /** @description The gate attempt this verdict was given at. */
+      attemptId?: string;
+      reviewerRole: string;
+      /** @description The reviewer's one-line reason, verbatim. */
+      summary?: string;
+      verdict: components['schemas']['ConstructionReviewVerdictKind'];
     };
     ConstructionReviewer: {
       mayAmend: boolean;
@@ -1002,8 +1064,12 @@ export interface components {
       /** @description Every attempt of the revision, as "<activityId>:<task>:<n>" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate. */
       attemptIds: string[];
       commentCount: number;
-      /** @description The anchored comments that rode with a send-back. Empty unless outcome is sentBack. */
+      /** @description The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there. */
       comments: components['schemas']['ConstructionTaskRevisionComment'][];
+      /** @description RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision. */
+      decidedAt?: string;
+      /** @description Who decided the round. Omitted while it is undecided and on a reconstructed revision. */
+      decidedBy?: string;
       /**
        * Format: date-time
        * @description Omitted while any attempt of the revision is unresolved.
@@ -1013,12 +1079,22 @@ export interface components {
       episodeId?: string;
       /** @description 1-based. Revision n is the n-th work that reached the gate, with every failed or retried attempt before it, and the n-th gate attempt that judged it. */
       n: number;
-      /** @description The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. */
+      /** @description The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position. */
       note?: string;
       outcome: components['schemas']['ConstructionTaskRevisionOutcome'];
       provenance: components['schemas']['ConstructionTaskRevisionProvenance'];
+      /** @description The roster the round was opened with, as the reviewEngine computed it. Empty on a reconstructed revision: a pre-ledger row recorded who reviewed nowhere. */
+      reviewers?: components['schemas']['ConstructionReviewRosterSeat'][];
+      /** @description The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give. */
+      round?: number;
       /** Format: date-time */
       startedAt?: null | string;
+      /** @description What this revision judged. The artifact as of a non-latest revision is read from it. Omitted on a reconstructed revision, which has no record of its subject. */
+      subjectRef?: components['schemas']['ConstructionReviewSubjectRef'];
+      /** @description The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6. */
+      thread?: components['schemas']['ConstructionReviewThreadComment'][];
+      /** @description Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row. */
+      verdicts?: components['schemas']['ConstructionReviewVerdictView'][];
     };
     ConstructionTimelineEvent: {
       eventType: string;
@@ -1827,9 +1903,9 @@ export interface components {
       layerBand: string;
       /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it whole; then it names that dispatch's attempt. Delivery is at-least-once: when a note's delivery stamp cannot be written, the note stays pending and the next attempt carries it again, so an agent may see one note twice but never zero times, and never twice in the same attempt. When the pending notes exceed the 16 KiB one dispatch carries, the oldest wait for a later attempt so the newest arrives whole. A note recorded where no agent runs next (a merge-only retry, a takeover, or a finished activity) stays pending until the activity's next agent dispatch. Omitted when there are none. */
       operatorNotes?: null | components['schemas']['SystemDesignOperatorNote'][];
-      /** @description Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
+      /** @description Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
       pendingResume?: components['schemas']['SystemDesignPendingResume'];
-      /** @description True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
+      /** @description True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
       recorded: boolean;
       /** Format: date-time */
       startedAt?: null | string;
@@ -2147,9 +2223,6 @@ export interface components {
     };
     SystemDesignProjectID: string;
     SystemDesignProjectState: {
-      ActivityConstruction: {
-        [key: string]: components['schemas']['SystemDesignActivityConstructionStatus'];
-      };
       GitRows: {
         [key: string]: components['schemas']['SystemDesignActivityGitStatus'];
       };
@@ -2165,8 +2238,12 @@ export interface components {
       };
       Slots: null | components['schemas']['SystemDesignArtifactSlotView'][];
       Version: number;
+      /** @description One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale. */
+      activityExecution: {
+        [key: string]: components['schemas']['SystemDesignActivityConstructionStatus'];
+      };
       constructionProgress?: components['schemas']['SystemDesignConstructionProgress'];
-      /** @description True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
+      /** @description True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
       constructionStarted: boolean;
       operatingModel: components['schemas']['SystemDesignOperatingModel'];
       /** @description True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead. */

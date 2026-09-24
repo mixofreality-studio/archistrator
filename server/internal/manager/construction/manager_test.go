@@ -9,8 +9,10 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -40,6 +42,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	artifactfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
@@ -101,7 +104,7 @@ func newTestConstructionManager(c client.Client) *constructionManager {
 	// A default project in construction and NOT paused: Begin reads it for the paused
 	// precheck (B1.7), and every other façade op ignores it.
 	ps := &fakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
-	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil)
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -126,7 +129,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -134,7 +137,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -501,7 +504,7 @@ func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcom
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
 
 func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -509,7 +512,7 @@ func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
 }
 
 func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	nilID := ProjectID("")
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -520,7 +523,7 @@ func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -528,7 +531,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -538,7 +541,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -546,7 +549,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -554,7 +557,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -564,7 +567,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -572,7 +575,7 @@ func Test_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -957,7 +960,7 @@ func TestUpdateReviewPolicy(t *testing.T) {
 			return projectstate.Project{Version: 7}, nil
 		},
 	}
-	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, nil, 0, "", nil)
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -1115,7 +1118,7 @@ type stubGitStatus struct {
 	mu sync.Mutex
 
 	rows    map[string]projectstate.ActivityGitStatus
-	cons    map[string]projectstate.ActivityConstructionStatus // per-activity construction lifecycle (Task 3)
+	cons    map[string]projectstate.ActivityExecution // per-activity construction lifecycle (Task 3)
 	version projectstate.Version
 	dedup   map[fwra.IdempotencyKey]projectstate.Version
 	applies int // count of NON-deduped (real) applies — proves no double-apply
@@ -1124,7 +1127,7 @@ type stubGitStatus struct {
 func newStubGitStatus(seed projectstate.Version) *stubGitStatus {
 	return &stubGitStatus{
 		rows:    map[string]projectstate.ActivityGitStatus{},
-		cons:    map[string]projectstate.ActivityConstructionStatus{},
+		cons:    map[string]projectstate.ActivityExecution{},
 		version: seed,
 		dedup:   map[fwra.IdempotencyKey]projectstate.Version{},
 	}
@@ -1196,7 +1199,9 @@ func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.Pro
 	s.applies++
 	c := s.cons[activityID]
 	c.ActivityID = activityID
-	c.Phase = projectstate.ActivityConstructionRunning
+	if c.StartedAt == nil {
+		c.StartedAt = &testExitAt
+	}
 	c.Type = typ
 	c.Variant = variant
 	s.cons[activityID] = c
@@ -1217,7 +1222,9 @@ func (s *stubGitStatus) RecordActivityCompleted(_ fwra.Context, _ projectstate.P
 	s.applies++
 	c := s.cons[activityID]
 	c.ActivityID = activityID
-	c.Phase = projectstate.ActivityConstructionDone
+	if c.CompletedAt == nil {
+		c.CompletedAt = &testExitAt
+	}
 	s.cons[activityID] = c
 	s.version++
 	s.dedup[key] = s.version
@@ -1229,14 +1236,6 @@ func (s *stubGitStatus) row(activityID string) (projectstate.ActivityGitStatus, 
 	defer s.mu.Unlock()
 	g, ok := s.rows[activityID]
 	return g, ok
-}
-
-// constructionPhase returns the recorded construction lifecycle phase for activityID.
-func (s *stubGitStatus) constructionPhase(activityID string) (projectstate.ActivityConstructionPhase, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.cons[activityID]
-	return c.Phase, ok
 }
 
 var _ projectstate.GitActivityStatusAccess = (*stubGitStatus)(nil)
@@ -1271,6 +1270,7 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows,
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
 }
@@ -1384,12 +1384,10 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	gitLifecycleAssertHeadStateRow(t, git)
 
 	// Task 3: the per-activity construction lifecycle recorded Running (started) then
-	// Done (completed) through the same git-wired spine.
-	phase, ok := git.constructionPhase("C-MST")
-	if !ok {
-		t.Fatal("ActivityConstruction[C-MST] was never recorded (started/completed)")
-	}
-	if phase != projectstate.ActivityConstructionDone {
+	// Done (completed) through the same git-wired spine. Stage 3 moved that pair off the
+	// git mirror onto the execution row (OpenActivity / RecordActivityOutcome), where the
+	// coarse phase is DERIVED from the start and completion stamps rather than stored.
+	if phase := constructionPhaseOf(ps, "C-MST"); phase != projectstate.ActivityConstructionDone {
 		t.Fatalf("construction phase = %v, want Done (completed) after a happy-path spine", phase)
 	}
 }
@@ -1415,13 +1413,16 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	phase, ok := git.constructionPhase("C-MST")
-	if !ok {
-		t.Fatal("no construction head-state recorded")
-	}
-	if phase != projectstate.ActivityConstructionDone {
+	if phase := constructionPhaseOf(ps, "C-MST"); phase != projectstate.ActivityConstructionDone {
 		t.Fatalf("want Done after a completed activity, got %v", phase)
 	}
+}
+
+// constructionPhaseOf is the coarse Running/Done/Failed an activity's execution row
+// derives to — the question git.constructionPhase used to answer off a stored field,
+// asked of the ledger that owns the two stamps behind it.
+func constructionPhaseOf(ps *fakeProjectState, activityID string) projectstate.ActivityConstructionPhase {
+	return projectstate.CoarsePhaseFor(ps.execution(activityID), nil)
 }
 
 // A CI failure is mirrored as Failure (the dumb reflection); the lifecycle still
@@ -1678,7 +1679,7 @@ func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T
 	// The backfilled row, exactly as cmd/backfill-attempts writes it: the gate attempt
 	// alone, no stored Phase and no stored Phases.
 	done := plan()
-	done.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	done.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"projectDesign": {ActivityID: "projectDesign", Attempts: []projectstate.TaskAttempt{
 			ledgerAttempt("projectDesign", projectstate.GateTaskFor("sdp"), 1, projectstate.OutcomePassed),
 		}},
@@ -1794,8 +1795,8 @@ func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
 			{Activity: "B", DependsOn: []string{"A"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -1844,8 +1845,8 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 2: A Done → B is eligible. ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1859,9 +1860,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 3: A Done, B Running → nothing eligible (C blocked; B running). ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
-		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
+		"B": {ActivityID: "B", StartedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -1869,9 +1870,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 4: A Done, B Done → C is eligible. ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
-		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
+		"B": {ActivityID: "B", CompletedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1937,11 +1938,11 @@ var servicePhases = projectstate.ProfileFor(projectstate.ActivityTypeService, pr
 // NotStarted), so it re-dispatched A and held B back.
 func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispatched(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
 	}
-	if a := proj.ActivityConstruction["A"]; a.Phase != projectstate.ActivityConstructionNotStarted || len(a.Phases) != 0 {
-		t.Fatalf("fixture must be the backfill shape (no stored phase fields), got phase=%v phases=%d", a.Phase, len(a.Phases))
+	if a := proj.ActivityExecution["A"]; a.StartedAt != nil || a.CompletedAt != nil {
+		t.Fatalf("fixture must be the backfill shape (a ledger and no head facts), got %+v", a)
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1952,22 +1953,18 @@ func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispat
 	}
 }
 
-// A Skipped/TakenOver exit (RecordActivityExited) stores Phase=Done, BuildStatus=InReview
-// and leaves the stored Phases incomplete. The stored Done must win — the pump wrote this
-// row — so B is unblocked. Deriving from the incomplete Phases would read A as Running
-// and strand B forever.
+// A Skipped/TakenOver exit (RecordActivityExited) stamps the EXIT and nothing else, over
+// a ledger that got only part-way. The exit must win — Done is the binary fact — so B is
+// unblocked. Deriving from the partial ledger alone would read A as Running and strand B
+// forever.
 func TestNextEligibleActivity_ExitedSkippedRowStillUnblocksItsDependents(t *testing.T) {
 	proj := ledgerChain()
-	phases := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-	for i, ph := range servicePhases {
-		phases = append(phases, projectstate.PhaseCompletion{Phase: ph, Completed: i == 0})
-	}
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {
 			ActivityID:  "A",
-			Phase:       projectstate.ActivityConstructionDone,
-			BuildStatus: projectstate.BuildInReview,
-			Phases:      phases,
+			StartedAt:   &testExitAt,
+			CompletedAt: &testExitAt,
+			Attempts:    passedLedger("A", servicePhases[0]),
 		},
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
@@ -1989,8 +1986,8 @@ func TestNextEligibleActivity_RejectedGateRowIsRunningNotDispatchedAndBlocks(t *
 		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
 		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
 	)
-	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Attempts: attempts}
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": row}
+	row := projectstate.ActivityExecution{ActivityID: "A", Attempts: attempts}
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": row}
 
 	if got, _ := projectstate.EffectiveConstructionPhase(row, proj.ActivityList.Model.(*projectstate.ActivityList).Activities[0]); got != projectstate.ActivityConstructionRunning {
 		t.Fatalf("a ledger with a rejected latest gate must read Running, got %v", got)
@@ -2014,7 +2011,7 @@ func TestNextEligibleActivity_RejectedGateRowResumesUnderTheLedgerPartialRule(t 
 		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
 		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {ActivityID: "A", Attempts: attempts}}
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": {ActivityID: "A", Attempts: attempts}}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
 		t.Fatalf("want A dispatched to resume, got verdict=%v activity=%q", sel.Verdict, sel.Activity.ActivityID)
@@ -2047,9 +2044,9 @@ func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
-			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", CompletedAt: &testExitAt},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", CompletedAt: &testExitAt},
 		},
 	}
 
@@ -2084,9 +2081,9 @@ func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
-			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionRunning},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", CompletedAt: &testExitAt},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", StartedAt: &testExitAt},
 		},
 	}
 
@@ -2117,8 +2114,8 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"A": {ActivityID: "A", CompletedAt: &testExitAt},
 		},
 	}
 
@@ -2132,8 +2129,8 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 
 	// Unsatisfied at the bottom of the chain (A not Done) must propagate all the way
 	// back up through both milestone hops.
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -2352,9 +2349,9 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
 			{ID: "projectExport", Name: "projectExport", Layer: projectstate.LayerManager},
 		}),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
-			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"C-CW":  {ActivityID: "C-CW", CompletedAt: &testExitAt},
+			"D-MPD": {ActivityID: "D-MPD", CompletedAt: &testExitAt},
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
@@ -2621,12 +2618,22 @@ type phaseCompletedCall struct {
 	phase      string
 }
 
-// phaseCompleted reports whether RecordPhaseCompleted landed for (activityID, phase).
+// phaseCompleted reports whether the phase's completion landed for (activityID, phase),
+// on EITHER rail: the retired RecordPhaseCompleted call, or — behind
+// changeExecutionLedger — the passed attempt at the phase's gate task, which is the one
+// fact every reader now derives a lifecycle phase's completion from (App A's binary
+// exit). One question, one answer, whichever rail wrote it.
 func (f *fakeProjectState) phaseCompleted(activityID, phase string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, c := range f.phaseDone {
 		if c.activityID == activityID && c.phase == phase {
+			return true
+		}
+	}
+	gate := projectstate.GateTaskFor(projectstate.ActivityMethodPhase(phase))
+	for _, a := range f.project.ActivityExecution[activityID].Attempts {
+		if a.Task == gate && a.Outcome == projectstate.OutcomePassed {
 			return true
 		}
 	}
@@ -2879,6 +2886,216 @@ func (f fakeConstructionTransition) ReadProject(rc fwra.Context, projectID proje
 }
 
 var _ projectstate.ConstructionTransitionAccess = fakeConstructionTransition{}
+
+// testLedgerClock is the fixed clock the execution-ledger double stamps, so a row a test
+// reads back is byte-comparable between runs.
+var testLedgerClock = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+// fakeActivityExecution is the in-memory activityExecutionAccess the workflow tests write
+// their attempts and review rounds through (stage 3, task 5). It is hand-rolled rather
+// than the generated FakeActivityExecutionAccess for one reason: these tests assert on the
+// ROWS a run produced — "a send-back then an approval is two rounds, the first of them
+// sentBack" — and a double whose every op is a func field records calls, not state.
+//
+// It holds the rules those assertions depend on and no more: one id names one attempt,
+// one id names one round, and a decided round takes no further verdict. The rest of the
+// contract (the provenance stamping, the comment-thread normaliser, the terminality
+// refusals) is the real facet's and is pinned by its own access_test.go; a second
+// implementation of it here would be a second thing to keep in step.
+type fakeActivityExecution struct {
+	*fakeProjectState
+}
+
+var _ projectstate.ActivityExecutionAccess = fakeActivityExecution{}
+
+// upsertExecution mirrors the store's single write-back point: mutate the one row, stamp
+// its per-activity version, advance the project head. Callers hold the lock.
+func (f *fakeProjectState) upsertExecution(activityID string, mutate func(*projectstate.ActivityExecution)) projectstate.Version {
+	if f.project.ActivityExecution == nil {
+		f.project.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	}
+	row := f.project.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	mutate(&row)
+	row.Version++
+	f.project.ActivityExecution[activityID] = row
+	return f.bump()
+}
+
+// execution reads back the execution row a run wrote.
+func (f *fakeProjectState) execution(activityID string) projectstate.ActivityExecution {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.project.ActivityExecution[activityID]
+}
+
+// applyExecution is the shared shape of every mutating verb on the double.
+func (f fakeActivityExecution) applyExecution(activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.upsertExecution(activityID, mutate), nil
+}
+
+func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.Type, row.Variant = typ, variant
+		if row.Pin == nil {
+			held := pin
+			row.Pin = &held
+		}
+		if row.StartedAt == nil {
+			t := testLedgerClock
+			row.StartedAt = &t
+		}
+	})
+}
+
+func (f fakeActivityExecution) RecordAttemptOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, attempt projectstate.TaskAttemptInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		evidence := projectstate.EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}
+		for i := range row.Attempts {
+			if row.Attempts[i].AttemptID != attempt.AttemptID {
+				continue
+			}
+			row.Attempts[i].Outcome, row.Attempts[i].Actor, row.Attempts[i].Evidence = attempt.Outcome, attempt.Actor, evidence
+			return
+		}
+		row.Attempts = append(row.Attempts, projectstate.TaskAttempt{
+			AttemptID: attempt.AttemptID,
+			Task:      attempt.TaskID,
+			Phase:     projectstate.PhaseForTask(attempt.TaskID),
+			Attempt:   int(attempt.Attempt),
+			Actor:     attempt.Actor,
+			StartedAt: &testLedgerClock,
+			Outcome:   attempt.Outcome,
+			Evidence:  evidence,
+			Provenance: projectstate.AttemptProvenance{
+				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
+			},
+		})
+	})
+}
+
+func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			if row.Reviews[i].RoundID == round.RoundID {
+				return // already open: a no-op success, not a second round
+			}
+		}
+		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+			RoundID:    round.RoundID,
+			TaskID:     round.TaskID,
+			Reviews:    round.Reviews,
+			Round:      round.Round,
+			SubjectRef: round.SubjectRef,
+			Reviewers:  slices.Clone(round.Reviewers),
+			Outcome:    projectstate.RoundPending,
+			OpenedAt:   testLedgerClock.Format(time.RFC3339),
+			Provenance: projectstate.AttemptProvenance{
+				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
+			},
+		})
+	})
+}
+
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			for _, c := range comments {
+				held := c
+				held.ID = fmt.Sprintf("r%dc%d", r.Round, len(r.Thread)+1)
+				held.Round, held.Status = r.Round, "open"
+				r.Thread = append(r.Thread, held)
+			}
+			return
+		}
+	})
+}
+
+func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			return
+		}
+	})
+}
+
+// RecordActivityOutcome lands the terminal AND logs it into the exited/failed call logs
+// the retired verbs fed. Deliberately: the fold's whole point is that it records the same
+// two facts those three verbs did, so a test asking "did the activity exit completed"
+// must get the same answer whichever rail the run was on.
+func (f fakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		if row.CompletedAt == nil {
+			t := testLedgerClock
+			row.CompletedAt = &t
+		}
+		if reason != projectstate.FailureReasonUnknown {
+			row.FailureReason, row.FailureDetail = reason, detail
+		}
+	})
+	if err != nil {
+		return 0, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if reason != projectstate.FailureReasonUnknown {
+		f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
+		return v, nil
+	}
+	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
+	return v, nil
+}
+
+// The five verbs no construction workflow calls yet (the design rails take them in task 6
+// and the migration tool in task 9). Inert stubs, matching the stubRail precedent for
+// satisfying an unused portion of a wide contract.
+
+func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+	return projectstate.StagedRef{}, nil
+}
+
+func (fakeActivityExecution) SetReviewCommentStatus(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f fakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
+			NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text,
+			Comments: slices.Clone(note.Comments), RecordedAt: testLedgerClock,
+			DeliveredToAttemptID: deliveredToAttemptID,
+		})
+	})
+}
+
+func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	return f.execution(activityID), nil
+}
 
 // fakeFullProjectState widens fakeProjectState onto the FULL projectstate.ProjectStateAccess
 // contract so the test env can (a) register the GENERATED ProjectStateReadProjectVersion
@@ -3165,6 +3382,21 @@ func registerGenConstructionTransition(env *testsuite.TestWorkflowEnvironment, p
 	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNoteDelivered, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNoteDelivered"})
 }
 
+// registerGenActivityExecution registers the GENERATED activityExecutionAccess activities
+// the construction child workflow writes through behind changeExecutionLedger (stage 3),
+// backed by the in-memory double over the same ps. The six it calls are registered; the
+// other six are not, so a workflow that starts calling one is a loud ActivityNotRegistered
+// rather than a silent no-op.
+func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps *fakeProjectState) {
+	acts := &genActivities{ActivityExecution: fakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordAttemptOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordAttemptOutcome"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordActivityOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordActivityOutcome"})
+}
+
 // registerGenGitStatus registers the GENERATED gitActivityStatusAccess Record* activities
 // (B8: migrated off the custom RecordActivity*Activity methods, gitactivities.go) under
 // their generated registered names, backed by gs — either ps (already the full
@@ -3293,6 +3525,7 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
 	// the gate tests wire GitStatus so these must be registered).
 	registerGenGitStatus(env, ps)
@@ -3308,6 +3541,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 }
 
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
@@ -3324,6 +3558,7 @@ func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *work
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	acts := &genActivities{MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
@@ -5891,7 +6126,7 @@ func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
 // setReviewPolicyManager wires a constructionManager over the generated
 // FakeConstructionTransitionAccess for the preset write-path tests.
 func setReviewPolicyManager(ps projectstate.ProjectStateAccess, ct projectstate.ConstructionTransitionAccess) *constructionManager {
-	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, nil, 0, "", nil)
 }
 
 func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
@@ -6360,7 +6595,7 @@ func Test_Construct_MergeJob_WritesNoGapRecord(t *testing.T) {
 // episodeMgr builds a constructionManager exercising ONLY the episode facet read
 // ops (Task 9): every other dep stays nil since those ops touch only episodes.
 func episodeMgr(eps episode.EpisodeAccess) ConstructionManager {
-	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil)
+	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil)
 }
 
 // sampleEpisodeRecord returns a fully-populated ledger record (every optional
@@ -6814,6 +7049,7 @@ func (r replayRig) activities() genActivities {
 		ProjectState:           full,
 		Pipeline:               r.pipe,
 		ConstructionTransition: fakeConstructionTransition{r.ps},
+		ActivityExecution:      fakeActivityExecution{r.ps},
 		GitStatus:              r.ps,
 		DesignSession:          projectstate.NewDesignSessionAccess(full),
 		MessageBus:             bus,
@@ -6906,10 +7142,62 @@ var replayPartialLedgerPhases = []projectstate.ActivityMethodPhase{
 	projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction,
 }
 
-// replayScenarios is every captured history: the pre-change set (never re-captured) and
-// the post-b1 set, captured from the B1.4 code so its versioned path is pinned too.
+// replayScenarios is every captured history: the pre-change set (never re-captured), the
+// post-b1 set captured from the B1.4 code, and the post-stage3 set captured from the code
+// that writes the execution ledger — so BOTH sides of every fence are pinned.
 func replayScenarios() []replayScenario {
-	return append(replayScenariosPreChange(), replayScenariosPostB1()...)
+	out := append(replayScenariosPreChange(), replayScenariosPostB1()...)
+	return append(out, replayScenariosPostStage3()...)
+}
+
+// replayScenariosPostStage3 are the histories captured from the code that WRITES the
+// attempt and review-round ledgers (stage 3, task 5). The pre-* sets pin what an
+// execution WITHOUT the changeExecutionLedger marker replays as; these pin the new
+// command sequence itself — the pending attempt opened before the dispatch, the round
+// opened at the gate, the verdict, the decision, and the gate attempt that follows it —
+// so a later wave cannot quietly re-order or drop one of the five write points.
+func replayScenariosPostStage3() []replayScenario {
+	return []replayScenario{
+		{
+			// The whole of a gated phase's happy path: dispatch → gate → approve, then the
+			// merge hold's auto-pass and the terminal.
+			dir: "post-stage3", name: "gate-approve-writes-the-ledger",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// The rejection path, which is where the ledger earns its keep: round 1 decided
+			// sentBack with its verdict and its rejected gate attempt, the redraft's work
+			// attempt, then round 2 over it.
+			dir: "post-stage3", name: "gate-sendback-redraft-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				before := replaySubmitted(r.pipe)
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{
+					Phase: "detailed_design", Decision: PhaseSendBack,
+					Feedback: &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}},
+				})
+				replayAwaitView(ctx, t, c, run.GetID(), "the redraft's gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == before+1
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
 }
 
 // replayScenariosPreChange are the histories captured on the code BEFORE B1/D1.
@@ -7048,7 +7336,7 @@ func replayScenariosPreChange() []replayScenario {
 			dir: "pre-d", name: "construct-ledger-row-stored-seed",
 			rig: func() replayRig {
 				r := replayGateRig(projectstate.ReviewPolicy{})
-				r.ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+				r.ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{
 					string(replayActivityID): {ActivityID: string(replayActivityID), Attempts: passedLedger(string(replayActivityID), replayPartialLedgerPhases...)},
 				}
 				return r
@@ -7077,8 +7365,8 @@ func replayPartialRowProject() projectstate.Project {
 			{Activity: "O", DependsOn: []string{"D"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"D": {ActivityID: "D", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"D": {ActivityID: "D", CompletedAt: &testExitAt},
 		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
 	}
 	return proj
@@ -7287,35 +7575,25 @@ func Test_Replay_PreB1Histories_StayDeterministic(t *testing.T) {
 func TestIsActivityDispatchable_Table(t *testing.T) {
 	item := projectstate.ActivityItem{Name: "A", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"}
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	storedPhases := func(completeFirst bool) []projectstate.PhaseCompletion {
-		out := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-		for i, ph := range servicePhases {
-			out = append(out, projectstate.PhaseCompletion{Phase: ph, Completed: completeFirst && i == 0})
-		}
-		return out
-	}
 	cases := []struct {
 		name string
-		row  *projectstate.ActivityConstructionStatus
+		row  *projectstate.ActivityExecution
 		want bool
 	}{
 		{"absent", nil, true},
-		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityConstructionStatus{
+		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityExecution{
 			Attempts: []projectstate.TaskAttempt{ledgerAttempt("A", projectstate.TaskSRS, 1, projectstate.OutcomePassed)}}, true},
-		{"ledger 4/5: integration-pending", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
-		{"ledger 5/5: Done", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", servicePhases...)}, false},
-		{"stored Running with StartedAt: a pump started it", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionRunning, StartedAt: &now}, false},
-		{"stored Failed", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionFailed, FailureReason: projectstate.PipelineFailed}, false},
-		{"stored Done-exited with incomplete phases", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionDone, BuildStatus: projectstate.BuildInReview, Phases: storedPhases(true)}, false},
-		{"stored phases plus a partial ledger: the pump wrote it", &projectstate.ActivityConstructionStatus{
-			Phases: storedPhases(false), Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
+		{"ledger 4/5: integration-pending", &projectstate.ActivityExecution{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
+		{"ledger 5/5: Done", &projectstate.ActivityExecution{Attempts: passedLedger("A", servicePhases...)}, false},
+		{"a pump started it", &projectstate.ActivityExecution{StartedAt: &now}, false},
+		{"a recorded failure", &projectstate.ActivityExecution{
+			FailureReason: projectstate.PipelineFailed, CompletedAt: &testExitAt}, false},
+		{"exited over an incomplete ledger", &projectstate.ActivityExecution{
+			CompletedAt: &testExitAt, Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			status := map[string]projectstate.ActivityConstructionStatus{}
+			status := map[string]projectstate.ActivityExecution{}
 			if c.row != nil {
 				r := *c.row
 				r.ActivityID = "A"
@@ -7345,7 +7623,7 @@ func d1Project() projectstate.Project {
 			{Activity: "O", DependsOn: []string{"D"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
 	}
 	return proj
@@ -7361,7 +7639,7 @@ func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
 		return sel.Activity.ActivityID
 	}
 	doneD := func(proj projectstate.Project) projectstate.Project {
-		proj.ActivityConstruction["D"] = projectstate.ActivityConstructionStatus{ActivityID: "D", Phase: projectstate.ActivityConstructionDone}
+		proj.ActivityExecution["D"] = projectstate.ActivityExecution{ActivityID: "D", CompletedAt: &testExitAt}
 		return proj
 	}
 
@@ -7381,15 +7659,15 @@ func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
 	// must not dispatch it again — O is next, and Q still waits on P.
 	started := doneD(d1Project())
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	p := started.ActivityConstruction["P"]
-	p.Phase, p.StartedAt = projectstate.ActivityConstructionRunning, &now
-	started.ActivityConstruction["P"] = p
+	p := started.ActivityExecution["P"]
+	p.StartedAt = &now
+	started.ActivityExecution["P"] = p
 	if got := pick(started, eligibleDispatchable); got != "O" {
 		t.Fatalf("a P a pump has started must leave the dispatchable set, want O, got %q", got)
 	}
 	// A fully passed ledger is Done: never dispatched, and it satisfies Q.
 	full := doneD(d1Project())
-	full.ActivityConstruction["P"] = projectstate.ActivityConstructionStatus{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
+	full.ActivityExecution["P"] = projectstate.ActivityExecution{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
 	if got := pick(full, eligibleDispatchable); got != "Q" {
 		t.Fatalf("with P Done by its ledger, want Q, got %q", got)
 	}
@@ -7402,7 +7680,7 @@ func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var row projectstate.ActivityConstructionStatus
+	var row projectstate.ActivityExecution
 	if err := json.Unmarshal(b, &row); err != nil {
 		t.Fatal(err)
 	}
@@ -7428,17 +7706,14 @@ func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
 	}
 }
 
-// Where the ledger has decided, it overrules the stored slice both ways: the all-false
-// phases RecordPhaseStarted seeds do not undo the ledger's passed gates, and a rejected
-// Integration gate undoes a stored completion. Where it is silent, stored state stands.
-func TestSeedResumeFromLedger_LedgerOverrulesStoredWhereItDecided(t *testing.T) {
-	stored := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-	for _, ph := range servicePhases {
-		stored = append(stored, projectstate.PhaseCompletion{Phase: ph, Completed: ph == projectstate.MethodPhaseIntegration})
-	}
+// The ledger decides every phase it has decided, and only those: three passed gates seed
+// their phases complete, and an Integration gate whose latest attempt was REJECTED seeds
+// nothing — silence and a rejection both leave a phase unclaimed, and there is no stored
+// slice left for either to overrule (stage-3 task 4).
+func TestSeedResumeFromLedger_TheLedgerDecidesWhatItHasDecided(t *testing.T) {
 	attempts := passedLedger("A", projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
 	attempts = append(attempts, ledgerAttempt("A", projectstate.TaskTesting, 3, projectstate.OutcomeRejected))
-	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Phases: stored, Attempts: attempts}
+	row := projectstate.ActivityExecution{ActivityID: "A", Attempts: attempts}
 	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
 	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
 	want := map[projectstate.ActivityMethodPhase]bool{
@@ -7468,7 +7743,7 @@ func d1ConstructRun(t *testing.T, attempts []projectstate.TaskAttempt, setup fun
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"C-Orders": {ActivityID: "C-Orders", Attempts: attempts},
 	}
 	pipe := newFakePipeline()
@@ -7516,10 +7791,13 @@ func Test_Construct_IntegrationPendingRow_RunsOnlyIntegrationThenMergesAndFinali
 	if len(r.ps.exited) != 1 || r.ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
 		t.Fatalf("want one Completed exit, got %v", r.ps.exited)
 	}
-	started := slices.Index(r.order, "gitActivityStatusAccess.recordActivityStarted")
+	// The activity is OPENED before anything is dispatched — the fact that removes it from
+	// the pump's NotStarted set. Stage 3 moved it from RecordActivityStarted onto
+	// OpenActivity (same StartedAt, plus the lifecycle pin); the ORDER is the invariant.
+	started := slices.Index(r.order, "activityExecutionAccess.openActivity")
 	submit := slices.Index(r.order, "agenticJobAccess.submitAgenticJob")
 	if started < 0 || submit < 0 || started > submit {
-		t.Fatalf("RecordActivityStarted (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
+		t.Fatalf("OpenActivity (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
 	}
 	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:1"}) {
 		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:1]", got)
@@ -7629,8 +7907,177 @@ func b12Decide(env *testsuite.TestWorkflowEnvironment, key string, d PhaseDecisi
 	}
 }
 
+// b12SendBack is b12Decide's send-back with the operator's own words, for the tests that
+// assert those words landed somewhere durable.
+func b12SendBack(env *testsuite.TestWorkflowEnvironment, key, notes string) func() {
+	return func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{
+			Phase: key, Decision: PhaseSendBack, Feedback: &ReviewFeedback{Notes: notes},
+		})
+	}
+}
+
 func b12Run(env *testsuite.TestWorkflowEnvironment) {
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+}
+
+// ===========================================================================
+// THE EXECUTION LEDGER (stage 3, task 5): the construction child workflow WRITES.
+//
+// Before this, the run recorded nothing about what it did: attempt numbers were minted
+// and thrown away, every roster the review engine computed was discarded once it had been
+// displayed, and a send-back left a one-line OperatorNote and nothing else — no roster, no
+// verdict, no thread, no round number, no subject. These pin the writes, and the fence
+// that keeps an in-flight execution off them.
+// ===========================================================================
+
+// ledgerGateEnv is the rig these tests share: the REAL review engine (the roster is the
+// thing being persisted, so a fake roster would prove nothing) behind a policy that gates
+// detailed design.
+func ledgerGateEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *fakeProjectState) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	// The pipeline mines an episode on every observation (the local executor's arm), so
+	// the attempts these tests read back cite something a reader can actually follow.
+	registerConstruct(env, newWorkflows(deps), ps, &fakePipeline{phase: PipelineSucceeded, episode: captureSeamSummary()})
+	return env, ps
+}
+
+// A send-back must now leave a ROUND, not just a note: the roster the engine computed,
+// the verdict that was given, the round number, and the subject it judged.
+func Test_Construct_SendBack_PersistsTheReviewRound(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	env.RegisterDelayedCallback(b12SendBack(env, "detailed_design", "split the contract"), 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	gate := projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign)
+	rounds := roundsOnGate(ps, "C-Orders", gate)
+	if len(rounds) != 2 {
+		t.Fatalf("a send-back then an approval is TWO rounds on %s; got %d: %+v", gate, len(rounds), rounds)
+	}
+	assertRejectionRound(t, rounds[0], "split the contract")
+	if r2 := rounds[1]; r2.Round != 2 || r2.Outcome != projectstate.RoundPassed || r2.DecidedBy != decidedByOperator {
+		t.Fatalf("the redraft opens round 2 and the approval decides it; got %+v", r2)
+	}
+	// The un-gated phases still leave a round each: an auto-passed gate is a gate that
+	// happened, and it is the record a vibes preset otherwise leaves nothing of.
+	if auto, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseRequirements), 1); !ok ||
+		auto.Outcome != projectstate.RoundPassed || auto.DecidedBy != decidedByPolicy {
+		t.Fatalf("an un-gated phase records the round its policy passed; got %+v ok=%v", auto, ok)
+	}
+}
+
+// Attempts are written by the RUN now, not reconstructed. The work task and the gate task
+// each get one per revision, and the AttemptID format is unchanged so the episode
+// ledger's TargetRef join survives.
+func Test_Construct_WritesTheAttemptLedger(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	env.RegisterDelayedCallback(b12SendBack(env, "detailed_design", "split the contract"), 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	held := map[string]projectstate.TaskAttempt{}
+	for _, a := range ps.execution("C-Orders").Attempts {
+		held[a.AttemptID] = a
+	}
+	// detailedDesign#1 was rejected at designReview#1, so the developer repeated the
+	// preceding task: detailedDesign#2, passed at designReview#2 (App A, Figure A-1).
+	want := map[string]projectstate.TaskOutcome{
+		"C-Orders:detailedDesign:1": projectstate.OutcomePassed,
+		"C-Orders:designReview:1":   projectstate.OutcomeRejected,
+		"C-Orders:detailedDesign:2": projectstate.OutcomePassed,
+		"C-Orders:designReview:2":   projectstate.OutcomePassed,
+	}
+	for id, outcome := range want {
+		a, ok := held[id]
+		if !ok {
+			t.Fatalf("attempt %s is not in the ledger; got %v", id, slices.Sorted(maps.Keys(held)))
+		}
+		if a.Outcome != outcome {
+			t.Errorf("attempt %s outcome = %q, want %q", id, a.Outcome, outcome)
+		}
+	}
+	// The work attempt cites the episode it burned — the join the SPA follows from an
+	// attempt row to what the agent actually did.
+	if ev := held["C-Orders:detailedDesign:1"].Evidence; ev.Kind != projectstate.EvidenceEpisode || ev.Ref == "" {
+		t.Errorf("a work attempt cites its episode; got %+v", ev)
+	}
+	// And the activity itself was opened against a pinned lifecycle before any of it.
+	row := ps.execution("C-Orders")
+	if row.Pin == nil || row.Pin.TypeKey == "" || row.Pin.AssetsVersion == "" {
+		t.Fatalf("OpenActivity must pin the lifecycle in force; got %+v", row.Pin)
+	}
+}
+
+// An old execution keeps its old history: with the marker absent, nothing is written to
+// the execution ledger at all — and the retired rail still records what it always did.
+func Test_Construct_WithoutTheLedgerFence_WritesNothing(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	// Mocks follow registration (the test environment refuses the other order).
+	env.OnGetVersion(changeExecutionLedger, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	row := ps.execution("C-Orders")
+	switch {
+	case len(row.Attempts) != 0:
+		t.Fatalf("DefaultVersion writes no attempt; got %+v", row.Attempts)
+	case len(row.Reviews) != 0:
+		t.Fatalf("DefaultVersion opens no round; got %+v", row.Reviews)
+	case row.Pin != nil || row.StartedAt != nil:
+		t.Fatalf("DefaultVersion never opens the activity; got %+v", row)
+	}
+	// The old rail is untouched: the phase completion and the exit still land where they
+	// always did, which is what makes an in-flight execution safe across the deploy.
+	if !ps.phaseCompleted("C-Orders", "detailed_design") {
+		t.Error("DefaultVersion must still record the phase completion on the retired rail")
+	}
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("DefaultVersion must still record the binary exit; got %+v", ps.exited)
+	}
+}
+
+// assertRejectionRound pins everything round 1 has to say about the send-back that a
+// NoteSendBack could not: the roster, the verdict, the operator's words, the subject and
+// the task it judges.
+func assertRejectionRound(t *testing.T, r projectstate.ReviewRound, summary string) {
+	t.Helper()
+	switch {
+	case r.Outcome != projectstate.RoundSentBack || r.Round != 1:
+		t.Fatalf("round 1 must be a recorded send-back; got outcome=%q round=%d", r.Outcome, r.Round)
+	case len(r.Reviewers) == 0:
+		t.Fatalf("the round must carry the roster the engine computed; got none")
+	case len(r.Verdicts) != 1 || r.Verdicts[0].Verdict != projectstate.VerdictSendBack:
+		t.Fatalf("the human's verdict must be a row in Verdicts; got %+v", r.Verdicts)
+	case r.Verdicts[0].Summary != summary:
+		t.Fatalf("the verdict must carry the operator's own words; got %q", r.Verdicts[0].Summary)
+	case r.SubjectRef.Ref == "":
+		t.Fatalf("a round must name what it judged (the staged ref); got %+v", r.SubjectRef)
+	case r.Reviews != projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign):
+		t.Fatalf("a round names the task it judges; got %q", r.Reviews)
+	}
+}
+
+// roundsOnGate is every round on one gate task, in ledger order.
+func roundsOnGate(ps *fakeProjectState, activityID string, gate projectstate.MethodTask) []projectstate.ReviewRound {
+	var out []projectstate.ReviewRound
+	for _, r := range ps.execution(activityID).Reviews {
+		if r.TaskID == gate {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // A phase gate names itself and its occurrence; a redraft re-enters as a NEW occurrence;
@@ -8401,10 +8848,12 @@ func runNoteConstruct(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 }
 
-// Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped is the h1 shape: the store
-// holds one sendBack note; the redraft's dispatch carries it (text, comment, id); it is
-// stamped to detailedDesign#2; nothing else carries a note.
-func Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped(t *testing.T) {
+// Test_NoteDelivery_SendBackFeedbackRidesTheRedraftAndIsNotRecorded is the h1 shape as
+// stage 3 leaves it: the redraft's dispatch still carries the send-back's text and its
+// anchored comment VERBATIM, and nothing is recorded or stamped as an operator note —
+// the ROUND is the record of the send-back now, and a note beside it would be the same
+// fact stored twice.
+func Test_NoteDelivery_SendBackFeedbackRidesTheRedraftAndIsNotRecorded(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
@@ -8421,47 +8870,55 @@ func Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	n := assertOneSendBackNote(t, ps, fb)
 	specs := submittedSpecs(pipe)
 	dd := phaseSpecs(specs, projectstate.MethodPhaseDetailedDesign)
 	if len(dd) != 2 {
 		t.Fatalf("want the draft and its redraft, got %d detailed_design dispatches", len(dd))
 	}
 	if _, ok := dd[0].DispatchInputs[dispatchInputOperatorNote]; ok {
-		t.Fatal("the first draft predates the note and must carry none")
+		t.Fatal("the first draft predates the send-back and must carry none")
 	}
 	got := dd[1].DispatchInputs[dispatchInputOperatorNote]
-	for _, want := range []string{n.note.NoteID, "sendBack at detailed_design", fb.Notes, "comment on $.ops[0]: name the failure"} {
+	for _, want := range []string{"C-Orders:note:", "sendBack at detailed_design", fb.Notes, "comment on $.ops[0]: name the failure"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the redraft's operator_note lacks %q:\n%s", want, got)
 		}
 	}
 	if c := carriedNotes(specs); c != 1 {
-		t.Fatalf("exactly one dispatch carries the note, got %d", c)
+		t.Fatalf("exactly one dispatch carries the feedback, got %d", c)
 	}
-	want := deliveredCall{activityID: "C-Orders", noteID: n.note.NoteID, attemptID: projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign), 2)}
-	if len(ps.delivered) != 1 || ps.delivered[0] != want {
-		t.Fatalf("delivery stamps = %+v, want [%+v]", ps.delivered, want)
+	if len(ps.notes) != 0 || len(ps.delivered) != 0 {
+		t.Fatalf("a send-back is a round now, not a note: notes=%+v stamps=%+v", ps.notes, ps.delivered)
 	}
+	assertSendBackRound(t, ps, fb)
 }
 
-// assertOneSendBackNote asserts the store holds exactly the send-back's note, verbatim.
-func assertOneSendBackNote(t *testing.T, ps *fakeProjectState, fb *ReviewFeedback) noteCall {
+// roundOnGate finds the numbered round on one gate task of an activity's review ledger.
+func roundOnGate(ps *fakeProjectState, activityID string, gate projectstate.MethodTask, n int64) (projectstate.ReviewRound, bool) {
+	for _, r := range ps.execution(activityID).Reviews {
+		if r.TaskID == gate && r.Round == n {
+			return r, true
+		}
+	}
+	return projectstate.ReviewRound{}, false
+}
+
+// assertSendBackRound asserts the send-back landed as a decided review round carrying the
+// operator's verdict, its summary and the comment that rode with it.
+func assertSendBackRound(t *testing.T, ps *fakeProjectState, fb *ReviewFeedback) {
 	t.Helper()
-	if len(ps.notes) != 1 {
-		t.Fatalf("want one recorded note, got %+v", ps.notes)
+	r, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign), 1)
+	if !ok {
+		t.Fatalf("want a recorded round 1 on the detailed-design gate, got %+v", ps.execution("C-Orders").Reviews)
 	}
-	n := ps.notes[0]
-	wantComment := projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "name the failure"}
 	switch {
-	case n.activityID != "C-Orders", n.note.Kind != projectstate.NoteSendBack, n.note.Gate != "detailed_design", n.note.Text != fb.Notes:
-		t.Fatalf("recorded note = %+v", n)
-	case len(n.note.Comments) != 1 || n.note.Comments[0] != wantComment:
-		t.Fatalf("recorded comments = %+v", n.note.Comments)
-	case !strings.HasPrefix(n.note.NoteID, "C-Orders:note:"):
-		t.Fatalf("note id = %q", n.note.NoteID)
+	case r.Outcome != projectstate.RoundSentBack:
+		t.Fatalf("round 1 outcome = %q, want sentBack: %+v", r.Outcome, r)
+	case len(r.Verdicts) != 1 || r.Verdicts[0].Verdict != projectstate.VerdictSendBack || r.Verdicts[0].Summary != fb.Notes:
+		t.Fatalf("round 1 verdicts = %+v", r.Verdicts)
+	case len(r.Thread) != 1 || r.Thread[0].Text != "name the failure" || r.Thread[0].Anchor != "$.ops[0]":
+		t.Fatalf("round 1 thread = %+v", r.Thread)
 	}
-	return n
 }
 
 // noteEscalateRig fails detailed_design's first dispatch into an escalation that waits
@@ -8601,7 +9058,7 @@ func Test_NoteDelivery_PendingNoteFromTheStoreRidesTheFirstDispatch(t *testing.T
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
 	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: []projectstate.OperatorNote{
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{"C-Orders": {OperatorNotes: []projectstate.OperatorNote{
 		{NoteID: "C-Orders:note:reopen:1", Kind: projectstate.NoteRequeue, Text: "the flaky dependency is pinned now", RecordedAt: at},
 		{NoteID: "C-Orders:note:old:1", Kind: projectstate.NoteSkip, Text: "skip note", RecordedAt: at},
 		{NoteID: "C-Orders:note:done:1", Kind: projectstate.NoteRetry, Text: "already delivered", RecordedAt: at, DeliveredToAttemptID: "C-Orders:srs:1", DeliveredAt: &at},
@@ -8651,9 +9108,79 @@ func Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded(t *testing.T) {
 	if env.GetWorkflowError() == nil {
 		t.Fatal("a refused redraft submit fails the run here")
 	}
-	if len(ps.notes) != 1 || len(ps.delivered) != 0 {
-		t.Fatalf("the note is kept but never stamped when its dispatch was refused: notes=%d stamps=%+v", len(ps.notes), ps.delivered)
+	// The send-back itself is kept — as the round, which is where it lives now — and the
+	// refused dispatch stamped nothing, which is the rule this test exists for.
+	if len(ps.delivered) != 0 {
+		t.Fatalf("a refused dispatch stamps nothing: %+v", ps.delivered)
 	}
+	r, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign), 1)
+	if !ok || r.Outcome != projectstate.RoundSentBack {
+		t.Fatalf("the send-back is kept as its round: %+v", ps.execution("C-Orders").Reviews)
+	}
+
+	// AND THE STEER SURVIVES THE RUN THAT LOST IT. The refused submit killed the run
+	// holding the carry note in memory; the pump re-dispatches the activity, and the NEW
+	// run must rebuild the feedback from the round and put it in front of the redraft. The
+	// stored NoteSendBack used to do this, which is why dropping it without a replacement
+	// would have been a regression rather than a simplification.
+	env2 := ts.NewTestWorkflowEnvironment()
+	pipe2 := newFakePipeline()
+	registerConstruct(env2, newWorkflows(gateDeps(ps)), ps, pipe2)
+	runNoteConstruct(t, env2)
+	dd := phaseSpecs(submittedSpecs(pipe2), projectstate.MethodPhaseDetailedDesign)
+	if len(dd) != 1 {
+		t.Fatalf("the resumed run re-dispatches the rejected phase once; got %d", len(dd))
+	}
+	if got := dd[0].DispatchInputs[dispatchInputOperatorNote]; !strings.Contains(got, "redo it") {
+		t.Fatalf("the redraft must carry the send-back's feedback, rebuilt from its round; got %q", got)
+	}
+	// Delivered once: the redraft's own attempt now outranks the one the round judged, so
+	// a third run owes nothing and carries nothing.
+	env3 := ts.NewTestWorkflowEnvironment()
+	pipe3 := newFakePipeline()
+	registerConstruct(env3, newWorkflows(gateDeps(ps)), ps, pipe3)
+	runNoteConstruct(t, env3)
+	if c := carriedNotes(submittedSpecs(pipe3)); c != 0 {
+		t.Fatalf("a steer the redraft already carried is not carried again; got %d dispatches with a note", c)
+	}
+}
+
+// Test_WorkerManifest_ThreadsEveryDependency is the gate that would have caught stage 3's
+// own wiring bug: activityExecutionAccess's twelve activities were REGISTERED (worker.gen.go
+// takes them from the struct's fields) against a field WorkerManifest never filled, so the
+// first call would have been a nil-receiver panic inside the Activity — invisible to every
+// unit test, because the tests register their own genActivities. Reflection, not a hand
+// list, so a dependency added by a later codegen run is covered the day it appears.
+func Test_WorkerManifest_ThreadsEveryDependency(t *testing.T) {
+	acts := reflect.ValueOf(fullyWiredConstructionManager().WorkerManifest().Activities)
+	for i := range acts.NumField() {
+		if acts.Field(i).IsNil() {
+			t.Errorf("genActivities.%s is nil in WorkerManifest: its registered activities would panic on first call",
+				acts.Type().Field(i).Name)
+		}
+	}
+}
+
+// fullyWiredConstructionManager builds the Manager with EVERY published dependency
+// non-nil, which is the only state in which the manifest's threading can be checked.
+func fullyWiredConstructionManager() *constructionManager {
+	ps := &fakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
+	return newConstructionManager(
+		&fakeTemporalClient{},
+		fakeFullProjectState{ps},
+		&artifactfake.FakeArtifactAccess{},
+		&fakeIntervention{},
+		&fakeReview{},
+		newFakePipeline(),
+		&stubRail{},
+		fakeConstructionTransition{ps},
+		ps,
+		projectstate.NewDesignSessionAccess(fakeFullProjectState{ps}),
+		fakeActivityExecution{ps},
+		&recordingSignalBus{},
+		&fakeEpisodes{},
+		0, "", nil,
+	)
 }
 
 // orderedPipeline logs "submit" before each dispatch into the shared call log.
@@ -8684,6 +9211,7 @@ func noteGitRun(t *testing.T, rail *stubRail, version *workflow.Version) (*tests
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
 	if version != nil {
@@ -8959,7 +9487,7 @@ func seededPendingNotes(ps *fakeProjectState, n, size int) {
 		notes = append(notes, projectstate.OperatorNote{NoteID: fmt.Sprintf("C-Orders:note:seed:%d", i), Kind: projectstate.NoteRetry,
 			Text: fmt.Sprintf("note %d ", i) + strings.Repeat("x", size), RecordedAt: at})
 	}
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: notes}}
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{"C-Orders": {OperatorNotes: notes}}
 }
 
 // Test_NoteDelivery_OnlyNotesCarriedWholeAreStamped (I1, the workflow): five pending
@@ -9222,7 +9750,7 @@ func pausedProject() projectstate.Project {
 // resumeManager wires a façade over mc and a fake store serving proj.
 func resumeManager(mc client.Client, proj projectstate.Project) (*constructionManager, *fakeProjectState) {
 	ps := &fakeProjectState{project: proj, version: proj.Version}
-	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, 0, "", nil), ps
+	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil), ps
 }
 
 func constructionErrorKind(err error) fwmanager.Kind {
@@ -9490,6 +10018,14 @@ func avObserved(task projectstate.MethodTask, n int, outcome projectstate.TaskOu
 	return avAttempt(task, n, outcome, projectstate.OriginObserved)
 }
 
+// avResolved is what QueryActivityView hands normalizeAttempts for a service row: the
+// ONE reconciled phase set, never the raw row.Phases. The C-X fixtures are all service
+// activities, so the profile is fixed and the variant unused.
+func avResolved(row projectstate.ActivityExecution) []projectstate.PhaseCompletion {
+	profile := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan)
+	return projectstate.ResolvePhaseCompletions(profile, row.Attempts)
+}
+
 func avSendBack(gate, text string, comments ...projectstate.NoteComment) projectstate.OperatorNote {
 	return projectstate.OperatorNote{NoteID: "n-" + text, Kind: projectstate.NoteSendBack, Gate: gate, Text: text, Comments: comments}
 }
@@ -9511,6 +10047,16 @@ func avOutcomes(v taskView) []string {
 		out = append(out, r.Outcome)
 	}
 	return out
+}
+
+// avDump prints one normalized attempt per line — task/attempt/outcome — so a derivation
+// failure reads as the ledger it produced rather than as a struct dump.
+func avDump(attempts []projectstate.TaskAttempt) string {
+	var b strings.Builder
+	for _, a := range attempts {
+		fmt.Fprintf(&b, "\t%s/%d/%s\n", a.Task, a.Attempt, a.Outcome)
+	}
+	return b.String()
 }
 
 var avSRSPassed = []projectstate.TaskAttempt{
@@ -9594,7 +10140,7 @@ func TestDeriveTaskViews_StatesAndRevisions(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			views := deriveTaskViews(avServiceLifecycle(), c.attempts, c.notes, c.liveGate)
+			views := deriveTaskViews(avServiceLifecycle(), c.attempts, c.notes, nil, c.liveGate)
 			if len(views) != 10 {
 				t.Fatalf("want one view per lifecycle task (10), got %d", len(views))
 			}
@@ -9635,7 +10181,7 @@ func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
 	matched := avSendBack("construction", "handle the nil map",
 		projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "nil map"}, projectstate.NoteComment{JSONPath: "$.ops[1]", Text: "no test"})
 	elsewhere := avSendBack("detailed_design", "another gate's note")
-	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, "")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, nil, "")
 
 	avCheckWorkRevisions(t, t0, avTask(t, views, "construction").Revisions)
 	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
@@ -9680,14 +10226,17 @@ func avCheckGateRevisions(t *testing.T, gate []taskRevision) {
 
 func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
-	done := t0.Add(50 * time.Minute)
-	row := projectstate.ActivityConstructionStatus{
-		ActivityID:   "C-X",
-		CurrentPhase: projectstate.MethodPhaseConstruction,
-		Attempts:     []projectstate.TaskAttempt{avAttempt(projectstate.TaskSRS, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled)},
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true, CompletedAt: &done},
-			{Phase: projectstate.MethodPhaseConstruction},
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		// The requirements and test_plan gates passed; detailed_design's did not (the
+		// send-back below), so the phase this run is working IN derives to detailed_design
+		// — the first phase the resolved set does not hold complete. That derivation
+		// replaces the stored CurrentPhase, which was stamped at phase entry and never
+		// cleared.
+		Attempts: []projectstate.TaskAttempt{
+			avAttempt(projectstate.TaskSRS, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
+			avAttempt(projectstate.TaskSRSReview, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
+			avAttempt(projectstate.TaskSTPReview, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
 		},
 		OperatorNotes: []projectstate.OperatorNote{{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "redo", RecordedAt: t0.Add(20 * time.Minute)}},
 	}
@@ -9700,7 +10249,7 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 		{EpisodeID: "ep-other", TargetRef: "C-XY:srs:1"}, // another activity sharing the prefix
 	}
 	live := &ConstructionSessionView{Stage: StagePipelineRunning}
-	got := normalizeAttempts("C-X", row, episodes, live)
+	got := normalizeAttempts("C-X", row, avResolved(row), episodes, live)
 
 	type key struct {
 		id      string
@@ -9713,13 +10262,14 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 	}
 	bf := projectstate.OriginBackfilled
 	want := []key{
-		{"C-X:srs:1", projectstate.OutcomePassed, bf},            // N1: the ledger row, verbatim
-		{"C-X:detailedDesign:1", projectstate.OutcomePassed, bf}, // N2
-		{"C-X:detailedDesign:2", projectstate.OutcomePassed, bf}, // N2
-		{"C-X:construction:1", projectstate.OutcomeFailed, bf},   // N2: a gap is a failed attempt
-		{"C-X:construction:2", projectstate.OutcomePending, bf},  // N3: the dispatch running now
-		{"C-X:designReview:1", projectstate.OutcomeRejected, bf}, // N4: the send-back note
-		{"C-X:designReview:2", projectstate.OutcomePassed, bf},   // N4: the stored completion
+		{"C-X:srs:1", projectstate.OutcomePassed, bf},             // N1: the ledger row, verbatim
+		{"C-X:srsReview:1", projectstate.OutcomePassed, bf},       // N1
+		{"C-X:stpReview:1", projectstate.OutcomePassed, bf},       // N1
+		{"C-X:detailedDesign:1", projectstate.OutcomePassed, bf},  // N2
+		{"C-X:detailedDesign:2", projectstate.OutcomePassed, bf},  // N2
+		{"C-X:construction:1", projectstate.OutcomeFailed, bf},    // N2: a gap is a failed attempt
+		{"C-X:detailedDesign:3", projectstate.OutcomePending, bf}, // N3: the dispatch running now
+		{"C-X:designReview:1", projectstate.OutcomeRejected, bf},  // N4: the send-back note
 	}
 	if !slices.Equal(have, want) {
 		t.Fatalf("normalized attempts:\n got %v\nwant %v", have, want)
@@ -9736,11 +10286,494 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 
 func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 	since := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
-	row := projectstate.ActivityConstructionStatus{ActivityID: "C-X", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}}}
+	// A live gate hangs on the work it judges: the dispatch attempt is what materializes
+	// the row's lifecycle inventory now that no phase set is stored.
+	row := projectstate.ActivityExecution{ActivityID: "C-X", Attempts: []projectstate.TaskAttempt{
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)}}
 	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: ptrTo("detailed_design"), AwaitingSince: &since}
-	got := normalizeAttempts("C-X", row, nil, live)
-	if len(got) != 1 || got[0].AttemptID != "C-X:designReview:1" || got[0].Outcome != projectstate.OutcomePending || got[0].StartedAt == nil || !got[0].StartedAt.Equal(since) {
-		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, live)
+	gate := got[len(got)-1]
+	if len(got) != 2 || gate.AttemptID != "C-X:designReview:1" || gate.Outcome != projectstate.OutcomePending ||
+		gate.StartedAt == nil || !gate.StartedAt.Equal(since) {
+		t.Fatalf("want a pending designReview#1 since %v behind its dispatch, got %+v", since, got)
+	}
+}
+
+// ENTRY CRITERION (a), spec §8. Once the workflow persists a gate rejection (stage 3
+// Task 5) the send-back note that accompanies it is EVIDENCE OF THAT ATTEMPT, not of
+// another one. N4 used to append one rejected attempt per note unconditionally and
+// number it after the ledger's highest, so a single send-back read as two revisions AND
+// the last gate attempt was a rejection on an activity whose gate had already passed.
+func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "tighten the contract"),
+		},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	gates := 0
+	var last projectstate.TaskOutcome
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+			last = a.Outcome
+		}
+	}
+	if gates != 2 {
+		t.Fatalf("the ledger holds 2 designReview attempts and the note is evidence of the first; got %d:\n%s", gates, avDump(got))
+	}
+	if last != projectstate.OutcomePassed {
+		t.Fatalf("the gate passed on revision 2; the last designReview attempt reads %q", last)
+	}
+}
+
+// The reconstruction path is unchanged for a row that predates the ledger: a note with
+// NO recorded rejection is still the only evidence there is.
+func TestNormalizeAttempts_ANoteWithoutALedgerRejectionIsStillReconstructed(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		// The work attempt is what materializes the row's lifecycle inventory now that no
+		// phase set is stored; the note is the only evidence of the gate that judged it.
+		Attempts:      []projectstate.TaskAttempt{avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "tighten the contract")},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview && a.Outcome == projectstate.OutcomeRejected {
+			gates++
+		}
+	}
+	if gates != 1 {
+		t.Fatalf("a note with no ledger rejection must still reconstruct one; got %d:\n%s", gates, avDump(got))
+	}
+}
+
+// Tails aligned: two notes, one recorded rejection — the NEWER note is the recorded
+// one, so only the OLDER is reconstructed.
+func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "older"),
+			avSendBack("detailed_design", "newer"),
+		},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+		}
+	}
+	if gates != 2 {
+		t.Fatalf("2 notes, 1 recorded rejection ⇒ exactly 1 reconstructed; got %d designReview attempts:\n%s", gates, avDump(got))
+	}
+}
+
+// ENTRY CRITERION (a), spec §8 — the STRADDLING row, end to end. The ledger holds a real
+// rejection AND the real pass that followed it; an OLDER send-back note has no ledger
+// match because it predates the ledger. Numbering the reconstructed rejection after the
+// ledger's highest made it the gate's LAST attempt, so phaseRevisions (which sorts by
+// .Attempt) put it last and reviewEvidenceState read a passed, merged gate as sentBack.
+// A pre-ledger rejection is the OLDEST revision and must sort first.
+func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{
+			avSendBack("detailed_design", "older, from before the ledger"),
+			avSendBack("detailed_design", "the recorded rejection's own note"),
+		},
+	}
+	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, nil, ""), "designReview")
+	if want := []string{revSentBack, revSentBack, revPassed}; !slices.Equal(avOutcomes(v), want) {
+		t.Fatalf("designReview revisions = %v, want %v (the pre-ledger note is the OLDEST revision):\n%s", avOutcomes(v), want, avDump(attempts))
+	}
+	if v.State != taskPassed {
+		t.Fatalf("the gate passed on its last revision; designReview reads %q:\n%s", v.State, avDump(attempts))
+	}
+}
+
+// The ledger may hold MORE rejections than the phase has notes — a rejection recorded
+// with no note, or a note the operator never wrote. The subtraction goes negative and
+// must add nothing at all.
+func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomeRejected),
+			avObserved(projectstate.TaskDesignReview, 3, projectstate.OutcomePassed),
+		},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "only one note survived")},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	var gates []projectstate.TaskAttempt
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates = append(gates, a)
+		}
+	}
+	if len(gates) != 3 {
+		t.Fatalf("3 recorded gate attempts and 1 note ⇒ nothing reconstructed; got %d:\n%s", len(gates), avDump(got))
+	}
+	for _, a := range gates {
+		if a.Provenance.Origin != projectstate.OriginObserved {
+			t.Fatalf("%s is reconstructed (%s); the ledger already held every rejection:\n%s", a.AttemptID, a.Provenance.Origin, avDump(got))
+		}
+	}
+}
+
+// ENTRY CRITERION (b), spec §8. ResolveConstructionRow reconciles the stored phase
+// slice against the profile — dropping stored phases the profile does not carry and
+// materializing profile phases the store never had — and QueryActivityView threw that
+// reconciliation away while N4 re-derived completion from the raw slice. Two rules for
+// one fact. A row stamped at dispatch as one type and classified at read as another is
+// the case the resolver exists for, and the raw slice reconstructs a passed gate for a
+// phase this activity's lifecycle does not have.
+func TestNormalizeAttempts_GateCompletionComesFromTheResolvedSetOnly(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "N-STP",
+		// A ledger written under the zero-value (service) task vocabulary; the read-time
+		// classification is testing/plan, whose profile is requirements + construction
+		// + integration and carries no detailed_design phase at all. The send-back note
+		// names that phase, and the reconstruction must still refuse to invent a gate for
+		// a phase the resolved profile does not carry.
+		Attempts:      []projectstate.TaskAttempt{avObserved(projectstate.TaskSRS, 1, projectstate.OutcomePassed)},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "not a phase this lifecycle has")},
+	}
+	item := projectstate.ActivityItem{Name: "N-STP", WorkerClass: "test-engineer", Coding: false}
+	_, _, resolved, classified := projectstate.ResolveConstructionRow(row, item)
+	if !classified {
+		t.Fatalf("N-STP must classify; the fixture is wrong")
+	}
+	got := normalizeAttempts("N-STP", row, resolved, nil, nil)
+	for _, a := range got {
+		if a.Phase == projectstate.MethodPhaseDetailedDesign {
+			t.Fatalf("a detailed_design gate attempt on an activity whose resolved profile has no such phase: %+v\nresolved=%+v", a, resolved)
+		}
+	}
+}
+
+// The view's phase completion and the resolver's must be the SAME fact. A row whose
+// gate task has a passed ATTEMPT but whose stored slice says otherwise (or vice versa)
+// used to render one answer on the Activity Experience and another to the pump.
+func TestActivityViewFrom_PhaseCompletionIsTheResolvedSet(t *testing.T) {
+	lc := avServiceLifecycle()
+	resolved := []projectstate.PhaseCompletion{
+		{Phase: projectstate.MethodPhaseRequirements, Completed: true},
+		{Phase: projectstate.MethodPhaseDetailedDesign, Completed: false},
+	}
+	// No task views at all: the derived task states are all pending, so the OLD rule
+	// (states[ph.Gate] == taskPassed) says nothing is complete.
+	// TestingVariant is an int enum; a service row's variant is never read (only a
+	// testing row emits one), so the zero value stands for "no variant".
+	got := activityViewFrom("C-X", projectstate.ActivityItem{Name: "C-X"}, projectstate.ActivityTypeService, projectstate.TestVariantPlan, lc, resolved, nil)
+	for _, ph := range got.Phases {
+		want := ph.ID == string(projectstate.MethodPhaseRequirements)
+		if ph.Completed != want {
+			t.Fatalf("phase %s completed=%v, want %v — the view must report the resolved set", ph.ID, ph.Completed, want)
+		}
+	}
+}
+
+// ===========================================================================
+// QueryActivityView — the PERSISTED rounds (stage 3, task 7).
+// ===========================================================================
+
+// avRound is one round a real run wrote on the C-X row, with the construction rail's own
+// id (projectstate.AttemptID) and its round number EQUAL to the gate attempt's number.
+func avRound(gate projectstate.MethodTask, n int, outcome projectstate.ReviewRoundOutcome) projectstate.ReviewRound {
+	p := projectstate.PhaseForTask(gate)
+	return projectstate.ReviewRound{
+		RoundID: projectstate.AttemptID("C-X", gate, n), TaskID: gate, Reviews: projectstate.AgentTaskFor(p),
+		Round: int64(n), Outcome: outcome, SubjectRef: projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: "C-X:detailedDesign:" + strconv.Itoa(n)},
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved},
+	}
+}
+
+// avArchitectureLifecycle is the architecture design activity as the pinned assets state
+// it: ONE phase, one draft task, one review gate. A literal, like avServiceLifecycle, so
+// the test pins the derivation rather than the data file.
+func avArchitectureLifecycle() methodassets.Lifecycle {
+	return methodassets.Lifecycle{
+		Type:   "architecture",
+		Phases: []methodassets.LifecyclePhase{{ID: "architecture", Label: "Architecture", Weight: 100, Gate: "architectureReview"}},
+		Tasks: []methodassets.LifecycleTask{
+			{ID: "architectureDraft", Kind: methodassets.LifecycleTaskDispatch, Title: "architectureDraft", Phase: "architecture"},
+			{ID: "architectureReview", Kind: methodassets.LifecycleTaskReview, Title: "architectureReview", Phase: "architecture",
+				Reviews: "architectureDraft", DependsOn: []string{"architectureDraft"}},
+		},
+	}
+}
+
+// The persisted round IS the revision. R4's tails-aligned note matching was a
+// reconstruction for a world with no rounds; where a round exists, an ordering heuristic
+// must not get a vote.
+func TestDeriveTaskViews_PersistedRoundsWin(t *testing.T) {
+	sentBack := avRound(projectstate.TaskDesignReview, 1, projectstate.RoundSentBack)
+	sentBack.DecidedBy = "operator"
+	sentBack.DecidedAt = "2026-09-20T10:00:00Z"
+	sentBack.Reviewers = []projectstate.RoundReviewer{{Role: "architect", Actor: "architect"}, {Role: "human", Actor: "operator", Required: true}}
+	sentBack.Verdicts = []projectstate.ReviewVerdict{
+		{ReviewerRole: "architect", Actor: "architect", Verdict: projectstate.VerdictSendBack, Summary: "too wide", AttemptID: "C-X:detailedDesign:1", At: "2026-09-20T09:55:00Z"},
+	}
+	sentBack.Thread = []projectstate.ReviewComment{
+		{ID: "r1c1", Anchor: "$.ops[0]", Text: "split this op", AuthorRole: "architect", Round: 1, Status: "answered",
+			Replies: []projectstate.ReviewCommentReply{{ID: "r1c1a1", AuthorRole: "seniorDeveloper", Text: "split", At: "2026-09-20T11:00:00Z"}}},
+	}
+	rounds := []projectstate.ReviewRound{sentBack, avRound(projectstate.TaskDesignReview, 2, projectstate.RoundPassed)}
+	// A misleading note: recorded, but the rounds are the record now.
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "stale note")}
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+		avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+	)
+	view := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	if got := avOutcomes(view); !slices.Equal(got, []string{revSentBack, revPassed}) {
+		t.Fatalf("the persisted rounds are the revisions; got %v", got)
+	}
+	rev := view.Revisions[0]
+	if rev.Provenance != projectstate.OriginObserved {
+		t.Fatalf("a round a run wrote is observed, not backfilled; got %q", rev.Provenance)
+	}
+	if rev.Note == "stale note" {
+		t.Fatalf("the OperatorNote must not reach a round-backed revision; got %q", rev.Note)
+	}
+	if len(rev.Verdicts) != 1 || rev.Verdicts[0].Summary != "too wide" {
+		t.Fatalf("the round's verdicts are the revision's; got %+v", rev.Verdicts)
+	}
+	if len(rev.Thread) != 1 || rev.Thread[0].Status != "answered" || len(rev.Thread[0].Replies) != 1 {
+		t.Fatalf("the round's thread travels with its replies and its status; got %+v", rev.Thread)
+	}
+	if rev.Round != 1 || rev.DecidedBy != "operator" || rev.DecidedAt != "2026-09-20T10:00:00Z" {
+		t.Fatalf("the round's own number and decision must travel; got %+v", rev)
+	}
+	if rev.SubjectRef.Ref != "C-X:detailedDesign:1" {
+		t.Fatalf("the revision judged the round's subject; got %+v", rev.SubjectRef)
+	}
+	// The join is by FIELDS — the gate attempt whose number IS the round's — never by
+	// splitting the round id, which the design rail spells with four parts.
+	if !slices.Equal(rev.AttemptIDs, []string{"C-X:designReview:1"}) {
+		t.Fatalf("round 1 joins gate attempt 1; got %v", rev.AttemptIDs)
+	}
+	if len(rev.Reviewers) != 2 {
+		t.Fatalf("the persisted roster travels with the revision; got %+v", rev.Reviewers)
+	}
+}
+
+// A row that predates the ledger still reconstructs, and says so.
+func TestDeriveTaskViews_PreLedgerRowStillReconstructs(t *testing.T) {
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "tighten it")}
+	attempts := append(slices.Clone(avSRSPassed), avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected))
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, nil, "")
+	rev := avTask(t, views, "designReview").Revisions[0]
+	if rev.Outcome != revSentBack || rev.Note != "tighten it" {
+		t.Fatalf("reconstruction must survive for pre-ledger rows; got %+v", rev)
+	}
+	if len(rev.Verdicts) != 0 || len(rev.Thread) != 0 {
+		t.Fatalf("a reconstructed revision has no verdicts and no thread to offer; got %+v", rev)
+	}
+	if rev.Round != 1 {
+		t.Fatalf("a reconstructed revision carries the gate attempt's number as its round; got %d", rev.Round)
+	}
+}
+
+// The boundary row: SOME gates have rounds, SOME only have the older notes. The rule is
+// per GATE, not per row — designReview reads its rounds, codeReview still reconstructs.
+func TestDeriveTaskViews_RoundsBeatNotesPerGate(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+	)
+	notes := []projectstate.OperatorNote{
+		avSendBack("detailed_design", "a note the rounds already record"),
+		avSendBack("construction", "the only record this gate has"),
+	}
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPassed)}
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, "")
+	if got := avOutcomes(avTask(t, views, "designReview")); !slices.Equal(got, []string{revPassed}) {
+		t.Fatalf("designReview has a round and reads it alone; got %v", got)
+	}
+	code := avTask(t, views, "codeReview").Revisions
+	if len(code) != 1 || code[0].Note != "the only record this gate has" {
+		t.Fatalf("a gate with no round still reconstructs from its note; got %+v", code)
+	}
+}
+
+// The design rails' round id has FOUR parts (activity:gate:artifactKind:n) because three
+// artifact kinds share the architecture gate, so two kinds can hold the SAME round number
+// on the same row. Nothing may parse the id: the join is (TaskID, Round) plus the ledger's
+// own order, and the revision number is the position in that order.
+func TestDeriveTaskViews_DesignRoundsAreReadWithoutParsingTheirIDs(t *testing.T) {
+	round := func(kind string, n int, outcome projectstate.ReviewRoundOutcome) projectstate.ReviewRound {
+		return projectstate.ReviewRound{
+			RoundID: "architecture:architectureReview:" + kind + ":" + strconv.Itoa(n),
+			TaskID:  "architectureReview", Reviews: "architectureDraft", Round: int64(n), Outcome: outcome,
+			SubjectRef: projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind},
+			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved},
+		}
+	}
+	// The design rail writes rounds and NO attempts (stage 3 gives it rounds only).
+	rounds := []projectstate.ReviewRound{
+		round("system", 1, projectstate.RoundSentBack),
+		round("system", 2, projectstate.RoundPassed),
+		round("operationalConcepts", 1, projectstate.RoundPassed),
+	}
+	views := deriveTaskViews(avArchitectureLifecycle(), nil, nil, rounds, "")
+	gate := avTask(t, views, "architectureReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed, revPassed}) {
+		t.Fatalf("three rounds, three revisions in stored order; got %v", got)
+	}
+	if gate.Revisions[2].Round != 1 || gate.Revisions[2].N != 3 {
+		t.Fatalf("the second kind's round 1 is revision 3 with round 1; got n=%d round=%d", gate.Revisions[2].N, gate.Revisions[2].Round)
+	}
+	for _, rev := range gate.Revisions {
+		if len(rev.AttemptIDs) != 0 {
+			t.Fatalf("the design rail records no attempts, so a design round joins none; got %v", rev.AttemptIDs)
+		}
+	}
+	if gate.State != taskPassed {
+		t.Fatalf("the last round passed, so the gate reads passed; got %q", gate.State)
+	}
+	// Rule 8: the gate is the exit criterion, and the draft it judged has no attempts.
+	if s := avTask(t, views, "architectureDraft").State; s != taskPassed {
+		t.Fatalf("a passed gate carries its draft task; got %q", s)
+	}
+}
+
+// TASK 5's PENDING-ROUND WINDOW. The construction rail opens the round at the gate and
+// writes the gate ATTEMPT only when the round is decided, so a round with no attempt is
+// the ordinary awaiting-human state — and a run that died in between leaves one forever.
+// Either way the round alone is the revision, and N4 must not invent a second one beside
+// it.
+func TestDeriveTaskViews_APendingRoundWithNoGateAttemptIsTheRevision(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: append(slices.Clone(avSRSPassed),
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)),
+		Reviews: []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPending)},
+	}
+	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: strPtrOrNil("detailed_design")}
+	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, live)
+	for _, a := range attempts {
+		if a.Task == projectstate.TaskDesignReview {
+			t.Fatalf("the pending ROUND is the record; N4 must not add a gate attempt beside it:\n%s", avDump(attempts))
+		}
+	}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, "detailed_design"), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revAwaitingHuman}) {
+		t.Fatalf("one pending round at the live gate = one awaitingHuman revision; got %v", got)
+	}
+	if gate.Revisions[0].EndedAt != nil {
+		t.Fatalf("an undecided round has not ended; got %v", gate.Revisions[0].EndedAt)
+	}
+	// The same round, with the session gone: still one revision, no longer at a human.
+	away := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, ""), "designReview")
+	if got := avOutcomes(away); !slices.Equal(got, []string{revRunning}) {
+		t.Fatalf("a pending round off the live gate is running; got %v", got)
+	}
+}
+
+// THE BOUNDARY INSIDE ONE GATE. A row mid-flight when the ledger arrived has gate attempts
+// recorded BEFORE any round, and the first round it opens is numbered off that ledger, so
+// it starts above them. Those attempts are real, recorded send-backs; "any round at this
+// gate wins outright" would drop them out of the history altogether.
+func TestDeriveTaskViews_ARecordedAttemptBelowTheFirstRoundSurvives(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected), // pre-round: no round was ever opened for it
+		avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+	)
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "the send-back the ledger recorded before rounds existed")}
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 2, projectstate.RoundPassed)}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed}) {
+		t.Fatalf("the pre-round rejection is revision 1 and the round is revision 2; got %v", got)
+	}
+	pre := gate.Revisions[0]
+	if pre.Note != "the send-back the ledger recorded before rounds existed" {
+		t.Fatalf("a pre-round revision keeps its note; got %+v", pre)
+	}
+	if len(pre.Verdicts) != 0 || pre.DecidedBy != "" {
+		t.Fatalf("a pre-round revision has no round facts; got %+v", pre)
+	}
+	if !slices.Equal(pre.AttemptIDs, []string{"C-X:designReview:1"}) {
+		t.Fatalf("it is the RECORDED attempt, not a reconstruction of one; got %v", pre.AttemptIDs)
+	}
+	if gate.Revisions[1].N != 2 || gate.Revisions[1].Round != 2 {
+		t.Fatalf("the round-backed revision continues the numbering; got n=%d round=%d", gate.Revisions[1].N, gate.Revisions[1].Round)
+	}
+	if gate.State != taskPassed {
+		t.Fatalf("the LAST revision decides the gate's state, and the round passed; got %q", gate.State)
+	}
+}
+
+// Its two null cases, so the split cannot quietly grow a third behaviour: a gate whose
+// ledger starts AT the first round loses nothing to it, and a design gate (rounds, no
+// attempts at all) is unchanged.
+func TestDeriveTaskViews_TheSplitIsANoOpWhenNothingPrecedesTheRounds(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+	)
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundSentBack)}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, nil, rounds, ""), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack}) {
+		t.Fatalf("attempt 1 IS round 1 — one revision, not two; got %v", got)
+	}
+	if gate.Revisions[0].Provenance != projectstate.OriginObserved || gate.Revisions[0].Round != 1 {
+		t.Fatalf("and it is the ROUND's revision; got %+v", gate.Revisions[0])
+	}
+}
+
+// A gate that already has a round must not also have its phase completion reconstructed
+// into a second, passed attempt: that is the double count Task 1 removed for notes, in
+// its round-shaped form.
+func TestNormalizeAttempts_AGateWithRoundsGetsNoReconstruction(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomePassed),
+		},
+		Reviews:       []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPassed)},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "a note the round already records")},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+			if a.Provenance.Origin != projectstate.OriginObserved {
+				t.Fatalf("%s is reconstructed; the round is the record:\n%s", a.AttemptID, avDump(got))
+			}
+		}
+	}
+	if gates != 1 {
+		t.Fatalf("the ledger's own attempt and nothing else; got %d designReview attempts:\n%s", gates, avDump(got))
 	}
 }
 
@@ -9751,7 +10784,7 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 // avManager builds a façade over a project, an episode ledger and a strict client.
 func avManager(c client.Client, proj projectstate.Project, eps *fakeEpisodes) *constructionManager {
 	ps := &fakeProjectState{project: proj}
-	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, eps, 0, "", nil)
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, eps, 0, "", nil)
 }
 
 func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
@@ -9823,7 +10856,7 @@ func TestQueryActivityView_NotStarted_ReturnsTheWholeLifecycle(t *testing.T) {
 // Done by its backfilled ledger: every task passed, every phase completed, provenance carried.
 func TestQueryActivityView_Done_FromTheLedger(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
 	}
 	v, err := avManager(nil, proj, &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
@@ -9886,9 +10919,8 @@ func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
 // backfilled and whose detailed design was sent back once, with an anchored comment.
 func avSentBackAtTheDesignGate(t0 time.Time) projectstate.Project {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {
-		ActivityID: "A", Phase: projectstate.ActivityConstructionRunning, CurrentPhase: projectstate.MethodPhaseDetailedDesign,
-		Attempts: passedLedger("A", projectstate.MethodPhaseRequirements),
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": {
+		ActivityID: "A", StartedAt: &testExitAt, Attempts: passedLedger("A", projectstate.MethodPhaseRequirements),
 		OperatorNotes: []projectstate.OperatorNote{{
 			NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "split the op", RecordedAt: t0.Add(20 * time.Minute),
 			Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "too wide"}},
@@ -9965,8 +10997,8 @@ func TestQueryActivityView_LiveGate_CarriesTheEngineRefusal(t *testing.T) {
 // A Running row whose session is gone (past retention) still reads — without a live gate.
 func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	mc := &temporalmocks.Client{}
 	mc.On("QueryWorkflow", mock.Anything, constructActivityWorkflowID("p", "A"), "", querySessionState).
@@ -10024,3 +11056,136 @@ func TestActivityViewWireStringsMatchTheContract(t *testing.T) {
 		}
 	}
 }
+
+// avVal reads an optional wire member as its zero value when absent, so an assertion
+// reads as the fact it is checking rather than as a nil guard. Absent and zero are
+// different on the wire and the tests below distinguish them where it matters.
+func avVal[T comparable](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
+}
+
+// avSubjectKind is avVal for the one nested optional the revision carries.
+func avSubjectKind(s *ReviewSubjectRef) string {
+	if s == nil {
+		return ""
+	}
+	return s.Kind
+}
+
+// avRoles, avVerdicts, avThread and avAnchors render the revision's four wire arrays as
+// one comparable line each, so a failure prints what travelled instead of a struct dump.
+func avRoles(seats []ReviewRosterSeat) []string {
+	out := make([]string, 0, len(seats))
+	for _, s := range seats {
+		out = append(out, s.Role)
+	}
+	return out
+}
+
+func avVerdicts(verdicts []ReviewVerdictView) []string {
+	out := make([]string, 0, len(verdicts))
+	for _, v := range verdicts {
+		out = append(out, fmt.Sprintf("%s/%s@%s", v.ReviewerRole, v.Verdict, v.At))
+	}
+	return out
+}
+
+func avThread(thread []ReviewThreadComment) []string {
+	out := make([]string, 0, len(thread))
+	for _, c := range thread {
+		out = append(out, fmt.Sprintf("%s/%s/%d", c.ID, c.Status, len(c.Replies)))
+	}
+	return out
+}
+
+func avAnchors(comments []TaskRevisionComment) []string {
+	out := make([]string, 0, len(comments))
+	for _, c := range comments {
+		out = append(out, c.JSONPath)
+	}
+	return out
+}
+
+// Task 8: the round's facts reach the WIRE. The revision-level members are optional
+// because a pre-ledger row honestly has none of them, so what has to be pinned is that a
+// round-backed revision carries them and a reconstructed one carries nothing it cannot
+// back — an omitted member is the contract's way of saying "this record does not hold
+// this", and a zero value shipped in its place would read as a fact.
+func TestRevisionViews_ARoundBackedRevisionCarriesTheRoundOnTheWire(t *testing.T) {
+	round := avRound(projectstate.TaskDesignReview, 2, projectstate.RoundSentBack)
+	round.DecidedBy, round.DecidedAt = "operator", "2026-09-20T10:00:00Z"
+	round.Reviewers = []projectstate.RoundReviewer{{Role: "architect", Actor: "architect"}}
+	round.Verdicts = []projectstate.ReviewVerdict{
+		{ReviewerRole: "architect", Actor: "architect", Verdict: projectstate.VerdictSendBack, Summary: "fold the pair", AttemptID: "C-X:detailedDesign:2", At: "2026-09-20T09:55:00Z"},
+	}
+	round.Thread = []projectstate.ReviewComment{
+		{ID: "r2c1", Anchor: "$.ops[0]", Text: "fold them", AuthorRole: "architect", Round: 2, Status: "answered", Type: "changeRequest",
+			Replies: []projectstate.ReviewCommentReply{{ID: "r2c1a1", AuthorRole: "seniorDeveloper", Text: "folded", At: "2026-09-20T11:00:00Z"}}},
+	}
+	got := revisionViews(roundRevisions([]projectstate.ReviewRound{round}, nil, false))
+	if len(got) != 1 {
+		t.Fatalf("one round, one revision; got %d", len(got))
+	}
+	v := got[0]
+	// A table, not a chain of ifs: every row is one fact of the round that has to survive
+	// the crossing, and the failure names the fact rather than the field.
+	for _, c := range []struct {
+		held bool
+		what string
+	}{
+		{avVal(v.Round) == 2, "the round number"},
+		{avVal(v.DecidedBy) == "operator", "who decided it"},
+		{avVal(v.DecidedAt) == "2026-09-20T10:00:00Z", "when it was decided, verbatim"},
+		{avSubjectKind(v.SubjectRef) == string(projectstate.SubjectArtifact), "what it judged"},
+		{slices.Equal(avRoles(v.Reviewers), []string{"architect"}), "the roster"},
+		{slices.Equal(avVerdicts(v.Verdicts), []string{"architect/sendBack@2026-09-20T09:55:00Z"}), "the verdicts, their timestamps verbatim and never parsed"},
+		{slices.Equal(avThread(v.Thread), []string{"r2c1/answered/1"}), "the thread, with its status and its replies"},
+		// The flat anchors stay too: a reader that has only ever known `comments` keeps
+		// working on a round-backed revision, and the thread is where the rest lives.
+		{v.CommentCount == 1, "the comment count"},
+		{slices.Equal(avAnchors(v.Comments), []string{"$.ops[0]"}), "the thread's projection onto the flat comments"},
+		{avVal(v.Note) == "fold the pair", "the send-back note, as the human-readable verdict summary"},
+		{v.Provenance == TaskRevisionObserved, "observed provenance — a run wrote this round"},
+	} {
+		if !c.held {
+			t.Errorf("%s does not reach the wire: %+v", c.what, v)
+		}
+	}
+}
+
+// Its twin: a reconstruction ships NONE of the round's members, so the screen can tell
+// "nobody recorded this" from "nobody reviewed".
+func TestRevisionViews_AReconstructedRevisionShipsNoRoundMembers(t *testing.T) {
+	rejected := avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected)
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "tighten it")}
+	got := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{rejected}, notes, "detailed_design", false))
+	v := got[0]
+	if len(v.Verdicts) != 0 || len(v.Thread) != 0 || len(v.Reviewers) != 0 {
+		t.Errorf("a reconstruction has no round facts to ship; got %+v", v)
+	}
+	if v.SubjectRef != nil || v.DecidedBy != nil || v.DecidedAt != nil {
+		t.Errorf("a reconstruction records no subject and no decision; got %+v", v)
+	}
+	if v.Round == nil || *v.Round != 1 {
+		t.Errorf("it does carry the gate attempt's number as its round; got %v", v.Round)
+	}
+	if v.Note == nil || *v.Note != "tighten it" {
+		t.Errorf("the send-back note is still the OperatorNote here; got %v", v.Note)
+	}
+	// And the pre-ledger placement beneath the ledger ships NO round: that number is a
+	// sort position, not a count of reviews.
+	below := avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected)
+	below.Attempt = 0
+	if r := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{below}, nil, "detailed_design", false))[0].Round; r != nil {
+		t.Fatalf("an attempt placed beneath the ledger has no round number to give; got %v", *r)
+	}
+}
+
+// testExitAt is the clock a test row's head facts carry. Since stage-3 task 4 a row's
+// terminality IS its exit stamp (and its failure reason): a fixture that used to say
+// Phase: Done says CompletedAt, and one that said Running says StartedAt.
+var testExitAt = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)

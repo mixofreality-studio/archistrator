@@ -128,6 +128,15 @@ type systemDesignManager struct {
 	// Manager now has ZERO custom Temporal Activities).
 	designSession projectstate.DesignSessionAccess
 
+	// activityExecution (stage 3, task 6) is the generated activityExecutionAccess dep —
+	// the fifth facet of the one project-state component, owner of the per-activity review
+	// ROUND ledger. The design rail dual-writes every review decision through it beside the
+	// slot's ReviewThread: taking the dep HERE is what registers its Temporal activities on
+	// this Manager's worker, which is the precondition for the CoAuthor spine's
+	// wf.Acts.ActivityExecution* calls. Held only to thread into genActivities — every call
+	// is a workflow-side Activity, never a manager-side one.
+	activityExecution projectstate.ActivityExecutionAccess
+
 	// designHealth is the DesignHealthEngine port behind the getDesignHealth
 	// read-model op — the M→E half of the shared System Design Phase Workflow
 	// volatility (this Manager owns the gate choreography; the Engine owns which
@@ -151,8 +160,8 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, activityExecution: activityExecution, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -3163,12 +3172,12 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Version:   int64(p.Version),
 		// OrDefault: a pre-field project (empty model) reads as self-operated on the
 		// wire — the back-compat default — so the SPA never sees an empty operating model.
-		OperatingModel:       OperatingModel(string(p.OperatingModel.OrDefault())),
-		Research:             researchToContract(p.Research),
-		Slots:                slotsToContract(p),
-		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
-		ConstructionStarted:  constructionStartedFor(p.ActivityConstruction),
+		OperatingModel:      OperatingModel(string(p.OperatingModel.OrDefault())),
+		Research:            researchToContract(p.Research),
+		Slots:               slotsToContract(p),
+		GitRows:             m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
+		ActivityExecution:   constructionRowsToContract(p.ActivityExecution, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
+		ConstructionStarted: constructionStartedFor(p.ActivityExecution),
 		// The recorded operator pause, passed through as stored (plan B1.7): the console
 		// offers Resume in Begin's place while it holds.
 		OperatorPaused:       p.OperatorPaused,
@@ -3550,7 +3559,7 @@ func worstOriginFor(recorded bool, attempts []projectstate.TaskAttempt) *string 
 // A stored row the list no longer names is still emitted (it classifies as whatever
 // its metadata allows, which for an unlisted id is nothing).
 func constructionRowsToContract(
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	componentLayer map[string]string,
 	plan constructionPlan,
@@ -3558,9 +3567,9 @@ func constructionRowsToContract(
 	if len(rows) == 0 && len(activityMeta) == 0 {
 		return nil
 	}
-	all := make(map[string]projectstate.ActivityConstructionStatus, len(rows)+len(activityMeta))
+	all := make(map[string]projectstate.ActivityExecution, len(rows)+len(activityMeta))
 	for id := range activityMeta {
-		all[id] = projectstate.ActivityConstructionStatus{ActivityID: id}
+		all[id] = projectstate.ActivityExecution{ActivityID: id}
 	}
 	maps.Copy(all, rows)
 	out := make(map[string]ActivityConstructionStatus, len(all))
@@ -3610,8 +3619,8 @@ func constructionRowsToContract(
 			// that contradicts the profile can make the coarse chip disagree with the
 			// very phase ticks rendered beneath it.
 			phases = phasesToContract(resolved)
-			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, resolved)))
-			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)))
+			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r, resolved)))
+			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r, resolved)))
 		}
 		layer, band := projectstate.LayerForActivity(componentLayer[meta.ComponentID])
 		out[id] = ActivityConstructionStatus{
@@ -3621,7 +3630,7 @@ func constructionRowsToContract(
 			Variant:       variant,
 			Phase:         coarsePhase,
 			Phases:        phases,
-			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
+			CurrentPhase:  ActivityMethodPhase(string(projectstate.CurrentLifecyclePhase(resolved))),
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
 			BuildStatus:   buildStatus,
@@ -3732,7 +3741,7 @@ const (
 // pump wrote it (projectstate.PumpWroteRow), yet its effective state is Running — which,
 // for a row no pump wrote, means its attempt ledger holds some phases complete and not
 // others. Nothing runs it and nothing reviews it, so it is not in flight.
-func isPendingResume(r projectstate.ActivityConstructionStatus, meta projectstate.ActivityItem) bool {
+func isPendingResume(r projectstate.ActivityExecution, meta projectstate.ActivityItem) bool {
 	if projectstate.PumpWroteRow(r) {
 		return false
 	}
@@ -3748,17 +3757,17 @@ func isPendingResume(r projectstate.ActivityConstructionStatus, meta projectstat
 // and is empty, never nil, when the row is next in line.
 func pendingResumeFor(
 	id string,
-	r projectstate.ActivityConstructionStatus,
+	r projectstate.ActivityExecution,
 	meta projectstate.ActivityItem,
 	resolved []projectstate.PhaseCompletion,
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	plan constructionPlan,
 ) *PendingResume {
 	if !isPendingResume(r, meta) {
 		return nil
 	}
-	from := firstIncompletePhase(resolved)
+	from := projectstate.CurrentLifecyclePhase(resolved)
 	if from == "" {
 		return nil
 	}
@@ -3773,17 +3782,6 @@ func pendingResumeFor(
 	return &PendingResume{FromPhase: ActivityMethodPhase(string(from)), WaitsOn: waitsOn}
 }
 
-// firstIncompletePhase is the first phase of a profile-ordered resolved set that is not
-// complete, or "" when every phase is.
-func firstIncompletePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
-	for _, pc := range resolved {
-		if !pc.Completed {
-			return pc.Phase
-		}
-	}
-	return ""
-}
-
 // pendingReasonFor names why one unsatisfied dependency is unsatisfied, in the order
 // projectstate.ResolveDependencySatisfied itself tries: a plan defect, a milestone, then
 // an activity — which is "built but not integrated" when it is itself integration-pending
@@ -3791,7 +3789,7 @@ func firstIncompletePhase(resolved []projectstate.PhaseCompletion) projectstate.
 func pendingReasonFor(
 	dep string,
 	res projectstate.DependencyResolution,
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	plan constructionPlan,
 ) string {
@@ -3819,7 +3817,7 @@ func pendingReasonFor(
 //
 // It replaces the SPA probing one construction-session endpoint per committed activity
 // on every load (29 GETs), which also stopped answering once Temporal retention expired.
-func constructionStartedFor(rows map[string]projectstate.ActivityConstructionStatus) bool {
+func constructionStartedFor(rows map[string]projectstate.ActivityExecution) bool {
 	for _, r := range rows {
 		if rowCarriesPumpState(r) || hasObservedAttempt(r.Attempts) {
 			return true
@@ -3828,11 +3826,13 @@ func constructionStartedFor(rows map[string]projectstate.ActivityConstructionSta
 	return false
 }
 
-// rowCarriesPumpState reports whether a stored row holds any field only the pump writes.
-func rowCarriesPumpState(r projectstate.ActivityConstructionStatus) bool {
+// rowCarriesPumpState reports whether a stored row holds any head fact only the pump
+// writes: the start stamp, the exit stamp, or a recorded failure. The coarse roll-up and
+// the phase set it also used to name are DERIVED now (spec §5.3), and a derivation is not
+// evidence that anything ran.
+func rowCarriesPumpState(r projectstate.ActivityExecution) bool {
 	return r.StartedAt != nil ||
-		r.Phase != projectstate.ActivityConstructionNotStarted ||
-		len(r.Phases) > 0 ||
+		r.CompletedAt != nil ||
 		r.FailureReason != projectstate.FailureReasonUnknown ||
 		r.FailureDetail != ""
 }
@@ -3882,7 +3882,7 @@ func componentLayerByID(p projectstate.Project) map[string]string {
 // The resolution itself lives in projectstate (ResolveConstructionRow), so the
 // construction pump reads a row exactly as this view renders it. This is a pure call.
 func classifiedRowView(
-	r projectstate.ActivityConstructionStatus,
+	r projectstate.ActivityExecution,
 	meta projectstate.ActivityItem,
 ) (typ projectstate.ActivityType, variant projectstate.TestingVariant, resolved []projectstate.PhaseCompletion, classified bool) {
 	return projectstate.ResolveConstructionRow(r, meta)
@@ -3895,10 +3895,9 @@ func classifiedRowView(
 // explicit profile, and must keep passing unmodified across the move.
 func resolvedPhaseCompletions(
 	profile projectstate.Profile,
-	stored []projectstate.PhaseCompletion,
 	attempts []projectstate.TaskAttempt,
 ) []projectstate.PhaseCompletion {
-	return projectstate.ResolvePhaseCompletions(profile, stored, attempts)
+	return projectstate.ResolvePhaseCompletions(profile, attempts)
 }
 
 // phasesToContract maps the App-A internal phase-completion records onto the wire.
@@ -4032,13 +4031,13 @@ func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks
 	// to type contribute to the curve while the row beside it refused to assert a
 	// status at all.
 	activityMeta := activityMetaByID(p)
-	integrated := make([]string, 0, len(p.ActivityConstruction))
-	for id, r := range p.ActivityConstruction {
+	integrated := make([]string, 0, len(p.ActivityExecution))
+	for id, r := range p.ActivityExecution {
 		_, _, resolved, classified := classifiedRowView(r, activityMeta[id])
 		if !classified {
 			continue
 		}
-		if projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase) == projectstate.BuildIntegrated {
+		if projectstate.CoarseBuildStatusFor(r, resolved) == projectstate.BuildIntegrated {
 			integrated = append(integrated, id)
 		}
 	}
@@ -4955,6 +4954,15 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"designSessionAccess.reconcileBranchFromMain":            mutateActivityOptions(),
 		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
 		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
+		// The ROUND-ledger dual-write (stage 3 task 6). Every one is a head-state mutation
+		// through the same applyMutation funnel the designSession verbs ride, so it takes
+		// the same envelope: the workflow's own Conflict re-read loop (applyRecovering) is
+		// what resolves a CAS loss, not a longer retry here.
+		"activityExecutionAccess.openActivity":           mutateActivityOptions(),
+		"activityExecutionAccess.openReviewRound":        mutateActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":    mutateActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":      mutateActivityOptions(),
+		"activityExecutionAccess.setReviewCommentStatus": mutateActivityOptions(),
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
@@ -4998,11 +5006,12 @@ func (m *systemDesignManager) WorkerManifest() genWorkerManifest {
 		// registration remains (B10).
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState:  m.projectState,
-			Pipeline:      m.pipeline,
-			Rail:          m.rail,
-			DesignSession: m.designSession,
-			Episodes:      m.episodes,
+			ProjectState:      m.projectState,
+			Pipeline:          m.pipeline,
+			Rail:              m.rail,
+			DesignSession:     m.designSession,
+			ActivityExecution: m.activityExecution,
+			Episodes:          m.episodes,
 		},
 	}
 }
