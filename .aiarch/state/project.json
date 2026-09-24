@@ -15037,7 +15037,7 @@
             "roundId": {
               "type": "string",
               "x-go-name": "RoundID",
-              "description": "The deterministic \"<activityId>:<reviewTaskId>:<n>\" id. Opening it twice opens ONE round — the property the whole ledger rests on under Temporal retry."
+              "description": "The deterministic, caller-minted round id. The construction rail mints \"<activityId>:<reviewTaskId>:<n>\"; the DESIGN rails mint \"<activityId>:<reviewTaskId>:<artifactKind>:<n>\", because several artifact kinds share one lifecycle phase (glossary and scrubbedRequirements; system, operationalConcepts and standardCheck) and a three-part id would collide across two independent design sessions. The shape is the caller's; the rule this store enforces is that opening the same id twice opens ONE round — the property the whole ledger rests on under Temporal retry."
             },
             "taskId": {
               "type": "string",

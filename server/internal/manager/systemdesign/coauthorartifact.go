@@ -1224,8 +1224,8 @@ func (wf *workflows) handleReviewDecision(
 			Verdict:      projectstate.VerdictSendBack,
 			Summary:      rejectFeedback.Notes,
 			AttemptID:    state.round.attemptID,
-		}, freshComments, newSlotCommentIDs(*reviewRound, freshComments))
-		wf.decideDesignRound(ctx, in, state, projectstate.RoundSentBack, designActorOperator)
+		}, freshComments, newSlotCommentIDs(*reviewRound, freshComments), replies)
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundSentBack, designActorOperator)
 		// The reject folded the architect's comments into the ledger (feedbackToLedgerComments,
 		// above), so this feedback is durably seeded — the pre-dispatch failed-gate seed skips it
 		// (no double-seed).
@@ -1280,7 +1280,7 @@ func (wf *workflows) handleReviewDecision(
 		// abandoned. RoundWithdrawn exists for exactly this, and a round left pending forever
 		// is the shape the stage-4 sweep has to clean up — here the workflow knows it is
 		// ending, so it says so.
-		wf.decideDesignRound(ctx, in, state, projectstate.RoundWithdrawn, designActorOperator)
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundWithdrawn, designActorOperator)
 		state.stage = StageWithdrawn
 		state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
 		return stepReturn(coAuthorWithdrawn)
@@ -1386,8 +1386,8 @@ func (wf *workflows) commitOnApprove(
 		Actor:        actor,
 		Verdict:      projectstate.VerdictApprove,
 		AttemptID:    state.round.attemptID,
-	}, nil, nil)
-	wf.decideDesignRound(ctx, in, state, projectstate.RoundPassed, actor)
+	}, nil, nil, nil)
+	wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundPassed, actor)
 	state.stage = StageCommitted
 	state.clearActive() // SUB-STEP (Plan-3 C1): terminal — no role is working.
 	return stepReturn(coAuthorApproved)
@@ -2179,6 +2179,10 @@ func (wf *workflows) withdrawAtFailedGate(
 	v := workflow.GetVersion(ctx, "failed-gate-withdraw-honest", workflow.DefaultVersion, 1)
 	if v >= 1 && !state.staged {
 		workflow.GetLogger(ctx).Info("withdraw at the failed gate with nothing ever staged; skipping the unstage write and ending withdrawn")
+		// ROUND LEDGER (stage 3 task 6): inert here by construction — a session that never
+		// staged never reached awaitingReview, so it never opened a round. Called anyway so
+		// the two withdraw exits of this function cannot drift apart.
+		wf.closeRoundOnWithdraw(ctx, projectID, state)
 		state.stage = StageWithdrawn
 		state.clearActive()
 		return true, nil
@@ -2198,9 +2202,24 @@ func (wf *workflows) withdrawAtFailedGate(
 		state.failureRunURL = ""
 		return false, nil
 	}
+	// ROUND LEDGER (stage 3 task 6): this gate IS reachable with a round open — a draft that
+	// staged, opened its round and was then approved onto a NOT-GREEN pull request lands
+	// here, and so does a post-read-back rail fault. Withdrawing without closing that round
+	// left it pending forever with no run alive to settle it, which is the one shape the
+	// stage-4 sweep exists to clean up and the one this workflow can avoid outright.
+	wf.closeRoundOnWithdraw(ctx, projectID, state)
 	state.stage = StageWithdrawn
 	state.clearActive()
 	return true, nil
+}
+
+// closeRoundOnWithdraw stamps the open round withdrawn on a session that is ending at the
+// FAILED gate rather than at the review gate. A no-op when no round is open — off the
+// fence, for a kind whose lifecycle carries no review task, and for a session that never
+// staged — so it is safe to call on every withdraw exit, which is why it is called on
+// every one of them.
+func (wf *workflows) closeRoundOnWithdraw(ctx workflow.Context, projectID ProjectID, state *coAuthorState) {
+	wf.decideDesignRound(ctx, projectID, state, projectstate.RoundWithdrawn, designActorOperator)
 }
 
 // draftFailedReason renders the human "why" for the StageDraftFailed screen from
@@ -3668,8 +3687,13 @@ func (wf *workflows) applyCommentStatus(ctx workflow.Context, in coAuthorInput, 
 // artifact drafts has a review task to key a round on, and the Phase-2 rail therefore
 // writes no round today. That is stated rather than papered over: inventing
 // "planningAssumptionsReview" would put a task id in the ledger that no lifecycle has.
-// EARMARK: extending the projectDesign lifecycle is a method-assets release (a founder
-// STOP), and the moment it lands this code lights up with no edit.
+//
+// EARMARKS, tracked for stage 4 and the platform: (a) extending the projectDesign lifecycle
+// is a method-assets release (a founder STOP), and the moment it lands this code lights up
+// with no edit; (b) a reply to a comment from an EARLIER, already-decided round is dropped
+// from the round ledger — see roundRepliesFor; (c) comments seeded straight onto the slot
+// (an amendment's reopening feedback, a failed-gate feedback seed, an asked question) never
+// reach a round, so a later resolve of one is not mirrored — see mirrorCommentStatus.
 // ---------------------------------------------------------------------------
 
 // changeDesignRoundLedger is the ONE version marker gating every round-ledger write on
@@ -3952,7 +3976,7 @@ func (wf *workflows) appendCriticVerdict(ctx workflow.Context, in coAuthorInput,
 		Verdict:      criticVerdictKind(state.critique.Verdict),
 		Summary:      state.critique.Summary,
 		AttemptID:    state.round.attemptID,
-	}, nil, nil)
+	}, nil, nil, nil)
 }
 
 // criticVerdictKind maps a critique conclusion onto the round's verdict vocabulary. A
@@ -3965,9 +3989,13 @@ func criticVerdictKind(verdict string) projectstate.VerdictKind {
 	return projectstate.VerdictApprove
 }
 
-// appendDesignVerdict lands one reviewer's judgement and the comments it cites on the open
-// round, in ONE commit. It also remembers where each comment landed, so a later resolve /
-// reopen of that comment can be mirrored onto the round without reading it back.
+// appendDesignVerdict lands one reviewer's judgement, the comments it cites and the
+// utterances it answers on the open round, in ONE commit. It also remembers where each
+// comment landed, so a later resolve / reopen of that comment can be mirrored onto the
+// round without reading it back.
+//
+// slotReplies are the reviewer's queued replies as the SLOT ledger received them, keyed on
+// SLOT comment ids; roundRepliesFor re-keys the ones this round can actually take.
 //
 // A no-op when no round is open, and best-effort when one is: the slot ledger is still the
 // read path, so a round write that faults must not take the reviewer's decision with it.
@@ -3978,13 +4006,15 @@ func (wf *workflows) appendDesignVerdict(
 	verdict projectstate.ReviewVerdict,
 	comments []projectstate.ReviewComment,
 	slotIDs []string,
+	slotReplies []projectstate.ReviewReply,
 ) {
 	if state.round.roundID == "" {
 		return
 	}
+	replies := state.roundRepliesFor(slotReplies)
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.round.key.activityID, state.round.roundID, verdict, comments, nil, projectstate.RepoCredential{})
+			state.round.key.activityID, state.round.roundID, verdict, comments, replies, projectstate.RepoCredential{})
 	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("round ledger: could not append the verdict; the slot ledger still carries the decision",
@@ -3993,6 +4023,44 @@ func (wf *workflows) appendDesignVerdict(
 	}
 	state.ledgerVersion = v
 	state.rememberRoundComments(slotIDs, len(comments))
+}
+
+// roundRepliesFor re-keys the reviewer's queued replies from the SLOT ledger's comment ids
+// onto the ROUND ledger's, keeping only the ones whose parent comment lives in the round
+// this append is landing on.
+//
+// THE REST ARE DROPPED FROM THE ROUND LEDGER, DELIBERATELY. AppendReviewVerdict appends a
+// reply to the thread of the round it is given, and a reply naming a comment that is not in
+// that thread makes the whole append fail — so a reply to an EARLIER round's comment cannot
+// be mirrored at all: that round is already decided, and a decided round is terminal, which
+// is the store's own rule and not one this workflow may route around. The slot ledger still
+// carries it, and the slot ledger is still the read path for the length of the wave.
+// EARMARK (stage 4/6): cross-round replies need a verb that appends to a decided round's
+// thread, or the round model needs the conversation to outlive its round.
+//
+// Today the kept set is empty in practice: each design round takes exactly one comment
+// batch (the human's send-back), so a reply — which by construction answers a thread that
+// ALREADY existed when the batch was split — always names an earlier round. The pairing is
+// written and tested anyway, because the moment a round takes a second batch the silent
+// alternative is a reviewer utterance mis-attached to the wrong comment.
+func (s *coAuthorState) roundRepliesFor(slotReplies []projectstate.ReviewReply) []projectstate.ReviewReply {
+	if len(slotReplies) == 0 || s.round.roundID == "" {
+		return nil
+	}
+	out := make([]projectstate.ReviewReply, 0, len(slotReplies))
+	for _, r := range slotReplies {
+		ref, ok := s.roundComments[r.CommentID]
+		if !ok || ref.roundID != s.round.roundID {
+			continue
+		}
+		held := r
+		held.CommentID = ref.commentID
+		out = append(out, held)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // rememberRoundComments records the slot-comment-id → round-comment-id pairing for the
@@ -4027,7 +4095,7 @@ func (s *coAuthorState) rememberRoundComments(slotIDs []string, appended int) {
 // invisible), and the operator otherwise.
 func (wf *workflows) decideDesignRound(
 	ctx workflow.Context,
-	in coAuthorInput,
+	projectID ProjectID,
 	state *coAuthorState,
 	outcome projectstate.ReviewRoundOutcome,
 	decidedBy string,
@@ -4038,8 +4106,8 @@ func (wf *workflows) decideDesignRound(
 	if decidedBy == "" {
 		decidedBy = designActorOperator
 	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+	v, err := wf.applyRecovering(ctx, projectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(projectID), expected,
 			state.round.key.activityID, state.round.roundID, outcome, decidedBy, projectstate.RepoCredential{})
 	})
 	if err != nil {

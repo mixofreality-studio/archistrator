@@ -1864,28 +1864,62 @@ func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.Pr
 	})
 }
 
-func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	var refused error
+	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
 			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
 				continue
 			}
-			stamped := verdict
-			stamped.At = testLedgerClock.Format(time.RFC3339)
-			r.Verdicts = append(r.Verdicts, stamped)
+			// Build the new thread in a LOCAL and commit it only if every reply found its
+			// parent. The real store applies the batch inside one mutation that either lands
+			// whole or raises, and a double that half-applied would hide exactly the bug
+			// roundRepliesFor exists to prevent: the comments landing while the utterance is
+			// refused.
+			thread := append([]projectstate.ReviewComment(nil), r.Thread...)
 			for _, c := range comments {
 				held := c
 				// The same id the real applyRoundReviewBatch mints: from the THREAD it lands
 				// on, not from the batch — which is what the workflow's slot→round pairing
 				// predicts.
-				held.ID = projectstate.ReviewCommentID(r.Round, len(r.Thread))
+				held.ID = projectstate.ReviewCommentID(r.Round, len(thread))
 				held.Round, held.Status = r.Round, projectstate.ReviewCommentOpen
-				r.Thread = append(r.Thread, held)
+				thread = append(thread, held)
 			}
+			// A reply lands INSIDE the thread it answers, and one naming a comment this
+			// round's thread does not hold FAILS the whole append — the real store's rule
+			// (appendReviewReply returns NotFound and AppendReviewVerdict propagates it).
+			for _, rep := range replies {
+				found := false
+				for j := range thread {
+					if thread[j].ID != rep.CommentID {
+						continue
+					}
+					thread[j].Replies = append(append([]projectstate.ReviewCommentReply(nil), thread[j].Replies...),
+						projectstate.ReviewCommentReply{
+							ID:         fmt.Sprintf("%su%d", rep.CommentID, len(thread[j].Replies)+1),
+							AuthorRole: rep.AuthorRole, Text: rep.Text, At: rep.At,
+						})
+					found = true
+					break
+				}
+				if !found {
+					refused = fwra.New(fwra.NotFound, "fakeActivityExecution.AppendReviewVerdict: reply names comment "+rep.CommentID+", which round "+roundID+" does not hold")
+					return
+				}
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			r.Thread = thread
 			return
 		}
 	})
+	if refused != nil {
+		return 0, refused
+	}
+	return v, err
 }
 
 func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -12825,5 +12859,147 @@ func Test_CoAuthor_ResolveComment_IsMirroredOntoTheRound(t *testing.T) {
 	}
 	if got.Status != projectstate.ReviewCommentResolved {
 		t.Fatalf("the resolve filed against the slot's id must reach the round's copy; got status %q", got.Status)
+	}
+}
+
+// A WITHDRAW AT THE *FAILED* GATE CLOSES THE ROUND TOO. The review gate's withdraw arm
+// always did; this one did not, and it is reachable with a round wide open: the draft
+// stages, its round opens, the human approves, the merge guard finds the PR NOT GREEN, and
+// the session lands at StageDraftFailed. Withdrawing there used to end the session leaving
+// round 1 pending forever with no run alive to settle it — the one shape the stage-4 sweep
+// exists to clean up, and the one this workflow can avoid outright because it KNOWS it is
+// ending.
+func Test_CoAuthor_WithdrawAtTheFailedGate_ClosesTheOpenRound(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &roundLedgerFake{branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base}}
+	// checkGreen=false: the approve's merge guard refuses, routing to StageDraftFailed.
+	wf := newRailWorkflows(&fakeRail{checkGreen: false})
+	registerRailCoAuthor(env, wf, ps, newFakePipeline())
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a not-green approve then a withdraw must not crash the session: %v", err)
+	}
+
+	rounds := base.rounds("architecture")
+	if len(rounds) != 1 {
+		t.Fatalf("the staged draft opened exactly one round; got %d", len(rounds))
+	}
+	if rounds[0].Outcome != projectstate.RoundWithdrawn {
+		t.Fatalf("a withdraw at the FAILED gate must close the open round withdrawn, not leave it %q forever", rounds[0].Outcome)
+	}
+	if rounds[0].DecidedBy == "" {
+		t.Fatalf("a decided round names who decided it; got %+v", rounds[0])
+	}
+}
+
+// A REPLY TO AN EARLIER ROUND'S COMMENT REACHES THE SLOT LEDGER AND NOT THE ROUND LEDGER,
+// and — the load-bearing half — does NOT take the round's own comments down with it.
+// AppendReviewVerdict applies replies to the thread of the round it is given, so a reply
+// naming a comment that round does not hold fails the WHOLE append; roundRepliesFor drops
+// those before they are sent, which is why round 2 still carries its fresh comment here.
+// The earlier round is already decided and a decided round is terminal, so there is nowhere
+// on the round ledger for that utterance to go — the section's EARMARK (b).
+func Test_CoAuthor_ReplyToAnEarlierRoundsComment_StaysOnTheSlotLedgerOnly(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	firstComment := projectstate.ReviewCommentID(0, 0) // the slot id round 0 mints: r0c1
+	// Round 1: open a thread. Round 2: answer it AND file a fresh comment.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{
+			Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "wrong layer"}},
+		}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{
+			Comments: []AnchoredComment{
+				{ReplyTo: firstComment, Text: "still vague"},
+				{JSONPath: "$.components[1].name", Text: "and this one too"},
+			},
+		}})
+	}, 70*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 110*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a queued reply must not crash the session: %v", err)
+	}
+
+	// THE SLOT LEDGER carries the utterance inside the thread it answers.
+	slot := base.slot(projectstate.KindSystem)
+	var answered *projectstate.ReviewComment
+	for i := range slot.ReviewThread {
+		if slot.ReviewThread[i].ID == firstComment {
+			answered = &slot.ReviewThread[i]
+		}
+	}
+	if answered == nil || len(answered.Replies) != 1 {
+		t.Fatalf("the slot thread must carry the reply inside the thread it answers; got %+v", slot.ReviewThread)
+	}
+
+	// Three rounds: the two send-backs, plus the one the second redraft opened at the gate
+	// the withdraw then closed.
+	rounds := base.rounds("architecture")
+	if len(rounds) != 3 {
+		t.Fatalf("two send-backs and the gate the withdraw closed are three rounds; got %d", len(rounds))
+	}
+	// Round 1 is decided — its copy of the comment is closed to further utterances.
+	if len(rounds[0].Thread) != 1 || len(rounds[0].Thread[0].Replies) != 0 {
+		t.Fatalf("a decided round's thread takes no later utterance; got %+v", rounds[0].Thread)
+	}
+	// Round 2 still got its OWN fresh comment: the un-mirrorable reply was dropped BEFORE
+	// the append rather than failing it.
+	if len(rounds[1].Thread) != 1 || rounds[1].Thread[0].Text != "and this one too" {
+		t.Fatalf("dropping an un-mirrorable reply must not cost the round its own comments; got %+v", rounds[1].Thread)
+	}
+}
+
+// AND THE PAIRING ITSELF, exercised directly: a reply whose parent is in the OPEN round is
+// re-keyed onto that round's own comment id; anything else is dropped. The workflow cannot
+// reach the first case today — each design round takes exactly one comment batch, and a
+// reply by construction answers a thread that already existed when the batch was split — so
+// the rule is pinned here rather than left to a path that does not exist yet.
+func Test_RoundRepliesFor_ReKeysTheOpenRoundsRepliesAndDropsTheRest(t *testing.T) {
+	s := &coAuthorState{
+		round: designRound{roundID: "architecture:architectureReview:system:2", number: 2},
+		roundComments: map[string]roundCommentRef{
+			"r1c1": {roundID: "architecture:architectureReview:system:2", commentID: "r2c1"},
+			"r0c1": {roundID: "architecture:architectureReview:system:1", commentID: "r1c1"},
+		},
+	}
+	got := s.roundRepliesFor([]projectstate.ReviewReply{
+		{CommentID: "r1c1", AuthorRole: reviewerUtteranceRole, Text: "in this round"},
+		{CommentID: "r0c1", AuthorRole: reviewerUtteranceRole, Text: "an earlier round"},
+		{CommentID: "r9c9", AuthorRole: reviewerUtteranceRole, Text: "never seen"},
+	})
+	if len(got) != 1 {
+		t.Fatalf("only the OPEN round's reply may be mirrored; got %+v", got)
+	}
+	if got[0].CommentID != "r2c1" {
+		t.Fatalf("the reply must be re-keyed onto the ROUND's own comment id; got %q", got[0].CommentID)
+	}
+	if got[0].Text != "in this round" {
+		t.Fatalf("the utterance travels verbatim; got %q", got[0].Text)
+	}
+	// No open round ⇒ nothing to append to.
+	if out := (&coAuthorState{}).roundRepliesFor([]projectstate.ReviewReply{{CommentID: "r1c1"}}); out != nil {
+		t.Fatalf("with no round open there is nothing to mirror; got %+v", out)
 	}
 }

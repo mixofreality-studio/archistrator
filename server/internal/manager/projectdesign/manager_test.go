@@ -1377,28 +1377,62 @@ func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.Pr
 	})
 }
 
-func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	var refused error
+	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
 			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
 				continue
 			}
-			stamped := verdict
-			stamped.At = testLedgerClock.Format(time.RFC3339)
-			r.Verdicts = append(r.Verdicts, stamped)
+			// Build the new thread in a LOCAL and commit it only if every reply found its
+			// parent. The real store applies the batch inside one mutation that either lands
+			// whole or raises, and a double that half-applied would hide exactly the bug
+			// roundRepliesFor exists to prevent: the comments landing while the utterance is
+			// refused.
+			thread := append([]projectstate.ReviewComment(nil), r.Thread...)
 			for _, c := range comments {
 				held := c
 				// The same id the real applyRoundReviewBatch mints: from the THREAD it lands
 				// on, not from the batch — which is what the workflow's slot→round pairing
 				// predicts.
-				held.ID = projectstate.ReviewCommentID(r.Round, len(r.Thread))
+				held.ID = projectstate.ReviewCommentID(r.Round, len(thread))
 				held.Round, held.Status = r.Round, projectstate.ReviewCommentOpen
-				r.Thread = append(r.Thread, held)
+				thread = append(thread, held)
 			}
+			// A reply lands INSIDE the thread it answers, and one naming a comment this
+			// round's thread does not hold FAILS the whole append — the real store's rule
+			// (appendReviewReply returns NotFound and AppendReviewVerdict propagates it).
+			for _, rep := range replies {
+				found := false
+				for j := range thread {
+					if thread[j].ID != rep.CommentID {
+						continue
+					}
+					thread[j].Replies = append(append([]projectstate.ReviewCommentReply(nil), thread[j].Replies...),
+						projectstate.ReviewCommentReply{
+							ID:         fmt.Sprintf("%su%d", rep.CommentID, len(thread[j].Replies)+1),
+							AuthorRole: rep.AuthorRole, Text: rep.Text, At: rep.At,
+						})
+					found = true
+					break
+				}
+				if !found {
+					refused = fwra.New(fwra.NotFound, "fakeActivityExecution.AppendReviewVerdict: reply names comment "+rep.CommentID+", which round "+roundID+" does not hold")
+					return
+				}
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			r.Thread = thread
 			return
 		}
 	})
+	if refused != nil {
+		return 0, refused
+	}
+	return v, err
 }
 
 func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -7263,6 +7297,12 @@ func Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle(t *test
 		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
 		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
 		projectstate.KindRiskModel,
+		// KindSdpReview is here deliberately: it is the one kind the projectDesign lifecycle
+		// names a task for ("sdpReview"), yet designActivityFor maps it to the PHASE id
+		// "sdpReview" while the lifecycle's only phase is "sdp" — so it does not resolve
+		// either. (This rail refuses to co-author it at the door in any case; the SDP review
+		// is assembled, not drafted.)
+		projectstate.KindSdpReview,
 	} {
 		if key, ok := designRoundKeyFor(kind); ok {
 			t.Fatalf("%s now resolves to review task %q — the projectDesign lifecycle has grown its drafts, so drop this test and assert the rounds instead", kind.WireName(), key.gate)
@@ -7344,4 +7384,38 @@ func fullyWiredProjectDesignManager() *projectDesignManager {
 		&fakeEpisodes{},
 		func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false },
 	)
+}
+
+// THE FAILED-GATE WITHDRAW CLOSES THE OPEN ROUND ON THIS RAIL TOO. It writes no round
+// today (no Phase-2 kind resolves to a review task — see above), so what this pins is that
+// the call is THERE and inert rather than missing: the systemdesign twin's version of this
+// gate was reachable with a round wide open and left it pending forever, and the two rails
+// are edited together precisely so a fix to one is not a divergence from the other.
+func Test_CoAuthorPhase2_WithdrawAtTheFailedGate_LeavesNoPendingRound(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &fakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	// The draft job FAILS terminally, landing the session at StageDraftFailed.
+	pipe := newFakePipeline(pipelineFailed)
+	wf := newWorkflows()
+	registerCoAuthor(env, wf, ps, pipe)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed-gate withdraw must not crash the session: %v", err)
+	}
+	for _, r := range ps.rounds("projectDesign") {
+		if r.Outcome == projectstate.RoundPending {
+			t.Fatalf("no round may be left pending by a session that knows it is ending; got %+v", r)
+		}
+	}
+	if len(ps.withdrawn) == 0 {
+		t.Fatalf("the failed-gate withdraw must still record the slot withdraw; got %v", ps.withdrawn)
+	}
 }
