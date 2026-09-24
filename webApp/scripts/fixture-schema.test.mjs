@@ -180,6 +180,64 @@ void test('the activity-experience design fixtures are recorded, valid, and answ
   }
 });
 
+// A REVISION READ FROM A PERSISTED ROUND IS NOT A RECONSTRUCTION, and the fixtures have
+// to hold both or the preview only ever shows one of them (stage-3 tasks 7 and 8). The
+// schema cannot tell them apart — every new member is optional, because a pre-ledger row
+// genuinely has none of them — so the distinction is asserted here, against the
+// derivation's own rules in constructionmanager.go:
+//
+//   - the round's facts travel together: a revision with any of them carries the round
+//     number too, and a round a run wrote is `observed`, never `backfilled`;
+//   - a DECIDED round says who decided it and when; a PENDING one says neither and cites
+//     NO attempt, because the rail writes the gate attempt only when the round is decided
+//     (which is why every gate a human is looking at right now has a round and no attempt);
+//   - a reconstruction offers `note` and `comments` and nothing a round owns;
+//   - a dispatch revision has no round at all.
+const ROUND_ONLY = ['verdicts', 'thread', 'reviewers', 'subjectRef', 'decidedBy', 'decidedAt'];
+
+void test('the activity-experience fixtures hold a persisted round AND a reconstruction', () => {
+  const { files } = validateFixtureTree(DESIGN_FIXTURES, { validate });
+  const offences = [];
+  let persisted = 0;
+  let reconstructed = 0;
+  for (const f of files.filter((p) => p.includes(join(SURFACE, 'activity-experience')))) {
+    const view = JSON.parse(readFileSync(f, 'utf8')).ops.constructionQueryActivityView.result;
+    for (const task of view.tasks) {
+      for (const rev of task.revisions) {
+        const where = `${f.slice(f.lastIndexOf('/') + 1)} ${task.id}#${rev.n}`;
+        const round = ROUND_ONLY.some((k) => rev[k] !== undefined);
+        if (task.kind === 'dispatch') {
+          if (round || rev.round !== undefined) offences.push(`${where}: a dispatch revision has no round`);
+          continue;
+        }
+        if (rev.round === undefined) offences.push(`${where}: a review revision carries the round it is`);
+        if (!round) {
+          reconstructed += 1;
+          if (rev.provenance !== 'backfilled') offences.push(`${where}: a reconstruction is backfilled, not ${rev.provenance}`);
+          continue;
+        }
+        persisted += 1;
+        if (rev.provenance !== 'observed') offences.push(`${where}: a round a run wrote is observed, not ${rev.provenance}`);
+        for (const k of ['verdicts', 'thread', 'reviewers', 'subjectRef']) {
+          if (rev[k] === undefined) offences.push(`${where}: a persisted round carries ${k}`);
+        }
+        const decided = rev.outcome === 'passed' || rev.outcome === 'sentBack';
+        if (decided !== (rev.decidedBy !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedBy ${rev.decidedBy}`);
+        if (decided !== (rev.decidedAt !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedAt ${rev.decidedAt}`);
+        if (!decided && rev.attemptIds.length > 0) {
+          offences.push(`${where}: an undecided round has no gate attempt yet, but cites ${rev.attemptIds}`);
+        }
+        if (rev.outcome === 'sentBack' && !rev.verdicts.some((v) => v.verdict === 'sendBack')) {
+          offences.push(`${where}: a sentBack round was sent back by someone`);
+        }
+      }
+    }
+  }
+  assert.deepEqual(offences, []);
+  assert.ok(persisted > 0, 'no fixture exercises a persisted round; the new members render nowhere');
+  assert.ok(reconstructed > 0, 'no fixture exercises a pre-ledger row; the reconstruction renders nowhere');
+});
+
 void test('a fixture whose text carries a bundle marker is refused', () => {
   // Fixtures are bundled into the preview; a marker in their text would keep the
   // preview bundle check green with the marked code gone (P1 mutant M2c).

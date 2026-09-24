@@ -11004,6 +11004,134 @@ func TestActivityViewWireStringsMatchTheContract(t *testing.T) {
 	}
 }
 
+// avVal reads an optional wire member as its zero value when absent, so an assertion
+// reads as the fact it is checking rather than as a nil guard. Absent and zero are
+// different on the wire and the tests below distinguish them where it matters.
+func avVal[T comparable](p *T) T {
+	var zero T
+	if p == nil {
+		return zero
+	}
+	return *p
+}
+
+// avSubjectKind is avVal for the one nested optional the revision carries.
+func avSubjectKind(s *ReviewSubjectRef) string {
+	if s == nil {
+		return ""
+	}
+	return s.Kind
+}
+
+// avRoles, avVerdicts, avThread and avAnchors render the revision's four wire arrays as
+// one comparable line each, so a failure prints what travelled instead of a struct dump.
+func avRoles(seats []ReviewRosterSeat) []string {
+	out := make([]string, 0, len(seats))
+	for _, s := range seats {
+		out = append(out, s.Role)
+	}
+	return out
+}
+
+func avVerdicts(verdicts []ReviewVerdictView) []string {
+	out := make([]string, 0, len(verdicts))
+	for _, v := range verdicts {
+		out = append(out, fmt.Sprintf("%s/%s@%s", v.ReviewerRole, v.Verdict, v.At))
+	}
+	return out
+}
+
+func avThread(thread []ReviewThreadComment) []string {
+	out := make([]string, 0, len(thread))
+	for _, c := range thread {
+		out = append(out, fmt.Sprintf("%s/%s/%d", c.ID, c.Status, len(c.Replies)))
+	}
+	return out
+}
+
+func avAnchors(comments []TaskRevisionComment) []string {
+	out := make([]string, 0, len(comments))
+	for _, c := range comments {
+		out = append(out, c.JSONPath)
+	}
+	return out
+}
+
+// Task 8: the round's facts reach the WIRE. The revision-level members are optional
+// because a pre-ledger row honestly has none of them, so what has to be pinned is that a
+// round-backed revision carries them and a reconstructed one carries nothing it cannot
+// back — an omitted member is the contract's way of saying "this record does not hold
+// this", and a zero value shipped in its place would read as a fact.
+func TestRevisionViews_ARoundBackedRevisionCarriesTheRoundOnTheWire(t *testing.T) {
+	round := avRound(projectstate.TaskDesignReview, 2, projectstate.RoundSentBack)
+	round.DecidedBy, round.DecidedAt = "operator", "2026-09-20T10:00:00Z"
+	round.Reviewers = []projectstate.RoundReviewer{{Role: "architect", Actor: "architect"}}
+	round.Verdicts = []projectstate.ReviewVerdict{
+		{ReviewerRole: "architect", Actor: "architect", Verdict: projectstate.VerdictSendBack, Summary: "fold the pair", AttemptID: "C-X:detailedDesign:2", At: "2026-09-20T09:55:00Z"},
+	}
+	round.Thread = []projectstate.ReviewComment{
+		{ID: "r2c1", Anchor: "$.ops[0]", Text: "fold them", AuthorRole: "architect", Round: 2, Status: "answered", Type: "changeRequest",
+			Replies: []projectstate.ReviewCommentReply{{ID: "r2c1a1", AuthorRole: "seniorDeveloper", Text: "folded", At: "2026-09-20T11:00:00Z"}}},
+	}
+	got := revisionViews(roundRevisions([]projectstate.ReviewRound{round}, nil, false))
+	if len(got) != 1 {
+		t.Fatalf("one round, one revision; got %d", len(got))
+	}
+	v := got[0]
+	// A table, not a chain of ifs: every row is one fact of the round that has to survive
+	// the crossing, and the failure names the fact rather than the field.
+	for _, c := range []struct {
+		held bool
+		what string
+	}{
+		{avVal(v.Round) == 2, "the round number"},
+		{avVal(v.DecidedBy) == "operator", "who decided it"},
+		{avVal(v.DecidedAt) == "2026-09-20T10:00:00Z", "when it was decided, verbatim"},
+		{avSubjectKind(v.SubjectRef) == string(projectstate.SubjectArtifact), "what it judged"},
+		{slices.Equal(avRoles(v.Reviewers), []string{"architect"}), "the roster"},
+		{slices.Equal(avVerdicts(v.Verdicts), []string{"architect/sendBack@2026-09-20T09:55:00Z"}), "the verdicts, their timestamps verbatim and never parsed"},
+		{slices.Equal(avThread(v.Thread), []string{"r2c1/answered/1"}), "the thread, with its status and its replies"},
+		// The flat anchors stay too: a reader that has only ever known `comments` keeps
+		// working on a round-backed revision, and the thread is where the rest lives.
+		{v.CommentCount == 1, "the comment count"},
+		{slices.Equal(avAnchors(v.Comments), []string{"$.ops[0]"}), "the thread's projection onto the flat comments"},
+		{avVal(v.Note) == "fold the pair", "the send-back note, as the human-readable verdict summary"},
+		{v.Provenance == TaskRevisionObserved, "observed provenance — a run wrote this round"},
+	} {
+		if !c.held {
+			t.Errorf("%s does not reach the wire: %+v", c.what, v)
+		}
+	}
+}
+
+// Its twin: a reconstruction ships NONE of the round's members, so the screen can tell
+// "nobody recorded this" from "nobody reviewed".
+func TestRevisionViews_AReconstructedRevisionShipsNoRoundMembers(t *testing.T) {
+	rejected := avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected)
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "tighten it")}
+	got := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{rejected}, notes, "detailed_design", false))
+	v := got[0]
+	if len(v.Verdicts) != 0 || len(v.Thread) != 0 || len(v.Reviewers) != 0 {
+		t.Errorf("a reconstruction has no round facts to ship; got %+v", v)
+	}
+	if v.SubjectRef != nil || v.DecidedBy != nil || v.DecidedAt != nil {
+		t.Errorf("a reconstruction records no subject and no decision; got %+v", v)
+	}
+	if v.Round == nil || *v.Round != 1 {
+		t.Errorf("it does carry the gate attempt's number as its round; got %v", v.Round)
+	}
+	if v.Note == nil || *v.Note != "tighten it" {
+		t.Errorf("the send-back note is still the OperatorNote here; got %v", v.Note)
+	}
+	// And the pre-ledger placement beneath the ledger ships NO round: that number is a
+	// sort position, not a count of reviews.
+	below := avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected)
+	below.Attempt = 0
+	if r := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{below}, nil, "detailed_design", false))[0].Round; r != nil {
+		t.Fatalf("an attempt placed beneath the ledger has no round number to give; got %v", *r)
+	}
+}
+
 // testExitAt is the clock a test row's head facts carry. Since stage-3 task 4 a row's
 // terminality IS its exit stamp (and its failure reason): a fixture that used to say
 // Phase: Done says CompletedAt, and one that said Running says StartedAt.

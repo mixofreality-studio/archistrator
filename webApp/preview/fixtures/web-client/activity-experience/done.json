@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/activity/N-STP",
   "title": "Activity Experience — done activity (system test plan)",
-  "note": "N-STP, signed off 2026-09-12. Every task passed at revision 1; every lifecycle phase is completed; no review set, no polling.",
+  "note": "N-STP, signed off 2026-09-12. Every task passed at revision 1; every lifecycle phase is completed; no review set, no polling. A row a real run wrote end to end: every revision is `observed`, and each of the three gates is read from its own PASSED round — roster, verdicts and subject included (stage-3 tasks 5 and 7). Nothing here is reconstructed, which is what the whole ledger is for.",
   "ops": {
     "constructionQueryActivityView": {
       "result": {
@@ -17,17 +17,41 @@
         ],
         "tasks": [
           { "id": "srs", "kind": "dispatch", "title": "Use-Case Trace", "phase": "requirements", "dependsOn": [], "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:srs:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:srs:1"], "commentCount": 0, "comments": [], "provenance": "observed" } ] },
           { "id": "srsReview", "kind": "review", "title": "Trace Review", "phase": "requirements", "dependsOn": ["srs"], "reviews": "srs", "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:srsReview:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:srsReview:1"], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "artifact", "ref": "N-STP:srs:1" },
+              "reviewers": [
+                { "role": "testEngineer", "actor": "testEngineer", "required": false },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "testEngineer", "actor": "testEngineer", "verdict": "approve", "summary": "Every core use case is traced; none is traced twice.", "at": "2026-09-11T14:20:00Z", "attemptId": "N-STP:srs:1" },
+                { "reviewerRole": "human", "actor": "operator", "verdict": "approve", "at": "2026-09-11T14:20:00Z", "attemptId": "N-STP:srs:1" } ],
+              "thread": [], "decidedBy": "operator", "decidedAt": "2026-09-11T14:20:00Z", "provenance": "observed" } ] },
           { "id": "construction", "kind": "dispatch", "title": "Plan Authoring", "phase": "construction", "dependsOn": ["srsReview"], "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:construction:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:construction:1"], "commentCount": 0, "comments": [], "provenance": "observed" } ] },
           { "id": "codeReview", "kind": "review", "title": "Scenario Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:codeReview:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:codeReview:1"], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "artifact", "ref": "N-STP:construction:1" },
+              "reviewers": [
+                { "role": "testEngineer", "actor": "testEngineer", "required": false },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "testEngineer", "actor": "testEngineer", "verdict": "approve", "summary": "The scenarios break the system where it can break.", "at": "2026-09-12T09:05:00Z", "attemptId": "N-STP:construction:1" },
+                { "reviewerRole": "human", "actor": "operator", "verdict": "approve", "at": "2026-09-12T09:05:00Z", "attemptId": "N-STP:construction:1" } ],
+              "thread": [], "decidedBy": "operator", "decidedAt": "2026-09-12T09:05:00Z", "provenance": "observed" } ] },
           { "id": "integration", "kind": "dispatch", "title": "Plan Assembly", "phase": "integration", "dependsOn": ["codeReview"], "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:integration:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:integration:1"], "commentCount": 0, "comments": [], "provenance": "observed" } ] },
           { "id": "testing", "kind": "review", "title": "Plan Review", "phase": "integration", "dependsOn": ["integration"], "reviews": "integration", "state": "passed", "revisions": [
-            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:testing:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] }
+            { "n": 1, "outcome": "passed", "attemptIds": ["N-STP:testing:1"], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "artifact", "ref": "N-STP:integration:1" },
+              "reviewers": [
+                { "role": "testEngineer", "actor": "testEngineer", "required": false },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "testEngineer", "actor": "testEngineer", "verdict": "approve", "summary": "The assembled plan runs end to end.", "at": "2026-09-12T16:40:00Z", "attemptId": "N-STP:integration:1" },
+                { "reviewerRole": "human", "actor": "operator", "verdict": "approve", "at": "2026-09-12T16:40:00Z", "attemptId": "N-STP:integration:1" } ],
+              "thread": [], "decidedBy": "operator", "decidedAt": "2026-09-12T16:40:00Z", "provenance": "observed" } ] }
         ]
       }
     }

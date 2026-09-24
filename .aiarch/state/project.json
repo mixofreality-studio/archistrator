@@ -18139,11 +18139,48 @@
               "items": {
                 "$ref": "#/$defs/TaskRevisionComment"
               },
-              "description": "The anchored comments that rode with a send-back. Empty unless outcome is sentBack."
+              "description": "The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there."
             },
             "note": {
               "type": "string",
-              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded."
+              "description": "The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position."
+            },
+            "verdicts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewVerdictView"
+              },
+              "description": "Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row."
+            },
+            "thread": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewThreadComment"
+              },
+              "description": "The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6."
+            },
+            "reviewers": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewRosterSeat"
+              },
+              "description": "The roster the round was opened with, as the reviewEngine computed it. Empty on a reconstructed revision: a pre-ledger row recorded who reviewed nowhere."
+            },
+            "subjectRef": {
+              "$ref": "#/$defs/ReviewSubjectRef",
+              "description": "What this revision judged. The artifact as of a non-latest revision is read from it. Omitted on a reconstructed revision, which has no record of its subject."
+            },
+            "round": {
+              "type": "integer",
+              "description": "The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give."
+            },
+            "decidedBy": {
+              "type": "string",
+              "description": "Who decided the round. Omitted while it is undecided and on a reconstructed revision."
+            },
+            "decidedAt": {
+              "type": "string",
+              "description": "RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision."
             },
             "provenance": {
               "$ref": "#/$defs/TaskRevisionProvenance"
@@ -18156,6 +18193,188 @@
             "commentCount",
             "comments",
             "provenance"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewVerdictKind": {
+          "type": "string",
+          "enum": [
+            "approve",
+            "sendBack",
+            "abstain"
+          ],
+          "x-enum-varnames": [
+            "VerdictApprove",
+            "VerdictSendBack",
+            "VerdictAbstain"
+          ],
+          "x-go-base": "string",
+          "description": "One reviewer's answer in a round. Agent and human verdicts are the same kind of row; abstain is a reviewer who was asked and declined, which is not silence."
+        },
+        "ReviewVerdictView": {
+          "type": "object",
+          "properties": {
+            "reviewerRole": {
+              "type": "string"
+            },
+            "actor": {
+              "type": "string",
+              "description": "The agent or person who gave it. Omitted when the role alone identifies the reviewer."
+            },
+            "verdict": {
+              "$ref": "#/$defs/ReviewVerdictKind"
+            },
+            "summary": {
+              "type": "string",
+              "description": "The reviewer's one-line reason, verbatim."
+            },
+            "at": {
+              "type": "string",
+              "description": "RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant."
+            },
+            "attemptId": {
+              "type": "string",
+              "x-go-name": "AttemptID",
+              "description": "The gate attempt this verdict was given at."
+            }
+          },
+          "required": [
+            "reviewerRole",
+            "verdict",
+            "at"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewRosterSeat": {
+          "type": "object",
+          "properties": {
+            "role": {
+              "type": "string",
+              "description": "The reviewer's Method role (architect, productManager, qaEngineer, ...)."
+            },
+            "actor": {
+              "type": "string",
+              "description": "The agent or person filling that role for this round."
+            },
+            "required": {
+              "type": "boolean",
+              "description": "Whether the round could not be decided passed without this reviewer's verdict."
+            }
+          },
+          "required": [
+            "role",
+            "actor",
+            "required"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewSubjectRef": {
+          "type": "object",
+          "properties": {
+            "kind": {
+              "type": "string",
+              "enum": [
+                "commit",
+                "artifact",
+                "pullRequest"
+              ],
+              "description": "What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use."
+            },
+            "ref": {
+              "type": "string",
+              "description": "What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored."
+            }
+          },
+          "required": [
+            "kind",
+            "ref"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewThreadComment": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "anchor": {
+              "type": "string"
+            },
+            "anchorText": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "round": {
+              "type": "integer"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "answered",
+                "resolved"
+              ],
+              "description": "Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind."
+            },
+            "replies": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/ReviewThreadReply"
+              }
+            },
+            "reopened": {
+              "type": "boolean"
+            },
+            "type": {
+              "type": "string",
+              "x-go-name": "Type"
+            },
+            "addressee": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "id",
+            "anchor",
+            "text",
+            "authorRole",
+            "round",
+            "status",
+            "replies",
+            "reopened",
+            "type"
+          ],
+          "additionalProperties": false
+        },
+        "ReviewThreadReply": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "x-go-name": "ID"
+            },
+            "authorRole": {
+              "type": "string"
+            },
+            "text": {
+              "type": "string"
+            },
+            "at": {
+              "type": "string",
+              "description": "RFC3339, verbatim from the ledger."
+            }
+          },
+          "required": [
+            "id",
+            "authorRole",
+            "text",
+            "at"
           ],
           "additionalProperties": false
         },

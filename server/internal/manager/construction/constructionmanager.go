@@ -3166,7 +3166,8 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 			N: i + 1, Outcome: roundOutcome(r.Outcome, live), Round: r.Round,
 			Verdicts: r.Verdicts, Thread: r.Thread, Reviewers: r.Reviewers, SubjectRef: r.SubjectRef,
 			DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, Provenance: r.Provenance.Origin,
-			Note: humanVerdictSummary(r.Verdicts), StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
+			Note: humanVerdictSummary(r.Verdicts), Comments: threadAnchors(r.Thread),
+			StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
 		}
 		for _, a := range gate {
 			if int64(a.Attempt) == r.Round {
@@ -3202,6 +3203,22 @@ func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 		return revRunning
 	}
 	return revFailed // an outcome outside the vocabulary is not a pass
+}
+
+// threadAnchors is the round's thread as the revision's flat anchored comments — the same
+// two fields a reconstructed revision offers, so a reader that has only ever known
+// `comments` keeps working on a round-backed revision. It is a PROJECTION of `thread`, not
+// a second record: the replies, the open/answered/resolved status and the reopen flag live
+// there and only there, and a reader that needs them reads them there.
+func threadAnchors(thread []projectstate.ReviewComment) []projectstate.NoteComment {
+	if len(thread) == 0 {
+		return nil
+	}
+	out := make([]projectstate.NoteComment, 0, len(thread))
+	for _, c := range thread {
+		out = append(out, projectstate.NoteComment{JSONPath: c.Anchor, Text: c.Text})
+	}
+	return out
 }
 
 // humanVerdictSummary is the round's send-back note: the LAST send-back verdict's summary,
@@ -3341,11 +3358,16 @@ func dispatchRevision(n int, seg phaseSegment) taskRevision {
 // visible inside attemptIds. live marks the occurrence the session is waiting at now.
 func reviewRevision(n int, g projectstate.TaskAttempt, live bool) taskRevision {
 	// Round: the attempt's own number is the de-facto round of a row that kept no round
-	// ledger, and it is what the construction rail's round number IS. It can be ≤ 0 for a
-	// pre-ledger rejection placed beneath the ledger (appendPreLedgerRejections), which
-	// reads as exactly what it is — a review from before this gate counted its rounds.
-	rev := taskRevision{N: n, Round: int64(g.Attempt), AttemptIDs: []string{g.AttemptID},
+	// ledger, and it is what the construction rail's round number IS. A number ≤ 0 is NOT
+	// one: appendPreLedgerRejections places a reconstruction from before the ledger
+	// beneath the ledger's lowest, which runs to 0 and below, and that number is a sort
+	// position rather than a count of reviews. Such a revision carries no round at all,
+	// which is the truth — nothing counted this gate's rounds when it happened.
+	rev := taskRevision{N: n, AttemptIDs: []string{g.AttemptID},
 		Provenance: projectstate.AttemptsWorstOrigin([]projectstate.TaskAttempt{g})}
+	if g.Attempt > 0 {
+		rev.Round = int64(g.Attempt)
+	}
 	switch g.Outcome {
 	case projectstate.OutcomePending:
 		rev.Outcome = revRunning
@@ -3543,10 +3565,99 @@ func revisionViews(revs []taskRevision) []TaskRevisionView {
 			N: int64(r.N), Outcome: TaskRevisionOutcome(r.Outcome), StartedAt: r.StartedAt, EndedAt: r.EndedAt,
 			AttemptIDs: append([]string{}, r.AttemptIDs...), EpisodeID: strPtrOrNil(r.EpisodeID),
 			CommentCount: int64(len(r.Comments)), Comments: comments, Note: strPtrOrNil(r.Note),
+			Verdicts: verdictViews(r.Verdicts), Thread: threadViews(r.Thread), Reviewers: rosterViews(r.Reviewers),
+			SubjectRef: subjectRefView(r.SubjectRef), Round: roundNumberOrNil(r.Round),
+			DecidedBy: strPtrOrNil(r.DecidedBy), DecidedAt: strPtrOrNil(r.DecidedAt),
 			Provenance: revisionProvenance(r.Provenance),
 		})
 	}
 	return out
+}
+
+// verdictViews carries the round's verdicts onto the wire. A revision with none — a
+// dispatch revision, or one reconstructed from a row that predates the round ledger —
+// carries NO array rather than an empty one: "this record holds no verdicts" and "this
+// review was decided with no verdict cast" are different facts, and the omitted field is
+// the first of them.
+func verdictViews(verdicts []projectstate.ReviewVerdict) []ReviewVerdictView {
+	if len(verdicts) == 0 {
+		return nil
+	}
+	out := make([]ReviewVerdictView, 0, len(verdicts))
+	for _, v := range verdicts {
+		out = append(out, ReviewVerdictView{
+			ReviewerRole: v.ReviewerRole, Actor: strPtrOrNil(v.Actor), Verdict: verdictKind(v.Verdict),
+			Summary: strPtrOrNil(v.Summary), At: v.At, AttemptID: strPtrOrNil(v.AttemptID),
+		})
+	}
+	return out
+}
+
+// verdictKind names the stored verdict on the wire. Total over the vocabulary with no
+// default arm; an out-of-vocabulary value reaches the wire verbatim rather than being
+// blessed into an approval it was not.
+func verdictKind(v projectstate.VerdictKind) ReviewVerdictKind {
+	switch v {
+	case projectstate.VerdictApprove:
+		return VerdictApprove
+	case projectstate.VerdictSendBack:
+		return VerdictSendBack
+	case projectstate.VerdictAbstain:
+		return VerdictAbstain
+	}
+	return ReviewVerdictKind(v)
+}
+
+// threadViews carries the round's comment thread — replies, status and all — verbatim.
+func threadViews(thread []projectstate.ReviewComment) []ReviewThreadComment {
+	if len(thread) == 0 {
+		return nil
+	}
+	out := make([]ReviewThreadComment, 0, len(thread))
+	for _, c := range thread {
+		replies := make([]ReviewThreadReply, 0, len(c.Replies))
+		for _, rep := range c.Replies {
+			replies = append(replies, ReviewThreadReply{ID: rep.ID, AuthorRole: rep.AuthorRole, Text: rep.Text, At: rep.At})
+		}
+		out = append(out, ReviewThreadComment{
+			ID: c.ID, Anchor: c.Anchor, AnchorText: strPtrOrNil(c.AnchorText), Text: c.Text,
+			AuthorRole: c.AuthorRole, Round: c.Round, Status: c.Status, Replies: replies,
+			Reopened: c.Reopened, Type: c.Type, Addressee: strPtrOrNil(c.Addressee),
+		})
+	}
+	return out
+}
+
+// rosterViews carries the roster the round was opened with.
+func rosterViews(seats []projectstate.RoundReviewer) []ReviewRosterSeat {
+	if len(seats) == 0 {
+		return nil
+	}
+	out := make([]ReviewRosterSeat, 0, len(seats))
+	for _, s := range seats {
+		out = append(out, ReviewRosterSeat{Role: s.Role, Actor: s.Actor, Required: s.Required})
+	}
+	return out
+}
+
+// subjectRefView carries what the round judged. A revision with no subject at all — every
+// reconstructed one, since a pre-ledger row recorded none — omits the field rather than
+// shipping an empty ref that reads like a subject nobody can open.
+func subjectRefView(s projectstate.SubjectRef) *ReviewSubjectRef {
+	if s.Ref == "" {
+		return nil
+	}
+	return &ReviewSubjectRef{Kind: string(s.Kind), Ref: s.Ref}
+}
+
+// roundNumberOrNil omits the round on a revision that has none: a dispatch revision, and
+// a reconstruction placed beneath the ledger, whose attempt number is a sort position
+// rather than a count of reviews (reviewRevision says why).
+func roundNumberOrNil(n int64) *int64 {
+	if n == 0 {
+		return nil
+	}
+	return &n
 }
 
 // revisionProvenance names the origin on the wire. OriginSynthesized is the EMPTY string

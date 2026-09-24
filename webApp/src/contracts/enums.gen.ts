@@ -823,6 +823,19 @@ export const REVIEW_DECISION_APP_TO_ORDINAL: Readonly<Record<ReviewDecision, num
   reject: 2,
   withdraw: 3,
 };
+// --- ReviewVerdictKind ---------------------------------------------------
+// Sources: ConstructionReviewVerdictKind
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const REVIEW_VERDICT_KIND_VALUES = ['approve', 'sendBack', 'abstain'] as const;
+
+export type ReviewVerdictKind = (typeof REVIEW_VERDICT_KIND_VALUES)[number];
+
+export const REVIEW_VERDICT_KIND_GO_VARNAMES = [
+  'VerdictApprove',
+  'VerdictSendBack',
+  'VerdictAbstain',
+] as const;
+
 // --- RuntimeStatusSeam ---------------------------------------------------
 // Sources: OperationsRuntimeStatusSeam
 export const RUNTIME_STATUS_SEAM_GO_VARNAMES = [

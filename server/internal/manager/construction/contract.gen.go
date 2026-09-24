@@ -239,10 +239,59 @@ type ReviewPolicyInput struct {
 	GatedPhasesByType map[string][]string `json:"gatedPhasesByType"`
 }
 
+type ReviewRosterSeat struct {
+	Role     string `json:"role"`
+	Actor    string `json:"actor"`
+	Required bool   `json:"required"`
+}
+
 type ReviewSet struct {
 	Reviewers     []Reviewer `json:"reviewers,omitempty"`
 	RequiresHuman *bool      `json:"requiresHuman,omitempty"`
 	Reason        *string    `json:"reason,omitempty"`
+}
+
+type ReviewSubjectRef struct {
+	Kind string `json:"kind"`
+	Ref  string `json:"ref"`
+}
+
+type ReviewThreadComment struct {
+	ID         string              `json:"id"`
+	Anchor     string              `json:"anchor"`
+	AnchorText *string             `json:"anchorText,omitempty"`
+	Text       string              `json:"text"`
+	AuthorRole string              `json:"authorRole"`
+	Round      int64               `json:"round"`
+	Status     string              `json:"status"`
+	Replies    []ReviewThreadReply `json:"replies"`
+	Reopened   bool                `json:"reopened"`
+	Type       string              `json:"type"`
+	Addressee  *string             `json:"addressee,omitempty"`
+}
+
+type ReviewThreadReply struct {
+	ID         string `json:"id"`
+	AuthorRole string `json:"authorRole"`
+	Text       string `json:"text"`
+	At         string `json:"at"`
+}
+
+type ReviewVerdictKind string
+
+const (
+	VerdictApprove  ReviewVerdictKind = "approve"
+	VerdictSendBack ReviewVerdictKind = "sendBack"
+	VerdictAbstain  ReviewVerdictKind = "abstain"
+)
+
+type ReviewVerdictView struct {
+	ReviewerRole string            `json:"reviewerRole"`
+	Actor        *string           `json:"actor,omitempty"`
+	Verdict      ReviewVerdictKind `json:"verdict"`
+	Summary      *string           `json:"summary,omitempty"`
+	At           string            `json:"at"`
+	AttemptID    *string           `json:"attemptId,omitempty"`
 }
 
 type Reviewer struct {
@@ -292,6 +341,13 @@ type TaskRevisionView struct {
 	CommentCount int64                  `json:"commentCount"`
 	Comments     []TaskRevisionComment  `json:"comments"`
 	Note         *string                `json:"note,omitempty"`
+	Verdicts     []ReviewVerdictView    `json:"verdicts,omitempty"`
+	Thread       []ReviewThreadComment  `json:"thread,omitempty"`
+	Reviewers    []ReviewRosterSeat     `json:"reviewers,omitempty"`
+	SubjectRef   *ReviewSubjectRef      `json:"subjectRef,omitempty"`
+	Round        *int64                 `json:"round,omitempty"`
+	DecidedBy    *string                `json:"decidedBy,omitempty"`
+	DecidedAt    *string                `json:"decidedAt,omitempty"`
 	Provenance   TaskRevisionProvenance `json:"provenance"`
 }
 
