@@ -1,7 +1,7 @@
 {
- "route": "/project/archistrator/construction",
- "title": "Construction console, loading",
- "note": "The project read never answers: the console holds its loading state.",
+ "route": "/project/archistrator/plan?lens=list",
+ "title": "Plan, loading",
+ "note": "The project read never answers: the plan holds its loading state. Stage 5 Task 13 MOVED this state from construction/loading.json: the console route redirects to the plan now, and PlanContainer makes the same single get-project read the console made, so the pending-read guarantee is unchanged.",
  "ops": {
   "compositionGetUserinfo": {
    "result": {

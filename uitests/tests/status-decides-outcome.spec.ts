@@ -11,12 +11,22 @@
  * SAFETY: the shared dispatch guard aborts every non-GET before navigation. The
  * writes under test are answered in the browser by page routes; nothing reaches
  * the server.
+ *
+ * ── Stage 5 Task 13 ─────────────────────────────────────────────────────────
+ * The third case ("an ops.call mutation: an EMPTY-body 500 on a review decision
+ * surfaces as an error") drove the DESIGN RAIL — `/project/$id/design/system`,
+ * its GatePanel and its submit bar — which spec §7.4 deletes; that route now
+ * redirects to the plan, so the case had no surface left to drive. The two
+ * create-project cases below are untouched: they drive the catalog, which
+ * survives. What the deleted case held is EARMARKED: `ops.call`'s empty-body-500
+ * mapping is still covered by unit tests, but no black-box spec exercises it
+ * through a real submit any more. Restoring it needs an activity-route wire stub
+ * (see the task-13 report's uitests earmarks).
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { requireServer, gotoApp } from './support/gating.js';
-import { stubAwaitingReviewGlossary } from './support/designStubs.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -108,42 +118,4 @@ test('set-operating-model: create succeeds, then an EMPTY-body 500 on the model 
   // The model was set against the id create returned, not "undefined".
   expect(models).toHaveLength(1);
   expect(models[0]).toContain('/set-operating-model/fix-g-canned-project');
-});
-
-test('an ops.call mutation: an EMPTY-body 500 on a review decision surfaces as an error', async ({
-  page,
-}) => {
-  const projectId = await stubAwaitingReviewGlossary(page, [
-    { term: 'Architect', definition: 'The single design authority.', category: 'Who' },
-  ]);
-  const decisions: string[] = [];
-  await page.route('**/api/v1/system-design/submit-review-decision/**', async (route) => {
-    decisions.push(route.request().url());
-    await route.fulfill(EMPTY_500);
-  });
-  await page.goto(`/project/${projectId}/design/system`);
-  await expect(page.getByTestId(TESTID.gatePanel)).toBeVisible();
-
-  const note = 'Name the dispatch venue.';
-  // Free-form (unanchored) feedback comes from the comment margin's ＋ affordance
-  // now that the rail's foot composer is gone — the draft card IS the composer.
-  await page.getByTestId(TESTID.marginAddNote).click();
-  await page.getByTestId(TESTID.marginComposerInput).getByRole('textbox').fill(note);
-  await page.getByTestId(TESTID.marginComposerSubmit).click();
-  await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
-  // Phase 1's commit-authority verbs live on the ONE submit bar now, not on the
-  // gate panel (GatePanel omits `actions` there) — with a change request staged,
-  // its single primary verb IS the send back this case drives.
-  const sendBack = page.getByTestId(TESTID.submitBarPrimary);
-  await expect(sendBack).toHaveText(/Send back \(1\)/);
-  await sendBack.click();
-
-  // A 5xx is indeterminate: the cause-neutral banner, and the staged note kept.
-  // Read as a success, the banner never showed and the note was cleared.
-  const banner = page.getByTestId(TESTID.gateError);
-  await expect(banner).toBeVisible({ timeout: 10_000 });
-  await expect(banner).toContainText('could not be confirmed');
-  await expect(page.getByText('STAGED · NOT SENT')).toBeVisible();
-  await expect(page.getByText(note)).toBeVisible();
-  expect(decisions).toHaveLength(1);
 });

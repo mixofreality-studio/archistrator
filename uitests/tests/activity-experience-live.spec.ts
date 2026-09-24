@@ -21,6 +21,11 @@
  * that behaves this way. Anything that would be lost by skipping belongs in a
  * preview spec, not here.
  *
+ * Stage 5 Task 13 added two `tagUseCase(...)` lines to the case below. They are
+ * ANNOTATIONS, not assertions — `meta/use-case-coverage.spec.ts` greps this file's
+ * SOURCE for them and never runs it — so the skip ruling above is unchanged: this
+ * file still asserts nothing the two preview suites do not.
+ *
  * SAFETY: runs under the shared dispatch guard, like every other spec. It reads;
  * it writes nothing and creates nothing.
  */
@@ -28,6 +33,7 @@ import type { APIRequestContext } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
 import { TESTID } from './support/testids.js';
 import { gotoApp, PROBE_TIMEOUT_MS } from './support/gating.js';
+import { tagUseCase } from './support/useCases.js';
 
 const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'http://localhost:5173';
 
@@ -63,6 +69,18 @@ test('the plan lists the real project activities, and a row opens that activity'
   page,
   dispatchGuard,
 }) => {
+  // The core use cases this flow exercises (meta/use-case-coverage.spec.ts greps
+  // for these literals). Stage 5 Task 13 moved both tags HERE, from specs it
+  // deleted with the screens they drove: `drive-system-design` was on
+  // architecture-views / artifact-affordances / design-experience /
+  // episodes-panel, which all drove `/design/system`; and
+  // `execute-a-construction-activity` was on construction-tracker, which drove
+  // `/construction`. Both use cases are now driven from the ONE plan: the
+  // design phases are activities 1–3 on it, and every construction activity is
+  // a row on it, so this smoke really does walk both.
+  tagUseCase('drive-system-design');
+  tagUseCase('execute-a-construction-activity');
+
   await gotoApp(page, `/project/${PROJECT}/plan`);
 
   // 1 — the plan screen renders with at least one row.

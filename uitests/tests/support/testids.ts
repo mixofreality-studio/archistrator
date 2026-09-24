@@ -64,7 +64,10 @@ export const TESTID = {
 
   // Home base (route `/project/$projectId/home`)
   homeBaseScreen: UI_IDENTIFIERS.HomeBase.SCREEN,
-  resumeDesign: UI_IDENTIFIERS.HomeBase.RESUME_DESIGN,
+  // The ONE card that replaced the three phase cards (stage 5 §7.4) and its
+  // "Open plan →" button. It took over from `resumeDesign` (the header button
+  // that opened the design rail), which Task 13 deleted along with the rail.
+  homeBaseOpenPlan: UI_IDENTIFIERS.HomeBase.OPEN_PLAN,
   artifactToc: UI_IDENTIFIERS.HomeBase.ARTIFACT_TOC,
   economicsStrip: UI_IDENTIFIERS.HomeBase.ECONOMICS_STRIP,
   // NOTE: phase ids are the typed PhaseId values — systemDesign / projectDesign /
