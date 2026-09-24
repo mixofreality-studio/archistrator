@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/activity/C-autoscaler-engine",
   "title": "Activity Experience — failed activity: a failed revision, a skipped one, and one synthesized origin",
-  "note": "C-AutoscalerEngine exhausted its supervision budget in Detailed Design. The three shapes nothing else exercises live here: a revision whose outcome is `failed` (the work never reached its gate, so the gate below it is locked and the activity itself reads failed), a revision whose outcome is `skipped` on the parallel test-plan branch (the STP was waived, which is a pass by rule 7 and NOT a phase completion — its gate never ran), and a `synthesized` provenance, the worst of the three origins: at least one attempt behind that revision was fabricated rather than observed or reconstructed from evidence. A reader must be able to tell those apart at a glance, which is the whole point of carrying provenance on the wire.",
+  "note": "C-AutoscalerEngine exhausted its supervision budget in Detailed Design. The three shapes nothing else exercises live here: a revision whose outcome is `failed` (the work never reached its gate, so the gate below it is locked and the activity itself reads failed), a revision whose outcome is `skipped` on the parallel test-plan branch (the STP was waived, which is a pass by rule 7 and NOT a phase completion — its gate never ran), and a `synthesized` provenance, the worst of the three origins: at least one attempt behind that revision was fabricated rather than observed or reconstructed from evidence. A reader must be able to tell those apart at a glance, which is the whole point of carrying provenance on the wire. The detailedDesign attempt's episode timeline (constructionGetEpisodeTimeline) — the default task's episode, so the dispatch body opens with a real episode instead of a fixture miss. Its events carry no `raw`: the OAS types json.RawMessage as null-only, so a fixture holds the turn SEQUENCE but not its content; the episode facts strip above it is where the substance is (stage-5 task 8).",
   "ops": {
     "compositionGetUserinfo": {
       "result": {
@@ -51,6 +51,80 @@
             { "n": 1, "outcome": "skipped", "startedAt": "2026-09-22T08:45:00Z", "endedAt": "2026-09-22T08:45:02Z", "attemptIds": ["C-autoscaler-engine:stp:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
           { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "pending", "revisions": [] },
           { "id": "testing", "kind": "review", "title": "Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
+        ]
+      }
+    },
+    "constructionGetEpisodeTimeline": {
+      "result": {
+        "record": {
+          "episodeId": "ep-ase-dd-3",
+          "kind": 1,
+          "targetRef": "C-autoscaler-engine",
+          "usage": {
+            "in": 41200,
+            "out": 61800,
+            "cacheRead": 844000,
+            "cacheCreate": 82400
+          },
+          "startedAt": "2026-09-22T08:45:00Z",
+          "endedAt": "2026-09-22T11:12:30Z",
+          "outcome": 1,
+          "model": "claude-opus-5",
+          "workerClass": "senior-developer",
+          "numTurns": 34,
+          "toolCallCounts": {
+            "Read": 19,
+            "Grep": 7,
+            "mcp__aiarch-state__getCommittedSlot": 3,
+            "mcp__aiarch-state__recordServiceContract": 1
+          },
+          "subagentSpans": [
+            {
+              "toolUseId": "toolu_sub_0"
+            }
+          ],
+          "lineage": {
+            "workflowId": "C-autoscaler-engine:lifecycle",
+            "runId": "ep-ase-dd-3",
+            "activityId": "C-autoscaler-engine"
+          }
+        },
+        "events": [
+          {
+            "seq": 1,
+            "eventType": "system",
+            "raw": null
+          },
+          {
+            "seq": 2,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 3,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 4,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 5,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 6,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 7,
+            "eventType": "result",
+            "raw": null
+          }
         ]
       }
     }

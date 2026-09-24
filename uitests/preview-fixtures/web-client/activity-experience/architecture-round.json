@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/activity/architecture?task=architectureReview",
   "title": "Activity Experience — Architecture, one phase, a reconstruction beneath a persisted round",
-  "note": "The design prefix's second activity (spec §7.2): Architecture & Call Chains is ONE lifecycle phase carrying the whole weight, gated by one review. Its two revisions are the two halves of the read — revision 1 predates the ledger and reconstructs (`backfilled`, no roster, no subject, no decision), while revision 2 is a round the rail actually wrote (`observed`) and carries everything a round owns: the number, the subject it judged, the roster it was opened with, the verdicts it collected, and a thread of all three comment types. The thread is what a design-rail round looks like on this screen: a QUESTION the architect answered, a STALEACK that an amendment elsewhere left this artifact unaffected, and a RESOLVED change request with its replies. `comments` is the thread's flat projection — same anchors, same texts — so a reader that never learned about threads still shows something true.",
+  "note": "The design prefix's second activity (spec §7.2): Architecture & Call Chains is ONE lifecycle phase carrying the whole weight, gated by one review. Its two revisions are the two halves of the read — revision 1 predates the ledger and reconstructs (`backfilled`, no roster, no subject, no decision), while revision 2 is a round the rail actually wrote (`observed`) and carries everything a round owns: the number, the subject it judged, the roster it was opened with, the verdicts it collected, and a thread of all three comment types. The thread is what a design-rail round looks like on this screen: a QUESTION the architect answered, a STALEACK that an amendment elsewhere left this artifact unaffected, and a RESOLVED change request with its replies. `comments` is the thread's flat projection — same anchors, same texts — so a reader that never learned about threads still shows something true. Carries revision 2's episode timeline through systemDesignGetEpisodeTimeline, NOT the construction op: a design activity's episodes live in the systemDesign ledger, and the Activity Experience picks the op per activity type (activityEpisodesManager.ts). Its events carry no `raw`: the OAS types json.RawMessage as null-only (stage-5 task 8).",
   "ops": {
     "compositionGetUserinfo": {
       "result": {
@@ -50,6 +50,79 @@
                   { "id": "r2c3a1", "authorRole": "architect", "text": "Folded into OperationEstimationEngine — both Managers call the engine and neither calls the other.", "at": "2026-09-21T10:02:40Z" },
                   { "id": "r2c3a2", "authorRole": "operator", "text": "Confirmed against the deployment view; the edge is gone.", "at": "2026-09-21T10:26:09Z" } ] } ],
               "decidedBy": "operator", "decidedAt": "2026-09-21T10:41:52Z", "provenance": "observed" } ] }
+        ]
+      }
+    },
+    "systemDesignGetEpisodeTimeline": {
+      "result": {
+        "record": {
+          "episodeId": "ep-arch-draft-2",
+          "kind": 0,
+          "targetRef": "architecture",
+          "usage": {
+            "in": 38900,
+            "out": 58200,
+            "cacheRead": 986000,
+            "cacheCreate": 74100
+          },
+          "startedAt": "2026-09-21T08:10:00Z",
+          "endedAt": "2026-09-21T09:02:14Z",
+          "outcome": 0,
+          "model": "claude-opus-5",
+          "workerClass": "system-architect",
+          "numTurns": 22,
+          "toolCallCounts": {
+            "Read": 17,
+            "mcp__aiarch-state__getCommittedSlot": 5,
+            "mcp__aiarch-state__putDraftModel": 1
+          },
+          "subagentSpans": [
+            {
+              "toolUseId": "toolu_sub_0"
+            }
+          ],
+          "lineage": {
+            "workflowId": "architecture:lifecycle",
+            "runId": "ep-arch-draft-2",
+            "activityId": "architecture"
+          }
+        },
+        "events": [
+          {
+            "seq": 1,
+            "eventType": "system",
+            "raw": null
+          },
+          {
+            "seq": 2,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 3,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 4,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 5,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 6,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 7,
+            "eventType": "result",
+            "raw": null
+          }
         ]
       }
     }

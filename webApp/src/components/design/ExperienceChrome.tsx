@@ -72,6 +72,7 @@ export function ExperienceChrome({
   phaseNum,
   phaseTitle,
   eyebrow,
+  eyebrowTestId,
   projectName,
   onClose,
   spine,
@@ -90,6 +91,14 @@ export function ExperienceChrome({
    * so it names itself instead (`ACTIVITY 2 · ARCHITECTURE`, `R-BSA · SERVICE`).
    */
   eyebrow?: string | undefined;
+  /**
+   * A `data-testid` for the eyebrow line. The eyebrow is a STRING, so a caller
+   * cannot wrap it in an element of its own to carry an id — and the Activity
+   * Experience's eyebrow is an assertion target (`UI_IDENTIFIERS.Activity.EYEBROW`:
+   * the experience names the ACTIVITY, never a phase). Omitted ⇒ no id, exactly
+   * as before, so the design experiences are untouched.
+   */
+  eyebrowTestId?: string | undefined;
   projectName?: string | undefined;
   onClose: () => void;
   spine?: ReactNode;
@@ -219,6 +228,7 @@ export function ExperienceChrome({
 
         <Box sx={{ minWidth: 0 }}>
           <Typography
+            data-testid={eyebrowTestId}
             sx={{
               fontFamily: t.mono,
               fontSize: 10.5,

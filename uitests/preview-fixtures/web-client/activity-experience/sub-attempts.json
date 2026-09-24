@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/activity/C-estimation-engine?task=codeReview&rev=1",
   "title": "Activity Experience — one revision, three attempts, judged over a commit",
-  "note": "C-EstimationEngine is at its Code Review gate. Construction revision 1 took THREE attempts to reach that gate — a variance retry and an operator Retry before the run that landed — so this is the one fixture where §7.2's sub-attempt list has anything to list: a revision with a single attempt shows none, and only a revision with more than one earns the disclosure. The open round names its subject as a `commit`, the third of the subject vocabulary's kinds and the one a subject-by-sha writer mints; the other fixtures all name artifacts. The architect has already voted and the round is still undecided, so it carries a verdict, no decision stamp and no gate attempt.",
+  "note": "C-EstimationEngine is at its Code Review gate. Construction revision 1 took THREE attempts to reach that gate — a variance retry and an operator Retry before the run that landed — so this is the one fixture where §7.2's sub-attempt list has anything to list: a revision with a single attempt shows none, and only a revision with more than one earns the disclosure. The open round names its subject as a `commit`, the third of the subject vocabulary's kinds and the one a subject-by-sha writer mints; the other fixtures all name artifacts. The architect has already voted and the round is still undecided, so it carries a verdict, no decision stamp and no gate attempt. Carries the THIRD attempt's episode timeline (constructionGetEpisodeTimeline) — the one revision 1 points at, the attempt that reached the gate — so the sub-attempt line and the episode beneath it agree. Its events carry no `raw`: the OAS types json.RawMessage as null-only (stage-5 task 8).",
   "ops": {
     "compositionGetUserinfo": {
       "result": {
@@ -64,6 +64,83 @@
             { "role": "qaEngineer", "perspective": "process", "referenceArtifact": null, "mayAmend": false }
           ]
         }
+      }
+    },
+    "constructionGetEpisodeTimeline": {
+      "result": {
+        "record": {
+          "episodeId": "ep-cee-cons-3",
+          "kind": 3,
+          "targetRef": "C-estimation-engine",
+          "usage": {
+            "in": 52100,
+            "out": 71300,
+            "cacheRead": 1204000,
+            "cacheCreate": 96800
+          },
+          "startedAt": "2026-09-23T13:02:00Z",
+          "endedAt": "2026-09-23T17:48:19Z",
+          "outcome": 0,
+          "model": "claude-opus-5",
+          "workerClass": "junior-developer",
+          "numTurns": 41,
+          "toolCallCounts": {
+            "Read": 31,
+            "Edit": 14,
+            "Bash": 9,
+            "mcp__aiarch-state__recordPhaseArtifact": 1
+          },
+          "subagentSpans": [
+            {
+              "toolUseId": "toolu_sub_0"
+            },
+            {
+              "toolUseId": "toolu_sub_1"
+            }
+          ],
+          "lineage": {
+            "workflowId": "C-estimation-engine:lifecycle",
+            "runId": "ep-cee-cons-3",
+            "activityId": "C-estimation-engine"
+          }
+        },
+        "events": [
+          {
+            "seq": 1,
+            "eventType": "system",
+            "raw": null
+          },
+          {
+            "seq": 2,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 3,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 4,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 5,
+            "eventType": "assistant",
+            "raw": null
+          },
+          {
+            "seq": 6,
+            "eventType": "user",
+            "raw": null
+          },
+          {
+            "seq": 7,
+            "eventType": "result",
+            "raw": null
+          }
+        ]
       }
     }
   }

@@ -7,6 +7,9 @@
  * Both search params are OPTIONAL. Absent, the experience opens the default task
  * (spec §7.2) at its latest revision — which is why `activitySearch` DROPS a junk
  * `rev` instead of coercing it: `undefined` means "latest", `NaN` means nothing.
+ * They are passed down as REQUIRED props typed `| undefined`: "the URL named
+ * none" is a value the container rules on (`selectionFor`), not a prop a caller
+ * may forget to pass.
  */
 import type { ReactNode } from 'react';
 import { getRouteApi } from '@tanstack/react-router';
