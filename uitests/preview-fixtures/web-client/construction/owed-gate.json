@@ -6933,7 +6933,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject → binary activity exits + phase transitions (activityConstruction ledger)"
+              "label": "readProject → binary activity exits + phase transitions (activityExecution ledger)"
              }
             ]
            },
@@ -11328,7 +11328,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -11504,10 +11504,46 @@
       "Type": 0,
       "Kind": 0,
       "Variant": 0,
-      "Phase": 0,
-      "Phases": null,
+      "Phase": 1,
+      "Phases": [
+       {
+        "Phase": "requirements",
+        "Weight": 15,
+        "Completed": true,
+        "ArtifactRef": "",
+        "Label": "Requirements"
+       },
+       {
+        "Phase": "detailed_design",
+        "Weight": 20,
+        "Completed": false,
+        "ArtifactRef": "",
+        "Label": "Detailed Design"
+       },
+       {
+        "Phase": "test_plan",
+        "Weight": 10,
+        "Completed": false,
+        "ArtifactRef": "",
+        "Label": "Test Plan"
+       },
+       {
+        "Phase": "construction",
+        "Weight": 40,
+        "Completed": false,
+        "ArtifactRef": "",
+        "Label": "Construction"
+       },
+       {
+        "Phase": "integration",
+        "Weight": 15,
+        "Completed": false,
+        "ArtifactRef": "",
+        "Label": "Integration"
+       }
+      ],
       "CurrentPhase": "detailed_design",
-      "BuildStatus": 1,
+      "BuildStatus": 0,
       "Produced": null,
       "FailureReason": 0,
       "FailureDetail": "",
@@ -14441,7 +14477,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,

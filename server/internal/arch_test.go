@@ -596,14 +596,23 @@ var encapsulationAllowlistData = map[string][]string{
 		//	ResolvePhaseCompletions    → the systemdesign Manager (resolvedPhaseCompletions,
 		//	                             the name its view-model tests pin the rule under).
 		//	EffectiveConstructionPhase → the construction Manager (isActivityNotStarted) and
-		//	                             the systemdesign Manager (isPendingResume): stored
-		//	                             state where the pump wrote it, the attempt ledger
-		//	                             where it did not. (The dependency rule that also
-		//	                             reads it, ResolveDependencySatisfied, now lives in
-		//	                             this package; see the list below.)
+		//	                             the systemdesign Manager (isPendingResume): the
+		//	                             row's head facts, then its attempt ledger. (The
+		//	                             dependency rule that also reads it,
+		//	                             ResolveDependencySatisfied, now lives in this
+		//	                             package; see the list below.)
+		//	CurrentLifecyclePhase      → the systemdesign Manager (the view row's
+		//	                             CurrentPhase, and pendingResume's fromPhase) and
+		//	                             the construction Manager (appendRunningAttempt: the
+		//	                             phase the dispatch running now is working in). It
+		//	                             replaces the stored CurrentPhase the row no longer
+		//	                             carries (stage-3 task 4), and it moved DOWN here
+		//	                             because all three callers had their own copy of the
+		//	                             same loop over the same resolved set.
 		//
 		// phaseCompleteFromAttempts left this list in the same move. Its only outside caller
 		// was the view-model's copy of ResolvePhaseCompletions, which now lives here.
+		"CurrentLifecyclePhase",
 		"EffectiveConstructionPhase",
 		"ResolveConstructionRow",
 		"ResolvePhaseCompletions",
@@ -615,7 +624,7 @@ var encapsulationAllowlistData = map[string][]string{
 		// Callers outside this package, verifiable by grep:
 		//
 		//	PumpWroteRow               → the systemdesign Manager (pendingResumeFor): a row
-		//	                             no pump wrote whose ledger is partial is pending.
+		//	                             no pump opened whose ledger is partial is pending.
 		//	MilestonesByID             → the construction Manager (nextEligibleActivity) and
 		//	                             the systemdesign Manager (pendingResumeFor).
 		//	AllDepsSatisfied           → the construction Manager (nextEligibleActivity).
@@ -628,7 +637,7 @@ var encapsulationAllowlistData = map[string][]string{
 		"PumpWroteRow",
 		"ResolveDependencySatisfied",
 		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
-		// ActivityConstructionStatus.OperatorNotes, hand-written beside that row type like
+		// ActivityExecution.OperatorNotes, hand-written beside that row type like
 		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,
 		// OperatorNoteKind) is generated from the contract. Caller outside this package,
 		// verifiable by grep:

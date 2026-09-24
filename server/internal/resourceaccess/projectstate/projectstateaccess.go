@@ -2216,29 +2216,35 @@ func (s *GitStore) RecordOperatorNoteDelivered(rc fwra.Context, projectID Projec
 	}
 	now := s.now()
 	return s.applyMutation(rc.Context, "RecordOperatorNoteDelivered", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
-		cs, ok := p.ActivityExecution[activityID]
-		if !ok {
+		if _, ok := p.ActivityExecution[activityID]; !ok {
 			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no construction row for %s", activityID))
 		}
-		for i := range cs.OperatorNotes {
-			n := &cs.OperatorNotes[i]
-			if n.NoteID != noteID {
-				continue
+		// Routed through the upsert rather than writing the map key directly: this was the
+		// ONE writer that bypassed it, and a row whose delivery stamp moved without its
+		// version moving is a row the other rail could interleave with unseen.
+		var outcome error
+		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
+			for i := range cs.OperatorNotes {
+				n := &cs.OperatorNotes[i]
+				if n.NoteID != noteID {
+					continue
+				}
+				switch n.DeliveredToAttemptID {
+				case attemptID:
+					return
+				case "":
+					t := now
+					n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
+					return
+				default:
+					outcome = fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+						"projectstate.RecordOperatorNoteDelivered: note %q on %s was already delivered to %s; a note is delivered once", noteID, activityID, n.DeliveredToAttemptID))
+					return
+				}
 			}
-			switch n.DeliveredToAttemptID {
-			case attemptID:
-				return nil
-			case "":
-				t := now
-				n.DeliveredToAttemptID, n.DeliveredAt = attemptID, &t
-				p.ActivityExecution[activityID] = cs
-				return nil
-			default:
-				return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
-					"projectstate.RecordOperatorNoteDelivered: note %q on %s was already delivered to %s; a note is delivered once", noteID, activityID, n.DeliveredToAttemptID))
-			}
-		}
-		return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no note %q on %s", noteID, activityID))
+			outcome = fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.RecordOperatorNoteDelivered: no note %q on %s", noteID, activityID))
+		})
+		return outcome
 	})
 }
 
@@ -2347,14 +2353,22 @@ func applyPhaseCompletion(cs *ActivityExecution, phase ActivityMethodPhase, arti
 	}
 	t := now
 	cs.Attempts = append(cs.Attempts, TaskAttempt{
-		AttemptID:  AttemptID(cs.ActivityID, gate, n),
-		Task:       gate,
-		Phase:      phase,
-		Attempt:    n,
-		StartedAt:  &t,
-		EndedAt:    &t,
-		Outcome:    OutcomePassed,
-		Evidence:   EvidenceRef{Kind: EvidenceArtifact, Ref: artifactRef},
+		AttemptID: AttemptID(cs.ActivityID, gate, n),
+		Task:      gate,
+		Phase:     phase,
+		Attempt:   n,
+		// The agent, matching what cmd/backfill-attempts stamps on every attempt it writes
+		// (gate and work alike) — the construction rail dispatches its reviews to agents,
+		// and a blank actor would render as "nobody did this".
+		Actor:     ActorAgent,
+		StartedAt: &t,
+		EndedAt:   &t,
+		Outcome:   OutcomePassed,
+		Evidence:  EvidenceRef{Kind: EvidenceArtifact, Ref: artifactRef},
+		// OBSERVED, not backfilled: this is not a reconstruction from evidence recorded
+		// elsewhere. The caller is the construction workflow telling the store, live, that
+		// the phase just completed — the same class of record RecordAttemptOutcome writes.
+		// Only the REPRESENTATION moved; the observation is first-hand either way.
 		Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &t},
 	})
 }
@@ -3898,12 +3912,24 @@ func (s *GitStore) RecordActivityMerged(rc fwra.Context, projectID ProjectID, ex
 // contract.gitActivityStatusAccess.schema.json) — see gitactivity.go for the interface
 // + its compile-time assertion.
 
-// upsertActivityExecution fetches (or initialises) the per-activity construction row,
-// applies the supplied in-place mutation, and writes the SINGLE map key back. The map is
-// lazily allocated. This is a PARTIAL map-key update (mirrors upsertActivity in
-// gitactivity.go — GIT.4): only the named key is touched; every other
-// ActivityConstruction entry is left byte-identical, so two records on DIFFERENT
+// upsertActivityExecution fetches (or initialises) the per-activity execution row,
+// applies the supplied in-place mutation, STAMPS THE PER-ACTIVITY VERSION, and writes the
+// SINGLE map key back. The map is lazily allocated. This is a PARTIAL map-key update
+// (mirrors upsertActivity in gitactivity.go — GIT.4): only the named key is touched; every
+// other ActivityExecution entry is left byte-identical, so two records on DIFFERENT
 // activityIds converge under ref-CAS instead of clobbering.
+//
+// THE VERSION IS STAMPED HERE, at the single write-back point, because that is the only
+// place that can promise what ActivityExecution.Version claims: that EVERY transition on
+// the row advances it. Two rails write these rows for the length of this wave — the
+// retired facet's verbs and activityExecutionAccess's — and a counter only one of them
+// stamped would be worse than none: a reader would see it stand still across a real write
+// and conclude nothing had happened. withActivityVersion holds the same rule for the
+// narrow transitions that do not birth a row.
+//
+// It stamps unconditionally rather than on a change, because a mutation that writes the
+// same bytes is still a transition the other rail must not have interleaved with, and
+// "did anything change" is not a question a map write-back can answer.
 func upsertActivityExecution(p *Project, activityID string, mutate func(s *ActivityExecution)) {
 	if p.ActivityExecution == nil {
 		p.ActivityExecution = map[string]ActivityExecution{}
@@ -3911,6 +3937,7 @@ func upsertActivityExecution(p *Project, activityID string, mutate func(s *Activ
 	s := p.ActivityExecution[activityID] // zero value on first touch — births the row
 	s.ActivityID = activityID
 	mutate(&s)
+	s.Version++
 	p.ActivityExecution[activityID] = s
 }
 
@@ -7643,7 +7670,9 @@ type ActivityExecution struct {
 	// facet's writer keeps recording them until stage 4 so the two rails agree meanwhile.
 	OperatorNotes []OperatorNote `json:"operatorNotes,omitempty"`
 	// Version is the PER-ACTIVITY optimistic counter, stamped by every transition on this
-	// row. The project-level Version is the git-CAS token for the whole document; this one
+	// row — BOTH rails' (upsertActivityExecution for the retired facet's verbs and the
+	// births, withActivityVersion for the narrow ones), because a counter only one rail
+	// advanced would stand still across a real write and tell a reader nothing happened. The project-level Version is the git-CAS token for the whole document; this one
 	// is scoped to the row, so two children writing DIFFERENT activities never contend and
 	// two writers on the SAME activity cannot interleave. NOT omitempty: a row whose
 	// version is absent and a row at version 0 are the same row, and a counter that
@@ -7708,6 +7737,19 @@ const (
 // neither — "it exited, at a time nobody recorded". That is representable and honest,
 // where nil is not: nil means "still running", which is the one thing the row is not.
 // The migration replaces it with the ledger's own clock.
+//
+// INTEGRATION IS THE SECOND FACT THE HEAD FACTS CANNOT HOLD. An exit stamp says the
+// activity finished; it does not say every gate passed, and CoarseBuildStatusFor reads a
+// finished row with no ledger as in-review. A legacy row that stored BuildStatus ==
+// Integrated was ASSERTING that every gate passed, and two consumers act on it —
+// isConstructionComplete (the catalog's Operating signal) and computeEVAtRead's integrated
+// set. Dropping it would quietly un-complete a finished dogfood project. So the claim is
+// carried forward as the EVIDENCE the derivation reads: the stored phase completions
+// materialized into passed gate attempts, stamped backfilled with the basis naming where
+// they came from, because that is the ledger's own vocabulary for "reconstructed from real
+// evidence recorded elsewhere" and a live reader must never mistake them for observed ones.
+// A stored Integrated with no phase set falls back to the row's profile, which is what
+// Integrated means: all of it.
 func (r LegacyActivityConstructionRow) toActivityExecution() ActivityExecution {
 	out := ActivityExecution{
 		ActivityID:    r.ActivityID,
@@ -7733,6 +7775,53 @@ func (r LegacyActivityConstructionRow) toActivityExecution() ActivityExecution {
 			exited = *r.StartedAt
 		}
 		out.CompletedAt = &exited
+	}
+	if r.BuildStatus == BuildIntegrated {
+		out.Attempts = append(out.Attempts, r.integratedGateAttempts(out.Attempts)...)
+	}
+	return out
+}
+
+// integratedGateAttempts materializes the gate attempts a legacy BuildStatus == Integrated
+// row is asserting, for every lifecycle phase its ledger has not already decided. The
+// phase set is the row's stored one where it has it and its profile otherwise — a stored
+// Integrated claims the whole lifecycle, not the part that happened to be written down.
+//
+// Attempt numbers start ABOVE anything the ledger holds for that gate, so a reconstructed
+// attempt can never collide with or displace a recorded one, and a gate the ledger has
+// already decided is skipped entirely: a recorded rejection outranks a stored roll-up.
+func (r LegacyActivityConstructionRow) integratedGateAttempts(held []TaskAttempt) []TaskAttempt {
+	phases := r.Phases
+	if len(phases) == 0 {
+		phases = ProfileFor(r.Type, r.Variant).toPhaseCompletions()
+	}
+	var out []TaskAttempt
+	for _, pc := range phases {
+		gate := GateTaskFor(pc.Phase)
+		if gate == "" {
+			continue
+		}
+		if _, decided := latestAttempt(held, gate); decided {
+			continue
+		}
+		n := 1
+		for _, a := range held {
+			if a.Task == gate && a.Attempt >= n {
+				n = a.Attempt + 1
+			}
+		}
+		out = append(out, TaskAttempt{
+			AttemptID: AttemptID(r.ActivityID, gate, n),
+			Task:      gate,
+			Phase:     pc.Phase,
+			Attempt:   n,
+			EndedAt:   pc.CompletedAt,
+			Outcome:   OutcomePassed,
+			Provenance: AttemptProvenance{
+				Origin: OriginBackfilled,
+				Basis:  "legacy activityConstruction.phases",
+			},
+		})
 	}
 	return out
 }
@@ -7883,9 +7972,8 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // The rule is over the SLICE IT IS GIVEN, not over the activity's profile — this
 // function never sees the activity's type and cannot look its profile up. It is the
 // CALLER's job to pass the profile-derived phase set (the read path does exactly that:
-// see ResolvePhaseCompletions, where the profile supplies
-// the row set and the stored slice only supplies state). Handed a stored slice that
-// disagrees with the profile, this returns an answer about the stored slice.
+// see ResolvePhaseCompletions, where the profile supplies the row set and the LEDGER
+// supplies the state). Handed any other slice, this returns an answer about that slice.
 //
 // The all-phases rule is deliberate. The old rule returned Integrated on Integration-done
 // alone, which is how G-SPA came to report Integrated at 85% with Requirements never
@@ -7898,9 +7986,9 @@ func CoarsePhase(phases []PhaseCompletion) ActivityConstructionPhase {
 // An EMPTY slice returns BuildInConstruction — a named, plausible value derived from no
 // evidence at all. Callers must not reach here with an empty slice for a row they intend
 // to render a status chip for; the read path suppresses the whole claim instead (see
-// ActivityExecution.Classified, and HasBuildEvidence on the wire: a row with
-// neither stored phases nor a ledger resolves to no completions, and its coarse status is
-// marked meaningless rather than shown).
+// the view row's Classified, and HasBuildEvidence on the wire: a row with no ledger
+// resolves to no completions, and its coarse status is marked meaningless rather than
+// shown). CoarseBuildStatusFor is the entry point that reads the row's head facts first.
 func CoarseBuildStatus(phases []PhaseCompletion) ActivityBuildStatus {
 	if len(phases) == 0 {
 		return BuildInConstruction
@@ -8584,6 +8672,25 @@ func ResolvePhaseCompletions(
 func EffectiveConstructionPhase(r ActivityExecution, meta ActivityItem) (ActivityConstructionPhase, ActivityBuildStatus) {
 	_, _, resolved, _ := ResolveConstructionRow(r, meta)
 	return CoarsePhaseFor(r, resolved), CoarseBuildStatusFor(r, resolved)
+}
+
+// CurrentLifecyclePhase is the phase an activity is working IN: the first phase of its
+// profile-ordered resolved set that is not complete. Empty when the set is empty or every
+// phase is complete — in neither case is there a phase in progress to name.
+//
+// It lives HERE, beside the other read-path derivations, because three callers need the
+// same answer and each had its own copy of the loop: the construction view's CurrentPhase,
+// the pump's reconstruction of the dispatch running now, and pendingResume's fromPhase. It
+// replaces the stored CurrentPhase the row no longer carries (spec §5.3), and it is the
+// more trustworthy of the two: the stored field was stamped at phase entry and never
+// cleared, so a row that had moved on still named the phase it was stamped in.
+func CurrentLifecyclePhase(resolved []PhaseCompletion) ActivityMethodPhase {
+	for _, pc := range resolved {
+		if !pc.Completed {
+			return pc.Phase
+		}
+	}
+	return ""
 }
 
 // PumpWroteRow reports whether a pump has opened this row: it carries a start stamp. It
@@ -9917,7 +10024,6 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 				t := now
 				cs.StartedAt = &t
 			}
-			cs.Version++
 		})
 		return refused
 	})

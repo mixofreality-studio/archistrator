@@ -33,6 +33,45 @@ void test('every uitests fixture passes the OAS-generated schema (and there are 
   assert.ok(files.length >= 3, `expected the uitests fixture states, found ${files.length}`);
 });
 
+// THE SCHEMA SAYS A FIXTURE IS WELL-SHAPED; IT CANNOT SAY IT IS SERVABLE. A
+// construction row carries members the server DERIVES rather than stores (stage-3 task 4,
+// spec §5.3): `CurrentPhase` is the first phase of the row's own resolved set that is not
+// complete, and `hasBuildEvidence` is whether that set materialized at all. A fixture that
+// hand-edits one without the other asserts a state no server can serve, and every preview
+// spec over it then tests a lie — which is exactly what happened when the map key was
+// renamed by hand and two rows kept a CurrentPhase the new derivation no longer produces.
+// So the fixtures are checked against the SERVER'S OWN RULES, not merely against the
+// shape, and a future hand-edit fails here instead of in a preview nobody re-recorded.
+const firstIncompletePhase = (phases) =>
+  (phases ?? []).find((p) => !p.Completed)?.Phase ?? '';
+
+void test('every construction fixture row is one the server could serve', () => {
+  const { files } = validateFixtureTree(UITESTS_FIXTURES, { validate });
+  const offences = [];
+  let rowsChecked = 0;
+  for (const file of files) {
+    const doc_ = JSON.parse(readFileSync(file, 'utf8'));
+    const rows = doc_.ops?.systemDesignGetProject?.result?.activityExecution;
+    if (!rows) continue;
+    for (const [id, row] of Object.entries(rows)) {
+      rowsChecked += 1;
+      const where = `${file.split('/').slice(-2).join('/')} ${id}`;
+      // An unclassified row asserts nothing: the server leaves every one of these at its
+      // zero value rather than deriving from a profile it refused to pick.
+      const wantPhase = row.classified ? firstIncompletePhase(row.Phases) : '';
+      if ((row.CurrentPhase ?? '') !== wantPhase) {
+        offences.push(`${where}: CurrentPhase ${JSON.stringify(row.CurrentPhase)}, derived ${JSON.stringify(wantPhase)}`);
+      }
+      const wantEvidence = row.classified ? (row.Phases ?? []).length > 0 : false;
+      if (row.hasBuildEvidence !== wantEvidence) {
+        offences.push(`${where}: hasBuildEvidence ${row.hasBuildEvidence}, derived ${wantEvidence}`);
+      }
+    }
+  }
+  assert.deepEqual(offences, []);
+  assert.ok(rowsChecked > 0, 'no construction rows were checked; this test would pass vacuously');
+});
+
 void test('every recorded design fixture passes too, when there are any', () => {
   if (!existsSync(join(DESIGN_FIXTURES, SURFACE))) return;
   assert.deepEqual(validateFixtureTree(DESIGN_FIXTURES, { validate }).errors, []);

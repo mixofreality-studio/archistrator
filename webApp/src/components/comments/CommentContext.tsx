@@ -409,7 +409,16 @@ export function sdpOptionAnchor(optionKind: string): string {
 }
 
 // Phase 3 — Construction.
-/** A construction activity by ActivityID → `$.activityConstruction[id=…]`. */
+/**
+ * A construction activity by ActivityID → `$.activityConstruction[id=…]`.
+ *
+ * The anchor string keeps the PRE-RENAME member name on purpose. An anchor is the stored
+ * address of a comment somebody already wrote: every construction comment in committed
+ * state is anchored on this exact string, and renaming the function's output would orphan
+ * all of them the day it shipped, for no reader's benefit — nothing resolves an anchor by
+ * walking the document. Stage 6, which deletes the legacy member outright, is where the
+ * anchors and their stored comments move together.
+ */
 export function activityConstructionAnchor(activityId: string): string {
   return `$.activityConstruction[id=${activityId}]`;
 }

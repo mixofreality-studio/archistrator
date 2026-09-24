@@ -11359,22 +11359,229 @@ func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *test
 	}
 }
 
-// TestActivityExecutionAccess_EveryAppliedVerbStampsTheVersion pins the counter end to
-// end: a row opens at version 1 and every applied verb advances it, so task 5's writers
-// have an honest number to assert against.
-func TestActivityExecutionAccess_EveryAppliedVerbStampsTheVersion(t *testing.T) {
-	a, store, id, v, cred := newExecutionStore(t)
-	v = openTestActivity(t, a, id, v, cred)
-	opened := readConstruction(t, store, id, cred, "C-X")
-	if opened.Version != 1 {
-		t.Fatalf("an opened row is at version 1, got %d", opened.Version)
+// TestEveryMutatingVerbOnARowStampsItsVersion pins ActivityExecution.Version's own claim:
+// EVERY transition on a row advances it. It loops BOTH rails — the retired facet's verbs
+// (which write through upsertActivityExecution) and activityExecutionAccess's (which write
+// through withActivityVersion) — because both write these rows for the length of this
+// wave, and a counter only one rail stamped would stand still across a real write and
+// tell a reader nothing happened.
+//
+// A test that claims "every" and checks one verb is worse than no test: it reports the
+// property as held while nine writers quietly do not hold it. Each case runs against its
+// OWN freshly opened store, so a verb's stamp is read in isolation.
+func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
+	const activity = "C-X"
+	note := OperatorNoteInput{NoteID: "n1", Kind: NoteSendBack, Gate: "construction", Text: "redo"}
+
+	cases := []struct {
+		name string
+		// apply runs ONE mutating verb against an already-opened row.
+		apply func(t *testing.T, a ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential)
+	}{
+		// ---- the retired facet's verbs (upsertActivityExecution) ----
+		{"RecordChangeReviewed", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordChangeReviewed(execRC(), id, v, activity, cred, "k-cr")).must(t)
+		}},
+		{"RecordActivityExited", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordActivityExited(execRC(), id, v, activity, ActivityOutcomeCompleted, cred, "k-ex")).must(t)
+		}},
+		{"RecordActivityFailed", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordActivityFailed(execRC(), id, v, activity, PipelineFailed, "detail", cred, "k-fail")).must(t)
+		}},
+		{"RecordOperatorNote", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordOperatorNote(execRC(), id, v, activity, note, cred, "k-note")).must(t)
+		}},
+		{"RecordOperatorNoteDelivered", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			v2 := verbDone(store.RecordOperatorNote(execRC(), id, v, activity, note, cred, "k-note")).must(t)
+			// Read the version the delivery starts from, so the assertion below is about
+			// the DELIVERY's stamp and not about the note's.
+			before := readConstruction(t, store, id, cred, activity).Version
+			verbDone(store.RecordOperatorNoteDelivered(execRC(), id, v2, activity, note.NoteID, "C-X:srs:1", cred, "k-deliver")).must(t)
+			if got := readConstruction(t, store, id, cred, activity).Version; got != before+1 {
+				t.Fatalf("RecordOperatorNoteDelivered: version = %d, want %d", got, before+1)
+			}
+		}},
+		{"RecordPhaseStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordPhaseStarted(execRC(), id, v, activity, MethodPhaseRequirements, cred, "k-ps")).must(t)
+		}},
+		{"RecordPhaseCompleted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordPhaseCompleted(execRC(), id, v, activity, MethodPhaseRequirements, "srs.md", cred, "k-pc")).must(t)
+		}},
+		{"RecordActivityStarted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordActivityStarted(execRC(), id, v, activity, ActivityTypeService, TestVariantPlan, cred, "k-as")).must(t)
+		}},
+		{"RecordActivityCompleted", func(t *testing.T, _ ActivityExecutionAccess, store *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(store.RecordActivityCompleted(execRC(), id, v, activity, cred, "k-ac")).must(t)
+		}},
+
+		// ---- activityExecutionAccess's own (withActivityVersion) ----
+		{"RecordAttemptOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(a.RecordAttemptOutcome(execRC(), id, v, activity, TaskAttemptInput{
+				AttemptID: AttemptID(activity, TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+			}, cred, "k-attempt")).must(t)
+		}},
+		{"OpenReviewRound", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			openRoundFixture(t, a, id, v, cred)
+		}},
+		{"AppendReviewVerdict", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			v2 := openRoundFixture(t, a, id, v, cred)
+			before := verbRowVersion(t, a, id, activity)
+			verbDone(a.AppendReviewVerdict(execRC(), id, v2, activity, "C-X:designReview:1", ReviewVerdict{
+				ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictApprove, AttemptID: "C-X:detailedDesign:1",
+			}, nil, nil, cred, "k-verdict")).must(t)
+			if got := verbRowVersion(t, a, id, activity); got != before+1 {
+				t.Fatalf("AppendReviewVerdict: version = %d, want %d", got, before+1)
+			}
+		}},
+		{"SetReviewCommentStatus", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			v2 := openRoundFixture(t, a, id, v, cred)
+			v3 := verbDone(a.AppendReviewVerdict(execRC(), id, v2, activity, "C-X:designReview:1", ReviewVerdict{
+				ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack, AttemptID: "C-X:detailedDesign:1",
+			}, []ReviewComment{{Anchor: "ops[0]", Text: "split", AuthorRole: "architect"}}, nil, cred, "k-verdict")).must(t)
+			before := verbRowVersion(t, a, id, activity)
+			verbDone(a.SetReviewCommentStatus(execRC(), id, v3, activity, "C-X:designReview:1", "r1c1", ReviewCommentResolved, cred, "k-status")).must(t)
+			if got := verbRowVersion(t, a, id, activity); got != before+1 {
+				t.Fatalf("SetReviewCommentStatus: version = %d, want %d", got, before+1)
+			}
+		}},
+		{"DecideReviewRound", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			v2 := openRoundFixture(t, a, id, v, cred)
+			before := verbRowVersion(t, a, id, activity)
+			verbDone(a.DecideReviewRound(execRC(), id, v2, activity, "C-X:designReview:1", RoundPassed, "system-architect", cred, "k-decide")).must(t)
+			if got := verbRowVersion(t, a, id, activity); got != before+1 {
+				t.Fatalf("DecideReviewRound: version = %d, want %d", got, before+1)
+			}
+		}},
+		{"CommitActivityArtifacts", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(a.CommitActivityArtifacts(execRC(), id, v, activity, CommitArtifactsInput{
+				TaskID: TaskCodeReview, ApprovedBy: "system-architect", DraftedBy: "junior-developer",
+				Artifacts: []ProducedArtifact{{Kind: "code", Title: "T", Source: "s"}},
+			}, cred, "k-commit")).must(t)
+		}},
+		{"RecordActivityOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(a.RecordActivityOutcome(execRC(), id, v, activity, ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, "k-outcome")).must(t)
+		}},
+		{"RecordOperatorNote (facet)", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			verbDone(a.RecordOperatorNote(execRC(), id, v, activity, note, "", cred, "k-facet-note")).must(t)
+		}},
+		{"AcknowledgeStaleBasis", func(_ *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
+			// The activity-scoped slot transition: it guards on the row existing but writes
+			// the SLOT, so it is the one verb of the twelve that stamps no row version.
+			// Named here rather than omitted, so the exception is a recorded decision, and
+			// its error is deliberately unread — the slot it targets may not be committed.
+			_, _ = a.AcknowledgeStaleBasis(execRC(), id, v, activity, KindSystem, "seen", cred, "k-ack")
+		}},
 	}
-	if _, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{
-		AttemptID: AttemptID("C-X", TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
-	}, cred, fwra.IdempotencyKey("k-version-1")); err != nil {
-		t.Fatalf("RecordAttemptOutcome: %v", err)
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, store, id, v, cred := newExecutionStore(t)
+			v = openTestActivity(t, a, id, v, cred)
+			opened := readConstruction(t, store, id, cred, activity)
+			if opened.Version != 1 {
+				t.Fatalf("an opened row is at version 1, got %d", opened.Version)
+			}
+			c.apply(t, a, store, id, v, cred)
+			after := readConstruction(t, store, id, cred, activity).Version
+			if c.name == "AcknowledgeStaleBasis" {
+				if after != opened.Version {
+					t.Fatalf("AcknowledgeStaleBasis writes the slot, not the row: version = %d, want %d", after, opened.Version)
+				}
+				return
+			}
+			if after <= opened.Version {
+				t.Fatalf("%s left the per-activity version at %d: every transition on the row advances it", c.name, after)
+			}
+		})
 	}
-	if got := readConstruction(t, store, id, cred, "C-X").Version; got != 2 {
-		t.Fatalf("version = %d, want 2 after one applied transition", got)
+}
+
+// verbDone wraps a verb's (Version, error) pair so a test can assert on it in ONE
+// expression: Go admits a multi-value call only as a function's SOLE argument, so
+// `must(t, verb(...))` does not compile and `verbDone(verb(...)).must(t)` does.
+type verbDoneResult struct {
+	version Version
+	err     error
+}
+
+func verbDone(v Version, err error) verbDoneResult { return verbDoneResult{v, err} }
+
+func (r verbDoneResult) must(t *testing.T) Version {
+	t.Helper()
+	if r.err != nil {
+		t.Fatalf("verb: %v", r.err)
+	}
+	return r.version
+}
+
+// verbRowVersion reads one row's per-activity version through the facet's own narrow read.
+func verbRowVersion(t *testing.T, a ActivityExecutionAccess, id ProjectID, activityID string) int64 {
+	t.Helper()
+	row, err := a.ReadActivityExecution(execRC(), id, activityID)
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	return row.Version
+}
+
+// TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger is the other half of the
+// tolerance's promise. An exit stamp alone reads as done-but-in-review, so a legacy row
+// that stored BuildStatus == Integrated would have been quietly un-completed by the rename
+// — and two consumers act on that: isConstructionComplete (the catalog's Operating signal)
+// and the EV curve's integrated set. The claim is carried as the EVIDENCE the derivation
+// reads, stamped backfilled so nothing can mistake it for a recorded gate.
+func TestLegacyIntegratedRow_StaysIntegratedThroughTheLedger(t *testing.T) {
+	item := ActivityItem{Name: "C-a", WorkerClass: "junior-developer", Coding: true}
+	legacy := LegacyActivityConstructionRow{
+		ActivityID:  "C-a",
+		Phase:       LegacyPhaseDone,
+		BuildStatus: BuildIntegrated,
+		Phases:      ProfileFor(ActivityTypeService, TestVariantPlan).toPhaseCompletions(),
+	}
+	for i := range legacy.Phases {
+		legacy.Phases[i].Completed = true
+	}
+	row := legacy.toActivityExecution()
+
+	phase, build := EffectiveConstructionPhase(row, item)
+	if phase != ActivityConstructionDone || build != BuildIntegrated {
+		t.Fatalf("legacy Done+Integrated = (%v, %v), want (Done, Integrated)", phase, build)
+	}
+	for _, a := range row.Attempts {
+		if a.Provenance.Origin != OriginBackfilled || a.Provenance.Basis != "legacy activityConstruction.phases" {
+			t.Fatalf("a carried-forward gate must be stamped backfilled with its basis: %+v", a.Provenance)
+		}
+	}
+
+	// And the catalog's Operating signal, which is the consumer that would have flipped.
+	p := Project{
+		Phase:             PhaseConstruction,
+		ActivityList:      ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{item}}},
+		ActivityExecution: map[string]ActivityExecution{"C-a": row},
+	}
+	if !isConstructionComplete(p) {
+		t.Fatal("a legacy Integrated row must keep the project construction-complete")
+	}
+}
+
+// A RECORDED rejection outranks a stored roll-up: the tolerance fills the gates the ledger
+// has not decided, never the ones it has. Otherwise a legacy BuildStatus nobody can trace
+// to a review would overwrite a review that actually happened.
+func TestLegacyIntegratedRow_NeverOverridesARecordedGate(t *testing.T) {
+	legacy := LegacyActivityConstructionRow{
+		ActivityID:  "C-a",
+		Type:        ActivityTypeService,
+		Phase:       LegacyPhaseDone,
+		BuildStatus: BuildIntegrated,
+		Attempts:    []TaskAttempt{constructionAttempt("C-a", TaskCodeReview, 1, OutcomeRejected)},
+	}
+	row := legacy.toActivityExecution()
+	latest, ok := latestAttempt(row.Attempts, TaskCodeReview)
+	if !ok || latest.Outcome != OutcomeRejected {
+		t.Fatalf("the recorded codeReview rejection must stand, got %+v", row.Attempts)
+	}
+	_, build := EffectiveConstructionPhase(row, ActivityItem{Name: "C-a", WorkerClass: "junior-developer", Coding: true})
+	if build == BuildIntegrated {
+		t.Fatal("a rejected construction gate must keep the row out of Integrated")
 	}
 }

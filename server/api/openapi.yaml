@@ -3173,7 +3173,7 @@ components:
                         - array
                 pendingResume:
                     $ref: '#/components/schemas/SystemDesignPendingResume'
-                    description: 'Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
+                    description: 'Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done.'
                 recorded:
                     description: 'True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless.'
                     type: boolean

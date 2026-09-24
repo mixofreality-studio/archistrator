@@ -6919,7 +6919,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject → binary activity exits + phase transitions (activityConstruction ledger)"
+              "label": "readProject → binary activity exits + phase transitions (activityExecution ledger)"
              }
             ]
            },
@@ -11314,7 +11314,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -14426,7 +14426,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,

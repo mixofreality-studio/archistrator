@@ -3621,7 +3621,7 @@ func constructionRowsToContract(
 			Variant:       variant,
 			Phase:         coarsePhase,
 			Phases:        phases,
-			CurrentPhase:  ActivityMethodPhase(string(currentLifecyclePhase(resolved))),
+			CurrentPhase:  ActivityMethodPhase(string(projectstate.CurrentLifecyclePhase(resolved))),
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
 			BuildStatus:   buildStatus,
@@ -3665,21 +3665,6 @@ func constructionRowsToContract(
 		}
 	}
 	return out
-}
-
-// currentLifecyclePhase is the phase a row is working IN, DERIVED: the first phase of its
-// resolved, profile-ordered set that is not complete. It replaces the stored CurrentPhase
-// the row no longer carries (spec §5.3), and it is the more trustworthy of the two: the
-// stored field was stamped at phase entry and never cleared, so a row that had moved on
-// still named the phase it was stamped in. Empty when the set is empty or every phase is
-// complete — in neither case is there a phase in progress to name.
-func currentLifecyclePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
-	for _, pc := range resolved {
-		if !pc.Completed {
-			return pc.Phase
-		}
-	}
-	return ""
 }
 
 // operatorNotesToContract maps a row's stored operator notes onto the wire as they are:
@@ -3773,7 +3758,7 @@ func pendingResumeFor(
 	if !isPendingResume(r, meta) {
 		return nil
 	}
-	from := firstIncompletePhase(resolved)
+	from := projectstate.CurrentLifecyclePhase(resolved)
 	if from == "" {
 		return nil
 	}
@@ -3786,17 +3771,6 @@ func pendingResumeFor(
 		waitsOn = append(waitsOn, PendingDependency{Id: dep, Reason: pendingReasonFor(dep, res, rows, activityMeta, plan)})
 	}
 	return &PendingResume{FromPhase: ActivityMethodPhase(string(from)), WaitsOn: waitsOn}
-}
-
-// firstIncompletePhase is the first phase of a profile-ordered resolved set that is not
-// complete, or "" when every phase is.
-func firstIncompletePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
-	for _, pc := range resolved {
-		if !pc.Completed {
-			return pc.Phase
-		}
-	}
-	return ""
 }
 
 // pendingReasonFor names why one unsatisfied dependency is unsatisfied, in the order

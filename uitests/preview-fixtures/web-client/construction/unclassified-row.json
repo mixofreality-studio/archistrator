@@ -1,7 +1,7 @@
 {
  "route": "/project/archistrator/construction?lens=list",
  "title": "Construction console, list lens, one activity the classifier refused to type",
- "note": "C-usage-access carries workerClass \"ux-reviewer\" with coding=false, which matches no rule in projectstate.ClassifyActivity, so projectstate.ClassifyType returns ok=false and the server emits the row with Classified=false and every member that flag gates \u2014 Type, Kind, Variant, Phase, BuildStatus, Phases \u2014 back at its zero value (systemdesignmanager.go:3411-3466). The row still carries its reconstructed attempt ledger: an unclassifiable row is not an unrecorded one. Spec \u00a79 AC4: it must render as UNCLASSIFIED with ZERO lifecycle sub-rows.",
+ "note": "C-usage-access carries workerClass \"ux-reviewer\" with coding=false, which matches no rule in projectstate.ClassifyActivity, so projectstate.ClassifyType returns ok=false and the server emits the row with Classified=false and every member that flag gates — Type, Kind, Variant, Phase, BuildStatus, Phases — back at its zero value (systemdesignmanager.go:3411-3466). The row still carries its reconstructed attempt ledger: an unclassifiable row is not an unrecorded one. Spec §9 AC4: it must render as UNCLASSIFIED with ZERO lifecycle sub-rows.",
  "ops": {
   "compositionGetUserinfo": {
    "result": {
@@ -41,15 +41,15 @@
          },
          {
           "number": 2,
-          "statement": "Reliable design system: the platform provides an opinionated software design system that reliably produces maintainable applications \u2014 customers receive software engineered to a consistently verifiable standard regardless of who or what wrote it, a guarantee open-ended approaches to building software cannot make \u2014 making it the best and most efficient way to build complex applications."
+          "statement": "Reliable design system: the platform provides an opinionated software design system that reliably produces maintainable applications — customers receive software engineered to a consistently verifiable standard regardless of who or what wrote it, a guarantee open-ended approaches to building software cannot make — making it the best and most efficient way to build complex applications."
          },
          {
           "number": 3,
-          "statement": "Operations-first revenue with room to grow: the platform's initial commercial focus is a usage-based fee for operating delivered systems on the customer's behalf, while keeping the door open to charging for other value it creates \u2014 design and construction work, tokens, or consulting \u2014 as the business develops."
+          "statement": "Operations-first revenue with room to grow: the platform's initial commercial focus is a usage-based fee for operating delivered systems on the customer's behalf, while keeping the door open to charging for other value it creates — design and construction work, tokens, or consulting — as the business develops."
          },
          {
           "number": 4,
-          "statement": "Customer self-sufficiency: the customer walks through the delivery process themselves but does not need engineering staff \u2014 the platform's AI agents play every technical delivery role (architect, senior developer, junior developer, tester, operator) while the customer remains the architect-of-record and requirements source."
+          "statement": "Customer self-sufficiency: the customer walks through the delivery process themselves but does not need engineering staff — the platform's AI agents play every technical delivery role (architect, senior developer, junior developer, tester, operator) while the customer remains the architect-of-record and requirements source."
          },
          {
           "number": 5,
@@ -65,22 +65,22 @@
          },
          {
           "number": 8,
-          "statement": "Programmatic extensibility: customers and their own tools and agents can drive the platform and stay in sync with its project state programmatically, with the same capabilities as a person using the app \u2014 integrating the platform into the workflows and tools they already use."
+          "statement": "Programmatic extensibility: customers and their own tools and agents can drive the platform and stay in sync with its project state programmatically, with the same capabilities as a person using the app — integrating the platform into the workflows and tools they already use."
          },
          {
           "number": 9,
-          "statement": "Accessible to non-coders: anyone who can think in systems can design, build, run, and host an application on the platform \u2014 no coding skill or engineering staff required."
+          "statement": "Accessible to non-coders: anyone who can think in systems can design, build, run, and host an application on the platform — no coding skill or engineering staff required."
          },
          {
           "number": 10,
-          "statement": "The hard parts are handled: the platform absorbs the genuinely hard operational work \u2014 running systems in production, scaling, load and cost projection \u2014 so the customer never has to become an operations engineer."
+          "statement": "The hard parts are handled: the platform absorbs the genuinely hard operational work — running systems in production, scaling, load and cost projection — so the customer never has to become an operations engineer."
          },
          {
           "number": 11,
-          "statement": "Streamlined, opinionated delivery with configurable oversight: the delivery workflow is designed by the platform; how much human review it requires is configured per customer \u2014 from fully automatic to human approval at every chosen stage, with high-risk changes always human-reviewed."
+          "statement": "Streamlined, opinionated delivery with configurable oversight: the delivery workflow is designed by the platform; how much human review it requires is configured per customer — from fully automatic to human approval at every chosen stage, with high-risk changes always human-reviewed."
          }
         ],
-        "mission": "Carry each customer's idea through design, planning, construction, and operation as one guided, supervised workflow: the platform does the technical work through the agents it orchestrates and the tooling it generates, the customer stays in control through review, and the finished system is delivered \u2014 and, when the customer chooses, operated \u2014 on their behalf. The platform orchestrates; it does not hand-author code."
+        "mission": "Carry each customer's idea through design, planning, construction, and operation as one guided, supervised workflow: the platform does the technical work through the agents it orchestrates and the tooling it generates, the customer stays in control through review, and the finished system is delivered — and, when the customer chooses, operated — on their behalf. The platform orchestrates; it does not hand-author code."
        }
       },
       "revisions": 2
@@ -94,12 +94,12 @@
         "items": [
          {
           "term": "Customer",
-          "definition": "The party that owns one or more projects and is billed by the platform for the services they use \u2014 today, hosting when the platform operates the delivered system.",
+          "definition": "The party that owns one or more projects and is billed by the platform for the services they use — today, hosting when the platform operates the delivered system.",
           "category": "Who"
          },
          {
           "term": "Architect User",
-          "definition": "The customer-side person who drives a project as architect-of-record \u2014 typically not an engineer \u2014 reviewing and approving the decisions their review policy routes to them.",
+          "definition": "The customer-side person who drives a project as architect-of-record — typically not an engineer — reviewing and approving the decisions their review policy routes to them.",
           "category": "Who"
          },
          {
@@ -109,7 +109,7 @@
          },
          {
           "term": "Agent",
-          "definition": "Any entity \u2014 an AI agent by default \u2014 that produces, reviews, or designs work products on behalf of a project.",
+          "definition": "Any entity — an AI agent by default — that produces, reviews, or designs work products on behalf of a project.",
           "category": "Who"
          },
          {
@@ -129,7 +129,7 @@
          },
          {
           "term": "Design Artifact",
-          "definition": "A single work product of the delivery process belonging to a project \u2014 mission, glossary, architecture, plan, and so on \u2014 carrying a review status of awaiting, committed, rejected, or withdrawn.",
+          "definition": "A single work product of the delivery process belonging to a project — mission, glossary, architecture, plan, and so on — carrying a review status of awaiting, committed, rejected, or withdrawn.",
           "category": "What"
          },
          {
@@ -149,7 +149,7 @@
          },
          {
           "term": "Project Option",
-          "definition": "One candidate way to schedule and staff a project \u2014 such as normal, compressed, or subcritical \u2014 presented with its estimate for the customer's decision.",
+          "definition": "One candidate way to schedule and staff a project — such as normal, compressed, or subcritical — presented with its estimate for the customer's decision.",
           "category": "What"
          },
          {
@@ -159,7 +159,7 @@
          },
          {
           "term": "Deployment Scenario",
-          "definition": "The customer's choice of how far the platform's responsibility extends \u2014 building and delivering the system only, or also hosting and operating it.",
+          "definition": "The customer's choice of how far the platform's responsibility extends — building and delivering the system only, or also hosting and operating it.",
           "category": "What"
          },
          {
@@ -209,7 +209,7 @@
          },
          {
           "term": "Operation Estimation",
-          "definition": "Forecasting what a system will cost to operate as a function of usage \u2014 at decision time from declared assumptions, and while running from observed load.",
+          "definition": "Forecasting what a system will cost to operate as a function of usage — at decision time from declared assumptions, and while running from observed load.",
           "category": "How"
          },
          {
@@ -244,7 +244,7 @@
          },
          {
           "term": "Scale to Zero",
-          "definition": "The autoscaling decision to hold an inactive operated system at zero capacity \u2014 and zero compute cost \u2014 while keeping it reachable for the next request.",
+          "definition": "The autoscaling decision to hold an inactive operated system at zero capacity — and zero compute cost — while keeping it reachable for the next request.",
           "category": "How"
          },
          {
@@ -264,17 +264,17 @@
          },
          {
           "term": "Project Repository",
-          "definition": "The single per-project store holding everything the platform persists for that project \u2014 its state, its design artifacts, and its constructed outputs.",
+          "definition": "The single per-project store holding everything the platform persists for that project — its state, its design artifacts, and its constructed outputs.",
           "category": "Where"
          },
          {
           "term": "Source Control System",
-          "definition": "The system of record for a project's repository \u2014 where the project repository lives and its versions are kept; a hosted service or the customer's local machine.",
+          "definition": "The system of record for a project's repository — where the project repository lives and its versions are kept; a hosted service or the customer's local machine.",
           "category": "Where"
          },
          {
           "term": "Durable Execution Runtime",
-          "definition": "The substrate that durably sequences and persists the platform's own long-running workflows \u2014 phase drives, billing cycles, and operation loops \u2014 across restarts and failures.",
+          "definition": "The substrate that durably sequences and persists the platform's own long-running workflows — phase drives, billing cycles, and operation loops — across restarts and failures.",
           "category": "Where"
          },
          {
@@ -289,7 +289,7 @@
          },
          {
           "term": "Review Gate",
-          "definition": "A point in the delivery workflow where a produced artifact or change waits for approval \u2014 by a human or automatically, per the project's review policy \u2014 before work continues.",
+          "definition": "A point in the delivery workflow where a produced artifact or change waits for approval — by a human or automatically, per the project's review policy — before work continues.",
           "category": "How"
          },
          {
@@ -299,7 +299,7 @@
          },
          {
           "term": "Construction Venue",
-          "definition": "The environment where a project's drafting and construction jobs execute \u2014 the customer's CI on their repository host, or their local machine \u2014 chosen per project as configuration.",
+          "definition": "The environment where a project's drafting and construction jobs execute — the customer's CI on their repository host, or their local machine — chosen per project as configuration.",
           "category": "Where"
          }
         ]
@@ -406,10 +406,10 @@
          },
          {
           "id": "B-11",
-          "statement": "The platform must bill customers under evolving commercial terms \u2014 initially a usage-based fee for hosting and operating delivered systems \u2014 absorbing pricing changes without re-architecting, and it never invoices for, or shares in, revenue the customer's application earns from its end users.",
+          "statement": "The platform must bill customers under evolving commercial terms — initially a usage-based fee for hosting and operating delivered systems — absorbing pricing changes without re-architecting, and it never invoices for, or shares in, revenue the customer's application earns from its end users.",
           "statedAs": [
-           "aiarch invoices the user, usage-based, for hosting of operated systems \u2014 no flat subscription, no charge for construction or LLM work; it does not invoice for, or share in, end-user revenue.",
-           "aiarch bills the user for hosting of operated systems on a usage-based basis (no flat subscription); construction runs on the user's own Claude Code account and GitHub Actions \u2014 aiarch does not charge for construction or LLM work. aiarch is merchant of record only for its own invoices and never touches end-user revenue."
+           "aiarch invoices the user, usage-based, for hosting of operated systems — no flat subscription, no charge for construction or LLM work; it does not invoice for, or share in, end-user revenue.",
+           "aiarch bills the user for hosting of operated systems on a usage-based basis (no flat subscription); construction runs on the user's own Claude Code account and GitHub Actions — aiarch does not charge for construction or LLM work. aiarch is merchant of record only for its own invoices and never touches end-user revenue."
           ],
           "volatilityHint": [
            "Billing Workflow",
@@ -422,7 +422,7 @@
           "id": "B-12",
           "statement": "All state and source the platform produces for a customer must reside in one customer-owned store per scenario, owned outright and retrievable by the customer at any time.",
           "statedAs": [
-           "Everything aiarch persists \u2014 project state (typed Method models as JSON) and source/charts/manifests \u2014 lives in one git target per scenario: the user's own GitHub (via a GitHub App) in the cloud scenarios; aiarch orchestrates via the GitHub API and the user owns the repo and their code outright."
+           "Everything aiarch persists — project state (typed Method models as JSON) and source/charts/manifests — lives in one git target per scenario: the user's own GitHub (via a GitHub App) in the cloud scenarios; aiarch orchestrates via the GitHub API and the user owns the repo and their code outright."
           ],
           "volatilityHint": [
            "Source Control Target"
@@ -471,9 +471,9 @@
          },
          {
           "id": "B-17",
-          "statement": "Project estimation at SDP-review time must include a usage-to-operating-cost curve and a sensitivity band for \u00b1 uncertainty around the customer's declared expected usage, per project option.",
+          "statement": "Project estimation at SDP-review time must include a usage-to-operating-cost curve and a sensitivity band for ± uncertainty around the customer's declared expected usage, per project option.",
           "statedAs": [
-           "Project estimation at SDP-review time must include a usage-to-operating-cost curve and a sensitivity band for \u00b1 uncertainty around the customer's declared usage assumptions, per project option."
+           "Project estimation at SDP-review time must include a usage-to-operating-cost curve and a sensitivity band for ± uncertainty around the customer's declared usage assumptions, per project option."
           ],
           "volatilityHint": [
            "Operation Estimation Model"
@@ -514,7 +514,7 @@
         "items": [
          {
           "name": "System Design Phase Workflow",
-          "rationale": "The sequence of Phase 1 activities (business alignment \u2192 requirements analysis \u2192 volatility identification \u2192 core use cases \u2192 architecture \u2192 operational concepts \u2192 standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months will encounter an evolved Phase 1 step set, and the platform must absorb that evolution without being rebuilt. Evolves independently of Phase 2.",
+          "rationale": "The sequence of Phase 1 activities (business alignment → requirements analysis → volatility identification → core use cases → architecture → operational concepts → standard check) will evolve as architectural taste matures: new sub-skills added (security review, accessibility review), existing ones reordered, gating rules changed, artifact schemas refined. A customer completing a project today and starting another in 18 months will encounter an evolved Phase 1 step set, and the platform must absorb that evolution without being rebuilt. Evolves independently of Phase 2.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-02",
@@ -523,7 +523,7 @@
          },
          {
           "name": "Project Design Phase Workflow",
-          "rationale": "The sequence of Phase 2 activities (planning assumptions \u2192 activity list \u2192 network \u2192 normal/decompressed/subcritical/compressed \u2192 risk modeling \u2192 SDP review) will evolve as project-planning sophistication grows: cone-of-uncertainty intervals replacing 5-day quanta, new option types, a new operational-risk curve. Evolves independently of Phase 1 \u2014 improvements to the SDP review do not in themselves change requirements scrubbing. Lives on axis 1 because the platform evolves it for everyone at once.",
+          "rationale": "The sequence of Phase 2 activities (planning assumptions → activity list → network → normal/decompressed/subcritical/compressed → risk modeling → SDP review) will evolve as project-planning sophistication grows: cone-of-uncertainty intervals replacing 5-day quanta, new option types, a new operational-risk curve. Evolves independently of Phase 1 — improvements to the SDP review do not in themselves change requirements scrubbing. Lives on axis 1 because the platform evolves it for everyone at once.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-04"
@@ -531,7 +531,7 @@
          },
          {
           "name": "Construction Phase Workflow",
-          "rationale": "The sequence of Phase 3 activities (hand-off model \u2192 per-component contract design \u2192 construction \u2192 weekly tracking \u2192 scope-change handling) will evolve as construction practice matures: continuous earned-value replacing weekly tracking, automatic contract-drafting at hand-off, AI-driven scope-change proposals. Evolves independently of Phase 1 and Phase 2.",
+          "rationale": "The sequence of Phase 3 activities (hand-off model → per-component contract design → construction → weekly tracking → scope-change handling) will evolve as construction practice matures: continuous earned-value replacing weekly tracking, automatic contract-drafting at hand-off, AI-driven scope-change proposals. Evolves independently of Phase 1 and Phase 2.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-13",
@@ -540,7 +540,7 @@
          },
          {
           "name": "Operation Phase Workflow",
-          "rationale": "The choreography by which the platform operates a delivered system \u2014 the deploy-after-construction ceremony, reconcile cadence, the health\u2192intervention\u2192autoscale sequencing, delinquency application, withdraw \u2014 will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the three Method-phase workflow volatilities: what varies is the Manager's activity sequence, NOT the policies it consults (Intervention Policy, Autoscaling Policy) nor the runtime it drives (Operated Runtime) nor where it records state (Operational State Store). Evolves independently of the delivery phases and of the billing cycle.",
+          "rationale": "The choreography by which the platform operates a delivered system — the deploy-after-construction ceremony, reconcile cadence, the health→intervention→autoscale sequencing, delinquency application, withdraw — will evolve as operating practice matures: event-driven reconciliation replacing polled sweeps, progressive-delivery gates (canary, automatic rollback) in the deploy step, self-healing sequences before escalation. Same shape as the three Method-phase workflow volatilities: what varies is the Manager's activity sequence, NOT the policies it consults (Intervention Policy, Autoscaling Policy) nor the runtime it drives (Operated Runtime) nor where it records state (Operational State Store). Evolves independently of the delivery phases and of the billing cycle.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-08",
@@ -549,7 +549,7 @@
          },
          {
           "name": "Billing Workflow",
-          "rationale": "The choreography of a billing cycle \u2014 read cycle usage, compute the charge, execute the charge, record the outcome, unpaid-charge sweeps, dunning, delinquency escalation \u2014 will evolve: dunning sequences, proration on mid-cycle plan changes, pre-authorization holds before large charges. Deliberately distinct from Service Pricing (the pricing policy BillingEngine pivots on \u2014 what the charge IS) and from Merchant Gateway Provider (which gateway executes the money movement): what varies here is the cycle's activity sequence itself.",
+          "rationale": "The choreography of a billing cycle — read cycle usage, compute the charge, execute the charge, record the outcome, unpaid-charge sweeps, dunning, delinquency escalation — will evolve: dunning sequences, proration on mid-cycle plan changes, pre-authorization holds before large charges. Deliberately distinct from Service Pricing (the pricing policy BillingEngine pivots on — what the charge IS) and from Merchant Gateway Provider (which gateway executes the money movement): what varies here is the cycle's activity sequence itself.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-11"
@@ -557,7 +557,7 @@
          },
          {
           "name": "Construction Estimation Model",
-          "rationale": "How construction duration, cost, and risk are computed will change as agents change, as historical data accumulates, and as the team refines the model. Construction estimation only \u2014 the operating-side forecast is split out as Operation Estimation Model. The two evolve on independent timelines (construction estimation matures with agent/build telemetry; operation estimation matures with fleet/usage telemetry).",
+          "rationale": "How construction duration, cost, and risk are computed will change as agents change, as historical data accumulates, and as the team refines the model. Construction estimation only — the operating-side forecast is split out as Operation Estimation Model. The two evolve on independent timelines (construction estimation matures with agent/build telemetry; operation estimation matures with fleet/usage telemetry).",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-04",
@@ -575,7 +575,7 @@
          },
          {
           "name": "Customer App Infrastructure",
-          "rationale": "The list of technologies that a customer's deployed app is permitted to use. Launch set: Go + Temporal + Postgres + Git + S3. The list evolves as the platform broadens (e.g., adding pgvector for AI-feature apps, WASM compute units). The fact of constraint is a design given; the contents of the constrained set is what is volatile \u2014 and it broadens for every customer at once. Encapsulated by OperatedRuntimeAccess \u2014 the runtime surface through which building blocks reach a customer app \u2014 with per-kind Strategy registrations on AutoscalerEngine and OperationEstimationEngine adapting their models as the set evolves.",
+          "rationale": "The list of technologies that a customer's deployed app is permitted to use. Launch set: Go + Temporal + Postgres + Git + S3. The list evolves as the platform broadens (e.g., adding pgvector for AI-feature apps, WASM compute units). The fact of constraint is a design given; the contents of the constrained set is what is volatile — and it broadens for every customer at once. Encapsulated by OperatedRuntimeAccess — the runtime surface through which building blocks reach a customer app — with per-kind Strategy registrations on AutoscalerEngine and OperationEstimationEngine adapting their models as the set evolves.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-18"
@@ -583,7 +583,7 @@
          },
          {
           "name": "Service Pricing",
-          "rationale": "How the platform prices its own service evolves system-wide over time. Current instance: a usage-based hosting fee for operated systems (DEPLOYED \u2014 OPERATED); construction currently runs on the customer's own agentic-coding subscription and CI minutes. Tomorrow: per-seat tiers, free-tier subsidies, hosting-resource-class pricing, volume discounts, charges for design/construction work or consulting. This is open-ended, will ripple, and must not be a hardcoded constant \u2014 it is the policy billingEngine pivots on as a Strategy. Lives on axis 1 because the platform re-prices its service for everyone as its cost structure and market position change.",
+          "rationale": "How the platform prices its own service evolves system-wide over time. Current instance: a usage-based hosting fee for operated systems (DEPLOYED — OPERATED); construction currently runs on the customer's own agentic-coding subscription and CI minutes. Tomorrow: per-seat tiers, free-tier subsidies, hosting-resource-class pricing, volume discounts, charges for design/construction work or consulting. This is open-ended, will ripple, and must not be a hardcoded constant — it is the policy billingEngine pivots on as a Strategy. Lives on axis 1 because the platform re-prices its service for everyone as its cost structure and market position change.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-11"
@@ -599,7 +599,7 @@
          },
          {
           "name": "Review Policy",
-          "rationale": "At the same moment, different customers run different review policies: one runs fully automatic ('vibes'), another requires human approval at every gate ('full'), a third takes human checkpoints at chosen stages. The policy spans the whole delivery workflow \u2014 design-artifact gates and construction change review \u2014 and covers both how much work is automated versus human-approved (absorbing the former Construction Hand-Off Policy) and who must review a produced change, from what perspective, against which reference artifacts. A non-overridable risk floor keeps high-risk changes human-reviewed under any preset. The rule set also matures over time, but the dominant axis is per-customer variance at one moment. Encapsulated by ReviewEngine.",
+          "rationale": "At the same moment, different customers run different review policies: one runs fully automatic ('vibes'), another requires human approval at every gate ('full'), a third takes human checkpoints at chosen stages. The policy spans the whole delivery workflow — design-artifact gates and construction change review — and covers both how much work is automated versus human-approved (absorbing the former Construction Hand-Off Policy) and who must review a produced change, from what perspective, against which reference artifacts. A non-overridable risk floor keeps high-risk changes human-reviewed under any preset. The rule set also matures over time, but the dominant axis is per-customer variance at one moment. Encapsulated by ReviewEngine.",
           "axis": "allCustomersAtOneTime",
           "traces": [
            "B-03",
@@ -617,7 +617,7 @@
          },
          {
           "name": "Customer Interaction Channel",
-          "rationale": "Different customers reach the platform through different entry channels at the same moment. Today: a browser hitting the JSON HTTP API, an MCP client (remote MCP over HTTP), and the scheduler's machine-initiated triggers. Tomorrow: IDE plugins, Slack apps, agentic clients, voice. The kind of caller is what varies. Encapsulated by the Client tier \u2014 each Client component (WebClient, MCPClient, SchedulerClient) owns one channel's specifics, including its own wire-level transport stack (JSON-over-HTTP today, streaming transports tomorrow), so a channel keeps its identity while its transport changes and Managers never see either.",
+          "rationale": "Different customers reach the platform through different entry channels at the same moment. Today: a browser hitting the JSON HTTP API, an MCP client (remote MCP over HTTP), and the scheduler's machine-initiated triggers. Tomorrow: IDE plugins, Slack apps, agentic clients, voice. The kind of caller is what varies. Encapsulated by the Client tier — each Client component (WebClient, MCPClient, SchedulerClient) owns one channel's specifics, including its own wire-level transport stack (JSON-over-HTTP today, streaming transports tomorrow), so a channel keeps its identity while its transport changes and Managers never see either.",
           "axis": "allCustomersAtOneTime",
           "traces": [
            "B-07"
@@ -625,7 +625,7 @@
          },
          {
           "name": "Workflow Execution Substrate",
-          "rationale": "Which durable-execution substrate sequences Manager workflow code. Temporal today; other durable executors later \u2014 the platform may migrate substrate over its lifetime, and the same Manager code must run unchanged. The executeWorkflow/signal/query/timer/schedule verbs are stable while the runtime behind them varies. Encapsulated by the message-bus utility (deliverSignal + registerSchedule) for cross-Manager control-plane verbs \u2014 reworded 2026-08-01 (Task 11 design amendment): durableExecutionAccess was reclassified from a ResourceAccess to this Manager-only Utility at the Task 7b reconciliation (founder ruling R-F); a Manager's own in-workflow primitives are execution substrate per the operational-concepts decision. The embedded test executor is an implementation profile, not a customer-facing axis.",
+          "rationale": "Which durable-execution substrate sequences Manager workflow code. Temporal today; other durable executors later — the platform may migrate substrate over its lifetime, and the same Manager code must run unchanged. The executeWorkflow/signal/query/timer/schedule verbs are stable while the runtime behind them varies. Encapsulated by the message-bus utility (deliverSignal + registerSchedule) for cross-Manager control-plane verbs — reworded 2026-08-01 (Task 11 design amendment): durableExecutionAccess was reclassified from a ResourceAccess to this Manager-only Utility at the Task 7b reconciliation (founder ruling R-F); a Manager's own in-workflow primitives are execution substrate per the operational-concepts decision. The embedded test executor is an implementation profile, not a customer-facing axis.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-14"
@@ -633,7 +633,7 @@
          },
          {
           "name": "Agentic Job Venue",
-          "rationale": "Which CI/agentic-pipeline system executes dispatched agentic jobs \u2014 Phase-1/2 drafting and Phase-3 construction alike. Current instances: the customer's own GitHub Actions running their agentic-coding tooling, or their local machine's runner; instance set grows (other CI systems, other coding agents); the dry-run/test profile is a stubbed instance behind the same verbs. At one moment different customers run different job targets \u2014 it is THEIR venue \u2014 and a customer can migrate venue without any Manager change. The submit/observe/cancel verbs are stable; the execution system behind them is what varies. Encapsulated by agenticJobAccess. Split out of the former Durable Execution Runtime axis: the job target varies per customer with their venue choice, while the durable Manager-sequencing substrate varies by platform migration \u2014 two independent axes, two encapsulators.",
+          "rationale": "Which CI/agentic-pipeline system executes dispatched agentic jobs — Phase-1/2 drafting and Phase-3 construction alike. Current instances: the customer's own GitHub Actions running their agentic-coding tooling, or their local machine's runner; instance set grows (other CI systems, other coding agents); the dry-run/test profile is a stubbed instance behind the same verbs. At one moment different customers run different job targets — it is THEIR venue — and a customer can migrate venue without any Manager change. The submit/observe/cancel verbs are stable; the execution system behind them is what varies. Encapsulated by agenticJobAccess. Split out of the former Durable Execution Runtime axis: the job target varies per customer with their venue choice, while the durable Manager-sequencing substrate varies by platform migration — two independent axes, two encapsulators.",
           "axis": "allCustomersAtOneTime",
           "traces": [
            "B-13"
@@ -641,7 +641,7 @@
          },
          {
           "name": "Operated Runtime",
-          "rationale": "Same shape as Durable Execution Runtime but for the runtime that hosts delivered systems in the DEPLOYED \u2014 OPERATED scenario. Today: GitOps over Kubernetes via Argo CD + Argo Rollouts on the platform's hosting cluster. Three faces: convergence infrastructure (how desired-state-in-the-repo becomes actual-state-in-the-cluster), compute cost attribution (per-customer cost-of-goods surface), and runtime-status transport (how the platform learns about state changes in the operated runtime). All three encapsulated behind OperatedRuntimeAccess.",
+          "rationale": "Same shape as Durable Execution Runtime but for the runtime that hosts delivered systems in the DEPLOYED — OPERATED scenario. Today: GitOps over Kubernetes via Argo CD + Argo Rollouts on the platform's hosting cluster. Three faces: convergence infrastructure (how desired-state-in-the-repo becomes actual-state-in-the-cluster), compute cost attribution (per-customer cost-of-goods surface), and runtime-status transport (how the platform learns about state changes in the operated runtime). All three encapsulated behind OperatedRuntimeAccess.",
           "axis": "allCustomersAtOneTime",
           "traces": [
            "B-08",
@@ -650,7 +650,7 @@
          },
          {
           "name": "Source Control Target",
-          "rationale": "At the same moment, different scenarios put the per-project repo \u2014 and everything the platform does through it \u2014 on different source-control providers/targets. Current instances: the user's own GitHub (via a GitHub App, cloud), the customer's local machine (GitLocal), and an ephemeral throwaway git repo (test); GitLab later. The axis covers both faces of the provider, which co-vary when the provider swaps: (1) the persistence target for typed project state and Phase-3 construction outputs (stable verbs: createProject / readProject / commit / stageArtifact / storeConstructionOutput / retrieveOutputTree), and (2) the provider's collaboration/authorization surface (app installation and tokens, secrets, branch protection, branches, pull requests, reviews, merges). One axis fronted by three ResourceAccess components under the ratified facet doctrine (see operational concepts), one per stable verb family: projectStateAccess (typed state), artifactAccess (construction outputs), sourceControlAccess (collaboration/authorization). The former 'GitHubAppLifecycle' is a mechanism of the current GitHub instance, not an axis of change.",
+          "rationale": "At the same moment, different scenarios put the per-project repo — and everything the platform does through it — on different source-control providers/targets. Current instances: the user's own GitHub (via a GitHub App, cloud), the customer's local machine (GitLocal), and an ephemeral throwaway git repo (test); GitLab later. The axis covers both faces of the provider, which co-vary when the provider swaps: (1) the persistence target for typed project state and Phase-3 construction outputs (stable verbs: createProject / readProject / commit / stageArtifact / storeConstructionOutput / retrieveOutputTree), and (2) the provider's collaboration/authorization surface (app installation and tokens, secrets, branch protection, branches, pull requests, reviews, merges). One axis fronted by three ResourceAccess components under the ratified facet doctrine (see operational concepts), one per stable verb family: projectStateAccess (typed state), artifactAccess (construction outputs), sourceControlAccess (collaboration/authorization). The former 'GitHubAppLifecycle' is a mechanism of the current GitHub instance, not an axis of change.",
           "axis": "allCustomersAtOneTime",
           "traces": [
            "B-09",
@@ -660,7 +660,7 @@
          },
          {
           "name": "Merchant Gateway Provider",
-          "rationale": "Which merchant gateway executes the platform's money movement \u2014 charging customers for cycle amounts and validating stored instruments. Stripe today (charge-only); the platform may change or add providers over its lifetime. The verbs are stable (chargeCustomer / validateStoredInstrument); the gateway behind them \u2014 its idempotency mechanics and webhook shapes \u2014 is what varies. Encapsulated by merchantGatewayAccess.",
+          "rationale": "Which merchant gateway executes the platform's money movement — charging customers for cycle amounts and validating stored instruments. Stripe today (charge-only); the platform may change or add providers over its lifetime. The verbs are stable (chargeCustomer / validateStoredInstrument); the gateway behind them — its idempotency mechanics and webhook shapes — is what varies. Encapsulated by merchantGatewayAccess.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-11"
@@ -668,7 +668,7 @@
          },
          {
           "name": "Operational State Store",
-          "rationale": "Which storage substrate holds the platform's own operational records \u2014 operated-system state, billing state, usage log, and (2026-08-02) the episode ledger. Postgres for state/usage/billing, a local gitignored sidecar for episode traces today; managed alternatives and a deployed episode profile later, potentially migrating per record family over the platform's lifetime. The atomic business verbs on each record family are stable; the substrate behind them \u2014 engine, consistency mechanics, hosting \u2014 is what varies. One axis fronted by four ResourceAccess components, one per verb family: operatedSystemStateAccess, billingStateAccess, usageAccess, episodeAccess (ratified facet doctrine \u2014 see operational concepts). Deliberately distinct from Source Control Target: transactional row/append stores, not the per-project git repo.",
+          "rationale": "Which storage substrate holds the platform's own operational records — operated-system state, billing state, usage log, and (2026-08-02) the episode ledger. Postgres for state/usage/billing, a local gitignored sidecar for episode traces today; managed alternatives and a deployed episode profile later, potentially migrating per record family over the platform's lifetime. The atomic business verbs on each record family are stable; the substrate behind them — engine, consistency mechanics, hosting — is what varies. One axis fronted by four ResourceAccess components, one per verb family: operatedSystemStateAccess, billingStateAccess, usageAccess, episodeAccess (ratified facet doctrine — see operational concepts). Deliberately distinct from Source Control Target: transactional row/append stores, not the per-project git repo.",
           "axis": "sameCustomerOverTime",
           "traces": [
            "B-08",
@@ -680,7 +680,7 @@
         "rejected": [
          {
           "name": "Customer Interaction Transport",
-          "reason": "Folded into Customer Interaction Channel (2026-07-22): wire mechanics for a fixed caller kind never ripple past the single Client component that owns the channel \u2014 each Client owns its own transport stack, so a separate system-level entry added noise. SchedulerClient re-tagged as a Channel binding.",
+          "reason": "Folded into Customer Interaction Channel (2026-07-22): wire mechanics for a fixed caller kind never ripple past the single Client component that owns the channel — each Client owns its own transport stack, so a separate system-level entry added noise. SchedulerClient re-tagged as a Channel binding.",
           "class": "foldedInto"
          },
          {
@@ -690,16 +690,16 @@
          },
          {
           "name": "Work Tracking",
-          "reason": "Descoped by founder ruling (2026-07-20): the customer's external work-item tracker is not a platform concern; programmatic extensibility (objective 8 \u2014 agents over MCP, apps over the API) is the surface through which external trackers can sync. WorkItemAccess and WorkItemTracker removed with it.",
+          "reason": "Descoped by founder ruling (2026-07-20): the customer's external work-item tracker is not a platform concern; programmatic extensibility (objective 8 — agents over MCP, apps over the API) is the surface through which external trackers can sync. WorkItemAccess and WorkItemTracker removed with it.",
           "class": "foldedInto"
          }
         ],
         "waivers": [
          {
-          "section": "\u00a72h",
-          "guideline": "Volatility count within 6\u201315 target range.",
+          "section": "§2h",
+          "guideline": "Volatility count within 6–15 target range.",
           "status": "waived",
-          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 19 volatilities \u2014 13 same-customer-over-time, 6 all-customers-at-one-moment \u2014 still over the 6-15 target. Down from 22: Customer Interaction Transport folded into Channel, Construction Hand-Off Policy folded into Review Policy, Work Tracking descoped; the three folds are recorded in the volatilities rejected ledger. Every remaining entry has exactly one named encapsulator (or a ratified facet group) and requirement traces. Re-evaluate if the count grows past 25."
+          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 19 volatilities — 13 same-customer-over-time, 6 all-customers-at-one-moment — still over the 6-15 target. Down from 22: Customer Interaction Transport folded into Channel, Construction Hand-Off Policy folded into Review Policy, Work Tracking descoped; the three folds are recorded in the volatilities rejected ledger. Every remaining entry has exactly one named encapsulator (or a ratified facet group) and requirement traces. Re-evaluate if the count grows past 25."
          }
         ]
        }
@@ -1115,7 +1115,7 @@
            }
           },
           "rejectionReason": "",
-          "essenceRationale": "Every customer engagement begins here: the platform's agents draft each design artifact inside the opinionated design system while the customer remains architect-of-record through review \u2014 the guardrailed alternative to open-ended agentic coding that is the platform's stated differentiator (objective 2). Whatever the artifact set or drafting tooling becomes, a business that delivers predictably-engineered software must always carry the customer's idea through a supervised design; remove this and the platform is a code generator, not a delivery business."
+          "essenceRationale": "Every customer engagement begins here: the platform's agents draft each design artifact inside the opinionated design system while the customer remains architect-of-record through review — the guardrailed alternative to open-ended agentic coding that is the platform's stated differentiator (objective 2). Whatever the artifact set or drafting tooling becomes, a business that delivers predictably-engineered software must always carry the customer's idea through a supervised design; remove this and the platform is a code generator, not a delivery business."
          },
          {
           "useCase": {
@@ -1302,7 +1302,7 @@
            }
           },
           "rejectionReason": "",
-          "essenceRationale": "Predictable delivery is the founding promise (objective 1): no construction begins until the customer has chosen among options with explicit duration, cost, and risk \u2014 each carrying a traceable operating-cost forecast (objective 5). Every customer on every project makes this informed commitment; the option mechanics may evolve, but a business selling predictability without the commitment decision is a contradiction."
+          "essenceRationale": "Predictable delivery is the founding promise (objective 1): no construction begins until the customer has chosen among options with explicit duration, cost, and risk — each carrying a traceable operating-cost forecast (objective 5). Every customer on every project makes this informed commitment; the option mechanics may evolve, but a business selling predictability without the commitment decision is a contradiction."
          },
          {
           "useCase": {
@@ -1623,7 +1623,7 @@
            }
           },
           "rejectionReason": "",
-          "essenceRationale": "This is where the delivery promise is redeemed: the agents the platform orchestrates perform the construction work activity-by-activity against the committed plan, inside generated guardrails, so a customer with no engineering staff still receives predictably-engineered software (objective 4). Venues, agents, and code generation will all churn, but orchestrated construction of the customer's system is what the business does \u2014 the mission's 'the platform orchestrates; it does not hand-author code' made operational."
+          "essenceRationale": "This is where the delivery promise is redeemed: the agents the platform orchestrates perform the construction work activity-by-activity against the committed plan, inside generated guardrails, so a customer with no engineering staff still receives predictably-engineered software (objective 4). Venues, agents, and code generation will all churn, but orchestrated construction of the customer's system is what the business does — the mission's 'the platform orchestrates; it does not hand-author code' made operational."
          },
          {
           "useCase": {
@@ -1916,7 +1916,7 @@
            }
           },
           "rejectionReason": "",
-          "essenceRationale": "The vision ends 'delivers and operates it on the customer's behalf': operation is where the platform absorbs the genuinely hard work \u2014 running systems in production, scaling, load and cost projection \u2014 so the customer never becomes an operations engineer (objective 10). It is shared by every customer who hosts with the platform and it seats the operations-first revenue model (objective 3); infrastructure will change, operated-on-their-behalf will not."
+          "essenceRationale": "The vision ends 'delivers and operates it on the customer's behalf': operation is where the platform absorbs the genuinely hard work — running systems in production, scaling, load and cost projection — so the customer never becomes an operations engineer (objective 10). It is shared by every customer who hosts with the platform and it seats the operations-first revenue model (objective 3); infrastructure will change, operated-on-their-behalf will not."
          },
          {
           "useCase": {
@@ -2101,7 +2101,7 @@
            }
           },
           "rejectionReason": "",
-          "essenceRationale": "The platform's commercial engine is a usage-based fee for operating delivered systems on the customer's behalf \u2014 objective 3 makes this the initial and central revenue model, with cost transparency at every commitment (objective 5). Rates, meters, and future revenue lines will shift, but converting operated usage into revenue is the transaction the business exists to make; without it there is no business, only a tool."
+          "essenceRationale": "The platform's commercial engine is a usage-based fee for operating delivered systems on the customer's behalf — objective 3 makes this the initial and central revenue model, with cost transparency at every commitment (objective 5). Rates, meters, and future revenue lines will shift, but converting operated usage into revenue is the transaction the business exists to make; without it there is no business, only a tool."
          },
          {
           "useCase": {
@@ -2509,7 +2509,7 @@
              {
               "id": "create-connected",
               "kind": "note",
-              "label": "Charge-only (ratified 2026-07-03): no connected account is created \u2014 the gateway reference is the customer's own stable id; the charge rail keys on it",
+              "label": "Charge-only (ratified 2026-07-03): no connected account is created — the gateway reference is the customer's own stable id; the charge rail keys on it",
               "roleName": "",
               "linkedActorId": null
              },
@@ -3369,7 +3369,7 @@
              {
               "id": "work-merges",
               "kind": "note",
-              "label": "Construction has already merged reviewed work onto the adopted repo's main via pull requests \u2014 the in-system chain is realized at uc3 'record-review-merge' (construction-manager \u2192 source-control-access \u2192 github)",
+              "label": "Construction has already merged reviewed work onto the adopted repo's main via pull requests — the in-system chain is realized at uc3 'record-review-merge' (construction-manager → source-control-access → github)",
               "roleName": "",
               "linkedActorId": null
              },
@@ -3530,7 +3530,7 @@
              {
               "id": "report-unknown",
               "kind": "note",
-              "label": "Response render: the queryCostProjection reply reports the app is not operated (FailedPrecondition) \u2014 rendered by the querying surface; no further calls",
+              "label": "Response render: the queryCostProjection reply reports the app is not operated (FailedPrecondition) — rendered by the querying surface; no further calls",
               "roleName": "",
               "linkedActorId": null
              },
@@ -4003,7 +4003,7 @@
           "name": "WebClient",
           "kind": "client",
           "layer": "client",
-          "encapsulates": "Transport entry point for the browser SPA \u2014 one concrete binding of the Customer Interaction Channel volatility (B-07: more than one entry channel). How the architect user reaches the platform varies per customer and over time without touching any Manager.",
+          "encapsulates": "Transport entry point for the browser SPA — one concrete binding of the Customer Interaction Channel volatility (B-07: more than one entry channel). How the architect user reaches the platform varies per customer and over time without touching any Manager.",
           "encapsulatesVolatilities": [
            "Customer Interaction Channel"
           ],
@@ -4018,7 +4018,7 @@
           "name": "MCPClient",
           "kind": "client",
           "layer": "client",
-          "encapsulates": "Transport entry point for MCP tooling (agentic coding tools and peer agents) \u2014 the second concrete binding of the Customer Interaction Channel volatility (B-07). Same Manager entries as the web client (R4 cross-surface equivalence); only the transport binding differs.",
+          "encapsulates": "Transport entry point for MCP tooling (agentic coding tools and peer agents) — the second concrete binding of the Customer Interaction Channel volatility (B-07). Same Manager entries as the web client (R4 cross-surface equivalence); only the transport binding differs.",
           "encapsulatesVolatilities": [
            "Customer Interaction Channel"
           ],
@@ -4033,7 +4033,7 @@
           "name": "SchedulerClient",
           "kind": "client",
           "layer": "client",
-          "encapsulates": "Timer-driven entry point for recurring triggers (executeNextActivity, reconcileOperatedState, closeBillingCycle, runShortfallSweep) \u2014 the third concrete binding of the Customer Interaction Channel volatility \u2014 the machine-initiated trigger channel. Realized today as Temporal Schedules registered by the operations/billing Managers via RegisterSchedule (no standalone binary); the component boundary keeps that realization swappable.",
+          "encapsulates": "Timer-driven entry point for recurring triggers (executeNextActivity, reconcileOperatedState, closeBillingCycle, runShortfallSweep) — the third concrete binding of the Customer Interaction Channel volatility — the machine-initiated trigger channel. Realized today as Temporal Schedules registered by the operations/billing Managers via RegisterSchedule (no standalone binary); the component boundary keeps that realization swappable.",
           "encapsulatesVolatilities": [
            "Customer Interaction Channel"
           ],
@@ -4048,7 +4048,7 @@
           "name": "SystemDesignManager",
           "kind": "manager",
           "layer": "manager",
-          "encapsulates": "Encapsulates the System Design Phase Workflow volatility (B-02, B-03): the Phase-1 artifact co-authoring sequence, the per-artifact human review gate, back-edge amendments with staleness propagation/acknowledgement, and the Phase-1 seal \u2014 the rail choreography evolves without disturbing Engines or ResourceAccess.",
+          "encapsulates": "Encapsulates the System Design Phase Workflow volatility (B-02, B-03): the Phase-1 artifact co-authoring sequence, the per-artifact human review gate, back-edge amendments with staleness propagation/acknowledgement, and the Phase-1 seal — the rail choreography evolves without disturbing Engines or ResourceAccess.",
           "encapsulatesVolatilities": [
            "System Design Phase Workflow"
           ],
@@ -4063,7 +4063,7 @@
           "name": "ProjectDesignManager",
           "kind": "manager",
           "layer": "manager",
-          "encapsulates": "Encapsulates the Project Design Phase Workflow volatility (B-04): how Phase-2 options are drafted, estimated, presented at SDP review, and committed \u2014 the option set and review choreography change over time while all estimation math stays in Engines.",
+          "encapsulates": "Encapsulates the Project Design Phase Workflow volatility (B-04): how Phase-2 options are drafted, estimated, presented at SDP review, and committed — the option set and review choreography change over time while all estimation math stays in Engines.",
           "encapsulatesVolatilities": [
            "Project Design Phase Workflow"
           ],
@@ -4078,7 +4078,7 @@
           "name": "ConstructionManager",
           "kind": "manager",
           "layer": "manager",
-          "encapsulates": "Encapsulates the Construction Phase Workflow volatility (B-13, B-14): per-activity execution choreography \u2014 hand-off, branch/PR rail, agentic-job dispatch, review routing, variance intervention, pause/override/takeover \u2014 which shifts as the construction operating model evolves.",
+          "encapsulates": "Encapsulates the Construction Phase Workflow volatility (B-13, B-14): per-activity execution choreography — hand-off, branch/PR rail, agentic-job dispatch, review routing, variance intervention, pause/override/takeover — which shifts as the construction operating model evolves.",
           "encapsulatesVolatilities": [
            "Construction Phase Workflow"
           ],
@@ -4108,7 +4108,7 @@
           "name": "BillingManager",
           "kind": "manager",
           "layer": "manager",
-          "encapsulates": "Encapsulates the Billing Workflow volatility (B-11): cycle close, charge, retry/dunning, dispute resettlement, and delinquency escalation \u2014 the billing choreography varies as commercial terms evolve while pricing math lives in the Billing Engine.",
+          "encapsulates": "Encapsulates the Billing Workflow volatility (B-11): cycle close, charge, retry/dunning, dispute resettlement, and delinquency escalation — the billing choreography varies as commercial terms evolve while pricing math lives in the Billing Engine.",
           "encapsulatesVolatilities": [
            "Billing Workflow"
           ],
@@ -4123,7 +4123,7 @@
           "name": "EstimationEngine",
           "kind": "engine",
           "layer": "engine",
-          "encapsulates": "Encapsulates the Construction Estimation Model volatility (B-04, B-05): project-network/critical-path math, earned-value computation, and per-option duration/cost/risk \u2014 the estimation model (e.g. AI-agent token pricing) changes independently of any workflow.",
+          "encapsulates": "Encapsulates the Construction Estimation Model volatility (B-04, B-05): project-network/critical-path math, earned-value computation, and per-option duration/cost/risk — the estimation model (e.g. AI-agent token pricing) changes independently of any workflow.",
           "encapsulatesVolatilities": [
            "Construction Estimation Model"
           ],
@@ -4138,7 +4138,7 @@
           "name": "OperationEstimationEngine",
           "kind": "engine",
           "layer": "engine",
-          "encapsulates": "Encapsulates the Operation Estimation Model volatility (B-16, B-17): usage-to-operating-cost curves, current run-rate projection, and what-if scale curves \u2014 the cost model varies per infrastructure kind and over time.",
+          "encapsulates": "Encapsulates the Operation Estimation Model volatility (B-16, B-17): usage-to-operating-cost curves, current run-rate projection, and what-if scale curves — the cost model varies per infrastructure kind and over time.",
           "encapsulatesVolatilities": [
            "Operation Estimation Model"
           ],
@@ -4153,7 +4153,7 @@
           "name": "BillingEngine",
           "kind": "engine",
           "layer": "engine",
-          "encapsulates": "Encapsulates the Service Pricing volatility (B-11): how a cycle's usage plus commercial terms becomes a charge, and a recomputed charge on dispute/refund correction \u2014 pricing policy changes without touching the billing workflow or the payment gateway.",
+          "encapsulates": "Encapsulates the Service Pricing volatility (B-11): how a cycle's usage plus commercial terms becomes a charge, and a recomputed charge on dispute/refund correction — pricing policy changes without touching the billing workflow or the payment gateway.",
           "encapsulatesVolatilities": [
            "Service Pricing"
           ],
@@ -4198,7 +4198,7 @@
           "name": "ReviewEngine",
           "kind": "engine",
           "layer": "engine",
-          "encapsulates": "Encapsulates the Review Policy volatility (B-03, B-14, B-19): which reviewer set a produced change must pass and whether a gate routes to a human or auto-approves, computed from the project's review-policy preset (vibes/checkpoints/full with a non-overridable risk floor), the architecture graph, frozen contracts, and artifact kind \u2014 absorbing the former hand-off policy (how much work is automated versus human-approved).",
+          "encapsulates": "Encapsulates the Review Policy volatility (B-03, B-14, B-19): which reviewer set a produced change must pass and whether a gate routes to a human or auto-approves, computed from the project's review-policy preset (vibes/checkpoints/full with a non-overridable risk floor), the architecture graph, frozen contracts, and artifact kind — absorbing the former hand-off policy (how much work is automated versus human-approved).",
           "encapsulatesVolatilities": [
            "Review Policy"
           ],
@@ -4213,7 +4213,7 @@
           "name": "DesignHealthEngine",
           "kind": "engine",
           "layer": "engine",
-          "encapsulates": "Encapsulates the design-conformance evaluation activity of the System Design Phase Workflow volatility (B-02, B-03): WHICH Method rules judge a draft (counts, layer rules, chain coverage, traceability joins, drift) and HOW findings are computed \u2014 the rule inventory evolves with the Method doctrine release over release while the Manager's gate choreography stays put. Pure computation over the typed project state SystemDesignManager passes in (no I/O). Shared typed owner of the volatility with SystemDesignManager (workflow facet vs evaluation facet). Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release.",
+          "encapsulates": "Encapsulates the design-conformance evaluation activity of the System Design Phase Workflow volatility (B-02, B-03): WHICH Method rules judge a draft (counts, layer rules, chain coverage, traceability joins, drift) and HOW findings are computed — the rule inventory evolves with the Method doctrine release over release while the Manager's gate choreography stays put. Pure computation over the typed project state SystemDesignManager passes in (no I/O). Shared typed owner of the volatility with SystemDesignManager (workflow facet vs evaluation facet). Interim home of the platform methodcheck extension; contents upstream to the platform framework at the earmarked release.",
           "encapsulatesVolatilities": [
            "System Design Phase Workflow"
           ],
@@ -4227,7 +4227,7 @@
           "name": "ProjectStateAccess",
           "kind": "resourceAccess",
           "layer": "resourceAccess",
-          "encapsulates": "Encapsulates the Source Control Target volatility for project state (B-12): one component, four contract facets \u2014 project-state (stage/commit/reject/withdraw artifact, advancePhase, research and operating-model writes), construction-transition (the cred-threaded construction head-state transition verbs), git-activity-status (the per-activity git-forward head-state mirror), and design-session (the branch-aware design-session verbs) \u2014 all atomic business verbs over the git-as-DB typed aggregate, hiding ref-CAS commit mechanics and the idempotency dedup ledger so the substrate could change without touching Managers. Facets are contracts, not components (ratified facet doctrine \u2014 see operational concepts).",
+          "encapsulates": "Encapsulates the Source Control Target volatility for project state (B-12): one component, four contract facets — project-state (stage/commit/reject/withdraw artifact, advancePhase, research and operating-model writes), construction-transition (the cred-threaded construction head-state transition verbs), git-activity-status (the per-activity git-forward head-state mirror), and design-session (the branch-aware design-session verbs) — all atomic business verbs over the git-as-DB typed aggregate, hiding ref-CAS commit mechanics and the idempotency dedup ledger so the substrate could change without touching Managers. Facets are contracts, not components (ratified facet doctrine — see operational concepts).",
           "encapsulatesVolatilities": [
            "Source Control Target"
           ],
@@ -4279,7 +4279,7 @@
           "name": "BillingStateAccess",
           "kind": "resourceAccess",
           "layer": "resourceAccess",
-          "encapsulates": "Encapsulates the Operational State Store volatility for billing rows (B-11): registerCustomer/bindPaymentInstrument/settleCycle/resettleCycle \u2014 plus the append-only revenue-ledger verb family (recordInboundRevenue/recordReversal/readRange, retained for the pricing-flexibility door; a no-op under today's charge-only terms) \u2014 hiding the guarded-update mechanics and the store choice from the Billing workflow.",
+          "encapsulates": "Encapsulates the Operational State Store volatility for billing rows (B-11): registerCustomer/bindPaymentInstrument/settleCycle/resettleCycle — plus the append-only revenue-ledger verb family (recordInboundRevenue/recordReversal/readRange, retained for the pricing-flexibility door; a no-op under today's charge-only terms) — hiding the guarded-update mechanics and the store choice from the Billing workflow.",
           "encapsulatesVolatilities": [
            "Operational State Store"
           ],
@@ -4301,7 +4301,7 @@
           "name": "AgenticJobAccess",
           "kind": "resourceAccess",
           "layer": "resourceAccess",
-          "encapsulates": "Encapsulates the Agentic Job Venue volatility (B-13): submit/observe/cancel of agentic jobs \u2014 Phase-1/2 drafting and Phase-3 construction \u2014 hiding the concrete execution venue (the customer's CI on their repository host, or their local machine) behind venue-neutral verbs.",
+          "encapsulates": "Encapsulates the Agentic Job Venue volatility (B-13): submit/observe/cancel of agentic jobs — Phase-1/2 drafting and Phase-3 construction — hiding the concrete execution venue (the customer's CI on their repository host, or their local machine) behind venue-neutral verbs.",
           "encapsulatesVolatilities": [
            "Agentic Job Venue"
           ],
@@ -4361,7 +4361,7 @@
           "name": "EpisodeAccess",
           "kind": "resourceAccess",
           "layer": "resourceAccess",
-          "encapsulates": "Encapsulates the Operational State Store volatility for the episode ledger (B-08, B-11, B-16): appendEpisode / listEpisodes / readTraceEvents over the episode ledger + raw stream-json trace sidecar, hiding the storage substrate \u2014 a local gitignored .aiarch/traces/ sidecar today, a deployed profile later \u2014 from the Managers that persist and read episode records (spec: docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md \u00a75).",
+          "encapsulates": "Encapsulates the Operational State Store volatility for the episode ledger (B-08, B-11, B-16): appendEpisode / listEpisodes / readTraceEvents over the episode ledger + raw stream-json trace sidecar, hiding the storage substrate — a local gitignored .aiarch/traces/ sidecar today, a deployed profile later — from the Managers that persist and read episode records (spec: docs/superpowers/specs/2026-08-02-self-improvement-pipeline-design.md §5).",
           "encapsulatesVolatilities": [
            "Operational State Store"
           ],
@@ -4444,7 +4444,7 @@
           "name": "ProjectGitRepo",
           "kind": "resource",
           "layer": "resource",
-          "encapsulates": "The customer-owned per-project git repository \u2014 the physical store for the typed project state (git-as-DB) and content-addressed Phase-3 construction outputs (B-12: one customer-owned store per scenario, retrievable outright).",
+          "encapsulates": "The customer-owned per-project git repository — the physical store for the typed project state (git-as-DB) and content-addressed Phase-3 construction outputs (B-12: one customer-owned store per scenario, retrievable outright).",
           "atomicBusinessVerbs": [],
           "constructionProfile": "handwritten",
           "provisioning": "owned",
@@ -4477,7 +4477,7 @@
           "name": "ConstructionPipelineRuntime",
           "kind": "resource",
           "layer": "resource",
-          "encapsulates": "The external execution fabric that runs agentic jobs on the project's configured venue \u2014 the customer's CI or their local runner (B-13); reached only through AgenticJobAccess.",
+          "encapsulates": "The external execution fabric that runs agentic jobs on the project's configured venue — the customer's CI or their local runner (B-13); reached only through AgenticJobAccess.",
           "atomicBusinessVerbs": [],
           "constructionProfile": "handwritten",
           "provisioning": "vendor",
@@ -4532,7 +4532,7 @@
           "name": "Security",
           "kind": "utility",
           "layer": "utility",
-          "encapsulates": "Utility: authentication/authorization for every entry channel (Keycloak-backed AuthN/AuthZ; service identity for timer triggers). Passes the cappuccino-machine test \u2014 serves any system, owns no business volatility.",
+          "encapsulates": "Utility: authentication/authorization for every entry channel (Keycloak-backed AuthN/AuthZ; service identity for timer triggers). Passes the cappuccino-machine test — serves any system, owns no business volatility.",
           "atomicBusinessVerbs": [],
           "buildStatus": "external",
           "contractKey": "security",
@@ -4545,7 +4545,7 @@
           "name": "Logging",
           "kind": "utility",
           "layer": "utility",
-          "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test \u2014 serves any system, owns no business volatility.",
+          "encapsulates": "Utility: structured logging sink every Manager reports to. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
           "atomicBusinessVerbs": [],
           "buildStatus": "external",
           "constructionProfile": "provided",
@@ -4557,7 +4557,7 @@
           "name": "Diagnostics",
           "kind": "utility",
           "layer": "utility",
-          "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test \u2014 serves any system, owns no business volatility.",
+          "encapsulates": "Utility: health and telemetry reporting surface (OTel) for every Manager. Passes the cappuccino-machine test — serves any system, owns no business volatility.",
           "atomicBusinessVerbs": [],
           "buildStatus": "external",
           "constructionProfile": "provided",
@@ -4569,7 +4569,7 @@
           "name": "MessageBus",
           "kind": "utility",
           "layer": "utility",
-          "encapsulates": "Utility (restricted clientele \u2014 ch. 5): the messaging surface between Managers \u2014 deliverSignal delivers a queued Manager\u2192Manager message; registerSchedule registers the recurring timers that fire through the SchedulerClient channel. Encapsulates the Workflow Execution Substrate volatility (B-14): Temporal today, another durable-execution substrate later \u2014 Managers never bind to a runtime API. Only Managers may call it (arch-test import rule). The substrate's execution role stays invisible: a Manager's workflow-internal durable primitives (timers, awaitSignal, child workflows) are execution substrate, not architecture edges \u2014 only these two cross-component verbs surface, and a queued Manager\u2192Manager relationship remains the architectural representation of every delivery.",
+          "encapsulates": "Utility (restricted clientele — ch. 5): the messaging surface between Managers — deliverSignal delivers a queued Manager→Manager message; registerSchedule registers the recurring timers that fire through the SchedulerClient channel. Encapsulates the Workflow Execution Substrate volatility (B-14): Temporal today, another durable-execution substrate later — Managers never bind to a runtime API. Only Managers may call it (arch-test import rule). The substrate's execution role stays invisible: a Manager's workflow-internal durable primitives (timers, awaitSignal, child workflows) are execution substrate, not architecture edges — only these two cross-component verbs surface, and a queued Manager→Manager relationship remains the architectural representation of every delivery.",
           "encapsulatesVolatilities": [
            "Workflow Execution Substrate"
           ],
@@ -4666,67 +4666,67 @@
           "from": "project-design-manager",
           "to": "estimation-engine",
           "mode": "sync",
-          "label": "EstimateForOption(option) \u2192 {duration, buildCost, risk}"
+          "label": "EstimateForOption(option) → {duration, buildCost, risk}"
          },
          {
           "from": "project-design-manager",
           "to": "operation-estimation-engine",
           "mode": "sync",
-          "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) \u2192 {usageCostCurve}"
+          "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
          },
          {
           "from": "project-design-manager",
           "to": "billing-engine",
           "mode": "sync",
-          "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) \u2192 {commit-time hosting-charge / compute-cost projection}"
+          "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) → {commit-time hosting-charge / compute-cost projection}"
          },
          {
           "from": "construction-manager",
           "to": "intervention-engine",
           "mode": "sync",
-          "label": "DecideOnVariance(variance) \u2192 {Retry | Escalate | Takeover}"
+          "label": "DecideOnVariance(variance) → {Retry | Escalate | Takeover}"
          },
          {
           "from": "construction-manager",
           "to": "review-engine",
           "mode": "sync",
-          "label": "ProposeReviews(change, componentId, artifactKind, architectureGraph, contracts) \u2192 ReviewSet"
+          "label": "ProposeReviews(change, componentId, artifactKind, architectureGraph, contracts) → ReviewSet"
          },
          {
           "from": "operations-manager",
           "to": "intervention-engine",
           "mode": "sync",
-          "label": "DecideOnHealth(healthChange) \u2192 {Retry | Escalate}"
+          "label": "DecideOnHealth(healthChange) → {Retry | Escalate}"
          },
          {
           "from": "operations-manager",
           "to": "autoscaler-engine",
           "mode": "sync",
-          "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) \u2192 {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
+          "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
          },
          {
           "from": "operations-manager",
           "to": "operation-estimation-engine",
           "mode": "sync",
-          "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) \u2192 {currentRunRate, projectedMonthlyCost, scaleWhatIfCurve}"
+          "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) → {currentRunRate, projectedMonthlyCost, scaleWhatIfCurve}"
          },
          {
           "from": "billing-manager",
           "to": "billing-engine",
           "mode": "sync",
-          "label": "ComputeCharge(cycleUsage, terms) \u2192 {chargeAmount} / RecomputeCharge (dispute/refund correction)"
+          "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount} / RecomputeCharge (dispute/refund correction)"
          },
          {
           "from": "billing-manager",
           "to": "intervention-engine",
           "mode": "sync",
-          "label": "DecideOnBillingFailure(declinedCharge) \u2192 {Retry | Escalate | Delay}"
+          "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
          },
          {
           "from": "system-design-manager",
           "to": "project-state-access",
           "mode": "sync",
-          "label": "readProject / stage\u00b7commit\u00b7reject\u00b7withdraw typed artifact model / advancePhase"
+          "label": "readProject / stage·commit·reject·withdraw typed artifact model / advancePhase"
          },
          {
           "from": "system-design-manager",
@@ -4738,7 +4738,7 @@
           "from": "project-design-manager",
           "to": "project-state-access",
           "mode": "sync",
-          "label": "readProject / stage\u00b7commit\u00b7reject\u00b7withdraw typed Phase-2 artifact model \u00b7 commitOption \u00b7 recordSdpReviewOutcome \u00b7 recordActivityWorkItemOpened"
+          "label": "readProject / stage·commit·reject·withdraw typed Phase-2 artifact model · commitOption · recordSdpReviewOutcome · recordActivityWorkItemOpened"
          },
          {
           "from": "project-design-manager",
@@ -4786,7 +4786,7 @@
           "from": "operations-manager",
           "to": "artifact-access",
           "mode": "sync",
-          "label": "retrieveConstructionOutput(deployableBundleRef) \u2192 deployable bundle"
+          "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
          },
          {
           "from": "billing-manager",
@@ -4810,13 +4810,13 @@
           "from": "system-design-manager",
           "to": "source-control-access",
           "mode": "sync",
-          "label": "getInstallationToken(repo) \u2192 RepoCredential | openBranch(repo, sessionBranch, cred) \u2192 BranchRef"
+          "label": "getInstallationToken(repo) → RepoCredential | openBranch(repo, sessionBranch, cred) → BranchRef"
          },
          {
           "from": "project-design-manager",
           "to": "source-control-access",
           "mode": "sync",
-          "label": "getInstallationToken(repo) \u2192 RepoCredential | openBranch(repo, sessionBranch, cred) \u2192 BranchRef"
+          "label": "getInstallationToken(repo) → RepoCredential | openBranch(repo, sessionBranch, cred) → BranchRef"
          },
          {
           "from": "construction-manager",
@@ -5008,7 +5008,7 @@
           "from": "construction-manager",
           "to": "project-design-manager",
           "mode": "queued",
-          "label": "variance detected \u2192 trigger replan sweep (queued)"
+          "label": "variance detected → trigger replan sweep (queued)"
          },
          {
           "from": "system-design-manager",
@@ -5020,7 +5020,7 @@
           "from": "system-design-manager",
           "to": "design-health-engine",
           "mode": "sync",
-          "label": "EvaluateDesignHealth(project, systemModel) \u2192 findings"
+          "label": "EvaluateDesignHealth(project, systemModel) → findings"
          },
          {
           "from": "operations-manager",
@@ -5063,14 +5063,14 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "startSystemDesign(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "startSystemDesign(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject(projectId) \u2192 head-state incl. ResearchInput + committed prior slots"
+              "label": "readProject(projectId) → head-state incl. ResearchInput + committed prior slots"
              }
             ]
            },
@@ -5081,13 +5081,13 @@
               "from": "system-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "getInstallationToken(repo) \u2192 RepoCredential"
+              "label": "getInstallationToken(repo) → RepoCredential"
              },
              {
               "from": "system-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "openBranch(repo, sessionBranch, cred) \u2192 BranchRef \u2014 open the design session branch"
+              "label": "openBranch(repo, sessionBranch, cred) → BranchRef — open the design session branch"
              },
              {
               "from": "source-control-access",
@@ -5127,7 +5127,7 @@
               "from": "system-design-manager",
               "to": "design-health-engine",
               "mode": "sync",
-              "label": "EvaluateDesignHealth(draft) \u2192 findings"
+              "label": "EvaluateDesignHealth(draft) → findings"
              }
             ]
            },
@@ -5203,7 +5203,7 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitReviewDecision(projectId, artifactKind, decision, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -5215,13 +5215,13 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProjectOnBranch(projectId, sessionBranch) \u2192 staged draft + review thread (routing basis for the review action)"
+              "label": "readProjectOnBranch(projectId, sessionBranch) → staged draft + review thread (routing basis for the review action)"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "rejectArtifactOnBranchWithComments(projectId, kind, comments) \u2014 [send back change requests] arm: rejection recorded with feedback retained on the session branch"
+              "label": "rejectArtifactOnBranchWithComments(projectId, kind, comments) — [send back change requests] arm: rejection recorded with feedback retained on the session branch"
              }
             ]
            },
@@ -5232,7 +5232,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "seedReviewCommentsOnBranch(questions) \u2014 thread only, no redraft"
+              "label": "seedReviewCommentsOnBranch(questions) — thread only, no redraft"
              },
              {
               "from": "system-design-manager",
@@ -5277,7 +5277,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "withdrawArtifactOnBranch(projectId, kind) \u2014 remain at the prior step"
+              "label": "withdrawArtifactOnBranch(projectId, kind) — remain at the prior step"
              }
             ]
            },
@@ -5299,7 +5299,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "advancePhase(projectId) \u2014 Phase-1 seal"
+              "label": "advancePhase(projectId) — Phase-1 seal"
              }
             ]
            }
@@ -5331,21 +5331,21 @@
               "from": "web-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "requestSDPCommit(projectId) \u2192 assembled SDP review",
+              "label": "requestSDPCommit(projectId) → assembled SDP review",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "requestSDPCommit(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "requestSDPCommit(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 sdpReview + chosenOption"
+              "label": "readProject → sdpReview + chosenOption"
              }
             ]
            },
@@ -5377,7 +5377,7 @@
               "from": "mcp-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "submitSDPDecision(projectId, decision, optionId?, feedback?) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitSDPDecision(projectId, decision, optionId?, feedback?) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -5389,7 +5389,7 @@
               "from": "project-design-manager",
               "to": "estimation-engine",
               "mode": "sync",
-              "label": "EstimateForOption(chosenOption) \u2192 {duration, buildCost, risk} \u2014 freeze the activity network + final estimates"
+              "label": "EstimateForOption(chosenOption) → {duration, buildCost, risk} — freeze the activity network + final estimates"
              }
             ]
            },
@@ -5400,13 +5400,13 @@
               "from": "project-design-manager",
               "to": "operation-estimation-engine",
               "mode": "sync",
-              "label": "EstimateForOption(chosenOption, declaredUsageAssumptions, infrastructureKind) \u2192 {usageCostCurve}"
+              "label": "EstimateForOption(chosenOption, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
              },
              {
               "from": "project-design-manager",
               "to": "billing-engine",
               "mode": "sync",
-              "label": "ProjectCommitTimeChargeAndComputeCost(chosenOption, terms) \u2192 {commit-time projection; build-cost ceiling}"
+              "label": "ProjectCommitTimeChargeAndComputeCost(chosenOption, terms) → {commit-time projection; build-cost ceiling}"
              }
             ]
            },
@@ -5417,13 +5417,13 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "commitOption(optionId) \u00b7 recordSdpReviewOutcome(committed)"
+              "label": "commitOption(optionId) · recordSdpReviewOutcome(committed)"
              },
              {
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "recordActivityWorkItemOpened(activityId, WorkItemRef) \u2014 open construction work items"
+              "label": "recordActivityWorkItemOpened(activityId, WorkItemRef) — open construction work items"
              },
              {
               "from": "project-state-access",
@@ -5454,21 +5454,21 @@
               "from": "web-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "submitSDPDecision(revoke) \u2014 grace-window revocation",
+              "label": "submitSDPDecision(revoke) — grace-window revocation",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "submitSDPDecision(revoke) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitSDPDecision(revoke) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "recordSdpReviewOutcome(revoked) \u2014 reopen the SDP decision"
+              "label": "recordSdpReviewOutcome(revoked) — reopen the SDP decision"
              }
             ]
            },
@@ -5479,7 +5479,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "recordSdpReviewOutcome(rejectAll, feedback) \u2014 return to project design"
+              "label": "recordSdpReviewOutcome(rejectAll, feedback) — return to project design"
              }
             ]
            }
@@ -5508,7 +5508,7 @@
               "from": "construction-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 next eligible activity"
+              "label": "readProject → next eligible activity"
              },
              {
               "from": "construction-manager",
@@ -5525,13 +5525,13 @@
               "from": "construction-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "getInstallationToken(repo) \u2192 RepoCredential"
+              "label": "getInstallationToken(repo) → RepoCredential"
              },
              {
               "from": "construction-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "openBranch(repo, branch, cred, key) \u2192 BranchRef"
+              "label": "openBranch(repo, branch, cred, key) → BranchRef"
              },
              {
               "from": "source-control-access",
@@ -5560,13 +5560,13 @@
               "from": "construction-manager",
               "to": "agentic-job-access",
               "mode": "sync",
-              "label": "observeAgenticJob(pipelineId) \u2192 outcome vs exit criteria"
+              "label": "observeAgenticJob(pipelineId) → outcome vs exit criteria"
              },
              {
               "from": "construction-manager",
               "to": "artifact-access",
               "mode": "sync",
-              "label": "storeConstructionOutput(activityOutput) \u2192 OutputRef"
+              "label": "storeConstructionOutput(activityOutput) → OutputRef"
              },
              {
               "from": "artifact-access",
@@ -5595,7 +5595,7 @@
               "from": "construction-manager",
               "to": "intervention-engine",
               "mode": "sync",
-              "label": "DecideOnVariance(validation failure) \u2192 {Retry | Escalate | Takeover}"
+              "label": "DecideOnVariance(validation failure) → {Retry | Escalate | Takeover}"
              }
             ]
            },
@@ -5626,14 +5626,14 @@
               "from": "web-client",
               "to": "construction-manager",
               "mode": "sync",
-              "label": "overrideActivity(activityId, resolution) \u2014 operator resolves or takes over",
+              "label": "overrideActivity(activityId, resolution) — operator resolves or takes over",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "construction-manager",
               "mode": "sync",
-              "label": "overrideActivity(activityId, resolution) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "overrideActivity(activityId, resolution) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -5645,13 +5645,13 @@
               "from": "construction-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "openPullRequest(repo, prSpec, cred, key) \u2192 PullRequestRef"
+              "label": "openPullRequest(repo, prSpec, cred, key) → PullRequestRef"
              },
              {
               "from": "construction-manager",
               "to": "review-engine",
               "mode": "sync",
-              "label": "ProposeReviews(activityOutput, component, artifactKind, architectureGraph, contracts) \u2192 ReviewSet"
+              "label": "ProposeReviews(activityOutput, component, artifactKind, architectureGraph, contracts) → ReviewSet"
              }
             ]
            },
@@ -5662,7 +5662,7 @@
               "from": "construction-manager",
               "to": "agentic-job-access",
               "mode": "sync",
-              "label": "dispatch reviewer agentic job (reviewPrompt, change) \u2192 ReviewVerdict"
+              "label": "dispatch reviewer agentic job (reviewPrompt, change) → ReviewVerdict"
              }
             ]
            },
@@ -5690,13 +5690,13 @@
               "from": "construction-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "postReview(repo, pr, review='architecture +1', cred, key) \u2192 void"
+              "label": "postReview(repo, pr, review='architecture +1', cred, key) → void"
              },
              {
               "from": "construction-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "mergePullRequest(repo, pr, cred, key) \u2192 MergeResult"
+              "label": "mergePullRequest(repo, pr, cred, key) → MergeResult"
              }
             ]
            },
@@ -5718,7 +5718,7 @@
               "from": "construction-manager",
               "to": "intervention-engine",
               "mode": "sync",
-              "label": "DecideOnVariance(exit variance) \u2192 {Retry | Escalate | Takeover}"
+              "label": "DecideOnVariance(exit variance) → {Retry | Escalate | Takeover}"
              }
             ]
            },
@@ -5729,7 +5729,7 @@
               "from": "construction-manager",
               "to": "project-design-manager",
               "mode": "queued",
-              "label": "variance detected \u2192 trigger replan sweep (queued)"
+              "label": "variance detected → trigger replan sweep (queued)"
              }
             ]
            }
@@ -5768,7 +5768,7 @@
               "from": "mcp-client",
               "to": "operations-manager",
               "mode": "sync",
-              "label": "deployAfterConstruction(deployedAppId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "deployAfterConstruction(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -5786,13 +5786,13 @@
               "from": "operations-manager",
               "to": "artifact-access",
               "mode": "sync",
-              "label": "retrieveConstructionOutput(deployableBundleRef) \u2192 deployable bundle"
+              "label": "retrieveConstructionOutput(deployableBundleRef) → deployable bundle"
              },
              {
               "from": "operations-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject(projectRef) \u2192 deployment model (render inputs: cloud environment namespace, host, workloads, roles)"
+              "label": "readProject(projectRef) → deployment model (render inputs: cloud environment namespace, host, workloads, roles)"
              }
             ]
            },
@@ -5876,7 +5876,7 @@
               "from": "operations-manager",
               "to": "operated-system-state-access",
               "mode": "sync",
-              "label": "recordRuntimeStatusChange \u2014 only on transition"
+              "label": "recordRuntimeStatusChange — only on transition"
              },
              {
               "from": "operations-manager",
@@ -5894,7 +5894,7 @@
               "from": "operations-manager",
               "to": "intervention-engine",
               "mode": "sync",
-              "label": "DecideOnHealth(healthChange) \u2192 {Retry | Escalate}"
+              "label": "DecideOnHealth(healthChange) → {Retry | Escalate}"
              }
             ]
            },
@@ -5905,7 +5905,7 @@
               "from": "operations-manager",
               "to": "autoscaler-engine",
               "mode": "sync",
-              "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) \u2192 {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
+              "label": "ProposeDesiredState(telemetry, currentDesired, policy, infrastructureKind) → {NoChange | ScaleUp | ScaleDown | Pause | Resume}"
              }
             ]
            },
@@ -5916,7 +5916,7 @@
               "from": "operations-manager",
               "to": "operated-system-state-access",
               "mode": "sync",
-              "label": "readOperatedSystem \u2014 revision basis (current desired state + version)"
+              "label": "readOperatedSystem — revision basis (current desired state + version)"
              }
             ]
            },
@@ -5927,7 +5927,7 @@
               "from": "operations-manager",
               "to": "operated-runtime-access",
               "mode": "sync",
-              "label": "publishDesiredState(revisedManifests) \u2014 autoscaler-driven"
+              "label": "publishDesiredState(revisedManifests) — autoscaler-driven"
              }
             ]
            },
@@ -5967,7 +5967,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "readBilling(customerId) \u2192 terms + instrument binding"
+              "label": "readBilling(customerId) → terms + instrument binding"
              },
              {
               "from": "billing-state-access",
@@ -5979,7 +5979,7 @@
               "from": "billing-manager",
               "to": "usage-access",
               "mode": "sync",
-              "label": "readRange(customerId, cycleId) \u2192 compute usage"
+              "label": "readRange(customerId, cycleId) → compute usage"
              },
              {
               "from": "usage-access",
@@ -5996,7 +5996,7 @@
               "from": "billing-manager",
               "to": "billing-engine",
               "mode": "sync",
-              "label": "ComputeCharge(cycleUsage, terms) \u2192 {chargeAmount}"
+              "label": "ComputeCharge(cycleUsage, terms) → {chargeAmount}"
              }
             ]
            },
@@ -6041,7 +6041,7 @@
               "from": "billing-manager",
               "to": "intervention-engine",
               "mode": "sync",
-              "label": "DecideOnBillingFailure(declinedCharge) \u2192 {Retry | Escalate | Delay}"
+              "label": "DecideOnBillingFailure(declinedCharge) → {Retry | Escalate | Delay}"
              }
             ]
            },
@@ -6052,7 +6052,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "record persistent decline \u2014 marks the customer persistently delinquent (picked up by the shortfall sweep)"
+              "label": "record persistent decline — marks the customer persistently delinquent (picked up by the shortfall sweep)"
              }
             ]
            },
@@ -6063,7 +6063,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "settleCycle(customerId, cycleId, chargeAmount, outcome=unpaid) \u2014 close period"
+              "label": "settleCycle(customerId, cycleId, chargeAmount, outcome=unpaid) — close period"
              }
             ]
            }
@@ -6107,7 +6107,7 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "createProject(name, repo, operatingModel) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "createProject(name, repo, operatingModel) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -6119,13 +6119,13 @@
               "from": "system-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "adoptProjectRepo(repo) \u2192 RepoRef \u2014 name-as-identity"
+              "label": "adoptProjectRepo(repo) → RepoRef — name-as-identity"
              },
              {
               "from": "system-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "commitManagedFiles / syncManagedScaffold \u2014 seat the managed design workflow"
+              "label": "commitManagedFiles / syncManagedScaffold — seat the managed design workflow"
              },
              {
               "from": "source-control-access",
@@ -6142,7 +6142,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "createProject(projectId, adoptedRepo) \u2192 project head state"
+              "label": "createProject(projectId, adoptedRepo) → project head state"
              },
              {
               "from": "project-state-access",
@@ -6159,7 +6159,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "setOperatingModel(archistratorOperated) \u2014 record the platform-palette-only constraint"
+              "label": "setOperatingModel(archistratorOperated) — record the platform-palette-only constraint"
              }
             ]
            },
@@ -6184,21 +6184,21 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2192 cross-phase state \u2014 catalog listing via listProjects",
+              "label": "getProject(projectId) → cross-phase state — catalog listing via listProjects",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject / listProjects \u2192 catalog + cross-phase head state"
+              "label": "readProject / listProjects → catalog + cross-phase head state"
              }
             ]
            },
@@ -6230,14 +6230,14 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "setResearchInput(projectId, researchInput) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "setResearchInput(projectId, researchInput) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "setResearchInput(projectId, researchInput) \u2014 persisted into head state"
+              "label": "setResearchInput(projectId, researchInput) — persisted into head state"
              }
             ]
            }
@@ -6255,13 +6255,13 @@
               "from": "scheduler-client",
               "to": "billing-manager",
               "mode": "sync",
-              "label": "runShortfallSweep \u2014 the cycle's settlement charge stands declined"
+              "label": "runShortfallSweep — the cycle's settlement charge stands declined"
              },
              {
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "readPersistentlyDelinquentCustomers / readBilling \u2192 declined cycles awaiting retry"
+              "label": "readPersistentlyDelinquentCustomers / readBilling → declined cycles awaiting retry"
              }
             ]
            },
@@ -6272,7 +6272,7 @@
               "from": "billing-manager",
               "to": "intervention-engine",
               "mode": "sync",
-              "label": "DecideOnBillingFailure(declinedCharge, retryHistory) \u2192 {Retry | Escalate | Delay}"
+              "label": "DecideOnBillingFailure(declinedCharge, retryHistory) → {Retry | Escalate | Delay}"
              }
             ]
            },
@@ -6283,13 +6283,13 @@
               "from": "billing-manager",
               "to": "merchant-gateway-access",
               "mode": "sync",
-              "label": "chargeCustomer(cycleCharge) \u2014 same settlement idempotency key settle:{customerId}:{cycleId}"
+              "label": "chargeCustomer(cycleCharge) — same settlement idempotency key settle:{customerId}:{cycleId}"
              },
              {
               "from": "merchant-gateway-access",
               "to": "merchant-gateway",
               "mode": "sync",
-              "label": "charge (idempotent retry \u2014 same Stripe Idempotency-Key)"
+              "label": "charge (idempotent retry — same Stripe Idempotency-Key)"
              }
             ]
            },
@@ -6300,7 +6300,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "resettleCycle(customerId, cycleId, chargeAmount, outcome=paid) \u2014 the declined cycle closes settled"
+              "label": "resettleCycle(customerId, cycleId, chargeAmount, outcome=paid) — the declined cycle closes settled"
              },
              {
               "from": "billing-state-access",
@@ -6317,7 +6317,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "record the sweep outcome \u2014 shortfall left for the next scheduled sweep (within tolerance)"
+              "label": "record the sweep outcome — shortfall left for the next scheduled sweep (within tolerance)"
              }
             ]
            },
@@ -6373,14 +6373,14 @@
               "from": "mcp-client",
               "to": "billing-manager",
               "mode": "sync",
-              "label": "onboardPaymentIntegration(deployedAppId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "onboardPaymentIntegration(deployedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "readBilling(deployedAppId) \u2192 resolve the owning customer aggregate + terms"
+              "label": "readBilling(deployedAppId) → resolve the owning customer aggregate + terms"
              },
              {
               "from": "billing-state-access",
@@ -6418,14 +6418,14 @@
               "from": "mcp-client",
               "to": "billing-manager",
               "mode": "sync",
-              "label": "registerCustomer(customerId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "registerCustomer(customerId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "billing-manager",
               "to": "merchant-gateway-access",
               "mode": "sync",
-              "label": "validateStoredInstrument(customerId) \u2014 zero-amount registration authorization"
+              "label": "validateStoredInstrument(customerId) — zero-amount registration authorization"
              },
              {
               "from": "merchant-gateway-access",
@@ -6442,7 +6442,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "registerCustomer(customerId, profile) \u2014 open the billing aggregate (Conflict loop)"
+              "label": "registerCustomer(customerId, profile) — open the billing aggregate (Conflict loop)"
              },
              {
               "from": "billing-state-access",
@@ -6459,7 +6459,7 @@
               "from": "billing-manager",
               "to": "billing-state-access",
               "mode": "sync",
-              "label": "bindGatewayLive(customerId, expectedVersion, binding) \u2014 flip GatewayBound (charge-only: the gateway reference is the customer's stable id)"
+              "label": "bindGatewayLive(customerId, expectedVersion, binding) — flip GatewayBound (charge-only: the gateway reference is the customer's stable id)"
              },
              {
               "from": "billing-state-access",
@@ -6476,7 +6476,7 @@
               "from": "billing-manager",
               "to": "message-bus",
               "mode": "sync",
-              "label": "registerSchedule(closeBillingCycle:<customerId>) \u2014 recurring settlement cycle (idempotent by schedule id)"
+              "label": "registerSchedule(closeBillingCycle:<customerId>) — recurring settlement cycle (idempotent by schedule id)"
              }
             ]
            }
@@ -6513,27 +6513,27 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getDesignHealth(projectId) \u2014 re-validate decomposition + volatilities against the new use case",
+              "label": "getDesignHealth(projectId) — re-validate decomposition + volatilities against the new use case",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getDesignHealth(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getDesignHealth(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 committed volatilities + system model (revalidation basis)"
+              "label": "readProject → committed volatilities + system model (revalidation basis)"
              },
              {
               "from": "system-design-manager",
               "to": "design-health-engine",
               "mode": "sync",
-              "label": "EvaluateDesignHealth(project, systemModel) \u2192 findings (does the architecture absorb the use case?)"
+              "label": "EvaluateDesignHealth(project, systemModel) → findings (does the architecture absorb the use case?)"
              }
             ]
            },
@@ -6544,21 +6544,21 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "requestArtifactDraft(projectId, kind=useCases, feedback: the captured use case) \u2014 reopen the committed slot as an amendment session",
+              "label": "requestArtifactDraft(projectId, kind=useCases, feedback: the captured use case) — reopen the committed slot as an amendment session",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "requestArtifactDraft(projectId, kind=useCases) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "requestArtifactDraft(projectId, kind=useCases) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 committed use-case model (amendment basis)"
+              "label": "readProject → committed use-case model (amendment basis)"
              }
             ]
            },
@@ -6602,7 +6602,7 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "submitReviewDecision(projectId, useCases, approve) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitReviewDecision(projectId, useCases, approve) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -6614,7 +6614,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "commitArtifactWithProvenance(useCases) \u2014 re-commit bumps the revision; downstream committed artifacts flagged stale"
+              "label": "commitArtifactWithProvenance(useCases) — re-commit bumps the revision; downstream committed artifacts flagged stale"
              },
              {
               "from": "project-state-access",
@@ -6631,7 +6631,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "reconcileBranchFromMain / amend the stale slot, or acknowledgeStaleBasis('reviewed \u2014 unaffected') (audited acknowledgement)"
+              "label": "reconcileBranchFromMain / amend the stale slot, or acknowledgeStaleBasis('reviewed — unaffected') (audited acknowledgement)"
              }
             ]
            },
@@ -6642,7 +6642,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "record the scope-change replan trigger (new components / activities) \u2014 picked up by the scheduled replan sweep (scheduler \u2192 cm runReplanSweep \u2192 queued cm\u2192pdm \u2192 var-replan-scope-change rebuilds the options and recommends the new SDP review)"
+              "label": "record the scope-change replan trigger (new components / activities) — picked up by the scheduled replan sweep (scheduler → cm runReplanSweep → queued cm→pdm → var-replan-scope-change rebuilds the options and recommends the new SDP review)"
              }
             ]
            }
@@ -6660,7 +6660,7 @@
               "from": "construction-manager",
               "to": "project-design-manager",
               "mode": "queued",
-              "label": "variance detected \u2192 trigger replan sweep (queued)"
+              "label": "variance detected → trigger replan sweep (queued)"
              }
             ]
            },
@@ -6671,7 +6671,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "record the scope trigger (captured \u2014 never answered in the room)"
+              "label": "record the scope trigger (captured — never answered in the room)"
              }
             ]
            },
@@ -6682,13 +6682,13 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 activity exits, float consumed (construction continues against the current network)"
+              "label": "readProject → activity exits, float consumed (construction continues against the current network)"
              },
              {
               "from": "project-design-manager",
               "to": "estimation-engine",
               "mode": "sync",
-              "label": "ComputeEarnedValue \u2192 snapshot the earned-value trend at replan entry"
+              "label": "ComputeEarnedValue → snapshot the earned-value trend at replan entry"
              }
             ]
            },
@@ -6699,7 +6699,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "record the routing: not a scope change \u2014 returned to system design (architecture-change path)"
+              "label": "record the routing: not a scope change — returned to system design (architecture-change path)"
              }
             ]
            },
@@ -6710,13 +6710,13 @@
               "from": "project-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "getInstallationToken(repo) \u2192 RepoCredential"
+              "label": "getInstallationToken(repo) → RepoCredential"
              },
              {
               "from": "project-design-manager",
               "to": "source-control-access",
               "mode": "sync",
-              "label": "openBranch(repo, sessionBranch, cred) \u2192 BranchRef \u2014 open the Phase-2 amendment session branch"
+              "label": "openBranch(repo, sessionBranch, cred) → BranchRef — open the Phase-2 amendment session branch"
              },
              {
               "from": "source-control-access",
@@ -6745,19 +6745,19 @@
               "from": "project-design-manager",
               "to": "estimation-engine",
               "mode": "sync",
-              "label": "EstimateForOption(each rebuilt option) \u2192 {duration, buildCost, risk} \u2014 normal \u00b7 decompressed \u00b7 subcritical \u00b7 compressed"
+              "label": "EstimateForOption(each rebuilt option) → {duration, buildCost, risk} — normal · decompressed · subcritical · compressed"
              },
              {
               "from": "project-design-manager",
               "to": "operation-estimation-engine",
               "mode": "sync",
-              "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) \u2192 {usageCostCurve}"
+              "label": "EstimateForOption(option, declaredUsageAssumptions, infrastructureKind) → {usageCostCurve}"
              },
              {
               "from": "project-design-manager",
               "to": "billing-engine",
               "mode": "sync",
-              "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) \u2192 revised commit-time projection"
+              "label": "ProjectCommitTimeChargeAndComputeCost(option, terms) → revised commit-time projection"
              }
             ]
            },
@@ -6782,14 +6782,14 @@
               "from": "web-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "requestSDPCommit(projectId) \u2192 revised SDP review with deltas",
+              "label": "requestSDPCommit(projectId) → revised SDP review with deltas",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "requestSDPCommit(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "requestSDPCommit(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
@@ -6828,7 +6828,7 @@
               "from": "mcp-client",
               "to": "project-design-manager",
               "mode": "sync",
-              "label": "submitSDPDecision(projectId, revisionDecision) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitSDPDecision(projectId, revisionDecision) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -6840,7 +6840,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "commitOption(revisedOptionId) \u00b7 recordSdpReviewOutcome(committed \u2014 revision adopted; planned earned-value curve reset)"
+              "label": "commitOption(revisedOptionId) · recordSdpReviewOutcome(committed — revision adopted; planned earned-value curve reset)"
              },
              {
               "from": "project-state-access",
@@ -6857,7 +6857,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "recordSdpReviewOutcome(rejected) \u2014 the current commitment stands"
+              "label": "recordSdpReviewOutcome(rejected) — the current commitment stands"
              }
             ]
            },
@@ -6868,7 +6868,7 @@
               "from": "project-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "recordSdpReviewOutcome(deferred, decisionDate) \u2014 project flagged at-risk while deferred"
+              "label": "recordSdpReviewOutcome(deferred, decisionDate) — project flagged at-risk while deferred"
              }
             ]
            }
@@ -6900,14 +6900,14 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2192 weekly tracking read model",
+              "label": "getProject(projectId) → weekly tracking read model",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -6919,7 +6919,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 binary activity exits + phase transitions (activityConstruction ledger)"
+              "label": "readProject → binary activity exits + phase transitions (activityExecution ledger)"
              }
             ]
            },
@@ -6930,7 +6930,7 @@
               "from": "system-design-manager",
               "to": "estimation-engine",
               "mode": "sync",
-              "label": "ComputeEarnedValue(exits, committedNetwork) \u2192 the week's earned-value point (compute-at-read)"
+              "label": "ComputeEarnedValue(exits, committedNetwork) → the week's earned-value point (compute-at-read)"
              }
             ]
            },
@@ -6941,7 +6941,7 @@
               "from": "system-design-manager",
               "to": "estimation-engine",
               "mode": "sync",
-              "label": "ComputeEarnedValue \u2192 estimate-at-completion + schedule trend (four or more recorded points)"
+              "label": "ComputeEarnedValue → estimate-at-completion + schedule trend (four or more recorded points)"
              }
             ]
            },
@@ -6952,7 +6952,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "record the week's point without a trend (fewer than four points \u2014 no EAC projected)"
+              "label": "record the week's point without a trend (fewer than four points — no EAC projected)"
              }
             ]
            },
@@ -7012,14 +7012,14 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2192 cross-phase head state (the history surface's basis)",
+              "label": "getProject(projectId) → cross-phase head state (the history surface's basis)",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getProject(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getProject(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -7031,7 +7031,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "read the state repo's commit log \u2014 one commit per mutation, message naming its operation (gross terms; contract earmark F2a)"
+              "label": "read the state repo's commit log — one commit per mutation, message naming its operation (gross terms; contract earmark F2a)"
              },
              {
               "from": "project-state-access",
@@ -7048,7 +7048,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "read the applied-mutations ledger \u2014 idempotent applies cross-referenced to commits (gross terms; contract earmark F2a)"
+              "label": "read the applied-mutations ledger — idempotent applies cross-referenced to commits (gross terms; contract earmark F2a)"
              }
             ]
            },
@@ -7059,7 +7059,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProjectVersion / read the typed state at the chosen commit and its parent \u2014 diff basis (gross terms; contract earmark F2a)"
+              "label": "readProjectVersion / read the typed state at the chosen commit and its parent — diff basis (gross terms; contract earmark F2a)"
              }
             ]
            }
@@ -7091,21 +7091,21 @@
               "from": "web-client",
               "to": "construction-manager",
               "mode": "sync",
-              "label": "getSessionState(projectId) \u2192 merged activities + adopted-repo location",
+              "label": "getSessionState(projectId) → merged activities + adopted-repo location",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "construction-manager",
               "mode": "sync",
-              "label": "getSessionState(projectId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getSessionState(projectId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "construction-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 adopted repo ref + merged-activity ledger"
+              "label": "readProject → adopted repo ref + merged-activity ledger"
              }
             ]
            }
@@ -7137,14 +7137,14 @@
               "from": "web-client",
               "to": "operations-manager",
               "mode": "sync",
-              "label": "queryOperatedSystemView(operatedAppId) \u2192 operations console view",
+              "label": "queryOperatedSystemView(operatedAppId) → operations console view",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "operations-manager",
               "mode": "sync",
-              "label": "queryOperatedSystemView(operatedAppId) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "queryOperatedSystemView(operatedAppId) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -7177,14 +7177,14 @@
               "from": "mcp-client",
               "to": "operations-manager",
               "mode": "sync",
-              "label": "queryCostProjection(operatedAppId, requestId, scaleWhatIfPoints) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "queryCostProjection(operatedAppId, requestId, scaleWhatIfPoints) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "operations-manager",
               "to": "operated-system-state-access",
               "mode": "sync",
-              "label": "readOperatedSystem(operatedAppId) \u2014 registered/operated? (guard basis for app-known)"
+              "label": "readOperatedSystem(operatedAppId) — registered/operated? (guard basis for app-known)"
              }
             ]
            },
@@ -7195,7 +7195,7 @@
               "from": "operations-manager",
               "to": "usage-access",
               "mode": "sync",
-              "label": "readRange(operatedAppId, currentCycle) \u2192 observed compute usage"
+              "label": "readRange(operatedAppId, currentCycle) → observed compute usage"
              },
              {
               "from": "usage-access",
@@ -7212,7 +7212,7 @@
               "from": "operations-manager",
               "to": "operation-estimation-engine",
               "mode": "sync",
-              "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) \u2192 {currentRunRate, projectedMonthlyCost, whatIfCurve}"
+              "label": "ProjectForOperatedApp(observedUsage, infrastructureKind, scaleWhatIfPoints) → {currentRunRate, projectedMonthlyCost, whatIfCurve}"
              }
             ]
            },
@@ -7223,7 +7223,7 @@
               "from": "operations-manager",
               "to": "operated-system-state-access",
               "mode": "sync",
-              "label": "readInFlightOperatedApps \u2192 lastKnownStatus (health + SLO rendered beside the projection)"
+              "label": "readInFlightOperatedApps → lastKnownStatus (health + SLO rendered beside the projection)"
              }
             ]
            }
@@ -7262,14 +7262,14 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "askQuestions(projectId, kind, addressee, questions) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "askQuestions(projectId, kind, addressee, questions) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProject \u2192 artifact review state (routing basis: live session vs committed)"
+              "label": "readProject → artifact review state (routing basis: live session vs committed)"
              }
             ]
            },
@@ -7280,7 +7280,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "seedReviewCommentsOnBranch(sessionBranch, kind, round, questions) \u2014 question-type entries appended to the durable review thread"
+              "label": "seedReviewCommentsOnBranch(sessionBranch, kind, round, questions) — question-type entries appended to the durable review thread"
              }
             ]
            },
@@ -7291,7 +7291,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "seedReviewCommentsOnBranch(main, kind, round, questions) \u2014 question-only thread on the committed artifact; no amendment session opens"
+              "label": "seedReviewCommentsOnBranch(main, kind, round, questions) — question-only thread on the committed artifact; no amendment session opens"
              },
              {
               "from": "project-state-access",
@@ -7314,7 +7314,7 @@
               "from": "system-design-manager",
               "to": "agentic-job-access",
               "mode": "sync",
-              "label": "observeAgenticJob \u2192 answer outcome (guard basis for answer-ran)"
+              "label": "observeAgenticJob → answer outcome (guard basis for answer-ran)"
              }
             ]
            },
@@ -7336,7 +7336,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "record the dispatch miss \u2014 questions stay open; the addressee can be re-prompted (gross terms)"
+              "label": "record the dispatch miss — questions stay open; the addressee can be re-prompted (gross terms)"
              }
             ]
            },
@@ -7347,7 +7347,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "readProjectOnBranch \u2192 open-question tally (warns at the approve gate; never blocks it)"
+              "label": "readProjectOnBranch → open-question tally (warns at the approve gate; never blocks it)"
              }
             ]
            }
@@ -7391,7 +7391,7 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "submitReviewDecision(projectId, kind, sendBack) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "submitReviewDecision(projectId, kind, sendBack) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -7403,7 +7403,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "rejectArtifactOnBranchWithComments(projectId, kind, notes, round, comments) \u2014 rejection recorded with the thread retained on the session branch (F28 feedback retention)"
+              "label": "rejectArtifactOnBranchWithComments(projectId, kind, notes, round, comments) — rejection recorded with the thread retained on the session branch (F28 feedback retention)"
              }
             ]
            },
@@ -7425,7 +7425,7 @@
               "from": "system-design-manager",
               "to": "agentic-job-access",
               "mode": "sync",
-              "label": "observe the redraft job \u2014 the drafting agent records a per-comment response in the thread"
+              "label": "observe the redraft job — the drafting agent records a per-comment response in the thread"
              }
             ]
            },
@@ -7436,7 +7436,7 @@
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "stageArtifactForReviewOnBranch(projectId, kind, amended draft) \u2014 re-staged for review"
+              "label": "stageArtifactForReviewOnBranch(projectId, kind, amended draft) — re-staged for review"
              }
             ]
            },
@@ -7461,14 +7461,14 @@
               "from": "web-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getSessionState(projectId, kind) \u2192 staged draft + review thread",
+              "label": "getSessionState(projectId, kind) → staged draft + review thread",
               "alt": "s2"
              },
              {
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "getSessionState(projectId, kind) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "getSessionState(projectId, kind) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              }
             ]
@@ -7487,14 +7487,14 @@
               "from": "mcp-client",
               "to": "system-design-manager",
               "mode": "sync",
-              "label": "setReviewCommentStatus(projectId, kind, commentId, resolved) \u2014 MCP surface, same Manager entry (R4 cross-surface equivalence)",
+              "label": "setReviewCommentStatus(projectId, kind, commentId, resolved) — MCP surface, same Manager entry (R4 cross-surface equivalence)",
               "alt": "s2"
              },
              {
               "from": "system-design-manager",
               "to": "project-state-access",
               "mode": "sync",
-              "label": "setReviewCommentStatusOnBranch(commentId, resolved) \u2014 comments closed; approve unblocked"
+              "label": "setReviewCommentStatusOnBranch(commentId, resolved) — comments closed; approve unblocked"
              }
             ]
            }
@@ -7503,16 +7503,16 @@
         ],
         "waivers": [
          {
-          "section": "\u00a72d",
-          "guideline": "Golden Engines-to-Managers ratio \u2014 fewer Engines than Managers (the book's expectation).",
+          "section": "§2d",
+          "guideline": "Golden Engines-to-Managers ratio — fewer Engines than Managers (the book's expectation).",
           "status": "waived",
-          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 7 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. design-health-engine joined the Engine set 2026-08-01 (founder ruling R-F: its call carries the ci-check business verdict in uc1's chain \u2014 an evaluation Strategy, not ambient infrastructure); its 1:1 relationship holds as a shared System Design Phase Workflow facet with the Manager (workflow choreography vs rule evaluation). Re-evaluate at the next scope-change replan."
+          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 7 Engines against 5 Managers still inverts the book's ~3-for-5 ratio. HandOffEngine was retired (hand-off policy folded into Review Policy / ReviewEngine). Remaining consolidation candidates examined and rejected: EstimationEngine + OperationEstimationEngine encapsulate two independently-evolving estimation models with disjoint caller sets; InterventionEngine + AutoscalerEngine encapsulate distinct policies with different reuse profiles. Each of the 7 Engines has a 1:1 volatility-to-encapsulator relationship. design-health-engine joined the Engine set 2026-08-01 (founder ruling R-F: its call carries the ci-check business verdict in uc1's chain — an evaluation Strategy, not ambient infrastructure); its 1:1 relationship holds as a shared System Design Phase Workflow facet with the Manager (workflow choreography vs rule evaluation). Re-evaluate at the next scope-change replan."
          },
          {
-          "section": "\u00a7naming",
+          "section": "§naming",
           "guideline": "Engine names are gerunds (ch. 3 naming rule: gerund + Engine suffix, e.g. MatchingEngine).",
           "status": "waived",
-          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 6 of 7 Engines are noun-named rather than gerund-named (EstimationEngine, OperationEstimationEngine, InterventionEngine, AutoscalerEngine, ReviewEngine, DesignHealthEngine; only BillingEngine conforms). The rule is a readability convention, not a structural one. Renaming cascades through component ids, serviceContracts keys, and Go packages while construction is active \u2014 apply gerund names opportunistically whenever an architectural change next touches a given Engine's contract."
+          "justification": "WAIVED (Refreshed 2026-07-22 (reconciliation)): 6 of 7 Engines are noun-named rather than gerund-named (EstimationEngine, OperationEstimationEngine, InterventionEngine, AutoscalerEngine, ReviewEngine, DesignHealthEngine; only BillingEngine conforms). The rule is a readability convention, not a structural one. Renaming cascades through component ids, serviceContracts keys, and Go packages while construction is active — apply gerund names opportunistically whenever an architectural change next touches a given Engine's contract."
          }
         ],
         "attestations": [
@@ -7520,61 +7520,61 @@
           "section": "Prime Directive",
           "guideline": "Never design against requirements; design against volatility.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: decomposition follows the 19-item volatilities slot; no component is named after a feature, use case, or domain noun; every component blurb cites its volatility. Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22: decomposition follows the 19-item volatilities slot; no component is named after a feature, use case, or domain noun; every component blurb cites its volatility. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
           "section": "Directive 1",
-          "guideline": "Avoid functional decomposition \u2014 no container or component named after a feature.",
+          "guideline": "Avoid functional decomposition — no container or component named after a feature.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: component roster contains no feature-named containers (no *Processing, *Reporting, per-use-case services). Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22: component roster contains no feature-named containers (no *Processing, *Reporting, per-use-case services). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
           "section": "Directive 2",
-          "guideline": "Decompose based on volatility \u2014 every component cites a volatilities entry.",
+          "guideline": "Decompose based on volatility — every component cites a volatilities entry.",
           "status": "pass",
-          "justification": "Refreshed 2026-07-22 (reconciliation): every Manager, Engine, and ResourceAccess carries an encapsulates citation into the 19-item volatilities slot; Customer Interaction Channel is bound by the three Client components and Customer App Infrastructure is owned by OperatedRuntimeAccess (recorded in both the volatility rationale and the component blurb). Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Refreshed 2026-07-22 (reconciliation): every Manager, Engine, and ResourceAccess carries an encapsulates citation into the 19-item volatilities slot; Customer Interaction Channel is bound by the three Client components and Customer App Infrastructure is owned by OperatedRuntimeAccess (recorded in both the volatility rationale and the component blurb). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
           "section": "Directive 3",
-          "guideline": "Composable design \u2014 non-core use cases trace through existing components without modification.",
+          "guideline": "Composable design — non-core use cases trace through existing components without modification.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: all 11 non-core variations trace through existing components without modification \u2014 each carries its own step-keyed dynamic-view realization in the committed System (the founder's total-coverage extension), none required a new component. Smallest-set (ch. 4) extension, attested 2026-07-30: at 37 components the roster still exceeds the book's dozen-or-two guidance, but the smallest-set discipline was applied directly in the 2026-07-22 reconciliation that consolidated 43\u219237 (HandOffEngine cut; the four facet ResourceAccess folded into ProjectStateAccess; RevenueLedgerAccess folded into BillingStateAccess) \u2014 each cut a diminishing-returns judgment that a separate component encapsulated no distinct volatility. The residual size is consciously carried by the \u00a72d ratio waiver, and further shrink awaits subsystem partitioning. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language \u2014 all 16 dynamic views (core + variation) now carry realized step tables, none required a new component."
+          "justification": "Attested 2026-07-22: all 11 non-core variations trace through existing components without modification — each carries its own step-keyed dynamic-view realization in the committed System (the founder's total-coverage extension), none required a new component. Smallest-set (ch. 4) extension, attested 2026-07-30: at 37 components the roster still exceeds the book's dozen-or-two guidance, but the smallest-set discipline was applied directly in the 2026-07-22 reconciliation that consolidated 43→37 (HandOffEngine cut; the four facet ResourceAccess folded into ProjectStateAccess; RevenueLedgerAccess folded into BillingStateAccess) — each cut a diminishing-returns judgment that a separate component encapsulated no distinct volatility. The residual size is consciously carried by the §2d ratio waiver, and further shrink awaits subsystem partitioning. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language — all 16 dynamic views (core + variation) now carry realized step tables, none required a new component."
          },
          {
           "section": "Directive 4",
-          "guideline": "Features as integration, not implementation \u2014 no Manager named for a feature.",
+          "guideline": "Features as integration, not implementation — no Manager named for a feature.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: the 5 Managers are named for phase workflow families, not features; features arrive as integration (new step-keyed realizations), not new components. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language \u2014 the coverage reconciliation's two retroactive activities (C-AA, C-DH) and the align-up rail calls are both integration onto existing components, not new ones."
+          "justification": "Attested 2026-07-22: the 5 Managers are named for phase workflow families, not features; features arrive as integration (new step-keyed realizations), not new components. Re-staged 2026-08-01 (Task 11 design amendment): wording updated to step-keyed realization language — the coverage reconciliation's two retroactive activities (C-AA, C-DH) and the align-up rail calls are both integration onto existing components, not new ones."
          },
          {
           "section": "Directive 5",
           "guideline": "Design iteratively, build incrementally.",
           "status": "pass",
-          "justification": "Attested 2026-07-22 (Phase-1 half): design IS iterative here \u2014 the draft\u2192critique\u2192review\u2192amend loop with staleness propagation is the mechanism; the build-incrementally half is Phase-3's. Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22 (Phase-1 half): design IS iterative here — the draft→critique→review→amend loop with staleness propagation is the mechanism; the build-incrementally half is Phase-3's. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
-          "section": "\u00a73a",
+          "section": "§3a",
           "guideline": "Volatility decreases top-down through the layers.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: volatility decreases top-down \u2014 Managers encapsulate workflow choreography (most volatile), Engines policies/models, ResourceAccess substrate mechanics, Resources/Utilities the most stable. Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22: volatility decreases top-down — Managers encapsulate workflow choreography (most volatile), Engines policies/models, ResourceAccess substrate mechanics, Resources/Utilities the most stable. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
-          "section": "\u00a73b",
-          "guideline": "Reuse increases top-down \u2014 Utilities most reusable, Managers single-purpose.",
+          "section": "§3b",
+          "guideline": "Reuse increases top-down — Utilities most reusable, Managers single-purpose.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: reuse increases top-down \u2014 Utilities serve any system, RAs serve multiple Managers (projectState 3, sourceControlAccess 3), Managers are single-purpose. Re-staged 2026-08-01 (Task 11 design amendment): the earlier \"durableExecution 4\" RA multi-service example is stale \u2014 durableExecutionAccess was reclassified to the message-bus Utility at the Task 7b reconciliation (founder ruling R-F) and no longer sits in the ResourceAccess layer; replaced with the two live RA examples the align-up batch itself just confirmed exercised by 3 Managers apiece (projectStateAccess: system-design-manager, project-design-manager, construction-manager; sourceControlAccess: the same three, post align-up)."
+          "justification": "Attested 2026-07-22: reuse increases top-down — Utilities serve any system, RAs serve multiple Managers (projectState 3, sourceControlAccess 3), Managers are single-purpose. Re-staged 2026-08-01 (Task 11 design amendment): the earlier \"durableExecution 4\" RA multi-service example is stale — durableExecutionAccess was reclassified to the message-bus Utility at the Task 7b reconciliation (founder ruling R-F) and no longer sits in the ResourceAccess layer; replaced with the two live RA examples the align-up batch itself just confirmed exercised by 3 Managers apiece (projectStateAccess: system-design-manager, project-design-manager, construction-manager; sourceControlAccess: the same three, post align-up)."
          },
          {
-          "section": "\u00a73c",
+          "section": "§3c",
           "guideline": "Do not encapsulate nature-of-business changes.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: no nature-of-business change is encapsulated \u2014 the rejected ledger records Work Tracking as descoped rather than encapsulating an external-tracker business we are not in. Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22: no nature-of-business change is encapsulated — the rejected ledger records Work Tracking as descoped rather than encapsulating an external-tracker business we are not in. Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          },
          {
-          "section": "\u00a73d",
-          "guideline": "Managers should be almost expendable \u2014 all Engines, RA, Resources, and Utilities survive a Manager rewrite.",
+          "section": "§3d",
+          "guideline": "Managers should be almost expendable — all Engines, RA, Resources, and Utilities survive a Manager rewrite.",
           "status": "pass",
-          "justification": "Attested 2026-07-22: Managers are almost expendable \u2014 every Engine, RA, Resource, and Utility survives any single Manager rewrite (zero Engine/RA edges point at Managers). Re-staged 2026-08-01 (Task 11 design amendment \u2014 call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
+          "justification": "Attested 2026-07-22: Managers are almost expendable — every Engine, RA, Resource, and Utility survives any single Manager rewrite (zero Engine/RA edges point at Managers). Re-staged 2026-08-01 (Task 11 design amendment — call-chain realization, steps model, coverage reconciliation, align-up rail calls): unaffected."
          }
         ]
        }
@@ -7652,9 +7652,9 @@
          }
         ],
         "trustSummaries": {
-         "billing": "We meter only what your running app consumes; that is the sole basis of your bill today \u2014 and we never touch the revenue your app earns from its users.",
+         "billing": "We meter only what your running app consumes; that is the sole basis of your bill today — and we never touch the revenue your app earns from its users.",
          "usageMetering": "An append-only record captures exactly what your running app consumed; you can read it at any time, and it is the only input to your invoice.",
-         "dataOwnership": "Your entire project \u2014 its state, design artifacts, and source \u2014 lives in your own git repository. You can export it or leave at any time."
+         "dataOwnership": "Your entire project — its state, design artifacts, and source — lives in your own git repository. You can export it or leave at any time."
         },
         "deployment": {
          "deliveryStyle": "cloud",
@@ -7662,7 +7662,7 @@
           {
            "key": "archistrator-server",
            "name": "archistrator-server",
-           "technology": "Go \u00b7 distroless",
+           "technology": "Go · distroless",
            "description": "Archistrator Go server: HTTP API + /mcp tool surface + embedded Temporal worker + all Managers/Engines/ResourceAccess seams",
            "components": [
             "MCPClient",
@@ -7698,7 +7698,7 @@
           {
            "key": "archistrator-webapp",
            "name": "archistrator SPA",
-           "technology": "TypeScript \u00b7 React",
+           "technology": "TypeScript · React",
            "description": "The design experience the architect uses in their browser. Delivered as static assets and executed client-side.",
            "components": [
             "WebClient"
@@ -7745,7 +7745,7 @@
               {
                "key": "cloud-ext-agent-harness",
                "name": "Claude Code",
-               "technology": "Anthropic CLI \u00b7 MCP client",
+               "technology": "Anthropic CLI · MCP client",
                "description": "The agent surface: the same API reached as generated MCP tools rather than through the browser.",
                "tags": [],
                "role": "agentHarness"
@@ -7816,7 +7816,7 @@
                 {
                  "key": "cloud-infra-operatedsystemstate",
                  "name": "OperatedSystemState",
-                 "technology": "CloudNativePG \u00b7 Postgres 16",
+                 "technology": "CloudNativePG · Postgres 16",
                  "description": "operated-system rows on the shared archistrator-postgres cluster",
                  "tags": [],
                  "role": "database"
@@ -7824,7 +7824,7 @@
                 {
                  "key": "cloud-infra-billingstate",
                  "name": "BillingState",
-                 "technology": "CloudNativePG \u00b7 Postgres 16",
+                 "technology": "CloudNativePG · Postgres 16",
                  "description": "billing head-state rows on the shared archistrator-postgres cluster",
                  "tags": [],
                  "role": "database"
@@ -7832,8 +7832,8 @@
                 {
                  "key": "cloud-infra-usagelog",
                  "name": "UsageLog",
-                 "technology": "CloudNativePG \u00b7 Postgres 16",
-                 "description": "The append-only record of exactly what a running app consumed \u2014 the only thing the customer is billed on, readable by them at any time (engineer tier: CloudNativePG Postgres on the shared cluster).",
+                 "technology": "CloudNativePG · Postgres 16",
+                 "description": "The append-only record of exactly what a running app consumed — the only thing the customer is billed on, readable by them at any time (engineer tier: CloudNativePG Postgres on the shared cluster).",
                  "tags": [],
                  "role": "database"
                 }
@@ -7866,7 +7866,7 @@
                "key": "cloud-node-ns-gtd",
                "name": "gtd namespace",
                "technology": "k8s-namespace",
-               "description": "example operated-system namespace \u2014 a customer app deployed and operated by the platform",
+               "description": "example operated-system namespace — a customer app deployed and operated by the platform",
                "instances": 0,
                "tags": [],
                "children": [],
@@ -7911,7 +7911,7 @@
                "key": "cloud-ext-projectgitrepo",
                "name": "ProjectGitRepo",
                "technology": "GitHub",
-               "description": "The customer's own repository \u2014 the sole store of their project state and source.",
+               "description": "The customer's own repository — the sole store of their project state and source.",
                "tags": [],
                "role": "sourceControl"
               },
@@ -8367,8 +8367,8 @@
               {
                "key": "local-node-server-process",
                "name": "archistrator-server (child process)",
-               "technology": "Go \u00b7 127.0.0.1:8877",
-               "description": "binds loopback directly \u2014 no gateway and no identity provider are present locally",
+               "technology": "Go · 127.0.0.1:8877",
+               "description": "binds loopback directly — no gateway and no identity provider are present locally",
                "instances": 1,
                "tags": [],
                "children": [],
@@ -8421,7 +8421,7 @@
               {
                "key": "local-infra-absent",
                "name": "Not present locally",
-               "technology": "no Postgres \u00b7 no Keycloak \u00b7 no GitHub App \u00b7 no platform-held LLM key",
+               "technology": "no Postgres · no Keycloak · no GitHub App · no platform-held LLM key",
                "description": "The local profile designs and constructs; it does not operate or bill, so the operate/bill stores and the identity provider are deliberately absent.",
                "tags": [],
                "role": "other"
@@ -8437,7 +8437,7 @@
              "from": "local-infra-static-assets",
              "to": "local-ci-spa-browser",
              "label": "Serves the SPA to the developer's browser",
-             "technology": "HTTP \u00b7 127.0.0.1:8877",
+             "technology": "HTTP · 127.0.0.1:8877",
              "mode": "sync"
             },
             {
@@ -8974,7 +8974,7 @@
          "computeMarkupPercent": 0,
          "schedule": 1
         },
-        "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action \u2014 the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge \u2014 the platform bills the user a usage-based HOSTING fee only (DEPLOYED \u2014 OPERATED scenario); no flat subscription; no revenue share; no charge for construction or LLM work; revenueShare=0 (no payout; the old merchant-of-record / revenue-share model was reversed). computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
+        "notes": "Team: solo founder (bus-factor-1) + up to 3 concurrent Claude agent streams (architect/PM/product-manager/specialist roles). Founder works ~2 effective days/week (40% of nominal). Parallelism cap: 3 in-flight agent streams; beyond that, founder review quality degrades. Infrastructure: Go + Temporal + Postgres (CNPG for Temporal + billing head-state only; project state is JSON-in-git with git-ref CAS). Construction CI is the user's own GitHub Actions running claude-code-action — the platform holds no LLM key and does not charge for construction. Billing model (2026-06-09 MoR-reversal): pure one-directional vendor charge — the platform bills the user a usage-based HOSTING fee only (DEPLOYED — OPERATED scenario); no flat subscription; no revenue share; no charge for construction or LLM work; revenueShare=0 (no payout; the old merchant-of-record / revenue-share model was reversed). computeCost=2 (tieredFloors: tier floors + free-tier subsidies per ServicePricing strategy); schedule=1 (monthly billing period). Risk flags: bus-factor-1; founder availability variable (2d/wk); operated runtime unchosen; durable execution platform unchosen; git-as-project-state-store novelty; AI-agent construction quality variance; dog-food chicken-and-egg. No hard external deadlines. Internal-only v1 audience.",
         "indirectDailyRate": {
          "minorUnits": 5000,
          "currency": "USD"
@@ -11314,7 +11314,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -14426,7 +14426,7 @@
         "Label": "Integration"
        }
       ],
-      "CurrentPhase": "",
+      "CurrentPhase": "integration",
       "BuildStatus": 1,
       "Produced": null,
       "FailureReason": 0,
@@ -15013,7 +15013,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15031,7 +15031,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15049,7 +15049,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15067,7 +15067,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15085,7 +15085,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15103,7 +15103,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies \u2014 C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access->construction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        }
       ],
@@ -15164,7 +15164,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15182,7 +15182,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15200,7 +15200,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15218,7 +15218,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15236,7 +15236,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15254,7 +15254,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies \u2014 C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access->github) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        }
       ],
@@ -15333,7 +15333,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15351,7 +15351,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15369,7 +15369,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15387,7 +15387,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15405,7 +15405,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        },
        {
@@ -15423,7 +15423,7 @@
          "origin": "backfilled",
          "generator": "cmd/backfill-attempts",
          "generatedAt": "2026-09-12T18:59:14.013683Z",
-         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies \u2014 C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
+         "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access->operated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
         }
        }
       ],

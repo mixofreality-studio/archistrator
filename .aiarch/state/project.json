@@ -29957,7 +29957,7 @@
             },
             "pendingResume": {
               "$ref": "#/$defs/PendingResume",
-              "description": "Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done."
+              "description": "Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done."
             },
             "operatorNotes": {
               "type": [

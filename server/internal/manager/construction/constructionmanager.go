@@ -2856,7 +2856,7 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, res
 	if live == nil || (live.Stage != StageDispatching && live.Stage != StagePipelineRunning) {
 		return out
 	}
-	current := currentLifecyclePhase(resolved)
+	current := projectstate.CurrentLifecyclePhase(resolved)
 	task := projectstate.AgentTaskFor(current)
 	if task == "" {
 		return out
@@ -2871,18 +2871,6 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, res
 		AttemptID: projectstate.AttemptID(activityID, task, n), Task: task, Phase: current, Attempt: n,
 		Actor: projectstate.ActorAgent, Provenance: reconstructed("session.stage"),
 	})
-}
-
-// currentLifecyclePhase is the phase an activity is working IN: the first phase of its
-// resolved, profile-ordered set that is not complete. Empty when the set is empty or
-// every phase is complete — in neither case is there a phase in progress to name.
-func currentLifecyclePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
-	for _, pc := range resolved {
-		if !pc.Completed {
-			return pc.Phase
-		}
-	}
-	return ""
 }
 
 // liveApprovalGate is the lifecycle phase a live session awaits approval at, if any. The
