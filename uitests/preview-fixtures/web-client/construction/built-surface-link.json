@@ -10322,7 +10322,7 @@
      }
     ],
     "GitRows": {},
-    "ActivityConstruction": {
+    "activityExecution": {
      "U-SPA-web-client": {
       "ActivityID": "U-SPA-web-client",
       "Type": 1,

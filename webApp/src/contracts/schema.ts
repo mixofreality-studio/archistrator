@@ -1829,7 +1829,7 @@ export interface components {
       operatorNotes?: null | components['schemas']['SystemDesignOperatorNote'][];
       /** @description Present iff no construction pump wrote this row (no stored coarse phase past NotStarted, no stored phase set) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
       pendingResume?: components['schemas']['SystemDesignPendingResume'];
-      /** @description True iff a stored .activityConstruction head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
+      /** @description True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
       recorded: boolean;
       /** Format: date-time */
       startedAt?: null | string;
@@ -2147,9 +2147,6 @@ export interface components {
     };
     SystemDesignProjectID: string;
     SystemDesignProjectState: {
-      ActivityConstruction: {
-        [key: string]: components['schemas']['SystemDesignActivityConstructionStatus'];
-      };
       GitRows: {
         [key: string]: components['schemas']['SystemDesignActivityGitStatus'];
       };
@@ -2165,8 +2162,12 @@ export interface components {
       };
       Slots: null | components['schemas']['SystemDesignArtifactSlotView'][];
       Version: number;
+      /** @description One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale. */
+      activityExecution: {
+        [key: string]: components['schemas']['SystemDesignActivityConstructionStatus'];
+      };
       constructionProgress?: components['schemas']['SystemDesignConstructionProgress'];
-      /** @description True iff construction has started for this project: some stored .activityConstruction row carries state only the construction pump writes (a start time, a coarse phase past NotStarted, a phase set, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
+      /** @description True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
       constructionStarted: boolean;
       operatingModel: components['schemas']['SystemDesignOperatingModel'];
       /** @description True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead. */

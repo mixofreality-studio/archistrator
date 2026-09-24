@@ -1115,7 +1115,7 @@ type stubGitStatus struct {
 	mu sync.Mutex
 
 	rows    map[string]projectstate.ActivityGitStatus
-	cons    map[string]projectstate.ActivityConstructionStatus // per-activity construction lifecycle (Task 3)
+	cons    map[string]projectstate.ActivityExecution // per-activity construction lifecycle (Task 3)
 	version projectstate.Version
 	dedup   map[fwra.IdempotencyKey]projectstate.Version
 	applies int // count of NON-deduped (real) applies — proves no double-apply
@@ -1124,7 +1124,7 @@ type stubGitStatus struct {
 func newStubGitStatus(seed projectstate.Version) *stubGitStatus {
 	return &stubGitStatus{
 		rows:    map[string]projectstate.ActivityGitStatus{},
-		cons:    map[string]projectstate.ActivityConstructionStatus{},
+		cons:    map[string]projectstate.ActivityExecution{},
 		version: seed,
 		dedup:   map[fwra.IdempotencyKey]projectstate.Version{},
 	}
@@ -1196,7 +1196,9 @@ func (s *stubGitStatus) RecordActivityStarted(_ fwra.Context, _ projectstate.Pro
 	s.applies++
 	c := s.cons[activityID]
 	c.ActivityID = activityID
-	c.Phase = projectstate.ActivityConstructionRunning
+	if c.StartedAt == nil {
+		c.StartedAt = &testExitAt
+	}
 	c.Type = typ
 	c.Variant = variant
 	s.cons[activityID] = c
@@ -1217,7 +1219,9 @@ func (s *stubGitStatus) RecordActivityCompleted(_ fwra.Context, _ projectstate.P
 	s.applies++
 	c := s.cons[activityID]
 	c.ActivityID = activityID
-	c.Phase = projectstate.ActivityConstructionDone
+	if c.CompletedAt == nil {
+		c.CompletedAt = &testExitAt
+	}
 	s.cons[activityID] = c
 	s.version++
 	s.dedup[key] = s.version
@@ -1231,12 +1235,15 @@ func (s *stubGitStatus) row(activityID string) (projectstate.ActivityGitStatus, 
 	return g, ok
 }
 
-// constructionPhase returns the recorded construction lifecycle phase for activityID.
+// constructionPhase returns the construction lifecycle phase activityID's recorded row
+// DERIVES to. The stub records the head facts the real store records; the roll-up is read
+// the way every reader reads it (stage-3 task 4).
 func (s *stubGitStatus) constructionPhase(activityID string) (projectstate.ActivityConstructionPhase, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	c, ok := s.cons[activityID]
-	return c.Phase, ok
+	phase, _ := projectstate.EffectiveConstructionPhase(c, projectstate.ActivityItem{})
+	return phase, ok
 }
 
 var _ projectstate.GitActivityStatusAccess = (*stubGitStatus)(nil)
@@ -1678,7 +1685,7 @@ func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T
 	// The backfilled row, exactly as cmd/backfill-attempts writes it: the gate attempt
 	// alone, no stored Phase and no stored Phases.
 	done := plan()
-	done.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	done.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"projectDesign": {ActivityID: "projectDesign", Attempts: []projectstate.TaskAttempt{
 			ledgerAttempt("projectDesign", projectstate.GateTaskFor("sdp"), 1, projectstate.OutcomePassed),
 		}},
@@ -1794,8 +1801,8 @@ func TestNextEligibleActivity_NothingEligibleIsQuiescent(t *testing.T) {
 			{Activity: "B", DependsOn: []string{"A"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -1844,8 +1851,8 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 2: A Done → B is eligible. ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1859,9 +1866,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 3: A Done, B Running → nothing eligible (C blocked; B running). ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
-		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
+		"B": {ActivityID: "B", StartedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -1869,9 +1876,9 @@ func TestNextEligibleActivity_Chain(t *testing.T) {
 	}
 
 	// ---- Case 4: A Done, B Done → C is eligible. ----
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
-		"B": {ActivityID: "B", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", CompletedAt: &testExitAt},
+		"B": {ActivityID: "B", CompletedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1937,11 +1944,11 @@ var servicePhases = projectstate.ProfileFor(projectstate.ActivityTypeService, pr
 // NotStarted), so it re-dispatched A and held B back.
 func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispatched(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
 	}
-	if a := proj.ActivityConstruction["A"]; a.Phase != projectstate.ActivityConstructionNotStarted || len(a.Phases) != 0 {
-		t.Fatalf("fixture must be the backfill shape (no stored phase fields), got phase=%v phases=%d", a.Phase, len(a.Phases))
+	if a := proj.ActivityExecution["A"]; a.StartedAt != nil || a.CompletedAt != nil {
+		t.Fatalf("fixture must be the backfill shape (a ledger and no head facts), got %+v", a)
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch {
@@ -1952,22 +1959,18 @@ func TestNextEligibleActivity_BackfilledRowSatisfiesItsDependentAndIsNeverDispat
 	}
 }
 
-// A Skipped/TakenOver exit (RecordActivityExited) stores Phase=Done, BuildStatus=InReview
-// and leaves the stored Phases incomplete. The stored Done must win — the pump wrote this
-// row — so B is unblocked. Deriving from the incomplete Phases would read A as Running
-// and strand B forever.
+// A Skipped/TakenOver exit (RecordActivityExited) stamps the EXIT and nothing else, over
+// a ledger that got only part-way. The exit must win — Done is the binary fact — so B is
+// unblocked. Deriving from the partial ledger alone would read A as Running and strand B
+// forever.
 func TestNextEligibleActivity_ExitedSkippedRowStillUnblocksItsDependents(t *testing.T) {
 	proj := ledgerChain()
-	phases := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-	for i, ph := range servicePhases {
-		phases = append(phases, projectstate.PhaseCompletion{Phase: ph, Completed: i == 0})
-	}
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {
 			ActivityID:  "A",
-			Phase:       projectstate.ActivityConstructionDone,
-			BuildStatus: projectstate.BuildInReview,
-			Phases:      phases,
+			StartedAt:   &testExitAt,
+			CompletedAt: &testExitAt,
+			Attempts:    passedLedger("A", servicePhases[0]),
 		},
 	}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
@@ -1989,8 +1992,8 @@ func TestNextEligibleActivity_RejectedGateRowIsRunningNotDispatchedAndBlocks(t *
 		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
 		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
 	)
-	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Attempts: attempts}
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": row}
+	row := projectstate.ActivityExecution{ActivityID: "A", Attempts: attempts}
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": row}
 
 	if got, _ := projectstate.EffectiveConstructionPhase(row, proj.ActivityList.Model.(*projectstate.ActivityList).Activities[0]); got != projectstate.ActivityConstructionRunning {
 		t.Fatalf("a ledger with a rejected latest gate must read Running, got %v", got)
@@ -2014,7 +2017,7 @@ func TestNextEligibleActivity_RejectedGateRowResumesUnderTheLedgerPartialRule(t 
 		ledgerAttempt("A", projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
 		ledgerAttempt("A", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {ActivityID: "A", Attempts: attempts}}
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": {ActivityID: "A", Attempts: attempts}}
 	sel := nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "A" {
 		t.Fatalf("want A dispatched to resume, got verdict=%v activity=%q", sel.Verdict, sel.Activity.ActivityID)
@@ -2047,9 +2050,9 @@ func TestNextEligibleActivity_MilestoneDependencySatisfied(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
-			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", CompletedAt: &testExitAt},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", CompletedAt: &testExitAt},
 		},
 	}
 
@@ -2084,9 +2087,9 @@ func TestNextEligibleActivity_MilestoneDependencyNotSatisfied(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", Phase: projectstate.ActivityConstructionDone},
-			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", Phase: projectstate.ActivityConstructionRunning},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"I-UC-CONSULT": {ActivityID: "I-UC-CONSULT", CompletedAt: &testExitAt},
+			"I-UC-AMEND":   {ActivityID: "I-UC-AMEND", StartedAt: &testExitAt},
 		},
 	}
 
@@ -2117,8 +2120,8 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 			{Name: "N-DOC", WorkerClass: "system-architect", Coding: false},
 		}),
 		SystemDesign: makeCommittedSystemDesign(nil),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"A": {ActivityID: "A", CompletedAt: &testExitAt},
 		},
 	}
 
@@ -2132,8 +2135,8 @@ func TestNextEligibleActivity_MilestoneDependsOnMilestone(t *testing.T) {
 
 	// Unsatisfied at the bottom of the chain (A not Done) must propagate all the way
 	// back up through both milestone hops.
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	sel = nextEligibleActivity(proj, eligibleDispatchable)
 	if sel.Verdict != verdictQuiescent {
@@ -2352,9 +2355,9 @@ func TestNextEligibleActivity_ProjectExportDogfood(t *testing.T) {
 		SystemDesign: makeCommittedSystemDesign([]projectstate.Component{
 			{ID: "projectExport", Name: "projectExport", Layer: projectstate.LayerManager},
 		}),
-		ActivityConstruction: map[string]projectstate.ActivityConstructionStatus{
-			"C-CW":  {ActivityID: "C-CW", Phase: projectstate.ActivityConstructionDone},
-			"D-MPD": {ActivityID: "D-MPD", Phase: projectstate.ActivityConstructionDone},
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"C-CW":  {ActivityID: "C-CW", CompletedAt: &testExitAt},
+			"D-MPD": {ActivityID: "D-MPD", CompletedAt: &testExitAt},
 			// C-PE is absent (zero value = NotStarted)
 		},
 	}
@@ -7048,7 +7051,7 @@ func replayScenariosPreChange() []replayScenario {
 			dir: "pre-d", name: "construct-ledger-row-stored-seed",
 			rig: func() replayRig {
 				r := replayGateRig(projectstate.ReviewPolicy{})
-				r.ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+				r.ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{
 					string(replayActivityID): {ActivityID: string(replayActivityID), Attempts: passedLedger(string(replayActivityID), replayPartialLedgerPhases...)},
 				}
 				return r
@@ -7077,8 +7080,8 @@ func replayPartialRowProject() projectstate.Project {
 			{Activity: "O", DependsOn: []string{"D"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"D": {ActivityID: "D", Phase: projectstate.ActivityConstructionDone},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"D": {ActivityID: "D", CompletedAt: &testExitAt},
 		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
 	}
 	return proj
@@ -7287,35 +7290,25 @@ func Test_Replay_PreB1Histories_StayDeterministic(t *testing.T) {
 func TestIsActivityDispatchable_Table(t *testing.T) {
 	item := projectstate.ActivityItem{Name: "A", WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"}
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	storedPhases := func(completeFirst bool) []projectstate.PhaseCompletion {
-		out := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-		for i, ph := range servicePhases {
-			out = append(out, projectstate.PhaseCompletion{Phase: ph, Completed: completeFirst && i == 0})
-		}
-		return out
-	}
 	cases := []struct {
 		name string
-		row  *projectstate.ActivityConstructionStatus
+		row  *projectstate.ActivityExecution
 		want bool
 	}{
 		{"absent", nil, true},
-		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityConstructionStatus{
+		{"a ledger that decides nothing reads NotStarted", &projectstate.ActivityExecution{
 			Attempts: []projectstate.TaskAttempt{ledgerAttempt("A", projectstate.TaskSRS, 1, projectstate.OutcomePassed)}}, true},
-		{"ledger 4/5: integration-pending", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
-		{"ledger 5/5: Done", &projectstate.ActivityConstructionStatus{Attempts: passedLedger("A", servicePhases...)}, false},
-		{"stored Running with StartedAt: a pump started it", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionRunning, StartedAt: &now}, false},
-		{"stored Failed", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionFailed, FailureReason: projectstate.PipelineFailed}, false},
-		{"stored Done-exited with incomplete phases", &projectstate.ActivityConstructionStatus{
-			Phase: projectstate.ActivityConstructionDone, BuildStatus: projectstate.BuildInReview, Phases: storedPhases(true)}, false},
-		{"stored phases plus a partial ledger: the pump wrote it", &projectstate.ActivityConstructionStatus{
-			Phases: storedPhases(false), Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
+		{"ledger 4/5: integration-pending", &projectstate.ActivityExecution{Attempts: passedLedger("A", replayPartialLedgerPhases...)}, true},
+		{"ledger 5/5: Done", &projectstate.ActivityExecution{Attempts: passedLedger("A", servicePhases...)}, false},
+		{"a pump started it", &projectstate.ActivityExecution{StartedAt: &now}, false},
+		{"a recorded failure", &projectstate.ActivityExecution{
+			FailureReason: projectstate.PipelineFailed, CompletedAt: &testExitAt}, false},
+		{"exited over an incomplete ledger", &projectstate.ActivityExecution{
+			CompletedAt: &testExitAt, Attempts: passedLedger("A", replayPartialLedgerPhases...)}, false},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			status := map[string]projectstate.ActivityConstructionStatus{}
+			status := map[string]projectstate.ActivityExecution{}
 			if c.row != nil {
 				r := *c.row
 				r.ActivityID = "A"
@@ -7345,7 +7338,7 @@ func d1Project() projectstate.Project {
 			{Activity: "O", DependsOn: []string{"D"}},
 		},
 	)
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"P": {ActivityID: "P", Attempts: passedLedger("P", replayPartialLedgerPhases...)},
 	}
 	return proj
@@ -7361,7 +7354,7 @@ func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
 		return sel.Activity.ActivityID
 	}
 	doneD := func(proj projectstate.Project) projectstate.Project {
-		proj.ActivityConstruction["D"] = projectstate.ActivityConstructionStatus{ActivityID: "D", Phase: projectstate.ActivityConstructionDone}
+		proj.ActivityExecution["D"] = projectstate.ActivityExecution{ActivityID: "D", CompletedAt: &testExitAt}
 		return proj
 	}
 
@@ -7381,15 +7374,15 @@ func TestNextEligibleActivity_IntegrationPendingRow(t *testing.T) {
 	// must not dispatch it again — O is next, and Q still waits on P.
 	started := doneD(d1Project())
 	now := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	p := started.ActivityConstruction["P"]
-	p.Phase, p.StartedAt = projectstate.ActivityConstructionRunning, &now
-	started.ActivityConstruction["P"] = p
+	p := started.ActivityExecution["P"]
+	p.StartedAt = &now
+	started.ActivityExecution["P"] = p
 	if got := pick(started, eligibleDispatchable); got != "O" {
 		t.Fatalf("a P a pump has started must leave the dispatchable set, want O, got %q", got)
 	}
 	// A fully passed ledger is Done: never dispatched, and it satisfies Q.
 	full := doneD(d1Project())
-	full.ActivityConstruction["P"] = projectstate.ActivityConstructionStatus{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
+	full.ActivityExecution["P"] = projectstate.ActivityExecution{ActivityID: "P", Attempts: passedLedger("P", servicePhases...)}
 	if got := pick(full, eligibleDispatchable); got != "Q" {
 		t.Fatalf("with P Done by its ledger, want Q, got %q", got)
 	}
@@ -7402,7 +7395,7 @@ func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	var row projectstate.ActivityConstructionStatus
+	var row projectstate.ActivityExecution
 	if err := json.Unmarshal(b, &row); err != nil {
 		t.Fatal(err)
 	}
@@ -7428,17 +7421,14 @@ func TestSeedResumeFromLedger_RealIntegrationPendingRow(t *testing.T) {
 	}
 }
 
-// Where the ledger has decided, it overrules the stored slice both ways: the all-false
-// phases RecordPhaseStarted seeds do not undo the ledger's passed gates, and a rejected
-// Integration gate undoes a stored completion. Where it is silent, stored state stands.
-func TestSeedResumeFromLedger_LedgerOverrulesStoredWhereItDecided(t *testing.T) {
-	stored := make([]projectstate.PhaseCompletion, 0, len(servicePhases))
-	for _, ph := range servicePhases {
-		stored = append(stored, projectstate.PhaseCompletion{Phase: ph, Completed: ph == projectstate.MethodPhaseIntegration})
-	}
+// The ledger decides every phase it has decided, and only those: three passed gates seed
+// their phases complete, and an Integration gate whose latest attempt was REJECTED seeds
+// nothing — silence and a rejection both leave a phase unclaimed, and there is no stored
+// slice left for either to overrule (stage-3 task 4).
+func TestSeedResumeFromLedger_TheLedgerDecidesWhatItHasDecided(t *testing.T) {
 	attempts := passedLedger("A", projectstate.MethodPhaseRequirements, projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseDetailedDesign)
 	attempts = append(attempts, ledgerAttempt("A", projectstate.TaskTesting, 3, projectstate.OutcomeRejected))
-	row := projectstate.ActivityConstructionStatus{ActivityID: "A", Phases: stored, Attempts: attempts}
+	row := projectstate.ActivityExecution{ActivityID: "A", Attempts: attempts}
 	state := &constructState{completedPhases: map[projectstate.ActivityMethodPhase]bool{}}
 	seedResumeFromLedger(state, constructionActivity{Type: projectstate.ActivityTypeService, Variant: projectstate.TestVariantPlan}, row)
 	want := map[projectstate.ActivityMethodPhase]bool{
@@ -7468,7 +7458,7 @@ func d1ConstructRun(t *testing.T, attempts []projectstate.TaskAttempt, setup fun
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"C-Orders": {ActivityID: "C-Orders", Attempts: attempts},
 	}
 	pipe := newFakePipeline()
@@ -8601,7 +8591,7 @@ func Test_NoteDelivery_PendingNoteFromTheStoreRidesTheFirstDispatch(t *testing.T
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
 	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: []projectstate.OperatorNote{
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{"C-Orders": {OperatorNotes: []projectstate.OperatorNote{
 		{NoteID: "C-Orders:note:reopen:1", Kind: projectstate.NoteRequeue, Text: "the flaky dependency is pinned now", RecordedAt: at},
 		{NoteID: "C-Orders:note:old:1", Kind: projectstate.NoteSkip, Text: "skip note", RecordedAt: at},
 		{NoteID: "C-Orders:note:done:1", Kind: projectstate.NoteRetry, Text: "already delivered", RecordedAt: at, DeliveredToAttemptID: "C-Orders:srs:1", DeliveredAt: &at},
@@ -8959,7 +8949,7 @@ func seededPendingNotes(ps *fakeProjectState, n, size int) {
 		notes = append(notes, projectstate.OperatorNote{NoteID: fmt.Sprintf("C-Orders:note:seed:%d", i), Kind: projectstate.NoteRetry,
 			Text: fmt.Sprintf("note %d ", i) + strings.Repeat("x", size), RecordedAt: at})
 	}
-	ps.project.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-Orders": {OperatorNotes: notes}}
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{"C-Orders": {OperatorNotes: notes}}
 }
 
 // Test_NoteDelivery_OnlyNotesCarriedWholeAreStamped (I1, the workflow): five pending
@@ -9493,9 +9483,9 @@ func avObserved(task projectstate.MethodTask, n int, outcome projectstate.TaskOu
 // avResolved is what QueryActivityView hands normalizeAttempts for a service row: the
 // ONE reconciled phase set, never the raw row.Phases. The C-X fixtures are all service
 // activities, so the profile is fixed and the variant unused.
-func avResolved(row projectstate.ActivityConstructionStatus) []projectstate.PhaseCompletion {
+func avResolved(row projectstate.ActivityExecution) []projectstate.PhaseCompletion {
 	profile := projectstate.ProfileFor(projectstate.ActivityTypeService, projectstate.TestVariantPlan)
-	return projectstate.ResolvePhaseCompletions(profile, row.Phases, row.Attempts)
+	return projectstate.ResolvePhaseCompletions(profile, row.Attempts)
 }
 
 func avSendBack(gate, text string, comments ...projectstate.NoteComment) projectstate.OperatorNote {
@@ -9698,14 +9688,17 @@ func avCheckGateRevisions(t *testing.T, gate []taskRevision) {
 
 func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 	t0 := time.Date(2026, 9, 1, 9, 0, 0, 0, time.UTC)
-	done := t0.Add(50 * time.Minute)
-	row := projectstate.ActivityConstructionStatus{
-		ActivityID:   "C-X",
-		CurrentPhase: projectstate.MethodPhaseConstruction,
-		Attempts:     []projectstate.TaskAttempt{avAttempt(projectstate.TaskSRS, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled)},
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true, CompletedAt: &done},
-			{Phase: projectstate.MethodPhaseConstruction},
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		// The requirements and test_plan gates passed; detailed_design's did not (the
+		// send-back below), so the phase this run is working IN derives to detailed_design
+		// — the first phase the resolved set does not hold complete. That derivation
+		// replaces the stored CurrentPhase, which was stamped at phase entry and never
+		// cleared.
+		Attempts: []projectstate.TaskAttempt{
+			avAttempt(projectstate.TaskSRS, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
+			avAttempt(projectstate.TaskSRSReview, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
+			avAttempt(projectstate.TaskSTPReview, 1, projectstate.OutcomePassed, projectstate.OriginBackfilled),
 		},
 		OperatorNotes: []projectstate.OperatorNote{{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "redo", RecordedAt: t0.Add(20 * time.Minute)}},
 	}
@@ -9731,13 +9724,14 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 	}
 	bf := projectstate.OriginBackfilled
 	want := []key{
-		{"C-X:srs:1", projectstate.OutcomePassed, bf},            // N1: the ledger row, verbatim
-		{"C-X:detailedDesign:1", projectstate.OutcomePassed, bf}, // N2
-		{"C-X:detailedDesign:2", projectstate.OutcomePassed, bf}, // N2
-		{"C-X:construction:1", projectstate.OutcomeFailed, bf},   // N2: a gap is a failed attempt
-		{"C-X:construction:2", projectstate.OutcomePending, bf},  // N3: the dispatch running now
-		{"C-X:designReview:1", projectstate.OutcomeRejected, bf}, // N4: the send-back note
-		{"C-X:designReview:2", projectstate.OutcomePassed, bf},   // N4: the stored completion
+		{"C-X:srs:1", projectstate.OutcomePassed, bf},             // N1: the ledger row, verbatim
+		{"C-X:srsReview:1", projectstate.OutcomePassed, bf},       // N1
+		{"C-X:stpReview:1", projectstate.OutcomePassed, bf},       // N1
+		{"C-X:detailedDesign:1", projectstate.OutcomePassed, bf},  // N2
+		{"C-X:detailedDesign:2", projectstate.OutcomePassed, bf},  // N2
+		{"C-X:construction:1", projectstate.OutcomeFailed, bf},    // N2: a gap is a failed attempt
+		{"C-X:detailedDesign:3", projectstate.OutcomePending, bf}, // N3: the dispatch running now
+		{"C-X:designReview:1", projectstate.OutcomeRejected, bf},  // N4: the send-back note
 	}
 	if !slices.Equal(have, want) {
 		t.Fatalf("normalized attempts:\n got %v\nwant %v", have, want)
@@ -9754,11 +9748,16 @@ func TestNormalizeAttempts_ReconstructsALiveRun(t *testing.T) {
 
 func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 	since := time.Date(2026, 9, 1, 10, 0, 0, 0, time.UTC)
-	row := projectstate.ActivityConstructionStatus{ActivityID: "C-X", Phases: []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}}}
+	// A live gate hangs on the work it judges: the dispatch attempt is what materializes
+	// the row's lifecycle inventory now that no phase set is stored.
+	row := projectstate.ActivityExecution{ActivityID: "C-X", Attempts: []projectstate.TaskAttempt{
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)}}
 	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: ptrTo("detailed_design"), AwaitingSince: &since}
 	got := normalizeAttempts("C-X", row, avResolved(row), nil, live)
-	if len(got) != 1 || got[0].AttemptID != "C-X:designReview:1" || got[0].Outcome != projectstate.OutcomePending || got[0].StartedAt == nil || !got[0].StartedAt.Equal(since) {
-		t.Fatalf("want one pending designReview#1 since %v, got %+v", since, got)
+	gate := got[len(got)-1]
+	if len(got) != 2 || gate.AttemptID != "C-X:designReview:1" || gate.Outcome != projectstate.OutcomePending ||
+		gate.StartedAt == nil || !gate.StartedAt.Equal(since) {
+		t.Fatalf("want a pending designReview#1 since %v behind its dispatch, got %+v", since, got)
 	}
 }
 
@@ -9768,7 +9767,7 @@ func TestNormalizeAttempts_ALiveGateIsAPendingGateAttempt(t *testing.T) {
 // number it after the ledger's highest, so a single send-back read as two revisions AND
 // the last gate attempt was a rejection on an activity whose gate had already passed.
 func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "C-X",
 		Attempts: []projectstate.TaskAttempt{
 			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
@@ -9778,9 +9777,6 @@ func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing
 		},
 		OperatorNotes: []projectstate.OperatorNote{
 			avSendBack("detailed_design", "tighten the contract"),
-		},
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
 		},
 	}
 	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
@@ -9803,14 +9799,11 @@ func TestNormalizeAttempts_APersistedRejectionIsNotReconstructedTwice(t *testing
 // The reconstruction path is unchanged for a row that predates the ledger: a note with
 // NO recorded rejection is still the only evidence there is.
 func TestNormalizeAttempts_ANoteWithoutALedgerRejectionIsStillReconstructed(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "C-X",
-		// A row that predates the ledger still carries the phase slice the pump seeded
-		// (RecordPhaseStarted writes it all-false); Attempts is the new half. Without it
-		// ResolvePhaseCompletions is honest-empty — the row asserts nothing, so there is
-		// no phase inventory to hang a reconstructed gate attempt on, which is correct:
-		// a note on an activity the pump never started is not evidence of a gate.
-		Phases:        []projectstate.PhaseCompletion{{Phase: projectstate.MethodPhaseDetailedDesign}},
+		// The work attempt is what materializes the row's lifecycle inventory now that no
+		// phase set is stored; the note is the only evidence of the gate that judged it.
+		Attempts:      []projectstate.TaskAttempt{avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)},
 		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "tighten the contract")},
 	}
 	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
@@ -9828,7 +9821,7 @@ func TestNormalizeAttempts_ANoteWithoutALedgerRejectionIsStillReconstructed(t *t
 // Tails aligned: two notes, one recorded rejection — the NEWER note is the recorded
 // one, so only the OLDER is reconstructed.
 func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "C-X",
 		Attempts: []projectstate.TaskAttempt{
 			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
@@ -9857,7 +9850,7 @@ func TestNormalizeAttempts_MoreNotesThanLedgerRejectionsReconstructsTheOldest(t 
 // .Attempt) put it last and reviewEvidenceState read a passed, merged gate as sentBack.
 // A pre-ledger rejection is the OLDEST revision and must sort first.
 func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "C-X",
 		Attempts: []projectstate.TaskAttempt{
 			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
@@ -9868,9 +9861,6 @@ func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *te
 		OperatorNotes: []projectstate.OperatorNote{
 			avSendBack("detailed_design", "older, from before the ledger"),
 			avSendBack("detailed_design", "the recorded rejection's own note"),
-		},
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
 		},
 	}
 	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
@@ -9887,7 +9877,7 @@ func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *te
 // with no note, or a note the operator never wrote. The subtraction goes negative and
 // must add nothing at all.
 func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "C-X",
 		Attempts: []projectstate.TaskAttempt{
 			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
@@ -9895,9 +9885,6 @@ func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *t
 			avObserved(projectstate.TaskDesignReview, 3, projectstate.OutcomePassed),
 		},
 		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "only one note survived")},
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
-		},
 	}
 	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
 	var gates []projectstate.TaskAttempt
@@ -9924,14 +9911,15 @@ func TestNormalizeAttempts_MoreLedgerRejectionsThanNotesReconstructsNothing(t *t
 // the case the resolver exists for, and the raw slice reconstructs a passed gate for a
 // phase this activity's lifecycle does not have.
 func TestNormalizeAttempts_GateCompletionComesFromTheResolvedSetOnly(t *testing.T) {
-	row := projectstate.ActivityConstructionStatus{
+	row := projectstate.ActivityExecution{
 		ActivityID: "N-STP",
-		// Seeded from the zero-value (service) phase set at dispatch; the read-time
+		// A ledger written under the zero-value (service) task vocabulary; the read-time
 		// classification is testing/plan, whose profile is requirements + construction
-		// + integration and carries no detailed_design phase at all.
-		Phases: []projectstate.PhaseCompletion{
-			{Phase: projectstate.MethodPhaseDetailedDesign, Completed: true},
-		},
+		// + integration and carries no detailed_design phase at all. The send-back note
+		// names that phase, and the reconstruction must still refuse to invent a gate for
+		// a phase the resolved profile does not carry.
+		Attempts:      []projectstate.TaskAttempt{avObserved(projectstate.TaskSRS, 1, projectstate.OutcomePassed)},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "not a phase this lifecycle has")},
 	}
 	item := projectstate.ActivityItem{Name: "N-STP", WorkerClass: "test-engineer", Coding: false}
 	_, _, resolved, classified := projectstate.ResolveConstructionRow(row, item)
@@ -10047,7 +10035,7 @@ func TestQueryActivityView_NotStarted_ReturnsTheWholeLifecycle(t *testing.T) {
 // Done by its backfilled ledger: every task passed, every phase completed, provenance carried.
 func TestQueryActivityView_Done_FromTheLedger(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
 		"A": {ActivityID: "A", Attempts: passedLedger("A", servicePhases...)},
 	}
 	v, err := avManager(nil, proj, &fakeEpisodes{}).QueryActivityView(testCtx(), "p", "A")
@@ -10110,9 +10098,8 @@ func TestQueryActivityView_LiveGate_AfterASendBack(t *testing.T) {
 // backfilled and whose detailed design was sent back once, with an anchored comment.
 func avSentBackAtTheDesignGate(t0 time.Time) projectstate.Project {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"A": {
-		ActivityID: "A", Phase: projectstate.ActivityConstructionRunning, CurrentPhase: projectstate.MethodPhaseDetailedDesign,
-		Attempts: passedLedger("A", projectstate.MethodPhaseRequirements),
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{"A": {
+		ActivityID: "A", StartedAt: &testExitAt, Attempts: passedLedger("A", projectstate.MethodPhaseRequirements),
 		OperatorNotes: []projectstate.OperatorNote{{
 			NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: "detailed_design", Text: "split the op", RecordedAt: t0.Add(20 * time.Minute),
 			Comments: []projectstate.NoteComment{{JSONPath: "$.ops[0]", Text: "too wide"}},
@@ -10189,8 +10176,8 @@ func TestQueryActivityView_LiveGate_CarriesTheEngineRefusal(t *testing.T) {
 // A Running row whose session is gone (past retention) still reads — without a live gate.
 func TestQueryActivityView_RunningWithNoSession_StillReads(t *testing.T) {
 	proj := ledgerChain()
-	proj.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{
-		"A": {ActivityID: "A", Phase: projectstate.ActivityConstructionRunning},
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"A": {ActivityID: "A", StartedAt: &testExitAt},
 	}
 	mc := &temporalmocks.Client{}
 	mc.On("QueryWorkflow", mock.Anything, constructActivityWorkflowID("p", "A"), "", querySessionState).
@@ -10248,3 +10235,8 @@ func TestActivityViewWireStringsMatchTheContract(t *testing.T) {
 		}
 	}
 }
+
+// testExitAt is the clock a test row's head facts carry. Since stage-3 task 4 a row's
+// terminality IS its exit stamp (and its failure reason): a fixture that used to say
+// Phase: Done says CompletedAt, and one that said Running says StartedAt.
+var testExitAt = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)

@@ -69,7 +69,7 @@ async function addNotesToTheRead(page: Page): Promise<void> {
         if (page.isClosed() || !/has been disposed/.test(String(err))) throw err;
         got = await fetchWire();
       }
-      const rows = got.wire.ActivityConstruction as Record<string, Record<string, unknown>> | null;
+      const rows = got.wire.activityExecution as Record<string, Record<string, unknown>> | null;
       for (const [id, notes] of Object.entries(NOTES)) {
         const row = rows?.[id];
         if (row !== undefined) row.operatorNotes = notes;

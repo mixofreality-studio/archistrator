@@ -19,7 +19,7 @@
  * the console, selecting a real CPM activity node, and reading its shared
  * detail pane (breadcrumb, state chip, action bar — Stage B Task 4) — the
  * "Observe run; validate against exit criteria" step of the same use case,
- * driven by real committed ActivityConstruction data (this repo dogfoods its
+ * driven by real committed activityExecution data (this repo dogfoods its
  * own construction phase — see the "archistrator" project's committed
  * .activityConstruction). The default viewport here is well above the
  * pane's 1200px breakpoint, so this exercises the BESIDE-CONTENT layout, not

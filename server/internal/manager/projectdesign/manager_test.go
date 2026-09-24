@@ -5837,7 +5837,7 @@ func TestMaterializePhase2DraftNetworkPreconditions(t *testing.T) {
 // It no longer decodes core use cases (Task 10a): the founder's ruling drops I-*
 // integration activities entirely, which were the only thing that ever read them, and
 // MaterializeActivityPlan no longer takes a use-case-id parameter to feed. It no longer
-// returns the .activityConstruction keys either (2026-09-12): those were the legacy
+// returns the .activityExecution keys either (2026-09-12): those were the legacy
 // short-name rows the deleted alias table joined onto the derived ids, and the founder's
 // D9 ruling removed both.
 //
@@ -6186,7 +6186,7 @@ func writeDerivedPlan(p *projectstate.Project) error {
 // resetConstructionState is the founder's D9 reset (2026-09-12: "i essentially want no
 // legacy rows/activities ... just delete the old stuff"), applied once the plan is
 // materialized from Table 11-1:
-//   - .activityConstruction is emptied. Every row was keyed by a legacy short id, and none
+//   - .activityExecution is emptied. Every row was keyed by a legacy short id, and none
 //     of the rows that carried history names an activity the derived plan holds. A first
 //     real run holds no row until the pump starts an activity; the codec omits an empty
 //     map, so the member disappears rather than becoming {}.
@@ -6201,7 +6201,7 @@ func writeDerivedPlan(p *projectstate.Project) error {
 //     carried; TotalWeeks' own basis is the SDP option flagged stale alongside it. The EV
 //     curve itself is computed at read (computeEVAtRead), from the same empty record.
 func resetConstructionState(p *projectstate.Project) error {
-	p.ActivityConstruction = nil
+	p.ActivityExecution = nil
 	if cp := p.ConstructionProgress; cp != nil {
 		recomputed := *cp
 		recomputed.Week = 0
@@ -6277,11 +6277,11 @@ func derivedPlanMembers() map[string]bool {
 
 // resetMembers is what resetConstructionState may change.
 func resetMembers() map[string]bool {
-	return withPlanDependents("activityConstruction", "constructionProgress")
+	return withPlanDependents("activityExecution", "constructionProgress")
 }
 
 // rewriteStateFile applies edit to the project document at path and writes back only the
-// members the edit changed, returning their paths ("activityConstruction", "slots/11",
+// members the edit changed, returning their paths ("activityExecution", "slots/11",
 // …). allowed names the members the edit may change; any other change fails the write.
 // Nothing is written when nothing changed.
 func rewriteStateFile(path string, allowed map[string]bool, edit func(*projectstate.Project) error) ([]string, error) {
@@ -6650,7 +6650,7 @@ func constructionResetFixture(t *testing.T) projectstate.Project {
 	p.ActivityList = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindActivityList), Revisions: 3}
 	p.NormalSolution = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: model(projectstate.KindNormalSolution), Revisions: 1}
 	p.SdpReview = readBackSlot(model(projectstate.KindSdpReview))
-	p.ActivityConstruction = map[string]projectstate.ActivityConstructionStatus{"C-BM": {ActivityID: "C-BM"}}
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{"C-BM": {ActivityID: "C-BM"}}
 	p.ConstructionProgress = &projectstate.ConstructionProgress{
 		Week: 49, TotalWeeks: 49, HandOffModel: "Senior hand-off", SupervisionCap: 3,
 		Points: []projectstate.EvPoint{{Week: 49, EarnedPct: 100, PlannedPct: 100, Note: "legacy"}},
@@ -6679,7 +6679,7 @@ func TestResetConstructionStateRewritesOnlyItsMembers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("rewriteStateFile: %v", err)
 	}
-	want := []string{"activityConstruction", "constructionProgress", slotMember(projectstate.KindNormalSolution)}
+	want := []string{"activityExecution", "constructionProgress", slotMember(projectstate.KindNormalSolution)}
 	sort.Strings(changed)
 	if !reflect.DeepEqual(changed, want) {
 		t.Errorf("changed members = %v, want %v", changed, want)
@@ -6694,7 +6694,7 @@ func TestResetConstructionStateRewritesOnlyItsMembers(t *testing.T) {
 			t.Errorf("the rewrite lost %s", keep)
 		}
 	}
-	if bytes.Contains(got, []byte(`"activityConstruction"`)) {
+	if bytes.Contains(got, []byte(`"activityExecution"`)) {
 		t.Error("an empty construction record must be omitted, the codec's shape for 'no rows'")
 	}
 	proj, err := decodeState(got)
@@ -6738,8 +6738,8 @@ func TestRewriteStateFileRefusesAMemberOutsideItsAllowedSet(t *testing.T) {
 
 	allowed := map[string]bool{"constructionProgress": true, slotMember(projectstate.KindNormalSolution): true}
 	_, err := rewriteStateFile(path, allowed, resetConstructionState)
-	if err == nil || !strings.Contains(err.Error(), "activityConstruction") {
-		t.Fatalf("want a refusal naming activityConstruction, got %v", err)
+	if err == nil || !strings.Contains(err.Error(), "activityExecution") {
+		t.Fatalf("want a refusal naming activityExecution, got %v", err)
 	}
 	got, _ := os.ReadFile(path)
 	if !bytes.Equal(got, raw) {

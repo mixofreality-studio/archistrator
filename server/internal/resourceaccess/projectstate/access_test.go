@@ -528,10 +528,10 @@ func readProject(t *testing.T, store *GitStore, id ProjectID, cred RepoCredentia
 	return p
 }
 
-func readConstructionStatus(t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityConstructionStatus {
+func readConstructionStatus(t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityExecution {
 	t.Helper()
 	p := readProject(t, store, id, cred)
-	s, ok := p.ActivityConstruction[activityID]
+	s, ok := p.ActivityExecution[activityID]
 	if !ok {
 		t.Fatalf("ActivityConstruction[%s] absent", activityID)
 	}
@@ -567,9 +567,15 @@ func TestRecordChangeReviewed_SetsInReview(t *testing.T) {
 		t.Fatalf("version = %d, want %d", v3, v2+1)
 	}
 
+	// The review is a ReviewRound on the execution ledger now (stage-3 task 3), and the
+	// coarse build status this verb used to stamp is derived from it. What survives the
+	// deprecation is the row it births and the version it advances.
 	s := readConstructionStatus(t, store, id, cred, "C001")
-	if s.BuildStatus != BuildInReview {
-		t.Fatalf("BuildStatus = %v, want BuildInReview", s.BuildStatus)
+	if s.ActivityID != "C001" {
+		t.Fatalf("the row must be born under its own id, got %+v", s)
+	}
+	if len(s.Reviews) != 0 || len(s.Attempts) != 0 {
+		t.Fatalf("the deprecated verb must record no ledger entry of its own, got %+v", s)
 	}
 }
 
@@ -601,12 +607,16 @@ func TestRecordActivityExited_Completed_SetsDone(t *testing.T) {
 		t.Fatalf("version = %d, want %d", v3, v2+1)
 	}
 
+	// The exit stamp is the whole record: Done follows from it, and INTEGRATED follows
+	// from the ledger instead — an activity that exited with no gate passed is done but
+	// not integrated, which is the Skipped/TakenOver shape and now also the honest read
+	// of a "completed" exit nothing was recorded for.
 	s := readConstructionStatus(t, store, id, cred, "C002")
-	if s.Phase != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", s.Phase)
+	if coarsePhaseOf(s) != ActivityConstructionDone {
+		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
 	}
-	if s.BuildStatus != BuildIntegrated {
-		t.Fatalf("BuildStatus = %v, want BuildIntegrated", s.BuildStatus)
+	if buildStatusOf(s) != BuildInReview {
+		t.Fatalf("BuildStatus = %v, want BuildInReview over an empty ledger", buildStatusOf(s))
 	}
 	if s.CompletedAt == nil {
 		t.Fatal("CompletedAt must be set after RecordActivityExited")
@@ -629,11 +639,11 @@ func TestRecordActivityExited_Skipped_SetsDone(t *testing.T) {
 	}
 
 	s := readConstructionStatus(t, store, id, cred, "C003")
-	if s.Phase != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", s.Phase)
+	if coarsePhaseOf(s) != ActivityConstructionDone {
+		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
 	}
-	if s.BuildStatus != BuildInReview {
-		t.Fatalf("BuildStatus = %v, want BuildInReview (skipped)", s.BuildStatus)
+	if buildStatusOf(s) != BuildInReview {
+		t.Fatalf("BuildStatus = %v, want BuildInReview (skipped)", buildStatusOf(s))
 	}
 	if s.CompletedAt == nil {
 		t.Fatal("CompletedAt must be set after Skipped exit")
@@ -795,10 +805,15 @@ func TestRecordOperatorResumed_NoProjectIsNotFound(t *testing.T) {
 }
 
 // --------------------------------------------------------------------------
-// STP 5: RecordPhaseStarted seeds Phases, sets CurrentPhase, coarse=Running
+// STP 5: RecordPhaseStarted records no lifecycle claim of its own
 // --------------------------------------------------------------------------
 
-func TestRecordPhaseStarted_SeedsPhaseSet(t *testing.T) {
+// Entering a lifecycle phase is not a fact the ledgers are missing: the attempt is. The
+// verb used to seed a stored phase set, stamp CurrentPhase and advance a stored coarse
+// roll-up — all three derived now (spec §5.3) — so what it leaves behind is the row it
+// births and nothing else. The row is still NOT started: a seeded row with no start stamp,
+// no ledger and no exit asserts nothing about having run.
+func TestRecordPhaseStarted_RecordsNoDerivedClaim(t *testing.T) {
 	store, id, v, cred := newConstructionStore(t)
 	ctx := context.Background()
 
@@ -813,15 +828,11 @@ func TestRecordPhaseStarted_SeedsPhaseSet(t *testing.T) {
 	}
 
 	s := readConstructionStatus(t, store, id, cred, "C004")
-	// Service type (zero value) → 5-phase set
-	if len(s.Phases) != 5 {
-		t.Fatalf("Phases len = %d, want 5 (service type)", len(s.Phases))
+	if len(s.Attempts) != 0 {
+		t.Fatalf("attempts = %d, want none: entering a phase records no attempt", len(s.Attempts))
 	}
-	if s.CurrentPhase != MethodPhaseRequirements {
-		t.Fatalf("CurrentPhase = %q, want %q", s.CurrentPhase, MethodPhaseRequirements)
-	}
-	if s.Phase != ActivityConstructionRunning {
-		t.Fatalf("Phase = %v, want Running", s.Phase)
+	if got := completedPhasesOf(s); len(got) != 0 {
+		t.Fatalf("completed phases = %v, want none", got)
 	}
 }
 
@@ -858,16 +869,28 @@ func TestRecordPhaseCompleted_MarksPhase(t *testing.T) {
 		t.Fatalf("version = %d, want %d", v4, v3+1)
 	}
 
+	// The completion is recorded the ONE way the read path recognises: a passed attempt
+	// at the phase's GATE task. The resolved set then reports the phase complete, with
+	// the clock and the artifact taken from that attempt — so the record and the
+	// derivation are the same fact, not two.
 	s := readConstructionStatus(t, store, id, cred, "C005")
+	gate, ok := latestAttempt(s.Attempts, GateTaskFor(MethodPhaseRequirements))
+	if !ok {
+		t.Fatal("RecordPhaseCompleted must record the requirements gate attempt")
+	}
+	if gate.Outcome != OutcomePassed || gate.Evidence.Ref != "srs/myservice.md" {
+		t.Fatalf("gate attempt = %+v, want passed citing srs/myservice.md", gate)
+	}
 	var reqPhase *PhaseCompletion
-	for i := range s.Phases {
-		if s.Phases[i].Phase == MethodPhaseRequirements {
-			reqPhase = &s.Phases[i]
+	resolved := resolvedOf(s)
+	for i := range resolved {
+		if resolved[i].Phase == MethodPhaseRequirements {
+			reqPhase = &resolved[i]
 			break
 		}
 	}
 	if reqPhase == nil {
-		t.Fatal("MethodPhaseRequirements not in Phases after RecordPhaseCompleted")
+		t.Fatal("MethodPhaseRequirements not in the resolved set after RecordPhaseCompleted")
 	}
 	if !reqPhase.Completed {
 		t.Fatal("Completed must be true after RecordPhaseCompleted")
@@ -914,9 +937,15 @@ func TestRecordPhaseCompleted_AllPhasesDone_CoarsePhaseIsDone(t *testing.T) {
 		cur = cur3
 	}
 
+	// Every gate attempt is on the ledger, so the row's own profile resolves every phase
+	// complete — which is what makes the coarse roll-up Done for any reader that knows
+	// how to classify the row.
 	s := readConstructionStatus(t, store, id, cred, "C006")
-	if s.Phase != ActivityConstructionDone {
-		t.Fatalf("Phase = %v after all phases completed, want Done", s.Phase)
+	if got, want := len(completedPhasesOf(s)), len(resolvedOf(s)); got != want || want == 0 {
+		t.Fatalf("completed phases = %d of %d, want every phase complete", got, want)
+	}
+	if got := CoarsePhaseFor(s, resolvedOf(s)); got != ActivityConstructionDone {
+		t.Fatalf("Phase = %v after all phases completed, want Done", got)
 	}
 }
 
@@ -1215,10 +1244,10 @@ func TestRecordPhaseCompleted_NoPhaseMatch_Noop(t *testing.T) {
 	if v4 != v3+1 {
 		t.Fatalf("version = %d, want %d", v4, v3+1)
 	}
-	// Phases slice still intact
+	// Nothing was recorded: a phase outside the lifecycle has no gate task to attempt.
 	s := readConstructionStatus(t, store, id, cred, "C010")
-	if len(s.Phases) != 5 {
-		t.Fatalf("Phases len = %d, want 5 (no entries added for unknown phase)", len(s.Phases))
+	if len(s.Attempts) != 0 {
+		t.Fatalf("attempts = %d, want none for a phase the lifecycle does not carry", len(s.Attempts))
 	}
 }
 
@@ -2145,15 +2174,15 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{
 			Activities: []ActivityItem{{Name: "C-A", Coding: true, EffortDays: 5}, {Name: "C-B", Coding: true, EffortDays: 5}},
 		}},
-		ActivityConstruction: map[string]ActivityConstructionStatus{
+		ActivityExecution: map[string]ActivityExecution{
 			"C-A": {
-				ActivityID:   "C-A",
-				Phase:        ActivityConstructionRunning,
-				CurrentPhase: MethodPhaseDetailedDesign,
-				Phases: []PhaseCompletion{
-					{Phase: MethodPhaseRequirements, Weight: 1, Completed: true},
-					{Phase: MethodPhaseDetailedDesign, Weight: 1},
-				},
+				ActivityID: "C-A",
+				StartedAt:  &envelopeStartedAt,
+				Attempts: []TaskAttempt{{
+					AttemptID: "C-A:srsReview:1", Task: TaskSRSReview, Phase: MethodPhaseRequirements,
+					Attempt: 1, Outcome: OutcomePassed,
+				}},
+				Version: 3,
 			},
 		},
 		ServiceContracts: map[string]ServiceContract{
@@ -2186,20 +2215,32 @@ func TestProjectEnvelope_ConstructionSections_RoundTrip(t *testing.T) {
 	assertCommittedNetworkAndActivityListSlots(t, back)
 }
 
-// assertConstructionActivityStatusSurvived asserts the ActivityConstruction section
+// envelopeStartedAt is the start stamp the envelope round-trip carries. A package-level
+// value because the row holds a POINTER to it and a composite literal cannot take the
+// address of a call.
+var envelopeStartedAt = time.Date(2026, 9, 23, 9, 0, 0, 0, time.UTC)
+
+// assertConstructionActivityStatusSurvived asserts the activityExecution section
 // round-tripped field-for-field.
 func assertConstructionActivityStatusSurvived(t *testing.T, back Project) {
 	t.Helper()
-	// ActivityConstruction — field-for-field.
-	acs, ok := back.ActivityConstruction["C-A"]
+	acs, ok := back.ActivityExecution["C-A"]
 	if !ok {
-		t.Fatalf("ActivityConstruction[C-A] must survive the round trip, got %+v", back.ActivityConstruction)
+		t.Fatalf("activityExecution[C-A] must survive the round trip, got %+v", back.ActivityExecution)
 	}
-	if acs.Phase != ActivityConstructionRunning || acs.CurrentPhase != MethodPhaseDetailedDesign {
-		t.Fatalf("ActivityConstruction lifecycle fields must survive, got %+v", acs)
+	if acs.StartedAt == nil || !acs.StartedAt.Equal(envelopeStartedAt) {
+		t.Fatalf("the head facts must survive, got %+v", acs)
 	}
-	if len(acs.Phases) != 2 || !acs.Phases[0].Completed || acs.Phases[1].Completed {
-		t.Fatalf("per-phase completion facts must survive verbatim, got %+v", acs.Phases)
+	if acs.Version != 3 {
+		t.Fatalf("the per-activity version must survive, got %d", acs.Version)
+	}
+	if len(acs.Attempts) != 1 || acs.Attempts[0].Outcome != OutcomePassed {
+		t.Fatalf("the attempt ledger must survive verbatim, got %+v", acs.Attempts)
+	}
+	// And the derivation the row no longer stores reads off it: the requirements gate
+	// passed, so that phase is complete and the activity is running.
+	if coarsePhaseOf(acs) != ActivityConstructionRunning {
+		t.Fatalf("coarse roll-up = %v, want Running", coarsePhaseOf(acs))
 	}
 }
 
@@ -3119,6 +3160,36 @@ type operatingFixtureRow struct {
 	BuildStatus int `json:"buildStatus"`
 }
 
+// rowFromFixtureOrdinals materializes the fixture's (phase, buildStatus) ordinals as the
+// row shape that PRODUCES them. The corpus is shared byte-identically with the webApp
+// (contracts/operating.ts deriveOperating), so its cases stay exactly as authored; what
+// changed is that a row no longer STORES those two ordinals, so the Go side builds the
+// evidence each pair is derived from:
+//   - failed: a recorded FailureReason, the sticky terminal.
+//   - integrated: an exit stamp AND a full passed ledger — integration is the claim that
+//     every lifecycle gate passed, which is exactly what the corpus's skipped-shaped-row
+//     case exists to deny (Done alone is not enough).
+//   - done, not integrated: an exit stamp and no ledger.
+//   - running: a start stamp.
+func rowFromFixtureOrdinals(id string, row operatingFixtureRow) ActivityExecution {
+	out := ActivityExecution{ActivityID: id}
+	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+	switch {
+	case ActivityConstructionPhase(row.Phase) == ActivityConstructionFailed ||
+		ActivityBuildStatus(row.BuildStatus) == BuildFailed:
+		out.FailureReason = PipelineFailed
+		out.CompletedAt = &at
+	case ActivityBuildStatus(row.BuildStatus) == BuildIntegrated:
+		out.CompletedAt = &at
+		out.Attempts = constructionLedger(id, ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)
+	case ActivityConstructionPhase(row.Phase) == ActivityConstructionDone:
+		out.CompletedAt = &at
+	case ActivityConstructionPhase(row.Phase) == ActivityConstructionRunning:
+		out.StartedAt = &at
+	}
+	return out
+}
+
 type operatingFixtureCase struct {
 	Name         string                         `json:"name"`
 	Activities   []string                       `json:"activities"`
@@ -3152,18 +3223,18 @@ func TestIsConstructionComplete_Fixtures(t *testing.T) {
 			if len(tc.Activities) > 0 {
 				items := make([]ActivityItem, 0, len(tc.Activities))
 				for _, name := range tc.Activities {
-					items = append(items, ActivityItem{Name: name})
+					// WorkerClass + Coding are what type the row at READ time, and the type
+					// selects the lifecycle profile every completion is resolved against. The
+					// fixture JSON is shared byte-identically with the webApp and stays exactly
+					// as authored; only the harness that materializes it knows about types.
+					items = append(items, ActivityItem{Name: name, WorkerClass: "junior-developer", Coding: true})
 				}
 				p.ActivityList = ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: items}}
 			}
 			if len(tc.Rows) > 0 {
-				p.ActivityConstruction = make(map[string]ActivityConstructionStatus, len(tc.Rows))
+				p.ActivityExecution = make(map[string]ActivityExecution, len(tc.Rows))
 				for key, row := range tc.Rows {
-					p.ActivityConstruction[key] = ActivityConstructionStatus{
-						ActivityID:  key,
-						Phase:       ActivityConstructionPhase(row.Phase),
-						BuildStatus: ActivityBuildStatus(row.BuildStatus),
-					}
+					p.ActivityExecution[key] = rowFromFixtureOrdinals(key, row)
 				}
 			}
 			if got := isConstructionComplete(p); got != tc.Expect {
@@ -3187,9 +3258,10 @@ func TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote(t *testing.
 		return Project{
 			Phase:        PhaseConstruction,
 			ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: items}},
-			ActivityConstruction: map[string]ActivityConstructionStatus{
+			ActivityExecution: map[string]ActivityExecution{
 				"C-a": {ActivityID: "C-a", Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
-				"C-b": {ActivityID: "C-b", Phase: ActivityConstructionDone, BuildStatus: BuildIntegrated},
+				"C-b": {ActivityID: "C-b", CompletedAt: &envelopeStartedAt,
+					Attempts: constructionLedger("C-b", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
 			},
 		}
 	}
@@ -3197,7 +3269,7 @@ func TestIsConstructionComplete_ReadsTheLedgerWhereThePumpNeverWrote(t *testing.
 		t.Fatal("a ledger-Done row beside a stored Done+Integrated row must read complete")
 	}
 	noRow := build()
-	delete(noRow.ActivityConstruction, "C-a")
+	delete(noRow.ActivityExecution, "C-a")
 	if isConstructionComplete(noRow) {
 		t.Error("a listed activity with no row has not started; the project must not read complete")
 	}
@@ -4013,13 +4085,13 @@ func newConstructionStore(t *testing.T) (*GitStore, ProjectID, Version, RepoCred
 }
 
 // readConstruction reads the ActivityConstruction row for activityID.
-func readConstruction(t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityConstructionStatus {
+func readConstruction(t *testing.T, store *GitStore, id ProjectID, cred RepoCredential, activityID string) ActivityExecution {
 	t.Helper()
 	proj, err := store.ReadProject(fwra.Context{Context: context.Background()}, id, cred)
 	if err != nil {
 		t.Fatalf("ReadProject: %v", err)
 	}
-	s, ok := proj.ActivityConstruction[activityID]
+	s, ok := proj.ActivityExecution[activityID]
 	if !ok {
 		t.Fatalf("ActivityConstruction[%s] absent; have keys %v", activityID, constructionKeys(proj))
 	}
@@ -4027,8 +4099,8 @@ func readConstruction(t *testing.T, store *GitStore, id ProjectID, cred RepoCred
 }
 
 func constructionKeys(p Project) []string {
-	out := make([]string, 0, len(p.ActivityConstruction))
-	for k := range p.ActivityConstruction {
+	out := make([]string, 0, len(p.ActivityExecution))
+	for k := range p.ActivityExecution {
 		out = append(out, k)
 	}
 	return out
@@ -4051,8 +4123,8 @@ func TestRecordActivityStarted_BirthsRow(t *testing.T) {
 	if s.ActivityID != "X001" {
 		t.Fatalf("ActivityID = %q, want X001", s.ActivityID)
 	}
-	if s.Phase != ActivityConstructionRunning {
-		t.Fatalf("Phase = %v, want Running", s.Phase)
+	if coarsePhaseOf(s) != ActivityConstructionRunning {
+		t.Fatalf("Phase = %v, want Running", coarsePhaseOf(s))
 	}
 	if s.StartedAt == nil {
 		t.Fatal("StartedAt must be set after RecordActivityStarted")
@@ -4080,8 +4152,8 @@ func TestRecordActivityCompleted_AdvancesToDone(t *testing.T) {
 		t.Fatalf("version = %d, want %d", v3, v2+1)
 	}
 	s := readConstruction(t, store, id, cred, "X001")
-	if s.Phase != ActivityConstructionDone {
-		t.Fatalf("Phase = %v, want Done", s.Phase)
+	if coarsePhaseOf(s) != ActivityConstructionDone {
+		t.Fatalf("Phase = %v, want Done", coarsePhaseOf(s))
 	}
 	if s.CompletedAt == nil {
 		t.Fatal("CompletedAt must be set after RecordActivityCompleted")
@@ -4130,16 +4202,14 @@ func TestActivityConstruction_RoundTrip(t *testing.T) {
 	comp := now.Add(5 * time.Minute)
 
 	p := Project{}
-	p.ActivityConstruction = map[string]ActivityConstructionStatus{
+	p.ActivityExecution = map[string]ActivityExecution{
 		"X001": {
 			ActivityID:  "X001",
-			Phase:       ActivityConstructionDone,
 			StartedAt:   &now,
 			CompletedAt: &comp,
 		},
 		"X002": {
 			ActivityID: "X002",
-			Phase:      ActivityConstructionRunning,
 			StartedAt:  &now,
 		},
 	}
@@ -4156,12 +4226,12 @@ func TestActivityConstruction_RoundTrip(t *testing.T) {
 		t.Fatal("DecodeProjectJSON: ok=false, want true")
 	}
 
-	x001, found := got.ActivityConstruction["X001"]
+	x001, found := got.ActivityExecution["X001"]
 	if !found {
 		t.Fatal("X001 absent after round-trip")
 	}
-	if x001.Phase != ActivityConstructionDone {
-		t.Fatalf("X001 Phase = %v, want Done", x001.Phase)
+	if coarsePhaseOf(x001) != ActivityConstructionDone {
+		t.Fatalf("X001 Phase = %v, want Done", coarsePhaseOf(x001))
 	}
 	if x001.StartedAt == nil || !x001.StartedAt.Equal(now) {
 		t.Fatalf("X001 StartedAt = %v, want %v", x001.StartedAt, now)
@@ -4170,12 +4240,12 @@ func TestActivityConstruction_RoundTrip(t *testing.T) {
 		t.Fatalf("X001 CompletedAt = %v, want %v", x001.CompletedAt, comp)
 	}
 
-	x002, found := got.ActivityConstruction["X002"]
+	x002, found := got.ActivityExecution["X002"]
 	if !found {
 		t.Fatal("X002 absent after round-trip")
 	}
-	if x002.Phase != ActivityConstructionRunning {
-		t.Fatalf("X002 Phase = %v, want Running", x002.Phase)
+	if coarsePhaseOf(x002) != ActivityConstructionRunning {
+		t.Fatalf("X002 Phase = %v, want Running", coarsePhaseOf(x002))
 	}
 	if x002.CompletedAt != nil {
 		t.Fatalf("X002 CompletedAt should be nil, got %v", x002.CompletedAt)
@@ -6561,11 +6631,9 @@ func keysOf(m map[string]json.RawMessage) []string {
 }
 
 func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
-	in := ActivityConstructionStatus{
-		ActivityID:  "C-CW",
-		Phase:       ActivityConstructionDone,
-		Kind:        ActivityKindFrontend,
-		BuildStatus: BuildIntegrated,
+	in := ActivityExecution{
+		ActivityID: "C-CW",
+		Type:       ActivityTypeFrontend,
 		Produced: []ProducedArtifact{
 			{Kind: "service-contract", Title: "webClient — service contract", Source: "implementation/contracts/webClient.md", Produced: true, Note: "frozen App-B contract"},
 		},
@@ -6574,11 +6642,11 @@ func TestActivityConstructionStatus_SeededFacets_RoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
 	}
-	var out ActivityConstructionStatus
+	var out ActivityExecution
 	if err := json.Unmarshal(b, &out); err != nil {
 		t.Fatalf("unmarshal: %v", err)
 	}
-	if out.Kind != ActivityKindFrontend || out.BuildStatus != BuildIntegrated || len(out.Produced) != 1 || out.Produced[0].Source != "implementation/contracts/webClient.md" {
+	if out.Type != ActivityTypeFrontend || len(out.Produced) != 1 || out.Produced[0].Source != "implementation/contracts/webClient.md" {
 		t.Fatalf("round-trip lost facets: %+v", out)
 	}
 }
@@ -6770,7 +6838,7 @@ func TestActivityMethodPhase_ServicePhaseIDs(t *testing.T) {
 // ---- Task 2: PhaseCompletion + phaseSetFor + CoarsePhase/CoarseBuildStatus ----
 
 func TestPhaseSetFor_Service(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	wantPhases := []ActivityMethodPhase{
 		MethodPhaseRequirements, MethodPhaseDetailedDesign, MethodPhaseTestPlan,
 		MethodPhaseConstruction, MethodPhaseIntegration,
@@ -6821,29 +6889,42 @@ func TestPhaseCompletion_JSONRoundTrip(t *testing.T) {
 	}
 }
 
-func TestActivityConstructionStatus_BackCompatNoPhasesField(t *testing.T) {
-	// Existing project.json entries without "phases" must still decode (nil Phases is fine).
-	raw := `{"activityID":"C-CW","phase":2,"kind":1,"buildStatus":2,"produced":[{"Kind":"service-contract","Title":"webClient","Source":"implementation/contracts/webClient.md","Produced":true}]}`
-	var got ActivityConstructionStatus
-	if err := json.Unmarshal([]byte(raw), &got); err != nil {
+func TestLegacyActivityConstructionRow_CarriesAPreRenameEntryForward(t *testing.T) {
+	// A row written before stage 3's wire break: the five derived members and no head
+	// facts but the coarse roll-up. LegacyActivityConstructionRow is the one typed reader
+	// they still have, and it carries forward what the new shape can hold — the type, the
+	// produced artifacts, and, crucially, the TERMINALITY the roll-up asserted.
+	raw := `{"activityID":"C-CW","phase":2,"kind":1,"type":1,"buildStatus":2,"phases":[{"phase":"requirements","weight":40,"completed":true}],"currentPhase":"integration","produced":[{"Kind":"service-contract","Title":"webClient","Source":"implementation/contracts/webClient.md","Produced":true}]}`
+	var legacy LegacyActivityConstructionRow
+	if err := json.Unmarshal([]byte(raw), &legacy); err != nil {
 		t.Fatalf("unmarshal legacy entry: %v", err)
 	}
+	if legacy.Phase != LegacyPhaseDone || legacy.Kind != ActivityKindFrontend ||
+		legacy.CurrentPhase != MethodPhaseIntegration || len(legacy.Phases) != 1 {
+		t.Fatalf("the migration's reader must still see every derived member: %+v", legacy)
+	}
+	got := legacy.toActivityExecution()
 	if got.ActivityID != "C-CW" {
 		t.Errorf("ActivityID = %q, want C-CW", got.ActivityID)
 	}
-	if got.Phase != ActivityConstructionDone {
-		t.Errorf("Phase = %v, want Done", got.Phase)
+	if got.Type != ActivityTypeFrontend {
+		t.Errorf("Type = %v, want Frontend", got.Type)
 	}
-	if got.Kind != ActivityKindFrontend {
-		t.Errorf("Kind = %v, want Frontend", got.Kind)
+	if len(got.Produced) != 1 {
+		t.Errorf("Produced must carry forward, got %+v", got.Produced)
 	}
-	if got.Phases != nil {
-		t.Errorf("Phases should be nil for legacy entry, got %v", got.Phases)
+	// A stored Done with no completion stamp of its own still reads as exited, or the
+	// pump would re-dispatch every finished activity the instant this decoder ran.
+	if got.CompletedAt == nil {
+		t.Fatal("a legacy Done row must carry an exit stamp forward")
+	}
+	if coarsePhaseOf(got) != ActivityConstructionDone {
+		t.Errorf("coarse roll-up = %v, want Done", coarsePhaseOf(got))
 	}
 }
 
 func TestCoarsePhase_AllDone(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	for i := range phases {
 		phases[i].Completed = true
 	}
@@ -6853,14 +6934,14 @@ func TestCoarsePhase_AllDone(t *testing.T) {
 }
 
 func TestCoarsePhase_NoneStarted(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	if got := CoarsePhase(phases); got != ActivityConstructionNotStarted {
 		t.Errorf("CoarsePhase(none started) = %v, want NotStarted", got)
 	}
 }
 
 func TestCoarsePhase_SomeCompleted(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	phases[0].Completed = true
 	if got := CoarsePhase(phases); got != ActivityConstructionRunning {
 		t.Errorf("CoarsePhase(some completed) = %v, want Running", got)
@@ -6877,32 +6958,32 @@ func TestCoarsePhase_EmptyPhases(t *testing.T) {
 }
 
 func TestCoarseBuildStatus_IntegratedWhenAllPhasesDone(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	// Mark every phase done.
 	for i := range phases {
 		phases[i].Completed = true
 	}
-	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildIntegrated {
+	if got := CoarseBuildStatus(phases); got != BuildIntegrated {
 		t.Errorf("CoarseBuildStatus(all phases done) = %v, want Integrated", got)
 	}
 }
 
 func TestCoarseBuildStatus_InReview(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	// Mark only Construction done (not Integration).
 	for i := range phases {
 		if phases[i].Phase == MethodPhaseConstruction {
 			phases[i].Completed = true
 		}
 	}
-	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildInReview {
+	if got := CoarseBuildStatus(phases); got != BuildInReview {
 		t.Errorf("CoarseBuildStatus(construction done, integration not) = %v, want InReview", got)
 	}
 }
 
 func TestCoarseBuildStatus_InConstruction(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
-	if got := CoarseBuildStatus(phases, MethodPhaseConstruction); got != BuildInConstruction {
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
+	if got := CoarseBuildStatus(phases); got != BuildInConstruction {
 		t.Errorf("CoarseBuildStatus(nothing done) = %v, want InConstruction", got)
 	}
 }
@@ -6989,84 +7070,102 @@ func TestProfileFor_TestingPlanRelabelsCanonicalIDs(t *testing.T) {
 	}
 }
 
-func TestActivityProgress_None(t *testing.T) {
-	status := ActivityConstructionStatus{
-		ActivityID: "C-PE",
-		Type:       ActivityTypeService,
-		Phases:     phaseSetFor(ActivityTypeService, 0),
+// ---- Earned value over the RESOLVED set -------------------------------------------
+//
+// ActivityProgress takes the resolved phase set, not the row: the stored slice it used to
+// sum is gone (stage-3 task 4), and a row-shaped signature would have returned 0 for
+// every activity in the project — earned value collapsing to zero with no test failing.
+// ProjectEarnedValue resolves each row itself, from its ledger and its committed plan
+// item, so the curve and the status chip beside it read the same evidence.
+
+// ledgerRow builds a service row whose ledger records the named lifecycle phases complete
+// — the evidence a resolved completion is derived FROM.
+func ledgerRow(id string, complete ...ActivityMethodPhase) ActivityExecution {
+	return ActivityExecution{ActivityID: id, Type: ActivityTypeService, Attempts: constructionLedger(id, complete...)}
+}
+
+// codingMeta is the committed activity list item that types a row as a coding service
+// activity, which is what selects the 15/20/10/40/15 profile at read time.
+func codingMeta(ids ...string) map[string]ActivityItem {
+	out := make(map[string]ActivityItem, len(ids))
+	for _, id := range ids {
+		out[id] = ActivityItem{Name: id, WorkerClass: "junior-developer", Coding: true}
 	}
-	if got := ActivityProgress(status); got != 0 {
+	return out
+}
+
+func TestActivityProgress_None(t *testing.T) {
+	if got := ActivityProgress(ProfileFor(ActivityTypeService, 0).toPhaseCompletions()); got != 0 {
 		t.Errorf("ActivityProgress(none done) = %d, want 0", got)
 	}
 }
 
 func TestActivityProgress_FirstPhase(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0) // 15/20/10/40/15
-	phases[0].Completed = true                    // Requirements = 15%
-	status := ActivityConstructionStatus{ActivityID: "C-PE", Type: ActivityTypeService, Phases: phases}
-	if got := ActivityProgress(status); got != 15 {
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions() // 15/20/10/40/15
+	phases[0].Completed = true                                        // Requirements = 15%
+	if got := ActivityProgress(phases); got != 15 {
 		t.Errorf("ActivityProgress(requirements done) = %d, want 15", got)
 	}
 }
 
 func TestActivityProgress_ThreePhases(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0) // 15/20/10/40/15
-	phases[0].Completed = true                    // 15
-	phases[1].Completed = true                    // 20
-	phases[2].Completed = true                    // 10 → total 45
-	status := ActivityConstructionStatus{ActivityID: "C-PE", Type: ActivityTypeService, Phases: phases}
-	if got := ActivityProgress(status); got != 45 {
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions() // 15/20/10/40/15
+	phases[0].Completed = true                                        // 15
+	phases[1].Completed = true                                        // 20
+	phases[2].Completed = true                                        // 10 → total 45
+	if got := ActivityProgress(phases); got != 45 {
 		t.Errorf("ActivityProgress(3 phases) = %d, want 45", got)
 	}
 }
 
 func TestActivityProgress_AllDone(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	for i := range phases {
 		phases[i].Completed = true
 	}
-	status := ActivityConstructionStatus{ActivityID: "C-PE", Type: ActivityTypeService, Phases: phases}
-	if got := ActivityProgress(status); got != 100 {
+	if got := ActivityProgress(phases); got != 100 {
 		t.Errorf("ActivityProgress(all done) = %d, want 100", got)
 	}
 }
 
 func TestActivityProgress_EmptyPhases(t *testing.T) {
-	status := ActivityConstructionStatus{ActivityID: "C-PE", Type: ActivityTypeService, Phases: nil}
-	if got := ActivityProgress(status); got != 0 {
+	if got := ActivityProgress(nil); got != 0 {
 		t.Errorf("ActivityProgress(nil phases) = %d, want 0", got)
 	}
 }
 
+// TestActivityProgress_OverAResolvedLedger is the CARRY-OVER guard: the progress a row
+// earns comes from its ledger through the resolver, with the PROFILE's weights, so a row
+// that stores no phase set at all still earns what its gates prove.
+func TestActivityProgress_OverAResolvedLedger(t *testing.T) {
+	row := ledgerRow("C-PE", MethodPhaseRequirements, MethodPhaseDetailedDesign)
+	_, _, resolved, classified := ResolveConstructionRow(row, codingMeta("C-PE")["C-PE"])
+	if !classified {
+		t.Fatal("a coding service activity must classify")
+	}
+	if got := ActivityProgress(resolved); got != 35 {
+		t.Errorf("ActivityProgress(requirements+detailedDesign) = %d, want 35", got)
+	}
+}
+
 func TestProjectEarnedValue_Empty(t *testing.T) {
-	if got := ProjectEarnedValue(nil, nil); got != 0.0 {
+	if got := ProjectEarnedValue(nil, nil, nil); got != 0.0 {
 		t.Errorf("ProjectEarnedValue(empty) = %f, want 0.0", got)
 	}
 }
 
 func TestProjectEarnedValue_ZeroEffort(t *testing.T) {
 	// All activities have zero effort: edge case — return 0
-	phases := phaseSetFor(ActivityTypeService, 0)
-	phases[0].Completed = true
-	statuses := []ActivityConstructionStatus{
-		{ActivityID: "C-PE", Type: ActivityTypeService, Phases: phases},
-	}
-	effortDays := map[string]float64{"C-PE": 0.0}
-	got := ProjectEarnedValue(statuses, effortDays)
+	rows := []ActivityExecution{ledgerRow("C-PE", MethodPhaseRequirements)}
+	got := ProjectEarnedValue(rows, codingMeta("C-PE"), map[string]float64{"C-PE": 0.0})
 	if got != 0.0 {
 		t.Errorf("ProjectEarnedValue(zero effort) = %f, want 0.0", got)
 	}
 }
 
 func TestProjectEarnedValue_OneActivity_HalfDone(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0) // 15/20/10/40/15
-	phases[0].Completed = true                    // 15
-	phases[1].Completed = true                    // 20 → 35% done
-	statuses := []ActivityConstructionStatus{
-		{ActivityID: "C-PE", Type: ActivityTypeService, Phases: phases},
-	}
-	effortDays := map[string]float64{"C-PE": 10.0}
-	got := ProjectEarnedValue(statuses, effortDays)
+	rows := []ActivityExecution{ledgerRow("C-PE", MethodPhaseRequirements, MethodPhaseDetailedDesign)} // 15 + 20
+	got := ProjectEarnedValue(rows, codingMeta("C-PE"), map[string]float64{"C-PE": 10.0})
 	// Σ(E_i × A_i) / Σ E_i = (10 × 0.35) / 10 = 0.35
 	if got < 0.34 || got > 0.36 {
 		t.Errorf("ProjectEarnedValue = %f, want ~0.35", got)
@@ -7074,58 +7173,25 @@ func TestProjectEarnedValue_OneActivity_HalfDone(t *testing.T) {
 }
 
 func TestProjectEarnedValue_TwoActivities(t *testing.T) {
-	phases1 := phaseSetFor(ActivityTypeService, 0)
-	for i := range phases1 {
-		phases1[i].Completed = true // 100%
+	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	rows := []ActivityExecution{
+		ledgerRow("C-A", all...), // 100%
+		ledgerRow("C-B"),         // 0% — an opened row whose gates have decided nothing
 	}
-	phases2 := phaseSetFor(ActivityTypeService, 0)
-	// 0% done
-
-	statuses := []ActivityConstructionStatus{
-		{ActivityID: "C-A", Type: ActivityTypeService, Phases: phases1},
-		{ActivityID: "C-B", Type: ActivityTypeService, Phases: phases2},
-	}
-	effortDays := map[string]float64{"C-A": 5.0, "C-B": 15.0}
-	got := ProjectEarnedValue(statuses, effortDays)
+	rows[1].Attempts = []TaskAttempt{constructionAttempt("C-B", TaskSRS, 1, OutcomePending)}
+	got := ProjectEarnedValue(rows, codingMeta("C-A", "C-B"), map[string]float64{"C-A": 5.0, "C-B": 15.0})
 	// Σ(E_i × A_i) / Σ E_i = (5×1.0 + 15×0.0) / 20 = 5/20 = 0.25
 	if got < 0.24 || got > 0.26 {
 		t.Errorf("ProjectEarnedValue = %f, want ~0.25", got)
 	}
 }
 
-// TestProjectEarnedValue_AppATableA2 exercises the App-A Table A-2 example from
-// Appendix A §2: a 4-activity project with weighted earned value = 40.25%.
-// Table A-2 (illustrative): activities A/B/C/D with effort 10/20/15/5 days,
-// progress 100/50/25/0% → EV = (10*1 + 20*0.5 + 15*0.25 + 5*0) / 50
-//
-//	= (10 + 10 + 3.75 + 0) / 50 = 23.75 / 50 = 0.475
-//
-// NOTE: the brief names the expected value 40.25%. Using the exact figures from
-// the task brief (activities C-DA/C-MCN/C-SPA/C-MCP with 10/20/15/5 effort days
-// and 3 of 5 phases / 2 of 5 / 1 of 5 / 0 of 5 completed respectively):
-// progress = 45%/35%/15%/0% → EV = (10*0.45 + 20*0.35 + 15*0.15 + 5*0) / 50
-// = (4.5 + 7.0 + 2.25 + 0) / 50 = 13.75 / 50 = 0.275 — does not yield 40.25%.
-// Using the simplest App-A §2 example consistent with the brief's 40.25% target:
-// efforts 20/40/30/10 = 100 days total, progress 50%/50%/25%/0% →
-// EV = (20*0.5 + 40*0.5 + 30*0.25 + 10*0) / 100 = (10+20+7.5+0)/100 = 0.375.
-// The brief says "App-A Table A-2 project example = 40.25%"; verifying the exact
-// combination: efforts 20/30/15/5=70, progress 100%/30%/20%/0%:
-// EV = (20+9+3+0)/70 = 32/70 = 0.457. Cannot reconstruct 40.25% without the
-// actual table. Use the two-activity test above (0.25) as the worked example instead,
-// and add the brief's 3-of-5-phases-service-activity (45%) via TestActivityProgress_ThreePhases.
 func TestProjectEarnedValue_NilEffortMap_DefaultsToEqualWeight(t *testing.T) {
 	// When effortDays is nil (or activity missing), each activity defaults to E=1.0.
-	phases1 := phaseSetFor(ActivityTypeService, 0)
-	for i := range phases1 {
-		phases1[i].Completed = true // 100%
-	}
-	phases2 := phaseSetFor(ActivityTypeService, 0) // 0%
-
-	statuses := []ActivityConstructionStatus{
-		{ActivityID: "C-A", Type: ActivityTypeService, Phases: phases1},
-		{ActivityID: "C-B", Type: ActivityTypeService, Phases: phases2},
-	}
-	got := ProjectEarnedValue(statuses, nil)
+	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
+	rows := []ActivityExecution{ledgerRow("C-A", all...), ledgerRow("C-B")}
+	rows[1].Attempts = []TaskAttempt{constructionAttempt("C-B", TaskSRS, 1, OutcomePending)}
+	got := ProjectEarnedValue(rows, codingMeta("C-A", "C-B"), nil)
 	// Σ(1.0×1.0 + 1.0×0.0) / 2.0 = 0.5
 	if got < 0.49 || got > 0.51 {
 		t.Errorf("ProjectEarnedValue(nil effortDays) = %f, want ~0.5", got)
@@ -8794,15 +8860,15 @@ func TestTaskAttempt_EvidenceIsNotOmitempty(t *testing.T) {
 // both ids. A matching key, and a legacy row with no activityID, decode cleanly.
 func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing.T) {
 	id := ProjectID("11111111-1111-1111-1111-111111111111")
-	encode := func(rows map[string]ActivityConstructionStatus) []byte {
+	encode := func(rows map[string]ActivityExecution) []byte {
 		t.Helper()
-		raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: rows})
+		raw, err := EncodeProjectJSON(Project{ID: id, ActivityExecution: rows})
 		if err != nil {
 			t.Fatalf("EncodeProjectJSON: %v", err)
 		}
 		return raw
 	}
-	for name, rows := range map[string]map[string]ActivityConstructionStatus{
+	for name, rows := range map[string]map[string]ActivityExecution{
 		"matching key":          {"C-a": {ActivityID: "C-a"}},
 		"legacy row with no id": {"C-a": {}},
 		"several matching rows": {"C-a": {ActivityID: "C-a"}, "N-STP": {ActivityID: "N-STP"}},
@@ -8812,7 +8878,7 @@ func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing
 		}
 	}
 
-	_, _, err := DecodeProjectJSON(encode(map[string]ActivityConstructionStatus{
+	_, _, err := DecodeProjectJSON(encode(map[string]ActivityExecution{
 		"C-a": {ActivityID: "C-a"},
 		"C-b": {ActivityID: "C-c"},
 	}), id)
@@ -8822,7 +8888,7 @@ func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_IsTerminal(t *testing
 	if k := kindOf(t, err); k != fwra.ContractMisuse {
 		t.Fatalf("decode error kind = %v, want ContractMisuse (terminal: malformed committed state)", k)
 	}
-	if !strings.Contains(err.Error(), `activityConstruction["C-b"]`) || !strings.Contains(err.Error(), `"C-c"`) {
+	if !strings.Contains(err.Error(), `activityExecution["C-b"]`) || !strings.Contains(err.Error(), `"C-c"`) {
 		t.Errorf("the error must name the key and the stored id; got: %v", err)
 	}
 }
@@ -8992,18 +9058,17 @@ func constructionAttempt(activityID string, task MethodTask, n int, outcome Task
 	}
 }
 
-// TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere pins
-// architect ruling Q2 (Task 7a) case by case: the stored state stands wherever the pump
-// wrote it (a non-NotStarted Phase, or any stored Phases); the attempt ledger decides
-// only for a classified row whose stored state is empty; otherwise nothing is claimed.
-func TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere(t *testing.T) {
+// TestEffectiveConstructionPhase_HeadFactsThenTheLedger pins the ONE derivation, case by
+// case, now that nothing is stored for it to arbitrate against (stage-3 task 4; architect
+// ruling Q2 is discharged with the stored half it protected). A recorded failure is the
+// sticky terminal; an exit stamp is Done however far the ledger got; otherwise the ledger
+// decides; a row the classifier refuses to type claims nothing from its ledger.
+func TestEffectiveConstructionPhase_HeadFactsThenTheLedger(t *testing.T) {
 	service := ActivityItem{Name: "C-x", WorkerClass: "junior-developer", Coding: true}
 	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
 	full := constructionLedger("C-x", all...)
-	incomplete := make([]PhaseCompletion, 0, len(all))
-	for i, ph := range all {
-		incomplete = append(incomplete, PhaseCompletion{Phase: ph, Completed: i == 0})
-	}
+	partial := constructionLedger("C-x", all[0])
+	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	rejected := append(
 		constructionLedger("C-x", MethodPhaseRequirements, MethodPhaseTestPlan, MethodPhaseDetailedDesign),
 		constructionAttempt("C-x", TaskConstruction, 1, OutcomePassed),
@@ -9012,34 +9077,31 @@ func TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere
 
 	cases := []struct {
 		name      string
-		row       ActivityConstructionStatus
+		row       ActivityExecution
 		meta      ActivityItem
 		wantState ActivityConstructionPhase
 		wantBuild ActivityBuildStatus
 	}{
-		{"a stored Running stands",
-			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionRunning},
+		{"an opened row with no decided phase is Running",
+			ActivityExecution{ActivityID: "C-x", StartedAt: &at},
 			service, ActivityConstructionRunning, BuildInConstruction},
-		{"an Exited-skipped row stands over its incomplete Phases",
-			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionDone, BuildStatus: BuildInReview, Phases: incomplete},
+		{"an exit over an incomplete ledger is the Skipped/TakenOver shape",
+			ActivityExecution{ActivityID: "C-x", StartedAt: &at, CompletedAt: &at, Attempts: partial},
 			service, ActivityConstructionDone, BuildInReview},
-		{"a stored Failed stays Failed under a passing ledger",
-			ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionFailed, BuildStatus: BuildFailed, Attempts: full},
+		{"a recorded failure stays Failed under a passing ledger",
+			ActivityExecution{ActivityID: "C-x", FailureReason: PipelineFailed, CompletedAt: &at, Attempts: full},
 			service, ActivityConstructionFailed, BuildFailed},
-		{"stored Phases mean the pump wrote the row, so the ledger is not read",
-			ActivityConstructionStatus{ActivityID: "C-x", Phases: incomplete, Attempts: full},
-			service, ActivityConstructionNotStarted, BuildInConstruction},
-		{"a backfilled row (no stored state) is decided by its ledger",
-			ActivityConstructionStatus{ActivityID: "C-x", Attempts: full},
+		{"a ledger-only row is decided by its ledger",
+			ActivityExecution{ActivityID: "C-x", Attempts: full},
 			service, ActivityConstructionDone, BuildIntegrated},
 		{"a rejected latest gate reads Running",
-			ActivityConstructionStatus{ActivityID: "C-x", Attempts: rejected},
+			ActivityExecution{ActivityID: "C-x", Attempts: rejected},
 			service, ActivityConstructionRunning, BuildInConstruction},
 		{"an unclassified row claims nothing from its ledger",
-			ActivityConstructionStatus{ActivityID: "C-x", Attempts: full},
+			ActivityExecution{ActivityID: "C-x", Attempts: full},
 			ActivityItem{Name: "C-x"}, ActivityConstructionNotStarted, BuildInConstruction},
 		{"an empty row has not started",
-			ActivityConstructionStatus{ActivityID: "C-x"},
+			ActivityExecution{ActivityID: "C-x"},
 			service, ActivityConstructionNotStarted, BuildInConstruction},
 	}
 	for _, c := range cases {
@@ -9052,35 +9114,29 @@ func TestEffectiveConstructionPhase_StoredWinsWhereThePumpWroteItLedgerElsewhere
 	}
 }
 
-// TestPumpWroteRow_IsEffectiveConstructionPhasesFirstClause pins architect (D), D.1.1:
-// PumpWroteRow is exactly the old `r.Phase != NotStarted || len(r.Phases) > 0` clause —
-// the same truth table — and the row RecordActivityStarted writes satisfies it, so a row
-// the pump has begun can never read as ledger-only.
-func TestPumpWroteRow_IsEffectiveConstructionPhasesFirstClause(t *testing.T) {
+// TestPumpWroteRow_IsTheStartStamp pins architect (D), D.1.1 in its post-rename form: an
+// opened row is one carrying a start stamp, and the row OpenActivity /
+// RecordActivityStarted write satisfies it, so a row the pump has begun can never read as
+// ledger-only.
+func TestPumpWroteRow_IsTheStartStamp(t *testing.T) {
 	ledger := constructionLedger("C-x", MethodPhaseRequirements)
-	phases := []PhaseCompletion{{Phase: MethodPhaseRequirements}}
+	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name string
-		row  ActivityConstructionStatus
+		row  ActivityExecution
 		want bool
 	}{
-		{"an empty row", ActivityConstructionStatus{ActivityID: "C-x"}, false},
-		{"a ledger-only row", ActivityConstructionStatus{ActivityID: "C-x", Attempts: ledger}, false},
-		{"a failure detail alone is not the clause", ActivityConstructionStatus{ActivityID: "C-x", FailureDetail: "x"}, false},
-		{"a stored Running", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionRunning}, true},
-		{"a stored Done", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionDone}, true},
-		{"a stored Failed", ActivityConstructionStatus{ActivityID: "C-x", Phase: ActivityConstructionFailed}, true},
-		{"stored Phases alone", ActivityConstructionStatus{ActivityID: "C-x", Phases: phases}, true},
-		{"stored Phases plus a ledger", ActivityConstructionStatus{ActivityID: "C-x", Phases: phases, Attempts: ledger}, true},
+		{"an empty row", ActivityExecution{ActivityID: "C-x"}, false},
+		{"a ledger-only row", ActivityExecution{ActivityID: "C-x", Attempts: ledger}, false},
+		{"a failure detail alone is not the clause", ActivityExecution{ActivityID: "C-x", FailureDetail: "x"}, false},
+		{"an opened row", ActivityExecution{ActivityID: "C-x", StartedAt: &at}, true},
+		{"an opened row that exited", ActivityExecution{ActivityID: "C-x", StartedAt: &at, CompletedAt: &at}, true},
+		{"an opened row with a ledger", ActivityExecution{ActivityID: "C-x", StartedAt: &at, Attempts: ledger}, true},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			if got := PumpWroteRow(c.row); got != c.want {
 				t.Errorf("PumpWroteRow = %v, want %v", got, c.want)
-			}
-			old := c.row.Phase != ActivityConstructionNotStarted || len(c.row.Phases) > 0
-			if PumpWroteRow(c.row) != old {
-				t.Errorf("PumpWroteRow = %v, but the clause it names says %v", PumpWroteRow(c.row), old)
 			}
 		})
 	}
@@ -9106,10 +9162,10 @@ func TestResolveDependencySatisfied_TheMovedPumpRule(t *testing.T) {
 	}
 	all := ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()
 	items := map[string]ActivityItem{"A-done": svc("A-done"), "A-partial": svc("A-partial"), "A-norow": svc("A-norow"), "A-stored": svc("A-stored")}
-	status := map[string]ActivityConstructionStatus{
+	status := map[string]ActivityExecution{
 		"A-done":    {ActivityID: "A-done", Attempts: constructionLedger("A-done", all...)},
 		"A-partial": {ActivityID: "A-partial", Attempts: constructionLedger("A-partial", all[:len(all)-1]...)},
-		"A-stored":  {ActivityID: "A-stored", Phase: ActivityConstructionDone},
+		"A-stored":  {ActivityID: "A-stored", CompletedAt: &envelopeStartedAt},
 	}
 	milestones := MilestonesByID(&Network{Milestones: []NetworkMilestone{
 		{ID: "M-start"},
@@ -9444,24 +9500,24 @@ func TestWorstOrigin_UnknownOriginRanksAsSynthesized(t *testing.T) {
 // The Integrated-at-85% bug: Integration done while Requirements never completed must
 // NOT read as Integrated.
 func TestCoarseBuildStatus_RequiresAllPhasesForIntegrated(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	for i := range phases {
 		// Everything except Requirements.
 		if phases[i].Phase != MethodPhaseRequirements {
 			phases[i].Completed = true
 		}
 	}
-	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got == BuildIntegrated {
+	if got := CoarseBuildStatus(phases); got == BuildIntegrated {
 		t.Error("CoarseBuildStatus reported Integrated with Requirements incomplete")
 	}
 }
 
 func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	for i := range phases {
 		phases[i].Completed = true
 	}
-	if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildIntegrated {
+	if got := CoarseBuildStatus(phases); got != BuildIntegrated {
 		t.Errorf("CoarseBuildStatus(all done) = %v, want Integrated", got)
 	}
 }
@@ -9476,7 +9532,7 @@ func TestCoarseBuildStatus_AllPhasesCompleteIsIntegrated(t *testing.T) {
 // the branch's meaning is stated, not stumbled on.
 func TestCoarseBuildStatus_EmptyPhaseSetIsAnEvidenceLessDefault(t *testing.T) {
 	for _, phases := range [][]PhaseCompletion{nil, {}} {
-		if got := CoarseBuildStatus(phases, MethodPhaseIntegration); got != BuildInConstruction {
+		if got := CoarseBuildStatus(phases); got != BuildInConstruction {
 			t.Errorf("CoarseBuildStatus(%v) = %v, want BuildInConstruction", phases, got)
 		}
 	}
@@ -9489,22 +9545,23 @@ func TestCoarseBuildStatus_EmptyPhaseSetIsAnEvidenceLessDefault(t *testing.T) {
 }
 
 func TestCoarseBuildStatus_ProfileWithoutIntegrationCanIntegrate(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeUIDesign, 0)
+	phases := ProfileFor(ActivityTypeUIDesign, 0).toPhaseCompletions()
 	for i := range phases {
 		phases[i].Completed = true
 	}
-	if got := CoarseBuildStatus(phases, MethodPhaseDetailedDesign); got != BuildIntegrated {
+	if got := CoarseBuildStatus(phases); got != BuildIntegrated {
 		t.Errorf("uiDesign all-phases-done = %v, want Integrated", got)
 	}
 }
 
-func TestCoarseBuildStatusFor_StoredFailureIsStillSticky(t *testing.T) {
-	phases := phaseSetFor(ActivityTypeService, 0)
+func TestCoarseBuildStatusFor_ARecordedFailureIsStillSticky(t *testing.T) {
+	phases := ProfileFor(ActivityTypeService, 0).toPhaseCompletions()
 	for i := range phases {
 		phases[i].Completed = true
 	}
-	if got := CoarseBuildStatusFor(BuildFailed, phases, MethodPhaseIntegration); got != BuildFailed {
-		t.Errorf("CoarseBuildStatusFor(stored=Failed) = %v, want Failed (sticky)", got)
+	row := ActivityExecution{ActivityID: "C-x", FailureReason: PipelineFailed}
+	if got := CoarseBuildStatusFor(row, phases); got != BuildFailed {
+		t.Errorf("CoarseBuildStatusFor(failed row) = %v, want Failed (sticky)", got)
 	}
 }
 
@@ -9539,8 +9596,9 @@ func TestIsConstructionComplete_EmptyCommittedListIsNotComplete(t *testing.T) {
 	p := Project{
 		Phase:        PhaseConstruction,
 		ActivityList: ArtifactSlot{Status: ReviewCommitted, Model: &ActivityList{Activities: []ActivityItem{}}},
-		ActivityConstruction: map[string]ActivityConstructionStatus{
-			"C-a": {ActivityID: "C-a", Phase: ActivityConstructionDone, BuildStatus: BuildIntegrated},
+		ActivityExecution: map[string]ActivityExecution{
+			"C-a": {ActivityID: "C-a", CompletedAt: &envelopeStartedAt,
+				Attempts: constructionLedger("C-a", ProfileFor(ActivityTypeService, TestVariantPlan).PhaseIDs()...)},
 		},
 	}
 	if isConstructionComplete(p) {
@@ -9553,14 +9611,14 @@ func TestIsConstructionComplete_EmptyCommittedListIsNotComplete(t *testing.T) {
 func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) {
 	cases := []struct {
 		name        string
-		row         ActivityConstructionStatus
+		row         ActivityExecution
 		meta        ActivityItem
 		wantType    ActivityType
 		wantVariant TestingVariant
 	}{
-		{"the name decides the type", ActivityConstructionStatus{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, TestVariantPlan},
-		{"the name decides the variant", ActivityConstructionStatus{ActivityID: "N-STP"}, ActivityItem{Name: "N-IT", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantSystemTest},
-		{"the row id when the list does not hold it", ActivityConstructionStatus{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, TestVariantPlan},
+		{"the name decides the type", ActivityExecution{ActivityID: "C-other"}, ActivityItem{Name: "U-SPA-web-client", Coding: true}, ActivityTypeFrontend, TestVariantPlan},
+		{"the name decides the variant", ActivityExecution{ActivityID: "N-STP"}, ActivityItem{Name: "N-IT", WorkerClass: "software-tester"}, ActivityTypeTesting, TestVariantSystemTest},
+		{"the row id when the list does not hold it", ActivityExecution{ActivityID: "U-SPA-web-client"}, ActivityItem{}, ActivityTypeFrontend, TestVariantPlan},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
@@ -9578,7 +9636,7 @@ func TestResolveConstructionRow_ClassifiesByTheCommittedNameFirst(t *testing.T) 
 // few of the 64 decodes.
 func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_NamesTheFirstSortedKey(t *testing.T) {
 	id := ProjectID("11111111-1111-1111-1111-111111111111")
-	raw, err := EncodeProjectJSON(Project{ID: id, ActivityConstruction: map[string]ActivityConstructionStatus{
+	raw, err := EncodeProjectJSON(Project{ID: id, ActivityExecution: map[string]ActivityExecution{
 		"C-z": {ActivityID: "X-z"},
 		"C-m": {ActivityID: "C-m"},
 		"C-a": {ActivityID: "X-a"},
@@ -9591,7 +9649,7 @@ func TestDecodeProjectJSON_ActivityConstructionKeyMismatch_NamesTheFirstSortedKe
 		if err == nil {
 			t.Fatal("two mismatched rows must FAIL decode")
 		}
-		if !strings.Contains(err.Error(), `activityConstruction["C-a"]`) || strings.Contains(err.Error(), "C-z") {
+		if !strings.Contains(err.Error(), `activityExecution["C-a"]`) || strings.Contains(err.Error(), "C-z") {
 			t.Fatalf("decode %d: the error must name the first sorted key (C-a) and only it; got: %v", i, err)
 		}
 	}
@@ -9705,7 +9763,7 @@ func TestGitStore_ListProjects_SaysWhatItSkips(t *testing.T) {
 func TestGitStore_ListProjects_SkipsAnUnreadableProject(t *testing.T) {
 	bad, good := ProjectID("bad-"+uuid.NewString()), ProjectID(uuid.NewString())
 	badRepo, goodRepo := gh.StartLocalGitRepo(t, "main"), gh.StartLocalGitRepo(t, "main")
-	raw, err := EncodeProjectJSON(Project{ID: bad, Name: "Bad", ActivityConstruction: map[string]ActivityConstructionStatus{
+	raw, err := EncodeProjectJSON(Project{ID: bad, Name: "Bad", ActivityExecution: map[string]ActivityExecution{
 		"C-a": {ActivityID: "C-b"}, // stored under another activity's key
 	}})
 	if err != nil {
@@ -9745,7 +9803,7 @@ func TestGitStore_ListProjects_SkipsAnUnreadableProject(t *testing.T) {
 	for _, want := range []string{
 		`level=WARN msg="projectstate.ListProjects: skipping a project that could not be read"`,
 		"projectID=" + string(bad),
-		`activityConstruction[\"C-a\"]`,
+		`activityExecution[\"C-a\"]`,
 	} {
 		if !strings.Contains(out, want) {
 			t.Errorf("the log must say %q; got:\n%s", want, out)
@@ -10059,9 +10117,9 @@ func TestOperatorNotes_RoundTripAndOmittedWhenNone(t *testing.T) {
 			DeliveredToAttemptID: "C-A:detailedDesign:2", DeliveredAt: &delivered},
 		{NoteID: "n2", Kind: NoteSkip, Text: "built by hand", RecordedAt: noteClock},
 	}
-	p := Project{ID: ProjectID(uuid.NewString()), Version: 3, ActivityConstruction: map[string]ActivityConstructionStatus{
+	p := Project{ID: ProjectID(uuid.NewString()), Version: 3, ActivityExecution: map[string]ActivityExecution{
 		"C-A": {ActivityID: "C-A", OperatorNotes: notes},
-		"C-B": {ActivityID: "C-B", Phase: ActivityConstructionRunning},
+		"C-B": {ActivityID: "C-B", StartedAt: &envelopeStartedAt},
 	}}
 	raw, err := EncodeProjectJSON(p)
 	if err != nil {
@@ -10071,8 +10129,8 @@ func TestOperatorNotes_RoundTripAndOmittedWhenNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("DecodeProjectJSON: %v", err)
 	}
-	if !reflect.DeepEqual(decoded.ActivityConstruction["C-A"].OperatorNotes, notes) {
-		t.Fatalf("codec round trip: %+v, want %+v", decoded.ActivityConstruction["C-A"].OperatorNotes, notes)
+	if !reflect.DeepEqual(decoded.ActivityExecution["C-A"].OperatorNotes, notes) {
+		t.Fatalf("codec round trip: %+v, want %+v", decoded.ActivityExecution["C-A"].OperatorNotes, notes)
 	}
 	env, err := EncodeProject(p)
 	if err != nil {
@@ -10090,10 +10148,10 @@ func TestOperatorNotes_RoundTripAndOmittedWhenNone(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Decode: %v", err)
 	}
-	if !reflect.DeepEqual(fromWire.ActivityConstruction["C-A"].OperatorNotes, notes) {
-		t.Fatalf("envelope round trip: %+v, want %+v", fromWire.ActivityConstruction["C-A"].OperatorNotes, notes)
+	if !reflect.DeepEqual(fromWire.ActivityExecution["C-A"].OperatorNotes, notes) {
+		t.Fatalf("envelope round trip: %+v, want %+v", fromWire.ActivityExecution["C-A"].OperatorNotes, notes)
 	}
-	rowB, err := json.Marshal(p.ActivityConstruction["C-B"])
+	rowB, err := json.Marshal(p.ActivityExecution["C-B"])
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -10103,7 +10161,7 @@ func TestOperatorNotes_RoundTripAndOmittedWhenNone(t *testing.T) {
 }
 
 func TestPendingOperatorNotes_UndeliveredDeliverableKindsInOrder(t *testing.T) {
-	r := ActivityConstructionStatus{OperatorNotes: []OperatorNote{
+	r := ActivityExecution{OperatorNotes: []OperatorNote{
 		{NoteID: "a", Kind: NoteSendBack},
 		{NoteID: "b", Kind: NoteSkip},
 		{NoteID: "c", Kind: NoteRetry, DeliveredToAttemptID: "X:srs:1"},
@@ -10382,8 +10440,8 @@ func TestOpenActivity_BirthsTheRowAndPinsItsLifecycle(t *testing.T) {
 		t.Fatalf("version = %d, want %d", v2, v+1)
 	}
 	row := readConstruction(t, store, id, cred, "C-X")
-	if row.Phase != ActivityConstructionRunning {
-		t.Fatalf("Phase = %v, want Running", row.Phase)
+	if coarsePhaseOf(row) != ActivityConstructionRunning {
+		t.Fatalf("Phase = %v, want Running", coarsePhaseOf(row))
 	}
 	if row.Type != ActivityTypeService {
 		t.Fatalf("Type = %v, want service", row.Type)
@@ -10391,8 +10449,8 @@ func TestOpenActivity_BirthsTheRowAndPinsItsLifecycle(t *testing.T) {
 	if row.StartedAt == nil {
 		t.Fatal("StartedAt must be stamped by the store")
 	}
-	if len(row.Phases) != len(phaseSetFor(ActivityTypeService, TestVariantPlan)) {
-		t.Fatalf("Phases = %d, want the service profile's %d", len(row.Phases), len(phaseSetFor(ActivityTypeService, TestVariantPlan)))
+	if row.Version == 0 {
+		t.Fatal("OpenActivity must stamp the per-activity version")
 	}
 	if row.Pin == nil || row.Pin.TypeKey != "service" || row.Pin.AssetsVersion != "v0.9.0" {
 		t.Fatalf("lifecycle pin = %+v, want the pin the caller opened against", row.Pin)
@@ -10643,7 +10701,11 @@ func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
 		wantPhase ActivityConstructionPhase
 		wantBuild ActivityBuildStatus
 	}{
-		{"completed", ActivityOutcomeCompleted, FailureReasonUnknown, ActivityConstructionDone, BuildIntegrated},
+		// "completed" reads done-but-not-integrated here because nothing was recorded on the
+		// ledger: integration is the claim that every gate passed, and this store holds no
+		// gate attempt at all. That is the disposition, not a regression — it is the same
+		// rule that makes the skipped case below read the way it does.
+		{"completed", ActivityOutcomeCompleted, FailureReasonUnknown, ActivityConstructionDone, BuildInReview},
 		{"skipped", ActivityOutcomeSkipped, FailureReasonUnknown, ActivityConstructionDone, BuildInReview},
 		{"failed", ActivityOutcomeUnknown, PipelineFailed, ActivityConstructionFailed, BuildFailed},
 	} {
@@ -10654,8 +10716,8 @@ func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
 				t.Fatalf("RecordActivityOutcome: %v", err)
 			}
 			row := readConstruction(t, store, id, cred, "C-X")
-			if row.Phase != tt.wantPhase || row.BuildStatus != tt.wantBuild {
-				t.Fatalf("phase/build = %v/%v, want %v/%v", row.Phase, row.BuildStatus, tt.wantPhase, tt.wantBuild)
+			if coarsePhaseOf(row) != tt.wantPhase || buildStatusOf(row) != tt.wantBuild {
+				t.Fatalf("phase/build = %v/%v, want %v/%v", coarsePhaseOf(row), buildStatusOf(row), tt.wantPhase, tt.wantBuild)
 			}
 			if row.CompletedAt == nil {
 				t.Fatal("a terminal outcome stamps CompletedAt")
@@ -11016,9 +11078,9 @@ func TestOpenActivity_RefusesToResurrectAFinishedActivity(t *testing.T) {
 				t.Fatalf("re-opening an exited activity must be a Conflict; got %v", err)
 			}
 			after := readConstruction(t, store, id, cred, "C-X")
-			if after.Phase != before.Phase || after.BuildStatus != before.BuildStatus || after.CompletedAt == nil {
+			if coarsePhaseOf(after) != coarsePhaseOf(before) || buildStatusOf(after) != buildStatusOf(before) || after.CompletedAt == nil {
 				t.Fatalf("the terminal row must be untouched: before=%v/%v after=%v/%v",
-					before.Phase, before.BuildStatus, after.Phase, after.BuildStatus)
+					coarsePhaseOf(before), buildStatusOf(before), coarsePhaseOf(after), buildStatusOf(after))
 			}
 		})
 	}
@@ -11051,7 +11113,7 @@ func TestOpenReviewRound_StampsObservedProvenance(t *testing.T) {
 func TestReviewRound_RoundTripsThroughCodecCarryingEveryMember(t *testing.T) {
 	at := time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
 	p := Project{ID: "p", Version: 1}
-	p.ActivityConstruction = map[string]ActivityConstructionStatus{"C-X": {
+	p.ActivityExecution = map[string]ActivityExecution{"C-X": {
 		ActivityID: "C-X",
 		Type:       ActivityTypeService,
 		Pin:        &LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"},
@@ -11089,14 +11151,230 @@ func TestReviewRound_RoundTripsThroughCodecCarryingEveryMember(t *testing.T) {
 	if len(lost) != 0 {
 		t.Fatalf("the codec drops %v", lost)
 	}
-	r := got.ActivityConstruction["C-X"].Reviews[0]
+	r := got.ActivityExecution["C-X"].Reviews[0]
 	if r.Provenance.Origin != OriginBackfilled || r.Provenance.Basis != "operatorNotes[0]" {
 		t.Fatalf("provenance must survive the round-trip: %+v", r.Provenance)
 	}
 	if r.Verdicts[0].Verdict != VerdictAbstain || r.Outcome != RoundSentBack || r.DecidedAt == "" {
 		t.Fatalf("the round's own members must survive: %+v", r)
 	}
-	if pin := got.ActivityConstruction["C-X"].Pin; pin == nil || pin.TypeKey != "service" {
+	if pin := got.ActivityExecution["C-X"].Pin; pin == nil || pin.TypeKey != "service" {
 		t.Fatalf("the lifecycle pin must survive: %+v", pin)
+	}
+}
+
+// legacyActivityConstructionDocJSON is a project.json document carrying ONE construction
+// row in the shape every committed row is stored in today: the two append-only ledgers
+// and the head facts, PLUS the five members spec §5.3 rules derived — phase, phases,
+// currentPhase, kind, buildStatus. It is the input to the wave's one wire break.
+const legacyActivityConstructionDocJSON = `{
+  "id": "p-legacy",
+  "version": 7,
+  "phase": 2,
+  "owner": "o",
+  "name": "Legacy",
+  "research": {},
+  "slots": {},
+  "activityConstruction": {
+    "C-X": {
+      "activityID": "C-X",
+      "type": 2,
+      "kind": 2,
+      "variant": 1,
+      "phase": 2,
+      "phases": [
+        {"phase": "requirements", "weight": 15, "completed": true, "label": "Requirements"},
+        {"phase": "construction", "weight": 40, "completed": true, "label": "Construction"}
+      ],
+      "currentPhase": "construction",
+      "buildStatus": 1,
+      "startedAt": "2026-09-01T10:00:00Z",
+      "completedAt": "2026-09-02T10:00:00Z",
+      "failureDetail": "the pipeline gave up",
+      "failureReason": 2,
+      "attempts": [
+        {"attemptId": "C-X:srs:1", "task": "srs", "phase": "requirements", "attempt": 1,
+         "outcome": "passed", "evidence": {}, "provenance": {"origin": "observed"}}
+      ],
+      "produced": [{"Kind": "code", "Title": "T", "Source": "s", "Produced": true, "Note": "n"}],
+      "operatorNotes": [{"noteId": "n1", "kind": 1, "gate": "construction", "text": "redo",
+                         "recordedAt": "2026-09-01T11:00:00Z"}],
+      "lifecyclePin": {"typeKey": "testing", "assetsVersion": "v0.9.0"}
+    }
+  },
+  "reviewPolicy": {},
+  "updatedAt": "2026-09-02T10:00:00Z"
+}`
+
+// TestActivityExecution_LegacyRowDecodesAndTheCodecLosesNothing is the wave's ONE wire
+// break, pinned. A legacy document's activityConstruction member must decode into
+// ActivityExecution (task 9 rewrites it; until then, production reads it), and the codec
+// must not DROP anything on the way back out except the five members spec §5.3 rules
+// DERIVED — the half no equality check can supply (CodecCarriesEveryMember's own doc).
+//
+// The comparison is rooted at the ROW MAP rather than at the document, because the member
+// itself moved: compared whole-document, collectDroppedMembers would report the single
+// path "activityConstruction" and say nothing about what the rows inside it lost, which
+// is the question this test exists to answer.
+func TestActivityExecution_LegacyRowDecodesAndTheCodecLosesNothing(t *testing.T) {
+	p, ok, err := DecodeProjectJSON([]byte(legacyActivityConstructionDocJSON), "p-legacy")
+	if err != nil || !ok {
+		t.Fatalf("decode: ok=%v err=%v", ok, err)
+	}
+	if _, held := p.ActivityExecution["C-X"]; !held {
+		t.Fatalf("the legacy member must decode into the new one, got %+v", p.ActivityExecution)
+	}
+	reEncoded, err := EncodeProjectJSON(p)
+	if err != nil {
+		t.Fatalf("re-encode: %v", err)
+	}
+	lost, err := CodecCarriesEveryMember(
+		rowMapMember(t, []byte(legacyActivityConstructionDocJSON), "activityConstruction"),
+		rowMapMember(t, reEncoded, "activityExecution"))
+	if err != nil {
+		t.Fatalf("CodecCarriesEveryMember: %v", err)
+	}
+	// The DERIVED members are the only permitted losses, and they are named, not a count.
+	want := []string{"C-X.buildStatus", "C-X.currentPhase", "C-X.kind", "C-X.phase", "C-X.phases"}
+	if !slices.Equal(lost, want) {
+		t.Fatalf("codec losses:\n got %v\nwant %v", lost, want)
+	}
+}
+
+// rowMapMember lifts one top-level member out of an encoded project document.
+func rowMapMember(t *testing.T, doc []byte, member string) json.RawMessage {
+	t.Helper()
+	var held map[string]json.RawMessage
+	if err := json.Unmarshal(doc, &held); err != nil {
+		t.Fatalf("read the document: %v", err)
+	}
+	raw, ok := held[member]
+	if !ok {
+		names := make([]string, 0, len(held))
+		for k := range held {
+			names = append(names, k)
+		}
+		slices.Sort(names)
+		t.Fatalf("the document carries no %q member; it holds %v", member, names)
+	}
+	return raw
+}
+
+// ---- Test-only derivations of the members the row stopped storing ------------------
+//
+// Stage-3 task 4 removed phase / phases / currentPhase / kind / buildStatus from the
+// stored row: they are DERIVED from the two ledgers and the head facts now (spec §5.3).
+// A test that used to read one off the row reads it through the SAME derivation
+// production uses, so these helpers are the read path, not a shim around it. They pass
+// the zero ActivityItem because the assertions below are about the row, not about a
+// committed plan item — which is exactly the case the derivation answers from the head
+// facts alone.
+
+func coarsePhaseOf(s ActivityExecution) ActivityConstructionPhase {
+	phase, _ := EffectiveConstructionPhase(s, ActivityItem{})
+	return phase
+}
+
+func buildStatusOf(s ActivityExecution) ActivityBuildStatus {
+	_, build := EffectiveConstructionPhase(s, ActivityItem{})
+	return build
+}
+
+// resolvedOf is the row's profile-ordered phase set, resolved from its ledger against the
+// type it carries — what the stored Phases slice used to approximate.
+func resolvedOf(s ActivityExecution) []PhaseCompletion {
+	return ResolvePhaseCompletions(ProfileFor(s.Type, s.Variant), s.Attempts)
+}
+
+// completedPhasesOf names the lifecycle phases the row's ledger resolves complete.
+func completedPhasesOf(s ActivityExecution) []ActivityMethodPhase {
+	var out []ActivityMethodPhase
+	for _, pc := range resolvedOf(s) {
+		if pc.Completed {
+			out = append(out, pc.Phase)
+		}
+	}
+	return out
+}
+
+// ---- The per-activity Version (task 4, step 3) -------------------------------------
+
+// TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter pins the
+// per-activity optimistic check directly, because the twelve verbs all pass
+// noActivityVersionExpectation today (see its doc for which arm this facet took and why)
+// and nothing else can drive a stale expectation through them.
+//
+// Three properties, one test, because they are one rule: a stale expectation is a
+// Conflict naming BOTH versions; a refused transition leaves the row — and its counter —
+// exactly as it found it; an applied transition advances the counter by one.
+func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *testing.T) {
+	newProject := func() *Project {
+		return &Project{ActivityExecution: map[string]ActivityExecution{
+			"C-X": {ActivityID: "C-X", Version: 7},
+		}}
+	}
+	noop := func(*ActivityExecution) error { return nil }
+
+	p := newProject()
+	err := withActivityVersion("RecordAttemptOutcome", "C-X", 3, noop)(p)
+	if err == nil {
+		t.Fatal("a stale per-activity version must be refused")
+	}
+	if got := kindOf(t, err); got != fwra.Conflict {
+		t.Fatalf("kind = %v, want Conflict — the caller resolves it by re-reading", got)
+	}
+	if !strings.Contains(err.Error(), "7") || !strings.Contains(err.Error(), "3") {
+		t.Fatalf("the refusal must name BOTH versions, got: %v", err)
+	}
+	if p.ActivityExecution["C-X"].Version != 7 {
+		t.Fatalf("a refused transition must not advance the counter, got %d", p.ActivityExecution["C-X"].Version)
+	}
+
+	p = newProject()
+	if err := withActivityVersion("RecordAttemptOutcome", "C-X", 7, noop)(p); err != nil {
+		t.Fatalf("the held version must be accepted: %v", err)
+	}
+	if got := p.ActivityExecution["C-X"].Version; got != 8 {
+		t.Fatalf("version = %d, want 8 — an applied transition stamps the counter", got)
+	}
+
+	// The honest no-op guard: a caller with no version to assert passes 0 and the
+	// transition still applies and still stamps.
+	p = newProject()
+	if err := withActivityVersion("RecordAttemptOutcome", "C-X", noActivityVersionExpectation, noop)(p); err != nil {
+		t.Fatalf("no expectation must not refuse: %v", err)
+	}
+	if got := p.ActivityExecution["C-X"].Version; got != 8 {
+		t.Fatalf("version = %d, want 8", got)
+	}
+
+	// And a transition that fails leaves the counter alone, exactly as a refused one does.
+	p = newProject()
+	boom := errors.New("the transition refused")
+	if err := withActivityVersion("RecordAttemptOutcome", "C-X", 7, func(*ActivityExecution) error { return boom })(p); !errors.Is(err, boom) {
+		t.Fatalf("the transition's own error must surface, got %v", err)
+	}
+	if got := p.ActivityExecution["C-X"].Version; got != 7 {
+		t.Fatalf("version = %d, want 7 — a failed transition stamps nothing", got)
+	}
+}
+
+// TestActivityExecutionAccess_EveryAppliedVerbStampsTheVersion pins the counter end to
+// end: a row opens at version 1 and every applied verb advances it, so task 5's writers
+// have an honest number to assert against.
+func TestActivityExecutionAccess_EveryAppliedVerbStampsTheVersion(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	opened := readConstruction(t, store, id, cred, "C-X")
+	if opened.Version != 1 {
+		t.Fatalf("an opened row is at version 1, got %d", opened.Version)
+	}
+	if _, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{
+		AttemptID: AttemptID("C-X", TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+	}, cred, fwra.IdempotencyKey("k-version-1")); err != nil {
+		t.Fatalf("RecordAttemptOutcome: %v", err)
+	}
+	if got := readConstruction(t, store, id, cred, "C-X").Version; got != 2 {
+		t.Fatalf("version = %d, want 2 after one applied transition", got)
 	}
 }

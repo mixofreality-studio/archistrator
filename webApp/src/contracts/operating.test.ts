@@ -93,7 +93,7 @@ function wireState(
   rowIds: readonly string[]
 ): Schemas['SystemDesignProjectState'] {
   return {
-    ActivityConstruction: Object.fromEntries(rowIds.map((id) => [id, doneIntegratedRow(id)])),
+    activityExecution: Object.fromEntries(rowIds.map((id) => [id, doneIntegratedRow(id)])),
     GitRows: {},
     Name: 'fixture',
     Owner: 'fixture-owner',

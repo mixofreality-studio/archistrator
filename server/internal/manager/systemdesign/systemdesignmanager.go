@@ -3163,12 +3163,12 @@ func (m *systemDesignManager) projectStateToContract(p projectstate.Project) Pro
 		Version:   int64(p.Version),
 		// OrDefault: a pre-field project (empty model) reads as self-operated on the
 		// wire — the back-compat default — so the SPA never sees an empty operating model.
-		OperatingModel:       OperatingModel(string(p.OperatingModel.OrDefault())),
-		Research:             researchToContract(p.Research),
-		Slots:                slotsToContract(p),
-		GitRows:              m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
-		ActivityConstruction: constructionRowsToContract(p.ActivityConstruction, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
-		ConstructionStarted:  constructionStartedFor(p.ActivityConstruction),
+		OperatingModel:      OperatingModel(string(p.OperatingModel.OrDefault())),
+		Research:            researchToContract(p.Research),
+		Slots:               slotsToContract(p),
+		GitRows:             m.gitRowsToContract(ProjectID(p.ID), p.ActivityGit),
+		ActivityExecution:   constructionRowsToContract(p.ActivityExecution, activityMetaByID(p), componentLayerByID(p), constructionPlanFor(p)),
+		ConstructionStarted: constructionStartedFor(p.ActivityExecution),
 		// The recorded operator pause, passed through as stored (plan B1.7): the console
 		// offers Resume in Begin's place while it holds.
 		OperatorPaused:       p.OperatorPaused,
@@ -3550,7 +3550,7 @@ func worstOriginFor(recorded bool, attempts []projectstate.TaskAttempt) *string 
 // A stored row the list no longer names is still emitted (it classifies as whatever
 // its metadata allows, which for an unlisted id is nothing).
 func constructionRowsToContract(
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	componentLayer map[string]string,
 	plan constructionPlan,
@@ -3558,9 +3558,9 @@ func constructionRowsToContract(
 	if len(rows) == 0 && len(activityMeta) == 0 {
 		return nil
 	}
-	all := make(map[string]projectstate.ActivityConstructionStatus, len(rows)+len(activityMeta))
+	all := make(map[string]projectstate.ActivityExecution, len(rows)+len(activityMeta))
 	for id := range activityMeta {
-		all[id] = projectstate.ActivityConstructionStatus{ActivityID: id}
+		all[id] = projectstate.ActivityExecution{ActivityID: id}
 	}
 	maps.Copy(all, rows)
 	out := make(map[string]ActivityConstructionStatus, len(all))
@@ -3610,8 +3610,8 @@ func constructionRowsToContract(
 			// that contradicts the profile can make the coarse chip disagree with the
 			// very phase ticks rendered beneath it.
 			phases = phasesToContract(resolved)
-			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r.Phase, resolved)))
-			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase)))
+			coarsePhase = ActivityConstructionPhase(int(projectstate.CoarsePhaseFor(r, resolved)))
+			buildStatus = ActivityBuildStatus(int(projectstate.CoarseBuildStatusFor(r, resolved)))
 		}
 		layer, band := projectstate.LayerForActivity(componentLayer[meta.ComponentID])
 		out[id] = ActivityConstructionStatus{
@@ -3621,7 +3621,7 @@ func constructionRowsToContract(
 			Variant:       variant,
 			Phase:         coarsePhase,
 			Phases:        phases,
-			CurrentPhase:  ActivityMethodPhase(string(r.CurrentPhase)),
+			CurrentPhase:  ActivityMethodPhase(string(currentLifecyclePhase(resolved))),
 			StartedAt:     r.StartedAt,
 			CompletedAt:   r.CompletedAt,
 			BuildStatus:   buildStatus,
@@ -3665,6 +3665,21 @@ func constructionRowsToContract(
 		}
 	}
 	return out
+}
+
+// currentLifecyclePhase is the phase a row is working IN, DERIVED: the first phase of its
+// resolved, profile-ordered set that is not complete. It replaces the stored CurrentPhase
+// the row no longer carries (spec §5.3), and it is the more trustworthy of the two: the
+// stored field was stamped at phase entry and never cleared, so a row that had moved on
+// still named the phase it was stamped in. Empty when the set is empty or every phase is
+// complete — in neither case is there a phase in progress to name.
+func currentLifecyclePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
+	for _, pc := range resolved {
+		if !pc.Completed {
+			return pc.Phase
+		}
+	}
+	return ""
 }
 
 // operatorNotesToContract maps a row's stored operator notes onto the wire as they are:
@@ -3732,7 +3747,7 @@ const (
 // pump wrote it (projectstate.PumpWroteRow), yet its effective state is Running — which,
 // for a row no pump wrote, means its attempt ledger holds some phases complete and not
 // others. Nothing runs it and nothing reviews it, so it is not in flight.
-func isPendingResume(r projectstate.ActivityConstructionStatus, meta projectstate.ActivityItem) bool {
+func isPendingResume(r projectstate.ActivityExecution, meta projectstate.ActivityItem) bool {
 	if projectstate.PumpWroteRow(r) {
 		return false
 	}
@@ -3748,10 +3763,10 @@ func isPendingResume(r projectstate.ActivityConstructionStatus, meta projectstat
 // and is empty, never nil, when the row is next in line.
 func pendingResumeFor(
 	id string,
-	r projectstate.ActivityConstructionStatus,
+	r projectstate.ActivityExecution,
 	meta projectstate.ActivityItem,
 	resolved []projectstate.PhaseCompletion,
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	plan constructionPlan,
 ) *PendingResume {
@@ -3791,7 +3806,7 @@ func firstIncompletePhase(resolved []projectstate.PhaseCompletion) projectstate.
 func pendingReasonFor(
 	dep string,
 	res projectstate.DependencyResolution,
-	rows map[string]projectstate.ActivityConstructionStatus,
+	rows map[string]projectstate.ActivityExecution,
 	activityMeta map[string]projectstate.ActivityItem,
 	plan constructionPlan,
 ) string {
@@ -3819,7 +3834,7 @@ func pendingReasonFor(
 //
 // It replaces the SPA probing one construction-session endpoint per committed activity
 // on every load (29 GETs), which also stopped answering once Temporal retention expired.
-func constructionStartedFor(rows map[string]projectstate.ActivityConstructionStatus) bool {
+func constructionStartedFor(rows map[string]projectstate.ActivityExecution) bool {
 	for _, r := range rows {
 		if rowCarriesPumpState(r) || hasObservedAttempt(r.Attempts) {
 			return true
@@ -3828,11 +3843,13 @@ func constructionStartedFor(rows map[string]projectstate.ActivityConstructionSta
 	return false
 }
 
-// rowCarriesPumpState reports whether a stored row holds any field only the pump writes.
-func rowCarriesPumpState(r projectstate.ActivityConstructionStatus) bool {
+// rowCarriesPumpState reports whether a stored row holds any head fact only the pump
+// writes: the start stamp, the exit stamp, or a recorded failure. The coarse roll-up and
+// the phase set it also used to name are DERIVED now (spec §5.3), and a derivation is not
+// evidence that anything ran.
+func rowCarriesPumpState(r projectstate.ActivityExecution) bool {
 	return r.StartedAt != nil ||
-		r.Phase != projectstate.ActivityConstructionNotStarted ||
-		len(r.Phases) > 0 ||
+		r.CompletedAt != nil ||
 		r.FailureReason != projectstate.FailureReasonUnknown ||
 		r.FailureDetail != ""
 }
@@ -3882,7 +3899,7 @@ func componentLayerByID(p projectstate.Project) map[string]string {
 // The resolution itself lives in projectstate (ResolveConstructionRow), so the
 // construction pump reads a row exactly as this view renders it. This is a pure call.
 func classifiedRowView(
-	r projectstate.ActivityConstructionStatus,
+	r projectstate.ActivityExecution,
 	meta projectstate.ActivityItem,
 ) (typ projectstate.ActivityType, variant projectstate.TestingVariant, resolved []projectstate.PhaseCompletion, classified bool) {
 	return projectstate.ResolveConstructionRow(r, meta)
@@ -3895,10 +3912,9 @@ func classifiedRowView(
 // explicit profile, and must keep passing unmodified across the move.
 func resolvedPhaseCompletions(
 	profile projectstate.Profile,
-	stored []projectstate.PhaseCompletion,
 	attempts []projectstate.TaskAttempt,
 ) []projectstate.PhaseCompletion {
-	return projectstate.ResolvePhaseCompletions(profile, stored, attempts)
+	return projectstate.ResolvePhaseCompletions(profile, attempts)
 }
 
 // phasesToContract maps the App-A internal phase-completion records onto the wire.
@@ -4032,13 +4048,13 @@ func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks
 	// to type contribute to the curve while the row beside it refused to assert a
 	// status at all.
 	activityMeta := activityMetaByID(p)
-	integrated := make([]string, 0, len(p.ActivityConstruction))
-	for id, r := range p.ActivityConstruction {
+	integrated := make([]string, 0, len(p.ActivityExecution))
+	for id, r := range p.ActivityExecution {
 		_, _, resolved, classified := classifiedRowView(r, activityMeta[id])
 		if !classified {
 			continue
 		}
-		if projectstate.CoarseBuildStatusFor(r.BuildStatus, resolved, r.CurrentPhase) == projectstate.BuildIntegrated {
+		if projectstate.CoarseBuildStatusFor(r, resolved) == projectstate.BuildIntegrated {
 			integrated = append(integrated, id)
 		}
 	}

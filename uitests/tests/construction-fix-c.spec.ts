@@ -44,8 +44,8 @@ async function wireRows(request: APIRequestContext): Promise<Record<string, Wire
     headers: { Accept: 'application/json' },
   });
   expect(res.status()).toBe(200);
-  const data = (await res.json()) as { ActivityConstruction?: Record<string, WireRow> };
-  return data.ActivityConstruction ?? {};
+  const data = (await res.json()) as { activityExecution?: Record<string, WireRow> };
+  return data.activityExecution ?? {};
 }
 
 function reconstructed(row: WireRow | undefined, phase?: string): number {

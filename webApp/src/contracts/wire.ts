@@ -745,10 +745,22 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     w.GitRows,
     mapGitRow
   ) as GitRows | undefined;
+  // THE ONE WIRE BREAK OF THE ACTIVITY-EXPERIENCE WAVE (spec §5.3, stage-3 task 4).
+  // The server's stored map is `.activityExecution` now — renamed from
+  // `.activityConstruction` with the row type itself — and the GetProject view it
+  // projects renamed with it, so this mapper reads `w.activityExecution`. The SPA-side
+  // NAME stays `constructionRows` until the stage-5 Activity Experience replaces the
+  // view model wholesale: renaming the domain type here as well would be a second,
+  // unbudgeted churn through every construction screen for no reader's benefit.
+  //
+  // The view row's shape is UNCHANGED: `Phase`, `Phases`, `CurrentPhase`, `Kind` and
+  // `BuildStatus` are still on the wire, but the server COMPUTES them from the two
+  // append-only ledgers instead of reading them back out of storage. Nothing on this
+  // side had to move for that, which is the point of having kept them view fields.
   const constructionRows = mapRecord<
     Schemas['SystemDesignActivityConstructionStatus'],
     ConstructionRow
-  >(w.ActivityConstruction, mapConstructionRow) as ConstructionRows | undefined;
+  >(w.activityExecution, mapConstructionRow) as ConstructionRows | undefined;
   const serviceContracts = mapRecord<Schemas['SystemDesignServiceContract'], ServiceContract>(
     w.ServiceContracts,
     mapServiceContract
@@ -760,13 +772,13 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
   // (catalog chip via ProjectSummary.ConstructionComplete, AppShell chip, HomeBase
   // construction card, the Tracker completion panel, the Console begin/resume
   // button) consumes this ONE precomputed boolean rather than re-deriving it.
-  // Routed through mapRecord (rather than a bare `w.ActivityConstruction ?? {}`)
+  // Routed through mapRecord (rather than a bare `w.activityExecution ?? {}`)
   // for its null-guard: schema.ts's generated type omits `| null`, but Go nil
   // maps serialize as JSON `null` on the wire — the same drift mapRecord's own
   // doc comment above notes and guards for every other head-state map.
   // The domain is the COMMITTED activity list, not the rows (Task 7a, mirroring the
   // Go isConstructionComplete): a listed activity with no row has not started.
-  const operatingRows = mapRecord(w.ActivityConstruction, (cs) => ({
+  const operatingRows = mapRecord(w.activityExecution, (cs) => ({
     phase: cs.Phase,
     buildStatus: cs.BuildStatus,
   }));

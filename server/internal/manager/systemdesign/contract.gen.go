@@ -441,7 +441,7 @@ type ProjectState struct {
 	Research             ResearchInput                         `json:"Research"`
 	Slots                []ArtifactSlotView                    `json:"Slots"`
 	GitRows              map[string]ActivityGitStatus          `json:"GitRows"`
-	ActivityConstruction map[string]ActivityConstructionStatus `json:"ActivityConstruction"`
+	ActivityExecution    map[string]ActivityConstructionStatus `json:"activityExecution"`
 	ConstructionProgress *ConstructionProgress                 `json:"constructionProgress,omitempty"`
 	ServiceContracts     map[string]ServiceContract            `json:"ServiceContracts"`
 	ReviewPolicy         *ReviewPolicyView                     `json:"reviewPolicy,omitempty"`

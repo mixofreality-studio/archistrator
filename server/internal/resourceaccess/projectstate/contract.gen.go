@@ -38,12 +38,6 @@ type ActivityEdge struct {
 	Guard string   `json:"guard"`
 }
 
-type ActivityExecution struct {
-	ActivityID string        `json:"activityId"`
-	Attempts   []TaskAttempt `json:"attempts,omitempty"`
-	Reviews    []ReviewRound `json:"reviews,omitempty"`
-}
-
 type ActivityGitStatus struct {
 	ActivityID     string       `json:"ActivityID"`
 	BranchName     string       `json:"BranchName"`

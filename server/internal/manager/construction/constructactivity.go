@@ -700,7 +700,7 @@ func (wf *workflows) mergeAndRecord(
 // recordActivityStarted marks the activity Running in the per-activity construction
 // head-state at the TOP of the spine (Task 3), BEFORE any dispatch. This is what
 // flips the activity out of NotStarted so the pump's eligibility selection
-// (nextEligibleActivity over proj.ActivityConstruction) does not re-dispatch it on a
+// (nextEligibleActivity over proj.ActivityExecution) does not re-dispatch it on a
 // concurrent/redundant tick. Cred-threaded like the four git head-state records; a
 // dormant slice (git unwired) is a no-op (the live Postgres composition has no
 // per-activity construction head-state, so the gate degrades to the child-workflow-id
@@ -1205,17 +1205,17 @@ func (wf *workflows) loadReviewSnapshot(
 	// the seed must read the row as the view does, or the run would redo phases the
 	// ledger records as passed. GetVersion (always called, same change id as the pump's
 	// selection) pins an execution that seeded from the stored Phases only to that seed.
+	//
+	// The GetVersion call stays unconditional (a recorded history must see the same
+	// marker it recorded), but its DEFAULT arm is now empty: that arm read the row's
+	// stored phase-completion slice, which stage-3 task 4 stopped storing — a lifecycle
+	// phase is complete iff its gate task's latest attempt passed, and the ledger is the
+	// only record of that. No pre-marker history it replays carries stored completions
+	// anyway (the two ledger-seed fixtures hold attempts and no phase set), so the arm
+	// seeds exactly what it seeded before: nothing.
 	ledgerSeed := workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) >= 1
-	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok {
-		if ledgerSeed {
-			seedResumeFromLedger(state, in.Activity, acs)
-		} else {
-			for _, pc := range acs.Phases {
-				if pc.Completed {
-					state.completedPhases[pc.Phase] = true
-				}
-			}
-		}
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && ledgerSeed {
+		seedResumeFromLedger(state, in.Activity, acs)
 	}
 	// OPERATOR-NOTE DELIVERY (plan B1.4). GetVersion is always called here, so a new
 	// execution records the marker before its first dispatch and an execution that
@@ -1223,7 +1223,7 @@ func (wf *workflows) loadReviewSnapshot(
 	// scaffold sync. Notes still pending on the row (a re-queue's note, or one an
 	// earlier run recorded but never dispatched) ride this run's first agent dispatch.
 	state.noteDelivery = workflow.GetVersion(ctx, changeOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1
-	if acs, ok := snap.ActivityConstruction[string(in.ActivityID)]; ok && state.noteDelivery {
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.noteDelivery {
 		state.pendingNotes = projectstate.PendingOperatorNotes(acs)
 	}
 	state.reviewContracts = snapshotContractKeys(snap)
@@ -1239,18 +1239,16 @@ func (wf *workflows) loadReviewSnapshot(
 // way every other reader reads it (architect (D), D.1.3):
 //   - completedPhases from projectstate.ResolvePhaseCompletions over the activity's profile:
 //     the attempt ledger decides every phase it has decided (a passed gate completes the
-//     phase, a rejected one overrules a stored completion), and the stored Phases stand
-//     where the ledger is silent. It must stay ledger-aware after dispatch too:
-//     RecordPhaseStarted seeds the stored Phases all-false, which a stored-only seed on a
-//     later run would read as "nothing done".
+//     phase, a rejected one leaves it incomplete), and a phase whose gate has no attempt
+//     is a phase nothing is claimed about.
 //   - taskAttempts from the highest attempt number the ledger records per task, so the
 //     next dispatch of a task is attempt n+1 and its AttemptID (the episode TargetRef)
 //     never collides with one the ledger already holds.
 //
 // Pure over values already in workflow history (the snapshot's recorded readProject).
-func seedResumeFromLedger(state *constructState, act constructionActivity, acs projectstate.ActivityConstructionStatus) {
+func seedResumeFromLedger(state *constructState, act constructionActivity, acs projectstate.ActivityExecution) {
 	profile := projectstate.ProfileFor(act.Type, act.Variant)
-	for _, pc := range projectstate.ResolvePhaseCompletions(profile, acs.Phases, acs.Attempts) {
+	for _, pc := range projectstate.ResolvePhaseCompletions(profile, acs.Attempts) {
 		if pc.Completed {
 			state.completedPhases[pc.Phase] = true
 		}
@@ -1880,7 +1878,7 @@ func (wf *workflows) recordOperatorNote(
 	}
 	// The RA's own rule decides what is pending (a skip note never is).
 	state.pendingNotes = append(state.pendingNotes,
-		projectstate.PendingOperatorNotes(projectstate.ActivityConstructionStatus{OperatorNotes: []projectstate.OperatorNote{recorded}})...)
+		projectstate.PendingOperatorNotes(projectstate.ActivityExecution{OperatorNotes: []projectstate.OperatorNote{recorded}})...)
 	return nil
 }
 

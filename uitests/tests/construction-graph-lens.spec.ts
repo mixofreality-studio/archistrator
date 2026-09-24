@@ -66,7 +66,7 @@ interface Truth {
   milestones: { id: string; dependsOn: string[] }[];
 }
 interface WireProject {
-  ActivityConstruction: Record<string, { layer?: string; layerBand?: string }>;
+  activityExecution: Record<string, { layer?: string; layerBand?: string }>;
   Slots: { kind: string; model: { model: Record<string, unknown> } }[];
 }
 
@@ -88,7 +88,7 @@ async function truth(request: APIRequestContext): Promise<Truth> {
   };
   const componentOf = new Map((list.activities ?? []).map((a) => [a.name, a.componentId]));
   return {
-    activities: Object.entries(body.ActivityConstruction).map(([id, row]) => ({
+    activities: Object.entries(body.activityExecution).map(([id, row]) => ({
       id,
       layer: row.layer,
       layerBand: row.layerBand,

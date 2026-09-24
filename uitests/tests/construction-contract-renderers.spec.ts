@@ -251,9 +251,9 @@ async function serveRead(
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as {
-      ActivityConstruction?: Record<string, Record<string, unknown>>;
+      activityExecution?: Record<string, Record<string, unknown>>;
     };
-    mutate(wire.ActivityConstruction ?? {});
+    mutate(wire.activityExecution ?? {});
     await route.fulfill({ response, json: wire });
   });
 }
@@ -352,9 +352,9 @@ async function serveOwedGate(
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as {
-      ActivityConstruction?: Record<string, Record<string, unknown>>;
+      activityExecution?: Record<string, Record<string, unknown>>;
     };
-    const row = wire.ActivityConstruction?.[activityId];
+    const row = wire.activityExecution?.[activityId];
     if (row === undefined) throw new Error(`no row ${activityId} in the read`);
     // A probe candidate (owedWork.probeCandidatesFor): recorded, started, not
     // completed — so the console asks the session route, which answers a gate.
@@ -762,9 +762,9 @@ async function serveSpaConstruction(page: Page, produced: Record<string, unknown
   await page.route('**/system-design/get-project/archistrator**', async (route) => {
     const response = await route.fetch();
     const wire = (await response.json()) as {
-      ActivityConstruction?: Record<string, Record<string, unknown>>;
+      activityExecution?: Record<string, Record<string, unknown>>;
     };
-    const row = wire.ActivityConstruction?.[SPA];
+    const row = wire.activityExecution?.[SPA];
     if (row === undefined) throw new Error(`no row ${SPA} in the read`);
     Object.assign(row, {
       recorded: true,

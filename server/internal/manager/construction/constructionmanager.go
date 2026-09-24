@@ -803,7 +803,7 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 	if !ok {
 		return ActivityView{}, newError(fwm.NotFound, "no activity "+id+" in the committed activity list")
 	}
-	row := proj.ActivityConstruction[id]
+	row := proj.ActivityExecution[id]
 	row.ActivityID = id
 	typ, variant, resolved, classified := projectstate.ResolveConstructionRow(row, item)
 	if !classified {
@@ -1460,14 +1460,14 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	var skippedDesign []string
 	for i, item := range activityList.Activities {
 		name := item.Name
-		if !eligibleUnder(rule, name, item, proj.ActivityConstruction) {
+		if !eligibleUnder(rule, name, item, proj.ActivityExecution) {
 			continue
 		}
 		if isDesignActivity(name, item) {
 			skippedDesign = append(skippedDesign, name)
 			continue
 		}
-		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityConstruction, milestones)
+		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityExecution, milestones)
 		if res.ProblemReason != "" {
 			if problemReason == "" {
 				problemActivityID, problemReason, problemKind = name, res.ProblemReason, res.ProblemKind
@@ -1612,7 +1612,7 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 }
 
 // eligibleUnder applies the pump's eligibility rule to one activity.
-func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
 	if rule == eligibleDispatchable {
 		return isActivityDispatchable(activityID, item, status)
 	}
@@ -1627,7 +1627,7 @@ func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.Ac
 // ledger-aware seed). A pump-written row never qualifies — RecordActivityStarted, the
 // child's first durable write, makes PumpWroteRow true, so a row leaves this set before
 // the pump can look again — and neither does a Done or Failed one.
-func isActivityDispatchable(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+func isActivityDispatchable(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
 	s, exists := status[activityID]
 	if !exists {
 		return true
@@ -1646,7 +1646,7 @@ func isActivityDispatchable(activityID string, item projectstate.ActivityItem, s
 // lives in the ledger alone (the backfill's rows: attempts, no stored phase fields) is
 // never re-dispatched as if nothing had happened. item is the activity's committed
 // ActivityItem — the ledger read needs its classification.
-func isActivityNotStarted(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityConstructionStatus) bool {
+func isActivityNotStarted(activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
 	s, exists := status[activityID]
 	if !exists {
 		return true
@@ -2696,7 +2696,7 @@ type taskView struct {
 // resolved is projectstate.ResolveConstructionRow's third return, never row.Phases: the
 // phase set a row HAS and the completion state it is IN are one fact with one rule
 // (ResolvePhaseCompletions), and every reader of this row derives from that one answer.
-func normalizeAttempts(activityID string, row projectstate.ActivityConstructionStatus, resolved []projectstate.PhaseCompletion, episodes []episode.EpisodeRecord, live *ConstructionSessionView) []projectstate.TaskAttempt {
+func normalizeAttempts(activityID string, row projectstate.ActivityExecution, resolved []projectstate.PhaseCompletion, episodes []episode.EpisodeRecord, live *ConstructionSessionView) []projectstate.TaskAttempt {
 	out := slices.Clone(row.Attempts)
 	index := make(map[string]int, len(out))
 	for i, a := range out {
@@ -2723,7 +2723,7 @@ func normalizeAttempts(activityID string, row projectstate.ActivityConstructionS
 			Provenance: reconstructed("episodes[" + ep.EpisodeID + "]"),
 		})
 	}
-	out = appendRunningAttempt(out, activityID, row, live)
+	out = appendRunningAttempt(out, activityID, resolved, live)
 	return appendGateAttempts(out, activityID, row, resolved, live)
 }
 
@@ -2845,11 +2845,19 @@ func appendPreLedgerRejections(out []projectstate.TaskAttempt, activityID string
 
 // appendRunningAttempt is N3: the dispatch a live session is running now, which has no
 // episode until it ends.
-func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, live *ConstructionSessionView) []projectstate.TaskAttempt {
+//
+// The phase it is running is DERIVED from the resolved set — the first lifecycle phase
+// the ledger does not hold complete — rather than read off a stored CurrentPhase. The
+// stored field is gone (spec §5.3: it was a second answer to a question the ledger
+// already answers), and it was the less trustworthy of the two anyway: it was stamped at
+// phase entry and never cleared, so a row that had moved on still named the phase it was
+// stamped in. A row whose every phase is complete is running nothing, and returns none.
+func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, resolved []projectstate.PhaseCompletion, live *ConstructionSessionView) []projectstate.TaskAttempt {
 	if live == nil || (live.Stage != StageDispatching && live.Stage != StagePipelineRunning) {
 		return out
 	}
-	task := projectstate.AgentTaskFor(row.CurrentPhase)
+	current := currentLifecyclePhase(resolved)
+	task := projectstate.AgentTaskFor(current)
 	if task == "" {
 		return out
 	}
@@ -2860,9 +2868,21 @@ func appendRunningAttempt(out []projectstate.TaskAttempt, activityID string, row
 	}
 	n := highestAttempt(out, task) + 1
 	return append(out, projectstate.TaskAttempt{
-		AttemptID: projectstate.AttemptID(activityID, task, n), Task: task, Phase: row.CurrentPhase, Attempt: n,
+		AttemptID: projectstate.AttemptID(activityID, task, n), Task: task, Phase: current, Attempt: n,
 		Actor: projectstate.ActorAgent, Provenance: reconstructed("session.stage"),
 	})
+}
+
+// currentLifecyclePhase is the phase an activity is working IN: the first phase of its
+// resolved, profile-ordered set that is not complete. Empty when the set is empty or
+// every phase is complete — in neither case is there a phase in progress to name.
+func currentLifecyclePhase(resolved []projectstate.PhaseCompletion) projectstate.ActivityMethodPhase {
+	for _, pc := range resolved {
+		if !pc.Completed {
+			return pc.Phase
+		}
+	}
+	return ""
 }
 
 // liveApprovalGate is the lifecycle phase a live session awaits approval at, if any. The
@@ -2875,7 +2895,7 @@ func liveApprovalGate(live *ConstructionSessionView) (string, *time.Time) {
 }
 
 // appendGateAttempts is N4, over the resolved phase set.
-func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityConstructionStatus, resolved []projectstate.PhaseCompletion, live *ConstructionSessionView) []projectstate.TaskAttempt {
+func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row projectstate.ActivityExecution, resolved []projectstate.PhaseCompletion, live *ConstructionSessionView) []projectstate.TaskAttempt {
 	liveGate, liveSince := liveApprovalGate(live)
 	// ResolveConstructionRow's reconciled set IS the phase inventory and the completion
 	// state, in profile order. There is no second inventory: canonicalMethodPhases was one,
