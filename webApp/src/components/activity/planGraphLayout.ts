@@ -4,7 +4,7 @@
  * get built, not the architecture's own top→down layering:
  *
  *   FRONT END   1 Requirements → 2 Architecture → 3 Project Design → ◆ M0
- *   RESOURCES → RESOURCE ACCESS → ENGINES → MANAGERS → DEPLOYMENT → CLIENTS
+ *   RESOURCES → RESOURCE ACCESS → ENGINES → MANAGERS → CLIENTS
  *   SYSTEM TESTING (N-IT, terminal)
  *
  * plus N-STP in its own side lane, clear of the widest row, running from M0
@@ -26,13 +26,19 @@
  */
 import { COL_W, NODE_W, ROW_H } from '../flow/flowLayoutCore.ts';
 
+/**
+ * There is no `deployment` row. The prototype had one and the live model has
+ * no deployment LAYER (slots.5 components are resourceAccess / resource /
+ * engine / manager / utility / client only) — the tile the proto drew in it
+ * was invented. A deployment-type activity takes its component's layer like
+ * any other coding activity (planRowFor).
+ */
 export type PlanRow =
   | 'frontEnd'
   | 'resource'
   | 'resourceAccess'
   | 'engine'
   | 'manager'
-  | 'deployment'
   | 'client'
   | 'systemTesting'
   /** N-STP: no horizontal band — a vertical lane beside every row. */
@@ -84,7 +90,6 @@ const ROW_LABEL: Record<Exclude<PlanRow, 'sideLane'>, string> = {
   resourceAccess: 'Resource\nAccess',
   engine: 'Engines',
   manager: 'Managers',
-  deployment: 'Deployment',
   client: 'Clients',
   systemTesting: 'System\nTesting',
 };
@@ -97,7 +102,6 @@ const STACK_ROWS: readonly Exclude<PlanRow, 'frontEnd' | 'sideLane'>[] = [
   'resourceAccess',
   'engine',
   'manager',
-  'deployment',
   'client',
   'systemTesting',
 ];
@@ -208,11 +212,17 @@ export interface PlanFocus {
 }
 
 /**
- * Hovering a tile lights it, its neighbours and the edges between them; every
- * other tile dims and every other edge hides (the house static hover-focus).
- * Hovering the MILESTONE lights everything it gates — all of construction and
- * the side lane and system testing, not just the build roots its edges reach
- * — because that is what a forced dependency means.
+ * What a hover lights: the tile, every activity it TRANSITIVELY depends on,
+ * and every activity that transitively depends on it — the full upstream and
+ * downstream chain (spec §7.3), not the direct neighbours the prototype and
+ * the old graph lens both lit. On a build plan the direct neighbours are the
+ * least interesting answer: what a reader wants from hovering C-review-engine
+ * is everything that must exist before it and everything that cannot ship
+ * without it.
+ *
+ * Hovering the MILESTONE lights everything it gates — all of construction,
+ * the side lane and system testing — because that is what a forced dependency
+ * means, and M0's own edges reach only the build roots.
  */
 export function planFocusFor(
   hoveredId: string,
@@ -220,15 +230,41 @@ export function planFocusFor(
   edges: readonly PlanEdge[],
   milestoneId: string | undefined
 ): PlanFocus {
-  const lit = new Set<string>([hoveredId]);
-  for (const e of edges) {
-    if (e.from === hoveredId) lit.add(e.to);
-    if (e.to === hoveredId) lit.add(e.from);
-  }
   if (hoveredId === milestoneId) {
+    const lit = new Set<string>([hoveredId]);
     for (const t of tiles) {
       if (t.row !== 'frontEnd') lit.add(t.id);
     }
+    return { tiles: lit, incident: (e) => lit.has(e.from) && lit.has(e.to) };
   }
-  return { tiles: lit, incident: (e) => e.from === hoveredId || e.to === hoveredId };
+  const up = new Map<string, string[]>();
+  const down = new Map<string, string[]>();
+  for (const e of edges) {
+    push(down, e.from, e.to);
+    push(up, e.to, e.from);
+  }
+  const lit = new Set<string>([hoveredId]);
+  walk(up, hoveredId, lit);
+  walk(down, hoveredId, lit);
+  return { tiles: lit, incident: (e) => lit.has(e.from) && lit.has(e.to) };
+}
+
+function push(m: Map<string, string[]>, key: string, value: string): void {
+  const cur = m.get(key);
+  if (cur === undefined) m.set(key, [value]);
+  else cur.push(value);
+}
+
+/** Iterative, with a visited set: a cycle in the data must dim the graph, not hang it. */
+function walk(adj: ReadonlyMap<string, readonly string[]>, from: string, lit: Set<string>): void {
+  const stack = [from];
+  while (stack.length > 0) {
+    const id = stack.pop();
+    if (id === undefined) continue;
+    for (const next of adj.get(id) ?? []) {
+      if (lit.has(next)) continue;
+      lit.add(next);
+      stack.push(next);
+    }
+  }
 }

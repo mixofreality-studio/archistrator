@@ -30,7 +30,6 @@ const TILES: PlanTileInput[] = [
   { id: 'E-x', row: 'engine', calls: ['R-p'] },
   { id: 'M-a', row: 'manager', calls: ['E-x', 'R-p'] },
   { id: 'M-b', row: 'manager', calls: ['E-y', 'R-q'] },
-  { id: 'N-DEP', row: 'deployment', calls: ['M-a', 'M-b'] },
   { id: 'U-web', row: 'client', calls: ['M-a', 'M-b'] },
   { id: 'N-STP', row: 'sideLane', calls: [] },
   { id: 'N-IT', row: 'systemTesting', calls: ['U-web', 'N-STP'] },
@@ -46,18 +45,11 @@ function at(id: string): { x: number; y: number } {
 void test('rows run front end → the build-order stack → system testing, one pitch apart', () => {
   assert.deepEqual(
     L.rows.map((r) => [r.row, r.y]),
-    [
-      'frontEnd',
-      'resource',
-      'resourceAccess',
-      'engine',
-      'manager',
-      'deployment',
-      'client',
-      'systemTesting',
-    ].map((row, i) => [row, i * PLAN_ROW_H])
+    ['frontEnd', 'resource', 'resourceAccess', 'engine', 'manager', 'client', 'systemTesting'].map(
+      (row, i) => [row, i * PLAN_ROW_H]
+    )
   );
-  assert.equal(L.height, 7 * PLAN_ROW_H + PLAN_TILE.h);
+  assert.equal(L.height, 6 * PLAN_ROW_H + PLAN_TILE.h);
 });
 
 void test('the front end is a left-to-right chain ending in the milestone', () => {
@@ -89,9 +81,9 @@ void test('dependency edges point DOWN in build order: predecessor → dependent
   const ids = new Set(L.edges.filter((e) => e.kind === 'call').map((e) => e.id));
   for (const id of ['X-db>R-p', 'X-db>R-q', 'R-q>E-y', 'R-p>E-x', 'E-x>M-a', 'R-p>M-a'])
     assert.ok(ids.has(id), id);
-  // Managers → their deployment and their clients, never the reverse.
-  assert.ok(ids.has('M-a>N-DEP') && ids.has('M-a>U-web'));
-  assert.ok(!ids.has('N-DEP>M-a') && !ids.has('U-web>M-a'));
+  // Managers → their clients, never the reverse.
+  assert.ok(ids.has('M-a>U-web') && ids.has('M-b>U-web'));
+  assert.ok(!ids.has('U-web>M-a') && !ids.has('U-web>M-b'));
 });
 
 void test('N-STP stands in its own side lane, clear of the widest row, full height', () => {
@@ -127,26 +119,74 @@ void test('no two tiles share a cell', () => {
   }
 });
 
-void test('hover lights the tile, its neighbours and only the edges between them', () => {
-  const f = planFocusFor('M-a', TILES, L.edges, 'M0');
-  assert.deepEqual([...f.tiles].sort(), ['E-x', 'M-a', 'N-DEP', 'R-p', 'U-web']);
-  assert.deepEqual(
-    L.edges
-      .filter((e) => f.incident(e))
-      .map((e) => e.id)
-      .sort(),
-    ['E-x>M-a', 'M-a>N-DEP', 'M-a>U-web', 'R-p>M-a'].sort()
-  );
+void test('hovering the middle of a 3-chain lights the whole chain, not its neighbours', () => {
+  const tiles = [
+    { id: 'A', row: 'resource' as const, calls: [] },
+    { id: 'B', row: 'resourceAccess' as const, calls: ['A'] },
+    { id: 'C', row: 'engine' as const, calls: ['B'] },
+    { id: 'D', row: 'manager' as const, calls: ['C'] },
+  ];
+  const { edges } = layoutPlanGraph(tiles, undefined);
+  const focus = planFocusFor('C', tiles, edges, undefined);
+  assert.deepEqual([...focus.tiles].sort(), ['A', 'B', 'C', 'D']);
+});
+
+void test('a fork lights both downstream branches and the shared upstream', () => {
+  const tiles = [
+    { id: 'root', row: 'resource' as const, calls: [] },
+    { id: 'left', row: 'engine' as const, calls: ['root'] },
+    { id: 'right', row: 'engine' as const, calls: ['root'] },
+    { id: 'other', row: 'engine' as const, calls: [] },
+  ];
+  const { edges } = layoutPlanGraph(tiles, undefined);
+  const focus = planFocusFor('root', tiles, edges, undefined);
+  assert.deepEqual([...focus.tiles].sort(), ['left', 'right', 'root']);
+  assert.ok(!focus.tiles.has('other'), 'an unrelated tile stays dimmed');
 });
 
 void test('hovering the milestone lights everything it gates, not just the roots', () => {
+  // The REWRITE of the landed :137 test. M0 lights itself and every
+  // non-frontEnd tile — the side lane and system testing included, which its
+  // own edges never reach — because that is what a forced dependency means.
+  // The front-end chain is NOT lit: M0 does not gate what precedes it, and '3'
+  // (its direct predecessor) was lit before only as a plain neighbour.
   const f = planFocusFor('M0', TILES, L.edges, 'M0');
-  // '3' is M0's direct predecessor on the front-end chain — lit as a plain
-  // neighbour, same as any hover. '1' and '2' are two hops away and stay dim.
-  for (const id of ['M0', '3', 'X-db', 'N-STP', 'N-IT', 'N-DEP', 'U-web']) {
-    assert.ok(f.tiles.has(id), id);
+  for (const id of ['M0', 'X-db', 'R-lonely', 'N-STP', 'N-IT', 'U-web']) {
+    assert.ok(f.tiles.has(id), `${id} should be lit`);
   }
-  for (const id of ['1', '2']) assert.ok(!f.tiles.has(id), id);
+  for (const id of ['1', '2', '3']) {
+    assert.ok(!f.tiles.has(id), `${id} is front end and stays dim`);
+  }
+});
+
+void test('incident now means BOTH ends are lit, not "touches the hovered tile"', () => {
+  const tiles = [
+    { id: 'A', row: 'resource' as const, calls: [] },
+    { id: 'B', row: 'engine' as const, calls: ['A'] },
+    { id: 'C', row: 'manager' as const, calls: ['B'] },
+    { id: 'Z', row: 'engine' as const, calls: [] },
+  ];
+  const { edges } = layoutPlanGraph(tiles, undefined);
+  const f = planFocusFor('B', tiles, edges, undefined);
+  const drawn = edges
+    .filter((e) => f.incident(e))
+    .map((e) => e.id)
+    .sort();
+  assert.deepEqual(
+    drawn,
+    ['A>B', 'B>C'].sort(),
+    'the whole lit chain stays drawn, not only B’s own edges'
+  );
+});
+
+void test('a cycle in the dependency data dims the graph rather than hanging it', () => {
+  const tiles = [
+    { id: 'X', row: 'engine' as const, calls: ['Y'] },
+    { id: 'Y', row: 'engine' as const, calls: ['X'] },
+  ];
+  const { edges } = layoutPlanGraph(tiles, undefined);
+  const focus = planFocusFor('X', tiles, edges, undefined);
+  assert.deepEqual([...focus.tiles].sort(), ['X', 'Y']);
 });
 
 void test('no front end is just the build-order stack', () => {
