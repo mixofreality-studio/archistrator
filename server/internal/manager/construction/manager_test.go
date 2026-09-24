@@ -12,6 +12,7 @@ import (
 	"reflect"
 	"runtime"
 	"slices"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -10139,7 +10140,7 @@ func TestDeriveTaskViews_StatesAndRevisions(t *testing.T) {
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			views := deriveTaskViews(avServiceLifecycle(), c.attempts, c.notes, c.liveGate)
+			views := deriveTaskViews(avServiceLifecycle(), c.attempts, c.notes, nil, c.liveGate)
 			if len(views) != 10 {
 				t.Fatalf("want one view per lifecycle task (10), got %d", len(views))
 			}
@@ -10180,7 +10181,7 @@ func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
 	matched := avSendBack("construction", "handle the nil map",
 		projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "nil map"}, projectstate.NoteComment{JSONPath: "$.ops[1]", Text: "no test"})
 	elsewhere := avSendBack("detailed_design", "another gate's note")
-	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, "")
+	views := deriveTaskViews(avServiceLifecycle(), attempts, []projectstate.OperatorNote{older, elsewhere, matched}, nil, "")
 
 	avCheckWorkRevisions(t, t0, avTask(t, views, "construction").Revisions)
 	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
@@ -10401,7 +10402,7 @@ func TestNormalizeAttempts_APreLedgerNoteSortsBeforeTheLedgersGateAttempts(t *te
 		},
 	}
 	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
-	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, ""), "designReview")
+	v := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, nil, ""), "designReview")
 	if want := []string{revSentBack, revSentBack, revPassed}; !slices.Equal(avOutcomes(v), want) {
 		t.Fatalf("designReview revisions = %v, want %v (the pre-ledger note is the OLDEST revision):\n%s", avOutcomes(v), want, avDump(attempts))
 	}
@@ -10490,6 +10491,236 @@ func TestActivityViewFrom_PhaseCompletionIsTheResolvedSet(t *testing.T) {
 		if ph.Completed != want {
 			t.Fatalf("phase %s completed=%v, want %v — the view must report the resolved set", ph.ID, ph.Completed, want)
 		}
+	}
+}
+
+// ===========================================================================
+// QueryActivityView — the PERSISTED rounds (stage 3, task 7).
+// ===========================================================================
+
+// avRound is one round a real run wrote on the C-X row, with the construction rail's own
+// id (projectstate.AttemptID) and its round number EQUAL to the gate attempt's number.
+func avRound(gate projectstate.MethodTask, n int, outcome projectstate.ReviewRoundOutcome) projectstate.ReviewRound {
+	p := projectstate.PhaseForTask(gate)
+	return projectstate.ReviewRound{
+		RoundID: projectstate.AttemptID("C-X", gate, n), TaskID: gate, Reviews: projectstate.AgentTaskFor(p),
+		Round: int64(n), Outcome: outcome, SubjectRef: projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: "C-X:detailedDesign:" + strconv.Itoa(n)},
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved},
+	}
+}
+
+// avArchitectureLifecycle is the architecture design activity as the pinned assets state
+// it: ONE phase, one draft task, one review gate. A literal, like avServiceLifecycle, so
+// the test pins the derivation rather than the data file.
+func avArchitectureLifecycle() methodassets.Lifecycle {
+	return methodassets.Lifecycle{
+		Type:   "architecture",
+		Phases: []methodassets.LifecyclePhase{{ID: "architecture", Label: "Architecture", Weight: 100, Gate: "architectureReview"}},
+		Tasks: []methodassets.LifecycleTask{
+			{ID: "architectureDraft", Kind: methodassets.LifecycleTaskDispatch, Title: "architectureDraft", Phase: "architecture"},
+			{ID: "architectureReview", Kind: methodassets.LifecycleTaskReview, Title: "architectureReview", Phase: "architecture",
+				Reviews: "architectureDraft", DependsOn: []string{"architectureDraft"}},
+		},
+	}
+}
+
+// The persisted round IS the revision. R4's tails-aligned note matching was a
+// reconstruction for a world with no rounds; where a round exists, an ordering heuristic
+// must not get a vote.
+func TestDeriveTaskViews_PersistedRoundsWin(t *testing.T) {
+	sentBack := avRound(projectstate.TaskDesignReview, 1, projectstate.RoundSentBack)
+	sentBack.DecidedBy = "operator"
+	sentBack.DecidedAt = "2026-09-20T10:00:00Z"
+	sentBack.Reviewers = []projectstate.RoundReviewer{{Role: "architect", Actor: "architect"}, {Role: "human", Actor: "operator", Required: true}}
+	sentBack.Verdicts = []projectstate.ReviewVerdict{
+		{ReviewerRole: "architect", Actor: "architect", Verdict: projectstate.VerdictSendBack, Summary: "too wide", AttemptID: "C-X:detailedDesign:1", At: "2026-09-20T09:55:00Z"},
+	}
+	sentBack.Thread = []projectstate.ReviewComment{
+		{ID: "r1c1", Anchor: "$.ops[0]", Text: "split this op", AuthorRole: "architect", Round: 1, Status: "answered",
+			Replies: []projectstate.ReviewCommentReply{{ID: "r1c1a1", AuthorRole: "seniorDeveloper", Text: "split", At: "2026-09-20T11:00:00Z"}}},
+	}
+	rounds := []projectstate.ReviewRound{sentBack, avRound(projectstate.TaskDesignReview, 2, projectstate.RoundPassed)}
+	// A misleading note: recorded, but the rounds are the record now.
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "stale note")}
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected),
+		avObserved(projectstate.TaskDetailedDesign, 2, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 2, projectstate.OutcomePassed),
+	)
+	view := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, ""), "designReview")
+	if got := avOutcomes(view); !slices.Equal(got, []string{revSentBack, revPassed}) {
+		t.Fatalf("the persisted rounds are the revisions; got %v", got)
+	}
+	rev := view.Revisions[0]
+	if rev.Provenance != projectstate.OriginObserved {
+		t.Fatalf("a round a run wrote is observed, not backfilled; got %q", rev.Provenance)
+	}
+	if rev.Note == "stale note" {
+		t.Fatalf("the OperatorNote must not reach a round-backed revision; got %q", rev.Note)
+	}
+	if len(rev.Verdicts) != 1 || rev.Verdicts[0].Summary != "too wide" {
+		t.Fatalf("the round's verdicts are the revision's; got %+v", rev.Verdicts)
+	}
+	if len(rev.Thread) != 1 || rev.Thread[0].Status != "answered" || len(rev.Thread[0].Replies) != 1 {
+		t.Fatalf("the round's thread travels with its replies and its status; got %+v", rev.Thread)
+	}
+	if rev.Round != 1 || rev.DecidedBy != "operator" || rev.DecidedAt != "2026-09-20T10:00:00Z" {
+		t.Fatalf("the round's own number and decision must travel; got %+v", rev)
+	}
+	if rev.SubjectRef.Ref != "C-X:detailedDesign:1" {
+		t.Fatalf("the revision judged the round's subject; got %+v", rev.SubjectRef)
+	}
+	// The join is by FIELDS — the gate attempt whose number IS the round's — never by
+	// splitting the round id, which the design rail spells with four parts.
+	if !slices.Equal(rev.AttemptIDs, []string{"C-X:designReview:1"}) {
+		t.Fatalf("round 1 joins gate attempt 1; got %v", rev.AttemptIDs)
+	}
+	if len(rev.Reviewers) != 2 {
+		t.Fatalf("the persisted roster travels with the revision; got %+v", rev.Reviewers)
+	}
+}
+
+// A row that predates the ledger still reconstructs, and says so.
+func TestDeriveTaskViews_PreLedgerRowStillReconstructs(t *testing.T) {
+	notes := []projectstate.OperatorNote{avSendBack("detailed_design", "tighten it")}
+	attempts := append(slices.Clone(avSRSPassed), avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomeRejected))
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, nil, "")
+	rev := avTask(t, views, "designReview").Revisions[0]
+	if rev.Outcome != revSentBack || rev.Note != "tighten it" {
+		t.Fatalf("reconstruction must survive for pre-ledger rows; got %+v", rev)
+	}
+	if len(rev.Verdicts) != 0 || len(rev.Thread) != 0 {
+		t.Fatalf("a reconstructed revision has no verdicts and no thread to offer; got %+v", rev)
+	}
+	if rev.Round != 1 {
+		t.Fatalf("a reconstructed revision carries the gate attempt's number as its round; got %d", rev.Round)
+	}
+}
+
+// The boundary row: SOME gates have rounds, SOME only have the older notes. The rule is
+// per GATE, not per row — designReview reads its rounds, codeReview still reconstructs.
+func TestDeriveTaskViews_RoundsBeatNotesPerGate(t *testing.T) {
+	attempts := append(slices.Clone(avSRSPassed),
+		avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomePassed),
+		avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+	)
+	notes := []projectstate.OperatorNote{
+		avSendBack("detailed_design", "a note the rounds already record"),
+		avSendBack("construction", "the only record this gate has"),
+	}
+	rounds := []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPassed)}
+	views := deriveTaskViews(avServiceLifecycle(), attempts, notes, rounds, "")
+	if got := avOutcomes(avTask(t, views, "designReview")); !slices.Equal(got, []string{revPassed}) {
+		t.Fatalf("designReview has a round and reads it alone; got %v", got)
+	}
+	code := avTask(t, views, "codeReview").Revisions
+	if len(code) != 1 || code[0].Note != "the only record this gate has" {
+		t.Fatalf("a gate with no round still reconstructs from its note; got %+v", code)
+	}
+}
+
+// The design rails' round id has FOUR parts (activity:gate:artifactKind:n) because three
+// artifact kinds share the architecture gate, so two kinds can hold the SAME round number
+// on the same row. Nothing may parse the id: the join is (TaskID, Round) plus the ledger's
+// own order, and the revision number is the position in that order.
+func TestDeriveTaskViews_DesignRoundsAreReadWithoutParsingTheirIDs(t *testing.T) {
+	round := func(kind string, n int, outcome projectstate.ReviewRoundOutcome) projectstate.ReviewRound {
+		return projectstate.ReviewRound{
+			RoundID: "architecture:architectureReview:" + kind + ":" + strconv.Itoa(n),
+			TaskID:  "architectureReview", Reviews: "architectureDraft", Round: int64(n), Outcome: outcome,
+			SubjectRef: projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind},
+			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved},
+		}
+	}
+	// The design rail writes rounds and NO attempts (stage 3 gives it rounds only).
+	rounds := []projectstate.ReviewRound{
+		round("system", 1, projectstate.RoundSentBack),
+		round("system", 2, projectstate.RoundPassed),
+		round("operationalConcepts", 1, projectstate.RoundPassed),
+	}
+	views := deriveTaskViews(avArchitectureLifecycle(), nil, nil, rounds, "")
+	gate := avTask(t, views, "architectureReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revSentBack, revPassed, revPassed}) {
+		t.Fatalf("three rounds, three revisions in stored order; got %v", got)
+	}
+	if gate.Revisions[2].Round != 1 || gate.Revisions[2].N != 3 {
+		t.Fatalf("the second kind's round 1 is revision 3 with round 1; got n=%d round=%d", gate.Revisions[2].N, gate.Revisions[2].Round)
+	}
+	for _, rev := range gate.Revisions {
+		if len(rev.AttemptIDs) != 0 {
+			t.Fatalf("the design rail records no attempts, so a design round joins none; got %v", rev.AttemptIDs)
+		}
+	}
+	if gate.State != taskPassed {
+		t.Fatalf("the last round passed, so the gate reads passed; got %q", gate.State)
+	}
+	// Rule 8: the gate is the exit criterion, and the draft it judged has no attempts.
+	if s := avTask(t, views, "architectureDraft").State; s != taskPassed {
+		t.Fatalf("a passed gate carries its draft task; got %q", s)
+	}
+}
+
+// TASK 5's PENDING-ROUND WINDOW. The construction rail opens the round at the gate and
+// writes the gate ATTEMPT only when the round is decided, so a round with no attempt is
+// the ordinary awaiting-human state — and a run that died in between leaves one forever.
+// Either way the round alone is the revision, and N4 must not invent a second one beside
+// it.
+func TestDeriveTaskViews_APendingRoundWithNoGateAttemptIsTheRevision(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: append(slices.Clone(avSRSPassed),
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed)),
+		Reviews: []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPending)},
+	}
+	live := &ConstructionSessionView{Stage: StageAwaitingApproval, AwaitingGate: strPtrOrNil("detailed_design")}
+	attempts := normalizeAttempts("C-X", row, avResolved(row), nil, live)
+	for _, a := range attempts {
+		if a.Task == projectstate.TaskDesignReview {
+			t.Fatalf("the pending ROUND is the record; N4 must not add a gate attempt beside it:\n%s", avDump(attempts))
+		}
+	}
+	gate := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, "detailed_design"), "designReview")
+	if got := avOutcomes(gate); !slices.Equal(got, []string{revAwaitingHuman}) {
+		t.Fatalf("one pending round at the live gate = one awaitingHuman revision; got %v", got)
+	}
+	if gate.Revisions[0].EndedAt != nil {
+		t.Fatalf("an undecided round has not ended; got %v", gate.Revisions[0].EndedAt)
+	}
+	// The same round, with the session gone: still one revision, no longer at a human.
+	away := avTask(t, deriveTaskViews(avServiceLifecycle(), attempts, row.OperatorNotes, row.Reviews, ""), "designReview")
+	if got := avOutcomes(away); !slices.Equal(got, []string{revRunning}) {
+		t.Fatalf("a pending round off the live gate is running; got %v", got)
+	}
+}
+
+// A gate that already has a round must not also have its phase completion reconstructed
+// into a second, passed attempt: that is the double count Task 1 removed for notes, in
+// its round-shaped form.
+func TestNormalizeAttempts_AGateWithRoundsGetsNoReconstruction(t *testing.T) {
+	row := projectstate.ActivityExecution{
+		ActivityID: "C-X",
+		Attempts: []projectstate.TaskAttempt{
+			avObserved(projectstate.TaskDetailedDesign, 1, projectstate.OutcomePassed),
+			avObserved(projectstate.TaskDesignReview, 1, projectstate.OutcomePassed),
+		},
+		Reviews:       []projectstate.ReviewRound{avRound(projectstate.TaskDesignReview, 1, projectstate.RoundPassed)},
+		OperatorNotes: []projectstate.OperatorNote{avSendBack("detailed_design", "a note the round already records")},
+	}
+	got := normalizeAttempts("C-X", row, avResolved(row), nil, nil)
+	gates := 0
+	for _, a := range got {
+		if a.Task == projectstate.TaskDesignReview {
+			gates++
+			if a.Provenance.Origin != projectstate.OriginObserved {
+				t.Fatalf("%s is reconstructed; the round is the record:\n%s", a.AttemptID, avDump(got))
+			}
+		}
+	}
+	if gates != 1 {
+		t.Fatalf("the ledger's own attempt and nothing else; got %d designReview attempts:\n%s", gates, avDump(got))
 	}
 }
 

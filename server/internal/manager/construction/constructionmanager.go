@@ -777,8 +777,12 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 // Temporal Query GetSessionState serves) only while the row is Running, so a Done or
 // not-started activity reads with Temporal down.
 //
-// Everything is DERIVED on read (normalizeAttempts, deriveTaskViews); stage 3 stores
-// revisions and this becomes a projection. An id the committed activity list does not
+// A gate the row holds PERSISTED rounds for is a projection of that ledger (stage 3):
+// its verdicts, thread, roster, subject, round number and decision are read, not derived.
+// The reconstruction below (normalizeAttempts, deriveTaskViews) survives for the gates
+// that have no round — every gate of every row written before the ledger existed — and
+// the revision's provenance is what tells a reader which of the two they are looking at.
+// An id the committed activity list does not
 // hold is NotFound — today that includes the requirements, architecture and
 // projectDesign activities, which become real in stage 2.
 //
@@ -828,7 +832,7 @@ func (m *constructionManager) QueryActivityView(rc fwm.Context, projectID Projec
 	// The gate is the session's awaitingGate verbatim: a lifecycle-phase id matches a
 	// phase, and the merge hold and an escalation simply match none.
 	liveGate, _ := liveApprovalGate(live)
-	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, liveGate)
+	tasks := deriveTaskViews(lc, normalizeAttempts(id, row, resolved, records, live), row.OperatorNotes, row.Reviews, liveGate)
 	view := activityViewFrom(activityID, item, typ, variant, lc, resolved, tasks)
 	view.State = activityViewState(coarse, live)
 	// The roster and the engine's refusal to produce one are the SAME fact about the live
@@ -2740,6 +2744,16 @@ type taskRevision struct {
 	Note       string
 	Comments   []projectstate.NoteComment
 	Provenance projectstate.RecordOrigin
+	// The rest are the PERSISTED round's own facts (stage 3, task 7). A revision the
+	// reconstruction produced carries none of them except Round, which it takes from the
+	// gate attempt's number — the reconstruction's own de-facto round.
+	Round      int64
+	Verdicts   []projectstate.ReviewVerdict
+	Thread     []projectstate.ReviewComment
+	Reviewers  []projectstate.RoundReviewer
+	SubjectRef projectstate.SubjectRef
+	DecidedBy  string
+	DecidedAt  string
 }
 
 // taskView is one lifecycle task's derived state and history.
@@ -2844,6 +2858,29 @@ func ledgerRejections(out []projectstate.TaskAttempt, gate projectstate.MethodTa
 		}
 	}
 	return n
+}
+
+// roundsForTask is the row's PERSISTED rounds for one review task, in the APPEND-ONLY
+// ledger's own order — which is the order they were opened in, and therefore the order
+// they are read as revisions.
+//
+// IT DOES NOT SORT BY ROUND NUMBER, and the design rails are why. They mint a FOUR-part
+// round id (activity:gate:artifactKind:n) because three artifact kinds share the
+// architecture gate, and each kind counts ITS OWN rounds — so one row holds two rounds
+// numbered 1 at the same gate, and ordering by number would interleave two unrelated
+// review histories into one invented sequence. Ledger order is the only total order the
+// two kinds share, and it is a real one. Nothing here parses a round id into segments
+// either (equality is all any code in this repo asks of one): the join to the attempt
+// ledger is by FIELDS, and a revision's number is its position in this order, never the
+// round number — exactly as it already is for a gate attempt.
+func roundsForTask(rounds []projectstate.ReviewRound, task projectstate.MethodTask) []projectstate.ReviewRound {
+	out := make([]projectstate.ReviewRound, 0, len(rounds))
+	for _, r := range rounds {
+		if r.TaskID == task {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // sendBackNotesFor is the phase's send-back notes in recorded order (append-only slice
@@ -2955,6 +2992,15 @@ func appendGateAttempts(out []projectstate.TaskAttempt, activityID string, row p
 	for _, pc := range resolved {
 		p := pc.Phase
 		gate := projectstate.GateTaskFor(p)
+		// ROUNDS BEAT NOTES BEAT NOTHING, per GATE. A gate the row holds a round for is a
+		// gate a real run wrote: its revisions are read from that ledger (phaseRevisions),
+		// so every reconstruction here would be a second, competing record of the same
+		// review — the note-shaped double count Task 1 removed, and its phase-completion
+		// and live-gate shaped twins. The rule is per gate, not per row: a row written
+		// across the ledger's arrival has rounds at one gate and only notes at an older one.
+		if len(roundsForTask(row.Reviews, gate)) > 0 {
+			continue
+		}
 		passed := false
 		for _, a := range out {
 			passed = passed || (a.Task == gate && a.Outcome == projectstate.OutcomePassed)
@@ -2999,12 +3045,16 @@ func (s phaseSegment) members() []projectstate.TaskAttempt {
 
 // deriveTaskViews returns one view per lifecycle task, in lifecycle order (rules R1–R6
 // and the task state table; both are spelled out in the stage-0 plan, Task 7).
-func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, liveGate string) []taskView {
+//
+// rounds is the row's PERSISTED review ledger. Where a gate has rounds they ARE its
+// revisions; the note-and-attempt reconstruction survives only for the gates that have
+// none, which is every gate of every row written before this ledger existed.
+func deriveTaskViews(lc methodassets.Lifecycle, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGate string) []taskView {
 	revs := make(map[string][]taskRevision, len(lc.Tasks))
 	gates := make(map[string]bool, len(lc.Phases))
 	for _, ph := range lc.Phases {
 		work := phaseWorkTask(lc, ph.ID)
-		workRevs, gateRevs := phaseRevisions(ph, work, attempts, notes, liveGate)
+		workRevs, gateRevs := phaseRevisions(ph, work, attempts, notes, rounds, liveGate)
 		if work != "" {
 			revs[work] = workRevs
 		}
@@ -3058,8 +3108,10 @@ func phaseWorkTask(lc methodassets.Lifecycle, phaseID string) string {
 }
 
 // phaseRevisions cuts one lifecycle phase's attempts into the work task's revisions and
-// the gate task's revisions (R1–R4).
-func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, liveGate string) (workRevs, gateRevs []taskRevision) {
+// the gate task's revisions (R1–R4), and chooses which of the two review ledgers the gate
+// reads: the PERSISTED rounds where the row holds any for this gate, the reconstruction
+// where it holds none.
+func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []projectstate.TaskAttempt, notes []projectstate.OperatorNote, rounds []projectstate.ReviewRound, liveGate string) (workRevs, gateRevs []taskRevision) {
 	var main, extra, gate []projectstate.TaskAttempt
 	for _, a := range attempts {
 		switch {
@@ -3083,9 +3135,110 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 	for i, seg := range foldConditional(cutSegments(main), extra) {
 		workRevs = append(workRevs, dispatchRevision(i+1, seg))
 	}
+	live := liveGate == ph.ID
+	if persisted := roundsForTask(rounds, projectstate.MethodTask(ph.Gate)); len(persisted) > 0 {
+		return workRevs, roundRevisions(persisted, gate, live)
+	}
+	return workRevs, reconstructedReviewRevisions(gate, notes, ph.ID, live)
+}
+
+// roundRevisions turns the PERSISTED rounds for one review task into that task's
+// revisions. The round is the record: its verdicts, its thread, its roster, its subject,
+// its number and its decision are carried verbatim, and no ordering heuristic gets a vote.
+//
+// THE JOIN TO THE ATTEMPT LEDGER IS BY FIELDS. The construction rail mints a round's id
+// with projectstate.AttemptID, so its <n> IS the gate attempt's number — but the design
+// rails mint a four-part id for the same gate, and splitting either into segments is a
+// parse nothing else in this repo does (equality is all any code asks of a round id). So
+// the attempt this round settled is found as "the gate attempt whose number is the round's
+// number", which is true on both rails and false for neither.
+//
+// A ROUND WITH NO GATE ATTEMPT IS NORMAL, not a gap. The construction rail opens the round
+// when the gate is reached and writes the gate attempt only when the round is DECIDED, so
+// every gate a human is looking at right now is a pending round with no attempt; a run that
+// died in between (constructactivity.go's stated crash window) leaves one pending forever;
+// and the design rails record no attempt ledger at all yet. In all three the round alone
+// is the revision, and it cites no attempt because none exists.
+func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskAttempt, live bool) []taskRevision {
+	out := make([]taskRevision, 0, len(rounds))
+	for i, r := range rounds {
+		rev := taskRevision{
+			N: i + 1, Outcome: roundOutcome(r.Outcome, live), Round: r.Round,
+			Verdicts: r.Verdicts, Thread: r.Thread, Reviewers: r.Reviewers, SubjectRef: r.SubjectRef,
+			DecidedBy: r.DecidedBy, DecidedAt: r.DecidedAt, Provenance: r.Provenance.Origin,
+			Note: humanVerdictSummary(r.Verdicts), StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
+		}
+		for _, a := range gate {
+			if int64(a.Attempt) == r.Round {
+				rev.AttemptIDs = []string{a.AttemptID}
+				break
+			}
+		}
+		out = append(out, rev)
+	}
+	return out
+}
+
+// roundOutcome renders a stored round outcome as a revision outcome. Total over the
+// vocabulary with no default arm.
+//
+// EARMARK. RoundWithdrawn — a round pulled back before anyone decided it — has no wire
+// name of its own on TaskRevisionOutcome and reads as failed: the revision did not clear
+// its gate, which is the part a reader must not be lied to about. "Failed" overstates the
+// drama (a withdrawal is deliberate, not a fault); giving it its own wire value belongs
+// with the Activity Experience screen that will render it (stage 5).
+func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
+	switch o {
+	case projectstate.RoundPassed:
+		return revPassed
+	case projectstate.RoundSentBack:
+		return revSentBack
+	case projectstate.RoundWithdrawn:
+		return revFailed
+	case projectstate.RoundPending:
+		if live {
+			return revAwaitingHuman
+		}
+		return revRunning
+	}
+	return revFailed // an outcome outside the vocabulary is not a pass
+}
+
+// humanVerdictSummary is the round's send-back note: the LAST send-back verdict's summary,
+// which is the prose the operator typed into the decision that closed the round. It
+// replaces the OperatorNote the reconstruction had to go looking for — same words, read
+// off the record that owns them instead of matched to it by position.
+func humanVerdictSummary(verdicts []projectstate.ReviewVerdict) string {
+	note := ""
+	for _, v := range verdicts {
+		if v.Verdict == projectstate.VerdictSendBack && v.Summary != "" {
+			note = v.Summary
+		}
+	}
+	return note
+}
+
+// rfc3339OrNil parses a store-stamped timestamp. The round ledger holds its times as
+// RFC3339 STRINGS (the store stamps them; the caller never does), and a string that does
+// not parse — or an empty one, which is what an undecided round's DecidedAt is — becomes
+// no time at all rather than the zero instant.
+func rfc3339OrNil(s string) *time.Time {
+	t, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		return nil
+	}
+	return &t
+}
+
+// reconstructedReviewRevisions is stage 0's R3/R4 path, kept for the gates of rows that
+// predate the round ledger: one revision per gate attempt, with the phase's send-back
+// notes matched onto the rejections TAILS ALIGNED (notes exist only since B1.1, so it is
+// the oldest rejections that have no note). A gate with ANY persisted round never reaches
+// it.
+func reconstructedReviewRevisions(gate []projectstate.TaskAttempt, notes []projectstate.OperatorNote, phaseID string, live bool) []taskRevision {
 	var sendBacks []projectstate.OperatorNote
 	for _, n := range notes {
-		if n.Kind == projectstate.NoteSendBack && n.Gate == ph.ID {
+		if n.Kind == projectstate.NoteSendBack && n.Gate == phaseID {
 			sendBacks = append(sendBacks, n)
 		}
 	}
@@ -3097,17 +3250,18 @@ func phaseRevisions(ph methodassets.LifecyclePhase, work string, attempts []proj
 	}
 	// R4: the j-th rejection takes note j + (len(sendBacks) - rejected) — tails aligned.
 	next := len(sendBacks) - rejected
+	out := make([]taskRevision, 0, len(gate))
 	for i, g := range gate {
-		rev := reviewRevision(i+1, g, liveGate == ph.ID)
+		rev := reviewRevision(i+1, g, live)
 		if g.Outcome == projectstate.OutcomeRejected {
 			if next >= 0 && next < len(sendBacks) {
 				rev.Note, rev.Comments = sendBacks[next].Text, sendBacks[next].Comments
 			}
 			next++
 		}
-		gateRevs = append(gateRevs, rev)
+		out = append(out, rev)
 	}
-	return workRevs, gateRevs
+	return out
 }
 
 // cutSegments is R1: a segment closes at the attempt that reached the gate.
@@ -3186,7 +3340,12 @@ func dispatchRevision(n int, seg phaseSegment) taskRevision {
 // designReview#2 numbers its third attempt revision 2, and the attempt number stays
 // visible inside attemptIds. live marks the occurrence the session is waiting at now.
 func reviewRevision(n int, g projectstate.TaskAttempt, live bool) taskRevision {
-	rev := taskRevision{N: n, AttemptIDs: []string{g.AttemptID}, Provenance: projectstate.AttemptsWorstOrigin([]projectstate.TaskAttempt{g})}
+	// Round: the attempt's own number is the de-facto round of a row that kept no round
+	// ledger, and it is what the construction rail's round number IS. It can be ≤ 0 for a
+	// pre-ledger rejection placed beneath the ledger (appendPreLedgerRejections), which
+	// reads as exactly what it is — a review from before this gate counted its rounds.
+	rev := taskRevision{N: n, Round: int64(g.Attempt), AttemptIDs: []string{g.AttemptID},
+		Provenance: projectstate.AttemptsWorstOrigin([]projectstate.TaskAttempt{g})}
 	switch g.Outcome {
 	case projectstate.OutcomePending:
 		rev.Outcome = revRunning
