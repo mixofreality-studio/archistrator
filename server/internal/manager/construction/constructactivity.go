@@ -13,6 +13,7 @@ import (
 
 	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
@@ -1031,7 +1032,17 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 	if scErr != nil {
 		return scErr
 	}
-	if gitOn {
+	switch {
+	case state.executionLedger:
+		// OpenActivity is the fold RecordActivityStarted became: the same StartedAt and the
+		// same classified (type, variant), plus the LIFECYCLE PIN the started record had no
+		// room for. It is deliberately NOT gated on gitOn — the execution ledger is the
+		// durable record of the run itself, not a mirror of a git head-state, and it is
+		// bound in every composition the composition root builds.
+		if err := wf.openActivity(ctx, in, startedCred, &headVersion); err != nil {
+			return err
+		}
+	case gitOn:
 		if err := wf.recordActivityStarted(ctx, in, startedCred, &headVersion); err != nil {
 			return err
 		}
@@ -1226,6 +1237,11 @@ func (wf *workflows) loadReviewSnapshot(
 	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.noteDelivery {
 		state.pendingNotes = projectstate.PendingOperatorNotes(acs)
 	}
+	// EXECUTION LEDGER (stage 3). GetVersion is always called here, so a new execution
+	// records the marker before its first dispatch and an execution that recorded none
+	// stays wholly old: no activity opened, no attempt recorded, no round opened, no
+	// verdict appended. Its history has no events for those Activities and never will.
+	state.executionLedger = workflow.GetVersion(ctx, changeExecutionLedger, workflow.DefaultVersion, 1) >= 1
 	state.reviewContracts = snapshotContractKeys(snap)
 	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
 	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
@@ -1243,7 +1259,11 @@ func (wf *workflows) loadReviewSnapshot(
 //     is a phase nothing is claimed about.
 //   - taskAttempts from the highest attempt number the ledger records per task, so the
 //     next dispatch of a task is attempt n+1 and its AttemptID (the episode TargetRef)
-//     never collides with one the ledger already holds.
+//     never collides with one the ledger already holds. A GATE task is counted off BOTH
+//     ledgers (stage 3): its number is shared by its attempt and its review round, so a
+//     resume that looked only at the attempts could mint a round id the review ledger
+//     already holds — and OpenReviewRound is idempotent on that id, so the second gate
+//     occurrence would silently vanish into the first.
 //
 // Pure over values already in workflow history (the snapshot's recorded readProject).
 func seedResumeFromLedger(state *constructState, act constructionActivity, acs projectstate.ActivityExecution) {
@@ -1254,12 +1274,20 @@ func seedResumeFromLedger(state *constructState, act constructionActivity, acs p
 		}
 	}
 	for _, a := range acs.Attempts {
-		if state.taskAttempts == nil {
-			state.taskAttempts = map[projectstate.MethodTask]int{}
-		}
-		if a.Attempt > state.taskAttempts[a.Task] {
-			state.taskAttempts[a.Task] = a.Attempt
-		}
+		seedTaskCount(state, a.Task, a.Attempt)
+	}
+	for _, r := range acs.Reviews {
+		seedTaskCount(state, r.TaskID, int(r.Round))
+	}
+}
+
+// seedTaskCount raises the run's per-task counter to n when the ledger has gone further.
+func seedTaskCount(state *constructState, task projectstate.MethodTask, n int) {
+	if state.taskAttempts == nil {
+		state.taskAttempts = map[projectstate.MethodTask]int{}
+	}
+	if n > state.taskAttempts[task] {
+		state.taskAttempts[task] = n
 	}
 }
 
@@ -1272,8 +1300,17 @@ func (wf *workflows) failVarianceExhausted(
 	state *constructState,
 	startedCred railCredEnvelope,
 ) error {
-	v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.VarianceExhausted,
-		"construction supervision exceeded max attempts", startedCred)
+	const detail = "construction supervision exceeded max attempts"
+	if state.executionLedger {
+		if e := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+			projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted, detail); e != nil {
+			return e
+		}
+		state.stage = StageExited
+		workflow.GetLogger(ctx).Info("construction activity failed — variance budget exhausted", "activityId", in.ActivityID)
+		return nil
+	}
+	v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.VarianceExhausted, detail, startedCred)
 	if e != nil {
 		return e
 	}
@@ -1368,19 +1405,29 @@ func (wf *workflows) finalizeActivity(
 		return err
 	}
 
-	// --- Step 8: record the binary activity exit (head-state). ---
-	v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
-	if e2 != nil {
-		return e2
-	}
-	*headVersion = v2
-
-	// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
-	// activity to Done so the pump's eligibility selection unblocks its dependents on the
-	// next tick. Dormant (no-op) when the git slice is unwired. ---
-	if gitOn {
-		if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
+	// --- Step 8: record the binary activity exit. Behind the fence RecordActivityOutcome
+	// is the fold of the exited + completed pair below: both stamped the SAME write-once
+	// CompletedAt, which is the whole of an exit now that the coarse roll-up is derived,
+	// so the two calls became one. ---
+	if state.executionLedger {
+		if err := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
 			return err
+		}
+	} else {
+		v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
+		if e2 != nil {
+			return e2
+		}
+		*headVersion = v2
+
+		// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
+		// activity to Done so the pump's eligibility selection unblocks its dependents on
+		// the next tick. Dormant (no-op) when the git slice is unwired. ---
+		if gitOn {
+			if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -1418,8 +1465,16 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 	}
 	task := projectstate.AgentTaskFor(phase)
 	attempt := state.nextTaskAttempt(task)
+	// The attempt the ledger now KEEPS, not just the number this counter mints. It opens
+	// pending, before the dispatch it describes, so a run that dies mid-dispatch leaves an
+	// attempt that says it started and never resolved rather than leaving nothing at all.
+	attemptID := projectstate.AttemptID(string(in.ActivityID), task, attempt)
+	state.workAttemptID = attemptID
+	if err := wf.openWorkAttempt(ctx, in, state, headVersion, gf.cred, task, attempt, attemptID); err != nil {
+		return pipelineObservation{}, err
+	}
 
-	handle, err := wf.submitCarryingNotes(ctx, in, phase, state, projectstate.AttemptID(string(in.ActivityID), task, attempt), gf, headVersion)
+	handle, err := wf.submitCarryingNotes(ctx, in, phase, state, attemptID, gf, headVersion)
 	if err != nil {
 		return pipelineObservation{}, err
 	}
@@ -1439,8 +1494,12 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		}
 
 		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
-			// Episode capture LAST, after this poll's business handling (§capture-seam).
+			// Episode capture LAST, after this poll's business handling (§capture-seam) —
+			// and BEFORE the attempt resolves, because the attempt cites that episode.
 			wf.captureEpisode(ctx, in, handle, obs, true, task, attempt)
+			if rerr := wf.resolveWorkAttempt(ctx, in, state, headVersion, gf.cred, task, attempt, attemptID, obs); rerr != nil {
+				return pipelineObservation{}, rerr
+			}
 			return obs, nil
 		}
 		last = obs
@@ -1458,6 +1517,9 @@ func (wf *workflows) runPipeline(ctx workflow.Context, in constructActivityInput
 		Episode:    last.Episode,
 	}
 	wf.captureEpisode(ctx, in, handle, exhausted, true, task, attempt)
+	if rerr := wf.resolveWorkAttempt(ctx, in, state, headVersion, gf.cred, task, attempt, attemptID, exhausted); rerr != nil {
+		return pipelineObservation{}, rerr
+	}
 	return pipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}, nil
 }
 
@@ -1493,6 +1555,9 @@ func (wf *workflows) runPhaseGate(
 		}
 		*headVersion = v
 	}
+	// The gate's own ledger state starts clear on every entry, so a phase that opens no
+	// round (no review task, or off the fence) can never settle the previous phase's.
+	state.gate = gateLedger{}
 
 	// ONE call decides both halves of the review question: who reviews (the engine's
 	// reviewer rows) and whether a human must sign off (the project's committed
@@ -1514,15 +1579,59 @@ func (wf *workflows) runPhaseGate(
 		workflow.GetLogger(ctx).Error("review engine refused to propose reviewers; the gate opens without a reviewer set",
 			"activityId", in.ActivityID, "lifecyclePhase", phase.String(), "err", err.Error())
 		state.reviewSet, state.reviewSetError = nil, err.Error()
-		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
+		return false, wf.gateWithoutHuman(ctx, in, phase, state, ReviewSet{}, err.Error(), gf, headVersion, gitOn, cred)
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
 		state.reviewSet, state.reviewSetError = nil, ""
-		return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
+		return false, wf.gateWithoutHuman(ctx, in, phase, state, set, "", gf, headVersion, gitOn, cred)
 	}
 	state.reviewSet, state.reviewSetError = &set, "" // NOTE: *ReviewSet (B6)
 
+	if oerr := wf.openGateRound(ctx, in, phase, state, set, gf, headVersion, cred); oerr != nil {
+		return false, oerr
+	}
 	return wf.awaitPhaseDecision(ctx, in, phase, state, set, gf, headVersion, gitOn, cred)
+}
+
+// gateWithoutHuman closes a gate no person is asked to answer: the committed policy
+// requires none here, or the engine refused to staff one and the gate opens rather than
+// cost the work. It is still a gate that HAPPENED — before stage 3 it left no trace at
+// all, which is exactly how a vibes preset auto-approved for two months with nothing in
+// the data to show for it — so the ledger records the round, the roster (empty when the
+// engine refused, with the refusal appended as the engine's own abstention so the reason
+// is not lost to a log line), and the passing decision the policy made.
+func (wf *workflows) gateWithoutHuman(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	set ReviewSet,
+	refusal string,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	gitOn bool,
+	cred railCredEnvelope,
+) error {
+	if state.executionLedger {
+		if err := wf.openGateRound(ctx, in, phase, state, set, gf, headVersion, cred); err != nil {
+			return err
+		}
+		if refusal != "" {
+			if err := wf.appendVerdict(ctx, in, state, headVersion, cred, projectstate.ReviewVerdict{
+				ReviewerRole: gateRoleReviewEngine,
+				Actor:        gateRoleReviewEngine,
+				Verdict:      projectstate.VerdictAbstain,
+				Summary:      refusal,
+				AttemptID:    state.workAttemptID,
+			}, nil); err != nil {
+				return err
+			}
+		}
+		if err := wf.decideRound(ctx, in, state, headVersion, cred, projectstate.RoundPassed, decidedByPolicy); err != nil {
+			return err
+		}
+	}
+	return wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 }
 
 // awaitPhaseDecision is the suspend + redraft loop of the gate (extracted so
@@ -1557,6 +1666,9 @@ func (wf *workflows) awaitPhaseDecision(
 			// zero-value sentinel, not a real decision — ignore and keep awaiting, same as default.
 		case PhaseApprove:
 			state.leaveHumanStage(ctx, activityType, gateOutcomeApproved)
+			if e := wf.closeGateRound(ctx, in, state, headVersion, cred, projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); e != nil {
+				return false, e
+			}
 			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
 		case PhaseSendBack:
 			redraft++
@@ -1574,9 +1686,7 @@ func (wf *workflows) awaitPhaseDecision(
 				continue
 			}
 			state.leaveHumanStage(ctx, activityType, gateOutcomeSentBack)
-			// The send-back's feedback is the operator's note to the redraft (B1.4): kept on
-			// the activity, and carried by the redraft dispatch just below.
-			if e := wf.recordOperatorNote(ctx, in, state, headVersion, cred, projectstate.NoteSendBack, phase.String(), feedbackText(sig.Feedback)); e != nil {
+			if e := wf.sendBackGate(ctx, in, phase, state, headVersion, cred, sig.Feedback); e != nil {
 				return false, e
 			}
 			state.stage = StagePipelineRunning
@@ -1585,10 +1695,48 @@ func (wf *workflows) awaitPhaseDecision(
 			}
 			state.reviewSet, state.reviewSetError = &set, ""
 			state.enterPhaseGate(ctx, phase.String(), redraft)
+			// The redraft re-enters the gate, and a re-entry is a NEW round: round n+1 over
+			// the attempt the redraft just produced, with the roster that belonged to it.
+			if e := wf.openGateRound(ctx, in, phase, state, set, gf, headVersion, cred); e != nil {
+				return false, e
+			}
 		default:
 			// Unknown decision: ignore and keep awaiting the human.
 		}
 	}
+}
+
+// sendBackGate records a rejection, whichever rail the execution is on.
+//
+// Behind the fence it is THREE facts: the human's sendBack verdict with the comments that
+// rode with it, the round decided sentBack, and the REJECTED attempt at the review task
+// that leaves the phase incomplete — which is what makes the redraft render as App A's
+// "a failing review causes the developer to repeat the preceding internal task". The
+// feedback itself rides the redraft workflow-locally; it is no longer ALSO stored as a
+// NoteSendBack, because the round is the record of the send-back now and the same fact
+// stored twice is how the two disagree later.
+//
+// Off the fence it is what it always was: one OperatorNote, and nothing else anywhere.
+func (wf *workflows) sendBackGate(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	fb *ReviewFeedback,
+) error {
+	if !state.executionLedger {
+		return wf.recordOperatorNote(ctx, in, state, headVersion, cred, projectstate.NoteSendBack, phase.String(), feedbackText(fb))
+	}
+	if err := wf.closeGateRound(ctx, in, state, headVersion, cred, projectstate.VerdictSendBack, projectstate.RoundSentBack, fb); err != nil {
+		return err
+	}
+	if err := wf.rejectGateAttempt(ctx, in, state, headVersion, cred); err != nil {
+		return err
+	}
+	carrySendBackFeedback(ctx, in, state, phase.String(), fb)
+	return nil
 }
 
 // ---------------------------------------------------------------------------
@@ -1700,8 +1848,13 @@ func receivePhaseDecision(ctx workflow.Context, ch workflow.ReceiveChannel, key 
 // Approve branch call it). It MARKS the LIVE in-memory completedPhases set
 // UNCONDITIONALLY (this is what closes the variance-retry re-gate and the non-git
 // case where no head-state completion record exists to re-read), THEN records the
-// completion to head-state via the Task-5 RecordPhaseCompleted (artifactRef="") ONLY
-// when gitOn.
+// completion durably.
+//
+// Behind the execution-ledger fence that record is the PASSED gate attempt this workflow
+// now writes itself (passGateAttempt) — the one fact every reader derives a lifecycle
+// phase's completion from. RecordPhaseCompleted is NOT also called there: its entire body
+// is the synthesis of exactly that attempt on the workflow's behalf, so calling both
+// would be the same completion written twice by two rails.
 func (wf *workflows) completePhase(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -1712,6 +1865,9 @@ func (wf *workflows) completePhase(
 	cred railCredEnvelope,
 ) error {
 	state.completedPhases[phase] = true
+	if state.executionLedger {
+		return wf.passGateAttempt(ctx, in, state, headVersion, cred)
+	}
 	if !gitOn {
 		return nil
 	}
@@ -1781,6 +1937,472 @@ const mergeGateKey = "merge"
 // changeOperatorNoteDelivery is the version marker gating note record/carry/stamp and
 // the managed-scaffold sync before a GitHub-venue dispatch.
 const changeOperatorNoteDelivery = "operator-note-delivery"
+
+// ---------------------------------------------------------------------------
+// THE EXECUTION LEDGER (stage 3). Until now this workflow wrote no attempt and no
+// review data at all: nextTaskAttempt minted attempt numbers nothing recorded, every
+// roster the review engine computed was thrown away once it had been displayed, and a
+// send-back left a one-line OperatorNote — no roster, no verdict, no thread, no round
+// number, no subject. This is where each of those becomes a real write, through
+// activityExecutionAccess's twelve verbs.
+//
+// ONE CHANGE ID FOR ALL OF IT. Every write below is a Temporal Activity, so the command
+// sequence moves at five points, and they are one feature: an execution is either on it
+// or off it. Five ids would admit a half-fenced execution that opens a round and never
+// decides it. The same argument changeLedgerPartialResume already makes by reusing its
+// const at two call sites.
+//
+// WHAT THE OLD RAIL STOPS DOING BEHIND THE FENCE, so no fact is written twice:
+//   - RecordActivityStarted  → OpenActivity (same StartedAt/type/variant, plus the pin)
+//   - RecordPhaseCompleted   → the PASSED gate attempt this workflow now writes itself
+//     (that verb's whole body is the synthesis of exactly that attempt)
+//   - RecordActivityExited / RecordActivityFailed / RecordActivityCompleted
+//     → RecordActivityOutcome (the fold of all three)
+//   - the NoteSendBack record → the round, with the feedback carried to the redraft
+//     workflow-locally (carrySendBackFeedback)
+//
+// RecordPhaseStarted and RecordChangeReviewed keep being called on BOTH paths: task 3
+// retired their bodies in place, so they now write no fact at all and cannot duplicate
+// one. Stage 4 deletes them with the fixtures that record them.
+// ---------------------------------------------------------------------------
+
+// changeExecutionLedger is the ONE version marker gating every execution-ledger write.
+const changeExecutionLedger = "execution-ledger-writes"
+
+// The gate's ledger vocabulary. A construction gate's human row has no named person
+// behind it — the phaseDecision signal carries feedback, not an identity — so the ROLE is
+// what the round records and "operator" is who the platform can honestly say answered it.
+const (
+	gateRoleHuman     = "human"
+	gateActorOperator = "operator"
+	// gateRoleReviewEngine owns the ABSTENTION a refused roster leaves on the round. A
+	// gate the engine could not staff still happened, and the reason belongs where a
+	// reader will meet it — on the round — not only in a log line.
+	gateRoleReviewEngine = "reviewEngine"
+	// The two things that close a construction gate: a person answering it, or the
+	// committed review policy saying no person was needed here.
+	decidedByOperator = "operator"
+	decidedByPolicy   = "reviewPolicy"
+)
+
+// lifecyclePinFor is the lifecycle an activity's task DAG is resolved against for the
+// whole of its run: the type key the row's profile is keyed on, and the method-assets
+// release that key was read out of. Without it a release landing mid-flight re-shapes an
+// activity that is already running, and every attempt and round already on the ledger
+// would be read back against a DAG they were never written under.
+func lifecyclePinFor(act constructionActivity) projectstate.LifecyclePin {
+	return projectstate.LifecyclePin{
+		TypeKey:       projectstate.LifecycleKeyFor(act.Type, act.Variant),
+		AssetsVersion: methodassets.Version(),
+	}
+}
+
+// openActivity births the activity's execution row and pins the lifecycle in force.
+func (wf *workflows) openActivity(ctx workflow.Context, in constructActivityInput, cred railCredEnvelope, headVersion *projectstate.Version) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), in.Activity.Type, in.Activity.Variant, lifecyclePinFor(in.Activity), cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordAttempt appends or resolves ONE attempt on the append-only task ledger. One id
+// names one attempt: the pending record this opens and the terminal that resolves it are
+// the SAME AttemptID, which is also the key the episode ledger carries as TargetRef.
+func (wf *workflows) recordAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	attempt projectstate.TaskAttemptInput,
+) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordAttemptOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), attempt, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// openWorkAttempt records the PENDING agent-work attempt a dispatch is about to burn, so
+// a run that dies mid-dispatch leaves an attempt that says it started and never resolved
+// rather than nothing at all. A no-op off the fence.
+func (wf *workflows) openWorkAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	task projectstate.MethodTask,
+	attempt int,
+	attemptID string,
+) error {
+	if !state.executionLedger || task == "" {
+		return nil
+	}
+	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID: attemptID,
+		TaskID:    task,
+		Attempt:   int64(attempt),
+		Actor:     projectstate.ActorAgent,
+		Outcome:   projectstate.OutcomePending,
+	})
+}
+
+// resolveWorkAttempt resolves that attempt against the terminal observation, citing the
+// episode the dispatch burned as its evidence. The episode append runs FIRST (the
+// capture-seam's own ordering), so by the time this cites an episode id the ledger holds
+// it; a dispatch that mined no summary cites nothing rather than a ref nobody can follow.
+func (wf *workflows) resolveWorkAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	task projectstate.MethodTask,
+	attempt int,
+	attemptID string,
+	obs pipelineObservation,
+) error {
+	if !state.executionLedger || task == "" {
+		return nil
+	}
+	rec := projectstate.TaskAttemptInput{
+		AttemptID: attemptID,
+		TaskID:    task,
+		Attempt:   int64(attempt),
+		Actor:     projectstate.ActorAgent,
+		Outcome:   attemptOutcomeFor(obs.Phase),
+	}
+	if obs.Episode != nil {
+		rec.EvidenceKind, rec.EvidenceRef = projectstate.EvidenceEpisode, obs.Episode.EpisodeID
+	}
+	return wf.recordAttempt(ctx, in, headVersion, cred, rec)
+}
+
+// attemptOutcomeFor maps a terminal pipeline phase onto the attempt's terminal. Only a
+// SUCCEEDED run passed; everything else — failed, cancelled, or a phase that is not
+// terminal at all (the poll budget ran out with the run still going) — is a failed
+// attempt, because the task it was dispatched for did not get done.
+func attemptOutcomeFor(p PipelinePhase) projectstate.TaskOutcome {
+	switch p {
+	case PipelineSucceeded:
+		return projectstate.OutcomePassed
+	case PipelineFailed, PipelineCancelled, PipelinePending, PipelineRunning, PipelinePhaseUnknown:
+		return projectstate.OutcomeFailed
+	}
+	// Unreachable for the six defined PipelinePhase values above; kept as a defensive
+	// fallback for an out-of-range ordinal, which is a failure like any other.
+	return projectstate.OutcomeFailed
+}
+
+// openGateRound opens the review round for the gate the workflow has just reached, with
+// the roster the engine computed and the subject the round judges. It is called on EVERY
+// entry to a gate — including a redraft's re-entry, which is a NEW round — and on the
+// no-human and engine-refused paths too, because a gate that happened with no roster is
+// still a gate that happened and the read model has to be able to say so.
+//
+// A lifecycle phase with no review task, or none whose work is dispatched, gets no round:
+// there is nothing to judge and nothing that judged it, and inventing a round for it
+// would put a review in the ledger that never took place.
+func (wf *workflows) openGateRound(
+	ctx workflow.Context,
+	in constructActivityInput,
+	phase projectstate.ActivityMethodPhase,
+	state *constructState,
+	set ReviewSet,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+) error {
+	state.gate = gateLedger{}
+	gate, work := projectstate.GateTaskFor(phase), projectstate.AgentTaskFor(phase)
+	if !state.executionLedger || gate == "" || work == "" {
+		return nil
+	}
+	n := state.nextTaskAttempt(gate)
+	state.gate = gateLedger{
+		task:    gate,
+		number:  n,
+		roundID: projectstate.AttemptID(string(in.ActivityID), gate, n),
+		subject: gateSubjectRef(gf, state.workAttemptID),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			projectstate.ReviewRoundInput{
+				RoundID:    state.gate.roundID,
+				TaskID:     gate,
+				Reviews:    work,
+				Round:      int64(n),
+				SubjectRef: state.gate.subject,
+				Reviewers:  roundReviewers(set),
+			}, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// gateSubjectRef names WHAT the round judges. On the PR rail that is the pull request the
+// activity's work is on — the thing a reviewer actually opens. With the rail dormant
+// there is no such handle (construction stages no model: its output is a commit the agent
+// pushed to the activity branch), so the round cites the work ATTEMPT it judged, which
+// joins to both the attempt ledger and the episode that burned it.
+func gateSubjectRef(gf *gitForward, workAttemptID string) projectstate.SubjectRef {
+	if gf.enabled && gf.prRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: gf.prRef}
+	}
+	return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: workAttemptID}
+}
+
+// roundReviewers is the roster the round persists: the engine's rows, plus the human row
+// when the policy requires a person. The engine's rows are NOT Required — the reviewer
+// set is advisory in v1 and nothing dispatches it, and a row marked required that nothing
+// waits for would make the round claim a gate it never had.
+//
+// Actor is the role for an engine row because on this rail a role IS the agent charter
+// dispatched for it; the human row has no name to give, so it carries the operator the
+// platform can honestly attribute the decision to.
+func roundReviewers(set ReviewSet) []projectstate.RoundReviewer {
+	out := make([]projectstate.RoundReviewer, 0, len(set.Reviewers)+1)
+	for _, r := range set.Reviewers {
+		out = append(out, projectstate.RoundReviewer{Role: r.Role, Actor: r.Role, Required: false})
+	}
+	if set.RequiresHuman != nil && *set.RequiresHuman {
+		out = append(out, projectstate.RoundReviewer{Role: gateRoleHuman, Actor: gateActorOperator, Required: true})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// appendVerdict lands one reviewer's judgement and the comments it cites in ONE commit.
+// A no-op when this gate opened no round.
+func (wf *workflows) appendVerdict(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	verdict projectstate.ReviewVerdict,
+	comments []projectstate.ReviewComment,
+) error {
+	if state.gate.roundID == "" {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), state.gate.roundID, verdict, comments, nil, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// decideRound stamps the round's terminal — a separate, later fact from the verdicts on
+// it, which is why it is a second verb and not a field of the first. It also records who
+// the gate attempt this round settles will name as its actor.
+func (wf *workflows) decideRound(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	outcome projectstate.ReviewRoundOutcome,
+	decidedBy string,
+) error {
+	if state.gate.roundID == "" {
+		return nil
+	}
+	state.gate.actor = projectstate.ActorSystem
+	if decidedBy == decidedByOperator {
+		state.gate.actor = projectstate.ActorHuman
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), state.gate.roundID, outcome, decidedBy, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// closeGateRound appends the human's verdict — with the comments that rode with it — and
+// then decides the round. Two verbs, not one: other reviewers append to the same round
+// before the human's, and the decision is a separate terminal fact about the round.
+func (wf *workflows) closeGateRound(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	verdict projectstate.VerdictKind,
+	outcome projectstate.ReviewRoundOutcome,
+	fb *ReviewFeedback,
+) error {
+	if !state.executionLedger || state.gate.roundID == "" {
+		return nil
+	}
+	f := feedbackText(fb)
+	if err := wf.appendVerdict(ctx, in, state, headVersion, cred, projectstate.ReviewVerdict{
+		ReviewerRole: gateRoleHuman,
+		Actor:        gateActorOperator,
+		Verdict:      verdict,
+		Summary:      f.text,
+		AttemptID:    state.workAttemptID,
+	}, roundComments(f.comments)); err != nil {
+		return err
+	}
+	return wf.decideRound(ctx, in, state, headVersion, cred, outcome, decidedByOperator)
+}
+
+// roundComments re-types a decision's anchored comments onto the round thread's. The
+// ids, the round number and the open/answered status are the store's to mint, so only
+// what the operator actually wrote travels.
+func roundComments(in []AnchoredComment) []projectstate.ReviewComment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]projectstate.ReviewComment, 0, len(in))
+	for _, c := range in {
+		out = append(out, projectstate.ReviewComment{Anchor: c.JSONPath, Text: c.Text, AuthorRole: gateRoleHuman})
+	}
+	return out
+}
+
+// passGateAttempt records the PASSED attempt at the phase's review task — App A's binary
+// exit criterion, written where every reader derives phase completion from. It is the
+// fact RecordPhaseCompleted used to synthesize on the workflow's behalf; the workflow
+// writes it itself now, which is why that verb is no longer called behind the fence.
+//
+// Evidence is what the round judged, so a completion points at the thing that was
+// reviewed rather than at the empty artifactRef the retired verb always passed.
+func (wf *workflows) passGateAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+) error {
+	if state.gate.task == "" {
+		return nil
+	}
+	kind, ref := gateEvidence(state.gate.subject)
+	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
+		TaskID:       state.gate.task,
+		Attempt:      int64(state.gate.number),
+		Actor:        state.gate.actor,
+		Outcome:      projectstate.OutcomePassed,
+		EvidenceKind: kind,
+		EvidenceRef:  ref,
+	})
+}
+
+// rejectGateAttempt is passGateAttempt's send-back twin: a REJECTED attempt at the review
+// task, which is what leaves the phase incomplete and makes the redraft that follows
+// render as Löwy's "a failing review repeats the preceding task".
+func (wf *workflows) rejectGateAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+) error {
+	if !state.executionLedger || state.gate.task == "" {
+		return nil
+	}
+	kind, ref := gateEvidence(state.gate.subject)
+	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
+		TaskID:       state.gate.task,
+		Attempt:      int64(state.gate.number),
+		Actor:        state.gate.actor,
+		Outcome:      projectstate.OutcomeRejected,
+		EvidenceKind: kind,
+		EvidenceRef:  ref,
+	})
+}
+
+// gateEvidence maps the round's subject onto the attempt's evidence vocabulary, so the
+// UI's click dispatch opens the right thing from either ledger.
+func gateEvidence(subject projectstate.SubjectRef) (projectstate.EvidenceKind, string) {
+	switch subject.Kind {
+	case projectstate.SubjectPullRequest, projectstate.SubjectCommit:
+		return projectstate.EvidenceGit, subject.Ref
+	case projectstate.SubjectArtifact:
+		return projectstate.EvidenceArtifact, subject.Ref
+	}
+	// An unset subject (a round this workflow did not open) cites nothing.
+	return projectstate.EvidenceNone, ""
+}
+
+// recordExecutionOutcome stamps the activity's terminal on the execution row — the fold
+// of the three retired terminals (exited / failed / completed). A non-zero reason IS the
+// failure arm.
+func (wf *workflows) recordExecutionOutcome(
+	ctx workflow.Context,
+	in constructActivityInput,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	outcome projectstate.ActivityOutcome,
+	reason projectstate.FailureReason,
+	detail string,
+) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordActivityOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), outcome, reason, detail, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// carrySendBackFeedback puts the send-back's feedback in front of the redraft WITHOUT
+// recording it. Before stage 3 this was a NoteSendBack on the activity, and it was the
+// only trace a send-back left anywhere. The round now holds the verdict, its summary and
+// its comments, so a note beside it would be one fact stored twice; what the redraft
+// still needs is the TEXT, and that rides the next dispatch as a workflow-local note
+// nothing ever stamps delivered. Emits no command.
+// It is gated on noteDelivery for the same reason the recorded notes are: an execution
+// without THAT marker must not add the operator_note dispatch input, because the seated
+// construct workflow it dispatches into may predate the key.
+func carrySendBackFeedback(ctx workflow.Context, in constructActivityInput, state *constructState, gate string, fb *ReviewFeedback) {
+	f := feedbackText(fb)
+	if !state.noteDelivery || strings.TrimSpace(f.text) == "" {
+		return
+	}
+	state.noteSeq++
+	note := projectstate.OperatorNote{
+		NoteID:     operatorNoteID(in.ActivityID, workflow.GetInfo(ctx).WorkflowExecution.RunID, state.noteSeq),
+		Kind:       projectstate.NoteSendBack,
+		Gate:       gate,
+		Text:       f.text,
+		Comments:   noteComments(f.comments),
+		RecordedAt: workflow.Now(ctx),
+	}
+	if state.ephemeralNotes == nil {
+		state.ephemeralNotes = map[string]bool{}
+	}
+	state.ephemeralNotes[note.NoteID] = true
+	state.pendingNotes = append(state.pendingNotes, note)
+}
 
 // maxRenderedOperatorNotesBytes caps the rendered notes block one dispatch carries, far
 // under GitHub's 65,535-character workflow_dispatch input cap. The façade caps one note
@@ -1934,6 +2556,13 @@ func (wf *workflows) submitCarryingNotes(
 			state.carriedTo = map[string]string{}
 		}
 		state.carriedTo[n.NoteID] = attemptID
+		// A workflow-local send-back note (stage 3) has no stored note to stamp: the review
+		// round is its record, and the block it rode is its delivery. It leaves the queue
+		// having been carried, without a store call that would only fail NotFound.
+		if state.ephemeralNotes[n.NoteID] {
+			delivered[n.NoteID] = true
+			continue
+		}
 		if wf.stampNoteDelivered(ctx, in, n.NoteID, attemptID, gf, headVersion) {
 			delivered[n.NoteID] = true
 		}
@@ -2373,8 +3002,16 @@ func (wf *workflows) handleVariance(
 		if !got {
 			state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeTimedOut)
 			_ = failReason // underlying cause is carried in detail below; the terminal reason is EscalationTimedOut
-			v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut,
-				"escalation timed out: no operator override within the escalation-wait window (underlying: "+detail+")", startedCred)
+			timedOut := "escalation timed out: no operator override within the escalation-wait window (underlying: " + detail + ")"
+			if state.executionLedger {
+				if e := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+					projectstate.ActivityOutcomeUnknown, projectstate.EscalationTimedOut, timedOut); e != nil {
+					return false, e
+				}
+				state.stage = StageExited
+				return true, nil
+			}
+			v, e := wf.recordActivityFailed(ctx, in, *headVersion, projectstate.EscalationTimedOut, timedOut, startedCred)
 			if e != nil {
 				return false, e
 			}
@@ -2433,6 +3070,14 @@ func (wf *workflows) executeOverride(
 		state.stage = StageDispatching
 		return false, nil
 	case OverrideSkip:
+		if state.executionLedger {
+			if err := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+				projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, ""); err != nil {
+				return false, err
+			}
+			state.stage = StageExited
+			return true, nil
+		}
 		v, e := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeSkipped, startedCred)
 		if e != nil {
 			return false, e

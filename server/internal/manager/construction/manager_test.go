@@ -1235,17 +1235,6 @@ func (s *stubGitStatus) row(activityID string) (projectstate.ActivityGitStatus, 
 	return g, ok
 }
 
-// constructionPhase returns the construction lifecycle phase activityID's recorded row
-// DERIVES to. The stub records the head facts the real store records; the roll-up is read
-// the way every reader reads it (stage-3 task 4).
-func (s *stubGitStatus) constructionPhase(activityID string) (projectstate.ActivityConstructionPhase, bool) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	c, ok := s.cons[activityID]
-	phase, _ := projectstate.EffectiveConstructionPhase(c, projectstate.ActivityItem{})
-	return phase, ok
-}
-
 var _ projectstate.GitActivityStatusAccess = (*stubGitStatus)(nil)
 
 // ---- helpers ----------------------------------------------------------------
@@ -1278,6 +1267,7 @@ func registerConstructGit(env *testsuite.TestWorkflowEnvironment, wf *workflows,
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
 }
@@ -1391,12 +1381,10 @@ func Test_GitForward_FullLifecycle_RecordsHeadState(t *testing.T) {
 	gitLifecycleAssertHeadStateRow(t, git)
 
 	// Task 3: the per-activity construction lifecycle recorded Running (started) then
-	// Done (completed) through the same git-wired spine.
-	phase, ok := git.constructionPhase("C-MST")
-	if !ok {
-		t.Fatal("ActivityConstruction[C-MST] was never recorded (started/completed)")
-	}
-	if phase != projectstate.ActivityConstructionDone {
+	// Done (completed) through the same git-wired spine. Stage 3 moved that pair off the
+	// git mirror onto the execution row (OpenActivity / RecordActivityOutcome), where the
+	// coarse phase is DERIVED from the start and completion stamps rather than stored.
+	if phase := constructionPhaseOf(ps, "C-MST"); phase != projectstate.ActivityConstructionDone {
 		t.Fatalf("construction phase = %v, want Done (completed) after a happy-path spine", phase)
 	}
 }
@@ -1422,13 +1410,16 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	phase, ok := git.constructionPhase("C-MST")
-	if !ok {
-		t.Fatal("no construction head-state recorded")
-	}
-	if phase != projectstate.ActivityConstructionDone {
+	if phase := constructionPhaseOf(ps, "C-MST"); phase != projectstate.ActivityConstructionDone {
 		t.Fatalf("want Done after a completed activity, got %v", phase)
 	}
+}
+
+// constructionPhaseOf is the coarse Running/Done/Failed an activity's execution row
+// derives to — the question git.constructionPhase used to answer off a stored field,
+// asked of the ledger that owns the two stamps behind it.
+func constructionPhaseOf(ps *fakeProjectState, activityID string) projectstate.ActivityConstructionPhase {
+	return projectstate.CoarsePhaseFor(ps.execution(activityID), nil)
 }
 
 // A CI failure is mirrored as Failure (the dumb reflection); the lifecycle still
@@ -2624,12 +2615,22 @@ type phaseCompletedCall struct {
 	phase      string
 }
 
-// phaseCompleted reports whether RecordPhaseCompleted landed for (activityID, phase).
+// phaseCompleted reports whether the phase's completion landed for (activityID, phase),
+// on EITHER rail: the retired RecordPhaseCompleted call, or — behind
+// changeExecutionLedger — the passed attempt at the phase's gate task, which is the one
+// fact every reader now derives a lifecycle phase's completion from (App A's binary
+// exit). One question, one answer, whichever rail wrote it.
 func (f *fakeProjectState) phaseCompleted(activityID, phase string) bool {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	for _, c := range f.phaseDone {
 		if c.activityID == activityID && c.phase == phase {
+			return true
+		}
+	}
+	gate := projectstate.GateTaskFor(projectstate.ActivityMethodPhase(phase))
+	for _, a := range f.project.ActivityExecution[activityID].Attempts {
+		if a.Task == gate && a.Outcome == projectstate.OutcomePassed {
 			return true
 		}
 	}
@@ -2882,6 +2883,216 @@ func (f fakeConstructionTransition) ReadProject(rc fwra.Context, projectID proje
 }
 
 var _ projectstate.ConstructionTransitionAccess = fakeConstructionTransition{}
+
+// testLedgerClock is the fixed clock the execution-ledger double stamps, so a row a test
+// reads back is byte-comparable between runs.
+var testLedgerClock = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+// fakeActivityExecution is the in-memory activityExecutionAccess the workflow tests write
+// their attempts and review rounds through (stage 3, task 5). It is hand-rolled rather
+// than the generated FakeActivityExecutionAccess for one reason: these tests assert on the
+// ROWS a run produced — "a send-back then an approval is two rounds, the first of them
+// sentBack" — and a double whose every op is a func field records calls, not state.
+//
+// It holds the rules those assertions depend on and no more: one id names one attempt,
+// one id names one round, and a decided round takes no further verdict. The rest of the
+// contract (the provenance stamping, the comment-thread normaliser, the terminality
+// refusals) is the real facet's and is pinned by its own access_test.go; a second
+// implementation of it here would be a second thing to keep in step.
+type fakeActivityExecution struct {
+	*fakeProjectState
+}
+
+var _ projectstate.ActivityExecutionAccess = fakeActivityExecution{}
+
+// upsertExecution mirrors the store's single write-back point: mutate the one row, stamp
+// its per-activity version, advance the project head. Callers hold the lock.
+func (f *fakeProjectState) upsertExecution(activityID string, mutate func(*projectstate.ActivityExecution)) projectstate.Version {
+	if f.project.ActivityExecution == nil {
+		f.project.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	}
+	row := f.project.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	mutate(&row)
+	row.Version++
+	f.project.ActivityExecution[activityID] = row
+	return f.bump()
+}
+
+// execution reads back the execution row a run wrote.
+func (f *fakeProjectState) execution(activityID string) projectstate.ActivityExecution {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.project.ActivityExecution[activityID]
+}
+
+// applyExecution is the shared shape of every mutating verb on the double.
+func (f fakeActivityExecution) applyExecution(activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if err := f.maybeConflict(); err != nil {
+		return 0, err
+	}
+	return f.upsertExecution(activityID, mutate), nil
+}
+
+func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.Type, row.Variant = typ, variant
+		if row.Pin == nil {
+			held := pin
+			row.Pin = &held
+		}
+		if row.StartedAt == nil {
+			t := testLedgerClock
+			row.StartedAt = &t
+		}
+	})
+}
+
+func (f fakeActivityExecution) RecordAttemptOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, attempt projectstate.TaskAttemptInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		evidence := projectstate.EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}
+		for i := range row.Attempts {
+			if row.Attempts[i].AttemptID != attempt.AttemptID {
+				continue
+			}
+			row.Attempts[i].Outcome, row.Attempts[i].Actor, row.Attempts[i].Evidence = attempt.Outcome, attempt.Actor, evidence
+			return
+		}
+		row.Attempts = append(row.Attempts, projectstate.TaskAttempt{
+			AttemptID: attempt.AttemptID,
+			Task:      attempt.TaskID,
+			Phase:     projectstate.PhaseForTask(attempt.TaskID),
+			Attempt:   int(attempt.Attempt),
+			Actor:     attempt.Actor,
+			StartedAt: &testLedgerClock,
+			Outcome:   attempt.Outcome,
+			Evidence:  evidence,
+			Provenance: projectstate.AttemptProvenance{
+				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
+			},
+		})
+	})
+}
+
+func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			if row.Reviews[i].RoundID == round.RoundID {
+				return // already open: a no-op success, not a second round
+			}
+		}
+		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+			RoundID:    round.RoundID,
+			TaskID:     round.TaskID,
+			Reviews:    round.Reviews,
+			Round:      round.Round,
+			SubjectRef: round.SubjectRef,
+			Reviewers:  slices.Clone(round.Reviewers),
+			Outcome:    projectstate.RoundPending,
+			OpenedAt:   testLedgerClock.Format(time.RFC3339),
+			Provenance: projectstate.AttemptProvenance{
+				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
+			},
+		})
+	})
+}
+
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			for _, c := range comments {
+				held := c
+				held.ID = fmt.Sprintf("r%dc%d", r.Round, len(r.Thread)+1)
+				held.Round, held.Status = r.Round, "open"
+				r.Thread = append(r.Thread, held)
+			}
+			return
+		}
+	})
+}
+
+func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			return
+		}
+	})
+}
+
+// RecordActivityOutcome lands the terminal AND logs it into the exited/failed call logs
+// the retired verbs fed. Deliberately: the fold's whole point is that it records the same
+// two facts those three verbs did, so a test asking "did the activity exit completed"
+// must get the same answer whichever rail the run was on.
+func (f fakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		if row.CompletedAt == nil {
+			t := testLedgerClock
+			row.CompletedAt = &t
+		}
+		if reason != projectstate.FailureReasonUnknown {
+			row.FailureReason, row.FailureDetail = reason, detail
+		}
+	})
+	if err != nil {
+		return 0, err
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if reason != projectstate.FailureReasonUnknown {
+		f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
+		return v, nil
+	}
+	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
+	return v, nil
+}
+
+// The five verbs no construction workflow calls yet (the design rails take them in task 6
+// and the migration tool in task 9). Inert stubs, matching the stubRail precedent for
+// satisfying an unused portion of a wide contract.
+
+func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+	return projectstate.StagedRef{}, nil
+}
+
+func (fakeActivityExecution) SetReviewCommentStatus(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f fakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
+			NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text,
+			Comments: slices.Clone(note.Comments), RecordedAt: testLedgerClock,
+			DeliveredToAttemptID: deliveredToAttemptID,
+		})
+	})
+}
+
+func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	return f.execution(activityID), nil
+}
 
 // fakeFullProjectState widens fakeProjectState onto the FULL projectstate.ProjectStateAccess
 // contract so the test env can (a) register the GENERATED ProjectStateReadProjectVersion
@@ -3168,6 +3379,21 @@ func registerGenConstructionTransition(env *testsuite.TestWorkflowEnvironment, p
 	env.RegisterActivityWithOptions(acts.ConstructionTransitionRecordOperatorNoteDelivered, activity.RegisterOptions{Name: "constructionTransitionAccess.recordOperatorNoteDelivered"})
 }
 
+// registerGenActivityExecution registers the GENERATED activityExecutionAccess activities
+// the construction child workflow writes through behind changeExecutionLedger (stage 3),
+// backed by the in-memory double over the same ps. The six it calls are registered; the
+// other six are not, so a workflow that starts calling one is a loud ActivityNotRegistered
+// rather than a silent no-op.
+func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps *fakeProjectState) {
+	acts := &genActivities{ActivityExecution: fakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordAttemptOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordAttemptOutcome"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordActivityOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordActivityOutcome"})
+}
+
 // registerGenGitStatus registers the GENERATED gitActivityStatusAccess Record* activities
 // (B8: migrated off the custom RecordActivity*Activity methods, gitactivities.go) under
 // their generated registered names, backed by gs — either ps (already the full
@@ -3296,6 +3522,7 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
 	// the gate tests wire GitStatus so these must be registered).
 	registerGenGitStatus(env, ps)
@@ -3311,6 +3538,7 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fak
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 }
 
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *workflows, ps *fakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
@@ -3327,6 +3555,7 @@ func registerSupervisionWithBus(env *testsuite.TestWorkflowEnvironment, wf *work
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	acts := &genActivities{MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
@@ -6817,6 +7046,7 @@ func (r replayRig) activities() genActivities {
 		ProjectState:           full,
 		Pipeline:               r.pipe,
 		ConstructionTransition: fakeConstructionTransition{r.ps},
+		ActivityExecution:      fakeActivityExecution{r.ps},
 		GitStatus:              r.ps,
 		DesignSession:          projectstate.NewDesignSessionAccess(full),
 		MessageBus:             bus,
@@ -6909,10 +7139,62 @@ var replayPartialLedgerPhases = []projectstate.ActivityMethodPhase{
 	projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseConstruction,
 }
 
-// replayScenarios is every captured history: the pre-change set (never re-captured) and
-// the post-b1 set, captured from the B1.4 code so its versioned path is pinned too.
+// replayScenarios is every captured history: the pre-change set (never re-captured), the
+// post-b1 set captured from the B1.4 code, and the post-stage3 set captured from the code
+// that writes the execution ledger — so BOTH sides of every fence are pinned.
 func replayScenarios() []replayScenario {
-	return append(replayScenariosPreChange(), replayScenariosPostB1()...)
+	out := append(replayScenariosPreChange(), replayScenariosPostB1()...)
+	return append(out, replayScenariosPostStage3()...)
+}
+
+// replayScenariosPostStage3 are the histories captured from the code that WRITES the
+// attempt and review-round ledgers (stage 3, task 5). The pre-* sets pin what an
+// execution WITHOUT the changeExecutionLedger marker replays as; these pin the new
+// command sequence itself — the pending attempt opened before the dispatch, the round
+// opened at the gate, the verdict, the decision, and the gate attempt that follows it —
+// so a later wave cannot quietly re-order or drop one of the five write points.
+func replayScenariosPostStage3() []replayScenario {
+	return []replayScenario{
+		{
+			// The whole of a gated phase's happy path: dispatch → gate → approve, then the
+			// merge hold's auto-pass and the terminal.
+			dir: "post-stage3", name: "gate-approve-writes-the-ledger",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// The rejection path, which is where the ledger earns its keep: round 1 decided
+			// sentBack with its verdict and its rejected gate attempt, the redraft's work
+			// attempt, then round 2 over it.
+			dir: "post-stage3", name: "gate-sendback-redraft-approve",
+			rig: func() replayRig { return replayGateRig(replayGatedOn(projectstate.MethodPhaseDetailedDesign)) },
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r replayRig) (string, string, bool) {
+				run := replayStartConstruct(ctx, t, c, tq)
+				replayAwaitView(ctx, t, c, run.GetID(), "the detailed_design gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval
+				})
+				before := replaySubmitted(r.pipe)
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{
+					Phase: "detailed_design", Decision: PhaseSendBack,
+					Feedback: &ReviewFeedback{Notes: "tighten the error model", Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}},
+				})
+				replayAwaitView(ctx, t, c, run.GetID(), "the redraft's gate", func(v ConstructionSessionView) bool {
+					return v.Stage == StageAwaitingApproval && replaySubmitted(r.pipe) == before+1
+				})
+				replaySignal(ctx, t, c, run.GetID(), signalPhaseDecision, phaseDecisionSignal{Phase: "detailed_design", Decision: PhaseApprove})
+				replayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
 }
 
 // replayScenariosPreChange are the histories captured on the code BEFORE B1/D1.
@@ -7506,10 +7788,13 @@ func Test_Construct_IntegrationPendingRow_RunsOnlyIntegrationThenMergesAndFinali
 	if len(r.ps.exited) != 1 || r.ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
 		t.Fatalf("want one Completed exit, got %v", r.ps.exited)
 	}
-	started := slices.Index(r.order, "gitActivityStatusAccess.recordActivityStarted")
+	// The activity is OPENED before anything is dispatched — the fact that removes it from
+	// the pump's NotStarted set. Stage 3 moved it from RecordActivityStarted onto
+	// OpenActivity (same StartedAt, plus the lifecycle pin); the ORDER is the invariant.
+	started := slices.Index(r.order, "activityExecutionAccess.openActivity")
 	submit := slices.Index(r.order, "agenticJobAccess.submitAgenticJob")
 	if started < 0 || submit < 0 || started > submit {
-		t.Fatalf("RecordActivityStarted (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
+		t.Fatalf("OpenActivity (at %d) must precede the pipeline (at %d): %v", started, submit, r.order)
 	}
 	if got := r.targetRefs(); !slices.Equal(got, []string{"C-Orders:integration:1"}) {
 		t.Fatalf("episode TargetRefs = %v, want [C-Orders:integration:1]", got)
@@ -7619,8 +7904,177 @@ func b12Decide(env *testsuite.TestWorkflowEnvironment, key string, d PhaseDecisi
 	}
 }
 
+// b12SendBack is b12Decide's send-back with the operator's own words, for the tests that
+// assert those words landed somewhere durable.
+func b12SendBack(env *testsuite.TestWorkflowEnvironment, key, notes string) func() {
+	return func() {
+		env.SignalWorkflow(signalPhaseDecision, phaseDecisionSignal{
+			Phase: key, Decision: PhaseSendBack, Feedback: &ReviewFeedback{Notes: notes},
+		})
+	}
+}
+
 func b12Run(env *testsuite.TestWorkflowEnvironment) {
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
+}
+
+// ===========================================================================
+// THE EXECUTION LEDGER (stage 3, task 5): the construction child workflow WRITES.
+//
+// Before this, the run recorded nothing about what it did: attempt numbers were minted
+// and thrown away, every roster the review engine computed was discarded once it had been
+// displayed, and a send-back left a one-line OperatorNote and nothing else — no roster, no
+// verdict, no thread, no round number, no subject. These pin the writes, and the fence
+// that keeps an in-flight execution off them.
+// ===========================================================================
+
+// ledgerGateEnv is the rig these tests share: the REAL review engine (the roster is the
+// thing being persisted, so a fake roster would prove nothing) behind a policy that gates
+// detailed design.
+func ledgerGateEnv(t *testing.T) (*testsuite.TestWorkflowEnvironment, *fakeProjectState) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	// The pipeline mines an episode on every observation (the local executor's arm), so
+	// the attempts these tests read back cite something a reader can actually follow.
+	registerConstruct(env, newWorkflows(deps), ps, &fakePipeline{phase: PipelineSucceeded, episode: captureSeamSummary()})
+	return env, ps
+}
+
+// A send-back must now leave a ROUND, not just a note: the roster the engine computed,
+// the verdict that was given, the round number, and the subject it judged.
+func Test_Construct_SendBack_PersistsTheReviewRound(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	env.RegisterDelayedCallback(b12SendBack(env, "detailed_design", "split the contract"), 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	gate := projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign)
+	rounds := roundsOnGate(ps, "C-Orders", gate)
+	if len(rounds) != 2 {
+		t.Fatalf("a send-back then an approval is TWO rounds on %s; got %d: %+v", gate, len(rounds), rounds)
+	}
+	assertRejectionRound(t, rounds[0], "split the contract")
+	if r2 := rounds[1]; r2.Round != 2 || r2.Outcome != projectstate.RoundPassed || r2.DecidedBy != decidedByOperator {
+		t.Fatalf("the redraft opens round 2 and the approval decides it; got %+v", r2)
+	}
+	// The un-gated phases still leave a round each: an auto-passed gate is a gate that
+	// happened, and it is the record a vibes preset otherwise leaves nothing of.
+	if auto, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseRequirements), 1); !ok ||
+		auto.Outcome != projectstate.RoundPassed || auto.DecidedBy != decidedByPolicy {
+		t.Fatalf("an un-gated phase records the round its policy passed; got %+v ok=%v", auto, ok)
+	}
+}
+
+// Attempts are written by the RUN now, not reconstructed. The work task and the gate task
+// each get one per revision, and the AttemptID format is unchanged so the episode
+// ledger's TargetRef join survives.
+func Test_Construct_WritesTheAttemptLedger(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	env.RegisterDelayedCallback(b12SendBack(env, "detailed_design", "split the contract"), 30*time.Second)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 90*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	held := map[string]projectstate.TaskAttempt{}
+	for _, a := range ps.execution("C-Orders").Attempts {
+		held[a.AttemptID] = a
+	}
+	// detailedDesign#1 was rejected at designReview#1, so the developer repeated the
+	// preceding task: detailedDesign#2, passed at designReview#2 (App A, Figure A-1).
+	want := map[string]projectstate.TaskOutcome{
+		"C-Orders:detailedDesign:1": projectstate.OutcomePassed,
+		"C-Orders:designReview:1":   projectstate.OutcomeRejected,
+		"C-Orders:detailedDesign:2": projectstate.OutcomePassed,
+		"C-Orders:designReview:2":   projectstate.OutcomePassed,
+	}
+	for id, outcome := range want {
+		a, ok := held[id]
+		if !ok {
+			t.Fatalf("attempt %s is not in the ledger; got %v", id, slices.Sorted(maps.Keys(held)))
+		}
+		if a.Outcome != outcome {
+			t.Errorf("attempt %s outcome = %q, want %q", id, a.Outcome, outcome)
+		}
+	}
+	// The work attempt cites the episode it burned — the join the SPA follows from an
+	// attempt row to what the agent actually did.
+	if ev := held["C-Orders:detailedDesign:1"].Evidence; ev.Kind != projectstate.EvidenceEpisode || ev.Ref == "" {
+		t.Errorf("a work attempt cites its episode; got %+v", ev)
+	}
+	// And the activity itself was opened against a pinned lifecycle before any of it.
+	row := ps.execution("C-Orders")
+	if row.Pin == nil || row.Pin.TypeKey == "" || row.Pin.AssetsVersion == "" {
+		t.Fatalf("OpenActivity must pin the lifecycle in force; got %+v", row.Pin)
+	}
+}
+
+// An old execution keeps its old history: with the marker absent, nothing is written to
+// the execution ledger at all — and the retired rail still records what it always did.
+func Test_Construct_WithoutTheLedgerFence_WritesNothing(t *testing.T) {
+	env, ps := ledgerGateEnv(t)
+	// Mocks follow registration (the test environment refuses the other order).
+	env.OnGetVersion(changeExecutionLedger, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	env.RegisterDelayedCallback(b12Decide(env, "detailed_design", PhaseApprove), 30*time.Second)
+	b12Run(env)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	row := ps.execution("C-Orders")
+	switch {
+	case len(row.Attempts) != 0:
+		t.Fatalf("DefaultVersion writes no attempt; got %+v", row.Attempts)
+	case len(row.Reviews) != 0:
+		t.Fatalf("DefaultVersion opens no round; got %+v", row.Reviews)
+	case row.Pin != nil || row.StartedAt != nil:
+		t.Fatalf("DefaultVersion never opens the activity; got %+v", row)
+	}
+	// The old rail is untouched: the phase completion and the exit still land where they
+	// always did, which is what makes an in-flight execution safe across the deploy.
+	if !ps.phaseCompleted("C-Orders", "detailed_design") {
+		t.Error("DefaultVersion must still record the phase completion on the retired rail")
+	}
+	if len(ps.exited) != 1 || ps.exited[0].outcome != projectstate.ActivityOutcomeCompleted {
+		t.Fatalf("DefaultVersion must still record the binary exit; got %+v", ps.exited)
+	}
+}
+
+// assertRejectionRound pins everything round 1 has to say about the send-back that a
+// NoteSendBack could not: the roster, the verdict, the operator's words, the subject and
+// the task it judges.
+func assertRejectionRound(t *testing.T, r projectstate.ReviewRound, summary string) {
+	t.Helper()
+	switch {
+	case r.Outcome != projectstate.RoundSentBack || r.Round != 1:
+		t.Fatalf("round 1 must be a recorded send-back; got outcome=%q round=%d", r.Outcome, r.Round)
+	case len(r.Reviewers) == 0:
+		t.Fatalf("the round must carry the roster the engine computed; got none")
+	case len(r.Verdicts) != 1 || r.Verdicts[0].Verdict != projectstate.VerdictSendBack:
+		t.Fatalf("the human's verdict must be a row in Verdicts; got %+v", r.Verdicts)
+	case r.Verdicts[0].Summary != summary:
+		t.Fatalf("the verdict must carry the operator's own words; got %q", r.Verdicts[0].Summary)
+	case r.SubjectRef.Ref == "":
+		t.Fatalf("a round must name what it judged (the staged ref); got %+v", r.SubjectRef)
+	case r.Reviews != projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign):
+		t.Fatalf("a round names the task it judges; got %q", r.Reviews)
+	}
+}
+
+// roundsOnGate is every round on one gate task, in ledger order.
+func roundsOnGate(ps *fakeProjectState, activityID string, gate projectstate.MethodTask) []projectstate.ReviewRound {
+	var out []projectstate.ReviewRound
+	for _, r := range ps.execution(activityID).Reviews {
+		if r.TaskID == gate {
+			out = append(out, r)
+		}
+	}
+	return out
 }
 
 // A phase gate names itself and its occurrence; a redraft re-enters as a NEW occurrence;
@@ -8391,10 +8845,12 @@ func runNoteConstruct(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
 	env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{ProjectID: "p", ActivityID: "C-Orders", Activity: sampleActivity()})
 }
 
-// Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped is the h1 shape: the store
-// holds one sendBack note; the redraft's dispatch carries it (text, comment, id); it is
-// stamped to detailedDesign#2; nothing else carries a note.
-func Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped(t *testing.T) {
+// Test_NoteDelivery_SendBackFeedbackRidesTheRedraftAndIsNotRecorded is the h1 shape as
+// stage 3 leaves it: the redraft's dispatch still carries the send-back's text and its
+// anchored comment VERBATIM, and nothing is recorded or stamped as an operator note —
+// the ROUND is the record of the send-back now, and a note beside it would be the same
+// fact stored twice.
+func Test_NoteDelivery_SendBackFeedbackRidesTheRedraftAndIsNotRecorded(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
@@ -8411,47 +8867,55 @@ func Test_NoteDelivery_SendBackNoteRidesTheRedraftAndIsStamped(t *testing.T) {
 	if err := env.GetWorkflowError(); err != nil {
 		t.Fatalf("workflow error: %v", err)
 	}
-	n := assertOneSendBackNote(t, ps, fb)
 	specs := submittedSpecs(pipe)
 	dd := phaseSpecs(specs, projectstate.MethodPhaseDetailedDesign)
 	if len(dd) != 2 {
 		t.Fatalf("want the draft and its redraft, got %d detailed_design dispatches", len(dd))
 	}
 	if _, ok := dd[0].DispatchInputs[dispatchInputOperatorNote]; ok {
-		t.Fatal("the first draft predates the note and must carry none")
+		t.Fatal("the first draft predates the send-back and must carry none")
 	}
 	got := dd[1].DispatchInputs[dispatchInputOperatorNote]
-	for _, want := range []string{n.note.NoteID, "sendBack at detailed_design", fb.Notes, "comment on $.ops[0]: name the failure"} {
+	for _, want := range []string{"C-Orders:note:", "sendBack at detailed_design", fb.Notes, "comment on $.ops[0]: name the failure"} {
 		if !strings.Contains(got, want) {
 			t.Errorf("the redraft's operator_note lacks %q:\n%s", want, got)
 		}
 	}
 	if c := carriedNotes(specs); c != 1 {
-		t.Fatalf("exactly one dispatch carries the note, got %d", c)
+		t.Fatalf("exactly one dispatch carries the feedback, got %d", c)
 	}
-	want := deliveredCall{activityID: "C-Orders", noteID: n.note.NoteID, attemptID: projectstate.AttemptID("C-Orders", projectstate.AgentTaskFor(projectstate.MethodPhaseDetailedDesign), 2)}
-	if len(ps.delivered) != 1 || ps.delivered[0] != want {
-		t.Fatalf("delivery stamps = %+v, want [%+v]", ps.delivered, want)
+	if len(ps.notes) != 0 || len(ps.delivered) != 0 {
+		t.Fatalf("a send-back is a round now, not a note: notes=%+v stamps=%+v", ps.notes, ps.delivered)
 	}
+	assertSendBackRound(t, ps, fb)
 }
 
-// assertOneSendBackNote asserts the store holds exactly the send-back's note, verbatim.
-func assertOneSendBackNote(t *testing.T, ps *fakeProjectState, fb *ReviewFeedback) noteCall {
+// roundOnGate finds the numbered round on one gate task of an activity's review ledger.
+func roundOnGate(ps *fakeProjectState, activityID string, gate projectstate.MethodTask, n int64) (projectstate.ReviewRound, bool) {
+	for _, r := range ps.execution(activityID).Reviews {
+		if r.TaskID == gate && r.Round == n {
+			return r, true
+		}
+	}
+	return projectstate.ReviewRound{}, false
+}
+
+// assertSendBackRound asserts the send-back landed as a decided review round carrying the
+// operator's verdict, its summary and the comment that rode with it.
+func assertSendBackRound(t *testing.T, ps *fakeProjectState, fb *ReviewFeedback) {
 	t.Helper()
-	if len(ps.notes) != 1 {
-		t.Fatalf("want one recorded note, got %+v", ps.notes)
+	r, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign), 1)
+	if !ok {
+		t.Fatalf("want a recorded round 1 on the detailed-design gate, got %+v", ps.execution("C-Orders").Reviews)
 	}
-	n := ps.notes[0]
-	wantComment := projectstate.NoteComment{JSONPath: "$.ops[0]", Text: "name the failure"}
 	switch {
-	case n.activityID != "C-Orders", n.note.Kind != projectstate.NoteSendBack, n.note.Gate != "detailed_design", n.note.Text != fb.Notes:
-		t.Fatalf("recorded note = %+v", n)
-	case len(n.note.Comments) != 1 || n.note.Comments[0] != wantComment:
-		t.Fatalf("recorded comments = %+v", n.note.Comments)
-	case !strings.HasPrefix(n.note.NoteID, "C-Orders:note:"):
-		t.Fatalf("note id = %q", n.note.NoteID)
+	case r.Outcome != projectstate.RoundSentBack:
+		t.Fatalf("round 1 outcome = %q, want sentBack: %+v", r.Outcome, r)
+	case len(r.Verdicts) != 1 || r.Verdicts[0].Verdict != projectstate.VerdictSendBack || r.Verdicts[0].Summary != fb.Notes:
+		t.Fatalf("round 1 verdicts = %+v", r.Verdicts)
+	case len(r.Thread) != 1 || r.Thread[0].Text != "name the failure" || r.Thread[0].Anchor != "$.ops[0]":
+		t.Fatalf("round 1 thread = %+v", r.Thread)
 	}
-	return n
 }
 
 // noteEscalateRig fails detailed_design's first dispatch into an escalation that waits
@@ -8641,8 +9105,14 @@ func Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded(t *testing.T) {
 	if env.GetWorkflowError() == nil {
 		t.Fatal("a refused redraft submit fails the run here")
 	}
-	if len(ps.notes) != 1 || len(ps.delivered) != 0 {
-		t.Fatalf("the note is kept but never stamped when its dispatch was refused: notes=%d stamps=%+v", len(ps.notes), ps.delivered)
+	// The send-back itself is kept — as the round, which is where it lives now — and the
+	// refused dispatch stamped nothing, which is the rule this test exists for.
+	if len(ps.delivered) != 0 {
+		t.Fatalf("a refused dispatch stamps nothing: %+v", ps.delivered)
+	}
+	r, ok := roundOnGate(ps, "C-Orders", projectstate.GateTaskFor(projectstate.MethodPhaseDetailedDesign), 1)
+	if !ok || r.Outcome != projectstate.RoundSentBack {
+		t.Fatalf("the send-back is kept as its round: %+v", ps.execution("C-Orders").Reviews)
 	}
 }
 
@@ -8674,6 +9144,7 @@ func noteGitRun(t *testing.T, rail *stubRail, version *workflow.Version) (*tests
 	registerGenDesignSessionRead(env, ps)
 	registerGenProjectStateVersion(env, ps)
 	registerGenConstructionTransition(env, ps)
+	registerGenActivityExecution(env, ps)
 	registerGenGitStatus(env, git)
 	registerGenRail(env, rail)
 	if version != nil {

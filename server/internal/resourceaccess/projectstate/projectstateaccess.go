@@ -7884,6 +7884,22 @@ type OperatorNote struct {
 // is — nothing runs after a skip. The construction Manager seeds a run's pending notes
 // from it (the notes a re-queue or an earlier run left undelivered) and uses it as the
 // one rule for which recorded kinds ride the next agent dispatch (plan B1.4).
+//
+// NoteSendBack IS STILL AMONG THEM, and stage 3 deliberately did not take it out.
+//
+// The WRITER stopped: behind changeExecutionLedger a send-back is a ReviewRound — roster,
+// verdict, comments, round number, subject — and its feedback rides the redraft
+// workflow-locally, so no new NoteSendBack is ever recorded (spec §5.3: pending feedback
+// is the latest round's OPEN comments). Narrowing the READER in the same wave was tried
+// and reverted, for a reason the replay fixtures stated plainly: a pre-fence execution
+// still in flight records a NoteSendBack and delivers it THROUGH THIS RULE, so dropping
+// the kind here deletes a Temporal command from a history that already recorded it
+// (post-b1/gate-sendback-redraft-approve fails on exactly that). It would also silently
+// strand a real, undelivered steer that an earlier run left on a row no round covers.
+//
+// It narrows in stage 6, with the fixtures that record the delivery and the last writer
+// of the kind. Until then: written by one rail, read by both. The other five kinds are
+// untouched either way — OperatorNotes is narrowed, not deleted.
 func PendingOperatorNotes(r ActivityExecution) []OperatorNote {
 	var out []OperatorNote
 	for _, n := range r.OperatorNotes {

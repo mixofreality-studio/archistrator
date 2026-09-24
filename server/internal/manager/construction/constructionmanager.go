@@ -2040,6 +2040,52 @@ type constructState struct {
 	// carriedTo names, per note id, the last attempt a dispatch carried the note into,
 	// so a note is never carried twice into the same attempt (M4).
 	carriedTo map[string]string
+
+	// executionLedger is true on an execution that recorded the execution-ledger marker
+	// (changeExecutionLedger, stage 3): only then does this run WRITE what it does to the
+	// per-activity attempt and review-round ledgers. An execution that recorded no marker
+	// stays wholly on the retired facet — no activity opened, no attempt recorded, no
+	// round opened, no verdict appended — because its history holds no events for those
+	// Activities and never will.
+	executionLedger bool
+
+	// workAttemptID is the AttemptID of the last AGENT-WORK dispatch runPipeline minted.
+	// The gate that follows judges exactly that attempt, so it is what the round cites as
+	// its subject and what every verdict on that round names — the join that makes a
+	// verdict traceable to the work it judged and to the episode that burned it.
+	workAttemptID string
+
+	// gate is the execution-ledger identity of the review round the workflow is at right
+	// now. Exactly one gate is live at a time (the phase walk is sequential), so this is
+	// one value rather than a map; it is rebuilt deterministically on replay like every
+	// other workflow-local field.
+	gate gateLedger
+
+	// ephemeralNotes are the ids of the workflow-local notes that carry a send-back's
+	// feedback into the redraft WITHOUT being recorded (stage 3): the round IS the record
+	// of the send-back now, so a NoteSendBack beside it would be one fact stored twice.
+	// They render into the dispatch block like any other note and are never stamped
+	// delivered, because there is no stored note to stamp.
+	ephemeralNotes map[string]bool
+}
+
+// gateLedger is the execution-ledger identity of ONE gate occurrence: the review task it
+// belongs to, its 1-based number, the round id derived from the pair, the subject the
+// round judges and who decided it.
+//
+// The number is BOTH the round's and its gate attempt's, deliberately: one gate
+// occurrence is one round and one attempt at the review task, so giving them separate
+// counters would let the two ledgers disagree about which review a passing gate came
+// from. nextTaskAttempt is the single counter, seeded from whichever of the two ledgers
+// has gone further (seedResumeFromLedger).
+type gateLedger struct {
+	task    projectstate.MethodTask
+	number  int
+	roundID string
+	subject projectstate.SubjectRef
+	// actor is who passed or rejected the gate — stamped when the round is decided and
+	// read back by the gate attempt the completion writes.
+	actor projectstate.TaskActor
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -2219,6 +2265,17 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
+		// EXECUTION LEDGER (stage 3, changeExecutionLedger): the attempt and review-round
+		// writes are head-state Record verbs and take the Record preset for the same
+		// reason — ContractMisuse terminal, and Conflict deliberately NOT, so the §6.5
+		// re-read→re-apply loop in applyRecovering is what resolves it rather than a
+		// Temporal retry re-issuing the same stale expected version forever.
+		"activityExecutionAccess.openActivity":          recordActivityOptions(),
+		"activityExecutionAccess.recordAttemptOutcome":  recordActivityOptions(),
+		"activityExecutionAccess.openReviewRound":       recordActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
+		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]
@@ -2283,6 +2340,11 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			Episodes:               m.episodes,
 			DesignSession:          m.designSession,
 			MessageBus:             m.messageBus,
+			// The execution ledger's twelve activities are registered by worker.gen.go the
+			// moment the dep exists; THREADING it is what gives them something to call. It
+			// was taken but not threaded while nothing invoked them (stage 3 task 3), which
+			// a task-5 write would have found as a nil-receiver panic inside the Activity.
+			ActivityExecution: m.activityExecution,
 		},
 	}
 }
