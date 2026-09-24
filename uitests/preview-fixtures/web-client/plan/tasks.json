@@ -1,7 +1,7 @@
 {
   "route": "/project/archistrator/plan?lens=tasks",
   "title": "Plan · TASKS",
-  "note": "Captured from the live local server against this repo own state. Regenerate with the curl+node recipe in the stage-5 plan, Task 6 Step 3.",
+  "note": "Captured from the live local server against this repo own state. Regenerate with the curl+node recipe in the stage-5 plan, Task 6 Step 3. Task 12 made ONE change to the capture and added ONE op. The sdpReview slot moves from committed (2) to awaitingReview (1): it already carries staleBasis, so this is the spec §6 story the capture was one step short of — re-opening the Architecture invalidated the plan, it was recomputed, and the M0 cost approval is owed again. That is the ONLY source a DESIGN review can be owed from (owedWork.designOwedFor reads the artifact SLOT, because the three design activities never open a construction session), so without it the TASKS lens says \"Nothing needs you\" and Task 11 Step 5b's design branch renders nowhere. constructionQueryActivityView is projectDesign's own view (verbatim from activity-experience/project-design-m0.json) so pressing [Review] on that row lands on the gate it names instead of raising the alarm.",
   "ops": {
     "compositionGetUserinfo": {
       "result": {
@@ -10867,7 +10867,7 @@
           },
           {
             "kind": "sdpReview",
-            "stage": 2,
+            "stage": 1,
             "model": {
               "kind": "sdpReview",
               "model": {
@@ -31147,6 +31147,68 @@
         "redraftExhausted": false,
         "attempt": 1,
         "attemptBudget": 10
+      }
+    },
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "projectDesign",
+        "name": "Project Design (SDP Review · M0)",
+        "type": "projectDesign",
+        "state": "awaitingHuman",
+        "phases": [
+          {
+            "id": "sdp",
+            "label": "SDP Review · M0",
+            "weight": 100,
+            "gateTaskId": "sdpReview",
+            "completed": false
+          }
+        ],
+        "tasks": [
+          {
+            "id": "sdpReview",
+            "kind": "review",
+            "title": "SDP Review · M0",
+            "phase": "sdp",
+            "dependsOn": [],
+            "state": "awaitingHuman",
+            "revisions": [
+              {
+                "n": 1,
+                "outcome": "awaitingHuman",
+                "startedAt": "2026-09-23T07:30:00Z",
+                "attemptIds": [],
+                "round": 1,
+                "commentCount": 0,
+                "comments": [],
+                "subjectRef": {
+                  "kind": "artifact",
+                  "ref": "projectDesign:sdpReview:1"
+                },
+                "reviewers": [
+                  {
+                    "role": "human",
+                    "actor": "operator",
+                    "required": true
+                  }
+                ],
+                "provenance": "observed"
+              }
+            ]
+          }
+        ],
+        "reviewSet": {
+          "reason": "Project Design is the ONE deterministic cost-approval gate: the M0 milestone spends the whole construction budget, so the spend floor takes a human and no preset can lower it.",
+          "requiresHuman": true,
+          "reviewers": [
+            {
+              "role": "human",
+              "perspective": "cost",
+              "referenceArtifact": "sdpReview",
+              "mayAmend": false
+            }
+          ]
+        }
       }
     }
   }

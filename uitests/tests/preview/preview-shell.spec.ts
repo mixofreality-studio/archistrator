@@ -25,62 +25,9 @@
  * states no assertion below still opens are deleted; the rest stay until Task 13
  * rules on the screen itself.
  */
-import { readFileSync } from 'node:fs';
-import type { Page, Request } from '@playwright/test';
 import { test, expect } from '../support/dispatchGuard.js';
 import { TESTID } from '../support/testids.js';
-
-const FIXTURES = new URL('../../preview-fixtures/web-client/', import.meta.url);
-
-interface FixtureFile {
-  route: string;
-  ops: Record<string, { result?: unknown; error?: { message?: string } }>;
-}
-
-function fixture(screen: string, state: string): FixtureFile {
-  return JSON.parse(
-    readFileSync(new URL(`${screen}/${state}.json`, FIXTURES), 'utf8')
-  ) as FixtureFile;
-}
-
-interface Incident {
-  kind: 'fixture-miss' | 'network-blocked' | 'navigation-blocked';
-  detail: string;
-}
-
-function incidents(page: Page): Promise<Incident[] | null> {
-  return page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __ARCHISTRATOR_PREVIEW__?: { incidents: Incident[] };
-        }
-      ).__ARCHISTRATOR_PREVIEW__?.incidents ?? null
-  );
-}
-
-/**
- * Every request the page makes that is not the static bundle itself. A preview
- * answers from fixtures, so this must stay empty.
- */
-function watchNetwork(page: Page): string[] {
-  const offBundle: string[] = [];
-  page.on('request', (req: Request) => {
-    const url = new URL(req.url());
-    const isBundle =
-      url.pathname === '/index.html' ||
-      url.pathname.startsWith('/assets/') ||
-      url.protocol === 'data:';
-    if (!isBundle) offBundle.push(`${req.method()} ${req.url()}`);
-  });
-  return offBundle;
-}
-
-async function openState(page: Page, screen: string, state: string): Promise<string[]> {
-  const offBundle = watchNetwork(page);
-  await page.goto(`/index.html?screen=${screen}&state=${state}`);
-  return offBundle;
-}
+import { fixture, incidents, openState } from '../support/previewShell.js';
 
 test.describe('preview shell: the real app over fixtures', () => {
   test('plan · list: the real plan draws exactly the fixture activities', async ({ page }) => {
