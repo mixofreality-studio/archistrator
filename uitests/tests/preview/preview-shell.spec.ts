@@ -42,6 +42,14 @@ import { test, expect } from '../support/dispatchGuard.js';
 import { TESTID } from '../support/testids.js';
 import { fixture, incidents, openState } from '../support/previewShell.js';
 
+/**
+ * "Every plan row, whatever its activity id." DERIVED from the id builder, the
+ * same way `plan.spec.ts` derives it: a hand-typed `/^plan-row-/` would go on
+ * matching nothing — silently, as a count of 0 against a count of 0 — the day
+ * `UI_IDENTIFIERS.Plan.row` is renamed.
+ */
+const PLAN_ROW_RE = new RegExp(`^${TESTID.planRow('')}`);
+
 test.describe('preview shell: the real app over fixtures', () => {
   test('plan · list: the real plan draws exactly the fixture activities', async ({ page }) => {
     const data = fixture('plan', 'list');
@@ -57,7 +65,7 @@ test.describe('preview shell: the real app over fixtures', () => {
     for (const id of activityIds) {
       await expect(page.getByTestId(TESTID.planRow(id))).toBeVisible();
     }
-    await expect(page.getByTestId(/^plan-row-/)).toHaveCount(activityIds.length);
+    await expect(page.getByTestId(PLAN_ROW_RE)).toHaveCount(activityIds.length);
     await expect(page.getByText(project.Name, { exact: true }).first()).toBeVisible();
 
     // Clean: nothing missed, nothing blocked, nothing sent.

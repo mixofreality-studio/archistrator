@@ -73,7 +73,10 @@ export function UseCaseCarousel({
 
   if (useCases.length === 0) {
     return (
-      <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
+      <Box
+        data-testid={UI_IDENTIFIERS.UseCaseCarousel.ROOT}
+        sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}
+      >
         No core use cases drafted yet.
       </Box>
     );
@@ -140,7 +143,7 @@ export function UseCaseCarousel({
   const band = coreBand(coreItems.length);
 
   return (
-    <Box>
+    <Box data-testid={UI_IDENTIFIERS.UseCaseCarousel.ROOT}>
       {/* use-case picker */}
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
         <FormControl size="small" sx={{ flexGrow: 1, minWidth: 0 }}>

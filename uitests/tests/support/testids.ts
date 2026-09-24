@@ -109,6 +109,16 @@ export const TESTID = {
   submitBarPrimary: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_PRIMARY,
   submitBarConsequence: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_CONSEQUENCE,
 
+  // The five Phase-1 artifact renderers' ROOTS. `ArtifactRenderer` dispatches on
+  // the committed slot's `kind`, and since stage 5 the Activity Experience's
+  // review body is the only surface that reaches them — so these five ids are
+  // what pins "the right renderer mounted for this review task"
+  // (tests/preview/activity-renderers.spec.ts). `glossaryRoot` and
+  // `volatilityMap` below are the same thing under their older names.
+  missionRoot: UI_IDENTIFIERS.Mission.ROOT,
+  architectureRoot: UI_IDENTIFIERS.Architecture.ROOT,
+  useCaseCarouselRoot: UI_IDENTIFIERS.UseCaseCarousel.ROOT,
+
   // Glossary artifact — the searchable, filterable reference widget (search +
   // Four-Questions category chips + grouped term list). Chips key by the BASE
   // label (Who/What/How/Where/Uncategorized — refined "How · Activity"-style

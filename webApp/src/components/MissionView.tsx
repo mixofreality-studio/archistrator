@@ -21,6 +21,7 @@ import type { ArtifactModelEnvelope } from '../contracts/types';
 import { CommentableList } from './comments/CommentableList';
 import { useComments, missionObjectiveAnchor, missionProseAnchor } from './comments/CommentContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
+import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 function SectionHeading({ children }: { children: ReactNode }): ReactNode {
   const t = useTokens();
@@ -140,14 +141,17 @@ export function MissionView({
 
   if (vision === '' && objs.length === 0 && mission === '') {
     return (
-      <Box sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
+      <Box
+        data-testid={UI_IDENTIFIERS.Mission.ROOT}
+        sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}
+      >
         No mission drafted yet.
       </Box>
     );
   }
 
   return (
-    <Box>
+    <Box data-testid={UI_IDENTIFIERS.Mission.ROOT}>
       {vision !== '' && <ProseSection heading="Vision" section="vision" text={vision} />}
 
       {objs.length > 0 && (

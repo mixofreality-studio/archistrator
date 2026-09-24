@@ -65,6 +65,13 @@ export const UI_IDENTIFIERS = {
     artifactStep: (kind: string) => `artifact-step-${kind}`,
   },
   UseCaseCarousel: {
+    // The renderer's own root. It says "UseCaseCarousel MOUNTED" and nothing
+    // more — the classification → renderer seam is what a black-box case needs
+    // to assert now that the Activity Experience is the only surface that
+    // reaches these views (stage 5, Task 14). Carried on the populated root
+    // AND on the drafted-nothing-yet branch, so the id means the renderer ran,
+    // not that the artifact had content.
+    ROOT: 'usecase-carousel',
     // The Core Use Cases artifact's grouped use-case picker (Core / Variations
     // ListSubheader sections — A6). Selectable black-box via testid rather than
     // its "Use case" label text.
@@ -181,6 +188,13 @@ export const UI_IDENTIFIERS = {
     // A secondary (overflow) verb, keyed by its action ('withdraw' / 'retry').
     submitBarMenuItem: (action: string) => `submit-bar-menu-item-${action}`,
   },
+  Mission: {
+    // The Mission artifact's renderer (MissionView): Vision + Mission Statement
+    // as prose, Business Objectives as a CommentableList. Root only — every
+    // element inside it is reached by its comment anchor, not by a testid.
+    // See UseCaseCarousel.ROOT for why the root id exists.
+    ROOT: 'mission-view',
+  },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
     // filter chips + the grouped, alphabetized term list.
@@ -233,6 +247,8 @@ export const UI_IDENTIFIERS = {
     ownerLink: (index: number) => `volatility-owner-link-${String(index)}`,
   },
   Architecture: {
+    // The renderer's own root (see UseCaseCarousel.ROOT for why these exist).
+    ROOT: 'architecture-view',
     VIEW_SWITCH: 'arch-view-switch',
     VIEW_STATIC: 'static',
     VIEW_DYNAMIC: 'dynamic',

@@ -552,7 +552,7 @@ export function ArchitectureView({
     ) : null;
 
   return (
-    <Box ref={rootRef}>
+    <Box data-testid={UI_IDENTIFIERS.Architecture.ROOT} ref={rootRef}>
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, mb: 1.5, flexWrap: 'wrap' }}>
         <ToggleButtonGroup
           exclusive
