@@ -138,13 +138,16 @@ void test('the signature function itself reads no status, attempt or provenance'
   namesNoEvidence(src.slice(at, end), 'graphSignatureOf');
 });
 
-void test("the lens's call site passes only ids, so no poll-borne value reaches the signature", () => {
+void test('the call site passes only ids, so no poll-borne value reaches the signature', () => {
   namesNoEvidence(
-    // Still the construction graph lens's own call: this module moved to
-    // components/activity (the plan screen keys its viewport with it too), the
-    // lens did not. Task 13 deletes the lens and this one assertion with it.
-    callText(source('../construction/graph/ActivityGraphLens.tsx'), 'graphSignatureOf'),
-    'the ActivityGraphLens call to graphSignatureOf'
+    // Task 13: this read the construction graph lens's call (this module moved to
+    // components/activity in Task 11, the lens did not). The lens is deleted, and
+    // `PlanGraph` is now the ONE caller — so the assertion is repointed at it
+    // rather than dropped: what it holds is that a poll-borne value (a status, an
+    // attempt count, a provenance grade) must never reach the viewport key, or
+    // the reader's pan and zoom reset under them every 1.5s.
+    callText(source('./PlanGraph.tsx'), 'graphSignatureOf'),
+    'the PlanGraph call to graphSignatureOf'
   );
 });
 

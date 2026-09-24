@@ -3,10 +3,10 @@
  * draw it (R17). Pure and React-free, so `node --test` loads it directly — which
  * is also why the relative VALUE imports carry an explicit `.ts`.
  *
- * ── This file REPLACES `construction/detail/bodies/ArtifactBody.tsx`'s dispatch ──
- * Nothing is moved: that file and `bodyDispatch.ts` stay until Task 13 deletes
- * them, and this is a PORT. Three modules are its source, each cited where it
- * lands:
+ * ── This file REPLACED `construction/detail/bodies/ArtifactBody.tsx`'s dispatch ──
+ * It was a PORT, written beside the originals in Task 9; Task 13 then deleted
+ * them with the console. Three modules were its source, each cited where it
+ * landed (the two deleted paths are named as history, not as live files):
  *
  *   detail/bodies/bodyDispatch.ts   `ArtifactBodyKind` (:64), `ARTIFACT_PHASES`
  *                                   (:89) — carried over verbatim below,

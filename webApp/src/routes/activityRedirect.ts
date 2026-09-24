@@ -11,16 +11,13 @@
  * and redirect: an unregistered path is the router's not-found, which is a
  * worse answer to an old bookmark than landing on the screen that replaced it.
  *
- * ── Written and tested here; WIRED with the teardown ────────────────────────
- * router.tsx does not yet hang these off the three routes' `beforeLoad`. The
- * construction screen is still the only surface in the preview build that READS
- * anything, and the preview suite's fixture-miss, blocked-request and
- * nested-preview guards all ride it; redirecting it away before the plan screen
- * reads would leave those guards with no vehicle for the rest of the stage. The
- * wiring lands in the teardown task, together with the console's deletion and
- * the retargeted preview spec. The redirect itself is complete and covered by
- * activityRedirect.test.ts, so that task adds three `beforeLoad` lines and
- * nothing else.
+ * ── WIRED (Task 13, with the console's deletion) ────────────────────────────
+ * router.tsx hangs `redirectToPlan` off all three routes' `beforeLoad`. The
+ * wiring waited for that commit on purpose: the construction screen was the only
+ * surface in the preview build that READ anything, and the preview suite's
+ * fixture-miss, blocked-request and nested-preview guards all rode it, so
+ * redirecting it away before the plan screen read would have left those guards
+ * with no vehicle. Task 12 moved them onto the plan's fixtures first.
  *
  * The path literals are re-exported so router.tsx has ONE import for the
  * redirect and the paths it registers; the literals themselves live in

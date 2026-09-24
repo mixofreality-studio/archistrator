@@ -12,9 +12,11 @@ import { FrontendArtifactView } from './renderers/FrontendArtifactView';
 
 /**
  * A view-model row joining a ConstructionRow with the activity-list display
- * name — moved here (Task 13) from the retired ArtifactActivityList.tsx, its
- * only remaining consumer after the Artifacts tab's own list/detail rendering
- * was superseded by the detail pane's ArtifactBody (Task 10).
+ * name — moved here from the retired ArtifactActivityList.tsx, its only
+ * remaining consumer after the Artifacts tab's own list/detail rendering was
+ * superseded. The surface that builds this row is
+ * `components/activity/ArtifactPanel.tsx` now (stage 5 §7.4 deleted the detail
+ * pane's ArtifactBody, which used to).
  */
 export interface ArtifactActivityVM {
   activityId: string;
@@ -31,9 +33,10 @@ export interface ArtifactRendererProps {
 
 /**
  * The classification → renderer registry. A missing entry means "no bespoke
- * renderer yet" — the detail pane's ArtifactBody (detail/bodies/ArtifactBody.tsx)
- * falls back to the contract view (`service`) or the unknown body. Populated one
- * type at a time (see the per-type plan).
+ * renderer yet" — `components/activity/ArtifactPanel.tsx`, via
+ * `taskArtifactFor.ts`, falls back to the contract view (`service`) or to an
+ * explicit "no renderer" statement. Populated one type at a time (see the
+ * per-type plan).
  */
 export const artifactRenderers: Partial<
   Record<Classification, (p: ArtifactRendererProps) => ReactNode>
