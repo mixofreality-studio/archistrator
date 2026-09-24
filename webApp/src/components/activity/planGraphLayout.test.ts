@@ -159,6 +159,46 @@ void test('hovering the milestone lights everything it gates, not just the roots
   }
 });
 
+void test('hovering a mid-stack build tile lights two hops of ancestors and descendants, never the front end or M0', () => {
+  // Fix round 1: the closure used to walk `milestone` edges too, so any build
+  // tile's ancestor-walk climbed straight through a build root's M0 edge into
+  // the whole front-end chain. M-a's ancestors two hops up (X-db, via R-p) and
+  // its descendants two hops down (N-IT, via U-web) must still light; '1'/'2'/
+  // '3'/M0 — reachable only by crossing a milestone edge — must not.
+  const f = planFocusFor('M-a', TILES, L.edges, 'M0');
+  for (const id of ['M-a', 'E-x', 'R-p', 'X-db', 'U-web', 'N-IT']) {
+    assert.ok(f.tiles.has(id), `${id} should be lit`);
+  }
+  for (const id of ['1', '2', '3', 'M0']) {
+    assert.ok(!f.tiles.has(id), `${id} is reachable only through a milestone edge and stays dim`);
+  }
+});
+
+void test('hovering a front-end tile lights only the front-end chain, never the build stack it gates', () => {
+  // The mirror case of the same fix-round-1 defect: pre-fix, hovering '3' (or
+  // '1'/'2') descended through the `3>M0` sequence edge into M0, then fanned
+  // out through EVERY OTHER milestone edge — lighting the entire build stack.
+  // A front-end tile is never a build dependency of anything it precedes.
+  const f = planFocusFor('3', TILES, L.edges, 'M0');
+  assert.deepEqual([...f.tiles].sort(), ['1', '2', '3', 'M0']);
+});
+
+void test('a diamond excludes the sibling branch: hovering B lights A and D, never C', () => {
+  // A→B, A→C, B→D, C→D. Hovering B must not cross over to C: the up-walk from
+  // B only follows B's OWN ancestors (A), never fans back down A's other
+  // children, and the down-walk from B only follows B's OWN descendants (D).
+  const tiles = [
+    { id: 'A', row: 'resource' as const, calls: [] },
+    { id: 'B', row: 'resourceAccess' as const, calls: ['A'] },
+    { id: 'C', row: 'resourceAccess' as const, calls: ['A'] },
+    { id: 'D', row: 'engine' as const, calls: ['B', 'C'] },
+  ];
+  const { edges } = layoutPlanGraph(tiles, undefined);
+  const focus = planFocusFor('B', tiles, edges, undefined);
+  assert.deepEqual([...focus.tiles].sort(), ['A', 'B', 'D']);
+  assert.ok(!focus.tiles.has('C'), 'the sibling branch through the shared ancestor stays dim');
+});
+
 void test('incident now means BOTH ends are lit, not "touches the hovered tile"', () => {
   const tiles = [
     { id: 'A', row: 'resource' as const, calls: [] },

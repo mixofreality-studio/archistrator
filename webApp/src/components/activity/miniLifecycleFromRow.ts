@@ -4,10 +4,14 @@
  * `QueryActivityView` answers for one activity; a plan screen showing 32 of
  * them would make 32 HTTP reads, each on its own 2s/8s poll. The project read
  * already carries, per activity, the stored lifecycle-phase completions, the
- * coarse phase, the build status and the attempt ledger — which is exactly
- * what `components/construction/graph/laneSpine.ts` derives its spine from
- * today (and has done since the graph lens shipped). The batched read
- * (`QueryProjectView`) is stage 4's op, not stage 5's.
+ * coarse phase and the coarse build status — which is exactly what
+ * `components/construction/graph/laneSpine.ts` derives its spine from today
+ * (and has done since the graph lens shipped). This module reads only those
+ * five members (`kind`, `variant`, `phases`, `currentLifecyclePhase`,
+ * `status` — see {@link MiniLifecycleInput}), never the per-task attempt
+ * ledger: that ledger is per-task history the project read does not carry at
+ * this granularity, which is exactly why `revisions` below is always empty.
+ * The batched read (`QueryProjectView`) is stage 4's op, not stage 5's.
  *
  * The nodes this produces carry STATES ONLY. `revisions` is deliberately
  * empty: a revision is per-task history the project read does not carry, and

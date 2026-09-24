@@ -53,6 +53,20 @@ void test('the current phase runs, everything before it is done, everything afte
   assert.equal(state('testing'), 'pending');
 });
 
+void test('a genuinely not-started row (classified, no status, no current phase, no phases at all) renders every task pending', () => {
+  // The realistic shape of a PLANNED-NO-RECORD activity (ConstructionRow's own
+  // `recorded === false`): classified — `kind` is present, so a real lifecycle
+  // resolves — but nothing else has ever been recorded: no phases, no current
+  // phase, no status. Every one of its ten tasks must read `pending`, not fall
+  // through to `running` by accident (only the CURRENT phase's tasks run, and
+  // there is no current phase here to match).
+  const nodes = miniLifecycleFromRow({ kind: 'service', phases: [] });
+  assert.equal(nodes.length, 10, 'the service lifecycle still has ten tasks');
+  for (const n of nodes) {
+    assert.equal(n.state, 'pending', n.id);
+  }
+});
+
 void test('in-review is the awaiting-a-human state; failed is failed; both leave finished phases done', () => {
   // `status` is typed as the plain union, not `MiniLifecycleInput['status']`:
   // indexed access on an optional member always widens to include `undefined`

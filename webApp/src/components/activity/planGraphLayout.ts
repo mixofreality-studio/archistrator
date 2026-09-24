@@ -220,6 +220,19 @@ export interface PlanFocus {
  * is everything that must exist before it and everything that cannot ship
  * without it.
  *
+ * The closure walks `call` and `sequence` edges ONLY — never `milestone`.
+ * M0 is a FORCED dependency of every build root, not an ordinary one, and its
+ * edges are the graph's only link between the front-end chain and the build
+ * stack; if the walk crossed them, every build root's ancestor-walk would
+ * climb straight through its own `milestone` edge to M0 and on up the
+ * front-end `sequence` chain, so hovering ANY build tile also lit
+ * `1 → 2 → 3 → M0` (a fix-round-1 defect) — and symmetrically, hovering a
+ * front-end tile's descendant-walk would cross the `3>M0` sequence edge into
+ * M0 and then fan out through EVERY OTHER milestone edge, lighting the whole
+ * build stack. Excluding `milestone` keeps the closure to real build
+ * dependencies; M0's own hover (below) is the one place the gate itself is
+ * the point.
+ *
  * Hovering the MILESTONE lights everything it gates — all of construction,
  * the side lane and system testing — because that is what a forced dependency
  * means, and M0's own edges reach only the build roots.
@@ -240,6 +253,7 @@ export function planFocusFor(
   const up = new Map<string, string[]>();
   const down = new Map<string, string[]>();
   for (const e of edges) {
+    if (e.kind === 'milestone') continue;
     push(down, e.from, e.to);
     push(up, e.to, e.from);
   }
