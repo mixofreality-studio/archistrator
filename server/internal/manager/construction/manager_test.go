@@ -9,6 +9,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -40,6 +41,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	artifactfake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact/fake"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	projectstatefake "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate/fake"
@@ -9114,6 +9116,70 @@ func Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded(t *testing.T) {
 	if !ok || r.Outcome != projectstate.RoundSentBack {
 		t.Fatalf("the send-back is kept as its round: %+v", ps.execution("C-Orders").Reviews)
 	}
+
+	// AND THE STEER SURVIVES THE RUN THAT LOST IT. The refused submit killed the run
+	// holding the carry note in memory; the pump re-dispatches the activity, and the NEW
+	// run must rebuild the feedback from the round and put it in front of the redraft. The
+	// stored NoteSendBack used to do this, which is why dropping it without a replacement
+	// would have been a regression rather than a simplification.
+	env2 := ts.NewTestWorkflowEnvironment()
+	pipe2 := newFakePipeline()
+	registerConstruct(env2, newWorkflows(gateDeps(ps)), ps, pipe2)
+	runNoteConstruct(t, env2)
+	dd := phaseSpecs(submittedSpecs(pipe2), projectstate.MethodPhaseDetailedDesign)
+	if len(dd) != 1 {
+		t.Fatalf("the resumed run re-dispatches the rejected phase once; got %d", len(dd))
+	}
+	if got := dd[0].DispatchInputs[dispatchInputOperatorNote]; !strings.Contains(got, "redo it") {
+		t.Fatalf("the redraft must carry the send-back's feedback, rebuilt from its round; got %q", got)
+	}
+	// Delivered once: the redraft's own attempt now outranks the one the round judged, so
+	// a third run owes nothing and carries nothing.
+	env3 := ts.NewTestWorkflowEnvironment()
+	pipe3 := newFakePipeline()
+	registerConstruct(env3, newWorkflows(gateDeps(ps)), ps, pipe3)
+	runNoteConstruct(t, env3)
+	if c := carriedNotes(submittedSpecs(pipe3)); c != 0 {
+		t.Fatalf("a steer the redraft already carried is not carried again; got %d dispatches with a note", c)
+	}
+}
+
+// Test_WorkerManifest_ThreadsEveryDependency is the gate that would have caught stage 3's
+// own wiring bug: activityExecutionAccess's twelve activities were REGISTERED (worker.gen.go
+// takes them from the struct's fields) against a field WorkerManifest never filled, so the
+// first call would have been a nil-receiver panic inside the Activity — invisible to every
+// unit test, because the tests register their own genActivities. Reflection, not a hand
+// list, so a dependency added by a later codegen run is covered the day it appears.
+func Test_WorkerManifest_ThreadsEveryDependency(t *testing.T) {
+	acts := reflect.ValueOf(fullyWiredConstructionManager().WorkerManifest().Activities)
+	for i := range acts.NumField() {
+		if acts.Field(i).IsNil() {
+			t.Errorf("genActivities.%s is nil in WorkerManifest: its registered activities would panic on first call",
+				acts.Type().Field(i).Name)
+		}
+	}
+}
+
+// fullyWiredConstructionManager builds the Manager with EVERY published dependency
+// non-nil, which is the only state in which the manifest's threading can be checked.
+func fullyWiredConstructionManager() *constructionManager {
+	ps := &fakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
+	return newConstructionManager(
+		&fakeTemporalClient{},
+		fakeFullProjectState{ps},
+		&artifactfake.FakeArtifactAccess{},
+		&fakeIntervention{},
+		&fakeReview{},
+		newFakePipeline(),
+		&stubRail{},
+		fakeConstructionTransition{ps},
+		ps,
+		projectstate.NewDesignSessionAccess(fakeFullProjectState{ps}),
+		fakeActivityExecution{ps},
+		&recordingSignalBus{},
+		&fakeEpisodes{},
+		0, "", nil,
+	)
 }
 
 // orderedPipeline logs "submit" before each dispatch into the shared call log.

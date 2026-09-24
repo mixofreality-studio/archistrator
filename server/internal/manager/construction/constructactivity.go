@@ -1242,6 +1242,14 @@ func (wf *workflows) loadReviewSnapshot(
 	// stays wholly old: no activity opened, no attempt recorded, no round opened, no
 	// verdict appended. Its history has no events for those Activities and never will.
 	state.executionLedger = workflow.GetVersion(ctx, changeExecutionLedger, workflow.DefaultVersion, 1) >= 1
+	// A send-back's feedback is the ROUND's now, not a stored note, so a run that ended
+	// between the rejection and the redraft's dispatch must recover it from there. Without
+	// this the next run re-walks the rejected phase and dispatches the redraft with NO
+	// steer at all — strictly worse than the NoteSendBack this replaced, which survived a
+	// run boundary because it was stored. Reads only; emits no command.
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.executionLedger {
+		seedSendBackCarry(ctx, in, state, acs)
+	}
 	state.reviewContracts = snapshotContractKeys(snap)
 	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
 	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
@@ -2112,6 +2120,18 @@ func attemptOutcomeFor(p PipelinePhase) projectstate.TaskOutcome {
 // A lifecycle phase with no review task, or none whose work is dispatched, gets no round:
 // there is nothing to judge and nothing that judged it, and inventing a round for it
 // would put a review in the ledger that never took place.
+//
+// THE CRASH WINDOW, STATED. A run that dies between OpenReviewRound and DecideReviewRound
+// leaves round n PENDING forever: the resume re-walks the incomplete phase, mints n+1 off
+// the same counter (seedResumeFromLedger reads both ledgers) and opens a fresh round, so
+// nothing is duplicated and no id collides — but nobody goes back to close n. That is the
+// honest record of what happened (a review was opened and never decided), and it is
+// deliberately not papered over here: withdrawing an abandoned round needs to know the run
+// is gone, which a workflow cannot know about itself. A sweep owns it in stage 4, where
+// RoundWithdrawn exists for exactly this. Until then a pending round with a later round on
+// the same gate reads as abandoned, and every read path derives completion from the
+// ATTEMPT ledger, so a stranded pending round cannot make a phase look complete or
+// incomplete either way.
 func (wf *workflows) openGateRound(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -2380,6 +2400,10 @@ func (wf *workflows) recordExecutionOutcome(
 // its comments, so a note beside it would be one fact stored twice; what the redraft
 // still needs is the TEXT, and that rides the next dispatch as a workflow-local note
 // nothing ever stamps delivered. Emits no command.
+// THE ROUND IS THE SOURCE OF TRUTH AND THIS IS A CACHE OF IT. The note lives only in
+// workflow memory, so it does not survive the run that made it — seedSendBackCarry
+// rebuilds it from the durable round at the start of the next one.
+//
 // It is gated on noteDelivery for the same reason the recorded notes are: an execution
 // without THAT marker must not add the operator_note dispatch input, because the seated
 // construct workflow it dispatches into may predate the key.
@@ -2402,6 +2426,105 @@ func carrySendBackFeedback(ctx workflow.Context, in constructActivityInput, stat
 	}
 	state.ephemeralNotes[note.NoteID] = true
 	state.pendingNotes = append(state.pendingNotes, note)
+}
+
+// seedSendBackCarry rebuilds the carry note from the DURABLE round, for every lifecycle
+// phase whose latest gate round was sent back and whose redraft never went out. It runs
+// once, at the start of a run, and is what makes the send-back's feedback survive a run
+// boundary now that no note is stored for it.
+func seedSendBackCarry(ctx workflow.Context, in constructActivityInput, state *constructState, acs projectstate.ActivityExecution) {
+	for _, lifecyclePhase := range projectstate.ProfileFor(in.Activity.Type, in.Activity.Variant).PhaseIDs() {
+		r, owed := owedSendBackRound(acs, lifecyclePhase)
+		if !owed {
+			continue
+		}
+		carrySendBackFeedback(ctx, in, state, lifecyclePhase.String(), roundFeedback(r))
+	}
+}
+
+// owedSendBackRound is the latest round on the phase's gate WHEN the next dispatch still
+// owes it feedback: it was sent back, and nothing has been re-dispatched since.
+//
+// "since" is read off the ledger rather than remembered, because the run that would
+// remember it is the one that died. The send-back verdict names the work attempt it
+// judged, so a LATER attempt at that work task is the one honest signal that the redraft
+// already went out — whoever sent it. That is also the delivered-once guard: once the
+// redraft has run, its attempt outranks the judged one and the steer is not carried twice.
+func owedSendBackRound(acs projectstate.ActivityExecution, lifecyclePhase projectstate.ActivityMethodPhase) (projectstate.ReviewRound, bool) {
+	gate, work := projectstate.GateTaskFor(lifecyclePhase), projectstate.AgentTaskFor(lifecyclePhase)
+	if gate == "" || work == "" {
+		return projectstate.ReviewRound{}, false
+	}
+	var latest projectstate.ReviewRound
+	found := false
+	for _, r := range acs.Reviews {
+		if r.TaskID == gate && (!found || r.Round > latest.Round) {
+			latest, found = r, true
+		}
+	}
+	if !found || latest.Outcome != projectstate.RoundSentBack {
+		return projectstate.ReviewRound{}, false
+	}
+	return latest, !redraftDispatched(acs, work, latest)
+}
+
+// redraftDispatched reports whether the ledger holds a RESOLVED work attempt later than
+// the one the round judged. The judged attempt is found by the id the verdict names; the
+// round NUMBER is the fallback, since one counter mints both and they cannot drift.
+//
+// RESOLVED, not merely present, and the distinction is the whole point. runPipeline opens
+// the attempt BEFORE the dispatch it describes, so a later attempt sitting pending is
+// exactly the run that died on the way out — the redraft never reached an agent and the
+// steer is still owed. Counting it as delivered is how the feedback would be lost in the
+// one case this guard exists for.
+//
+// A run that died while the redraft was actually RUNNING leaves the same pending attempt
+// and will carry the note again. That is at-least-once, which is the delivery contract
+// operator notes already state: an agent may see one note twice, never zero times.
+func redraftDispatched(acs projectstate.ActivityExecution, work projectstate.MethodTask, r projectstate.ReviewRound) bool {
+	judged := int(r.Round)
+	for _, a := range acs.Attempts {
+		if a.AttemptID != "" && a.AttemptID == sendBackJudgedAttempt(r) {
+			judged = a.Attempt
+			break
+		}
+	}
+	for _, a := range acs.Attempts {
+		if a.Task == work && a.Attempt > judged && a.Outcome != projectstate.OutcomePending {
+			return true
+		}
+	}
+	return false
+}
+
+// sendBackJudgedAttempt is the AttemptID the round's send-back verdict named.
+func sendBackJudgedAttempt(r projectstate.ReviewRound) string {
+	for _, v := range r.Verdicts {
+		if v.Verdict == projectstate.VerdictSendBack {
+			return v.AttemptID
+		}
+	}
+	return ""
+}
+
+// roundFeedback rebuilds the operator's steer from a decided round: the send-back
+// verdict's summary, and the comments on its thread that are still OPEN — which is the
+// spec's own definition of pending feedback (§5.3), now that it is answered from the
+// round rather than from a note.
+func roundFeedback(r projectstate.ReviewRound) *ReviewFeedback {
+	fb := &ReviewFeedback{}
+	for _, v := range r.Verdicts {
+		if v.Verdict == projectstate.VerdictSendBack {
+			fb.Notes = v.Summary
+			break
+		}
+	}
+	for _, c := range r.Thread {
+		if c.Status == projectstate.ReviewCommentOpen {
+			fb.Comments = append(fb.Comments, AnchoredComment{JSONPath: c.Anchor, Text: c.Text})
+		}
+	}
+	return fb
 }
 
 // maxRenderedOperatorNotesBytes caps the rendered notes block one dispatch carries, far
