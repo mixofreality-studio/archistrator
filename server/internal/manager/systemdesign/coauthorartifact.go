@@ -3856,9 +3856,24 @@ func designRoundReviewers(set review.ReviewSet) []projectstate.RoundReviewer {
 }
 
 // openDesignRound opens the round for the gate the session has just reached, and lands the
-// critic's verdict on it. It is called on EVERY entry to the AwaitingReview gate — a
-// redraft's re-entry is a NEW round — so the ledger shows a send-back and its retry as two
-// rounds rather than one mutated row.
+// critic's verdict on it. It is called on EVERY entry to the AwaitingReview gate.
+//
+// WHICH RE-ENTRIES ARE A NEW ROUND, AND WHICH ARE THE SAME ONE. The round id is minted
+// from the SLOT's review-round counter, so the counter decides:
+//
+//   - A SEND-BACK redraft is a NEW round. The reject arm bumps reviewRound after deciding
+//     the round sentBack, so the re-stage mints the next id and the ledger shows the
+//     send-back and its retry as two rounds rather than one mutated row.
+//   - A RETRY at the StageDraftFailed gate re-enters the SAME round. Nothing on that path
+//     bumps reviewRound — an approve onto a not-green pull request, or any post-read-back
+//     fault, lands at that gate with the round still PENDING — so the re-stage remints the
+//     same id and OpenReviewRound resolves it to the round already open. That is the
+//     honest record: one review occurrence that the reviewer has not settled yet. It is
+//     also harmless to re-walk, because every write here converges — OpenReviewRound is
+//     idempotent on the id, the critic's verdict re-appends only if its content differs,
+//     and under the single-branch topology the subject is the same pull request either way.
+//     A Withdraw at that gate now decides that round withdrawn rather than stranding it
+//     (see closeRoundOnWithdraw).
 //
 // It is also where the activity row is born: OpenActivity is idempotent and write-once on
 // the pin, so a second kind under the same prefix activity (operationalConcepts after
