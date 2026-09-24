@@ -14372,44 +14372,8 @@
           "provenance": {
             "origin": "backfilled",
             "generator": "cmd/migrate-activity-execution",
-            "generatedAt": "2026-09-24T07:07:13.104241Z",
+            "generatedAt": "2026-09-24T07:27:17.548124Z",
             "basis": "slots.operationalConcepts.reviewThread round 1; subject from slots.operationalConcepts (no commit sha is recorded for a slot; the staged artifact is the subject)"
-          }
-        },
-        {
-          "roundId": "architecture:architectureReview:standardCheck:2",
-          "taskId": "architectureReview",
-          "reviews": "architectureDraft",
-          "round": 2,
-          "subjectRef": {
-            "kind": "artifact",
-            "ref": "standardCheck"
-          },
-          "thread": [
-            {
-              "id": "r1c1",
-              "anchor": "",
-              "anchorText": "",
-              "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
-              "authorRole": "architect",
-              "round": 1,
-              "status": "answered",
-              "response": "",
-              "replies": null,
-              "reopened": false,
-              "type": "staleAck",
-              "addressee": ""
-            }
-          ],
-          "outcome": "withdrawn",
-          "decidedBy": "",
-          "openedAt": "",
-          "decidedAt": "",
-          "provenance": {
-            "origin": "backfilled",
-            "generator": "cmd/migrate-activity-execution",
-            "generatedAt": "2026-09-24T07:07:13.104241Z",
-            "basis": "slots.standardCheck.reviewThread round 1; subject from slots.standardCheck (no commit sha is recorded for a slot; the staged artifact is the subject)"
           }
         }
       ],

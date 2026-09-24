@@ -100,6 +100,10 @@ type designSlot struct {
 	Activity       string
 	LifecyclePhase projectstate.ActivityMethodPhase
 	Of             func(projectstate.Project) projectstate.ArtifactSlot
+	// Retired marks a kind the Method no longer runs as a step of its own. Such a slot's
+	// WITHDRAWN status records "we stopped doing this review", not a review that failed —
+	// see retiredAndWithdrawn.
+	Retired bool
 }
 
 // designSlots is every artifact slot, in ArtifactKind order.
@@ -111,24 +115,29 @@ type designSlot struct {
 // live rail does with them today (openDesignRound logs "no review task in the pinned
 // lifecycle for this kind"). Their slot threads stay where they are; stage 6 decides what
 // becomes of them.
+//
+// THE LAST COLUMN IS "RETIRED IN PLACE": a kind the Method no longer runs as a step of its
+// own — scrubbedRequirements (folded into the glossary step), operationalConcepts and
+// standardCheck (the 2026-08-30 step-collapse ruling). It decides only what a WITHDRAWN
+// such slot means; see retiredAndWithdrawn.
 var designSlots = []designSlot{
-	{projectstate.KindMission, "requirements", "mission", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Mission }},
-	{projectstate.KindGlossary, "requirements", "glossary", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Glossary }},
-	{projectstate.KindScrubbedRequirements, "requirements", "glossary", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ScrubbedRequirements }},
-	{projectstate.KindVolatilities, "requirements", "volatilities", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Volatilities }},
-	{projectstate.KindCoreUseCases, "requirements", "coreUseCases", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CoreUseCases }},
-	{projectstate.KindSystem, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SystemDesign }},
-	{projectstate.KindOperationalConcepts, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.OperationalConcepts }},
-	{projectstate.KindStandardCheck, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.StandardCheck }},
-	{projectstate.KindPlanningAssumptions, "projectDesign", "planningAssumptions", func(p projectstate.Project) projectstate.ArtifactSlot { return p.PlanningAssumptions }},
-	{projectstate.KindActivityList, "projectDesign", "activityList", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ActivityList }},
-	{projectstate.KindNetwork, "projectDesign", "network", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Network }},
-	{projectstate.KindNormalSolution, "projectDesign", "normalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.NormalSolution }},
-	{projectstate.KindSubcriticalSolution, "projectDesign", "subcriticalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SubcriticalSolution }},
-	{projectstate.KindCompressedSolution, "projectDesign", "compressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CompressedSolution }},
-	{projectstate.KindDecompressedSolution, "projectDesign", "decompressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.DecompressedSolution }},
-	{projectstate.KindRiskModel, "projectDesign", "riskModel", func(p projectstate.Project) projectstate.ArtifactSlot { return p.RiskModel }},
-	{projectstate.KindSdpReview, "projectDesign", "sdpReview", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SdpReview }},
+	{projectstate.KindMission, "requirements", "mission", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Mission }, false},
+	{projectstate.KindGlossary, "requirements", "glossary", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Glossary }, false},
+	{projectstate.KindScrubbedRequirements, "requirements", "glossary", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ScrubbedRequirements }, true},
+	{projectstate.KindVolatilities, "requirements", "volatilities", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Volatilities }, false},
+	{projectstate.KindCoreUseCases, "requirements", "coreUseCases", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CoreUseCases }, false},
+	{projectstate.KindSystem, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SystemDesign }, false},
+	{projectstate.KindOperationalConcepts, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.OperationalConcepts }, true},
+	{projectstate.KindStandardCheck, "architecture", "architecture", func(p projectstate.Project) projectstate.ArtifactSlot { return p.StandardCheck }, true},
+	{projectstate.KindPlanningAssumptions, "projectDesign", "planningAssumptions", func(p projectstate.Project) projectstate.ArtifactSlot { return p.PlanningAssumptions }, false},
+	{projectstate.KindActivityList, "projectDesign", "activityList", func(p projectstate.Project) projectstate.ArtifactSlot { return p.ActivityList }, false},
+	{projectstate.KindNetwork, "projectDesign", "network", func(p projectstate.Project) projectstate.ArtifactSlot { return p.Network }, false},
+	{projectstate.KindNormalSolution, "projectDesign", "normalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.NormalSolution }, false},
+	{projectstate.KindSubcriticalSolution, "projectDesign", "subcriticalSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SubcriticalSolution }, false},
+	{projectstate.KindCompressedSolution, "projectDesign", "compressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.CompressedSolution }, false},
+	{projectstate.KindDecompressedSolution, "projectDesign", "decompressedSolution", func(p projectstate.Project) projectstate.ArtifactSlot { return p.DecompressedSolution }, false},
+	{projectstate.KindRiskModel, "projectDesign", "riskModel", func(p projectstate.Project) projectstate.ArtifactSlot { return p.RiskModel }, false},
+	{projectstate.KindSdpReview, "projectDesign", "sdpReview", func(p projectstate.Project) projectstate.ArtifactSlot { return p.SdpReview }, false},
 }
 
 // ---- rounds from a sealed slot thread --------------------------------------------------
@@ -155,6 +164,24 @@ func sealedOutcome(s projectstate.ArtifactReviewStatus) projectstate.ReviewRound
 		return ""
 	}
 	return ""
+}
+
+// retiredAndWithdrawn reports that a slot's thread must NOT become a round: its kind is a
+// step the Method retired in place, and the slot was WITHDRAWN rather than committed.
+//
+// FOUNDER RULING (2026-09-24, on top of the 2026-08-30 step-collapse ruling that retired
+// the standard-check step and withdrew its slot): a withdrawn retired slot records "we
+// stopped doing this review", not a review that failed. The round vocabulary has no word
+// for that — RoundWithdrawn is the closest, and the read path renders it as a FAILED
+// revision (constructionmanager.go roundOutcome), which would put a failure on the
+// architecture gate of an activity that never had one. So nothing is minted; the slot
+// thread stays exactly where it is and the report says the slot was left alone.
+//
+// A retired kind that is COMMITTED is a different fact entirely — the review happened and
+// passed, and the step's later retirement does not un-happen it — so its thread migrates
+// normally. operationalConcepts is that case.
+func retiredAndWithdrawn(s designSlot, status projectstate.ArtifactReviewStatus) bool {
+	return s.Retired && status != projectstate.ReviewCommitted
 }
 
 // subjectRefFor names WHAT a synthesized design round judged.
@@ -211,9 +238,10 @@ func commentsInRound(thread []projectstate.ReviewComment, round int64) []project
 // The artifact kind is part of the id because three kinds share the architecture gate and
 // each counts its own rounds; a three-part id would fold two unrelated review histories
 // into one.
-func designRounds(activityID string, p projectstate.Project, held []projectstate.ReviewRound, now time.Time) ([]projectstate.ReviewRound, []string) {
+func designRounds(activityID string, p projectstate.Project, held []projectstate.ReviewRound, now time.Time) ([]projectstate.ReviewRound, []string, int) {
 	var out []projectstate.ReviewRound
 	var skipped []string
+	retired := 0
 	for _, s := range designSlots {
 		if s.Activity != activityID {
 			continue
@@ -228,6 +256,10 @@ func designRounds(activityID string, p projectstate.Project, held []projectstate
 		case gate == "" || work == "":
 			skipped = append(skipped, fmt.Sprintf("slots.%s: the pinned lifecycles carry no review task for phase %q — no round is minted",
 				s.Kind.WireName(), s.LifecyclePhase))
+		case retiredAndWithdrawn(s, slot.Status):
+			retired++
+			skipped = append(skipped, fmt.Sprintf("slots.%s: a RETIRED step, withdrawn (review status %d) — the slot records that the review stopped being run, not that it failed; no round is minted",
+				s.Kind.WireName(), slot.Status))
 		case outcome == "":
 			skipped = append(skipped, fmt.Sprintf("slots.%s: not sealed (review status %d) — its review has not been decided",
 				s.Kind.WireName(), slot.Status))
@@ -235,7 +267,7 @@ func designRounds(activityID string, p projectstate.Project, held []projectstate
 			out = append(out, slotRounds(activityID, s, slot, gate, work, outcome, held, out, now)...)
 		}
 	}
-	return out, skipped
+	return out, skipped, retired
 }
 
 // slotRounds is designRounds' per-slot half: the rounds ONE sealed slot yields, with the
@@ -454,6 +486,10 @@ type report struct {
 	Lines   []string
 	Dropped []string
 	Skipped []string
+	// Retired counts the slots left alone under retiredAndWithdrawn — a count the founder
+	// asked for by name, so a reader of the run sees how many review threads it declined
+	// to turn into history rather than having to infer it from the skip lines.
+	Retired int
 }
 
 // convert is the WHOLE transformation, over the decoded aggregate. p.ActivityExecution is
@@ -469,10 +505,11 @@ func convert(p *projectstate.Project, stored map[string]json.RawMessage, now tim
 		row := p.ActivityExecution[id]
 		before := row
 		row.Version, row.Pin = stampedVersion(row), stampedPin(row, items[id])
-		rounds, skipped := designRounds(id, *p, row.Reviews, now)
+		rounds, skipped, retired := designRounds(id, *p, row.Reviews, now)
 		rounds = append(rounds, noteRounds(id, row, append(slices.Clone(row.Reviews), rounds...), now)...)
 		row.Reviews = append(slices.Clone(row.Reviews), rounds...)
 		rep.Skipped = append(rep.Skipped, skipped...)
+		rep.Retired += retired
 		for _, m := range droppedMembers(stored[id]) {
 			dropped[m] = true
 		}
@@ -1009,8 +1046,8 @@ func printReport(rep report, dryRun bool) {
 			fmt.Println("  " + s)
 		}
 	}
-	fmt.Printf("\n  %d row(s) migrated, %d round(s) backfilled, derived members dropped: [%s]\n",
-		rep.Rows, rep.Rounds, strings.Join(rep.Dropped, " "))
+	fmt.Printf("\n  %d row(s) migrated, %d round(s) backfilled, %d retired-and-withdrawn slot(s) left alone, derived members dropped: [%s]\n",
+		rep.Rows, rep.Rounds, rep.Retired, strings.Join(rep.Dropped, " "))
 }
 
 func main() {

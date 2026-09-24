@@ -353,6 +353,60 @@ func TestMigrate_ASealedSlotThreadBecomesOneRoundPerDistinctRound(t *testing.T) 
 	}
 }
 
+// A RETIRED step that was WITHDRAWN migrates nothing (founder ruling 2026-09-24).
+// standardCheck's withdrawn status records that the review stopped being run, not that it
+// failed, and the round ledger has no word for that — RoundWithdrawn reads as a FAILED
+// revision on the architecture gate, which would be a lie about an activity that never
+// failed one.
+func TestMigrate_AWithdrawnRetiredSlotMintsNothing(t *testing.T) {
+	p := fixtureProject()
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: p.SystemDesign.Model}
+	p.StandardCheck = projectstate.ArtifactSlot{
+		Status:       projectstate.ReviewWithdrawn,
+		ReviewThread: []projectstate.ReviewComment{comment("r1c1", 1, "architect", "reviewed — unaffected")},
+	}
+	out, rep, err := migrate(legacyDocument(t, p, legacyRows()), migratedAt)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	for _, r := range decode(t, out).ActivityExecution["architecture"].Reviews {
+		if strings.Contains(r.RoundID, projectstate.KindStandardCheck.WireName()) {
+			t.Fatalf("a withdrawn retired slot minted %s [%s]", r.RoundID, r.Outcome)
+		}
+	}
+	if rep.Retired != 1 {
+		t.Fatalf("the report counts %d retired-and-withdrawn slot(s), want 1", rep.Retired)
+	}
+	if !slices.ContainsFunc(rep.Skipped, func(s string) bool { return strings.Contains(s, "a RETIRED step, withdrawn") }) {
+		t.Fatalf("the report does not say why the slot was left alone: %v", rep.Skipped)
+	}
+}
+
+// A RETIRED step that was COMMITTED still migrates: the review happened and passed, and
+// the step's later retirement does not un-happen it. operationalConcepts is that case in
+// this repository's own state.
+func TestMigrate_ACommittedRetiredSlotStillMigratesItsThread(t *testing.T) {
+	p := fixtureProject()
+	p.SystemDesign = projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted, Model: p.SystemDesign.Model}
+	p.OperationalConcepts = committedSlot(nil, []projectstate.ReviewComment{
+		comment("r1c1", 1, "architect", "reviewed — unaffected"),
+	})
+	out, rep, err := migrate(legacyDocument(t, p, legacyRows()), migratedAt)
+	if err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	rounds := decode(t, out).ActivityExecution["architecture"].Reviews
+	if len(rounds) != 1 {
+		t.Fatalf("want the committed retired slot's one round, got %d: %+v", len(rounds), rounds)
+	}
+	if rounds[0].RoundID != "architecture:architectureReview:operationalConcepts:2" || rounds[0].Outcome != projectstate.RoundPassed {
+		t.Fatalf("round %+v", rounds[0])
+	}
+	if rep.Retired != 0 {
+		t.Fatalf("a committed retired slot must not be counted as left alone (%d)", rep.Retired)
+	}
+}
+
 func TestMigrate_ACritiqueBecomesAProductManagerVerdictOnItsRound(t *testing.T) {
 	p := fixtureProject()
 	slot := p.SystemDesign
@@ -579,6 +633,36 @@ func TestTheCommittedStateIsMigrated(t *testing.T) {
 	}
 	if !bytes.Equal(again, raw) || rep.Rows != 0 {
 		t.Fatalf("re-running the migration over the committed state would rewrite %d row(s)", rep.Rows)
+	}
+}
+
+// TestTheCommittedStateHoldsNoRoundThisToolWouldNotMint is the OTHER direction of "the tool
+// and the state it produced are each other's evidence", and the one a re-run cannot give:
+// the migration only ever ADDS, so a round it minted under a rule that has since changed
+// would sit in the document forever with nothing to catch it. Every round stamped with this
+// generator must be one the conversion, run again over the row set as it stands, still
+// mints.
+func TestTheCommittedStateHoldsNoRoundThisToolWouldNotMint(t *testing.T) {
+	committed := decode(t, realState(t))
+	fresh := decode(t, migrated(t, preMigrationState(t)))
+	checked := 0
+	for id, row := range committed.ActivityExecution {
+		would := map[string]bool{}
+		for _, r := range fresh.ActivityExecution[id].Reviews {
+			would[r.RoundID] = true
+		}
+		for _, r := range row.Reviews {
+			if r.Provenance.Generator != generatorID {
+				continue
+			}
+			checked++
+			if !would[r.RoundID] {
+				t.Fatalf("row %s holds %s [%s], which this tool's rules no longer mint — re-run the migration from the legacy shape", id, r.RoundID, r.Outcome)
+			}
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no round carries this generator; the check asserted nothing")
 	}
 }
 
