@@ -513,6 +513,10 @@ func (wf *workflows) coAuthorSessionSetup(ctx workflow.Context, in coAuthorInput
 	if perr == nil {
 		state.roundReviewers = designRoundReviewers(gateSet)
 	}
+	// And the round NUMBERING is seeded from the durable ledger, here, before any round is
+	// opened: a second session of this kind continues the review history rather than
+	// re-minting the first session's ids (designRoundID's two-sessions hazard).
+	wf.seedRoundBaseFromLedger(ctx, in, state)
 
 	feedback := ReviewFeedback{}
 	if in.Feedback != nil {
@@ -2421,8 +2425,87 @@ func psActivityTypeFor(t review.ActivityType) (projectstate.ActivityType, bool) 
 // — so the second session's round would silently vanish into the first's, and its verdicts
 // would append to a round that judged a different artifact. That is precisely the history
 // corruption this wave exists to end, so the kind is part of the key.
+//
+// THE TWO-SESSIONS HAZARD, and the seed that closes it. The kind settles collisions
+// BETWEEN kinds; it does nothing about the same kind co-authored TWICE. reviewRound is a
+// per-SESSION counter that starts at 0, so a second pass at an artifact already reviewed
+// once would mint round 1 all over again. The store would resolve that id to the round the
+// FIRST session opened and left decided, and this rail's round writes are best-effort: the
+// second session's verdicts and comments would either be refused (a decided round is
+// terminal — a Conflict this rail only logs) or, worse, land on a round whose SubjectRef
+// names the first session's draft. Neither leaves a reader any way to tell the two reviews
+// apart.
+//
+// seedRoundBaseFromLedger closes it by reading the durable ledger at session start and
+// starting this session's numbering ABOVE every round it already holds for this kind's
+// gate — the same thing the construction rail's seedResumeFromLedger does, and for the
+// same reason. The SLOT thread's own 0-based per-session counter is NOT changed: it is
+// still the design read path for the length of the wave, and the migration keyed on it.
 func designRoundID(k designRoundKey, kind projectstate.ArtifactKind, round int) string {
-	return fmt.Sprintf("%s:%s:%s:%d", k.activityID, k.gate, kind.WireName(), round)
+	return fmt.Sprintf("%s%d", designRoundIDPrefix(k, kind), round)
+}
+
+// designRoundIDPrefix is everything designRoundID mints ahead of the round number: the
+// coordinates that identify the REVIEW HISTORY a round belongs to, shared by every round
+// of one kind at one gate. Split out so the seed can recognize this writer's own ids
+// without parsing them apart — the doctrine is that nothing may PARSE a RoundID (joins
+// use (TaskID, Round)), and matching a prefix this same function mints is not parsing.
+func designRoundIDPrefix(k designRoundKey, kind projectstate.ArtifactKind) string {
+	return fmt.Sprintf("%s:%s:%s:", k.activityID, k.gate, kind.WireName())
+}
+
+// seedRoundBaseFromLedger starts this session's round numbering above every round the
+// DURABLE ledger already holds for this artifact kind's gate (see designRoundID's
+// two-sessions hazard). Called ONCE, at session start, inside the changeDesignRoundLedger
+// fence — a session that replays DefaultVersion makes no call here, exactly as it makes
+// none of the round writes the seed exists to serve.
+//
+// Best-effort like every other round-ledger touch: a kind with no review task in the
+// pinned lifecycle, an activity with no row yet (the ordinary first session — NotFound),
+// or a read that fails all leave the base at 0, which is the numbering this rail had
+// before the seed existed. On THIS rail no Phase-2 kind resolves to a review task today
+// (Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle), so the seed makes
+// no call at all — it is here, identical to its systemdesign twin, because the two rails
+// are edited together and a fix to one must not be a divergence from the other.
+func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorInput, state *coAuthorState) {
+	if !state.roundLedgerEnabled {
+		return
+	}
+	kind := toPSKind(in.ArtifactKind)
+	key, ok := designRoundKeyFor(kind)
+	if !ok {
+		return
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), key.activityID)
+	if err != nil {
+		if !isReadNotFound(err) {
+			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; this session numbers its rounds from zero",
+				"activityId", key.activityID, "artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+		}
+		return
+	}
+	state.roundBase = ledgerRoundBase(row, key, kind)
+}
+
+// ledgerRoundBase is the highest round number the row's review ledger holds for ONE
+// kind's gate. Pure over a value already in workflow history, so it is replay-safe.
+//
+// A round belongs to this history when it is an occurrence of the same gate task AND
+// carries the id prefix this rail mints for this kind. Both halves are needed: TaskID
+// alone would sweep in the other kinds that share the gate, and the prefix alone would
+// trust an id shape the store does not enforce.
+func ledgerRoundBase(row projectstate.ActivityExecution, key designRoundKey, kind projectstate.ArtifactKind) int {
+	prefix := designRoundIDPrefix(key, kind)
+	base := 0
+	for _, r := range row.Reviews {
+		if r.TaskID != key.gate || !strings.HasPrefix(r.RoundID, prefix) {
+			continue
+		}
+		if int(r.Round) > base {
+			base = int(r.Round)
+		}
+	}
+	return base
 }
 
 // designRound is the round this session currently has open at the human gate.
@@ -2431,10 +2514,13 @@ type designRound struct {
 	// roundID is the store key; empty means "no round is open", which every write point
 	// below treats as "write nothing" rather than as an error.
 	roundID string
-	// number is the round's 1-based occurrence number. The slot ledger's own round counter
-	// is 0-based (its comment ids are r0c1, r1c1 …) and OpenReviewRound refuses a round
-	// below 1, so the round number is the slot round PLUS ONE — stated here because the
-	// comment-id mirror below depends on exactly that offset.
+	// number is the round's 1-based occurrence number ON THE DURABLE LEDGER: the ledger's
+	// own base for this kind's gate (seedRoundBaseFromLedger) plus the session's 0-based
+	// slot round plus one. The slot ledger's counter is 0-based (its comment ids are r0c1,
+	// r1c1 …) and OpenReviewRound refuses a round below 1, so a FIRST session's round is
+	// the slot round plus one; a second session of the same kind continues above the first.
+	// Stated here because the comment-id mirror below mints from THIS number, not from the
+	// slot's — which is what keeps the pairing right once the two diverge.
 	number int
 	// subject is what the round judges.
 	subject projectstate.SubjectRef
@@ -2540,12 +2626,17 @@ func (wf *workflows) openDesignRound(
 	if !wf.openDesignActivity(ctx, in, key, state) {
 		return
 	}
+	// The LEDGER's number, not the session's: state.roundBase is what the durable ledger
+	// already holds for this kind's gate (seedRoundBaseFromLedger), so a second session of
+	// the same kind continues the history instead of re-minting the first session's ids.
+	// Zero for a first session, which leaves the numbering exactly as it was.
+	n := state.roundBase + reviewRound + 1
 	round := designRound{
 		key:       key,
-		roundID:   designRoundID(key, kind, reviewRound+1),
-		number:    reviewRound + 1,
+		roundID:   designRoundID(key, kind, n),
+		number:    n,
 		subject:   designSubjectRef(gf, kind),
-		attemptID: projectstate.AttemptID(key.activityID, key.work, reviewRound+1),
+		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected, key.activityID,

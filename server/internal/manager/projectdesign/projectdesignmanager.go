@@ -2629,6 +2629,14 @@ type coAuthorState struct {
 	// returns no agent reviewers at all (the plan is computed, not drafted), so the roster
 	// is the human row alone whenever the policy holds for a person.
 	roundReviewers []projectstate.RoundReviewer
+	// roundBase is the highest round number the DURABLE ledger already holds for this
+	// session's artifact kind at its gate, read ONCE at session start
+	// (seedRoundBaseFromLedger) and never changed after. Every round this session opens is
+	// numbered above it, which is what stops a second session of the same kind re-minting
+	// the first session's round ids. Zero for a first session, for a kind whose lifecycle
+	// carries no review task — which today is every Phase-2 kind — and whenever the read
+	// could not be made.
+	roundBase int
 	// ledgerVersion is the optimistic-concurrency token for the MAIN-side execution ledger.
 	// It is deliberately NOT headVersion: headVersion tracks whichever substrate the design
 	// session is writing (the session branch while a draft is staged), whereas the round

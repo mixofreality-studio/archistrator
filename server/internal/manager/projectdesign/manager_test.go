@@ -1498,17 +1498,18 @@ func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectst
 	return f.execution(activityID), nil
 }
 
-// registerGenActivityExecution registers the five ROUND-LEDGER activities the design rails
-// dual-write through, under the names the generated RegisterWorker uses in production. It
-// is called from registerGenActivities so EVERY workflow test has them: the dual-write is
-// unconditional behind the fence, and a test env missing them would exercise the
-// best-effort miss path instead of the feature.
+// registerGenActivityExecution registers the six ROUND-LEDGER activities the design rails
+// read and dual-write through, under the names the generated RegisterWorker uses in
+// production. It is called from registerGenActivities so EVERY workflow test has them: the
+// dual-write is unconditional behind the fence, and a test env missing them would exercise
+// the best-effort miss path instead of the feature.
 func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess) {
 	base, ok := ps.(execLedgerBase)
 	if !ok {
 		return
 	}
 	acts := &genActivities{ActivityExecution: fakeActivityExecution{base.baseProjectState()}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionReadActivityExecution, activity.RegisterOptions{Name: "activityExecutionAccess.readActivityExecution"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
@@ -7313,6 +7314,45 @@ func Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle(t *test
 	p := projectstate.ActivityMethodPhase("sdp")
 	if got := projectstate.GateTaskFor(p); got != "sdpReview" {
 		t.Fatalf("the projectDesign lifecycle's only gate is sdpReview; got %q", got)
+	}
+}
+
+// THE ROUND NUMBERING IS SEEDED FROM THE DURABLE LEDGER, NOT FROM THE SESSION. reviewRound
+// is a per-SESSION counter starting at zero, so a second co-author session of the same kind
+// would re-mint the first session's round ids; OpenReviewRound is idempotent on an id, so
+// the second session's round would vanish into the first's and its verdicts would land on a
+// round that judged another draft. seedRoundBaseFromLedger reads the row at session start
+// and ledgerRoundBase is the arithmetic it seeds with.
+//
+// Asserted on the PURE function because this rail opens no round today (no Phase-2 kind
+// resolves to a review task — see above), so there is no session to drive it through. The
+// code is identical to systemdesign's, where the workflow-level tests live: the two rails
+// are edited together precisely so a fix to one is not a divergence from the other.
+func Test_LedgerRoundBase_CountsOnlyTheKindsOwnRoundsAtThatGate(t *testing.T) {
+	// A key the pinned projectDesign lifecycle DOES carry (the M0 gate), so the arithmetic
+	// is exercised against real task ids rather than invented ones.
+	key := designRoundKey{
+		activityID: "projectDesign", typ: projectstate.ActivityTypeProjectDesign,
+		gate: projectstate.GateTaskFor(projectstate.ActivityMethodPhase("sdp")),
+		work: projectstate.AgentTaskFor(projectstate.ActivityMethodPhase("sdp")),
+	}
+	row := projectstate.ActivityExecution{Reviews: []projectstate.ReviewRound{
+		{RoundID: designRoundID(key, projectstate.KindNetwork, 1), TaskID: key.gate, Round: 1},
+		{RoundID: designRoundID(key, projectstate.KindNetwork, 2), TaskID: key.gate, Round: 2},
+		{RoundID: designRoundID(key, projectstate.KindRiskModel, 5), TaskID: key.gate, Round: 5},
+		{RoundID: "projectDesign:someOtherGate:network:9", TaskID: "someOtherGate", Round: 9},
+	}}
+	if got := ledgerRoundBase(row, key, projectstate.KindNetwork); got != 2 {
+		t.Fatalf("network's base is its own highest round, 2 — not another kind's and not another gate's; got %d", got)
+	}
+	if got := ledgerRoundBase(row, key, projectstate.KindRiskModel); got != 5 {
+		t.Fatalf("riskModel's base is its own 5; got %d", got)
+	}
+	if got := ledgerRoundBase(row, key, projectstate.KindPlanningAssumptions); got != 0 {
+		t.Fatalf("a kind with no round of its own starts at 0, so its first round is 1; got %d", got)
+	}
+	if got := ledgerRoundBase(projectstate.ActivityExecution{}, key, projectstate.KindNetwork); got != 0 {
+		t.Fatalf("an activity with no row (the ordinary first session) is a base of 0; got %d", got)
 	}
 }
 

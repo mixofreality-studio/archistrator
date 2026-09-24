@@ -1985,17 +1985,18 @@ func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectst
 	return f.execution(activityID), nil
 }
 
-// registerGenActivityExecution registers the five ROUND-LEDGER activities the design rails
-// dual-write through, under the names the generated RegisterWorker uses in production. It
-// is called from registerGenActivities so EVERY workflow test has them: the dual-write is
-// unconditional behind the fence, and a test env missing them would exercise the
-// best-effort miss path instead of the feature.
+// registerGenActivityExecution registers the six ROUND-LEDGER activities the design rails
+// read and dual-write through, under the names the generated RegisterWorker uses in
+// production. It is called from registerGenActivities so EVERY workflow test has them: the
+// dual-write is unconditional behind the fence, and a test env missing them would exercise
+// the best-effort miss path instead of the feature.
 func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess) {
 	base, ok := ps.(execLedgerBase)
 	if !ok {
 		return
 	}
 	acts := &genActivities{ActivityExecution: fakeActivityExecution{base.baseProjectState()}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionReadActivityExecution, activity.RegisterOptions{Name: "activityExecutionAccess.readActivityExecution"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
@@ -12772,6 +12773,146 @@ func Test_DesignRoundID_IsDistinctForKindsSharingALifecyclePhase(t *testing.T) {
 			t.Fatalf("round id %q is minted for BOTH %s and %s; a shared phase must not mean a shared round", id, other.WireName(), kind.WireName())
 		}
 		seen[id] = kind
+	}
+}
+
+// systemRoundID is the round id THIS rail mints for a System round, built through the
+// production minter so a fixture cannot drift from it.
+func systemRoundID(t *testing.T, n int) string {
+	t.Helper()
+	key, ok := designRoundKeyFor(projectstate.KindSystem)
+	if !ok {
+		t.Fatal("KindSystem must resolve to a review task in the pinned lifecycles")
+	}
+	return designRoundID(key, projectstate.KindSystem, n)
+}
+
+// A FIRST SESSION ON AN ACTIVITY WITH NO ROW STILL MINTS ROUND 1. The seed reads a row
+// that is not there yet (the ordinary case: the design activity is born by this very
+// session's OpenActivity), and a base of zero is what leaves the numbering exactly as it
+// was before the seed existed.
+func Test_CoAuthor_RoundLedger_AFirstSessionWithNoRowMintsRoundOne(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "not yet"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the seed must not crash a session with no row to seed from: %v", err)
+	}
+	rounds := base.rounds("architecture")
+	if len(rounds) == 0 {
+		t.Fatal("the session must still open its round")
+	}
+	if rounds[0].Round != 1 || rounds[0].RoundID != systemRoundID(t, 1) {
+		t.Fatalf("a first session numbers from 1; got round %d id %q", rounds[0].Round, rounds[0].RoundID)
+	}
+}
+
+// A SECOND SESSION OF THE SAME KIND CONTINUES THE LEDGER'S NUMBERING. reviewRound is a
+// per-SESSION counter starting at zero, so before the seed an amendment session re-minted
+// round 1 — the id the first session's decided round already holds. OpenReviewRound is
+// idempotent on that id, so the second session's round vanished into the first's, and its
+// verdicts either hit the decided round's terminality Conflict (logged and dropped, since
+// the round writes are best-effort) or landed on a round whose subject was another
+// session's draft. The seed reads the row first and numbers above everything it holds.
+func Test_CoAuthor_RoundLedger_ASecondSessionNumbersAboveTheDurableLedger(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	// The FIRST session's history, as the store holds it after that session ended: one
+	// decided round under the id this rail mints for System's round 1.
+	key, ok := designRoundKeyFor(projectstate.KindSystem)
+	if !ok {
+		t.Fatal("KindSystem must resolve to a review task in the pinned lifecycles")
+	}
+	base.project.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"architecture": {ActivityID: "architecture", Version: 3, Reviews: []projectstate.ReviewRound{{
+			RoundID: systemRoundID(t, 1), TaskID: key.gate, Reviews: key.work, Round: 1,
+			Outcome: projectstate.RoundPassed, DecidedBy: "operator",
+		}}},
+	}
+	ps := &roundLedgerFake{branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base}}
+	registerRailCoAuthor(env, newRailWorkflows(&fakeRail{checkGreen: true}), ps, newFakePipeline())
+
+	const rejectNotes = "the second pass still has it wrong"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a second session must not crash: %v", err)
+	}
+
+	// Three: the seeded round, this session's send-back, and the round its redraft opened
+	// at the gate the withdraw then closed.
+	rounds := base.rounds("architecture")
+	if len(rounds) != 3 {
+		t.Fatalf("the seeded round plus this session's two are three rounds; got %d (%+v)", len(rounds), rounds)
+	}
+	// The first session's round is untouched: same id, same terminal, and — the load-bearing
+	// half — no verdict from this session appended to it.
+	if rounds[0].RoundID != systemRoundID(t, 1) || rounds[0].Outcome != projectstate.RoundPassed || len(rounds[0].Verdicts) != 0 {
+		t.Fatalf("the first session's decided round must be left exactly as it stood; got %+v", rounds[0])
+	}
+	if rounds[1].Round != 2 || rounds[1].RoundID != systemRoundID(t, 2) {
+		t.Fatalf("the second session must number above the ledger; got round %d id %q", rounds[1].Round, rounds[1].RoundID)
+	}
+	// AND ITS VERDICTS LAND ON ITS OWN ROUND.
+	human := verdictByRole(rounds[1], designRoleHuman)
+	if human == nil || human.Verdict != projectstate.VerdictSendBack || human.Summary != rejectNotes {
+		t.Fatalf("the second session's send-back must be a verdict on ITS round; got %+v", rounds[1].Verdicts)
+	}
+	if rounds[1].Outcome != projectstate.RoundSentBack {
+		t.Fatalf("the second session's round is the one that was sent back; got %q", rounds[1].Outcome)
+	}
+	// And its redraft's round keeps climbing from there rather than restarting.
+	if rounds[2].Round != 3 || rounds[2].RoundID != systemRoundID(t, 3) {
+		t.Fatalf("the redraft's round continues the numbering; got round %d id %q", rounds[2].Round, rounds[2].RoundID)
+	}
+}
+
+// AND THE SEED IS KEYED ON THE KIND, NOT JUST THE GATE. Three kinds share the architecture
+// gate, so a base taken from TaskID alone would push a first-ever operationalConcepts
+// session's round number above a System history it has nothing to do with — inventing rounds
+// 1..n that never happened for that artifact.
+func Test_LedgerRoundBase_CountsOnlyTheKindsOwnRounds(t *testing.T) {
+	sys, ok := designRoundKeyFor(projectstate.KindSystem)
+	if !ok {
+		t.Fatal("KindSystem must resolve to a review task")
+	}
+	row := projectstate.ActivityExecution{Reviews: []projectstate.ReviewRound{
+		{RoundID: designRoundID(sys, projectstate.KindSystem, 1), TaskID: sys.gate, Round: 1},
+		{RoundID: designRoundID(sys, projectstate.KindSystem, 2), TaskID: sys.gate, Round: 2},
+		{RoundID: designRoundID(sys, projectstate.KindOperationalConcepts, 7), TaskID: sys.gate, Round: 7},
+		{RoundID: "architecture:someOtherGate:system:9", TaskID: "someOtherGate", Round: 9},
+	}}
+	if got := ledgerRoundBase(row, sys, projectstate.KindSystem); got != 2 {
+		t.Fatalf("System's base is its own highest round, 2; got %d", got)
+	}
+	if got := ledgerRoundBase(row, sys, projectstate.KindOperationalConcepts); got != 7 {
+		t.Fatalf("operationalConcepts' base is its own 7; got %d", got)
+	}
+	if got := ledgerRoundBase(row, sys, projectstate.KindStandardCheck); got != 0 {
+		t.Fatalf("a kind with no round of its own starts at 0; got %d", got)
+	}
+	if got := ledgerRoundBase(projectstate.ActivityExecution{}, sys, projectstate.KindSystem); got != 0 {
+		t.Fatalf("an empty row is a base of 0; got %d", got)
 	}
 }
 
