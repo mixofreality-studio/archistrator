@@ -98,6 +98,16 @@ export interface SubmitBarProps {
    * it never demotes Approve as the primary verb.
    */
   allowEmptySendBack?: boolean;
+  /**
+   * Forwarded straight into `resolveSubmitVerb`. False on a surface where
+   * sending back is not a verb at all (spec R7: the Project Design M0 gate —
+   * to change the plan you amend the Architecture). Default true — every
+   * existing mounting is unaffected. When false, no send-back affordance is
+   * rendered anywhere, including the overflow menu.
+   */
+  allowSendBack?: boolean;
+  /** Forwarded straight into `resolveSubmitVerb` — overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
+  approveCopy?: { label: string; consequence: string } | undefined;
   /** Omitted where withdrawing does not apply (e.g. a clean committed slot). */
   onWithdraw?: (() => void) | undefined;
   withdrawPending?: boolean;
@@ -119,6 +129,8 @@ export function SubmitBar({
   onAsk,
   onAmend,
   allowEmptySendBack = false,
+  allowSendBack = true,
+  approveCopy,
   onWithdraw,
   withdrawPending = false,
   onRetry,
@@ -134,6 +146,8 @@ export function SubmitBar({
     stagedQuestions,
     openThreads,
     allowEmptySendBack,
+    allowSendBack,
+    approveCopy,
   });
 
   const busy = primaryBusy(verb.action, pending, askPending);

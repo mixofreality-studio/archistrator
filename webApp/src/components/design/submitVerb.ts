@@ -49,6 +49,16 @@ export function resolveSubmitVerb(input: {
    * nothing staged and nothing blocking always sees Approve, on every surface.
    */
   allowEmptySendBack?: boolean;
+  /**
+   * False on a surface where sending back is not a verb at all (spec R7: the
+   * Project Design M0 gate — to change the plan you amend the Architecture).
+   * Staged change requests then STAY comments: they ride the approval as
+   * recorded feedback rather than flipping the primary verb to a redraft that
+   * has nowhere to go. Default true — every existing caller is unchanged.
+   */
+  allowSendBack?: boolean;
+  /** Overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
+  approveCopy?: { label: string; consequence: string } | undefined;
 }): SubmitVerb {
   const {
     committed,
@@ -57,6 +67,8 @@ export function resolveSubmitVerb(input: {
     stagedQuestions: qs,
     openThreads,
     allowEmptySendBack = false,
+    allowSendBack = true,
+    approveCopy,
   } = input;
   const staged = crs + qs;
   const consequence = describeConsequence(crs, qs, committed);
@@ -79,7 +91,12 @@ export function resolveSubmitVerb(input: {
       secondaryActions: [],
     };
   }
-  if (staged > 0) {
+  // RULING R11 (spec §6/R7): on a surface with no send-back — today only the
+  // Project Design M0 gate — staged change requests are not a redraft trigger,
+  // because there is nothing to redraft: the plan is computed, and changing it
+  // means amending the Architecture. They ride the approval as recorded
+  // feedback and the primary verb stays Approve.
+  if (staged > 0 && allowSendBack) {
     return committed
       ? {
           action: 'amend',
@@ -103,7 +120,8 @@ export function resolveSubmitVerb(input: {
   // is still a live draft an MCP host needs to be able to send back, exactly
   // like an uncommitted one. Only a genuinely inert, sealed artifact
   // (`!liveDraft`, i.e. `stage: 'other'`) offers no secondary at all.
-  const secondaryActions: SubmitAction[] = allowEmptySendBack && liveDraft ? ['sendBack'] : [];
+  const secondaryActions: SubmitAction[] =
+    allowEmptySendBack && liveDraft && allowSendBack ? ['sendBack'] : [];
   // No live draft AND the slot is committed: a truly clean, sealed artifact —
   // nothing to approve, nothing to send back. An amendment under active review
   // (`liveDraft` above) is NOT this case even though it too is `committed`.
@@ -121,8 +139,8 @@ export function resolveSubmitVerb(input: {
   }
   return {
     action: 'approve',
-    label: 'Approve',
-    consequence: 'Commits the artifact and advances',
+    label: approveCopy?.label ?? 'Approve',
+    consequence: approveCopy?.consequence ?? 'Commits the artifact and advances',
     disabled: false,
     secondaryActions,
   };

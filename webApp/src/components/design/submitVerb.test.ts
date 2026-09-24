@@ -192,3 +192,83 @@ void test('allowEmptySendBack: false offers no secondary on an active amendment 
   const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview' });
   assert.deepEqual(v.secondaryActions, []);
 });
+
+void test('allowSendBack:false keeps approve primary with change requests staged', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 3,
+    stagedQuestions: 0,
+    openThreads: 0,
+    allowSendBack: false,
+  });
+  assert.equal(verb.action, 'approve');
+  assert.equal(verb.disabled, false);
+  assert.deepEqual(
+    verb.secondaryActions,
+    [],
+    'send back is not offered anywhere, not even in the overflow'
+  );
+});
+
+void test('allowSendBack:false still routes a questions-only batch to ask', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 2,
+    openThreads: 0,
+    allowSendBack: false,
+  });
+  assert.equal(
+    verb.action,
+    'ask',
+    'asking is not sending back — the M0 gate still takes questions'
+  );
+});
+
+void test('approveCopy replaces the label and consequence of the approve verb only', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 0,
+    openThreads: 0,
+    allowSendBack: false,
+    approveCopy: {
+      label: 'Approve plan & cost — start construction',
+      consequence: 'Commits the SDP and releases construction',
+    },
+  });
+  assert.equal(verb.label, 'Approve plan & cost — start construction');
+  assert.equal(verb.consequence, 'Commits the SDP and releases construction');
+});
+
+void test('approveCopy does not leak into the blocked-approve variant', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 0,
+    openThreads: 2,
+    allowSendBack: false,
+    approveCopy: { label: 'Approve plan & cost — start construction', consequence: 'x' },
+  });
+  assert.equal(verb.disabled, true);
+  assert.equal(
+    verb.label,
+    'Resolve 2 threads to approve',
+    'the blocked verb says what blocks it, not what it would do'
+  );
+});
+
+void test('the default is unchanged: allowSendBack omitted still sends back on staged change requests', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 1,
+    stagedQuestions: 0,
+    openThreads: 0,
+  });
+  assert.equal(verb.action, 'sendBack');
+});
