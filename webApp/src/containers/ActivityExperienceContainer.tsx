@@ -83,6 +83,7 @@ import {
   RECONCILE_RATIONALE,
 } from '../components/activity/activityCopy.ts';
 import { activityCommentKey } from '../components/activity/pendingCommentKey.ts';
+import { lastPlanLens } from '../components/activity/planLensMemory.ts';
 import {
   isHistorical,
   revisionParam,
@@ -591,9 +592,17 @@ export function ActivityExperienceContainer({
           />
         ) : undefined
       }
-      // Task 11 gives the plan a remembered lens; until then ✕ lands on the LIST.
+      // ✕ returns to the plan AS THE READER LEFT IT (spec §7.3): the lens comes
+      // from the plan's own module memory, not from this screen's search — the
+      // activity URL carries `task`/`rev` and nothing else, and adding a `lens`
+      // it never reads would put a second, stale copy of the plan's state in
+      // every activity link.
       onClose={() =>
-        void navigate({ to: PLAN_PATH, params: { projectId }, search: () => planSearch('list') })
+        void navigate({
+          to: PLAN_PATH,
+          params: { projectId },
+          search: () => planSearch(lastPlanLens()),
+        })
       }
       onOpenMargin={() => {
         setClosedAt(null);

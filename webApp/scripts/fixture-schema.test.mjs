@@ -201,6 +201,7 @@ void test('the activity-experience fixtures are recorded where the preview can o
     'deployment-linear.json',
     'done.json',
     'failed.json',
+    'project-design-m0-history.json',
     'project-design-m0.json',
     'requirements-backfilled.json',
     'review-set-error.json',

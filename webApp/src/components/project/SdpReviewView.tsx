@@ -101,7 +101,16 @@ export function SdpReviewView({
   envelope: ProjectArtifactModelEnvelope | undefined;
   /** A decision mutation is in flight — disable the gate. */
   pending: boolean;
-  /** The SDP is already committed — render the decision gate disabled, read-only. */
+  /**
+   * The SDP is already committed, or the reader is on a past revision — the
+   * decision gate is read-only.
+   *
+   * Read-only is INERT, not merely disabled: the option cards stop being radios
+   * altogether (no `role`, no `aria-checked`, no tab stop, no cursor, no
+   * handlers) and present the standing choice in words, so a read-only surface
+   * carries no focusable control that does nothing and no orphaned ARIA. Which
+   * option was chosen is said as text, never by colour alone.
+   */
   readOnly?: boolean;
   onCommit: (optionId: string) => void;
   onRejectAll: (feedback: string) => void;
@@ -129,7 +138,12 @@ export function SdpReviewView({
   onChoose?: ((optionId: string) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  // `enabled` is the read-only surface's switch: this view hand-rolls its option
+  // rows' comment button instead of going through `CommentableList`, which reads
+  // the same flag (CommentableList.tsx:273). Without it the Activity
+  // Experience's read-only history — which shadows the provider with a disabled
+  // one — would still render a focusable button whose arm is a no-op.
+  const { setAnchor, enabled: commentsEnabled } = useComments();
   const view = toSdpReviewView(envelope);
   const [chosen, setChosen] = useState<string>(view.recommendation);
   const [feedback, setFeedback] = useState('');
@@ -380,14 +394,16 @@ export function SdpReviewView({
                     />
                   ) : null}
                   <Box sx={{ flexGrow: 1 }} />
-                  <RowCommentButton
-                    label={SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
-                    t={t}
-                    testKey={o.optionId}
-                    onArm={() => {
-                      armOption(o);
-                    }}
-                  />
+                  {commentsEnabled ? (
+                    <RowCommentButton
+                      label={SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
+                      t={t}
+                      testKey={o.optionId}
+                      onArm={() => {
+                        armOption(o);
+                      }}
+                    />
+                  ) : null}
                 </Box>
               </Box>
             ))}
@@ -514,11 +530,14 @@ export function SdpReviewView({
                   mb: 1,
                 }}
               >
-                1 · CHOOSE AN OPTION
+                {readOnly ? 'THE OPTION ON RECORD' : '1 · CHOOSE AN OPTION'}
               </Typography>
               <Box
+                // `group` and not `radiogroup`: read-only, the cards are not
+                // radios (OptionCard), and a radiogroup containing none is
+                // orphaned ARIA. The heading above it stops instructing, too.
                 aria-labelledby="sdp-choose-option-label"
-                role="radiogroup"
+                role={readOnly ? 'group' : 'radiogroup'}
                 sx={{
                   display: 'grid',
                   gridTemplateColumns: {
@@ -533,6 +552,7 @@ export function SdpReviewView({
                   <OptionCard
                     key={o.optionId}
                     option={o}
+                    readOnly={readOnly}
                     refCb={(el) => {
                       optionRefs.current[i] = el;
                     }}
@@ -605,10 +625,14 @@ export function SdpReviewView({
   );
 }
 
+/** The read-only card's word for the standing choice — never colour alone. */
+const CHOSEN_MARK = 'CHOSEN';
+
 function OptionCard({
   t,
   option,
   selected,
+  readOnly,
   refCb,
   onSelect,
   onKeyDown,
@@ -616,6 +640,8 @@ function OptionCard({
   t: Tokens;
   option: SdpOptionView;
   selected: boolean;
+  /** Inert presentation: no role, no tab stop, no handlers. See {@link SdpReviewView}. */
+  readOnly: boolean;
   refCb: (el: HTMLDivElement | null) => void;
   onSelect: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -623,24 +649,34 @@ function OptionCard({
   const label = SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind;
   return (
     <Box
-      aria-checked={selected}
-      aria-label={`${label}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}`}
+      // A read-only card is not a radio that refuses to change — it is not a
+      // radio. Keeping `role="radio"` with a tab stop and a pointer cursor left a
+      // control a keyboard reader could reach and press to no effect, inside a
+      // radiogroup that no longer exists.
+      aria-checked={readOnly ? undefined : selected}
+      aria-label={
+        readOnly
+          ? undefined
+          : `${label}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}`
+      }
       data-testid={UI_IDENTIFIERS.SdpReview.optionCard(option.optionId)}
       ref={refCb}
-      role="radio"
+      role={readOnly ? undefined : 'radio'}
       sx={{
         p: 1.5,
-        cursor: 'pointer',
+        cursor: readOnly ? 'default' : 'pointer',
         border: `2px solid ${selected ? t.accent : t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         bgcolor: selected ? t.awaitingBg : 'transparent',
         boxShadow: selected && t.hardShadow ? `3px 3px 0 ${t.shadowColor}` : 'none',
         transition: 'all 90ms ease',
-        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+        ...(readOnly
+          ? {}
+          : { '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 } }),
       }}
-      tabIndex={selected ? 0 : -1}
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
+      tabIndex={readOnly ? undefined : selected ? 0 : -1}
+      onClick={readOnly ? undefined : onSelect}
+      onKeyDown={readOnly ? undefined : onKeyDown}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
         <Box
@@ -656,6 +692,21 @@ function OptionCard({
         <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
           {label}
         </Typography>
+        {/* With the radio role gone, the dot is colour alone — which is not a
+            signal. The word is. */}
+        {readOnly && selected ? (
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 9.5,
+              letterSpacing: '0.12em',
+              color: t.accent,
+            }}
+          >
+            {CHOSEN_MARK}
+          </Typography>
+        ) : null}
       </Box>
       <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.5 }}>
         {formatMoney(option.buildCost)} · risk {option.compositeRisk.toFixed(2)}

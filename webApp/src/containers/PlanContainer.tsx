@@ -123,6 +123,7 @@ import { TasksLens } from '../components/construction/tasks/TasksLens';
 import { PlanGraph } from '../components/activity/PlanGraph';
 import { PlanList } from '../components/activity/PlanList';
 import { LENS_LABEL } from '../components/activity/planCopy';
+import { rememberPlanLens } from '../components/activity/planLensMemory.ts';
 import { planActivitiesFrom } from '../components/activity/planTiles';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -164,6 +165,12 @@ export function PlanContainer({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
+
+  // The way back from an activity (spec §7.3). An idempotent write to module
+  // memory — no state, no subscription, nothing to re-render — so it sits in the
+  // render body rather than an effect: the ✕ that reads it may be pressed before
+  // an effect for this render would have flushed.
+  rememberPlanLens(lens);
 
   // --- The read, and its cadence (ported verbatim from the console) ----------
   // Fast (1.5s) while a dispatch is pending, while a failure or a success in
