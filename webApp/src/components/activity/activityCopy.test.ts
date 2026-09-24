@@ -5,6 +5,9 @@ import {
   ACTIVITY_LOADING,
   ACTIVITY_NOT_IN_PLAN,
   activityReadFailed,
+  ADVANCE_ANYWAY,
+  ADVANCE_RETRY,
+  advanceFailed,
   AMEND_ARCHITECTURE,
   artifactNotOfThisPhase,
   artifactUnavailable,
@@ -22,6 +25,8 @@ import {
   NO_EPISODE_CAPTURED,
   notDispatchedYet,
   planIndexFor,
+  RECONCILE_RATIONALE,
+  REVISION_NOTE_LABEL,
   reviewerChipLabel,
   reviewSetRefused,
   rosterSeatLabel,
@@ -164,4 +169,25 @@ void test('the dispatch footer names no venue, because this read reports none', 
 void test('an undispatched task says why, and a locked one says which why', () => {
   assert.match(notDispatchedYet(true), /^Locked/);
   assert.equal(notDispatchedYet(false), 'Nothing has been dispatched on this task yet.');
+});
+
+void test('a failed advance says the commit landed and construction did not start', () => {
+  assert.equal(
+    advanceFailed('slot activityList is stale'),
+    'The plan was committed, but construction did not start: slot activityList is stale'
+  );
+  // The two exits are different sentences: one re-runs the advance as asked, the
+  // other acknowledges the stale slots and seals over them.
+  assert.notEqual(ADVANCE_RETRY, ADVANCE_ANYWAY);
+  assert.match(ADVANCE_ANYWAY, /acknowledge/);
+});
+
+void test('the revision note is labelled as the reviewer’s own words', () => {
+  assert.equal(REVISION_NOTE_LABEL, 'SEND-BACK NOTE');
+});
+
+void test('a reconcile amendment carries the same rationale as the design rail’s', () => {
+  // ProjectDesignExperience.tsx's reconcileRationale, verbatim — one reconcile
+  // must not read differently in the ledger for being launched from here.
+  assert.equal(RECONCILE_RATIONALE, 'Reconcile with amended upstream basis.');
 });

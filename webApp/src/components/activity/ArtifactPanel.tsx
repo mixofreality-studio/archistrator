@@ -103,17 +103,25 @@ function UnavailablePanel({ reason }: { reason: string }): ReactNode {
 function ProjectDesignBody({
   slots,
   onChoose,
+  readOnly,
 }: {
   slots: readonly ArtifactSlotView[];
   onChoose: ((optionId: string) => void) | undefined;
+  /** A read-only history: the option radiogroup reports and changes nothing. */
+  readOnly: boolean;
 }): ReactNode {
   const activityEnvelope = projectEnvelope(slots, 'activityList');
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2.5 }}>
+      {/* `decision: 'chooser'` is kept in BOTH modes on purpose: it is what
+          suppresses the view's own Commit / Reject all buttons, so a read-only
+          history renders no decision control at all rather than two disabled
+          ones. `readOnly` is what makes the option rows inert. */}
       <SdpReviewView
         decision="chooser"
         envelope={projectEnvelope(slots, 'sdpReview')}
         pending={false}
+        readOnly={readOnly}
         onChoose={onChoose}
         onCommit={unreachable}
         onRejectAll={unreachable}
@@ -155,6 +163,7 @@ export function ArtifactPanel({
   systemEnvelope,
   contractJoin,
   sdp,
+  readOnly = false,
 }: {
   artifact: TaskArtifact;
   /** For the `slot` branch: the committed slot envelopes from useProject. */
@@ -167,6 +176,12 @@ export function ArtifactPanel({
   contractJoin: ContractJoin | undefined;
   /** Project Design M0 only: how the option the bar will approve is reported up. */
   sdp?: { onChoose: (optionId: string) => void } | undefined;
+  /**
+   * The reader is on a NON-LATEST revision (R1). Only the M0 body has an
+   * interactive control of its own; every other renderer here is already a
+   * read-only view, so this reaches exactly that one.
+   */
+  readOnly?: boolean;
 }): ReactNode {
   const t = useTokens();
 
@@ -177,7 +192,7 @@ export function ArtifactPanel({
         // the M0 body; every other slot it names is a Phase-1 artifact, which
         // is what `ArtifactRenderer` dispatches.
         return artifact.artifactKind === 'sdpReview' ? (
-          <ProjectDesignBody slots={slots} onChoose={sdp?.onChoose} />
+          <ProjectDesignBody readOnly={readOnly} slots={slots} onChoose={sdp?.onChoose} />
         ) : (
           <ArtifactRenderer
             envelope={slotEnvelope(slots, artifact.artifactKind)}

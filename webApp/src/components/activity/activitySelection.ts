@@ -48,6 +48,35 @@ export function selectionFor(
 }
 
 /**
+ * The `?rev` a navigation should WRITE for a (task, revision) pair — `undefined`
+ * where the URL must carry none.
+ *
+ * ── The rule: no `rev` means LATEST ─────────────────────────────────────────
+ * A URL without `rev` is a request to follow the head; only a deliberately
+ * picked NON-latest revision writes one. Emitting `rev` unconditionally (as the
+ * container first did) pins the reader to revision N — so when the agent
+ * finishes N+1 under the 2 s poll, the screen the reader is already looking at
+ * silently becomes a read-only history of N, without them asking for history and
+ * without the new work ever appearing. Omitting it is what makes "open this
+ * task" and "open THIS revision of this task" two different, honest addresses.
+ *
+ * Three cases collapse to `undefined`: the latest (and anything above it — there
+ * is no such revision to address), a task that has never run (`0` is the graph's
+ * own "no revision", and `?rev=0` addresses nothing), and a task this activity
+ * does not carry (nothing can be checked against, so nothing is claimed).
+ */
+export function revisionParam(
+  nodes: readonly LifecycleNode[],
+  taskId: string,
+  revision: number
+): number | undefined {
+  const node = nodes.find((n) => n.id === taskId);
+  if (node === undefined) return undefined;
+  if (revision < 1) return undefined;
+  return revision < latestRevision(node) ? revision : undefined;
+}
+
+/**
  * True when the reader is looking at HISTORY rather than the head — which is
  * what puts the body in read-only mode (R1).
  *

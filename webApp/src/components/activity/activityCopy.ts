@@ -58,6 +58,43 @@ export const BACK_TO_LATEST = 'Back to latest';
 export const HISTORY_ARTIFACT_CAPTION =
   'Showing the current artifact. The version this revision judged is not readable yet — its comments and verdicts below are.';
 
+/**
+ * The label over a revision's send-back note. The note is the reviewer's own
+ * words (`ConstructionTaskRevisionView.note` — "the last send-back verdict's
+ * summary, verbatim"), so it is quoted, never paraphrased, and the label says
+ * whose words they are.
+ */
+export const REVISION_NOTE_LABEL = 'SEND-BACK NOTE';
+
+/**
+ * The M0 approve is TWO mutations — commit the SDP, then advance to construction
+ * — and the second can fail on its own. When it does, the plan of record IS bound
+ * and construction is NOT running, which is a state a reader must be told about:
+ * silence here reads as success, and the next thing they do is wonder why nothing
+ * started.
+ */
+export function advanceFailed(detail: string): string {
+  return `The plan was committed, but construction did not start: ${detail}`;
+}
+
+/** Try the advance again — the commit already landed, so only this half re-runs. */
+export const ADVANCE_RETRY = 'Start construction';
+
+/**
+ * The FailedPrecondition answer: a committed slot's basis drifted, so the seal is
+ * refused until it is acknowledged. The same "advance anyway" the Project Design
+ * experience offers (F55) — it acknowledges the stale slots and seals over them.
+ */
+export const ADVANCE_ANYWAY = 'Start anyway — acknowledge the stale slots';
+
+/**
+ * The rationale an amendment fired from the stale surface carries into the
+ * redraft prompt. Mirrors the Project Design experience's `reconcileRationale`,
+ * so a reconcile launched from an activity gate and one launched from the design
+ * rail read identically in the ledger.
+ */
+export const RECONCILE_RATIONALE = 'Reconcile with amended upstream basis.';
+
 /** Why a task's artifact cannot be rendered (R17). Names what is missing and what remains. */
 export function artifactUnavailable(classification: string): string {
   return `No artifact view for a ${classification} activity yet. Its episodes and review history are below.`;

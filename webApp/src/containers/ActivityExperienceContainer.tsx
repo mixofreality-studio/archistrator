@@ -11,10 +11,16 @@
  * ── The selection lives in the URL ──────────────────────────────────────────
  * `?task=` and `?rev=` ARE the selection. `useActivityView` polls every 2 s while
  * an agent works, and a selection held in React state beside that query is the
- * one that loses the race; in the address bar it survives every refetch, and a
- * link addresses exactly one revision of exactly one task. `selectionFor`
- * corrects what the URL asks for against what the activity actually has, so a
- * stale deep link opens the activity rather than an empty body.
+ * one that loses the race; in the address bar it survives every refetch.
+ * `selectionFor` corrects what the URL asks for against what the activity
+ * actually has, so a stale deep link opens the activity rather than an empty body.
+ *
+ * `?rev` is OMITTED whenever the selection is the task's LATEST revision
+ * (`revisionParam`): a URL with no `rev` means "follow the head", and only a
+ * deliberately picked older revision writes one. Emitting it unconditionally
+ * pinned the reader to revision N, so the moment the agent finished N+1 under the
+ * poll the screen they were already reading turned into a read-only history of N
+ * — history nobody asked for, hiding work that had just landed.
  *
  * ── Two controls, one selection ─────────────────────────────────────────────
  * The graph's revision menu and the body's revision select both land in `select`.
@@ -39,6 +45,15 @@
  * the rule is written down and tested rather than inlined as a switch nobody
  * can read.
  *
+ * ── The read-only history (R1) ──────────────────────────────────────────────
+ * On a non-latest revision the whole screen goes read-only: a banner over the
+ * body with the one way back, a `CommentProvider` with `enabled={false}` wrapped
+ * around EVERYTHING (the margin included — the chrome renders it, so a provider
+ * around the body alone would not reach it), the margin's resolve/reopen omitted
+ * and its resolved threads expanded, no submit bar, and the artifact under a
+ * caption saying it is the CURRENT one. There is no op that reads an artifact as
+ * of a ref (GAP-5); saying so is honest where a silently-current artifact is not.
+ *
  * ── Liveness ────────────────────────────────────────────────────────────────
  * A 404 from the activity read is an ERROR there, never a value, and is never
  * polled: it means the committed plan has no such activity, which the screen
@@ -52,8 +67,9 @@ import { useNavigate } from '@tanstack/react-router';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentMargin } from '../components/design/CommentMargin';
-import { useComments } from '../components/comments/CommentContext';
+import { CommentProvider, useComments } from '../components/comments/CommentContext';
 import { DispatchBody } from '../components/activity/DispatchBody';
+import { HistoryBanner } from '../components/activity/HistoryBanner';
 import { LifecycleGraph } from '../components/activity/LifecycleGraph';
 import { ReviewBody } from '../components/activity/ReviewBody';
 import {
@@ -61,23 +77,36 @@ import {
   ACTIVITY_NOT_IN_PLAN,
   activityReadFailed,
   eyebrowFor,
+  HISTORY_ARTIFACT_CAPTION,
   notDispatchedYet,
   planIndexFor,
+  RECONCILE_RATIONALE,
 } from '../components/activity/activityCopy.ts';
-import { selectionFor, type ActivitySelection } from '../components/activity/activitySelection.ts';
+import { activityCommentKey } from '../components/activity/pendingCommentKey.ts';
+import {
+  isHistorical,
+  revisionParam,
+  selectionFor,
+  type ActivitySelection,
+} from '../components/activity/activitySelection.ts';
 import {
   activityViewToGraph,
   taskFactsFor,
   type ActivityViewWire,
 } from '../components/activity/activityViewToGraph.ts';
-import { revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
+import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
 import { openThreadCount, toReviewThread } from '../components/activity/threadAdapter.ts';
-import { taskArtifactFor } from '../components/activity/taskArtifactFor.ts';
+import {
+  ARCHITECTURE_ACTIVITY_ID,
+  taskArtifactFor,
+} from '../components/activity/taskArtifactFor.ts';
 import { verbsFor, type VerbTarget } from './activityVerbs.ts';
 import { toC4View } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { contractJoinFor } from '../contracts/serviceContracts';
 import type { ProjectArtifactModelEnvelope } from '../contracts/types';
+import { ApiError } from '../contracts/errors';
+import { SDP_REVIEW_KIND } from '../contracts/types';
 import { ACTIVITY_PATH, PLAN_PATH, activitySearch, planSearch } from '../contracts/routePaths.ts';
 import { useActivityView } from '../hooks/useActivityView';
 import { activityEpisodesManager } from '../hooks/activityEpisodesManager.ts';
@@ -86,12 +115,14 @@ import { useProject } from '../hooks/useProject';
 import { isNoSessionError } from '../hooks/sessionPolling';
 import { useOverrideActivity, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 import {
+  useAcknowledgeStaleBasis,
   useAskQuestions,
   useRequestArtifactDraft,
   useSetReviewCommentStatus,
   useSubmitReviewDecision,
 } from '../hooks/useDesignMutations';
 import {
+  useAcknowledgeProjectStaleBasis,
   useAdvanceToConstruction,
   useSetProjectReviewCommentStatus,
   useSubmitSDPDecision,
@@ -150,6 +181,10 @@ export function ActivityExperienceContainer({
   const node = sel === undefined ? undefined : nodes.find((n) => n.id === sel.taskId);
   const facts = view !== undefined && sel !== undefined ? taskFactsFor(view, sel.taskId) : {};
   const revisionWire = revisionWireFor(view, sel);
+  // Reading HISTORY: everything that would change something goes away below, and
+  // the one navigation back goes up. `latest` is what the banner counts against.
+  const latest = node === undefined ? 0 : latestRevision(node);
+  const historical = sel !== undefined && isHistorical(nodes, sel);
 
   const slots = project?.slots ?? [];
   const systemEnvelope = slots.find((s) => s.kind === 'system')?.model;
@@ -205,6 +240,8 @@ export function ActivityExperienceContainer({
   const askQuestionsMut = useAskQuestions(projectId);
   const requestDraft = useRequestArtifactDraft(projectId);
   const overrideActivity = useOverrideActivity(projectId);
+  const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
+  const acknowledgeProjectStale = useAcknowledgeProjectStaleBasis(projectId);
 
   // The option the M0 bar will commit. `SdpReviewView` reports its standing
   // choice (its own recommendation, until the reader picks another) — an approve
@@ -229,26 +266,43 @@ export function ActivityExperienceContainer({
     setAnchor(null);
   }, [selectedTask, setAnchor]);
 
-  // Bind the pending-comment accumulator to this (project, activity, task) slot
-  // so unsent notes survive a reload and swap when the reader changes task. The
+  // Bind the pending-comment accumulator to this (project, activity, task,
+  // REVISION) slot (R10) so unsent notes survive a reload, swap when the reader
+  // changes task, and — because the revision is in the key — do not follow the
+  // reader from the draft they were written about onto its successor. The
   // head-state Version is the incarnation stamp that invalidates drafts left by
   // a previous incarnation of the same project (pendingCommentsStore.ts).
+  // `setActiveKey` short-circuits on an unchanged (key, version), so this is safe
+  // on every poll tick.
   const projectVersion = project?.version;
+  const selectedRevision = sel?.revision;
   useEffect(() => {
     if (projectVersion === undefined || selectedTask === undefined) return;
-    setActiveKey(`${projectId}:${activityId}:${selectedTask}`, projectVersion);
-  }, [projectId, activityId, selectedTask, projectVersion, setActiveKey]);
+    setActiveKey(
+      activityCommentKey({
+        projectId,
+        activityId,
+        taskId: selectedTask,
+        revision: selectedRevision ?? 0,
+      }),
+      projectVersion
+    );
+  }, [projectId, activityId, selectedTask, selectedRevision, projectVersion, setActiveKey]);
 
   // The margin auto-opens whenever an anchor is armed (requestId bumps); a manual
   // collapse records the requestId it happened at, and a newer anchor re-opens it.
   const [closedAt, setClosedAt] = useState<number | null>(null);
   const marginOpen = closedAt === null || requestId > closedAt;
 
+  // `revisionParam` is what decides whether the URL carries `rev` at all: the
+  // latest writes none (the address then means "follow the head"), an older one
+  // writes itself. Every navigation on this screen — the graph, both revision
+  // selects and Back to latest — goes through here, so there is one rule.
   const go = (taskId: string, revision: number): void => {
     void navigate({
       to: ACTIVITY_PATH,
       params: { projectId, activityId },
-      search: () => activitySearch(taskId, revision),
+      search: () => activitySearch(taskId, revisionParam(nodes, taskId, revision)),
     });
   };
 
@@ -413,6 +467,72 @@ export function ActivityExperienceContainer({
   const statusPending = setDesignCommentStatus.isPending || setProjectCommentStatus.isPending;
   const decisionPending = submitPhase.isPending || submitDesign.isPending || submitSdp.isPending;
 
+  // ── The stale basis of the committed slot this gate judges ────────────────
+  // Only a SLOT can be stale: `staleBasis` is an `ArtifactSlotView` flag, so this
+  // reaches the design rails' gates and nothing else. It is advisory and never
+  // blocks — both exits below are offered, neither is required.
+  const staleSlot =
+    artifact.kind === 'slot' ? slots.find((s) => s.kind === artifact.artifactKind) : undefined;
+
+  /** Reconcile by AMENDING: a redraft on the design rails, the Architecture on M0. */
+  const reconcileStale = (): void => {
+    switch (verbs.approve.kind) {
+      case 'designReviewDecision':
+        requestDraft.mutate({ kind: verbs.approve.artifactKind, feedback: RECONCILE_RATIONALE });
+        return;
+      case 'sdpDecision':
+        // The M0 plan is DERIVED (spec §6/R7): it is reconciled by amending what
+        // it derives from, which is the same navigation the gate's own link makes.
+        void navigate({
+          to: ACTIVITY_PATH,
+          params: { projectId, activityId: ARCHITECTURE_ACTIVITY_ID },
+          search: () => ({}),
+        });
+        return;
+      case 'constructionPhaseDecision':
+      case 'none':
+        return;
+    }
+  };
+
+  /** The other exit: reviewed — unaffected. Clears StaleBasis with an audit note. */
+  const acknowledgeStaleBasis = (staleNote: string): void => {
+    switch (verbs.approve.kind) {
+      case 'designReviewDecision':
+        acknowledgeStale.mutate({ kind: verbs.approve.artifactKind, note: staleNote });
+        return;
+      case 'sdpDecision':
+        acknowledgeProjectStale.mutate({ kind: SDP_REVIEW_KIND, note: staleNote });
+        return;
+      case 'constructionPhaseDecision':
+      case 'none':
+        return;
+    }
+  };
+
+  // ── The M0 advance, when it fails on its own ──────────────────────────────
+  // Approve is commit-then-advance. A failed advance leaves the SDP committed and
+  // construction NOT started, and by then the gate is decided so the bar is gone:
+  // without this the screen would show nothing at all and read as success.
+  const advanceError = advance.error;
+  const advanceSurface =
+    advanceError === null
+      ? undefined
+      : {
+          error: advanceError.message,
+          // The F55 refusal: committed slots drifted since they were sealed. The
+          // Project Design experience answers it with "advance anyway", and this
+          // gate offers the identical acknowledge-and-seal.
+          stale: advanceError instanceof ApiError && advanceError.code === 'failed_precondition',
+          pending: advance.isPending,
+          onRetry: (): void => {
+            advance.mutate(false);
+          },
+          onAdvanceAnyway: (): void => {
+            advance.mutate(true);
+          },
+        };
+
   // The margin is a FACTORY, not a node: the scroll container its anchor offsets
   // are measured against is owned by the chrome. Mounted for a REVIEW task only —
   // a dispatch body has no artifact to anchor a comment on.
@@ -420,6 +540,10 @@ export function ActivityExperienceContainer({
     node?.kind === 'review' && marginOpen
       ? (scrollRoot: HTMLElement | null): ReactNode => (
           <CommentMargin
+            // On a read-only history a DECIDED thread is the point of the history,
+            // not noise in it, so resolved cards stay open instead of collapsing
+            // to a one-liner nobody can act on anyway.
+            expandResolved={historical}
             scrollRoot={scrollRoot}
             statusPending={statusPending}
             thread={thread}
@@ -427,9 +551,11 @@ export function ActivityExperienceContainer({
               setClosedAt(requestId);
             }}
             // Omitted where no op exists (R2: the construction rail has no
-            // comment-status op) — the documented posture for a surface with no
-            // mutation, rather than buttons that would fail.
-            {...(canSetCommentStatus
+            // comment-status op) and on a read-only history, where resolving a
+            // past round's thread is not a thing a reader may do — the documented
+            // posture for a surface with no mutation, rather than buttons that
+            // would fail.
+            {...(canSetCommentStatus && !historical
               ? {
                   onReopen: (id: string): void => {
                     setCommentStatus(id, 'open');
@@ -443,7 +569,7 @@ export function ActivityExperienceContainer({
         )
       : undefined;
 
-  return (
+  const screen = (
     <ExperienceChrome
       bodyScroll="shared"
       eyebrow={eyebrow}
@@ -478,9 +604,33 @@ export function ActivityExperienceContainer({
         component="section"
         data-testid={UI_IDENTIFIERS.Activity.SCREEN}
         ref={bodyRef}
-        sx={{ flexGrow: 1, minWidth: 0, maxWidth: 1100, mx: 'auto', px: { xs: 2, md: 4 }, py: 3 }}
+        sx={{
+          flexGrow: 1,
+          minWidth: 0,
+          maxWidth: 1100,
+          mx: 'auto',
+          px: { xs: 2, md: 4 },
+          py: 3,
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 2.5,
+        }}
         tabIndex={-1}
       >
+        {/* Above BOTH bodies: which revision you are on is a fact about the
+            selection, not about the task kind. `historical` already carries
+            `sel !== undefined` (there is no history without a selection), which
+            is why it narrows `sel` here on its own. */}
+        {historical ? (
+          <HistoryBanner
+            latest={latest}
+            revision={sel.revision}
+            onBackToLatest={() => {
+              go(sel.taskId, latest);
+            }}
+          />
+        ) : null}
+
         {error !== null ? (
           <Paper data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT} sx={{ p: 3 }}>
             <Typography sx={{ fontSize: 13.5, color: t.ink, lineHeight: 1.5 }}>
@@ -522,6 +672,7 @@ export function ActivityExperienceContainer({
           />
         ) : (
           <ReviewBody
+            advance={advanceSurface}
             allowSendBack={verbs.allowSendBack}
             approveCopy={verbs.approveCopy}
             artifact={artifact}
@@ -529,24 +680,53 @@ export function ActivityExperienceContainer({
             contractJoin={contractJoin}
             decisionPending={decisionPending}
             facts={facts}
+            // What is rendered is the CURRENT artifact, not the one this revision
+            // judged: there is no op that reads an artifact as of `subjectRef.ref`
+            // (GAP-5). The caption says so, and its presence is what puts the
+            // panel in read-only mode.
+            historyCaption={historical ? HISTORY_ARTIFACT_CAPTION : undefined}
             // A decision is owed on THIS revision — not merely "the task is at a
             // gate" — AND this rail can take one. An earlier, decided round
             // offers no bar; neither does a gate whose artifact kind would not
             // resolve, because every button on it would be a no-op.
-            live={revisionWire?.outcome === 'awaitingHuman' && verbs.approve.kind !== 'none'}
+            live={
+              !historical &&
+              revisionWire?.outcome === 'awaitingHuman' &&
+              verbs.approve.kind !== 'none'
+            }
+            note={revisionWire?.note}
             openThreads={openThreads}
             project={project}
-            reviewSet={view.reviewSet}
-            reviewSetError={view.reviewSetError}
+            // The LIVE proposal belongs to the gate the activity is waiting at
+            // now, which is not the round on screen when the round on screen is
+            // past. The roster and the verdicts below ARE that round's, and stay.
+            reviewSet={historical ? undefined : view.reviewSet}
+            reviewSetError={historical ? undefined : view.reviewSetError}
             revision={sel.revision}
             revisions={node.revisions}
             roster={revisionWire?.reviewers}
-            sdp={{ onChoose: setSdpOption }}
+            sdp={historical ? undefined : { onChoose: setSdpOption }}
             slots={slots}
             stagedChangeRequests={changeRequestCount}
             stagedQuestions={questionCount}
+            // Advisory, non-blocking, and only where a mutation is possible: a
+            // past round is not the place to reconcile the current slot.
+            stale={
+              staleSlot?.staleBasis === true && !historical
+                ? {
+                    cause: staleSlot.staleCause,
+                    ackPending: acknowledgeStale.isPending || acknowledgeProjectStale.isPending,
+                    ackError:
+                      acknowledgeStale.error?.message ?? acknowledgeProjectStale.error?.message,
+                    onAcknowledge: acknowledgeStaleBasis,
+                    onReconcile: reconcileStale,
+                  }
+                : undefined
+            }
             systemEnvelope={systemEnvelope}
-            threadReadOnly={!canSetCommentStatus}
+            // The history banner already says the whole surface is read-only;
+            // repeating it per thread would be noise.
+            threadReadOnly={!historical && !canSetCommentStatus}
             title={node.title}
             verdicts={revisionWire?.verdicts}
             vm={vm}
@@ -569,4 +749,13 @@ export function ActivityExperienceContainer({
       </Box>
     </ExperienceChrome>
   );
+
+  // A read-only history suppresses the WHOLE comment affordance set — the
+  // commentable rows' buttons, the armed-anchor probe, the margin's composer —
+  // by shadowing the route's provider with a disabled one. It wraps the chrome,
+  // not just the body, because the chrome is what renders the margin: a provider
+  // around the body alone would leave the margin live. The container's own
+  // `useComments()` above still reads the route's provider, which is what keeps
+  // the pending-comment slot bound while the reader is away in the past.
+  return historical ? <CommentProvider enabled={false}>{screen}</CommentProvider> : screen;
 }

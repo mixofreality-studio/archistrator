@@ -62,6 +62,16 @@ export const SLOT_KIND: Readonly<Record<string, ArtifactKindFull>> = {
 };
 
 /**
+ * The Architecture activity's id — the one activity this screen knows by name,
+ * because the Project Design M0 gate has NO send-back: its plan is derived, so
+ * the only way to change it is to amend what it derives from (spec §6/R7). Both
+ * the gate's `Amend Architecture →` link and its stale-basis reconcile open it,
+ * so the id lives beside the rule that identifies that gate rather than in the
+ * two components that navigate there.
+ */
+export const ARCHITECTURE_ACTIVITY_ID = 'architecture';
+
+/**
  * The artifact classifications this stage actually renders — ported verbatim
  * from `bodyDispatch.ts:64`.
  *
