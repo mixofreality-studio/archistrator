@@ -47,6 +47,9 @@ export const UI_IDENTIFIERS = {
     tocRow: (kind: string) => `toc-row-${kind}`,
     OPEN_SYSTEM_DESIGN: 'open-system-design',
     OPEN_PROJECT_DESIGN: 'open-project-design',
+    // The ONE card that replaced the three phase cards (stage 5 §7.4): the plan
+    // is the project's one working surface now, so home base offers one door.
+    OPEN_PLAN: 'home-base-open-plan',
     // Ghost-project recovery affordance (repo adopted but head-state init failed).
     GHOST_PANEL: 'home-base-ghost-panel',
     GHOST_FINISH_SETUP: 'home-base-ghost-finish-setup',

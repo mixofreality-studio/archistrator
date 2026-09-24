@@ -57,7 +57,7 @@ import { ProvenanceGroupStamp, ProvenanceRailMark, readProvenance } from '../pro
 import type { GraphCard } from './activityGraphModel';
 import { CARD_HEAD_H, CARD_W, LANE_H } from './activityGraphLayout';
 import type { LaneSpine, SpineSegment } from './laneSpine';
-import { lodFor, railGapPx, selectionOutlinePx, type Lod } from './graphViewport';
+import { lodFor, railGapPx, selectionOutlinePx, type Lod } from '../../activity/graphViewport';
 import {
   HOLLOW_HOVER_TEXT,
   SEGMENT_STATE_LABEL,

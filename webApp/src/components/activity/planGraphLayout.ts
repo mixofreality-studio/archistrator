@@ -83,6 +83,13 @@ export const PLAN_COL_W = COL_W;
 export const PLAN_ROW_H = ROW_H;
 /** Clear space between the widest row and N-STP's side lane. */
 const LANE_GAP = 96;
+/**
+ * The room the pinned row gutter's labels keep, in FLOW px: the canvas places
+ * an invisible spacer node this wide to the left of every row, so `fitView`
+ * counts the gutter's column and no card is ever fitted underneath it
+ * (rowGutter.ts's own rule, stated here because it is a LAYOUT fact).
+ */
+export const PLAN_GUTTER_ROOM = 120;
 
 const ROW_LABEL: Record<Exclude<PlanRow, 'sideLane'>, string> = {
   frontEnd: 'Front end',

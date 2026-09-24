@@ -1,5 +1,8 @@
 /**
- * The GRAPH lens's memory across remounts, and its level-of-detail rule.
+ * A graph canvas's memory across remounts, and its level-of-detail rule. It
+ * lives in `components/activity/` because BOTH canvases key their viewport with
+ * it — the plan screen's build-order graph (PlanGraph.tsx) and, until Task 13
+ * retires it, the construction console's layer-stack lens.
  *
  * WHY A MODULE STORE
  * ------------------

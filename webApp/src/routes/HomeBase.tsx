@@ -20,7 +20,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
-import { EconomicsStrip, PhaseCard } from '../components/HomeBaseParts';
+import { EconomicsStrip } from '../components/HomeBaseParts';
 import { ReviewPolicyControl } from '../components/ReviewPolicyControl';
 import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
@@ -47,6 +47,7 @@ import {
 } from '../contracts/adapters';
 import type { ProjectStateWithGit } from '../contracts/types';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
+import { PLAN_PATH, planSearch } from '../contracts/routePaths';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -313,20 +314,43 @@ function HomeBaseBody({
 
       <EconomicsStrip project={project} />
 
-      {/* Phase progress cards — one per phase (System Design → Project Design → Construction).
-          The active phase's card is the live one; locked phases are greyed out. */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, mt: 3, flexWrap: 'wrap' }}>
-        {phases.map((phase) => (
-          <Box key={phase.id} sx={{ flex: '1 1 200px', minWidth: 0 }}>
-            <PhaseCard
-              phase={phase}
-              onResume={() => {
-                const route = PHASE_DESIGN_ROUTE[phase.id];
-                if (route !== null) openDesign(route);
-              }}
-            />
+      {/* ONE card, not three (stage 5 §7.4). The three phase cards described a
+          project that moved through System Design → Project Design →
+          Construction as three separate places; the plan is the one place now,
+          and Requirements / Architecture / Project Design are simply its first
+          three activities. The headline state is the project's current phase —
+          the same fact the top-right button already names — so the card says
+          where the project is and opens the one surface that shows it. */}
+      <Box sx={{ mb: 3, mt: 3 }}>
+        <Paper
+          data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
+          sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
+        >
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
+              {`PHASE ${String(currentPhase.index)} · ${currentPhase.title.toUpperCase()}`}
+            </Typography>
+            <Typography sx={{ color: t.ink }} variant="h6">
+              Project plan
+            </Typography>
+            <Typography sx={{ color: t.muted }} variant="caption">
+              {currentPhase.subtitle}
+            </Typography>
           </Box>
-        ))}
+          <Button
+            endIcon={<ArrowForwardIcon />}
+            variant="outlined"
+            onClick={() => {
+              void navigate({
+                to: PLAN_PATH,
+                params: { projectId },
+                search: () => planSearch('list'),
+              });
+            }}
+          >
+            Open plan
+          </Button>
+        </Paper>
       </Box>
 
       {/* Review-policy preset dial (vibes / checkpoints / full) + the permanent

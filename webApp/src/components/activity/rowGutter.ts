@@ -1,6 +1,8 @@
 /**
- * The GRAPH lens's row-label gutter (designer P1-6): row labels readable at
- * fit.
+ * A graph canvas's row-label gutter (designer P1-6): row labels readable at
+ * fit. It lives in `components/activity/` because both canvases pin one — the
+ * plan screen's build-order rows (PlanGraph.tsx) and, until Task 13 retires it,
+ * the construction console's layer stack.
  *
  * The labels used to be canvas nodes, so they scaled with the viewport: at fit
  * (zoom ≈ 0.4) "RESOURCE ACCESS" was a 5px smudge. They are now a PINNED HTML

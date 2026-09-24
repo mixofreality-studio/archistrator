@@ -140,7 +140,10 @@ void test('the signature function itself reads no status, attempt or provenance'
 
 void test("the lens's call site passes only ids, so no poll-borne value reaches the signature", () => {
   namesNoEvidence(
-    callText(source('./ActivityGraphLens.tsx'), 'graphSignatureOf'),
+    // Still the construction graph lens's own call: this module moved to
+    // components/activity (the plan screen keys its viewport with it too), the
+    // lens did not. Task 13 deletes the lens and this one assertion with it.
+    callText(source('../construction/graph/ActivityGraphLens.tsx'), 'graphSignatureOf'),
     'the ActivityGraphLens call to graphSignatureOf'
   );
 });

@@ -2,8 +2,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  CRITICAL_MARK,
   LENS_LABEL,
+  M0_CAPTION,
   M0_DIVIDER,
+  M0_LABEL,
   criticalPathNote,
   planEmptyState,
   unplacedTilesNote,
@@ -45,4 +48,13 @@ void test('criticalPathNote is singular at one and plural otherwise, the live co
   assert.equal(criticalPathNote(1), '1 activity on the critical path');
   assert.equal(criticalPathNote(0), '0 activities on the critical path');
   assert.equal(criticalPathNote(15), '15 activities on the critical path');
+});
+
+void test('the milestone node names M0 and says what it gates', () => {
+  assert.equal(M0_LABEL, 'M0');
+  assert.equal(M0_CAPTION, 'gates all construction');
+});
+
+void test('a critical-path tile says a word, not only a colour', () => {
+  assert.equal(CRITICAL_MARK, 'CP');
 });

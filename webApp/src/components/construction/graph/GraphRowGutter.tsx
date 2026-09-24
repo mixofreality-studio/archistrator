@@ -22,7 +22,7 @@ import {
   gutterLabelFontPx,
   gutterWidthFor,
   rowGutterLabels,
-} from './rowGutter';
+} from '../../activity/rowGutter';
 
 export function GraphRowGutter({ rows }: { rows: readonly GraphLayoutRow[] }): ReactElement {
   const t = useTokens();

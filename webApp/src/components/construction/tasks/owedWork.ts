@@ -39,12 +39,16 @@
  * that count is zero (architect Q1 — the honesty gap this branch shipped with).
  */
 import type {
+  ArtifactSlotView,
   ConstructionReviewer,
   ConstructionRow,
   ConstructionSessionState,
 } from '../../../contracts/types';
 import type { FailureReason } from '../../../contracts/enums.gen';
 import type { ActivityKind } from '../KindBadge';
+import { ARTIFACT_STAGE_APP_STRINGS } from '../../../contracts/enums.gen.ts';
+import { lifecycleFor } from '../../activity/lifecycles.gen.ts';
+import { SLOT_KIND } from '../../activity/taskArtifactFor.ts';
 import { profileFor } from '../detail/bodies/taskBriefing.ts';
 
 /** Why a row is owed. */
@@ -198,6 +202,82 @@ function owedFor(
   };
 }
 
+/**
+ * The three DESIGN activities at the head of the plan. They are dispatched by
+ * the design rails, not the construction pump, so `constructionGetSessionState`
+ * never answers for them and {@link owedFor}'s gate branch — which needs a live
+ * session at `awaitingApproval` — can never fire for one.
+ */
+const DESIGN_KINDS: ReadonlySet<string> = new Set([
+  'requirements',
+  'architecture',
+  'projectDesign',
+]);
+
+/**
+ * A DESIGN activity's owed decision, derived rather than probed.
+ *
+ * requirements / architecture / projectDesign are dispatched by the design
+ * rails, not the construction pump, so `constructionGetSessionState` never
+ * answers for them and `owedFor`'s gate branch cannot see them (it needs a
+ * session at `awaitingApproval`). What IS visible, from the same project read
+ * the plan already makes, is the artifact slot: a slot at
+ * `stage === 'awaitingReview'` is precisely "a draft is staged and a human
+ * owes it a verdict". That is the whole condition, and it needs no probe, no
+ * new op and no second poll.
+ *
+ * The lifecycle's phase → artifactKind mapping says WHICH slots belong to the
+ * activity (requirements: mission/glossary/volatilities/coreUseCases;
+ * architecture: system; projectDesign: sdpReview), and the first such slot
+ * awaiting review is the gate the row is sitting at.
+ */
+export function designOwedFor(
+  row: ConstructionRow,
+  slots: readonly ArtifactSlotView[],
+  titleFor: ((id: string) => string | undefined) | undefined
+): OwedItem | 'clear' {
+  const def = row.kind === undefined ? undefined : lifecycleFor(row.kind);
+  if (def === undefined) return 'clear';
+  // `adapters.slotStageFromOrdinal` is EXACTLY this index, and is the function
+  // every container calls — but `contracts/adapters.ts` cannot be loaded by
+  // `node --test` (its relative value imports carry no extension, and adding
+  // them breaks `uitests`' own tsconfig, which type-checks adapters through a
+  // type-only import in `testids.ts`). So this pure module reads the ONE
+  // GENERATED tuple that function is a one-line index into — the same single
+  // source of truth, never a hand-written ordinal switch.
+  const stageOf = new Map(slots.map((s) => [s.kind, ARTIFACT_STAGE_APP_STRINGS[s.stage]]));
+  // The phases in their authored order — the first one still awaiting a verdict
+  // is where the activity is stopped. A later phase's slot cannot be staged
+  // before an earlier one's is committed, so "first" is also "current".
+  for (const phase of def.phases) {
+    const artifactKind = def.tasks.find(
+      (t) => t.phase === phase.id && t.artifactKind !== undefined
+    )?.artifactKind;
+    const slotKind = artifactKind === undefined ? undefined : SLOT_KIND[artifactKind];
+    if (slotKind === undefined || stageOf.get(slotKind) !== 'awaitingReview') continue;
+    const gateTask = def.tasks.find((t) => t.id === phase.gate);
+    const round = row.attempts.filter((a) => a.task === phase.gate).length;
+    return {
+      ...base(row, 'gate', titleFor),
+      key:
+        round > 0 ? `${row.activityId}:${phase.gate}:${String(round)}` : `${row.activityId}:gate`,
+      gate: {
+        lifecyclePhase: phase.id,
+        phaseName: phase.label,
+        exitCriterion: phase.exitCriterion,
+        task: phase.gate,
+        ...(gateTask !== undefined ? { label: gateTask.title } : {}),
+      },
+      ...(round > 0 ? { round } : {}),
+      // A design review's reviewer set lives on its own review thread, not on a
+      // construction session — this derivation has none to report, and says so
+      // with an empty set rather than inventing one.
+      reviewers: [],
+    };
+  }
+  return 'clear';
+}
+
 /** Probe candidates with no answer yet — each id in exactly one list, sorted. */
 export interface UncheckedProbes {
   /** Still in their first fetch. */
@@ -217,6 +297,10 @@ export interface OwedWorkInput {
   sessions: SessionsByActivity;
   /** Probes that failed without answering (constructionSessions.erroredProbesFor). */
   erroredProbes?: readonly string[];
+  /** The project's artifact slots — the DESIGN activities' only owed evidence
+   *  (designOwedFor). Absent leaves the three design rows clear, which is what
+   *  every caller that cannot see the slots should say. */
+  slots?: readonly ArtifactSlotView[];
   titleFor?: (id: string) => string | undefined;
 }
 
@@ -232,7 +316,17 @@ export function owedWorkFor(input: OwedWorkInput): OwedWork {
   const pending: string[] = [];
   const failed: string[] = [];
   for (const row of Object.values(input.rows ?? {})) {
-    const verdict = owedFor(row, input.sessions[row.activityId], input.titleFor);
+    // The DESIGN branch is taken FIRST, and it is total: the session branch
+    // below can never fire for these three kinds (no construction session is
+    // ever opened for them), so asking it would report every design activity
+    // as clear no matter what its slot says.
+    // ...except for a recorded terminal failure, which outranks every gate and
+    // is reported the same way for a design activity as for any other.
+    const terminallyFailed = row.status === 'failed' || row.failureReason !== undefined;
+    const verdict =
+      !terminallyFailed && row.kind !== undefined && DESIGN_KINDS.has(row.kind)
+        ? designOwedFor(row, input.slots ?? [], input.titleFor)
+        : owedFor(row, input.sessions[row.activityId], input.titleFor);
     if (verdict === 'clear') continue;
     if (verdict === 'unchecked') {
       if (candidates.has(row.activityId)) {

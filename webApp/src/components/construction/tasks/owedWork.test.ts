@@ -10,12 +10,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
 import type {
+  ArtifactKindFull,
+  ArtifactSlotView,
   ConstructionRow,
   ConstructionSessionState,
   ConstructionStage,
   TaskAttemptRow,
 } from '../../../contracts/types.ts';
+import { ARTIFACT_STAGE_APP_TO_ORDINAL } from '../../../contracts/enums.gen.ts';
 import {
+  designOwedFor,
   owedItemsFor,
   owedWorkFor,
   probeCandidatesFor,
@@ -282,4 +286,151 @@ void test('the evidence view keeps the owed set and the probe set whole', () => 
   const viewed = owedItemsFor({ rows: view, sessions }).map((i) => i.key);
   assert.deepEqual(viewed, whole);
   assert.deepEqual(probeCandidatesFor(view), probeCandidatesFor(rows));
+});
+
+// ---------------------------------------------------------------------------
+// The DESIGN activities' owed decisions (stage 5 §7.3), derived from the
+// artifact slots the same project read already carries — never probed.
+// ---------------------------------------------------------------------------
+
+/** A slot at a stage, by its ordinal (ARTIFACT_STAGE_APP_STRINGS' own order). */
+function slot(
+  kind: ArtifactKindFull,
+  stage: 'empty' | 'awaitingReview' | 'committed'
+): ArtifactSlotView {
+  return {
+    kind,
+    stage: ARTIFACT_STAGE_APP_TO_ORDINAL[stage] as ArtifactSlotView['stage'],
+    model: {} as ArtifactSlotView['model'],
+  };
+}
+
+const REQUIREMENTS_SLOTS: readonly ArtifactKindFull[] = [
+  'mission',
+  'glossary',
+  'volatilities',
+  'coreUseCases',
+];
+
+void test('a requirements row with the glossary slot awaiting review owes that gate', () => {
+  const slots = REQUIREMENTS_SLOTS.map((k) =>
+    slot(k, k === 'glossary' ? 'awaitingReview' : 'committed')
+  );
+  const item = designOwedFor(
+    row({ activityId: 'requirements', kind: 'requirements' }),
+    slots,
+    undefined
+  );
+  assert.notEqual(item, 'clear');
+  if (item === 'clear') return;
+  assert.equal(item.reason, 'gate');
+  assert.equal(item.activityId, 'requirements');
+  assert.ok(item.gate !== undefined);
+  assert.equal(item.gate.task, 'glossaryReview');
+  assert.equal(item.gate.lifecyclePhase, 'glossary');
+  assert.equal(item.gate.phaseName, 'Glossary');
+  assert.deepEqual(item.reviewers, []);
+});
+
+void test('a requirements row with every slot committed owes nothing', () => {
+  const slots = REQUIREMENTS_SLOTS.map((k) => slot(k, 'committed'));
+  assert.equal(
+    designOwedFor(row({ activityId: 'requirements', kind: 'requirements' }), slots, undefined),
+    'clear'
+  );
+});
+
+void test('an architecture row is owed on the system slot', () => {
+  const item = designOwedFor(
+    row({ activityId: 'architecture', kind: 'architecture' }),
+    [slot('system', 'awaitingReview')],
+    (id) => (id === 'architecture' ? 'Architecture & Call Chains' : undefined)
+  );
+  assert.notEqual(item, 'clear');
+  if (item === 'clear') return;
+  assert.equal(item.gate?.task, 'architectureReview');
+  assert.equal(item.title, 'Architecture & Call Chains');
+});
+
+void test('a projectDesign row is owed on the sdpReview slot — the M0 gate', () => {
+  const item = designOwedFor(
+    row({ activityId: 'projectDesign', kind: 'projectDesign' }),
+    [slot('sdpReview', 'awaitingReview')],
+    undefined
+  );
+  assert.notEqual(item, 'clear');
+  if (item === 'clear') return;
+  assert.ok(item.gate !== undefined);
+  assert.equal(item.gate.task, 'sdpReview');
+  assert.equal(item.gate.lifecyclePhase, 'sdp');
+  assert.equal(item.key, 'projectDesign:gate', 'no ledger attempt yet: the bare gate key');
+});
+
+void test('the ledger rounds a design gate the same way a construction gate is rounded', () => {
+  const attempts: TaskAttemptRow[] = [
+    {
+      attemptId: 'projectDesign:sdpReview:1',
+      task: 'sdpReview',
+      phase: 'sdp',
+      attempt: 1,
+      outcome: 'rejected',
+      evidence: { kind: '', ref: '' },
+      provenance: { origin: 'observed' },
+    },
+  ];
+  const item = designOwedFor(
+    row({ activityId: 'projectDesign', kind: 'projectDesign', attempts }),
+    [slot('sdpReview', 'awaitingReview')],
+    undefined
+  );
+  assert.notEqual(item, 'clear');
+  if (item === 'clear') return;
+  assert.equal(item.round, 1);
+  assert.equal(item.key, 'projectDesign:sdpReview:1');
+});
+
+void test('owedWorkFor takes the design branch, and a construction row is untouched by it', () => {
+  const rows = {
+    requirements: row({ activityId: 'requirements', kind: 'requirements' }),
+    'C-x': row({ activityId: 'C-x' }),
+  };
+  const work = owedWorkFor({
+    rows,
+    sessions: { 'C-x': session('C-x', 'awaitingApproval') },
+    slots: [slot('mission', 'awaitingReview')],
+  });
+  assert.deepEqual(
+    work.items.map((i) => i.activityId),
+    ['C-x', 'requirements']
+  );
+  assert.equal(
+    work.items.find((i) => i.activityId === 'requirements')?.gate?.task,
+    'missionReview'
+  );
+});
+
+void test('with no slots handed in, the design rows stay clear rather than guess', () => {
+  const work = owedWorkFor({
+    rows: { requirements: row({ activityId: 'requirements', kind: 'requirements' }) },
+    sessions: {},
+  });
+  assert.deepEqual(work.items, []);
+  assert.deepEqual(work.unchecked, { pending: [], errored: [] });
+});
+
+void test('a design row that FAILED is still reported as failed, gate or no gate', () => {
+  const work = owedWorkFor({
+    rows: {
+      architecture: row({
+        activityId: 'architecture',
+        kind: 'architecture',
+        status: 'failed',
+        failureReason: 'pipelineFailed',
+      }),
+    },
+    sessions: {},
+    slots: [slot('system', 'awaitingReview')],
+  });
+  assert.equal(work.items.length, 1);
+  assert.equal(work.items[0]?.reason, 'failed');
 });

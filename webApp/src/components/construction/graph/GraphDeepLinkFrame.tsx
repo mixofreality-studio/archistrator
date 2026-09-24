@@ -12,7 +12,7 @@ import { getViewportForBounds, useReactFlow, useStoreApi } from '@xyflow/react';
 
 import { UI_IDENTIFIERS } from '../../../utilities/constants/UIIdentifiers';
 import { prefersReducedMotion } from '../../../utilities/reducedMotion';
-import { visibleCanvasWidthPx } from './graphViewport';
+import { visibleCanvasWidthPx } from '../../activity/graphViewport';
 
 const FRAME_PADDING = 0.4;
 const FRAME_MAX_ZOOM = 1.2;

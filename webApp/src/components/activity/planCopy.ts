@@ -9,6 +9,10 @@ export const LENS_LABEL: Readonly<Record<'list' | 'graph' | 'tasks', string>> = 
 /** The divider between the three design activities and the build stack. */
 export const M0_DIVIDER = 'M0 · SDP Review approved — construction begins';
 
+/** The milestone node's own two lines on the GRAPH. */
+export const M0_LABEL = 'M0';
+export const M0_CAPTION = 'gates all construction';
+
 /**
  * Why an activity is in the list but not on the canvas. The committed activity
  * list decides what EXISTS; the model decides where a tile can be DRAWN. When
@@ -25,6 +29,9 @@ export function planEmptyState(reason: 'noPlan' | 'noRows'): string {
     ? 'No activity list is committed yet. Approve the Project Design activity (M0) and the plan appears here.'
     : 'The committed activity list is empty.';
 }
+
+/** The always-visible word on a critical-path tile — colour is never alone. */
+export const CRITICAL_MARK = 'CP';
 
 /** The always-visible numeral beside the critical-path rail (WCAG 1.4.1 — never colour alone). */
 export function criticalPathNote(count: number): string {

@@ -78,14 +78,14 @@ import {
   graphMountFor,
   graphSignatureOf,
   saveGraphViewport,
-} from './graphViewport';
+} from '../../activity/graphViewport';
 import { scrollerBoxOf } from '../scrollerGeometry';
 import { graphNodeTypes } from './graphNodeTypes';
 import type { GraphCardData } from './GraphNodes';
 import { GateRibbon, GraphKeyBar } from './GraphStrips';
 import { GraphDeepLinkFrame } from './GraphDeepLinkFrame';
 import { GraphRowGutter, ROW_SPACER_W } from './GraphRowGutter';
-import { CONTROLS_OFFSET_PX } from './rowGutter';
+import { CONTROLS_OFFSET_PX } from '../../activity/rowGutter';
 
 /** Far enough out to fit the widest real row (ten ResourceAccess cards) at 1280. */
 const MIN_ZOOM = 0.15;
