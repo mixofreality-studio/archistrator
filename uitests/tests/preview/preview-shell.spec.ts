@@ -7,7 +7,7 @@
  * What this pins, against the built bundle served statically (the `preview`
  * project in playwright.config.ts; no Go server, no network):
  *   - each fixture state renders through the REAL components (the rows the
- *     console draws are exactly the fixture's activities; the landing's card is
+ *     PLAN draws are exactly the fixture's activities; the landing's card is
  *     the fixture's project; a pending read holds the real loading state; an
  *     error fixture reaches the real error UI);
  *   - an unfixtured call fails LOUDLY (the alarm, the incident log);
@@ -15,6 +15,15 @@
  *   - a nested preview inside a preview is refused;
  *   - memory history: the page URL is never rewritten;
  *   - an unknown state is an honest error page, never a guess.
+ *
+ * STAGE 5 RETARGET (Task 12). The first two cases used to drive
+ * `?screen=construction`, whose `ActivityTreeView` Task 13 deletes. All four
+ * guarantees are unchanged — the real screen draws exactly the fixture's
+ * activities, an unfixtured call is LOUD, nothing but the bundle is fetched, a
+ * nested preview is refused — they are simply asserted over the PLAN's fixtures
+ * now, and the unclassified-row guarantee moved with them. The construction
+ * states no assertion below still opens are deleted; the rest stay until Task 13
+ * rules on the screen itself.
  */
 import { readFileSync } from 'node:fs';
 import type { Page, Request } from '@playwright/test';
@@ -74,10 +83,8 @@ async function openState(page: Page, screen: string, state: string): Promise<str
 }
 
 test.describe('preview shell: the real app over fixtures', () => {
-  test('construction · resting: the real console draws exactly the fixture activities', async ({
-    page,
-  }) => {
-    const data = fixture('construction', 'resting');
+  test('plan · list: the real plan draws exactly the fixture activities', async ({ page }) => {
+    const data = fixture('plan', 'list');
     const project = data.ops['systemDesignGetProject']?.result as {
       Name: string;
       activityExecution: Record<string, unknown>;
@@ -85,12 +92,12 @@ test.describe('preview shell: the real app over fixtures', () => {
     const activityIds = Object.keys(project.activityExecution);
     expect(activityIds.length).toBeGreaterThan(0);
 
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
     for (const id of activityIds) {
-      await expect(page.getByTestId(TESTID.constructionListRow(id))).toBeVisible();
+      await expect(page.getByTestId(TESTID.planRow(id))).toBeVisible();
     }
-    await expect(page.getByTestId(/^construction-list-row-/)).toHaveCount(activityIds.length);
+    await expect(page.getByTestId(/^plan-row-/)).toHaveCount(activityIds.length);
     await expect(page.getByText(project.Name, { exact: true }).first()).toBeVisible();
 
     // Clean: nothing missed, nothing blocked, nothing sent.
@@ -98,11 +105,11 @@ test.describe('preview shell: the real app over fixtures', () => {
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);
     // Memory history: the router opened the fixture's route without touching the URL.
-    expect(page.url()).toMatch(/\/index\.html\?screen=construction&state=resting$/);
-    await expect(page).toHaveTitle('Preview · construction · resting · fixture data');
+    expect(page.url()).toMatch(/\/index\.html\?screen=plan&state=list$/);
+    await expect(page).toHaveTitle('Preview · plan · list · fixture data');
   });
 
-  test('construction · unclassified-row: an activity the classifier refused to type renders UNCLASSIFIED with zero lifecycle sub-rows', async ({
+  test('plan · unclassified: an activity the classifier refused to type is still LISTED, and draws no mini lifecycle', async ({
     page,
   }) => {
     interface Row {
@@ -110,8 +117,9 @@ test.describe('preview shell: the real app over fixtures', () => {
       classified: boolean;
       Phases: unknown[];
     }
-    const project = fixture('construction', 'unclassified-row').ops['systemDesignGetProject']
-      ?.result as { activityExecution: Record<string, Row> };
+    const project = fixture('plan', 'unclassified').ops['systemDesignGetProject']?.result as {
+      activityExecution: Record<string, Row>;
+    };
     const rows = Object.values(project.activityExecution);
     // The fixture's whole point (spec §9 AC4): exactly one row the server could
     // not type — ClassifyType's ok=false — carrying no phases on the wire.
@@ -123,29 +131,21 @@ test.describe('preview shell: the real app over fixtures', () => {
     const knownId = rows.find((r) => r.classified && r.Phases.length > 0)?.ActivityID ?? '';
     expect(knownId).not.toEqual('');
 
-    const offBundle = await openState(page, 'construction', 'unclassified-row');
-    const unknown = page.getByTestId(TESTID.constructionListRow(unknownId));
+    const offBundle = await openState(page, 'plan', 'unclassified');
+    // The COMMITTED activity list decides what exists, so the row is there even
+    // though the server could not type it.
+    const unknown = page.getByTestId(TESTID.planRow(unknownId));
     await expect(unknown).toBeVisible();
-    // It says what it is, and never guesses a kind.
-    await expect(unknown).toContainText('UNCLASSIFIED');
+    await expect(unknown).toContainText('Unclassified');
+    // And it draws NO mini lifecycle: miniLifecycleFromRow returns [] over a row
+    // with no phases, which is what the "—" in its place says out loud.
+    await expect(unknown.getByTestId(TESTID.lifecycleGraphMini)).toHaveCount(0);
+    await expect(unknown).toContainText('—');
 
-    // ArrowRight is the tree's expand gesture. Nothing opens: an unclassified
-    // activity has no phase and no task rows to open. The sub-row ids are the
-    // tree's own (`<activityId>::<phase>[::<task>]`).
-    await unknown.click();
-    await page.keyboard.press('ArrowRight');
-    await expect(
-      page.getByTestId(new RegExp(`^construction-list-row-${unknownId}::`))
-    ).toHaveCount(0);
-
-    // The control: the SAME gesture on a typed activity does open its lifecycle,
-    // so the count above measures the classification, not a dead keystroke.
-    const known = page.getByTestId(TESTID.constructionListRow(knownId));
-    await known.click();
-    await page.keyboard.press('ArrowRight');
-    await expect(
-      page.getByTestId(new RegExp(`^construction-list-row-${knownId}::`)).first()
-    ).toBeVisible();
+    // The control: a typed neighbour DOES draw one, so the count above measures
+    // the classification rather than a mini lifecycle nothing renders anywhere.
+    const known = page.getByTestId(TESTID.planRow(knownId));
+    await expect(known.getByTestId(TESTID.lifecycleGraphMini)).toHaveCount(1);
 
     // Incidents first: a miss names the op it missed, which a bare alarm count does not.
     expect(await incidents(page)).toEqual([]);
@@ -300,7 +300,7 @@ test.describe('preview shell: loud failures and closed doors', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
     });
-    const offBundle = await openState(page, 'construction', 'unfixtured-read');
+    const offBundle = await openState(page, 'plan', 'unfixtured-read');
     const alarm = page.getByTestId(TESTID.previewAlarm);
     await expect(alarm).toBeVisible();
     await expect(alarm).toContainText('fixture-miss: systemDesignGetProject');
@@ -318,8 +318,8 @@ test.describe('preview shell: loud failures and closed doors', () => {
   test('every other request is blocked by the guard before it leaves the page', async ({
     page,
   }) => {
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
 
     const outcome = await page.evaluate(async () => {
       const result: Record<string, string> = {};
@@ -357,8 +357,8 @@ test.describe('preview shell: loud failures and closed doors', () => {
   });
 
   test('the nested preview is off: a frame inside the preview is refused', async ({ page }) => {
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
     const violated = await page.evaluate(
       () =>
         new Promise<string>((resolve) => {
