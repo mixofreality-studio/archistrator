@@ -238,6 +238,16 @@ func commentsInRound(thread []projectstate.ReviewComment, round int64) []project
 // The artifact kind is part of the id because three kinds share the architecture gate and
 // each counts its own rounds; a three-part id would fold two unrelated review histories
 // into one.
+//
+// A CRITIQUE-ONLY SLOT MINTS NO ROUND. The skip above lets a slot through when it holds a
+// thread OR a CritiqueVerdict, but the rounds themselves are grouped by the THREAD's round
+// numbers (slotRounds): a slot with a recorded critique and an EMPTY thread yields no
+// round for withCritique to land the critique on, so the §5.3 "CritiqueVerdict/Notes → one
+// backfilled projectManager verdict" conversion does not happen for it. That is deliberate
+// rather than fixed: inventing a round for a critique would claim a review occurrence the
+// record does not contain, and a critique carries no round number of its own to place it
+// at. No such slot exists on this repository's state; EARMARK (docs/bugs/2026-09-24) for
+// the day the tool is pointed at another project's.
 func designRounds(activityID string, p projectstate.Project, held []projectstate.ReviewRound, now time.Time) ([]projectstate.ReviewRound, []string, int) {
 	var out []projectstate.ReviewRound
 	var skipped []string
@@ -344,7 +354,10 @@ func withCritique(rounds []projectstate.ReviewRound, slot projectstate.ArtifactS
 // pair with sits BELOW the ledger's lowest number, which is where
 // appendPreLedgerRejections puts the attempt it reconstructs for it — so the round and
 // that reconstruction name the same review rather than double-counting it.
-func noteRounds(activityID string, row projectstate.ActivityExecution, held []projectstate.ReviewRound, now time.Time) []projectstate.ReviewRound {
+// A gate whose notes cannot be numbered fails the WHOLE run (see noteNumbers): the tool
+// writes nothing and names the activity, so the operator can look at that row rather than
+// receive a document with a round in it that no reader can place.
+func noteRounds(activityID string, row projectstate.ActivityExecution, held []projectstate.ReviewRound, now time.Time) ([]projectstate.ReviewRound, error) {
 	var out []projectstate.ReviewRound
 	for _, phase := range notedPhases(row.OperatorNotes) {
 		gate := projectstate.GateTaskFor(phase)
@@ -352,7 +365,11 @@ func noteRounds(activityID string, row projectstate.ActivityExecution, held []pr
 			continue
 		}
 		notes := sendBacksAt(row.OperatorNotes, phase)
-		for i, n := range noteNumbers(row.Attempts, gate, len(notes)) {
+		numbers, err := noteNumbers(row.Attempts, gate, len(notes))
+		if err != nil {
+			return nil, fmt.Errorf("activity %s: %w", activityID, err)
+		}
+		for i, n := range numbers {
 			id := projectstate.AttemptID(activityID, gate, n)
 			if holdsRound(held, id) || holdsRound(out, id) || holdsNumber(held, gate, int64(n)) {
 				continue
@@ -360,7 +377,7 @@ func noteRounds(activityID string, row projectstate.ActivityExecution, held []pr
 			out = append(out, noteRound(id, gate, phase, n, notes[i], now))
 		}
 	}
-	return out
+	return out, nil
 }
 
 // noteRound is one send-back note as a round: the operator's own words as the human
@@ -429,7 +446,17 @@ func sendBacksAt(notes []projectstate.OperatorNote, phase projectstate.ActivityM
 // noteNumbers is the round number each of the phase's notes takes, tails aligned onto the
 // gate's RECORDED rejections. A note with no rejection to pair with numbers below the
 // ledger's lowest attempt, which is where the read path's own reconstruction puts it.
-func noteNumbers(attempts []projectstate.TaskAttempt, gate projectstate.MethodTask, notes int) []int {
+//
+// A NUMBER BELOW 1 IS REFUSED, NOT CLAMPED. When a gate holds more send-back notes than
+// recorded rejections and its lowest recorded attempt does not leave room beneath it, the
+// tails-aligned arithmetic runs off the bottom: `lowest - (offset - i)` reaches 0 or less.
+// Such a round is not a round anywhere — OpenReviewRound refuses `Round < 1` outright
+// (ContractMisuse), the read model's roundNumberOrNil drops a 0, and a negative one reaches
+// the wire and drags splitAtLowestRound below every real attempt on the row. Clamping would
+// silently renumber somebody's review history into a shape no writer could have produced,
+// which is the opposite of what a backfill is for; this tool is run by hand on other
+// projects' state, so it refuses and names what it found instead.
+func noteNumbers(attempts []projectstate.TaskAttempt, gate projectstate.MethodTask, notes int) ([]int, error) {
 	var rejections []int
 	lowest := 0
 	for _, a := range attempts {
@@ -455,7 +482,13 @@ func noteNumbers(attempts []projectstate.TaskAttempt, gate projectstate.MethodTa
 			out = append(out, 1+i)
 		}
 	}
-	return out
+	for _, n := range out {
+		if n < 1 {
+			return nil, fmt.Errorf("gate %q holds %d send-back note(s) against %d recorded rejection(s), and the lowest recorded gate attempt is %d — the unpaired notes number %d, which no writer could have produced (a round is 1-based); refusing rather than renumbering this review history",
+				gate, notes, len(rejections), lowest, n)
+		}
+	}
+	return out, nil
 }
 
 // ---- the edit ---------------------------------------------------------------------------
@@ -497,7 +530,7 @@ type report struct {
 // (activityExecutionOrLegacy → toActivityExecution), which is the one implementation of
 // that carry-forward; this adds what the carry-forward cannot know: the version, the pin,
 // and the rounds the review history was hiding in.
-func convert(p *projectstate.Project, stored map[string]json.RawMessage, now time.Time) report {
+func convert(p *projectstate.Project, stored map[string]json.RawMessage, now time.Time) (report, error) {
 	rep := report{}
 	items := committedItems(*p)
 	dropped := map[string]bool{}
@@ -506,7 +539,11 @@ func convert(p *projectstate.Project, stored map[string]json.RawMessage, now tim
 		before := row
 		row.Version, row.Pin = stampedVersion(row), stampedPin(row, items[id])
 		rounds, skipped, retired := designRounds(id, *p, row.Reviews, now)
-		rounds = append(rounds, noteRounds(id, row, append(slices.Clone(row.Reviews), rounds...), now)...)
+		fromNotes, err := noteRounds(id, row, append(slices.Clone(row.Reviews), rounds...), now)
+		if err != nil {
+			return report{}, err
+		}
+		rounds = append(rounds, fromNotes...)
 		row.Reviews = append(slices.Clone(row.Reviews), rounds...)
 		rep.Skipped = append(rep.Skipped, skipped...)
 		rep.Retired += retired
@@ -522,7 +559,7 @@ func convert(p *projectstate.Project, stored map[string]json.RawMessage, now tim
 		rep.Lines = append(rep.Lines, rowLine(id, row, rounds, stored[id]))
 	}
 	rep.Dropped = sortedKeys(dropped)
-	return rep
+	return rep, nil
 }
 
 // sameRow reports whether the edit left the row exactly as it stood — the idempotence
@@ -827,6 +864,13 @@ func splice(body, before, after []byte) ([]byte, error) {
 }
 
 // placed rebuilds the document with the owned members in their new state.
+//
+// `done` is the WHOLE document's "the execution member has been emitted", not each arm's
+// own: a document that holds BOTH members with the legacy one FIRST — the shape a partly
+// migrated state has — hits the legacy arm, emits the execution member there, and then
+// reaches the original execution member further down. Emitting it again would put the same
+// key in the object twice, which is a document no decoder agrees with. So both arms ask
+// `!done`, and the execution member lands once, at whichever position came first.
 func placed(original, encoded []member) []member {
 	value := valueOf(encoded, executionMember)
 	out := make([]member, 0, len(original)+1)
@@ -834,7 +878,7 @@ func placed(original, encoded []member) []member {
 	for _, m := range original {
 		switch m.key {
 		case executionMember:
-			if value != nil {
+			if value != nil && !done {
 				out = append(out, member{key: m.key, value: value})
 			}
 			done = true
@@ -936,7 +980,10 @@ func migrate(raw []byte, now time.Time) ([]byte, report, error) {
 	if err != nil {
 		return nil, report{}, err
 	}
-	rep := convert(&p, stored, now)
+	rep, err := convert(&p, stored, now)
+	if err != nil {
+		return nil, report{}, err
+	}
 	after, err := encodeCompact(p)
 	if err != nil {
 		return nil, report{}, err

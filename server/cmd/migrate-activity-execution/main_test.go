@@ -473,6 +473,96 @@ func TestMigrate_ASendBackNoteBecomesARoundCarryingItsTextAndComments(t *testing
 	}
 }
 
+// A GATE WHOSE NOTES CANNOT BE NUMBERED FAILS THE WHOLE RUN. Two send-back notes against
+// ONE recorded rejection at attempt 1 leaves the unpaired note at 1-(1-0) = 0 — a round
+// OpenReviewRound refuses outright, the read model drops, and splitAtLowestRound would drag
+// below every real attempt on the row. Clamping it to 1 would silently renumber somebody's
+// review history; the tool refuses, names the row and the gate, and writes nothing.
+func TestMigrate_RefusesANoteRoundItCannotNumber(t *testing.T) {
+	rows := legacyRows()
+	row := rows["C-thing"]
+	at := migratedAt.Add(-72 * time.Hour)
+	row.Attempts = []projectstate.TaskAttempt{{
+		AttemptID: "C-thing:srsReview:1", Task: "srsReview", Phase: projectstate.MethodPhaseRequirements,
+		Attempt: 1, Actor: projectstate.ActorHuman, EndedAt: &at, Outcome: projectstate.OutcomeRejected,
+		Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginBackfilled, Basis: "code"},
+	}}
+	// TWO send-backs at the same gate, ONE rejection recorded for them.
+	row.OperatorNotes = []projectstate.OperatorNote{
+		{NoteID: "n1", Kind: projectstate.NoteSendBack, Gate: string(projectstate.MethodPhaseRequirements), Text: "first", RecordedAt: at},
+		{NoteID: "n2", Kind: projectstate.NoteSendBack, Gate: string(projectstate.MethodPhaseRequirements), Text: "second", RecordedAt: at},
+	}
+	rows["C-thing"] = row
+
+	raw := legacyDocument(t, fixtureProject(), rows)
+	out, _, err := migrate(raw, migratedAt)
+	if err == nil {
+		t.Fatal("want a refusal: the unpaired note numbers 0, which no writer could have produced")
+	}
+	for _, want := range []string{"C-thing", "srsReview", "2 send-back note", "1 recorded rejection"} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("the refusal must name %q so the operator can look at that row; got %v", want, err)
+		}
+	}
+	if out != nil {
+		t.Fatal("a refused run writes nothing; migrate returned a document")
+	}
+}
+
+// A DOCUMENT HOLDING BOTH MEMBERS, LEGACY FIRST, GETS EXACTLY ONE EXECUTION MEMBER. It is
+// the shape a half-migrated state has: something wrote `.activityExecution` while the
+// retired `.activityConstruction` was still in the file. The rename arm emits the execution
+// member where the legacy one stood, and without the `!done` guard the original execution
+// member further down emitted it a SECOND time — one object, one key, twice.
+func TestMigrate_ADocumentHoldingBothMembersGetsExactlyOneExecutionMember(t *testing.T) {
+	p := fixtureProject()
+	p.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"C-thing": {ActivityID: "C-thing", Type: projectstate.ActivityTypeService},
+	}
+	// legacyDocumentWith inserts the legacy member directly after `slots`, which is where
+	// the codec puts `activityExecution` — so the legacy member comes FIRST. Its value is
+	// empty: the decoder prefers the new member whenever it is present, so a legacy member
+	// carrying rows here would be rows this tool drops, which is a different bug.
+	raw := legacyDocumentWith(t, p, json.RawMessage(`{}`))
+	was, err := members(mustCompact(t, raw))
+	if err != nil {
+		t.Fatalf("members: %v", err)
+	}
+	legacyAt := slices.IndexFunc(was, func(m member) bool { return m.key == legacyMember })
+	if legacyAt < 0 || slices.IndexFunc(was, func(m member) bool { return m.key == executionMember }) != legacyAt+1 {
+		t.Fatalf("the fixture must hold BOTH members, legacy first; got %v", keysOf(was))
+	}
+
+	now, err := members(mustCompact(t, migrated(t, raw)))
+	if err != nil {
+		t.Fatalf("members: %v", err)
+	}
+	var found []int
+	for i, m := range now {
+		if m.key == executionMember {
+			found = append(found, i)
+		}
+	}
+	if len(found) != 1 {
+		t.Fatalf("one object, one key: got %d %q members (%v)", len(found), executionMember, keysOf(now))
+	}
+	if found[0] != legacyAt {
+		t.Fatalf("the execution member lands where the legacy one stood (%d); got %d (%v)", legacyAt, found[0], keysOf(now))
+	}
+	if slices.ContainsFunc(now, func(m member) bool { return m.key == legacyMember }) {
+		t.Fatal("the legacy member survived the rename")
+	}
+}
+
+// keysOf names a member list for a failure message.
+func keysOf(ms []member) []string {
+	out := make([]string, 0, len(ms))
+	for _, m := range ms {
+		out = append(out, m.key)
+	}
+	return out
+}
+
 func TestMigrate_StampsVersionAndTheCurrentLifecyclePin(t *testing.T) {
 	after := decode(t, migrated(t, legacyDocument(t, fixtureProject(), legacyRows())))
 	for id, row := range after.ActivityExecution {
