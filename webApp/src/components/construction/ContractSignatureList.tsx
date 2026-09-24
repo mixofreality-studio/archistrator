@@ -15,7 +15,7 @@
  * Each row keeps the canvas's comment anchor (contractOpAnchor), so a Design
  * Review can still pin feedback to one operation.
  */
-import { useState, type ReactElement } from 'react';
+import { useState, type ReactElement, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Button from '@mui/material/Button';
 import IconButton from '@mui/material/IconButton';
@@ -30,8 +30,48 @@ import type { ContractOp, GoField } from '../../contracts/types';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { useComments, contractOpAnchor } from '../comments/CommentContext';
+import { useRegisterAnchor } from '../comments/AnchorRegistry';
 import { opStructsFor, paramOf, type ResolvedStruct } from './contractCode.ts';
 import type { NeedsRoomCopy } from './focusRail.ts';
+
+/**
+ * One `<li>` op row. Extracted from the parent's `.map()` body for the same reason
+ * `CommentableRow` is (`CommentableList.tsx:50`): it calls {@link useRegisterAnchor},
+ * a hook, which React forbids inside a loop callback. Enrols the row's DOM element
+ * under `contractOpAnchor(component, signature)` so a Design Review comment on this
+ * operation can be found and scrolled to from the margin, the same enrolment the
+ * canvas's node anchor gets — switching between the diagram and this list keeps the
+ * same pin.
+ */
+function OpRow({
+  component,
+  signature,
+  isLast,
+  expanded,
+  t,
+  children,
+}: {
+  component: string;
+  signature: string;
+  isLast: boolean;
+  expanded: boolean;
+  t: Tokens;
+  children: ReactNode;
+}): ReactElement {
+  const registerAnchor = useRegisterAnchor(contractOpAnchor(component, signature));
+  return (
+    <Box
+      component="li"
+      ref={registerAnchor}
+      sx={{
+        borderBottom: isLast ? 'none' : `1px solid ${t.line}`,
+        bgcolor: expanded ? t.paper : 'transparent',
+      }}
+    >
+      {children}
+    </Box>
+  );
+}
 
 export function ContractSignatureList({
   component,
@@ -144,13 +184,13 @@ export function ContractSignatureList({
         {ops.map((op, i) => {
           const expanded = open.has(i);
           return (
-            <Box
-              component="li"
+            <OpRow
+              component={component}
+              expanded={expanded}
+              isLast={i === ops.length - 1}
               key={`${op.signature}-${String(i)}`}
-              sx={{
-                borderBottom: i === ops.length - 1 ? 'none' : `1px solid ${t.line}`,
-                bgcolor: expanded ? t.paper : 'transparent',
-              }}
+              signature={op.signature}
+              t={t}
             >
               <Box sx={{ display: 'flex', alignItems: 'flex-start', minWidth: 0 }}>
                 <Box
@@ -242,7 +282,7 @@ export function ContractSignatureList({
                 ) : null}
               </Box>
               {expanded ? <OpStructTables op={op} t={t} /> : null}
-            </Box>
+            </OpRow>
           );
         })}
       </Box>

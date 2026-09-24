@@ -160,6 +160,28 @@ function CommentableRow({
   );
 }
 
+/**
+ * A read-only row. Separate from the map for the reason `CommentableRow` is:
+ * it calls {@link useRegisterAnchor}, a hook, which React forbids in a loop
+ * callback.
+ *
+ * The disabled branch used to render a bare Box with no anchor enrolment at
+ * all, so on a read-only surface — a non-latest revision's history, exactly
+ * what spec §7.2 asks for — EVERY margin card fell into the unplaced bucket.
+ * Enrolment is about where a row IS, not about whether it can be commented
+ * on; the two were conflated. Everything else about the inert branch is
+ * unchanged: no list/listitem roles, no roving tabindex, no comment button,
+ * no hover chrome.
+ */
+function ReadOnlyRow({ jsonPath, children }: { jsonPath: string; children: ReactNode }): ReactNode {
+  const registerAnchor = useRegisterAnchor(jsonPath);
+  return (
+    <Box ref={registerAnchor} sx={{ px: 1, py: 0.75 }}>
+      {children}
+    </Box>
+  );
+}
+
 export function CommentableList<T>({
   items,
   getKey,
@@ -249,12 +271,16 @@ export function CommentableList<T>({
   // NO per-row comment button, NO hover chrome. Zero comment affordance, zero
   // orphaned ARIA, zero focusable ghosts.
   if (!enabled) {
+    // Each row still enrols its anchor (ReadOnlyRow) so a read-only history's margin
+    // cards can be PLACED — see the Playwright assertion for this in Task 12; there is
+    // no node:test coverage for it (this branch's DOM behaviour is untestable under
+    // node --test).
     return (
       <Box sx={{ display: 'flex', flexDirection: 'column', gap }}>
         {items.map((item, index) => (
-          <Box key={getKey(item, index)} sx={{ px: 1, py: 0.75 }}>
+          <ReadOnlyRow jsonPath={getAnchor(item, index).jsonPath} key={getKey(item, index)}>
             {renderItem(item, index)}
-          </Box>
+          </ReadOnlyRow>
         ))}
       </Box>
     );

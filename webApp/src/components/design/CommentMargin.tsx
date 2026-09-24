@@ -128,6 +128,7 @@ export function CommentMargin({
   onResolve,
   onReopen,
   onCollapse,
+  expandResolved,
 }: {
   /** The durable server review-ledger thread for the active slot. */
   thread?: readonly ReviewCommentView[];
@@ -150,6 +151,13 @@ export function CommentMargin({
   onReopen?: ((id: string) => void) | undefined;
   /** Collapse the margin (narrow viewports open it again from the chrome header). */
   onCollapse: () => void;
+  /**
+   * Show resolved threads as full cards instead of collapsing them to a one-liner —
+   * passed straight through to every {@link MarginThreadCard}. Default `false` fits
+   * the live review rail; a read-only history (spec §7.2) sets this `true`, where a
+   * decided thread is the point of the history, not noise in it.
+   */
+  expandResolved?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const { comments, remove, anchor, setAnchor, enabled } = useComments();
@@ -316,6 +324,7 @@ export function CommentMargin({
       <MarginThreadCard
         active={activeId === item.key}
         entry={item.entry}
+        expandResolved={expandResolved}
         stagedReplies={stagedReplies.get(item.entry.id) ?? []}
         statusPending={statusPending}
         onActivate={() => {

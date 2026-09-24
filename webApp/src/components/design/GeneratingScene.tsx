@@ -45,6 +45,8 @@ export function GeneratingScene({
   activeStep,
   round,
   phrase,
+  roleLine,
+  footerNote,
 }: {
   artifact: string;
   /**
@@ -73,15 +75,39 @@ export function GeneratingScene({
   round?: number | undefined;
   /** The artifact's noun phrase (METHOD_METADATA[kind].phrase) for the role line. */
   phrase?: string | undefined;
+  /**
+   * Overrides the `activeRole`/`activeStep`-derived role line with a caller-supplied
+   * one. The design rail's honest sub-step reporting (`activeRole`/`activeStep`) is
+   * design-only — the wire enums `ActiveRole`/`ActiveStep` carry no construction
+   * worker class — so a construction caller that already knows its worker class (from
+   * `lifecycles.gen.ts`) says the line itself instead. `seed` is a `RoleAvatar` seed;
+   * `PROP_FOR` (`components/RoleAvatar.tsx:224`) already carries every construction
+   * role (`senior-developer`, `junior-developer`, `test-engineer`, `software-tester`,
+   * `ux-reviewer`, `qa-engineer`, `ui-designer`, `project-manager`) alongside the
+   * design roles, so this renders a correct avatar with no change to `RoleAvatar`.
+   * Omitted (the default), the design rail's own `roleLineFor` computation applies
+   * unchanged.
+   */
+  roleLine?: { seed: string; text: string } | undefined;
+  /**
+   * Replaces the standing "design job is running in your repository's GitHub
+   * Actions" sentence in the footer — e.g. a construction caller that runs its
+   * job somewhere other than GitHub Actions. The `actionsUrl` link beneath it is
+   * orthogonal and unaffected. Omitted (the default), the GitHub-Actions sentence
+   * renders unchanged.
+   */
+  footerNote?: ReactNode | undefined;
 }): ReactNode {
   const t = useTokens();
 
-  // The honest role line, when the server reports a live sub-step; undefined →
-  // fall back to the plain indeterminate "DRAFTING…" pill (today's UI, unchanged).
-  const roleLine =
-    activeRole !== undefined && phrase !== undefined
+  // The honest role line: a caller-supplied override, or the one derived from the
+  // server-reported live sub-step; undefined → fall back to the plain indeterminate
+  // "DRAFTING…" pill (today's UI, unchanged).
+  const line =
+    roleLine ??
+    (activeRole !== undefined && phrase !== undefined
       ? roleLineFor(activeRole, activeStep ?? 'none', round ?? 0, phrase)
-      : undefined;
+      : undefined);
 
   return (
     <Box
@@ -142,7 +168,7 @@ export function GeneratingScene({
           the honest "who is doing what" sentence; otherwise it keeps the plain
           "DRAFTING…" text — today's UI, byte-for-byte. No fabricated per-phase progress
           in either case. */}
-      {roleLine !== undefined ? (
+      {line !== undefined ? (
         <Box
           data-testid={UI_IDENTIFIERS.DesignExperience.GENERATING_ROLE_LINE}
           sx={{
@@ -159,12 +185,12 @@ export function GeneratingScene({
             '@keyframes pulse': { '0%,100%': { opacity: 1 }, '50%': { opacity: 0.5 } },
           }}
         >
-          <RoleAvatar seed={roleLine.seed} size={26} />
+          <RoleAvatar seed={line.seed} size={26} />
           <Typography
             component="span"
             sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11, letterSpacing: '0.04em' }}
           >
-            {roleLine.text}
+            {line.text}
           </Typography>
         </Box>
       ) : (
@@ -204,10 +230,12 @@ export function GeneratingScene({
           textAlign: 'center',
         }}
       >
-        <Typography sx={{ fontSize: 12.5, color: t.muted, maxWidth: 480, lineHeight: 1.5 }}>
-          The design job is running in your repository&apos;s GitHub Actions. This takes a few
-          minutes — you can leave and come back; this view updates itself.
-        </Typography>
+        {footerNote ?? (
+          <Typography sx={{ fontSize: 12.5, color: t.muted, maxWidth: 480, lineHeight: 1.5 }}>
+            The design job is running in your repository&apos;s GitHub Actions. This takes a few
+            minutes — you can leave and come back; this view updates itself.
+          </Typography>
+        )}
         {actionsUrl !== undefined && actionsUrl.length > 0 ? (
           <Link
             data-testid={UI_IDENTIFIERS.DesignExperience.CI_JOB_LINK}
