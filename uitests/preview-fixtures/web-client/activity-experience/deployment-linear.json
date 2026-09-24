@@ -3,6 +3,17 @@
   "title": "Activity Experience — linear deployment activity, construction running",
   "note": "R-github: the provisioning spec passed its review first time; the infrastructure change is being built now. No fork: every task has exactly one predecessor. A row that PREDATES the round ledger: every revision reads backfilled because it is reconstructed from the episode ledger and the stored lifecycle-phase completions, and the gate carries the attempt number as its round because nothing counted its rounds when it happened (stage-3 task 7).",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "R-github",

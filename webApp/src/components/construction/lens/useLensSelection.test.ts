@@ -89,20 +89,20 @@ void test('serializing an empty selection emits only the lens', () => {
   assert.deepEqual(serializeLensSearch({ lens: 'list', selection: {} }), { lens: 'list' });
 });
 
-void test('validateLensSearch keeps a deep link addressable and drops the junk', () => {
-  // The route's validateSearch: whatever it returns IS the URL's search, so an
-  // explicit ?lens=list&a=C-billing-engine must survive verbatim or the deep link is a lie.
-  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-billing-engine' }), {
-    lens: 'list',
-    a: 'C-billing-engine',
-  });
+void test('validateLensSearch keeps the lens and drops every pane param (stage 5, R8)', () => {
+  // The route's validateSearch: whatever it returns IS the URL's search. Since
+  // stage 5 that is the LENS and nothing else — `a`/`p`/`k`/`n` addressed a task
+  // attempt inside the DetailPane and `av`/`focus`/`sc` a view of its artifact,
+  // and that pane is gone, so carrying them would put junk in the address bar.
+  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-billing-engine' }), { lens: 'list' });
+  assert.deepEqual(validateLensSearch({ lens: 'tasks' }), { lens: 'tasks' });
+  // The default is still EMITTED, and an unknown lens falls back to it rather
+  // than throwing — a blank surface is worse than the default one.
   assert.deepEqual(
     validateLensSearch({ lens: 'bogus', a: 'C-billing-engine', n: 'x', zz: 'drop me' }),
-    {
-      lens: 'list',
-      a: 'C-billing-engine',
-    }
+    { lens: 'list' }
   );
+  assert.deepEqual(validateLensSearch({}), { lens: 'list' });
 });
 
 void test('the toolbar signature survives a fresh-but-identical poll envelope', () => {

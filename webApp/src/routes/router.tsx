@@ -6,9 +6,22 @@
  *
  *   /                                  → ProjectsLanding (catalog / create)
  *   /project/$projectId/home                      → HomeBase (wraps itself in the AppShell)
+ *   /project/$projectId/plan                      → PlanScreen (the ONE plan surface, full-screen)
+ *   /project/$projectId/activity/$activityId      → ActivityExperienceScreen (one activity, full-screen)
  *   /project/$projectId/design/system/{-$stepSlug}  → SystemDesignScreen (phase 1, full-screen)
  *   /project/$projectId/design/project/{-$stepSlug} → ProjectDesignScreen (phase 2, full-screen)
  *   /project/$projectId/construction              → ConstructionConsoleScreen (phase 3, full-screen)
+ *
+ * The last three are the OLD rails, which the plan and the Activity Experience
+ * replace. They stay REGISTERED and, in the stage's teardown task, swap their
+ * component for a `beforeLoad` redirect into `/plan` — an unregistered path is
+ * the router's not-found, which is a worse answer to an old bookmark than the
+ * screen that replaced it. That redirect is already written and tested in
+ * `activityRedirect.ts` (split out for the same reason operationsGuard.ts is: a
+ * beforeLoad written inline here cannot be unit-tested); it is wired at teardown,
+ * WITH the console's deletion and the retargeted preview spec, because the
+ * preview suite's fixture-miss / blocked-request / nested-preview guards ride the
+ * construction screen and have no other vehicle until the plan screen reads.
  *
  * The design experiences carry an OPTIONAL step slug as the last path segment
  * ({-$stepSlug}, kebab-case of the step title — see slugForKind) so a step is
@@ -34,8 +47,20 @@ import { ChangeRequestsScreen } from './ChangeRequests';
 import { SubprojectFlowScreen } from './SubprojectFlow';
 import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
+import { PlanScreen } from './Plan';
+import { ActivityExperienceScreen } from './ActivityExperience';
 import { operationsBeforeLoad } from './operationsGuard';
-import { validateLensSearch } from '../components/construction/lens/useLensSelection';
+// One import for both new paths: activityRedirect owns the redirect the old rails
+// take at teardown and re-exports the literals it redirects between, so the path
+// a route registers and the path the redirect names cannot drift.
+import { ACTIVITY_PATH, PLAN_PATH } from './activityRedirect';
+import { activitySearch } from '../contracts/routePaths';
+import {
+  parseLensSearch,
+  serializeLensSearch,
+  validateLensSearch,
+  type LegacyLensSearchParams,
+} from '../components/construction/lens/useLensSelection';
 import type { Capabilities } from '../utilities/capabilities';
 
 /**
@@ -60,6 +85,32 @@ const homeRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/home',
   component: HomeBase,
+});
+
+const planRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: PLAN_PATH,
+  component: PlanScreen,
+  // The plan's LENS is the only selection left in the URL — the DetailPane's
+  // a/p/k/n/av/focus/sc died with it (spec §7.4). An unknown lens falls back
+  // to `list` instead of throwing, and `lens` is ALWAYS emitted, even for the
+  // default, because validateSearch's output IS the address bar: dropping it
+  // would quietly rewrite a shared deep link.
+  validateSearch: validateLensSearch,
+});
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: ACTIVITY_PATH,
+  component: ActivityExperienceScreen,
+  // ?task=<lifecycle task id>&rev=<1-based revision>. Both optional: absent,
+  // the experience opens the default task (spec §7.2 — awaiting-human →
+  // failed → running → last passed → first) at its latest revision. The codec
+  // is `contracts/routePaths.activitySearch`, not an inline lambda, because
+  // the containers construct the same object when they navigate and a second
+  // copy of the rule is how two callers end up disagreeing about `?rev=0`.
+  validateSearch: (search: Record<string, unknown>): { task?: string; rev?: number } =>
+    activitySearch(search['task'], search['rev']),
 });
 
 const systemDesignRoute = createRoute({
@@ -102,7 +153,17 @@ const constructionRoute = createRoute({
   // the schema here is what makes a deep link VALIDATE (an unknown lens falls
   // back to `list`, a junk attempt is dropped) instead of throwing or rendering
   // a blank surface. See lens/useLensSelection.ts.
-  validateSearch: validateLensSearch,
+  //
+  // This is the LEGACY codec, spelled out here rather than reusing
+  // `validateLensSearch`: as of stage 5 that function is the PLAN's rule (lens
+  // and nothing else), and this console's pane still addresses a task attempt
+  // through a/p/k/n and its artifact through av/focus/sc. Handing it the plan's
+  // rule would strip those from every deep link into a screen that still renders
+  // them. It goes when the screen goes, and the path then redirects through
+  // activityRedirect.planSearchFromLegacy, which drops those params deliberately
+  // because the pane they address will no longer exist.
+  validateSearch: (search: Record<string, unknown>): LegacyLensSearchParams =>
+    serializeLensSearch(parseLensSearch(search)),
 });
 
 const operationsRoute = createRoute({
@@ -149,6 +210,8 @@ const teamRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   landingRoute,
   homeRoute,
+  planRoute,
+  activityRoute,
   systemDesignRoute,
   projectDesignRoute,
   constructionRoute,

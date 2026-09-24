@@ -3,6 +3,17 @@
   "title": "Activity Experience — Requirements, the design prefix's 8-task linear lifecycle, wholly reconstructed",
   "note": "The first of the three design-prefix activities (spec §7.2): Requirements is an ACTIVITY now, with four lifecycle phases of its own — Mission, Glossary, Volatilities, Core Use Cases — and a task DAG that is a straight line, each draft gated before the next draft may start. It ran long before the round ledger existed, so EVERY revision here is `backfilled`: reconstructed from the committed artifact slots and the stored phase completions, with no round to read. That is what a reconstruction looks like end to end — no roster, no verdicts, no subject, no decision stamp, and on this row not even a span, because nothing recorded one. Shape captured from the live local server's query-activity-view for `requirements`.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "requirements",

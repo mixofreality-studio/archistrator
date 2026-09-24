@@ -3,6 +3,17 @@
   "title": "Activity Experience — a live gate whose reviewer set the engine refused to propose",
   "note": "C-ReviewEngine is suspended at its Detailed Design gate and the reviewers strip has nothing to draw: `reviewSet` is ABSENT and `reviewSetError` says why. The contract is explicit that this is a defect in the Manager's call or in the engine and never an operator error, and that the gate itself is unaffected — Approve and SendBack still work — so the strip must render the failure without disabling the decision. The round was still opened (the store stamps openedAt before anyone is asked), so the revision is a persisted, undecided round: a subject, an EMPTY roster because the engine never produced one, no verdicts, no decision stamp, and no gate attempt, because the rail writes that only when the round is decided.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "C-review-engine",

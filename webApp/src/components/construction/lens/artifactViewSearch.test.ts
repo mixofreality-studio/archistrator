@@ -40,12 +40,12 @@ void test('junk views and focus values are dropped, and neither survives without
     undefined
   );
   assert.equal(parseLensSearch({ lens: 'list', av: 'code', focus: '1' }).artifact, undefined);
+  // Since stage 5 (R8) the route's validateSearch emits the LENS and nothing
+  // else, so `av`/`focus` no longer reach the URL at all — with or without a
+  // selected activity. The parse rules above still hold for the console's own
+  // in-memory state while it lives.
   assert.deepEqual(validateLensSearch({ lens: 'list', av: 'code', focus: 1 }), { lens: 'list' });
-  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-x', focus: 1 }), {
-    lens: 'list',
-    a: 'C-x',
-    focus: 1,
-  });
+  assert.deepEqual(validateLensSearch({ lens: 'list', a: 'C-x', focus: 1 }), { lens: 'list' });
 });
 
 void test('the artifact view is kept for the same activity and dropped for another', () => {

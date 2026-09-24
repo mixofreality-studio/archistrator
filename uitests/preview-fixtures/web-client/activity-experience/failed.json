@@ -3,6 +3,17 @@
   "title": "Activity Experience — failed activity: a failed revision, a skipped one, and one synthesized origin",
   "note": "C-AutoscalerEngine exhausted its supervision budget in Detailed Design. The three shapes nothing else exercises live here: a revision whose outcome is `failed` (the work never reached its gate, so the gate below it is locked and the activity itself reads failed), a revision whose outcome is `skipped` on the parallel test-plan branch (the STP was waived, which is a pass by rule 7 and NOT a phase completion — its gate never ran), and a `synthesized` provenance, the worst of the three origins: at least one attempt behind that revision was fabricated rather than observed or reconstructed from evidence. A reader must be able to tell those apart at a glance, which is the whole point of carrying provenance on the wire.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "C-autoscaler-engine",

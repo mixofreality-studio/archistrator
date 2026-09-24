@@ -3,6 +3,17 @@
   "title": "Activity Experience — service activity mid-fork, design review sent back once, STP running",
   "note": "Both branches of Figure A-1's fork are live: Design Review is at revision 2 awaiting the human (revision 1 was sent back with two anchored comments, both since answered) while STP runs in parallel. Today's construct workflow walks lifecycle phases one at a time and cannot produce this; it is the stage-4 parallel child's shape, which the stage-0 contract already carries. A running task polls at 2s even though a gate is owed. Design Review is the row's ROUND-BACKED gate (stage-3 tasks 5 and 7): its revisions are read from the persisted rounds — roster, verdicts, thread and subject — and are `observed`, while SRS Review predates the ledger and still reconstructs from a send-back note, which is what `backfilled` means. Revision 2's round is open, so it carries no decision and cites no gate attempt: the rail writes that attempt only when the round is decided.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "C-billing-state-access",

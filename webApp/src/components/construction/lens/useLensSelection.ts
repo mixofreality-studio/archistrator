@@ -25,18 +25,43 @@
  * renderable rather than propagating. An unknown lens falls back to `list`
  * (a blank surface is worse than the default one) and a non-numeric attempt is
  * DROPPED rather than handed downstream as `NaN`.
+ *
+ * ── Stage 5 (R8) ────────────────────────────────────────────────────────────
+ * The ROUTE-facing half is now one line: `validateLensSearch` emits the LENS and
+ * nothing else, from the single rule in `contracts/routePaths.planSearch`, so the
+ * plan route and this (still-registered, now redirecting) construction route
+ * cannot disagree. Everything marked `DYING` below is the console's own
+ * in-memory selection codec, kept only until its last consumer goes with it in
+ * Task 13 Step 2. The marker is prose and not a JSDoc `@deprecated` tag on
+ * purpose: `@typescript-eslint/no-deprecated` is an ERROR in this repo and every
+ * one of those consumers is still live, so the tag would be lint-fatal today and
+ * `eslint-disable` is not permitted. Grep `DYING` to find the set.
  */
 import { useCallback, useMemo, useState } from 'react';
 import { getRouteApi } from '@tanstack/react-router';
+// The explicit `.ts` is what lets `node --test` load this module directly
+// (operationsGuard.ts does the same) — Node's resolver does not guess extensions.
+import { LENS_IDS, planSearch } from '../../../contracts/routePaths.ts';
 
 // ---------------------------------------------------------------------------
 // Lens identity
 // ---------------------------------------------------------------------------
 
-export const LENS_IDS = ['list', 'graph', 'tasks'] as const;
+/**
+ * Re-exported, not redeclared: the plan route and this (still-registered)
+ * construction route must agree on what a lens IS, and two copies of the array
+ * are how they end up disagreeing. The one array lives in
+ * contracts/routePaths.ts, which components may import and `routes/` is not.
+ */
+export { LENS_IDS };
 export type LensId = (typeof LENS_IDS)[number];
 
-/** The one selectable thing, at whatever depth the operator has reached. */
+/**
+ * The one selectable thing. The URL stopped carrying it in stage 5 (the plan's
+ * only search param is `lens`), but the TASKS lens still passes one down to
+ * mark the row a decision belongs to — see TasksLens.isSelected and
+ * decisionFlow. Task 13 narrows it to the members those two read.
+ */
 export interface LensSelection {
   activityId?: string;
   lifecyclePhase?: string;
@@ -50,10 +75,14 @@ export interface LensSelection {
  * it is open full-viewport in the FOCUS view (`focus=1`) — the designer's §3
  * deep links. In the URL for the same reason selection is: the 1.5s poll's
  * remount cannot reset a tab or close the focus view.
+ *
+ * DYING: deleted with the construction console in Task 13 Step 2. No new caller.
  */
 export const ARTIFACT_VIEW_IDS = ['code', 'component', 'dynamic', 'facets'] as const;
+/** DYING: deleted with the construction console in Task 13 Step 2. No new caller. */
 export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
 
+/** DYING: deleted with the construction console in Task 13 Step 2. No new caller. */
 export interface ArtifactViewState {
   view?: ArtifactViewId;
   focus?: true;
@@ -65,6 +94,7 @@ export interface ArtifactViewState {
   scenario?: string;
 }
 
+/** DYING: deleted with the construction console in Task 13 Step 2. No new caller. */
 export interface LensState {
   lens: LensId;
   selection: LensSelection;
@@ -73,11 +103,23 @@ export interface LensState {
 }
 
 /**
- * The wire shape of the route's search params. `parseLensSearch` takes the looser
- * `Record<string, unknown>` (the URL hands over whatever it likes), so callers
- * holding one of these SPREAD it in — `parseLensSearch({ ...search })`.
+ * The wire shape of the route's search params — `lens` and nothing else, as of
+ * stage 5 (R8). `a`/`p`/`k`/`n` addressed a task attempt inside the DetailPane
+ * and `av`/`focus`/`sc` a view of its artifact; that pane is gone, the plan's
+ * only selection is its lens, and a param that addresses nothing has no business
+ * in the address bar.
  */
 export interface LensSearchParams {
+  lens?: LensId;
+}
+
+/**
+ * The PRE-stage-5 wire shape, still produced by `serializeLensSearch` for the
+ * console's own navigations while it lives.
+ *
+ * DYING: deleted with the construction console in Task 13 Step 2. No new caller.
+ */
+export interface LegacyLensSearchParams {
   lens?: LensId;
   a?: string;
   p?: string;
@@ -118,7 +160,11 @@ function attemptOf(value: unknown): number | undefined {
   return Number.isInteger(n) && n >= 1 ? n : undefined;
 }
 
-/** Decode the URL's search params into the lens + selection the console renders. */
+/**
+ * Decode the URL's search params into the lens + selection the console renders.
+ *
+ * DYING: deleted with the construction console in Task 13 Step 2. No new caller.
+ */
 export function parseLensSearch(search: Record<string, unknown>): LensState {
   const rawLens = search['lens'];
   const activityId = nonEmpty(search['a']);
@@ -153,8 +199,14 @@ export function parseLensSearch(search: Record<string, unknown>): LensState {
  * validateSearch output IS the URL's search — anything it omits is stripped from
  * the address bar — so dropping `lens=list` would quietly rewrite a shared deep
  * link, which is the exact failure this whole shape exists to prevent.
+ *
+ * DYING: deleted with the construction console in Task 13 Step 2. No new caller.
  */
-export function serializeLensSearch({ lens, selection, artifact }: LensState): LensSearchParams {
+export function serializeLensSearch({
+  lens,
+  selection,
+  artifact,
+}: LensState): LegacyLensSearchParams {
   const withActivity = selection.activityId !== undefined;
   return {
     lens,
@@ -169,12 +221,17 @@ export function serializeLensSearch({ lens, selection, artifact }: LensState): L
 }
 
 /**
- * The route's `validateSearch`: normalize whatever arrived in the URL into the
- * typed params. A deep link validates instead of throwing; junk keys and junk
- * values are dropped rather than rendered.
+ * The route's `validateSearch`, for BOTH the plan route and the legacy
+ * construction route that redirects into it (R8). A deep link validates instead
+ * of throwing; an unknown lens falls back to `list`, and `lens` is ALWAYS
+ * emitted, even for the default — validateSearch's output IS the address bar.
+ *
+ * The rule itself is `contracts/routePaths.planSearch`, not a copy: the two
+ * routes must agree, and the containers construct the same object when they
+ * navigate.
  */
 export function validateLensSearch(search: Record<string, unknown>): LensSearchParams {
-  return serializeLensSearch(parseLensSearch(search));
+  return planSearch(search['lens']);
 }
 
 // ---------------------------------------------------------------------------
@@ -183,6 +240,7 @@ export function validateLensSearch(search: Record<string, unknown>): LensSearchP
 
 const routeApi = getRouteApi('/project/$projectId/construction');
 
+/** DYING: deleted with the construction console in Task 13 Step 2. No new caller. */
 export interface LensSelectionApi extends LensState {
   setLens: (lens: LensId) => void;
   /**
@@ -215,7 +273,11 @@ export interface LensSelectionApi extends LensState {
   clear: () => void;
 }
 
-/** The artifact view a new selection keeps: the old one iff the activity is the same. */
+/**
+ * The artifact view a new selection keeps: the old one iff the activity is the same.
+ *
+ * DYING: deleted with the construction console in Task 13 Step 2. No new caller.
+ */
 export function artifactKeptFor(
   prev: LensState,
   next: LensSelection,
@@ -225,6 +287,7 @@ export function artifactKeptFor(
   return prev.selection.activityId === next.activityId ? prev.artifact : undefined;
 }
 
+/** DYING: deleted with the construction console in Task 13 Step 2. No new caller. */
 export function useLensSelection(): LensSelectionApi {
   const search = routeApi.useSearch();
   const navigate = routeApi.useNavigate();

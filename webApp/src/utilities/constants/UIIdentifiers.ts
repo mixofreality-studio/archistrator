@@ -811,6 +811,45 @@ export const UI_IDENTIFIERS = {
     laneLabel: (nodeId: string) => `lifecycle-lane-label-${nodeId}`,
     revisionItem: (nodeId: string, n: number) => `lifecycle-revision-${nodeId}-${String(n)}`,
   },
+  // The per-activity ACTIVITY EXPERIENCE (`/project/$projectId/activity/$activityId`),
+  // stage 5. Every id here has a named placing site in the stage plan (Task 7's
+  // table): SCREEN lands with the route, the rest with the bodies in Tasks 8-10.
+  // An id declared here and never placed on an element is the same failure as an
+  // id asserted by a test and never declared.
+  Activity: {
+    SCREEN: 'activity-screen',
+    EYEBROW: 'activity-eyebrow',
+    DISPATCH_BODY: 'activity-dispatch-body',
+    REVIEW_BODY: 'activity-review-body',
+    REVIEWERS_STRIP: 'activity-reviewers-strip',
+    REVIEW_SET_ERROR: 'activity-review-set-error',
+    TASK_FACTS: 'activity-task-facts',
+    SUB_ATTEMPTS: 'activity-sub-attempts',
+    HISTORY_BANNER: 'activity-history-banner',
+    BACK_TO_LATEST: 'activity-back-to-latest',
+    ARTIFACT_PANEL: 'activity-artifact-panel',
+    ARTIFACT_UNAVAILABLE: 'activity-artifact-unavailable',
+    AMEND_ARCHITECTURE: 'activity-amend-architecture',
+    reviewerChip: (role: string) => `activity-reviewer-${role}`,
+  },
+  // The PLAN (`/project/$projectId/plan?lens=list|graph|tasks`), stage 5 — the one
+  // surface that replaces the construction console's three lenses. SCREEN lands
+  // with the route; the lens toggle, list and graph ids land in Task 11.
+  Plan: {
+    SCREEN: 'plan-screen',
+    LENS_LIST: 'plan-lens-list',
+    LENS_GRAPH: 'plan-lens-graph',
+    LENS_TASKS: 'plan-lens-tasks',
+    LIST: 'plan-list',
+    GRAPH: 'plan-graph',
+    M0_DIVIDER: 'plan-m0-divider',
+    GUTTER: 'plan-gutter',
+    UNPLACED_NOTE: 'plan-unplaced-note',
+    row: (activityId: string) => `plan-row-${activityId}`,
+    tile: (activityId: string) => `plan-tile-${activityId}`,
+    milestone: (id: string) => `plan-milestone-${id}`,
+    gutterRow: (row: string) => `plan-gutter-${row}`,
+  },
   // The preview build's own chrome (src/previewShell/, design-renderer-data.md
   // §2′.1): the loud banner a fixture miss or a blocked request raises, and the
   // honest error page for a ?screen=&state= the build does not carry.

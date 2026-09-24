@@ -3,6 +3,17 @@
   "title": "Activity Experience — Architecture, one phase, a reconstruction beneath a persisted round",
   "note": "The design prefix's second activity (spec §7.2): Architecture & Call Chains is ONE lifecycle phase carrying the whole weight, gated by one review. Its two revisions are the two halves of the read — revision 1 predates the ledger and reconstructs (`backfilled`, no roster, no subject, no decision), while revision 2 is a round the rail actually wrote (`observed`) and carries everything a round owns: the number, the subject it judged, the roster it was opened with, the verdicts it collected, and a thread of all three comment types. The thread is what a design-rail round looks like on this screen: a QUESTION the architect answered, a STALEACK that an amendment elsewhere left this artifact unaffected, and a RESOLVED change request with its replies. `comments` is the thread's flat projection — same anchors, same texts — so a reader that never learned about threads still shows something true.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "architecture",

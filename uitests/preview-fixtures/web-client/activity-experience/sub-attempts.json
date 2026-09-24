@@ -3,6 +3,17 @@
   "title": "Activity Experience — one revision, three attempts, judged over a commit",
   "note": "C-EstimationEngine is at its Code Review gate. Construction revision 1 took THREE attempts to reach that gate — a variance retry and an operator Retry before the run that landed — so this is the one fixture where §7.2's sub-attempt list has anything to list: a revision with a single attempt shows none, and only a revision with more than one earns the disclosure. The open round names its subject as a `commit`, the third of the subject vocabulary's kinds and the one a subject-by-sha writer mints; the other fixtures all name artifacts. The architect has already voted and the round is still undecided, so it carries a verdict, no decision stamp and no gate attempt.",
   "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    },
     "constructionQueryActivityView": {
       "result": {
         "activityId": "C-estimation-engine",
