@@ -1,0 +1,44 @@
+{
+  "route": "/project/archistrator/activity/C-review-engine?task=designReview",
+  "title": "Activity Experience — a live gate whose reviewer set the engine refused to propose",
+  "note": "C-ReviewEngine is suspended at its Detailed Design gate and the reviewers strip has nothing to draw: `reviewSet` is ABSENT and `reviewSetError` says why. The contract is explicit that this is a defect in the Manager's call or in the engine and never an operator error, and that the gate itself is unaffected — Approve and SendBack still work — so the strip must render the failure without disabling the decision. The round was still opened (the store stamps openedAt before anyone is asked), so the revision is a persisted, undecided round: a subject, an EMPTY roster because the engine never produced one, no verdicts, no decision stamp, and no gate attempt, because the rail writes that only when the round is decided.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "C-review-engine",
+        "name": "Build ReviewEngine",
+        "type": "service",
+        "componentId": "review-engine",
+        "state": "awaitingHuman",
+        "phases": [
+          { "id": "requirements", "label": "Requirements", "weight": 15, "gateTaskId": "srsReview", "completed": true },
+          { "id": "detailed_design", "label": "Detailed Design", "weight": 20, "gateTaskId": "designReview", "completed": false },
+          { "id": "test_plan", "label": "Test Plan", "weight": 10, "gateTaskId": "stpReview", "completed": false },
+          { "id": "construction", "label": "Construction", "weight": 40, "gateTaskId": "codeReview", "completed": false },
+          { "id": "integration", "label": "Integration", "weight": 15, "gateTaskId": "testing", "completed": false }
+        ],
+        "tasks": [
+          { "id": "srs", "kind": "dispatch", "title": "SRS", "phase": "requirements", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-23T09:00:00Z", "endedAt": "2026-09-23T09:18:02Z", "attemptIds": ["C-review-engine:srs:1"], "episodeId": "ep-cre-srs-1", "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "srsReview", "kind": "review", "title": "SRS Review", "phase": "requirements", "dependsOn": ["srs"], "reviews": "srs", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-review-engine:srsReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "detailedDesign", "kind": "dispatch", "title": "Detailed Design", "phase": "detailed_design", "dependsOn": ["srsReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-23T09:19:00Z", "endedAt": "2026-09-23T10:04:31Z", "attemptIds": ["C-review-engine:detailedDesign:1"], "episodeId": "ep-cre-dd-1", "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "designReview", "kind": "review", "title": "Design Review", "phase": "detailed_design", "dependsOn": ["detailedDesign"], "reviews": "detailedDesign", "state": "awaitingHuman", "revisions": [
+            { "n": 1, "outcome": "awaitingHuman", "startedAt": "2026-09-23T10:05:00Z", "attemptIds": [], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "artifact", "ref": "C-review-engine:detailedDesign:1" },
+              "reviewers": [],
+              "provenance": "observed" } ] },
+          { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "locked", "revisions": [] },
+          { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
+          { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "stp", "kind": "dispatch", "title": "STP", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "running", "revisions": [
+            { "n": 1, "outcome": "running", "startedAt": "2026-09-23T09:19:00Z", "attemptIds": ["C-review-engine:stp:1"], "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "locked", "revisions": [] },
+          { "id": "testing", "kind": "review", "title": "Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
+        ],
+        "reviewSetError": "review engine: ProposeReviews for C-review-engine at detailed_design: artifactKind \"detailed-design\" has no policy row and no non-overridable floor; the engine refused to propose a roster"
+      }
+    }
+  }
+}

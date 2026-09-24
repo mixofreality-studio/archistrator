@@ -1,0 +1,46 @@
+{
+  "route": "/project/archistrator/activity/architecture?task=architectureReview",
+  "title": "Activity Experience — Architecture, one phase, a reconstruction beneath a persisted round",
+  "note": "The design prefix's second activity (spec §7.2): Architecture & Call Chains is ONE lifecycle phase carrying the whole weight, gated by one review. Its two revisions are the two halves of the read — revision 1 predates the ledger and reconstructs (`backfilled`, no roster, no subject, no decision), while revision 2 is a round the rail actually wrote (`observed`) and carries everything a round owns: the number, the subject it judged, the roster it was opened with, the verdicts it collected, and a thread of all three comment types. The thread is what a design-rail round looks like on this screen: a QUESTION the architect answered, a STALEACK that an amendment elsewhere left this artifact unaffected, and a RESOLVED change request with its replies. `comments` is the thread's flat projection — same anchors, same texts — so a reader that never learned about threads still shows something true.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "architecture",
+        "name": "Architecture & Call Chains",
+        "type": "architecture",
+        "state": "done",
+        "phases": [
+          { "id": "architecture", "label": "Architecture", "weight": 100, "gateTaskId": "architectureReview", "completed": true }
+        ],
+        "tasks": [
+          { "id": "architectureDraft", "kind": "dispatch", "title": "Draft Architecture & Call Chains", "phase": "architecture", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["architecture:architectureDraft:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" },
+            { "n": 2, "outcome": "passed", "startedAt": "2026-09-21T08:10:00Z", "endedAt": "2026-09-21T09:02:14Z", "attemptIds": ["architecture:architectureDraft:2"], "episodeId": "ep-arch-draft-2", "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "architectureReview", "kind": "review", "title": "Review Architecture", "phase": "architecture", "dependsOn": ["architectureDraft"], "reviews": "architectureDraft", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["architecture:architectureReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" },
+            { "n": 2, "outcome": "passed", "startedAt": "2026-09-21T09:03:00Z", "endedAt": "2026-09-21T10:41:52Z", "attemptIds": ["architecture:architectureReview:2"], "round": 2, "commentCount": 3, "comments": [
+              { "jsonPath": "$.components[11].encapsulates", "text": "What does BillingStateAccess encapsulate that BillingEngine does not?" },
+              { "jsonPath": "", "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)." },
+              { "jsonPath": "$.relationships[7]", "text": "A Manager calling a Manager. Route this through the engine or name it a utility." } ],
+              "subjectRef": { "kind": "artifact", "ref": "architecture:architectureDraft:2" },
+              "reviewers": [
+                { "role": "architect", "actor": "architect", "required": true },
+                { "role": "productManager", "actor": "productManager", "required": false },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "productManager", "actor": "productManager", "verdict": "abstain", "summary": "No product question in this pass.", "at": "2026-09-21T09:20:05Z", "attemptId": "architecture:architectureDraft:2" },
+                { "reviewerRole": "architect", "actor": "architect", "verdict": "approve", "summary": "The Manager-to-Manager edge is gone and every nonCore variation has a call chain.", "at": "2026-09-21T10:28:11Z", "attemptId": "architecture:architectureDraft:2" },
+                { "reviewerRole": "human", "actor": "operator", "verdict": "approve", "at": "2026-09-21T10:41:52Z", "attemptId": "architecture:architectureDraft:2" } ],
+              "thread": [
+                { "id": "r2c1", "anchor": "$.components[11].encapsulates", "anchorText": "BillingStateAccess", "text": "What does BillingStateAccess encapsulate that BillingEngine does not?", "authorRole": "productManager", "round": 2, "status": "answered", "reopened": false, "type": "question", "addressee": "architect", "replies": [
+                  { "id": "r2c1a1", "authorRole": "architect", "text": "The ledger's storage shape. The engine encapsulates the pricing rules; the access encapsulates where the entries live.", "at": "2026-09-21T09:41:33Z" } ] },
+                { "id": "r2c2", "anchor": "", "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized).", "authorRole": "architect", "round": 2, "status": "answered", "reopened": false, "type": "staleAck", "replies": [] },
+                { "id": "r2c3", "anchor": "$.relationships[7]", "anchorText": "BillingManager → OperationsManager", "text": "A Manager calling a Manager. Route this through the engine or name it a utility.", "authorRole": "architect", "round": 2, "status": "resolved", "reopened": false, "type": "changeRequest", "addressee": "architect", "replies": [
+                  { "id": "r2c3a1", "authorRole": "architect", "text": "Folded into OperationEstimationEngine — both Managers call the engine and neither calls the other.", "at": "2026-09-21T10:02:40Z" },
+                  { "id": "r2c3a2", "authorRole": "operator", "text": "Confirmed against the deployment view; the edge is gone.", "at": "2026-09-21T10:26:09Z" } ] } ],
+              "decidedBy": "operator", "decidedAt": "2026-09-21T10:41:52Z", "provenance": "observed" } ] }
+        ]
+      }
+    }
+  }
+}

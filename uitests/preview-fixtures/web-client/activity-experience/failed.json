@@ -1,0 +1,47 @@
+{
+  "route": "/project/archistrator/activity/C-autoscaler-engine",
+  "title": "Activity Experience — failed activity: a failed revision, a skipped one, and one synthesized origin",
+  "note": "C-AutoscalerEngine exhausted its supervision budget in Detailed Design. The three shapes nothing else exercises live here: a revision whose outcome is `failed` (the work never reached its gate, so the gate below it is locked and the activity itself reads failed), a revision whose outcome is `skipped` on the parallel test-plan branch (the STP was waived, which is a pass by rule 7 and NOT a phase completion — its gate never ran), and a `synthesized` provenance, the worst of the three origins: at least one attempt behind that revision was fabricated rather than observed or reconstructed from evidence. A reader must be able to tell those apart at a glance, which is the whole point of carrying provenance on the wire.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "C-autoscaler-engine",
+        "name": "Build AutoscalerEngine",
+        "type": "service",
+        "componentId": "autoscaler-engine",
+        "state": "failed",
+        "phases": [
+          { "id": "requirements", "label": "Requirements", "weight": 15, "gateTaskId": "srsReview", "completed": true },
+          { "id": "detailed_design", "label": "Detailed Design", "weight": 20, "gateTaskId": "designReview", "completed": false },
+          { "id": "test_plan", "label": "Test Plan", "weight": 10, "gateTaskId": "stpReview", "completed": false },
+          { "id": "construction", "label": "Construction", "weight": 40, "gateTaskId": "codeReview", "completed": false },
+          { "id": "integration", "label": "Integration", "weight": 15, "gateTaskId": "testing", "completed": false }
+        ],
+        "tasks": [
+          { "id": "srs", "kind": "dispatch", "title": "SRS", "phase": "requirements", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-22T08:00:00Z", "endedAt": "2026-09-22T08:19:44Z", "attemptIds": ["C-autoscaler-engine:srs:1"], "episodeId": "ep-ase-srs-1", "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "srsReview", "kind": "review", "title": "SRS Review", "phase": "requirements", "dependsOn": ["srs"], "reviews": "srs", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-22T08:20:00Z", "endedAt": "2026-09-22T08:44:12Z", "attemptIds": ["C-autoscaler-engine:srsReview:1"], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "artifact", "ref": "C-autoscaler-engine:srs:1" },
+              "reviewers": [
+                { "role": "architect", "actor": "architect", "required": true },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "architect", "actor": "architect", "verdict": "approve", "summary": "The scaling signal is named and bounded.", "at": "2026-09-22T08:33:02Z", "attemptId": "C-autoscaler-engine:srs:1" },
+                { "reviewerRole": "human", "actor": "operator", "verdict": "approve", "at": "2026-09-22T08:44:12Z", "attemptId": "C-autoscaler-engine:srs:1" } ],
+              "decidedBy": "operator", "decidedAt": "2026-09-22T08:44:12Z", "provenance": "observed" } ] },
+          { "id": "detailedDesign", "kind": "dispatch", "title": "Detailed Design", "phase": "detailed_design", "dependsOn": ["srsReview"], "state": "failed", "revisions": [
+            { "n": 1, "outcome": "failed", "startedAt": "2026-09-22T08:45:00Z", "endedAt": "2026-09-22T11:12:30Z", "attemptIds": ["C-autoscaler-engine:detailedDesign:1", "C-autoscaler-engine:detailedDesign:2", "C-autoscaler-engine:detailedDesign:3"], "episodeId": "ep-ase-dd-3", "commentCount": 0, "comments": [], "provenance": "synthesized" } ] },
+          { "id": "designReview", "kind": "review", "title": "Design Review", "phase": "detailed_design", "dependsOn": ["detailedDesign"], "reviews": "detailedDesign", "state": "locked", "revisions": [] },
+          { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview"], "state": "locked", "revisions": [] },
+          { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "locked", "revisions": [] },
+          { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "stp", "kind": "dispatch", "title": "STP", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "skipped", "startedAt": "2026-09-22T08:45:00Z", "endedAt": "2026-09-22T08:45:02Z", "attemptIds": ["C-autoscaler-engine:stp:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "pending", "revisions": [] },
+          { "id": "testing", "kind": "review", "title": "Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
+        ]
+      }
+    }
+  }
+}

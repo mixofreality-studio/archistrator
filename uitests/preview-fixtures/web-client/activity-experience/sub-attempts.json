@@ -1,0 +1,59 @@
+{
+  "route": "/project/archistrator/activity/C-estimation-engine?task=codeReview&rev=1",
+  "title": "Activity Experience — one revision, three attempts, judged over a commit",
+  "note": "C-EstimationEngine is at its Code Review gate. Construction revision 1 took THREE attempts to reach that gate — a variance retry and an operator Retry before the run that landed — so this is the one fixture where §7.2's sub-attempt list has anything to list: a revision with a single attempt shows none, and only a revision with more than one earns the disclosure. The open round names its subject as a `commit`, the third of the subject vocabulary's kinds and the one a subject-by-sha writer mints; the other fixtures all name artifacts. The architect has already voted and the round is still undecided, so it carries a verdict, no decision stamp and no gate attempt.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "C-estimation-engine",
+        "name": "Build EstimationEngine",
+        "type": "service",
+        "componentId": "estimation-engine",
+        "state": "awaitingHuman",
+        "phases": [
+          { "id": "requirements", "label": "Requirements", "weight": 15, "gateTaskId": "srsReview", "completed": true },
+          { "id": "detailed_design", "label": "Detailed Design", "weight": 20, "gateTaskId": "designReview", "completed": true },
+          { "id": "test_plan", "label": "Test Plan", "weight": 10, "gateTaskId": "stpReview", "completed": true },
+          { "id": "construction", "label": "Construction", "weight": 40, "gateTaskId": "codeReview", "completed": false },
+          { "id": "integration", "label": "Integration", "weight": 15, "gateTaskId": "testing", "completed": false }
+        ],
+        "tasks": [
+          { "id": "srs", "kind": "dispatch", "title": "SRS", "phase": "requirements", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:srs:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "srsReview", "kind": "review", "title": "SRS Review", "phase": "requirements", "dependsOn": ["srs"], "reviews": "srs", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:srsReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "detailedDesign", "kind": "dispatch", "title": "Detailed Design", "phase": "detailed_design", "dependsOn": ["srsReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:detailedDesign:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "designReview", "kind": "review", "title": "Design Review", "phase": "detailed_design", "dependsOn": ["detailedDesign"], "reviews": "detailedDesign", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:designReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "stp", "kind": "dispatch", "title": "STP", "phase": "test_plan", "dependsOn": ["srsReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:stp:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "stpReview", "kind": "review", "title": "STP Review", "phase": "test_plan", "dependsOn": ["stp"], "reviews": "stp", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["C-estimation-engine:stpReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "construction", "kind": "dispatch", "title": "Construction", "phase": "construction", "dependsOn": ["designReview", "stpReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "startedAt": "2026-09-23T13:02:00Z", "endedAt": "2026-09-23T17:48:19Z", "attemptIds": ["C-estimation-engine:construction:1", "C-estimation-engine:construction:2", "C-estimation-engine:construction:3"], "episodeId": "ep-cee-cons-3", "commentCount": 0, "comments": [], "provenance": "observed" } ] },
+          { "id": "codeReview", "kind": "review", "title": "Code Review", "phase": "construction", "dependsOn": ["construction"], "reviews": "construction", "state": "awaitingHuman", "revisions": [
+            { "n": 1, "outcome": "awaitingHuman", "startedAt": "2026-09-23T17:49:00Z", "attemptIds": [], "round": 1, "commentCount": 0, "comments": [],
+              "subjectRef": { "kind": "commit", "ref": "7c41b9e0a3d5f28164bb90c7de2a5f13e8047c6b" },
+              "reviewers": [
+                { "role": "architect", "actor": "architect", "required": true },
+                { "role": "qaEngineer", "actor": "qaEngineer", "required": false },
+                { "role": "human", "actor": "operator", "required": true } ],
+              "verdicts": [
+                { "reviewerRole": "architect", "actor": "architect", "verdict": "approve", "summary": "Float and risk stay in the engine; the Manager only asks.", "at": "2026-09-23T18:06:44Z", "attemptId": "C-estimation-engine:construction:3" } ],
+              "provenance": "observed" } ] },
+          { "id": "integration", "kind": "dispatch", "title": "Integration", "phase": "integration", "dependsOn": ["codeReview"], "state": "locked", "revisions": [] },
+          { "id": "testing", "kind": "review", "title": "Testing", "phase": "integration", "dependsOn": ["integration", "stpReview"], "reviews": "integration", "state": "locked", "revisions": [] }
+        ],
+        "reviewSet": {
+          "reason": "Preset `balanced`: a construction gate over a critical-path Engine takes the architect and a human.",
+          "requiresHuman": true,
+          "reviewers": [
+            { "role": "architect", "perspective": "architecture", "referenceArtifact": "architecture", "mayAmend": true },
+            { "role": "qaEngineer", "perspective": "process", "referenceArtifact": null, "mayAmend": false }
+          ]
+        }
+      }
+    }
+  }
+}

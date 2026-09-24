@@ -46,10 +46,26 @@ const firstIncompletePhase = (phases) =>
   (phases ?? []).find((p) => !p.Completed)?.Phase ?? '';
 
 // The GATE task of each lifecycle phase, mirroring projectstate's own lifecyclePhaseTasks
-// (the method-assets lifecycles' `gate`). Service and frontend agree on all five; the
-// short profiles (testing/deployment/documentation) name a subset of the same phases, so
-// one table answers for every profile a fixture carries.
+// (the method-assets lifecycles' `gate`). It is keyed on the PHASE ID alone, exactly as
+// the Go map is, and for the same reason: the eleven construction lifecycles share the
+// canonical five phase ids and name the same gate under each, while the three DESIGN
+// lifecycles use phase ids that collide with none of them. Service and frontend agree on
+// all five construction phases; the short profiles (testing/deployment/documentation) name
+// a subset of them.
+//
+// The six design-prefix rows below were missing until a fixture captured from the live
+// server carried them: Requirements, Architecture and Project Design became activities in
+// stage 2, and their rows completed phases this table could not name — which read here as
+// "its gate (unknown) has no attempt". A table that cannot name a phase must not be read
+// as a table that condemns it, so the unknown-phase case is now an offence in its own
+// right rather than a silent mis-accusation.
 const GATE_TASK = {
+  mission: 'missionReview',
+  glossary: 'glossaryReview',
+  volatilities: 'volatilitiesReview',
+  coreUseCases: 'coreUseCasesReview',
+  architecture: 'architectureReview',
+  sdp: 'sdpReview',
   requirements: 'srsReview',
   detailed_design: 'designReview',
   test_plan: 'stpReview',
@@ -94,11 +110,15 @@ void test('every construction fixture row is one the server could serve', () => 
       for (const phase of row.Phases ?? []) {
         if (!phase.Completed) continue;
         const gate = GATE_TASK[phase.Phase];
+        if (gate === undefined) {
+          offences.push(`${where}: ${phase.Phase} is a lifecycle phase GATE_TASK cannot name; add its gate from methodassets.Lifecycles()`);
+          continue;
+        }
         const attempts = (row.attempts ?? []).filter((a) => a.task === gate);
         const latest = attempts.at(-1);
         if (latest?.outcome !== 'passed') {
           offences.push(
-            `${where}: ${phase.Phase} is Completed but its gate ${gate ?? '(unknown)'} has ${attempts.length === 0 ? 'no attempt' : `latest outcome ${String(latest?.outcome)}`}`
+            `${where}: ${phase.Phase} is Completed but its gate ${gate} has ${attempts.length === 0 ? 'no attempt' : `latest outcome ${String(latest?.outcome)}`}`
           );
         }
       }
@@ -156,27 +176,90 @@ void test('it rejects a fixture without an absolute route', () => {
   assert.equal(validate({ ops: {} }), false);
 });
 
-void test('the activity-experience design fixtures are recorded, valid, and answer the one read', () => {
-  const { files, errors } = validateFixtureTree(DESIGN_FIXTURES, { validate });
-  assert.deepEqual(errors, []);
-  const states = files
-    .filter((f) => f.includes(join(SURFACE, 'activity-experience')))
-    .map((f) => f.slice(f.lastIndexOf('/') + 1))
-    .sort();
-  assert.deepEqual(states, [
+// THE ACTIVITY-EXPERIENCE FIXTURES LIVE IN THE UITESTS TREE, because that is the only one
+// the preview build is pointed at (playwright.config.ts's ARCHISTRATOR_PREVIEW_FIXTURES);
+// a scenario recorded under preview/fixtures is a scenario the suite cannot open. ONE
+// smoke fixture stays behind so the recorded-design location still validates something
+// real and this file's DESIGN_FIXTURES clauses are not vacuous. Every clause below walks
+// BOTH trees, so a fixture is held to the same rules wherever it was recorded.
+const activityViews = (root) => {
+  const { files, errors } = validateFixtureTree(root, { validate });
+  assert.deepEqual(errors, [], `${root}: fixtures must validate before they are read`);
+  return files
+    .filter((p) => p.includes(join(SURFACE, 'activity-experience')))
+    .map((p) => [p, JSON.parse(readFileSync(p, 'utf8'))])
+    .map(([p, doc_]) => [p, doc_.ops?.constructionQueryActivityView?.result])
+    .filter(([, view]) => view !== undefined);
+};
+
+const FIXTURE_ROOTS = [UITESTS_FIXTURES, DESIGN_FIXTURES];
+
+void test('the activity-experience fixtures are recorded where the preview can open them', () => {
+  const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
+  assert.deepEqual(states(UITESTS_FIXTURES), [
+    'architecture-round.json',
     'deployment-linear.json',
     'done.json',
-    'not-started.json',
+    'failed.json',
+    'project-design-m0.json',
+    'requirements-backfilled.json',
+    'review-set-error.json',
     'service-fork-sent-back.json',
+    'sub-attempts.json',
   ]);
-  for (const f of files.filter((p) => p.includes(join(SURFACE, 'activity-experience')))) {
-    const view = JSON.parse(readFileSync(f, 'utf8')).ops.constructionQueryActivityView.result;
-    const ids = new Set(view.tasks.map((t) => t.id));
-    for (const t of view.tasks) {
-      for (const dep of t.dependsOn) assert.ok(ids.has(dep), `${f}: ${t.id} depends on unknown ${dep}`);
-      if (t.reviews !== undefined) assert.ok(ids.has(t.reviews), `${f}: ${t.id} reviews unknown ${t.reviews}`);
+  assert.deepEqual(states(DESIGN_FIXTURES), ['not-started.json'], 'the one smoke fixture');
+});
+
+void test('the activity-experience fixtures answer the one read, with a closed task DAG', () => {
+  for (const root of FIXTURE_ROOTS) {
+    for (const [f, view] of activityViews(root)) {
+      const ids = new Set(view.tasks.map((t) => t.id));
+      for (const t of view.tasks) {
+        for (const dep of t.dependsOn) assert.ok(ids.has(dep), `${f}: ${t.id} depends on unknown ${dep}`);
+        if (t.reviews !== undefined) assert.ok(ids.has(t.reviews), `${f}: ${t.id} reviews unknown ${t.reviews}`);
+      }
+      assert.equal(view.phases.reduce((sum, p) => sum + p.weight, 0), 100, `${f}: weights`);
     }
-    assert.equal(view.phases.reduce((sum, p) => sum + p.weight, 0), 100, `${f}: weights`);
+  }
+});
+
+// THE SCHEMA SAYS A VIEW IS WELL-SHAPED; IT CANNOT SAY QueryActivityView COULD HAVE
+// DERIVED IT. Two of the view's members are derived from a third and are not free to
+// disagree with it: a lifecycle phase's `completed` is the state of its GATE task
+// (`constructionmanager.go`'s deriveTaskViews, and the contract's own words — "True iff
+// the gate task's state is passed"), and a revision's `n` is 1-based and ascending, with a
+// dispatch task and the review that judges it sharing numbers. A fixture that completes a
+// phase whose gate did not pass, or that numbers revisions from 0, asserts a view no
+// server emits — and every spec written over it then tests a lie, which is exactly the
+// failure the construction-row clause above already caught once.
+void test('every activity-experience fixture is a view the server could derive', () => {
+  for (const root of FIXTURE_ROOTS) {
+    for (const [path, view] of activityViews(root)) {
+      const byId = new Map(view.tasks.map((t) => [t.id, t]));
+      for (const phase of view.phases) {
+        const gate = byId.get(phase.gateTaskId);
+        assert.ok(gate !== undefined, `${path}: phase ${phase.id} names a gate task that is not in tasks[]`);
+        assert.equal(
+          phase.completed,
+          gate.state === 'passed',
+          `${path}: phase ${phase.id} completion disagrees with its gate task state (deriveTaskViews derives one from the other)`
+        );
+      }
+      for (const task of view.tasks) {
+        const ns = task.revisions.map((r) => r.n);
+        assert.deepEqual(ns, [...ns].sort((a, b) => a - b), `${path}: ${task.id} revisions must be oldest first`);
+        assert.ok(ns.every((n) => n >= 1), `${path}: ${task.id} revisions are 1-based`);
+        // A dispatch task and its reviewer share revision numbers: revision n IS the n-th
+        // work that reached the gate and the n-th gate attempt that judged it. A review
+        // cannot judge work that was never produced.
+        if (task.reviews !== undefined) {
+          const work = byId.get(task.reviews).revisions.map((r) => r.n);
+          for (const n of ns) {
+            assert.ok(work.includes(n), `${path}: ${task.id} judges revision ${n}, which ${task.reviews} never produced`);
+          }
+        }
+      }
+    }
   }
 });
 
@@ -195,7 +278,9 @@ void test('the activity-experience design fixtures are recorded, valid, and answ
 //   - a PENDING round says neither and cites NO attempt, because the rail writes the gate
 //     attempt only when the round is decided (which is why every gate a human is looking
 //     at right now has a round and no attempt);
-//   - a reconstruction offers `note` and `comments` and nothing a round owns;
+//   - a reconstruction offers `note` and `comments` and nothing a round owns, and its
+//     provenance is the WORST origin among the attempts behind it: `backfilled` when they
+//     were rebuilt from evidence recorded elsewhere, `synthesized` when any was fabricated;
 //   - a dispatch revision has no round at all.
 //
 // `thread` and `verdicts` are NOT required of every round: both are omitempty on the wire,
@@ -205,12 +290,10 @@ void test('the activity-experience design fixtures are recorded, valid, and answ
 const ROUND_ONLY = ['verdicts', 'thread', 'reviewers', 'subjectRef', 'decidedBy', 'decidedAt'];
 
 void test('the activity-experience fixtures hold a persisted round AND a reconstruction', () => {
-  const { files } = validateFixtureTree(DESIGN_FIXTURES, { validate });
   const offences = [];
   let persisted = 0;
   let reconstructed = 0;
-  for (const f of files.filter((p) => p.includes(join(SURFACE, 'activity-experience')))) {
-    const view = JSON.parse(readFileSync(f, 'utf8')).ops.constructionQueryActivityView.result;
+  for (const [f, view] of FIXTURE_ROOTS.flatMap(activityViews)) {
     for (const task of view.tasks) {
       for (const rev of task.revisions) {
         const where = `${f.slice(f.lastIndexOf('/') + 1)} ${task.id}#${rev.n}`;
@@ -222,7 +305,9 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
         if (rev.round === undefined) offences.push(`${where}: a review revision carries the round it is`);
         if (!round) {
           reconstructed += 1;
-          if (rev.provenance !== 'backfilled') offences.push(`${where}: a reconstruction is backfilled, not ${rev.provenance}`);
+          if (rev.provenance === 'observed') {
+            offences.push(`${where}: a reconstruction is backfilled or synthesized, not observed`);
+          }
           continue;
         }
         persisted += 1;
@@ -261,6 +346,46 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
   assert.deepEqual(offences, []);
   assert.ok(persisted > 0, 'no fixture exercises a persisted round; the new members render nowhere');
   assert.ok(reconstructed > 0, 'no fixture exercises a pre-ledger row; the reconstruction renders nowhere');
+});
+
+// A REVIEW REVISION IS EITHER A PROJECTION OR A RECONSTRUCTION, AND NEVER BOTH. The test
+// above reads that split from the round's own members; this one reads it from the other
+// end — from `provenance`, which is the word the screen shows the reader — so a fixture
+// cannot say "rebuilt from a pre-ledger row" while carrying facts only a live round has.
+// schema.ts says it verbatim: `reviewers` is "Empty on a reconstructed revision: a
+// pre-ledger row recorded who reviewed nowhere", `decidedAt` and `subjectRef` are
+// "Omitted ... on a reconstructed revision". And every revision IS its attempts — the
+// attemptIds list is what a revision is made of — with exactly one exception, an OPEN
+// round, for which the rail has not written the gate attempt yet.
+void test('a revision provenance matches what it carries', () => {
+  let reviewRevisions = 0;
+  for (const [path, view] of FIXTURE_ROOTS.flatMap(activityViews)) {
+    for (const task of view.tasks) {
+      for (const rev of task.revisions) {
+        const where = `${path.slice(path.lastIndexOf('/') + 1)}: ${task.id} rev ${rev.n}`;
+        const openRound = rev.round !== undefined && rev.outcome === 'awaitingHuman';
+        if (!openRound) {
+          assert.ok(rev.attemptIds.length >= 1, `${where}: a revision is its attempts, and cites none`);
+        } else {
+          assert.deepEqual(rev.attemptIds, [], `${where}: an open round has no gate attempt yet`);
+        }
+        if (task.kind !== 'review') continue;
+        reviewRevisions += 1;
+        if (rev.provenance === 'backfilled' || rev.provenance === 'synthesized') {
+          assert.deepEqual(rev.reviewers ?? [], [], `${where}: a reconstructed revision has an empty roster`);
+          assert.equal(rev.decidedAt, undefined, `${where}: a reconstructed revision carries no decision stamp`);
+          assert.equal(rev.subjectRef, undefined, `${where}: a reconstructed revision names no subject`);
+        }
+        // An OBSERVED review revision is a round, and a round that reached a terminal was
+        // decided by someone at a moment the store stamped. `running` and `awaitingHuman`
+        // are the two outcomes that mean it has not: the round is open.
+        if (rev.provenance === 'observed' && rev.outcome !== 'running' && rev.outcome !== 'awaitingHuman') {
+          assert.ok(rev.decidedAt !== undefined, `${where}: a decided, observed revision carries decidedAt`);
+        }
+      }
+    }
+  }
+  assert.ok(reviewRevisions > 0, 'no review revision was checked; this test would pass vacuously');
 });
 
 void test('a fixture whose text carries a bundle marker is refused', () => {

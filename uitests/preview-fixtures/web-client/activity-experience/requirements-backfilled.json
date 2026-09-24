@@ -1,0 +1,39 @@
+{
+  "route": "/project/archistrator/activity/requirements",
+  "title": "Activity Experience — Requirements, the design prefix's 8-task linear lifecycle, wholly reconstructed",
+  "note": "The first of the three design-prefix activities (spec §7.2): Requirements is an ACTIVITY now, with four lifecycle phases of its own — Mission, Glossary, Volatilities, Core Use Cases — and a task DAG that is a straight line, each draft gated before the next draft may start. It ran long before the round ledger existed, so EVERY revision here is `backfilled`: reconstructed from the committed artifact slots and the stored phase completions, with no round to read. That is what a reconstruction looks like end to end — no roster, no verdicts, no subject, no decision stamp, and on this row not even a span, because nothing recorded one. Shape captured from the live local server's query-activity-view for `requirements`.",
+  "ops": {
+    "constructionQueryActivityView": {
+      "result": {
+        "activityId": "requirements",
+        "name": "Requirements",
+        "type": "requirements",
+        "state": "done",
+        "phases": [
+          { "id": "mission", "label": "Mission", "weight": 15, "gateTaskId": "missionReview", "completed": true },
+          { "id": "glossary", "label": "Glossary", "weight": 20, "gateTaskId": "glossaryReview", "completed": true },
+          { "id": "volatilities", "label": "Volatilities", "weight": 35, "gateTaskId": "volatilitiesReview", "completed": true },
+          { "id": "coreUseCases", "label": "Core Use Cases", "weight": 30, "gateTaskId": "coreUseCasesReview", "completed": true }
+        ],
+        "tasks": [
+          { "id": "missionDraft", "kind": "dispatch", "title": "Draft Mission", "phase": "mission", "dependsOn": [], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:missionDraft:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "missionReview", "kind": "review", "title": "Review Mission", "phase": "mission", "dependsOn": ["missionDraft"], "reviews": "missionDraft", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:missionReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "glossaryDraft", "kind": "dispatch", "title": "Draft Glossary", "phase": "glossary", "dependsOn": ["missionReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:glossaryDraft:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "glossaryReview", "kind": "review", "title": "Review Glossary", "phase": "glossary", "dependsOn": ["glossaryDraft"], "reviews": "glossaryDraft", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:glossaryReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "volatilitiesDraft", "kind": "dispatch", "title": "Draft Volatilities", "phase": "volatilities", "dependsOn": ["glossaryReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:volatilitiesDraft:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "volatilitiesReview", "kind": "review", "title": "Review Volatilities", "phase": "volatilities", "dependsOn": ["volatilitiesDraft"], "reviews": "volatilitiesDraft", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:volatilitiesReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "coreUseCasesDraft", "kind": "dispatch", "title": "Draft Core Use Cases", "phase": "coreUseCases", "dependsOn": ["volatilitiesReview"], "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:coreUseCasesDraft:1"], "commentCount": 0, "comments": [], "provenance": "backfilled" } ] },
+          { "id": "coreUseCasesReview", "kind": "review", "title": "Review Core Use Cases", "phase": "coreUseCases", "dependsOn": ["coreUseCasesDraft"], "reviews": "coreUseCasesDraft", "state": "passed", "revisions": [
+            { "n": 1, "outcome": "passed", "attemptIds": ["requirements:coreUseCasesReview:1"], "round": 1, "commentCount": 0, "comments": [], "provenance": "backfilled" } ] }
+        ]
+      }
+    }
+  }
+}
