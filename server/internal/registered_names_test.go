@@ -67,8 +67,12 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 // deliberate (e.g. an activity rename, which IS allowed per the ratified "clean
 // cut" — Global Constraints), and update this literal.
 var registeredTemporalNamesGolden = []string{
-	// activityExecutionAccess (stage 3, task 3) — the twelve verbs of the fifth contract
-	// facet, registered on the construction Manager's worker because it took the dep.
+	// activityExecutionAccess (stage 3, tasks 3 and 6) — the twelve verbs of the fifth
+	// contract facet, registered THREE times over: once per Manager that took the dep. The
+	// construction Manager took it in task 3; both DESIGN Managers take it in task 6, because
+	// the design rails now dual-write their review rounds through it and the generated
+	// RegisterWorker registers a Manager's whole dep surface, not the subset its workflows
+	// call. Twenty-four ADDITIONS here, zero removals.
 	// DELIBERATE, and PURELY ADDITIVE: this update adds twelve names and removes none,
 	// which is the whole point of the additive shape. The three facets these verbs
 	// supersede keep every one of their registered names, so the thirteen construction
@@ -77,16 +81,40 @@ var registeredTemporalNamesGolden = []string{
 	// workflow.GetVersion; the deletions are a post-drain commit, and THAT update will
 	// remove names and needs the drain note with it.
 	"activityExecutionAccess.acknowledgeStaleBasis",
+	"activityExecutionAccess.acknowledgeStaleBasis",
+	"activityExecutionAccess.acknowledgeStaleBasis",
+	"activityExecutionAccess.appendReviewVerdict",
+	"activityExecutionAccess.appendReviewVerdict",
 	"activityExecutionAccess.appendReviewVerdict",
 	"activityExecutionAccess.commitActivityArtifacts",
+	"activityExecutionAccess.commitActivityArtifacts",
+	"activityExecutionAccess.commitActivityArtifacts",
+	"activityExecutionAccess.decideReviewRound",
+	"activityExecutionAccess.decideReviewRound",
 	"activityExecutionAccess.decideReviewRound",
 	"activityExecutionAccess.openActivity",
+	"activityExecutionAccess.openActivity",
+	"activityExecutionAccess.openActivity",
+	"activityExecutionAccess.openReviewRound",
+	"activityExecutionAccess.openReviewRound",
 	"activityExecutionAccess.openReviewRound",
 	"activityExecutionAccess.readActivityExecution",
+	"activityExecutionAccess.readActivityExecution",
+	"activityExecutionAccess.readActivityExecution",
+	"activityExecutionAccess.recordActivityOutcome",
+	"activityExecutionAccess.recordActivityOutcome",
 	"activityExecutionAccess.recordActivityOutcome",
 	"activityExecutionAccess.recordAttemptOutcome",
+	"activityExecutionAccess.recordAttemptOutcome",
+	"activityExecutionAccess.recordAttemptOutcome",
+	"activityExecutionAccess.recordOperatorNote",
+	"activityExecutionAccess.recordOperatorNote",
 	"activityExecutionAccess.recordOperatorNote",
 	"activityExecutionAccess.setReviewCommentStatus",
+	"activityExecutionAccess.setReviewCommentStatus",
+	"activityExecutionAccess.setReviewCommentStatus",
+	"activityExecutionAccess.stageTaskOutput",
+	"activityExecutionAccess.stageTaskOutput",
 	"activityExecutionAccess.stageTaskOutput",
 	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.cancelAgenticJob",
@@ -304,10 +332,10 @@ func mustRegisteredNames(t *testing.T) []string {
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	operations.RegisterManagerWorker(&reg, operationsMgr)
 
-	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
+	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	projectdesign.RegisterManagerWorker(&reg, projectDesignMgr)
 
-	systemDesignMgr := systemdesign.NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	systemDesignMgr := systemdesign.NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	systemdesign.RegisterManagerWorker(&reg, systemDesignMgr)
 
 	all := append([]string{}, reg.workflows...)

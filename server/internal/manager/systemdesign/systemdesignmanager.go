@@ -128,6 +128,15 @@ type systemDesignManager struct {
 	// Manager now has ZERO custom Temporal Activities).
 	designSession projectstate.DesignSessionAccess
 
+	// activityExecution (stage 3, task 6) is the generated activityExecutionAccess dep —
+	// the fifth facet of the one project-state component, owner of the per-activity review
+	// ROUND ledger. The design rail dual-writes every review decision through it beside the
+	// slot's ReviewThread: taking the dep HERE is what registers its Temporal activities on
+	// this Manager's worker, which is the precondition for the CoAuthor spine's
+	// wf.Acts.ActivityExecution* calls. Held only to thread into genActivities — every call
+	// is a workflow-side Activity, never a manager-side one.
+	activityExecution projectstate.ActivityExecutionAccess
+
 	// designHealth is the DesignHealthEngine port behind the getDesignHealth
 	// read-model op — the M→E half of the shared System Design Phase Workflow
 	// volatility (this Manager owns the gate choreography; the Engine owns which
@@ -151,8 +160,8 @@ type systemDesignManager struct {
 // published deps into the façade. The façade itself uses only client + projectState;
 // pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
 // with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
+func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
+	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, activityExecution: activityExecution, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
 }
 
 // StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
@@ -4945,6 +4954,15 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"designSessionAccess.reconcileBranchFromMain":            mutateActivityOptions(),
 		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
 		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
+		// The ROUND-ledger dual-write (stage 3 task 6). Every one is a head-state mutation
+		// through the same applyMutation funnel the designSession verbs ride, so it takes
+		// the same envelope: the workflow's own Conflict re-read loop (applyRecovering) is
+		// what resolves a CAS loss, not a longer retry here.
+		"activityExecutionAccess.openActivity":           mutateActivityOptions(),
+		"activityExecutionAccess.openReviewRound":        mutateActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":    mutateActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":      mutateActivityOptions(),
+		"activityExecutionAccess.setReviewCommentStatus": mutateActivityOptions(),
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
@@ -4988,11 +5006,12 @@ func (m *systemDesignManager) WorkerManifest() genWorkerManifest {
 		// registration remains (B10).
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState:  m.projectState,
-			Pipeline:      m.pipeline,
-			Rail:          m.rail,
-			DesignSession: m.designSession,
-			Episodes:      m.episodes,
+			ProjectState:      m.projectState,
+			Pipeline:          m.pipeline,
+			Rail:              m.rail,
+			DesignSession:     m.designSession,
+			ActivityExecution: m.activityExecution,
+			Episodes:          m.episodes,
 		},
 	}
 }

@@ -688,6 +688,6 @@ type SystemDesignManager interface {
 // builder newSystemDesignManager in the manager package (which owns the stateful facade setup:
 // the Temporal client, the deps, and config). The constructor returns the
 // interface, so the concrete manager impl stays unexported.
-func NewSystemDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, episodes episode.EpisodeAccess, repoBase string) SystemDesignManager {
-	return newSystemDesignManager(client, projectState, pipeline, rail, repo, estimator, designSession, episodes, repoBase)
+func NewSystemDesignManager(client client.Client, projectState projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, episodes episode.EpisodeAccess, repoBase string) SystemDesignManager {
+	return newSystemDesignManager(client, projectState, pipeline, rail, repo, estimator, designSession, activityExecution, episodes, repoBase)
 }

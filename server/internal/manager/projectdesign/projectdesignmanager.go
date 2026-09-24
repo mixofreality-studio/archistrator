@@ -132,6 +132,15 @@ type projectDesignManager struct {
 	// cannot decode across the wire (verified; see activities_custom.go's file doc).
 	designSession projectstate.DesignSessionAccess
 
+	// activityExecution (stage 3, task 6) is the generated activityExecutionAccess dep —
+	// the fifth facet of the one project-state component, owner of the per-activity review
+	// ROUND ledger. The Phase-2 design rail dual-writes every review decision through it
+	// beside the slot's ReviewThread: taking the dep HERE is what registers its Temporal
+	// activities on this Manager's worker, which is the precondition for the CoAuthor
+	// spine's wf.Acts.ActivityExecution* calls. Held only to thread into genActivities —
+	// every call is a workflow-side Activity, never a manager-side one.
+	activityExecution projectstate.ActivityExecutionAccess
+
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
@@ -158,20 +167,22 @@ func newProjectDesignManager(
 	opEstimator operationestimation.OperationEstimationEngine,
 	settle billing.BillingEngine,
 	designSession projectstate.DesignSessionAccess,
+	activityExecution projectstate.ActivityExecutionAccess,
 	episodes episode.EpisodeAccess,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
 ) *projectDesignManager {
 	return &projectDesignManager{
-		client:        c,
-		projectState:  projectState,
-		pipeline:      pipeline,
-		rail:          rail,
-		estimator:     estimator,
-		opEstimator:   opEstimator,
-		settlement:    settle,
-		designSession: designSession,
-		episodes:      episodes,
-		repo:          repo,
+		client:            c,
+		projectState:      projectState,
+		pipeline:          pipeline,
+		rail:              rail,
+		estimator:         estimator,
+		opEstimator:       opEstimator,
+		settlement:        settle,
+		designSession:     designSession,
+		activityExecution: activityExecution,
+		episodes:          episodes,
+		repo:              repo,
 	}
 }
 
@@ -2606,6 +2617,37 @@ type coAuthorState struct {
 	// run). See the review-gate loop in CoAuthorPhase2ArtifactWorkflow.
 	policyAutoApprove    bool
 	vibesAutogateEnabled bool
+	// roundLedgerEnabled drives the ROUND-LEDGER DUAL-WRITE (stage 3 task 6): resolved ONCE
+	// at session start from the "design-round-ledger" GetVersion fence, exactly like
+	// vibesAutogateEnabled above, so a session in flight at deploy time replays
+	// DefaultVersion and runs its WHOLE life on the old command sequence. See the round
+	// ledger section of coauthorphase2artifact.go for what the dual-write records and why
+	// the slot write stays.
+	roundLedgerEnabled bool
+	// roundReviewers is the ROSTER the review engine computed for this session's design
+	// gate, snapshot at session start beside policyAutoApprove. On THIS rail the engine
+	// returns no agent reviewers at all (the plan is computed, not drafted), so the roster
+	// is the human row alone whenever the policy holds for a person.
+	roundReviewers []projectstate.RoundReviewer
+	// ledgerVersion is the optimistic-concurrency token for the MAIN-side execution ledger.
+	// It is deliberately NOT headVersion: headVersion tracks whichever substrate the design
+	// session is writing (the session branch while a draft is staged), whereas the round
+	// ledger lives on main like construction's, so the two genuinely differ during the
+	// review window. Seeded from the session-start main read and advanced by each round
+	// write; applyRecovering re-reads main on any drift.
+	ledgerVersion projectstate.Version
+	// activityOpened records that this session has already birthed the design activity's
+	// execution row. OpenActivity is idempotent, so this saves a command rather than
+	// guarding correctness.
+	activityOpened bool
+	// round is the review round currently OPEN at the human gate — empty between gates, and
+	// empty for a kind whose lifecycle carries no review task, which today is every Phase-2
+	// kind (see the round ledger section). Every write point treats an empty round as
+	// "write nothing".
+	round designRound
+	// roundComments pairs a SLOT comment id with where the same comment landed on the round
+	// ledger, so a resolve / reopen filed against the slot's id can be mirrored.
+	roundComments map[string]roundCommentRef
 	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
 	// (openPR) faulted and the session landed at the failed gate WITH the draft already
 	// committed on the branch. On the next Retry the draft round consumes it and RESUMES from
@@ -2763,6 +2805,15 @@ func activityOptions() func(activityName string) (workflow.ActivityOptions, bool
 		"designSessionAccess.withdrawArtifactOnBranch":           mutateActivityOptions(),
 		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
 		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
+		// The ROUND-ledger dual-write (stage 3 task 6). Every one is a head-state mutation
+		// through the same applyMutation funnel the designSession verbs ride, so it takes
+		// the same envelope: the workflow's own Conflict re-read loop (applyRecovering) is
+		// what resolves a CAS loss, not a longer retry here.
+		"activityExecutionAccess.openActivity":           mutateActivityOptions(),
+		"activityExecutionAccess.openReviewRound":        mutateActivityOptions(),
+		"activityExecutionAccess.appendReviewVerdict":    mutateActivityOptions(),
+		"activityExecutionAccess.decideReviewRound":      mutateActivityOptions(),
+		"activityExecutionAccess.setReviewCommentStatus": mutateActivityOptions(),
 		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
 		// business one (see appendEpisodeActivityOptions).
 		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
@@ -2805,11 +2856,12 @@ func (m *projectDesignManager) WorkerManifest() genWorkerManifest {
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
-			ProjectState:  m.projectState,
-			Pipeline:      m.pipeline,
-			Rail:          m.rail,
-			DesignSession: m.designSession,
-			Episodes:      m.episodes,
+			ProjectState:      m.projectState,
+			Pipeline:          m.pipeline,
+			Rail:              m.rail,
+			DesignSession:     m.designSession,
+			ActivityExecution: m.activityExecution,
+			Episodes:          m.episodes,
 		},
 	}
 }

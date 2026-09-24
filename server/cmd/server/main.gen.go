@@ -663,7 +663,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
+	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
 	if hooks.RegisterProjectDesignManagerWorker(cfg) {
 		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
 		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
@@ -675,7 +675,7 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
 	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
+	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
 	if hooks.RegisterSystemDesignManagerWorker(cfg) {
 		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
 		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)

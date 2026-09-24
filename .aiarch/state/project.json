@@ -5921,7 +5921,7 @@
             "from": "system-design-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject / stage·commit·reject·withdraw typed artifact model / advancePhase"
+            "label": "readProject / stage·commit·reject·withdraw typed artifact model / advancePhase / open·review one design activity's round ledger"
           },
           {
             "from": "system-design-manager",
@@ -5933,7 +5933,7 @@
             "from": "project-design-manager",
             "to": "project-state-access",
             "mode": "sync",
-            "label": "readProject / stage·commit·reject·withdraw typed Phase-2 artifact model · commitOption · recordSdpReviewOutcome · recordActivityWorkItemOpened"
+            "label": "readProject / stage·commit·reject·withdraw typed Phase-2 artifact model · commitOption · recordSdpReviewOutcome · recordActivityWorkItemOpened / open·review one design activity's round ledger"
           },
           {
             "from": "project-design-manager",
@@ -24536,6 +24536,10 @@
           "component": "designSessionAccess"
         },
         {
+          "name": "activityExecution",
+          "component": "activityExecutionAccess"
+        },
+        {
           "name": "episodes",
           "component": "episodeAccess"
         },
@@ -29787,6 +29791,10 @@
         {
           "name": "designSession",
           "component": "designSessionAccess"
+        },
+        {
+          "name": "activityExecution",
+          "component": "activityExecutionAccess"
         },
         {
           "name": "episodes",

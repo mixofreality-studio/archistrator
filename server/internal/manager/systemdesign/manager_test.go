@@ -60,7 +60,7 @@ func bgRC() fwmanager.Context { return fwmanager.Context{Context: context.Backgr
 // ---- StartSystemDesign (op 2.0, 2026-05-29) façade preconditions ------------
 
 func Test_StartSystemDesign_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.StartSystemDesign(bgRC(), ProjectID(""))
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -72,7 +72,7 @@ func Test_StartSystemDesign_EmptyProjectID(t *testing.T) {
 // client is safe.
 func Test_StartSystemDesign_ResearchAbsent_FailedPrecondition(t *testing.T) {
 	ps := &renderFakeProjectState{readErr: fwra.New(fwra.NotFound, "no row yet")}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.StartSystemDesign(bgRC(), ProjectID(uuid.NewString()))
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for absent research (no project row), got %d", got)
@@ -83,7 +83,7 @@ func Test_StartSystemDesign_ResearchAbsent_FailedPrecondition(t *testing.T) {
 func Test_StartSystemDesign_ResearchEmpty_FailedPrecondition(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &renderFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid)}} // zero ResearchInput
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.StartSystemDesign(bgRC(), pid)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition for empty research, got %d", got)
@@ -91,7 +91,7 @@ func Test_StartSystemDesign_ResearchEmpty_FailedPrecondition(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.RequestArtifactDraft(bgRC(), ProjectID(""), KindMission, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -99,7 +99,7 @@ func Test_RequestArtifactDraft_EmptyProjectID(t *testing.T) {
 }
 
 func Test_RequestArtifactDraft_WrongPhaseKind(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	// A Phase-2 kind is a Client bug for the Phase-1 Manager.
 	_, err := m.RequestArtifactDraft(bgRC(), ProjectID(uuid.NewString()), KindSdpReview, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
@@ -156,7 +156,7 @@ func Test_RequestArtifactDraft_PredecessorUncommitted_FailedPrecondition(t *test
 	// coreUseCases (kind 4) requested while its predecessor volatilities (kind 3) is
 	// uncommitted — exactly STP-UC1-B1.
 	ps := &renderFakeProjectState{project: committedProject(pid, KindMission, KindGlossary, KindScrubbedRequirements)}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.RequestArtifactDraft(bgRC(), pid, KindCoreUseCases, nil)
 	sde := asSystemDesignError(t, err)
 	if sde.Kind != fwmanager.FailedPrecondition {
@@ -172,7 +172,7 @@ func Test_RequestArtifactDraft_PredecessorUncommitted_FailedPrecondition(t *test
 func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &renderFakeProjectState{readErr: fwra.New(fwra.NotFound, "no row yet")}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.RequestArtifactDraft(bgRC(), pid, KindGlossary, nil)
 	sde := asSystemDesignError(t, err)
 	if sde.Kind != fwmanager.FailedPrecondition {
@@ -186,7 +186,7 @@ func Test_RequestArtifactDraft_NoProjectRow_FailedPrecondition(t *testing.T) {
 // The first kind (mission) has NO predecessor — the gate passes without any head-state
 // read, so a nil projectState is safe (the gate never reads).
 func Test_CheckPhase1Predecessor_FirstKind_NoRead(t *testing.T) {
-	m := newSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := newSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	if err := m.checkPhase1Predecessor(context.Background(), ProjectID(uuid.NewString()), KindMission); err != nil {
 		t.Fatalf("mission has no predecessor; gate must pass, got %v", err)
 	}
@@ -198,7 +198,7 @@ func Test_CheckPhase1Predecessor_Committed_Proceeds(t *testing.T) {
 	// coreUseCases proceeds once its predecessor volatilities is committed (the only
 	// slot the immediate-predecessor gate consults).
 	ps := &renderFakeProjectState{project: committedProject(pid, KindVolatilities)}
-	m := newSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := newSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	if err := m.checkPhase1Predecessor(context.Background(), pid, KindCoreUseCases); err != nil {
 		t.Fatalf("committed predecessor; gate must pass, got %v", err)
 	}
@@ -209,7 +209,7 @@ func Test_CheckPhase1Predecessor_Committed_Proceeds(t *testing.T) {
 func Test_CheckPhase1Predecessor_RedraftUnaffected(t *testing.T) {
 	pid := ProjectID(uuid.NewString())
 	ps := &renderFakeProjectState{project: committedProject(pid, KindMission)}
-	m := newSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := newSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	// glossary is being redrafted; its predecessor mission is committed → allowed.
 	if err := m.checkPhase1Predecessor(context.Background(), pid, KindGlossary); err != nil {
 		t.Fatalf("redraft with committed predecessor must pass, got %v", err)
@@ -544,7 +544,7 @@ func Test_Phase1PredecessorKind(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	pid := ProjectID(uuid.NewString())
 	err := m.SubmitReviewDecision(bgRC(), pid, KindMission, ReviewReject, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -559,7 +559,7 @@ func Test_SubmitReviewDecision_RejectRequiresFeedback(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	err := m.SubmitReviewDecision(bgRC(), ProjectID(uuid.NewString()), KindMission, ReviewDecisionUnknown, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for unknown decision, got %d", got)
@@ -567,7 +567,7 @@ func Test_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 }
 
 func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	err := m.SubmitReviewDecision(bgRC(), ProjectID(uuid.NewString()), KindActivityList, ReviewApprove, nil)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.FailedPrecondition {
 		t.Fatalf("want FailedPrecondition, got %d", got)
@@ -575,7 +575,7 @@ func Test_SubmitReviewDecision_WrongPhaseKind(t *testing.T) {
 }
 
 func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.AdvancePhase(bgRC(), ProjectID(""), false)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -592,7 +592,7 @@ func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
 	proj.Volatilities.Status = projectstate.ReviewCommitted
 	proj.Volatilities.StaleBasis = true
 	ps := &renderFakeProjectState{project: proj}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 
 	_, err := m.AdvancePhase(bgRC(), pid, false)
 	sde := asSystemDesignError(t, err)
@@ -665,7 +665,7 @@ func Test_AdvancePhase_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.GetSessionState(bgRC(), ProjectID(""), KindMission)
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %d", got)
@@ -1763,6 +1763,210 @@ func registerGenActivities(env *testsuite.TestWorkflowEnvironment, ps projectsta
 	env.RegisterActivityWithOptions(acts.DesignSessionReconcileBranchFromMain, activity.RegisterOptions{Name: "designSessionAccess.reconcileBranchFromMain"})
 	env.RegisterActivityWithOptions(acts.DesignSessionSetReviewCommentStatusOnBranch, activity.RegisterOptions{Name: "designSessionAccess.setReviewCommentStatusOnBranch"})
 	env.RegisterActivityWithOptions(acts.DesignSessionSeedReviewCommentsOnBranch, activity.RegisterOptions{Name: "designSessionAccess.seedReviewCommentsOnBranch"})
+	registerGenActivityExecution(env, ps)
+}
+
+// ---- the ROUND LEDGER double (stage 3, task 6) -----------------------------
+
+// testLedgerClock is the fixed clock the execution-ledger double stamps, so a row a test
+// reads back is comparable between runs.
+var testLedgerClock = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+// fakeActivityExecution is the in-memory activityExecutionAccess the design workflow tests
+// dual-write their review rounds through. Hand-rolled rather than the generated
+// FakeActivityExecutionAccess for the reason the construction twin gives: these tests
+// assert on the ROWS a session produced — "a send-back is a round, sentBack, carrying the
+// same comments the slot thread got" — and a double whose every op is a func field records
+// calls, not state.
+//
+// It holds the rules those assertions depend on and no more: one id names one round, a
+// decided round takes no further verdict, and the round's thread mints its ids the way
+// applyRoundReviewBatch does. The rest of the contract is the real facet's and is pinned by
+// its own access_test.go.
+type fakeActivityExecution struct {
+	*fakeProjectState
+}
+
+var _ projectstate.ActivityExecutionAccess = fakeActivityExecution{}
+
+// baseProjectState lets registerGenActivities reach the shared in-memory store through
+// whichever specialized fake a test wired, since every one of them embeds *fakeProjectState.
+func (f *fakeProjectState) baseProjectState() *fakeProjectState { return f }
+
+// execLedgerBase is that reach, as an interface — satisfied by promotion.
+type execLedgerBase interface {
+	baseProjectState() *fakeProjectState
+}
+
+// upsertExecution mirrors the store's single write-back point. Callers hold the lock.
+func (f *fakeProjectState) upsertExecution(activityID string, mutate func(*projectstate.ActivityExecution)) projectstate.Version {
+	if f.project.ActivityExecution == nil {
+		f.project.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	}
+	row := f.project.ActivityExecution[activityID]
+	row.ActivityID = activityID
+	mutate(&row)
+	row.Version++
+	f.project.ActivityExecution[activityID] = row
+	return f.bump()
+}
+
+// execution reads back the execution row a session wrote.
+func (f *fakeProjectState) execution(activityID string) projectstate.ActivityExecution {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.project.ActivityExecution[activityID]
+}
+
+// rounds is the review ledger of one activity, in append order.
+func (f *fakeProjectState) rounds(activityID string) []projectstate.ReviewRound {
+	return f.execution(activityID).Reviews
+}
+
+func (f fakeActivityExecution) applyExecution(activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.upsertExecution(activityID, mutate), nil
+}
+
+func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		row.Type, row.Variant = typ, variant
+		if row.Pin == nil {
+			held := pin
+			row.Pin = &held
+		}
+		if row.StartedAt == nil {
+			t := testLedgerClock
+			row.StartedAt = &t
+		}
+	})
+}
+
+func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			if row.Reviews[i].RoundID == round.RoundID {
+				return // already open: a no-op success, not a second round
+			}
+		}
+		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+			RoundID:    round.RoundID,
+			TaskID:     round.TaskID,
+			Reviews:    round.Reviews,
+			Round:      round.Round,
+			SubjectRef: round.SubjectRef,
+			Reviewers:  append([]projectstate.RoundReviewer(nil), round.Reviewers...),
+			Outcome:    projectstate.RoundPending,
+			OpenedAt:   testLedgerClock.Format(time.RFC3339),
+			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
+		})
+	})
+}
+
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			stamped := verdict
+			stamped.At = testLedgerClock.Format(time.RFC3339)
+			r.Verdicts = append(r.Verdicts, stamped)
+			for _, c := range comments {
+				held := c
+				// The same id the real applyRoundReviewBatch mints: from the THREAD it lands
+				// on, not from the batch — which is what the workflow's slot→round pairing
+				// predicts.
+				held.ID = projectstate.ReviewCommentID(r.Round, len(r.Thread))
+				held.Round, held.Status = r.Round, projectstate.ReviewCommentOpen
+				r.Thread = append(r.Thread, held)
+			}
+			return
+		}
+	})
+}
+
+func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
+				continue
+			}
+			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			return
+		}
+	})
+}
+
+func (f fakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, commentID string, status string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+		for i := range row.Reviews {
+			r := &row.Reviews[i]
+			if r.RoundID != roundID {
+				continue
+			}
+			for j := range r.Thread {
+				if r.Thread[j].ID == commentID {
+					r.Thread[j].Status = status
+					return
+				}
+			}
+		}
+	})
+}
+
+// The six verbs no design rail calls: the attempt ledger, the staging/commit verbs and the
+// stale-basis ack all stay on the construction rail and the designSession facet in this
+// wave. Inert stubs, matching the stubRail precedent for an unused portion of a wide
+// contract.
+
+func (fakeActivityExecution) RecordAttemptOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.TaskAttemptInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+	return projectstate.StagedRef{}, nil
+}
+
+func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+	return 0, nil
+}
+
+func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	return f.execution(activityID), nil
+}
+
+// registerGenActivityExecution registers the five ROUND-LEDGER activities the design rails
+// dual-write through, under the names the generated RegisterWorker uses in production. It
+// is called from registerGenActivities so EVERY workflow test has them: the dual-write is
+// unconditional behind the fence, and a test env missing them would exercise the
+// best-effort miss path instead of the feature.
+func registerGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps projectstate.ProjectStateAccess) {
+	base, ok := ps.(execLedgerBase)
+	if !ok {
+		return
+	}
+	acts := &genActivities{ActivityExecution: fakeActivityExecution{base.baseProjectState()}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus, activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 }
 
 // registerCoAuthor registers the child gate workflow + its activities on the test env,
@@ -4401,7 +4605,7 @@ func rc() fwmanager.Context { return fwmanager.Context{Context: context.Backgrou
 // it wires the projectState + (optional) rail + estimator + repoBase deps and leaves
 // the Temporal client / pipeline / repo-resolver nil (those ops never touch them).
 func newCatalogMgr(ps projectstate.ProjectStateAccess, sc sourcecontrol.SourceControlAccess, est estimation.EstimationEngine, repoBase string) SystemDesignManager {
-	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, nil, nil, repoBase)
+	return NewSystemDesignManager(nil, ps, nil, sc, nil, est, nil, nil, nil, repoBase)
 }
 
 // slotByKind finds the contract slot whose Kind is the canonical wire name of the
@@ -5183,7 +5387,7 @@ func TestGetProject_PRUrl_ProjectsPerProjectRepo(t *testing.T) {
 	repoFn := func(ProjectID) (sourcecontrol.RepoRef, bool) {
 		return sourcecontrol.RepoRef("acme|acme/gtdapp"), true
 	}
-	m := newSystemDesignManager(nil, fake, nil, nil, repoFn, estimation.NewEstimationEngine(), nil, nil, "https://github.com/central/constructrepo")
+	m := newSystemDesignManager(nil, fake, nil, nil, repoFn, estimation.NewEstimationEngine(), nil, nil, nil, "https://github.com/central/constructrepo")
 
 	st, err := m.GetProject(rc(), id)
 	if err != nil {
@@ -9357,7 +9561,7 @@ func sampleResearch() ResearchInput {
 // ---- façade preconditions ---------------------------------------------------
 
 func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
-	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(""), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty projectId, got %d", got)
@@ -9365,7 +9569,7 @@ func Test_SetResearchInput_EmptyProjectID(t *testing.T) {
 }
 
 func Test_SetResearchInput_EmptyResearch(t *testing.T) {
-	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{})
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for empty research, got %d", got)
@@ -9427,7 +9631,7 @@ func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			// A fake whose write verb panics if reached — proves the gate rejects
 			// BEFORE any projectStateAccess call.
-			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, "")
+			m := NewSystemDesignManager(nil, &setResearchFakeState{}, nil, nil, nil, nil, nil, nil, nil, "")
 			_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), ResearchInput{Sources: tc.sources})
 			e := asSystemDesignError(t, err)
 			if e.Kind != fwmanager.ContractMisuse {
@@ -9444,7 +9648,7 @@ func Test_SetResearchInput_PerSourceShapeViolations(t *testing.T) {
 
 func Test_SetResearchInput_HappyPath_RecordsWrite(t *testing.T) {
 	ps := &setResearchFakeState{headVersion: 7}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	research := sampleResearch()
 
 	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), research)
@@ -9476,8 +9680,8 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 
 	ps1 := &setResearchFakeState{}
 	ps2 := &setResearchFakeState{}
-	m1 := NewSystemDesignManager(nil, ps1, nil, nil, nil, nil, nil, nil, "")
-	m2 := NewSystemDesignManager(nil, ps2, nil, nil, nil, nil, nil, nil, "")
+	m1 := NewSystemDesignManager(nil, ps1, nil, nil, nil, nil, nil, nil, nil, "")
+	m2 := NewSystemDesignManager(nil, ps2, nil, nil, nil, nil, nil, nil, nil, "")
 	if _, err := m1.SetResearchInput(bgRC(), pid, research); err != nil {
 		t.Fatalf("write 1: %v", err)
 	}
@@ -9491,7 +9695,7 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 	// A different research payload must derive a DIFFERENT key.
 	other := ResearchInput{Sources: []ResearchSource{{Title: "Competitor analysis", Content: "Z does W."}}}
 	ps3 := &setResearchFakeState{}
-	m3 := NewSystemDesignManager(nil, ps3, nil, nil, nil, nil, nil, nil, "")
+	m3 := NewSystemDesignManager(nil, ps3, nil, nil, nil, nil, nil, nil, nil, "")
 	if _, err := m3.SetResearchInput(bgRC(), pid, other); err != nil {
 		t.Fatalf("write 3: %v", err)
 	}
@@ -9504,7 +9708,7 @@ func Test_SetResearchInput_IdempotencyKey_StableForSameResearch(t *testing.T) {
 
 func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 	ps := &setResearchFakeState{headVersion: 3, conflictsBeforeSuccess: 2}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 
 	v, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if err != nil {
@@ -9531,7 +9735,7 @@ func Test_SetResearchInput_ConflictThenSuccess_ReReads(t *testing.T) {
 
 func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
 	ps := &setResearchFakeState{conflictsBeforeSuccess: setResearchInputMaxAttempts + 1}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.Infrastructure {
 		t.Fatalf("want Infrastructure after exhausting conflict retries, got %d", got)
@@ -9546,7 +9750,7 @@ func Test_SetResearchInput_ConflictExhausted_Infrastructure(t *testing.T) {
 func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 	// ReadProject succeeds but the write surfaces NotFound (no project aggregate).
 	ps := &setResearchNotFoundOnWrite{}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound passthrough, got %d", got)
@@ -9555,7 +9759,7 @@ func Test_SetResearchInput_NotFound_Passthrough(t *testing.T) {
 
 func Test_SetResearchInput_ReadNotFound_Propagates(t *testing.T) {
 	ps := &setResearchFakeState{readErr: fwra.New(fwra.NotFound, "no row yet")}
-	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, "")
+	m := NewSystemDesignManager(nil, ps, nil, nil, nil, nil, nil, nil, nil, "")
 	_, err := m.SetResearchInput(bgRC(), ProjectID(uuid.NewString()), sampleResearch())
 	if got := asSystemDesignError(t, err).Kind; got != fwmanager.NotFound {
 		t.Fatalf("want NotFound when ReadProject reports no row, got %d", got)
@@ -10483,7 +10687,7 @@ func Test_AnswerEpisodeWatch_PermanentAppendFailure_GivesUpBounded(t *testing.T)
 // episodeMgr builds a systemDesignManager exercising ONLY the episode facet read
 // ops (Task 9): every other dep stays nil since those ops touch only episodes.
 func episodeMgr(eps episode.EpisodeAccess) SystemDesignManager {
-	return NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, eps, "")
+	return NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, eps, "")
 }
 
 // sampleEpisodeRecord returns a fully-populated ledger record (every optional
@@ -12259,3 +12463,367 @@ func TestAnswerJobAddresseeRule(t *testing.T) {
 // terminality IS its exit stamp (and its failure reason): a fixture that used to say
 // Phase: Done says CompletedAt, and one that said Running says StartedAt.
 var testExitAt = time.Date(2026, 9, 23, 12, 0, 0, 0, time.UTC)
+
+// ---- THE ROUND-LEDGER DUAL-WRITE (stage 3, task 6) -------------------------
+
+// roundLedgerFake is the branch-aware fake PLUS the SLOT ledger's own batch apply, so a
+// reject actually lands its comments in ArtifactSlot.ReviewThread the way the real RA does
+// (via the very function it calls, projectstate.ApplyReviewBatch). Without it the slot
+// thread stays empty and the "both ledgers carry the same content" assertion would be
+// comparing against nothing.
+type roundLedgerFake struct {
+	*branchAwareFakeProjectState
+}
+
+var _ projectstate.ProjectStateAccess = (*roundLedgerFake)(nil)
+
+func (f *roundLedgerFake) RejectArtifactOnBranchWithComments(rc fwra.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind, notes string, round int64, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, key fwra.IdempotencyKey) (projectstate.Version, error) {
+	v, err := f.RejectArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, key)
+	if err != nil {
+		return 0, err
+	}
+	f.fakeProjectState.mu.Lock()
+	defer f.fakeProjectState.mu.Unlock()
+	var applyErr error
+	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) {
+		thread, aerr := projectstate.ApplyReviewBatch(s.ReviewThread, round, comments, replies)
+		if aerr != nil {
+			applyErr = aerr
+			return
+		}
+		s.ReviewThread = thread
+	})
+	if applyErr != nil {
+		return 0, applyErr
+	}
+	return v, nil
+}
+
+// slot reads back one artifact slot of the served head-state.
+func (f *fakeProjectState) slot(kind projectstate.ArtifactKind) projectstate.ArtifactSlot {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	var out projectstate.ArtifactSlot
+	f.mutateSlotLocked(kind, func(s *projectstate.ArtifactSlot) { out = *s })
+	return out
+}
+
+// newRoundLedgerEnv wires a rail-enabled System co-author session over the round-ledger
+// fake and returns the env, the base store (where both ledgers land) and the pipeline.
+func newRoundLedgerEnv(t *testing.T, env *testsuite.TestWorkflowEnvironment, id ProjectID) (*fakeProjectState, *fakePipeline) {
+	t.Helper()
+	base := &fakeProjectState{project: systemReadBack(t, id)}
+	ps := &roundLedgerFake{branchAwareFakeProjectState: &branchAwareFakeProjectState{fakeProjectState: base}}
+	pipe := newFakePipeline()
+	wf := newRailWorkflows(&fakeRail{checkGreen: true})
+	registerRailCoAuthor(env, wf, ps, pipe)
+	return base, pipe
+}
+
+// THE DUAL-WRITE. A design send-back must now leave a ReviewRound as well as a
+// ReviewThread — the same comments, plus the roster, the verdicts and the terminal the
+// thread never carried. The thread stays until stage 6 because the SPA still reads it.
+//
+// Pre-fix the round ledger was EMPTY after any design decision: the design rails had no
+// activityExecutionAccess dep at all, and `.activityExecution` held construction rows only.
+func Test_CoAuthor_Reject_DualWritesTheRoundAndTheThread(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	const (
+		rejectNotes = "rework the decomposition"
+		firstPath   = "$.components[0].name"
+		firstText   = "this manager name violates the layering rule"
+		secondPath  = "$.components[1].name"
+		secondText  = "and this one is an engine wearing a manager's name"
+	)
+	feedback := &ReviewFeedback{
+		Notes: rejectNotes,
+		Comments: []AnchoredComment{
+			{JSONPath: firstPath, Text: firstText},
+			{JSONPath: secondPath, Text: secondText},
+		},
+	}
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: feedback})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the dual-write must not crash the session: %v", err)
+	}
+
+	// The LEGACY thread is still written — this is a dual-write, not a cut-over.
+	slot := base.slot(projectstate.KindSystem)
+	if len(slot.ReviewThread) != 2 {
+		t.Fatalf("the legacy slot thread must still be written; got %d comments", len(slot.ReviewThread))
+	}
+	// KindSystem is the ARCHITECTURE design activity (designActivityFor), so its rounds hang
+	// off that prefix activity — the id the derived plan carries for it.
+	rounds := base.rounds("architecture")
+	if len(rounds) == 0 {
+		t.Fatal("a design reject must leave a ReviewRound on the execution ledger (pre-fix: none)")
+	}
+	r := rounds[0]
+	// ONE round number, two places — offset by one, because the slot ledger counts rounds
+	// from zero (its ids are r0c1 …) and a ReviewRound is 1-based by contract.
+	if r.Round != slot.ReviewThread[0].Round+1 {
+		t.Fatalf("round=%d must be the slot round %d plus one", r.Round, slot.ReviewThread[0].Round)
+	}
+	// THE SAME COMMENTS. Not a summary, not a count — the same author, anchor and text, so a
+	// reader of either ledger meets the identical content.
+	if len(r.Thread) != len(slot.ReviewThread) {
+		t.Fatalf("the round's thread and the slot's thread are the same comments; %d vs %d", len(r.Thread), len(slot.ReviewThread))
+	}
+	for i := range r.Thread {
+		got, want := r.Thread[i], slot.ReviewThread[i]
+		if got.Anchor != want.Anchor || got.Text != want.Text || got.AuthorRole != want.AuthorRole {
+			t.Fatalf("comment %d differs between the ledgers: round %+v vs slot %+v", i, got, want)
+		}
+	}
+}
+
+// THE ROUND CARRIES WHAT THE THREAD NEVER COULD: the verdicts (the human's AND the
+// critic's), the roster the review engine computed, the terminal with who settled it, the
+// subject judged, and the lifecycle pin the whole ledger is read against. Split from the
+// content assertion above so each failure names one missing fact.
+func Test_CoAuthor_Reject_TheRoundCarriesTheVerdictsRosterAndSubject(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	const rejectNotes = "rework the decomposition"
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: rejectNotes}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("the dual-write must not crash the session: %v", err)
+	}
+	rounds := base.rounds("architecture")
+	if len(rounds) == 0 {
+		t.Fatal("a design reject must leave a ReviewRound on the execution ledger")
+	}
+	r := rounds[0]
+
+	// THE VERDICT IS A ROW NOW, NOT AN ABSENCE — and the round carries BOTH the human's
+	// send-back and the critic's conclusion, which the slot only ever held as two loose
+	// string fields (CritiqueVerdict / CritiqueNotes).
+	human := verdictByRole(r, designRoleHuman)
+	if human == nil || human.Verdict != projectstate.VerdictSendBack || human.Summary != rejectNotes {
+		t.Fatalf("the human's send-back must be a verdict row carrying its notes; got %+v", r.Verdicts)
+	}
+	critic := verdictByRole(r, critiqueRoleArchitect)
+	if critic == nil || critic.Verdict != projectstate.VerdictApprove {
+		t.Fatalf("the architect self-critique's ratification must ride the round as an ordinary verdict; got %+v", r.Verdicts)
+	}
+	// The ROSTER the engine computed, and the terminal, with who settled it.
+	if len(r.Reviewers) == 0 {
+		t.Fatalf("the round must persist the roster the review engine computed; got %+v", r.Reviewers)
+	}
+	if r.Outcome != projectstate.RoundSentBack || r.DecidedBy == "" {
+		t.Fatalf("a send-back round is decided sentBack by someone; got outcome=%q decidedBy=%q", r.Outcome, r.DecidedBy)
+	}
+	// And the SUBJECT: what the round judged. The rail is on, so it is the PR the reviewer opens.
+	if r.SubjectRef.Ref == "" {
+		t.Fatalf("a round must cite the subject it judged; got %+v", r.SubjectRef)
+	}
+	assertPinnedAndKeyedToTheLifecycle(t, base, r)
+}
+
+// assertPinnedAndKeyedToTheLifecycle checks the two facts that make a round READABLE later:
+// the activity row was born with the lifecycle it runs PINNED (without it a method-assets
+// release landing mid-session re-shapes the DAG the ledger was written under), and the round
+// is keyed on that lifecycle's OWN tasks rather than on any literal — architectureReview is
+// the architecture phase's gate, architectureDraft is what it judges.
+func assertPinnedAndKeyedToTheLifecycle(t *testing.T, base *fakeProjectState, r projectstate.ReviewRound) {
+	t.Helper()
+	exec := base.execution("architecture")
+	if exec.Pin == nil || exec.Pin.TypeKey == "" || exec.Pin.AssetsVersion == "" {
+		t.Fatalf("the design activity must be opened with a lifecycle pin; got %+v", exec.Pin)
+	}
+	if exec.Type != projectstate.ActivityTypeArchitecture {
+		t.Fatalf("the design activity row must carry its own type; got %v", exec.Type)
+	}
+	if r.TaskID != projectstate.GateTaskFor("architecture") || r.Reviews != projectstate.AgentTaskFor("architecture") {
+		t.Fatalf("the round must be keyed on the pinned lifecycle's tasks; got task=%q reviews=%q", r.TaskID, r.Reviews)
+	}
+}
+
+// verdictByRole finds one reviewer's row on a round, or nil.
+func verdictByRole(r projectstate.ReviewRound, role string) *projectstate.ReviewVerdict {
+	for i := range r.Verdicts {
+		if r.Verdicts[i].ReviewerRole == role {
+			return &r.Verdicts[i]
+		}
+	}
+	return nil
+}
+
+// A REJECT THEN A RETRY IS TWO ROUNDS, and an approve stamps the SECOND one passed with the
+// approver named. The vibes autogate is why the name matters: a preset auto-approving with
+// nothing in the data to show for it is the defect this wave exists to end, so the
+// auto-approver's own id lands in DecidedBy where a reader will meet it.
+func Test_CoAuthor_RejectThenAutoApprove_IsTwoRounds_AndNamesTheApprover(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "not yet"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove, Approver: autoApproverVibes})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("reject → approve must not crash the session: %v", err)
+	}
+
+	rounds := base.rounds("architecture")
+	if len(rounds) != 2 {
+		t.Fatalf("a send-back and the review that followed it are TWO rounds, not one mutated row; got %d", len(rounds))
+	}
+	if rounds[0].Outcome != projectstate.RoundSentBack {
+		t.Fatalf("the first round is the send-back; got %q", rounds[0].Outcome)
+	}
+	if rounds[1].Outcome != projectstate.RoundPassed {
+		t.Fatalf("the second round is the approval; got %q", rounds[1].Outcome)
+	}
+	if rounds[1].DecidedBy != autoApproverVibes {
+		t.Fatalf("an auto-approved design gate must say WHO approved it; got %q", rounds[1].DecidedBy)
+	}
+	if rounds[0].RoundID == rounds[1].RoundID {
+		t.Fatalf("two rounds, two ids; both were %q", rounds[0].RoundID)
+	}
+	if rounds[1].Round != rounds[0].Round+1 {
+		t.Fatalf("the round number is monotonic; got %d then %d", rounds[0].Round, rounds[1].Round)
+	}
+}
+
+// TWO KINDS THAT SHARE ONE LIFECYCLE PHASE MUST NOT SHARE A ROUND ID. system,
+// operationalConcepts and standardCheck all map to the architecture phase, and glossary and
+// scrubbedRequirements both map to the glossary phase — so a three-part
+// <activity>:<task>:<n> id (construction's) would collide across two independent sessions,
+// and OpenReviewRound's idempotency would silently fold the second artifact's round into the
+// first's. The artifact kind is part of the key for exactly that reason.
+func Test_DesignRoundID_IsDistinctForKindsSharingALifecyclePhase(t *testing.T) {
+	seen := map[string]projectstate.ArtifactKind{}
+	for _, kind := range []projectstate.ArtifactKind{
+		projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck,
+	} {
+		key, ok := designRoundKeyFor(kind)
+		if !ok {
+			t.Fatalf("every Phase-1 kind resolves to a review task in the pinned lifecycles; %s did not", kind.WireName())
+		}
+		id := designRoundID(key, kind, 1)
+		if other, dup := seen[id]; dup {
+			t.Fatalf("round id %q is minted for BOTH %s and %s; a shared phase must not mean a shared round", id, other.WireName(), kind.WireName())
+		}
+		seen[id] = kind
+	}
+}
+
+// Test_WorkerManifest_ThreadsEveryDependency is the gate task 5 had to add on the
+// construction rail after finding activityExecutionAccess's activities REGISTERED
+// (worker.gen.go takes them from the struct's fields) against a field WorkerManifest never
+// filled: the first call would have been a nil-receiver panic INSIDE the Activity, invisible
+// to every unit test because the tests register their own genActivities. The same trap is
+// open on this Manager the moment it takes a new dep, so the same reflection gate closes it
+// — reflection, not a hand list, so a dependency a later codegen run adds is covered the day
+// it appears.
+func Test_WorkerManifest_ThreadsEveryDependency(t *testing.T) {
+	acts := reflect.ValueOf(fullyWiredSystemDesignManager().WorkerManifest().Activities)
+	for i := range acts.NumField() {
+		if acts.Field(i).IsNil() {
+			t.Errorf("genActivities.%s is nil in WorkerManifest: its registered activities would panic on first call",
+				acts.Type().Field(i).Name)
+		}
+	}
+}
+
+// fullyWiredSystemDesignManager builds the Manager with EVERY published dependency non-nil,
+// which is the only state in which the manifest's threading can be checked.
+func fullyWiredSystemDesignManager() *systemDesignManager {
+	ps := &fakeProjectState{}
+	return newSystemDesignManager(
+		nil,
+		ps,
+		newFakePipeline(),
+		&fakeRail{},
+		func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false },
+		estimation.NewEstimationEngine(),
+		projectstate.NewDesignSessionAccess(ps),
+		fakeActivityExecution{ps},
+		&fakeEpisodes{},
+		"",
+	)
+}
+
+// A RESOLVE IS MIRRORED ONTO THE ROUND. The reviewer files the transition against the
+// SLOT's comment id (r0c1 — the slot ledger counts rounds from zero); the round's copy of
+// that comment carries the id the ROUND minted (r1c1, one-based by contract). The workflow
+// pairs them as it appends, so no read-back is needed and the two ledgers cannot drift on
+// what is still open.
+//
+// The comment's own round has already been decided sentBack by then, which is deliberate: a
+// comment's fate is not the round's, and the store allows the transition on a closed round
+// for exactly that reason.
+func Test_CoAuthor_ResolveComment_IsMirroredOntoTheRound(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{
+			Notes:    "rework it",
+			Comments: []AnchoredComment{{JSONPath: "$.components[0].name", Text: "wrong layer"}},
+		}})
+	}, 30*time.Second)
+	// At the NEXT gate the reviewer resolves the comment they filed at the previous one.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{
+			CommentID: projectstate.ReviewCommentID(0, 0), // the slot's r0c1
+			Status:    projectstate.ReviewCommentResolved,
+		})
+	}, 70*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 90*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a mirrored resolve must not crash the session: %v", err)
+	}
+
+	rounds := base.rounds("architecture")
+	if len(rounds) == 0 || len(rounds[0].Thread) != 1 {
+		t.Fatalf("the send-back round must carry the comment it judged; got %+v", rounds)
+	}
+	got := rounds[0].Thread[0]
+	if got.ID != projectstate.ReviewCommentID(1, 0) {
+		t.Fatalf("the round mints its own one-based id for the comment; got %q", got.ID)
+	}
+	if got.Status != projectstate.ReviewCommentResolved {
+		t.Fatalf("the resolve filed against the slot's id must reach the round's copy; got status %q", got.Status)
+	}
+}
