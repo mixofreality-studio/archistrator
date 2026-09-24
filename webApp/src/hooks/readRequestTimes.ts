@@ -16,10 +16,13 @@
  * -----------------------------------------------
  * The tasks lens's gate decisions count a session read the same way: a read
  * already in flight when a decision failed describes the gate from before it
- * (decisionFlow.ts). Its occurrence store (useGateOccurrences) used to note fetch
- * starts itself; it now folds each read through `subscribeToShownReads`, with the
- * request time this store paired to it. So the Begin hold and the gate decisions
- * cannot disagree about when the same read was asked for.
+ * (decisionFlow.ts). Its occurrence store used to note fetch starts itself, and
+ * then folded each read through `subscribeToShownReads` with the request time
+ * this store paired to it, so the Begin hold and the gate decisions could not
+ * disagree about when the same read was asked for. That store
+ * (`hooks/useGateOccurrences.ts`) was deleted with the construction console in
+ * stage 5 Task 13; `subscribeToShownReads` and `readListeners` below have no
+ * subscriber today and are kept for the surface that submits the next decision.
  *
  * HOW
  * ---
@@ -50,7 +53,7 @@ interface Store {
   /** When the read each query shows was requested. */
   shownRequestedAt: Map<string, number>;
   listeners: Set<() => void>;
-  /** Readers that fold each shown read themselves (useGateOccurrences). */
+  /** Readers that fold each shown read themselves (none today — see the header). */
   readListeners: Set<ShownReadListener>;
 }
 

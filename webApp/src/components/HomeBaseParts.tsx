@@ -1,112 +1,26 @@
 /**
- * Presentational pieces for the home base: a phase progress card, an artifact
- * table-of-contents row, and the static economics strip placeholder. Ported from
- * the frozen UX mock and bound to the real PhaseCardView / ArtifactMeta view
- * models. Pure presentation — the screen owns selection + navigation.
+ * Presentational pieces for the home base: an artifact table-of-contents row and
+ * the static economics strip placeholder. Ported from the frozen UX mock and
+ * bound to the real ArtifactMeta view model. Pure presentation — the screen owns
+ * selection + navigation.
+ *
+ * `PhaseCard` lived here too, one per Method phase, with a committed/total
+ * progress bar and a `resume →` / `open console →` button into that phase's own
+ * rail. Stage 5 §7.4 replaced all three with the home base's ONE plan card (Task
+ * 11) and deleted the rails they opened (Task 13), so it went with
+ * `toPhaseCards`, the adapter that fed it.
  */
 import type { ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
-import Button from '@mui/material/Button';
 import Chip from '@mui/material/Chip';
-import LinearProgress from '@mui/material/LinearProgress';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
-import type { ArtifactMeta, PhaseCardView } from '../contracts/adapters';
+import type { ArtifactMeta } from '../contracts/adapters';
 import type { ProjectState, PlanningAssumptionsModel } from '../contracts/types';
-import { raise, type Tokens } from '../utilities/theme/themes';
+import type { Tokens } from '../utilities/theme/themes';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
-
-export function PhaseCard({
-  phase,
-  onResume,
-}: {
-  phase: PhaseCardView;
-  onResume: () => void;
-}): ReactNode {
-  const t = useTokens();
-  const pct = phase.total > 0 ? (phase.done / phase.total) * 100 : 0;
-  return (
-    <Paper
-      data-testid={UI_IDENTIFIERS.HomeBase.phaseCard(phase.id)}
-      sx={{
-        p: 2.5,
-        opacity: phase.locked ? 0.6 : 1,
-        boxShadow: phase.active ? raise(t, 4) : 'none',
-        display: 'flex',
-        flexDirection: 'column',
-        gap: 1,
-      }}
-    >
-      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
-          {`PHASE ${String(phase.index)}`}
-        </Typography>
-        {phase.locked ? <LockOutlinedIcon sx={{ fontSize: 15, opacity: 0.6 }} /> : null}
-        <Box sx={{ flexGrow: 1 }} />
-        {/* Operating (Task 14): the construction card's DONE treatment overrides the
-            ACTIVE chip even though `active` itself stays true (this is still the
-            project's current phase — just fully built). Reuses the same DONE chip
-            styling as the other two cards' completed treatment below. */}
-        {phase.operating === true ? (
-          <Chip label="DONE" size="small" sx={{ bgcolor: t.committedBg, color: t.committedFg }} />
-        ) : phase.active ? (
-          <Chip label="ACTIVE" size="small" sx={{ bgcolor: t.accent, color: t.accentText }} />
-        ) : null}
-        {phase.operating !== true && !phase.locked && !phase.active && phase.total > 0 && (
-          <Chip label="DONE" size="small" sx={{ bgcolor: t.committedBg, color: t.committedFg }} />
-        )}
-      </Box>
-      <Typography sx={{ color: t.ink }} variant="h6">
-        {phase.title}
-      </Typography>
-      <Typography sx={{ color: t.muted, mb: 0.5 }} variant="caption">
-        {phase.subtitle}
-      </Typography>
-      {phase.total > 0 && (
-        <>
-          <LinearProgress
-            aria-label={`${phase.title} progress, ${String(phase.done)} of ${String(phase.total)} committed`}
-            sx={{
-              height: 8,
-              borderRadius: 0,
-              border: `1.5px solid ${t.line}`,
-              bgcolor: t.paperAlt,
-              '& .MuiLinearProgress-bar': { bgcolor: phase.active ? t.accent : t.committedDot },
-            }}
-            value={pct}
-            variant="determinate"
-          />
-          <Box
-            sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mt: 0.5 }}
-          >
-            <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.ink }}>
-              {phase.done}/{phase.total} committed
-            </Typography>
-            {/* Reachable phases (active OR already-done) stay openable — a completed
-                design phase can always be revisited read-only. Only locked (future)
-                phases have no entry. */}
-            {!phase.locked ? (
-              <Button size="small" sx={{ minWidth: 0, px: 1 }} onClick={onResume}>
-                {phase.active ? 'resume →' : 'open →'}
-              </Button>
-            ) : null}
-          </Box>
-        </>
-      )}
-      {/* Phases with no authored-artifact slots (Construction) still need an entry
-          affordance once they are reachable (active / current phase). */}
-      {phase.total === 0 && phase.active && !phase.locked ? (
-        <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-          <Button size="small" sx={{ minWidth: 0, px: 1 }} onClick={onResume}>
-            open console →
-          </Button>
-        </Box>
-      ) : null}
-    </Paper>
-  );
-}
 
 export function TocRow({
   artifact,

@@ -14,8 +14,13 @@
  *
  * ONE GATE OCCURRENCE PER DECISION (review C2)
  * --------------------------------------------
- * A record answers the occurrence it was made on (hooks/gateOccurrences.ts: the
- * `epoch` the session was observed entering the gate). Once a later occurrence
+ * A record answers the occurrence it was made on — the `epoch` the session was
+ * observed entering the gate. (`hooks/gateOccurrences.ts` folded those epochs off
+ * the project read; it was deleted with the construction console in stage 5 Task
+ * 13, and nothing feeds `epoch` today: the plan's TASKS lens passes no
+ * `decidedOf`/`flowOf`, so this whole retirement rule is DORMANT until a surface
+ * submits a decision again. The rule is kept because it is the answer to review
+ * C2, not because something calls it.) Once a later occurrence
  * opens — the redraft's next round after a send-back, the next phase's gate after
  * an approve — the record is retired: it says nothing about the new gate, which
  * is a fresh decision with Approve and Send back on.
@@ -66,7 +71,7 @@ export interface DecisionRecord {
   key: string;
   activityId: string;
   decision: GateDecision;
-  /** The gate occurrence this decision answered (gateOccurrences.ts). */
+  /** The gate occurrence this decision answered (see the header's C2 note). */
   epoch: number;
   /** The lifecycle phase the decision was sent against — what "approved" names. */
   gatedPhase: string;
@@ -99,7 +104,7 @@ export interface ObservedGate {
   /** The latest session stage; `null` where it no longer exists, `undefined` where
    *  there is no answer. */
   stage: ConstructionStage | null | undefined;
-  /** The gate occurrence now observed (gateOccurrences.ts). */
+  /** The gate occurrence now observed (see the header's C2 note). */
   epoch?: number | undefined;
   /** When the latest session read was REQUESTED (0 where that is not known). */
   requestedAt?: number | undefined;
