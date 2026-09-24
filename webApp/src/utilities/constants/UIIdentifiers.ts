@@ -795,6 +795,22 @@ export const UI_IDENTIFIERS = {
     /** The panel header's count, plus the optional scope caption after it. */
     HEADER_COUNT: 'episodes-header-count',
   },
+  // The branching activity-lifecycle stepper (components/activity/LifecycleGraph):
+  // one pip per internal task of an activity (Figure A-1), plus the per-node
+  // revision menu (right-click / ContextMenu key / the active pill's caret), and the
+  // body's revision select it is a shortcut to.
+  ActivityLifecycle: {
+    GRAPH: 'lifecycle-graph',
+    MINI: 'lifecycle-graph-mini',
+    node: (nodeId: string) => `lifecycle-node-${nodeId}`,
+    nodeMenuButton: (nodeId: string) => `lifecycle-node-menu-${nodeId}`,
+    phase: (phaseId: string) => `lifecycle-phase-${phaseId}`,
+    REVISION_MENU: 'lifecycle-revision-menu',
+    REVISION_SELECT: 'lifecycle-revision-select',
+    revisionOption: (n: number) => `lifecycle-revision-option-${String(n)}`,
+    laneLabel: (nodeId: string) => `lifecycle-lane-label-${nodeId}`,
+    revisionItem: (nodeId: string, n: number) => `lifecycle-revision-${nodeId}-${String(n)}`,
+  },
   // The preview build's own chrome (src/previewShell/, design-renderer-data.md
   // §2′.1): the loud banner a fixture miss or a blocked request raises, and the
   // honest error page for a ?screen=&state= the build does not carry.

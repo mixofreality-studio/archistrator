@@ -71,6 +71,7 @@ function warnOnce(message: string): void {
 export function ExperienceChrome({
   phaseNum,
   phaseTitle,
+  eyebrow,
   projectName,
   onClose,
   spine,
@@ -83,6 +84,12 @@ export function ExperienceChrome({
 }: {
   phaseNum: number;
   phaseTitle: string;
+  /**
+   * Replaces the mono eyebrow above the title. Omitted ⇒ today's
+   * `PHASE N · EXPERIENCE`, unchanged. The per-activity experience is not a phase,
+   * so it names itself instead (`ACTIVITY 2 · ARCHITECTURE`, `R-BSA · SERVICE`).
+   */
+  eyebrow?: string | undefined;
   projectName?: string | undefined;
   onClose: () => void;
   spine?: ReactNode;
@@ -220,7 +227,7 @@ export function ExperienceChrome({
               lineHeight: 1,
             }}
           >
-            {`PHASE ${String(phaseNum)} · EXPERIENCE`}
+            {eyebrow ?? `PHASE ${String(phaseNum)} · EXPERIENCE`}
           </Typography>
           <Typography
             sx={{
