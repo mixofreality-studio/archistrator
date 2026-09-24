@@ -10649,10 +10649,13 @@
       "revisions": 3
     }
   },
-  "activityConstruction": {
+  "activityExecution": {
     "C-agentic-job-access": {
       "activityID": "C-agentic-job-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-agentic-job-access:srs:1",
@@ -10816,11 +10819,15 @@
             "basis": "serviceContracts[agenticJobAccess] + server/internal/resourceaccess/agenticjob/contract.gen.go + server/internal/resourceaccess/agenticjob/agenticjobaccess.go (AgenticJobAccess implemented by access, dryRunPipeline, localExecAccess; kind resourceAccess, bound by fielded access, localExecAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-artifact-access": {
       "activityID": "C-artifact-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-artifact-access:srs:1",
@@ -10984,11 +10991,15 @@
             "basis": "serviceContracts[artifactAccess] + server/internal/resourceaccess/artifact/contract.gen.go + server/internal/resourceaccess/artifact/artifactaccess.go (ArtifactAccess implemented by GitArtifactAccess, dryRunArtifacts, erroringArtifactAccess; kind resourceAccess, bound by fielded GitArtifactAccess, erroringArtifactAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-autoscaler-engine": {
       "activityID": "C-autoscaler-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-autoscaler-engine:srs:1",
@@ -11152,11 +11163,15 @@
             "basis": "serviceContracts[autoscalerEngine] + server/internal/engine/autoscaler/contract.gen.go + server/internal/engine/autoscaler/autoscalerengine.go (AutoscalerEngine implemented by AutoscalerEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-billing-engine": {
       "activityID": "C-billing-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-billing-engine:srs:1",
@@ -11320,11 +11335,15 @@
             "basis": "serviceContracts[billingEngine] + server/internal/engine/billing/contract.gen.go + server/internal/engine/billing/billingengine.go (BillingEngine implemented by BillingEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-billing-manager": {
       "activityID": "C-billing-manager",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-billing-manager:srs:1",
@@ -11458,11 +11477,15 @@
             "basis": "serviceContracts[billingManager] + server/internal/manager/billing/contract.gen.go + server/internal/manager/billing/billingmanager.go (BillingManager implemented by billingManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-billing-state-access is not built; dependency C-merchant-gateway-access is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-construction-manager": {
       "activityID": "C-construction-manager",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-construction-manager:srs:1",
@@ -11626,11 +11649,15 @@
             "basis": "serviceContracts[constructionManager] + server/internal/manager/construction/contract.gen.go + server/internal/manager/construction/constructionmanager.go (ConstructionManager implemented by constructionManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-episode-access": {
       "activityID": "C-episode-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-episode-access:srs:1",
@@ -11794,11 +11821,15 @@
             "basis": "serviceContracts[episodeAccess] + server/internal/resourceaccess/episode/contract.gen.go + server/internal/resourceaccess/episode/episodeaccess.go (EpisodeAccess implemented by localFSEpisodeAccess, noopEpisodeAccess; kind resourceAccess, bound by fielded localFSEpisodeAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-estimation-engine": {
       "activityID": "C-estimation-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-estimation-engine:srs:1",
@@ -11962,11 +11993,15 @@
             "basis": "serviceContracts[estimationEngine] + server/internal/engine/estimation/contract.gen.go + server/internal/engine/estimation/estimationengine.go (EstimationEngine implemented by EstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-intervention-engine": {
       "activityID": "C-intervention-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-intervention-engine:srs:1",
@@ -12130,11 +12165,15 @@
             "basis": "serviceContracts[interventionEngine] + server/internal/engine/intervention/contract.gen.go + server/internal/engine/intervention/interventionengine.go (InterventionEngine implemented by InterventionEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-operated-runtime-access": {
       "activityID": "C-operated-runtime-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-operated-runtime-access:srs:1",
@@ -12298,11 +12337,15 @@
             "basis": "serviceContracts[operatedRuntimeAccess] + server/internal/resourceaccess/operatedruntime/contract.gen.go + server/internal/resourceaccess/operatedruntime/operatedruntimeaccess.go (OperatedRuntimeAccess implemented by dryRunOperatedRuntime, realOperatedRuntime; kind resourceAccess, bound by fielded realOperatedRuntime) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-operated-system-state-access": {
       "activityID": "C-operated-system-state-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-operated-system-state-access:srs:1",
@@ -12466,11 +12509,15 @@
             "basis": "serviceContracts[operatedSystemStateAccess] + server/internal/resourceaccess/operatedsystemstate/contract.gen.go + server/internal/resourceaccess/operatedsystemstate/operatedsystemstateaccess.go (OperatedSystemStateAccess implemented by noopOperatedSystemStateAccess, postgresOperatedSystemStateAccess; kind resourceAccess, bound by fielded postgresOperatedSystemStateAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-operation-estimation-engine": {
       "activityID": "C-operation-estimation-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-operation-estimation-engine:srs:1",
@@ -12634,11 +12681,15 @@
             "basis": "serviceContracts[operationEstimationEngine] + server/internal/engine/operationestimation/contract.gen.go + server/internal/engine/operationestimation/operationestimationengine.go (OperationEstimationEngine implemented by OperationEstimationEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-operations-manager": {
       "activityID": "C-operations-manager",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-operations-manager:srs:1",
@@ -12802,11 +12853,15 @@
             "basis": "serviceContracts[operationsManager] + server/internal/manager/operations/contract.gen.go + server/internal/manager/operations/operationsmanager.go (OperationsManager implemented by operationsManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-project-design-manager": {
       "activityID": "C-project-design-manager",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-project-design-manager:srs:1",
@@ -12970,11 +13025,15 @@
             "basis": "serviceContracts[projectDesignManager] + server/internal/manager/projectdesign/contract.gen.go + server/internal/manager/projectdesign/projectdesignmanager.go (ProjectDesignManager implemented by projectDesignManager) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-project-state-access": {
       "activityID": "C-project-state-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-project-state-access:srs:1",
@@ -13138,11 +13197,15 @@
             "basis": "serviceContracts[projectStateAccess,constructionTransitionAccess,designSessionAccess,gitActivityStatusAccess] + server/internal/resourceaccess/projectstate/contract.gen.go + server/internal/resourceaccess/projectstate/projectstateaccess.go (ProjectStateAccess implemented by projectStateGitAdapter; kind resourceAccess, bound by fielded projectStateGitAdapter) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-review-engine": {
       "activityID": "C-review-engine",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-review-engine:srs:1",
@@ -13306,11 +13369,15 @@
             "basis": "serviceContracts[reviewEngine] + server/internal/engine/review/contract.gen.go + server/internal/engine/review/reviewengine.go (ReviewEngine implemented by ReviewEngineImpl) @ a4421a8dbb9aac2f8d086fc8ce848ccf96914629 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-source-control-access": {
       "activityID": "C-source-control-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-source-control-access:srs:1",
@@ -13474,11 +13541,15 @@
             "basis": "serviceContracts[sourceControlAccess] + server/internal/resourceaccess/sourcecontrol/contract.gen.go + server/internal/resourceaccess/sourcecontrol/sourcecontrolaccess.go (SourceControlAccess implemented by access, gitLocalAccess; kind resourceAccess, bound by fielded access, gitLocalAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-system-design-manager": {
       "activityID": "C-system-design-manager",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-system-design-manager:srs:1",
@@ -13612,11 +13683,15 @@
             "basis": "serviceContracts[systemDesignManager] + server/internal/manager/systemdesign/contract.gen.go + server/internal/manager/systemdesign/systemdesignmanager.go (SystemDesignManager implemented by systemDesignManager) @ 86e3d26b16355255f4bc5d195ff8765a478ceea1 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated + Integration pending: dependency C-design-health-engine is not built. + founderRuling[2026-09-13]=Built against its dependencies' contracts; integration waits until every dependency is Done."
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "C-usage-access": {
       "activityID": "C-usage-access",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "service",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "C-usage-access:srs:1",
@@ -13780,12 +13855,16 @@
             "basis": "serviceContracts[usageAccess] + server/internal/resourceaccess/usage/contract.gen.go + server/internal/resourceaccess/usage/usageaccess.go (UsageAccess implemented by noopUsageAccess, postgresUsageAccess; kind resourceAccess, bound by fielded postgresUsageAccess) @ 98eeae5806ed1ad2631accdb82cc9bfe73545882 + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "N-STP": {
       "activityID": "N-STP",
       "type": "testing",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "testing:plan",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "N-STP:srs:1",
@@ -13895,12 +13974,16 @@
             "basis": "testingState.systemTestPlan (5 scenarios) + founderSignOff[2026-09-12]=\"stp looks good in the app. sign off. continue\""
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "R-construction-pipeline-runtime": {
       "activityID": "R-construction-pipeline-runtime",
       "type": "deployment",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "deployment",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "R-construction-pipeline-runtime:detailedDesign:1",
@@ -13992,12 +14075,16 @@
             "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to construction-pipeline-runtime qualifies — C-agentic-job-access (agentic-job-access-\u003econstruction-pipeline-runtime) fully implemented: serviceContracts[agenticJobAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "R-github": {
       "activityID": "R-github",
       "type": "deployment",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "deployment",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "R-github:detailedDesign:1",
@@ -14089,12 +14176,16 @@
             "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to github qualifies — C-source-control-access (source-control-access-\u003egithub) fully implemented: serviceContracts[sourceControlAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "R-operated-runtime": {
       "activityID": "R-operated-runtime",
       "type": "deployment",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "deployment",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "R-operated-runtime:detailedDesign:1",
@@ -14186,12 +14277,16 @@
             "basis": "inferred, not read: a Resource has no code in this repository; every ResourceAccess with a slot-5 relationship to operated-runtime qualifies — C-operated-runtime-access (operated-runtime-access-\u003eoperated-runtime) fully implemented: serviceContracts[operatedRuntimeAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "architecture": {
       "activityID": "architecture",
       "type": "architecture",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "architecture",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "architecture:architectureDraft:1",
@@ -14229,12 +14324,104 @@
             "basis": "committed design artifacts: systemDesign (37 components, 18 views, committed); operationalConcepts (5 infrastructure building blocks, committed)"
           }
         }
-      ]
+      ],
+      "reviews": [
+        {
+          "roundId": "architecture:architectureReview:operationalConcepts:2",
+          "taskId": "architectureReview",
+          "reviews": "architectureDraft",
+          "round": 2,
+          "subjectRef": {
+            "kind": "artifact",
+            "ref": "operationalConcepts"
+          },
+          "thread": [
+            {
+              "id": "r1c1",
+              "anchor": "",
+              "anchorText": "",
+              "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+              "authorRole": "architect",
+              "round": 1,
+              "status": "answered",
+              "response": "",
+              "replies": null,
+              "reopened": false,
+              "type": "staleAck",
+              "addressee": ""
+            },
+            {
+              "id": "r1c2",
+              "anchor": "",
+              "anchorText": "",
+              "text": "Reviewed — unaffected: call-chain realization amendment (steps model, all 16 views realized)",
+              "authorRole": "architect",
+              "round": 1,
+              "status": "answered",
+              "response": "",
+              "replies": null,
+              "reopened": false,
+              "type": "staleAck",
+              "addressee": ""
+            }
+          ],
+          "outcome": "passed",
+          "decidedBy": "",
+          "openedAt": "",
+          "decidedAt": "",
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/migrate-activity-execution",
+            "generatedAt": "2026-09-24T07:07:13.104241Z",
+            "basis": "slots.operationalConcepts.reviewThread round 1; subject from slots.operationalConcepts (no commit sha is recorded for a slot; the staged artifact is the subject)"
+          }
+        },
+        {
+          "roundId": "architecture:architectureReview:standardCheck:2",
+          "taskId": "architectureReview",
+          "reviews": "architectureDraft",
+          "round": 2,
+          "subjectRef": {
+            "kind": "artifact",
+            "ref": "standardCheck"
+          },
+          "thread": [
+            {
+              "id": "r1c1",
+              "anchor": "",
+              "anchorText": "",
+              "text": "Reviewed — unaffected: Slot-5 system amendment (rev 2) reviewed against this artifact: call chains added for every nonCore variation, duplicate source-control edges consolidated, encapsulates prose filled on all components. No basis change affects this artifact — unaffected.",
+              "authorRole": "architect",
+              "round": 1,
+              "status": "answered",
+              "response": "",
+              "replies": null,
+              "reopened": false,
+              "type": "staleAck",
+              "addressee": ""
+            }
+          ],
+          "outcome": "withdrawn",
+          "decidedBy": "",
+          "openedAt": "",
+          "decidedAt": "",
+          "provenance": {
+            "origin": "backfilled",
+            "generator": "cmd/migrate-activity-execution",
+            "generatedAt": "2026-09-24T07:07:13.104241Z",
+            "basis": "slots.standardCheck.reviewThread round 1; subject from slots.standardCheck (no commit sha is recorded for a slot; the staged artifact is the subject)"
+          }
+        }
+      ],
+      "version": 1
     },
     "projectDesign": {
       "activityID": "projectDesign",
       "type": "projectDesign",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "projectDesign",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "projectDesign:sdpReview:1",
@@ -14254,12 +14441,16 @@
             "basis": "committed design artifacts: planningAssumptions (5 resources, committed); activityList (32 activities, committed); network (31 dependencies, 4 milestones, committed); normalSolution (staffing cap 6, committed); subcriticalSolution (staffing cap 4, committed); compressedSolution (staffing cap 6, committed); decompressedSolution (staffing cap 6, committed); riskModel (4 rows, committed); sdpReview (4 options, committed)"
           }
         }
-      ]
+      ],
+      "version": 1
     },
     "requirements": {
       "activityID": "requirements",
       "type": "requirements",
-      "phase": 0,
+      "lifecyclePin": {
+        "typeKey": "requirements",
+        "assetsVersion": "v0.9.0"
+      },
       "attempts": [
         {
           "attemptId": "requirements:missionDraft:1",
@@ -14405,7 +14596,8 @@
             "basis": "committed design artifacts: mission (11 objectives, committed); glossary (42 terms, committed); scrubbedRequirements (19 required behaviors, committed); volatilities (19 areas of volatility, committed); coreUseCases (18 decisions, committed)"
           }
         }
-      ]
+      ],
+      "version": 1
     }
   },
   "constructionProgress": {
