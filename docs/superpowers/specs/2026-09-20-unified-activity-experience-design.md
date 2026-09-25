@@ -228,7 +228,7 @@ Pre-req: land or abandon the unmerged `lifecycle-2-conformance-gate` branch (tou
 
 ## 9. Testing
 
-- Pure layout/geometry: node tests (**60 exist** — geometry 20, layout 11, types 10, `planGraphLayout` 12, `lifecycles.gen` 7; counted 2026-09-24. "20" was the prototype's count and is corrected here). Lifecycle data: schema + DAG validation in Go and in the generator.
+- Pure layout/geometry: node tests (**66 exist** — geometry 20, layout 11, types 10, `planGraphLayout` 18, `lifecycles.gen` 7; re-measured 2026-09-24 by running `node --test` over the five files, not by counting `void test(` by eye. "20" was the prototype's count; "60 / planGraphLayout 12" was this line's own first correction, and was short by the six cases `planGraphLayout` gained after it was written). Lifecycle data: schema + DAG validation in Go and in the generator.
 - Child workflow: Temporal test-suite cases per shape — linear, fork/join (both branch orders), send-back re-opens only the judged pair, join waits for all, M0 no-send-back, human-floor under `vibes`.
 - Review engine: table tests over (activityType, task, policy, floor); a Manager fake that **validates** `artifactKind` (the current fake hid the live bug).
 - Rail: revision read returns artifact-as-of-`stagedRef`; construction send-back round-trips comments.
