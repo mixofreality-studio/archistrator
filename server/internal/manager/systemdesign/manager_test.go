@@ -1829,14 +1829,25 @@ func (f *fakeProjectState) rounds(activityID string) []projectstate.ReviewRound 
 	return f.execution(activityID).Reviews
 }
 
-func (f fakeActivityExecution) applyExecution(activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
+// applyExecution is the shared shape of every mutating verb on the double: the
+// per-activity CAS first, then the one write-back point.
+func (f fakeActivityExecution) applyExecution(expectedActivityVersion int64, activityID string, mutate func(*projectstate.ActivityExecution)) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	// The per-activity CAS the real facet applies (withActivityVersion). A stale
+	// expectation is refused as a Conflict and writes NOTHING — counter included — so a
+	// session whose copy of the row version has drifted fails here instead of passing
+	// against a double that does not hold the rule production does.
+	if held := f.project.ActivityExecution[activityID].Version; expectedActivityVersion != projectstate.NoActivityVersionExpectation && expectedActivityVersion != held {
+		return 0, fwra.New(fwra.Conflict, fmt.Sprintf(
+			"fake projectstate: activity %s is at version %d, not the expected %d; re-read the activity and re-apply",
+			activityID, held, expectedActivityVersion))
+	}
 	return f.upsertExecution(activityID, mutate), nil
 }
 
-func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		row.Type, row.Variant = typ, variant
 		if row.Pin == nil {
 			held := pin
@@ -1849,8 +1860,8 @@ func (f fakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.Proje
 	})
 }
 
-func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			if row.Reviews[i].RoundID == round.RoundID {
 				return // already open: a no-op success, not a second round
@@ -1870,9 +1881,9 @@ func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.Pr
 	})
 }
 
-func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	var refused error
-	v, err := f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+	v, err := f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
 			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
@@ -1928,8 +1939,8 @@ func (f fakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstat
 	return v, err
 }
 
-func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
 			if r.RoundID != roundID || r.Outcome != projectstate.RoundPending {
@@ -1941,8 +1952,8 @@ func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.
 	})
 }
 
-func (f fakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, roundID string, commentID string, status string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
-	return f.applyExecution(activityID, func(row *projectstate.ActivityExecution) {
+func (f fakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
 			if r.RoundID != roundID {
@@ -1963,27 +1974,27 @@ func (f fakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projects
 // wave. Inert stubs, matching the stubRail precedent for an unused portion of a wide
 // contract.
 
-func (fakeActivityExecution) RecordAttemptOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.TaskAttemptInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeActivityExecution) RecordAttemptOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.TaskAttemptInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
-func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+func (fakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
 	return projectstate.StagedRef{}, nil
 }
 
-func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
-func (fakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeActivityExecution) RecordActivityOutcome(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ActivityOutcome, projectstate.FailureReason, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
-func (fakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeActivityExecution) RecordOperatorNote(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.OperatorNoteInput, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 
-func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
+func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.ArtifactKind, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 

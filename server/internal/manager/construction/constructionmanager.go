@@ -2055,6 +2055,19 @@ type constructState struct {
 	// Activities and never will.
 	executionLedger bool
 
+	// activityVersion is this run's copy of the per-activity CAS token: the version the
+	// activity's own execution row was at the last time this workflow wrote it. It is
+	// deliberately NOT headVersion — headVersion is the whole document's token, and two
+	// children writing DIFFERENT activities would contend on it while never touching each
+	// other's rows. This one is scoped to the row, so it refuses exactly the interleaving
+	// that matters and nothing else, which is the guard 4b's parallel pump rests on.
+	//
+	// Seeded at session start from the row the start snapshot already read
+	// (loadReviewSnapshot), 0 for an activity with no row yet — which is
+	// projectstate.NoActivityVersionExpectation, the honest posture of a writer about to
+	// BIRTH the row. Advanced by rowAdvanced on every applied transition.
+	activityVersion int64
+
 	// workAttemptID is the AttemptID of the last AGENT-WORK dispatch runPipeline minted.
 	// The gate that follows judges exactly that attempt, so it is what the round cites as
 	// its subject and what every verdict on that round names — the join that makes a
@@ -2074,6 +2087,20 @@ type constructState struct {
 	// delivered, because there is no stored note to stamp.
 	ephemeralNotes map[string]bool
 }
+
+// rowAdvanced records that ONE transition applied to the activity's execution row, which
+// is exactly what the store stamped on it: BOTH write paths onto a row — the facet's
+// (withActivityVersion) and the retired facets' (upsertActivityExecution) — advance the
+// stored counter by one per applied transition, and neither advances it on a refusal.
+//
+// EVERY verb that writes the row calls this, including the retired facets' verbs, which
+// still write these rows for the length of the wave (RecordPhaseStarted,
+// RecordChangeReviewed, RecordOperatorNote, RecordOperatorNoteDelivered all run on a
+// ledger-on execution). A counter that tracked only the new rail would go stale on the
+// first write from the old one, and the next CAS would then refuse a caller that is not
+// stale at all — a self-inflicted conflict the re-read arm cannot resolve, because
+// applyRecovering re-reads the PROJECT version and no row.
+func (s *constructState) rowAdvanced() { s.activityVersion++ }
 
 // gateLedger is the execution-ledger identity of ONE gate occurrence: the review task it
 // belongs to, its 1-based number, the round id derived from the pair, the subject the

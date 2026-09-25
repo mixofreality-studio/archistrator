@@ -412,43 +412,43 @@ func (a *genActivities) DesignSessionWithdrawArtifactOnBranch(ctx context.Contex
 
 // ActivityExecutionAcknowledgeStaleBasis wraps activityExecutionAccess.acknowledgeStaleBasis.
 // Registered as "activityExecutionAccess.acknowledgeStaleBasis".
-func (a *genActivities) ActivityExecutionAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, kind projectstate.ArtifactKind, note string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, kind, note, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionAcknowledgeStaleBasis(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, kind projectstate.ArtifactKind, note string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.AcknowledgeStaleBasis(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, kind, note, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionAppendReviewVerdict wraps activityExecutionAccess.appendReviewVerdict.
 // Registered as "activityExecutionAccess.appendReviewVerdict".
-func (a *genActivities) ActivityExecutionAppendReviewVerdict(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.AppendReviewVerdict(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, roundID, verdict, comments, replies, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionAppendReviewVerdict(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, replies []projectstate.ReviewReply, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.AppendReviewVerdict(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, verdict, comments, replies, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionCommitActivityArtifacts wraps activityExecutionAccess.commitActivityArtifacts.
 // Registered as "activityExecutionAccess.commitActivityArtifacts".
-func (a *genActivities) ActivityExecutionCommitActivityArtifacts(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, artifacts projectstate.CommitArtifactsInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.CommitActivityArtifacts(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, artifacts, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionCommitActivityArtifacts(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, artifacts projectstate.CommitArtifactsInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.CommitActivityArtifacts(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, artifacts, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionDecideReviewRound wraps activityExecutionAccess.decideReviewRound.
 // Registered as "activityExecutionAccess.decideReviewRound".
-func (a *genActivities) ActivityExecutionDecideReviewRound(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.DecideReviewRound(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, roundID, outcome, decidedBy, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionDecideReviewRound(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.DecideReviewRound(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, outcome, decidedBy, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionOpenActivity wraps activityExecutionAccess.openActivity.
 // Registered as "activityExecutionAccess.openActivity".
-func (a *genActivities) ActivityExecutionOpenActivity(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.OpenActivity(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, typ, variant, pin, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionOpenActivity(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.OpenActivity(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, typ, variant, pin, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionOpenReviewRound wraps activityExecutionAccess.openReviewRound.
 // Registered as "activityExecutionAccess.openReviewRound".
-func (a *genActivities) ActivityExecutionOpenReviewRound(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.OpenReviewRound(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, round, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionOpenReviewRound(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, round projectstate.ReviewRoundInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.OpenReviewRound(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, round, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
@@ -461,36 +461,36 @@ func (a *genActivities) ActivityExecutionReadActivityExecution(ctx context.Conte
 
 // ActivityExecutionRecordActivityOutcome wraps activityExecutionAccess.recordActivityOutcome.
 // Registered as "activityExecutionAccess.recordActivityOutcome".
-func (a *genActivities) ActivityExecutionRecordActivityOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.RecordActivityOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, outcome, reason, detail, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionRecordActivityOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.RecordActivityOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, outcome, reason, detail, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionRecordAttemptOutcome wraps activityExecutionAccess.recordAttemptOutcome.
 // Registered as "activityExecutionAccess.recordAttemptOutcome".
-func (a *genActivities) ActivityExecutionRecordAttemptOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.RecordAttemptOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, attempt, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionRecordAttemptOutcome(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.RecordAttemptOutcome(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, attempt, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionRecordOperatorNote wraps activityExecutionAccess.recordOperatorNote.
 // Registered as "activityExecutionAccess.recordOperatorNote".
-func (a *genActivities) ActivityExecutionRecordOperatorNote(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.RecordOperatorNote(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, note, deliveredToAttemptID, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionRecordOperatorNote(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.RecordOperatorNote(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, note, deliveredToAttemptID, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionSetReviewCommentStatus wraps activityExecutionAccess.setReviewCommentStatus.
 // Registered as "activityExecutionAccess.setReviewCommentStatus".
-func (a *genActivities) ActivityExecutionSetReviewCommentStatus(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential) (projectstate.Version, error) {
-	v, err := a.ActivityExecution.SetReviewCommentStatus(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, roundID, commentID, status, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionSetReviewCommentStatus(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred projectstate.RepoCredential) (projectstate.Version, error) {
+	v, err := a.ActivityExecution.SetReviewCommentStatus(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, roundID, commentID, status, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 
 // ActivityExecutionStageTaskOutput wraps activityExecutionAccess.stageTaskOutput.
 // Registered as "activityExecutionAccess.stageTaskOutput".
-func (a *genActivities) ActivityExecutionStageTaskOutput(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, activityID string, taskID string, branch string, model projectstate.ModelEnvelope, cred projectstate.RepoCredential) (projectstate.StagedRef, error) {
-	v, err := a.ActivityExecution.StageTaskOutput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, activityID, taskID, branch, model, cred, genActivityIdempotencyKey(ctx))
+func (a *genActivities) ActivityExecutionStageTaskOutput(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, expectedActivityVersion int64, activityID string, taskID string, branch string, model projectstate.ModelEnvelope, cred projectstate.RepoCredential) (projectstate.StagedRef, error) {
+	v, err := a.ActivityExecution.StageTaskOutput(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, expectedActivityVersion, activityID, taskID, branch, model, cred, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

@@ -829,6 +829,14 @@ var encapsulationAllowlistData = map[string][]string{
 		"NetworkMilestone",
 		"NetworkNodeCompute",
 		"NetworkSummary",
+		// CONTRACT VOCABULARY for a generated parameter (stage 4a). The eleven mutating
+		// verbs on activityExecutionAccess take an expectedActivityVersion, and this const
+		// is the one value that means "I have not read this row" — the posture OpenActivity
+		// takes on a birth and a migration tool takes over history it never read. It is
+		// exported for the same reason a generated enum member is: a caller outside the
+		// package cannot fill a generated parameter honestly without the name for its
+		// sentinel, and the alternative is every caller writing a bare 0.
+		"NoActivityVersionExpectation",
 		"NewGitStore",
 		"NewGlossary",
 		"NewMissionStatement",

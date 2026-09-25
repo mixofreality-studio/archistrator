@@ -9919,18 +9919,18 @@ func execMisuse(op, detail string) error {
 	return fwra.New(fwra.ContractMisuse, "projectstate."+op+": "+detail)
 }
 
-// noActivityVersionExpectation is the `expected` a caller passes when it holds no
-// per-activity version to assert — the honest no-op guard.
+// NoActivityVersionExpectation is the "I have not read this row" posture. It is NOT a
+// loophole: OpenActivity may BIRTH the row, and a tool or migration that writes history
+// it never read has no number to assert. Every WORKFLOW caller holds the row — it comes
+// back on the readProject the child already makes — so every workflow caller passes a
+// real number, and a stale one is refused.
 //
-// WHICH ARM THIS FACET TOOK, AND WHY (task 4, step 3). The twelve verbs carry the
-// PROJECT version as their expectedVersion, and applyRecovering re-reads exactly that on
-// a Conflict (readVersionE); nothing in the workflow reads a row's own version, and
-// inventing a parameter for one no caller can fill would be a guard that only ever
-// compared a fabricated number. So every call site today passes this, and
-// withActivityVersion still stamps the counter on every successful transition — the row
-// carries an honest version for task 5's writers to assert against, and the check is one
-// argument away when they can.
-const noActivityVersionExpectation int64 = 0
+// Stage 4a armed this. Before it the guard compared a fabricated zero: the twelve verbs
+// carried the PROJECT version alone, nothing in a workflow read a row's own version, and
+// a parameter no caller could fill would have been a guard that only ever compared a
+// number it invented. The callers can fill it now, and this is what the two that
+// genuinely cannot pass.
+const NoActivityVersionExpectation int64 = 0
 
 // withActivityVersion wraps a narrow activity transition in the per-activity optimistic
 // check. The project-level guard (loadAggregateForMutation, STEP 3) is the CAS token for
@@ -9948,10 +9948,8 @@ func withActivityVersion(op, activityID string, expected int64, apply func(*Acti
 		if !ok {
 			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.%s: no activity row for %s — open the activity first", op, activityID))
 		}
-		if expected != noActivityVersionExpectation && expected != cs.Version {
-			return fwra.New(fwra.Conflict, fmt.Sprintf(
-				"projectstate.%s: activity %s is at version %d, not the expected %d; re-read the activity and re-apply",
-				op, activityID, cs.Version, expected))
+		if err := activityVersionMismatch(op, activityID, expected, cs.Version); err != nil {
+			return err
 		}
 		if err := apply(&cs); err != nil {
 			return err
@@ -9962,20 +9960,54 @@ func withActivityVersion(op, activityID string, expected int64, apply func(*Acti
 	}
 }
 
+// activityVersionMismatch is the comparison itself, shared by every writer that makes it:
+// the Conflict a held version that is no longer the row's deserves, or nil when the
+// expectation is honoured. Holding NO expectation honours every row — see
+// NoActivityVersionExpectation for who is entitled to that posture.
+func activityVersionMismatch(op, activityID string, expected, actual int64) error {
+	if expected == NoActivityVersionExpectation || expected == actual {
+		return nil
+	}
+	return fwra.New(fwra.Conflict, fmt.Sprintf(
+		"projectstate.%s: activity %s is at version %d, not the expected %d; re-read the activity and re-apply",
+		op, activityID, actual, expected))
+}
+
+// guardActivityVersion is the same check for the two verbs that cannot run inside
+// withActivityVersion: OpenActivity, which may BIRTH the row, and AcknowledgeStaleBasis,
+// which writes the SLOT and so has no row transition to wrap.
+//
+// An ABSENT row admits only NoActivityVersionExpectation. A caller holding a number for a
+// row this store does not have is as stale as one holding the wrong number — it read that
+// version somewhere this write is not going — and it is a Conflict rather than a NotFound
+// because the resolution is the same re-read, not a hunt for a missing activity.
+func guardActivityVersion(op string, p *Project, activityID string, expected int64) error {
+	cs, ok := p.ActivityExecution[activityID]
+	if !ok {
+		if expected == NoActivityVersionExpectation {
+			return nil
+		}
+		return fwra.New(fwra.Conflict, fmt.Sprintf(
+			"projectstate.%s: activity %s has no row to be at version %d; re-read the activity and re-apply",
+			op, activityID, expected))
+	}
+	return activityVersionMismatch(op, activityID, expected, cs.Version)
+}
+
 // onActivity is the shared shape of every mutating verb on this facet: guard the
 // activity id, then run a transition against the EXISTING row for it under the
 // per-activity version check. A verb that may birth the row (only OpenActivity) does not
 // use it.
 func (a *activityExecutionAccess) onActivity(
-	rc fwra.Context, op string, projectID ProjectID, expectedVersion Version, activityID string,
-	cred RepoCredential, idempotencyKey fwra.IdempotencyKey,
+	rc fwra.Context, op string, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64,
+	activityID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey,
 	mutate func(cs *ActivityExecution) error,
 ) (Version, error) {
 	if activityID == "" {
 		return 0, execMisuse(op, "empty activityID")
 	}
 	return a.store.applyMutation(rc.Context, op, projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting,
-		withActivityVersion(op, activityID, noActivityVersionExpectation, mutate))
+		withActivityVersion(op, activityID, expectedActivityVersion, mutate))
 }
 
 // roundPtr finds the round roundID on cs, or says which one it could not find.
@@ -10000,7 +10032,7 @@ func roundPtr(cs *ActivityExecution, op, roundID string) (*ReviewRound, error) {
 // The pin is not decoration: without it a method-assets release landing mid-flight
 // re-shapes an activity that is already running, and the ledger below would be read
 // against a DAG it was never written under.
-func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, typ ActivityType, variant TestingVariant, pin LifecyclePin, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case activityID == "":
 		return 0, execMisuse("OpenActivity", "empty activityID")
@@ -10011,6 +10043,17 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 	}
 	now := a.store.now()
 	return a.store.applyMutation(rc.Context, "OpenActivity", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
+		// The per-activity CAS, spelled out here rather than delegated to
+		// withActivityVersion, because this is the ONE verb that may birth the row and so
+		// the one that has to say what an expectation means when there is nothing to
+		// compare against yet. A BIRTH takes NoActivityVersionExpectation and nothing
+		// else: a caller claiming to hold version n of a row this store does not have is
+		// as stale as one holding the wrong n, and saying so here is what keeps two
+		// children from both believing they birthed the activity. A RE-OPEN of a live row
+		// is checked exactly as every other transition is.
+		if err := guardActivityVersion("OpenActivity", p, activityID, expectedActivityVersion); err != nil {
+			return err
+		}
 		var refused error
 		upsertActivityExecution(p, activityID, func(cs *ActivityExecution) {
 			// TERMINAL IS TERMINAL. A row that has already exited carries two ledgers that
@@ -10062,7 +10105,14 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 // nothing. Construction's own output is a commit the agent pushes to the activity
 // branch, not a model this store holds; it is cited through RecordAttemptOutcome's
 // evidence ref, which is where a reader can actually follow it.
-func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, taskID string, branch string, model ModelEnvelope, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (StagedRef, error) {
+//
+// It is the ONE verb on the facet that asserts NO per-activity version, and the parameter
+// is blank here to say so out loud rather than by omission: the write lands on the
+// session BRANCH (stageArtifactForReviewOnBranch), while the row and its counter live on
+// main, so a main-row version compared inside a branch write would be a guard over two
+// different documents. Its signature keeps the parameter because a verb whose shape
+// diverges from its ten siblings is the next reader's trap.
+func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID ProjectID, expectedVersion Version, _ int64, activityID string, taskID string, branch string, model ModelEnvelope, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (StagedRef, error) {
 	switch {
 	case activityID == "":
 		return StagedRef{}, execMisuse("StageTaskOutput", "empty activityID")
@@ -10089,7 +10139,7 @@ func (a *activityExecutionAccess) StageTaskOutput(rc fwra.Context, projectID Pro
 // under a DIFFERENT idempotency key resolves it in place, and a call that would give
 // an already-resolved attempt a different terminal is refused. The dedup ledger
 // covers the RETRY; this rule covers the RE-ISSUE, and the ledger needs both.
-func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, attempt TaskAttemptInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case attempt.AttemptID == "":
 		return 0, execMisuse("RecordAttemptOutcome", "empty attemptId")
@@ -10099,7 +10149,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 		return 0, execMisuse("RecordAttemptOutcome", "attempt number must be 1-based")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "RecordAttemptOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i := range cs.Attempts {
 			held := &cs.Attempts[i]
 			if held.AttemptID != attempt.AttemptID {
@@ -10142,7 +10192,7 @@ func (a *activityExecutionAccess) RecordAttemptOutcome(rc fwra.Context, projectI
 // round id twice opens ONE round — the property the whole ledger rests on, because
 // Temporal retries an activity and an append that is not idempotent doubles the
 // history it exists to record.
-func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, round ReviewRoundInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case round.RoundID == "":
 		return 0, execMisuse("OpenReviewRound", "empty roundId")
@@ -10156,7 +10206,7 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 		return 0, execMisuse("OpenReviewRound", "empty subjectRef — a verdict on no subject cites nothing")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "OpenReviewRound", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "OpenReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i := range cs.Reviews {
 			if cs.Reviews[i].RoundID == round.RoundID {
 				return nil // already open: a no-op success, not a second round
@@ -10187,7 +10237,7 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 // The comments ride ApplyReviewBatch — the same append + reply normaliser the
 // artifact ledger uses, reused verbatim so the two ledgers can never disagree about
 // what a batch IS. A decided round takes no further verdicts.
-func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, verdict ReviewVerdict, comments []ReviewComment, replies []ReviewReply, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case verdict.ReviewerRole == "":
 		return 0, execMisuse("AppendReviewVerdict", "empty reviewerRole")
@@ -10200,7 +10250,7 @@ func (a *activityExecutionAccess) AppendReviewVerdict(rc fwra.Context, projectID
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "AppendReviewVerdict", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "AppendReviewVerdict", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "AppendReviewVerdict", roundID)
 		if err != nil {
 			return err
@@ -10324,14 +10374,14 @@ func reviewVerdictPresent(held []ReviewVerdict, v ReviewVerdict) bool {
 // vocabulary and its own legal transitions (applyReviewCommentStatus). Only the
 // ledger it walks moved; the rules did not, and duplicating them here is how the two
 // would drift.
-func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, commentID string, status string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case commentID == "":
 		return 0, execMisuse("SetReviewCommentStatus", "empty commentID")
 	case !validReviewCommentStatus(status):
 		return 0, execMisuse("SetReviewCommentStatus", fmt.Sprintf("unknown status %q", status))
 	}
-	return a.onActivity(rc, "SetReviewCommentStatus", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "SetReviewCommentStatus", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "SetReviewCommentStatus", roundID)
 		if err != nil {
 			return err
@@ -10350,7 +10400,7 @@ func (a *activityExecutionAccess) SetReviewCommentStatus(rc fwra.Context, projec
 // separate fact appended to it. A second, different decision is a Conflict — the same
 // class a CAS loss carries, because it is the same kind of "someone already settled
 // this" the caller must re-read to resolve.
-func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, roundID string, outcome ReviewRoundOutcome, decidedBy string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if decidedBy == "" {
 		return 0, execMisuse("DecideReviewRound", "empty decidedBy")
 	}
@@ -10358,7 +10408,7 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "DecideReviewRound", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "DecideReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		r, err := roundPtr(cs, "DecideReviewRound", roundID)
 		if err != nil {
 			return err
@@ -10384,7 +10434,7 @@ func (a *activityExecutionAccess) DecideReviewRound(rc fwra.Context, projectID P
 // The commit's provenance (which task, which commit, who drafted and who approved) is
 // written onto each artifact it committed, because an artifact whose provenance lives
 // somewhere else is an artifact whose provenance gets lost.
-func (a *activityExecutionAccess) CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) CommitActivityArtifacts(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, artifacts CommitArtifactsInput, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	switch {
 	case artifacts.TaskID == "":
 		return 0, execMisuse("CommitActivityArtifacts", "empty taskId")
@@ -10393,7 +10443,7 @@ func (a *activityExecutionAccess) CommitActivityArtifacts(rc fwra.Context, proje
 	case artifacts.DraftedBy == "":
 		return 0, execMisuse("CommitActivityArtifacts", "empty draftedBy")
 	}
-	return a.onActivity(rc, "CommitActivityArtifacts", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "CommitActivityArtifacts", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for _, in := range artifacts.Artifacts {
 			if producedArtifactPresent(cs.Produced, in) {
 				continue
@@ -10434,12 +10484,12 @@ func producedArtifactPresent(held []ProducedArtifact, in ProducedArtifact) bool 
 // and the failure. A non-zero reason IS the failure arm — the closed FailureReason
 // vocabulary is what lets the console explain why an activity is no longer pending
 // instead of leaving it stuck Running forever.
-func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, outcome ActivityOutcome, reason FailureReason, detail string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if outcome == ActivityOutcomeUnknown && reason == FailureReasonUnknown {
 		return 0, execMisuse("RecordActivityOutcome", "neither an outcome nor a failure reason — an activity does not exit for no stated cause")
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordActivityOutcome", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "RecordActivityOutcome", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		stampExit(cs, now)
 		if reason != FailureReasonUnknown {
 			cs.FailureReason = reason
@@ -10466,12 +10516,12 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 // already addressed to an attempt costs ONE commit, not two. deliveredToAttemptID is
 // optional — the ordinary case is a note recorded at a gate for an attempt that does
 // not exist yet, which stays pending until the dispatch that carries it.
-func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if err := validateOperatorNoteInput(activityID, note); err != nil {
 		return 0, err
 	}
 	now := a.store.now()
-	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
+	return a.onActivity(rc, "RecordOperatorNote", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for _, n := range cs.OperatorNotes {
 			if n.NoteID != note.NoteID {
 				continue
@@ -10503,7 +10553,7 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 // AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the
 // project-scoped verb runs, refused for an activity this store has no row for. That
 // refusal is the whole difference — without it this would be a rename, not a scoping.
-func (a *activityExecutionAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+func (a *activityExecutionAccess) AcknowledgeStaleBasis(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, kind ArtifactKind, note string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if strings.TrimSpace(note) == "" {
 		return 0, execMisuse("AcknowledgeStaleBasis", "blank note — an acknowledgement with no reason is not an audit entry")
 	}
@@ -10513,6 +10563,13 @@ func (a *activityExecutionAccess) AcknowledgeStaleBasis(rc fwra.Context, project
 	return a.store.applyMutation(rc.Context, "AcknowledgeStaleBasis", projectID, expectedVersion, cred, idempotencyKey, modeRequireExisting, func(p *Project) error {
 		if _, ok := p.ActivityExecution[activityID]; !ok {
 			return fwra.New(fwra.NotFound, fmt.Sprintf("projectstate.AcknowledgeStaleBasis: no activity row for %s — open the activity first", activityID))
+		}
+		// CHECKED, NOT STAMPED. The transition below writes the SLOT, so the row's counter
+		// does not advance and this verb is not a competitor for it; the expectation is
+		// still honoured, because a caller acknowledging a stale basis against a row that
+		// has moved under it is asserting about an activity it has not seen.
+		if err := guardActivityVersion("AcknowledgeStaleBasis", p, activityID, expectedActivityVersion); err != nil {
+			return err
 		}
 		return acknowledgeStaleBasisTransition(kind, note)(p)
 	})

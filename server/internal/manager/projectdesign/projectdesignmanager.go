@@ -2644,6 +2644,17 @@ type coAuthorState struct {
 	// review window. Seeded from the session-start main read and advanced by each round
 	// write; applyRecovering re-reads main on any drift.
 	ledgerVersion projectstate.Version
+	// activityVersion is the PER-ACTIVITY CAS token: the version the design activity's own
+	// execution row was at the last time this session wrote it. ledgerVersion is the whole
+	// document's token; this one is scoped to the row, so two sessions writing DIFFERENT
+	// activities never contend while two writing the SAME row cannot interleave.
+	//
+	// Seeded from the row seedRoundBaseFromLedger already reads, and advanced by one per
+	// APPLIED transition (the store stamps exactly one). 0 —
+	// projectstate.NoActivityVersionExpectation — for a first session, whose OpenActivity
+	// births the row, and for every session whose seed read could not be made: those write
+	// no round either way.
+	activityVersion int64
 	// activityOpened records that this session has already birthed the design activity's
 	// execution row. OpenActivity is idempotent, so this saves a command rather than
 	// guarding correctness.

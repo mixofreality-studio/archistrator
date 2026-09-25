@@ -1570,6 +1570,19 @@ type coAuthorState struct {
 	// the review window. Seeded from the session-start main read and advanced by each round
 	// write; applyRecovering re-reads main on any drift.
 	ledgerVersion projectstate.Version
+	// activityVersion is the PER-ACTIVITY CAS token: the version the design activity's own
+	// execution row was at the last time this session wrote it. ledgerVersion is the whole
+	// document's token; this one is scoped to the row, which is what lets two sessions
+	// writing different activities never contend while two writing the SAME row cannot
+	// interleave — three artifact kinds share one architecture activity, so that is not a
+	// hypothetical here.
+	//
+	// Seeded from the row seedRoundBaseFromLedger already reads, and advanced by one per
+	// APPLIED transition (the store stamps exactly one). 0 —
+	// projectstate.NoActivityVersionExpectation — for a first session, whose OpenActivity
+	// births the row, and for every session whose seed read could not be made: those write
+	// no round either way.
+	activityVersion int64
 	// activityOpened records that this session has already birthed the design activity's
 	// execution row. OpenActivity is idempotent, so this saves a command rather than
 	// guarding correctness.
@@ -3858,6 +3871,9 @@ func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorIn
 		return
 	}
 	state.roundBase = ledgerRoundBase(row, key, kind)
+	// The per-activity CAS token rides the SAME read — which is why arming the guard cost
+	// no new Temporal command on this rail either.
+	state.activityVersion = row.Version
 }
 
 // ledgerRoundBase is the highest round number the row's review ledger holds for ONE
@@ -4011,7 +4027,8 @@ func (wf *workflows) openDesignRound(
 		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected, key.activityID,
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, key.activityID,
 			projectstate.ReviewRoundInput{
 				RoundID:    round.roundID,
 				TaskID:     key.gate,
@@ -4031,6 +4048,7 @@ func (wf *workflows) openDesignRound(
 		return
 	}
 	state.ledgerVersion = v
+	state.rowAdvanced()
 	state.round = round
 	wf.appendCriticVerdict(ctx, in, state)
 }
@@ -4048,7 +4066,7 @@ func (wf *workflows) openDesignActivity(ctx workflow.Context, in coAuthorInput, 
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			key.activityID, key.typ, projectstate.TestVariantPlan, pin, projectstate.RepoCredential{})
+			state.activityVersion, key.activityID, key.typ, projectstate.TestVariantPlan, pin, projectstate.RepoCredential{})
 	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("round ledger: could not open the design activity row; no round is written this session",
@@ -4056,6 +4074,7 @@ func (wf *workflows) openDesignActivity(ctx workflow.Context, in coAuthorInput, 
 		return false
 	}
 	state.ledgerVersion = v
+	state.rowAdvanced()
 	state.activityOpened = true
 	return true
 }
@@ -4124,7 +4143,7 @@ func (wf *workflows) appendDesignVerdict(
 	replies := state.roundRepliesFor(slotReplies)
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.round.key.activityID, state.round.roundID, verdict, comments, replies, projectstate.RepoCredential{})
+			state.activityVersion, state.round.key.activityID, state.round.roundID, verdict, comments, replies, projectstate.RepoCredential{})
 	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("round ledger: could not append the verdict; the slot ledger still carries the decision",
@@ -4132,6 +4151,7 @@ func (wf *workflows) appendDesignVerdict(
 		return
 	}
 	state.ledgerVersion = v
+	state.rowAdvanced()
 	state.rememberRoundComments(slotIDs, len(comments))
 }
 
@@ -4198,6 +4218,14 @@ func (s *coAuthorState) rememberRoundComments(slotIDs []string, appended int) {
 	}
 }
 
+// rowAdvanced records that ONE transition applied to the design activity's execution row,
+// which is exactly what the store stamped on it — the per-activity counter advances by one
+// per APPLIED transition and by nothing on a refusal. Every round write on this rail calls
+// it; nothing else on this rail writes the row (the deprecated facets this session uses —
+// the slot ledger and the design session's own branch verbs — write slots and branches,
+// not activity rows), so this is the whole of the rail's bookkeeping.
+func (s *coAuthorState) rowAdvanced() { s.activityVersion++ }
+
 // decideDesignRound stamps the round's terminal — a separate, later fact from the verdicts
 // on it, which is why the store makes it a second verb and not a field of the first.
 // decidedBy is WHO settled it: the approver's own name where the signal carried one (the
@@ -4218,7 +4246,7 @@ func (wf *workflows) decideDesignRound(
 	}
 	v, err := wf.applyRecovering(ctx, projectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(projectID), expected,
-			state.round.key.activityID, state.round.roundID, outcome, decidedBy, projectstate.RepoCredential{})
+			state.activityVersion, state.round.key.activityID, state.round.roundID, outcome, decidedBy, projectstate.RepoCredential{})
 	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("round ledger: could not decide the review round; it stays pending for the stage-4 sweep",
@@ -4226,6 +4254,7 @@ func (wf *workflows) decideDesignRound(
 		return
 	}
 	state.ledgerVersion = v
+	state.rowAdvanced()
 	// The round is settled: the next gate entry opens a fresh one.
 	state.round = designRound{}
 }
@@ -4247,7 +4276,7 @@ func (wf *workflows) mirrorCommentStatus(ctx workflow.Context, in coAuthorInput,
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionSetReviewCommentStatus(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			key.activityID, ref.roundID, ref.commentID, sig.Status, projectstate.RepoCredential{})
+			state.activityVersion, key.activityID, ref.roundID, ref.commentID, sig.Status, projectstate.RepoCredential{})
 	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("round ledger: could not mirror the comment status; the slot ledger carries it",
@@ -4255,6 +4284,7 @@ func (wf *workflows) mirrorCommentStatus(ctx workflow.Context, in coAuthorInput,
 		return
 	}
 	state.ledgerVersion = v
+	state.rowAdvanced()
 }
 
 // newSlotCommentIDs names the ids the SLOT ledger is about to mint for a fresh batch in

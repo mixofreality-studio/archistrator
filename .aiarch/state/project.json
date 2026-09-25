@@ -15378,6 +15378,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15432,6 +15439,13 @@
                 "name": "expectedVersion",
                 "schema": {
                   "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -15492,6 +15506,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15537,6 +15558,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15579,6 +15607,13 @@
                 "name": "expectedVersion",
                 "schema": {
                   "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -15651,6 +15686,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15705,6 +15747,13 @@
                 "name": "expectedVersion",
                 "schema": {
                   "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -15765,6 +15814,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15807,6 +15863,13 @@
                 "name": "expectedVersion",
                 "schema": {
                   "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {
@@ -15867,6 +15930,13 @@
                 }
               },
               {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
+                }
+              },
+              {
                 "name": "activityID",
                 "schema": {
                   "type": "string"
@@ -15915,6 +15985,13 @@
                 "name": "expectedVersion",
                 "schema": {
                   "$ref": "#/$defs/Version"
+                }
+              },
+              {
+                "name": "expectedActivityVersion",
+                "schema": {
+                  "type": "integer",
+                  "x-go-type": "int64"
                 }
               },
               {

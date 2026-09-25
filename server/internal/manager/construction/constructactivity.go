@@ -1039,7 +1039,7 @@ func (wf *workflows) ConstructActivityWorkflow(ctx workflow.Context, in construc
 		// room for. It is deliberately NOT gated on gitOn — the execution ledger is the
 		// durable record of the run itself, not a mirror of a git head-state, and it is
 		// bound in every composition the composition root builds.
-		if err := wf.openActivity(ctx, in, startedCred, &headVersion); err != nil {
+		if err := wf.openActivity(ctx, in, state, startedCred, &headVersion); err != nil {
 			return err
 		}
 	case gitOn:
@@ -1249,6 +1249,11 @@ func (wf *workflows) loadReviewSnapshot(
 	// run boundary because it was stored. Reads only; emits no command.
 	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.executionLedger {
 		seedSendBackCarry(ctx, in, state, acs)
+		// And the per-activity CAS token, off the SAME read — which is the whole reason
+		// arming the guard needed no new Temporal command: the child already holds the row.
+		// An activity with no row yet leaves it 0 (NoActivityVersionExpectation), the
+		// posture of the writer that is about to birth it.
+		state.activityVersion = acs.Version
 	}
 	state.reviewContracts = snapshotContractKeys(snap)
 	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
@@ -1310,7 +1315,7 @@ func (wf *workflows) failVarianceExhausted(
 ) error {
 	const detail = "construction supervision exceeded max attempts"
 	if state.executionLedger {
-		if e := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+		if e := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
 			projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted, detail); e != nil {
 			return e
 		}
@@ -1402,7 +1407,7 @@ func (wf *workflows) finalizeActivity(
 	}
 
 	// --- Step 6: record the change reviewed (head-state). ---
-	v, e := wf.recordChangeReviewed(ctx, in, *headVersion, startedCred)
+	v, e := wf.recordChangeReviewed(ctx, in, state, *headVersion, startedCred)
 	if e != nil {
 		return e
 	}
@@ -1418,7 +1423,7 @@ func (wf *workflows) finalizeActivity(
 	// CompletedAt, which is the whole of an exit now that the coarse roll-up is derived,
 	// so the two calls became one. ---
 	if state.executionLedger {
-		if err := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+		if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
 			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
 			return err
 		}
@@ -1557,7 +1562,7 @@ func (wf *workflows) runPhaseGate(
 	cred railCredEnvelope,
 ) (bool, error) {
 	if gitOn {
-		v, e := wf.recordPhaseStarted(ctx, in, phase, *headVersion, cred)
+		v, e := wf.recordPhaseStarted(ctx, in, phase, state, *headVersion, cred)
 		if e != nil {
 			return false, e
 		}
@@ -2006,15 +2011,16 @@ func lifecyclePinFor(act constructionActivity) projectstate.LifecyclePin {
 }
 
 // openActivity births the activity's execution row and pins the lifecycle in force.
-func (wf *workflows) openActivity(ctx workflow.Context, in constructActivityInput, cred railCredEnvelope, headVersion *projectstate.Version) error {
+func (wf *workflows) openActivity(ctx workflow.Context, in constructActivityInput, state *constructState, cred railCredEnvelope, headVersion *projectstate.Version) error {
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), in.Activity.Type, in.Activity.Variant, lifecyclePinFor(in.Activity), cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), in.Activity.Type, in.Activity.Variant, lifecyclePinFor(in.Activity), cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2024,18 +2030,20 @@ func (wf *workflows) openActivity(ctx workflow.Context, in constructActivityInpu
 func (wf *workflows) recordAttempt(
 	ctx workflow.Context,
 	in constructActivityInput,
+	state *constructState,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 	attempt projectstate.TaskAttemptInput,
 ) error {
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionRecordAttemptOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), attempt, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), attempt, cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2055,7 +2063,7 @@ func (wf *workflows) openWorkAttempt(
 	if !state.executionLedger || task == "" {
 		return nil
 	}
-	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID: attemptID,
 		TaskID:    task,
 		Attempt:   int64(attempt),
@@ -2092,7 +2100,7 @@ func (wf *workflows) resolveWorkAttempt(
 	if obs.Episode != nil {
 		rec.EvidenceKind, rec.EvidenceRef = projectstate.EvidenceEpisode, obs.Episode.EpisodeID
 	}
-	return wf.recordAttempt(ctx, in, headVersion, cred, rec)
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, rec)
 }
 
 // attemptOutcomeFor maps a terminal pipeline phase onto the attempt's terminal. Only a
@@ -2155,7 +2163,8 @@ func (wf *workflows) openGateRound(
 		subject: gateSubjectRef(gf, state.workAttemptID),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID),
 			projectstate.ReviewRoundInput{
 				RoundID:    state.gate.roundID,
 				TaskID:     gate,
@@ -2169,6 +2178,7 @@ func (wf *workflows) openGateRound(
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2222,12 +2232,13 @@ func (wf *workflows) appendVerdict(
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), state.gate.roundID, verdict, comments, nil, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), state.gate.roundID, verdict, comments, nil, cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2252,12 +2263,13 @@ func (wf *workflows) decideRound(
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), state.gate.roundID, outcome, decidedBy, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), state.gate.roundID, outcome, decidedBy, cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2322,7 +2334,7 @@ func (wf *workflows) passGateAttempt(
 		return nil
 	}
 	kind, ref := gateEvidence(state.gate.subject)
-	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
 		TaskID:       state.gate.task,
 		Attempt:      int64(state.gate.number),
@@ -2347,7 +2359,7 @@ func (wf *workflows) rejectGateAttempt(
 		return nil
 	}
 	kind, ref := gateEvidence(state.gate.subject)
-	return wf.recordAttempt(ctx, in, headVersion, cred, projectstate.TaskAttemptInput{
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
 		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
 		TaskID:       state.gate.task,
 		Attempt:      int64(state.gate.number),
@@ -2377,6 +2389,7 @@ func gateEvidence(subject projectstate.SubjectRef) (projectstate.EvidenceKind, s
 func (wf *workflows) recordExecutionOutcome(
 	ctx workflow.Context,
 	in constructActivityInput,
+	state *constructState,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 	outcome projectstate.ActivityOutcome,
@@ -2385,12 +2398,13 @@ func (wf *workflows) recordExecutionOutcome(
 ) error {
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionRecordActivityOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			string(in.ActivityID), outcome, reason, detail, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), outcome, reason, detail, cred.toProjectState())
 	})
 	if err != nil {
 		return err
 	}
 	*headVersion = v
+	state.rowAdvanced()
 	return nil
 }
 
@@ -2617,6 +2631,9 @@ func (wf *workflows) recordOperatorNote(
 		return err
 	}
 	*headVersion = v
+	// A retired-facet write onto the row, fenced on note delivery rather than on the
+	// execution ledger, so it lands on a ledger-on run too (see rowAdvanced).
+	state.rowAdvanced()
 	recorded := projectstate.OperatorNote{
 		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text, Comments: note.Comments,
 		RecordedAt: workflow.Now(ctx),
@@ -2686,7 +2703,7 @@ func (wf *workflows) submitCarryingNotes(
 			delivered[n.NoteID] = true
 			continue
 		}
-		if wf.stampNoteDelivered(ctx, in, n.NoteID, attemptID, gf, headVersion) {
+		if wf.stampNoteDelivered(ctx, in, state, n.NoteID, attemptID, gf, headVersion) {
 			delivered[n.NoteID] = true
 		}
 	}
@@ -2709,13 +2726,16 @@ func (wf *workflows) submitCarryingNotes(
 // fails after its retry window leaves the note pending (at-least-once); a stamp the store
 // refuses because the note was already delivered to another attempt means it is no
 // longer pending, so that reads as delivered.
-func (wf *workflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+func (wf *workflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			string(in.ActivityID), noteID, attemptID, gf.cred.toProjectState())
 	})
 	if err == nil {
 		*headVersion = v
+		// The stamp applied, so the row advanced (see rowAdvanced). The two arms below did
+		// NOT apply one — a ContractMisuse refusal writes nothing — so neither advances it.
+		state.rowAdvanced()
 		return true
 	}
 	if isRAContractMisuse(err) {
@@ -3017,11 +3037,21 @@ func (wf *workflows) runMergePipeline(ctx workflow.Context, in constructActivity
 
 // recordPhaseStarted records the phase-started head-state transition (Task-5
 // RecordPhaseStarted) through the §6.5 Conflict loop. Gated on gitOn by the caller.
-func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
-	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+//
+// It is a RETIRED-facet verb that still writes the activity's row, and it runs beside the
+// execution ledger rather than instead of it (its gate is gitOn, not the ledger fence), so
+// its applied transition advances the row's stored counter and this run's copy of it must
+// follow — see constructState.rowAdvanced.
+func (wf *workflows) recordPhaseStarted(ctx workflow.Context, in constructActivityInput, phase projectstate.ActivityMethodPhase, state *constructState, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ConstructionTransitionRecordPhaseStarted(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			string(in.ActivityID), phase, cred.toProjectState())
 	})
+	if err != nil {
+		return 0, err
+	}
+	state.rowAdvanced()
+	return v, nil
 }
 
 // proposeReviewSet is the Manager's SINGLE review decision point: it hands the engine
@@ -3127,7 +3157,7 @@ func (wf *workflows) handleVariance(
 			_ = failReason // underlying cause is carried in detail below; the terminal reason is EscalationTimedOut
 			timedOut := "escalation timed out: no operator override within the escalation-wait window (underlying: " + detail + ")"
 			if state.executionLedger {
-				if e := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+				if e := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
 					projectstate.ActivityOutcomeUnknown, projectstate.EscalationTimedOut, timedOut); e != nil {
 					return false, e
 				}
@@ -3194,7 +3224,7 @@ func (wf *workflows) executeOverride(
 		return false, nil
 	case OverrideSkip:
 		if state.executionLedger {
-			if err := wf.recordExecutionOutcome(ctx, in, headVersion, startedCred,
+			if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
 				projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, ""); err != nil {
 				return false, err
 			}
@@ -3267,11 +3297,20 @@ func (wf *workflows) awaitOverrideBounded(ctx workflow.Context, overrideCh workf
 
 // recordChangeReviewed applies the head-state transition with the Conflict loop. The
 // Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
-func (wf *workflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
-	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+//
+// Another retired-facet verb that writes the row unfenced (see recordPhaseStarted): it
+// lands between the gate's last round write and the outcome the ledger records, so the
+// run's copy of the row version follows its stamp.
+func (wf *workflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, state *constructState, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ConstructionTransitionRecordChangeReviewed(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			string(in.ActivityID), cred.toProjectState())
 	})
+	if err != nil {
+		return 0, err
+	}
+	state.rowAdvanced()
+	return v, nil
 }
 
 // recordActivityExited applies the binary-exit head-state transition.

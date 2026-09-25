@@ -10405,7 +10405,7 @@ func execRC() fwra.Context { return fwra.Context{Context: context.Background()} 
 // version after the open.
 func openTestActivity(t *testing.T, a ActivityExecutionAccess, id ProjectID, v Version, cred RepoCredential) Version {
 	t.Helper()
-	v2, err := a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("wf:open"))
 	if err != nil {
 		t.Fatalf("OpenActivity: %v", err)
@@ -10416,7 +10416,7 @@ func openTestActivity(t *testing.T, a ActivityExecutionAccess, id ProjectID, v V
 // openRoundFixture opens one review round on C-X and returns the version after it.
 func openRoundFixture(t *testing.T, a ActivityExecutionAccess, id ProjectID, v Version, cred RepoCredential) Version {
 	t.Helper()
-	v2, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{
+	v2, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", ReviewRoundInput{
 		RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
 		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
 		Reviewers:  []RoundReviewer{{Role: "architect", Actor: "system-architect", Required: true}},
@@ -10470,11 +10470,11 @@ func TestOpenReviewRound_IsIdempotentUnderRetry(t *testing.T) {
 		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
 		Reviewers:  []RoundReviewer{{Role: "architect", Actor: "system-architect", Required: true}},
 	}
-	v1, err := a.OpenReviewRound(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k1"))
+	v1, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k1"))
 	if err != nil {
 		t.Fatalf("OpenReviewRound: %v", err)
 	}
-	v2, err := a.OpenReviewRound(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k1"))
+	v2, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k1"))
 	if err != nil || v2 != v1 {
 		t.Fatalf("a retry of the same idempotencyKey must replay, not re-apply: v1=%d v2=%d err=%v", v1, v2, err)
 	}
@@ -10501,7 +10501,7 @@ func TestOpenReviewRound_ADifferentKeyForTheSameRoundStillAppendsOnce(t *testing
 	v = openTestActivity(t, a, id, v, cred)
 	v = openRoundFixture(t, a, id, v, cred)
 
-	if _, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{
+	if _, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", ReviewRoundInput{
 		RoundID: "C-X:designReview:1", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1,
 		SubjectRef: SubjectRef{Kind: SubjectCommit, Ref: "deadbeef"},
 	}, cred, fwra.IdempotencyKey("a-different-key")); err != nil {
@@ -10522,7 +10522,7 @@ func TestAppendReviewVerdict_CarriesItsCommentsInTheSameCommit(t *testing.T) {
 	v = openTestActivity(t, a, id, v, cred)
 	v = openRoundFixture(t, a, id, v, cred)
 
-	if _, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if _, err := a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
 			Summary: "contract too wide", AttemptID: "C-X:detailedDesign:1"},
 		[]ReviewComment{{Anchor: "ops[3]", Text: "split this op", AuthorRole: "architect", Type: "changeRequest"}},
@@ -10556,10 +10556,10 @@ func TestAppendReviewVerdict_IsIdempotentOnItsOwnContent(t *testing.T) {
 	verdict := ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect",
 		Verdict: VerdictApprove, Summary: "good", AttemptID: "C-X:detailedDesign:1"}
 	var err error
-	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k3")); err != nil {
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k3")); err != nil {
 		t.Fatalf("AppendReviewVerdict: %v", err)
 	}
-	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k4")); err != nil {
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", verdict, nil, nil, cred, fwra.IdempotencyKey("k4")); err != nil {
 		t.Fatalf("AppendReviewVerdict (re-issue): %v", err)
 	}
 	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
@@ -10577,14 +10577,14 @@ func TestDecideReviewRound_IsTerminalAndAppendOnly(t *testing.T) {
 	v = openRoundFixture(t, a, id, v, cred)
 
 	var err error
-	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
 			Summary: "no", AttemptID: "C-X:detailedDesign:1"},
 		[]ReviewComment{{Anchor: "ops[0]", Text: "name the failure", AuthorRole: "architect", Type: "changeRequest"}},
 		nil, cred, fwra.IdempotencyKey("k5")); err != nil {
 		t.Fatalf("AppendReviewVerdict: %v", err)
 	}
-	if v, err = a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundSentBack, "system-architect", cred, fwra.IdempotencyKey("k6")); err != nil {
+	if v, err = a.DecideReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", RoundSentBack, "system-architect", cred, fwra.IdempotencyKey("k6")); err != nil {
 		t.Fatalf("DecideReviewRound: %v", err)
 	}
 	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
@@ -10596,14 +10596,14 @@ func TestDecideReviewRound_IsTerminalAndAppendOnly(t *testing.T) {
 		t.Fatalf("deciding must not rewrite the ledger; verdicts=%d thread=%d", len(r.Verdicts), len(r.Thread))
 	}
 
-	_, err = a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundPassed, "someone-else", cred, fwra.IdempotencyKey("k7"))
+	_, err = a.DecideReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", RoundPassed, "someone-else", cred, fwra.IdempotencyKey("k7"))
 	if err == nil {
 		t.Fatal("a decided round is terminal; a second, different decision must be refused")
 	}
 	if got := kindOfErr(err); got != fwra.Conflict {
 		t.Fatalf("second decision error class = %v, want Conflict", got)
 	}
-	if _, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if _, err := a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "pm", Actor: "product-manager", Verdict: VerdictApprove, Summary: "late", AttemptID: "C-X:detailedDesign:1"},
 		nil, nil, cred, fwra.IdempotencyKey("k8")); err == nil {
 		t.Fatal("a decided round takes no further verdicts")
@@ -10617,7 +10617,7 @@ func TestDecideReviewRound_RefusesPendingAsADecision(t *testing.T) {
 	v = openTestActivity(t, a, id, v, cred)
 	v = openRoundFixture(t, a, id, v, cred)
 
-	_, err := a.DecideReviewRound(execRC(), id, v, "C-X", "C-X:designReview:1", RoundPending, "system-architect", cred, fwra.IdempotencyKey("k9"))
+	_, err := a.DecideReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", RoundPending, "system-architect", cred, fwra.IdempotencyKey("k9"))
 	if err == nil || kindOfErr(err) != fwra.ContractMisuse {
 		t.Fatalf("deciding a round 'pending' must be ContractMisuse; got %v", err)
 	}
@@ -10631,20 +10631,20 @@ func TestSetReviewCommentStatus_WalksTheRoundsThread(t *testing.T) {
 	v = openRoundFixture(t, a, id, v, cred)
 
 	var err error
-	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack, Summary: "no", AttemptID: "C-X:detailedDesign:1"},
 		[]ReviewComment{{Anchor: "ops[0]", Text: "split", AuthorRole: "architect", Type: "changeRequest"}},
 		nil, cred, fwra.IdempotencyKey("k10")); err != nil {
 		t.Fatalf("AppendReviewVerdict: %v", err)
 	}
-	if v, err = a.SetReviewCommentStatus(execRC(), id, v, "C-X", "C-X:designReview:1", ReviewCommentID(1, 0), ReviewCommentResolved, cred, fwra.IdempotencyKey("k11")); err != nil {
+	if v, err = a.SetReviewCommentStatus(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", ReviewCommentID(1, 0), ReviewCommentResolved, cred, fwra.IdempotencyKey("k11")); err != nil {
 		t.Fatalf("SetReviewCommentStatus: %v", err)
 	}
 	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
 	if exec.Reviews[0].Thread[0].Status != ReviewCommentResolved {
 		t.Fatalf("status = %q, want resolved", exec.Reviews[0].Thread[0].Status)
 	}
-	if _, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "C-X:designReview:1", "nope", ReviewCommentResolved, cred, fwra.IdempotencyKey("k12")); err == nil ||
+	if _, err := a.SetReviewCommentStatus(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", "nope", ReviewCommentResolved, cred, fwra.IdempotencyKey("k12")); err == nil ||
 		kindOfErr(err) != fwra.NotFound {
 		t.Fatalf("an unknown comment id must be NotFound; got %v", err)
 	}
@@ -10660,11 +10660,11 @@ func TestRecordAttemptOutcome_AppendsOnceAndResolvesInPlace(t *testing.T) {
 	in := TaskAttemptInput{AttemptID: AttemptID("C-X", TaskDetailedDesign, 1), TaskID: TaskDetailedDesign,
 		Attempt: 1, Actor: ActorAgent, Outcome: OutcomePending, EvidenceKind: EvidenceEpisode, EvidenceRef: "ep-1"}
 	var err error
-	if v, err = a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k13")); err != nil {
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k13")); err != nil {
 		t.Fatalf("RecordAttemptOutcome (open): %v", err)
 	}
 	in.Outcome = OutcomePassed
-	if v, err = a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k14")); err != nil {
+	if v, err = a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k14")); err != nil {
 		t.Fatalf("RecordAttemptOutcome (resolve): %v", err)
 	}
 	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
@@ -10686,7 +10686,7 @@ func TestRecordAttemptOutcome_AppendsOnceAndResolvesInPlace(t *testing.T) {
 	}
 
 	in.Outcome = OutcomeFailed
-	if _, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k15")); err == nil {
+	if _, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k15")); err == nil {
 		t.Fatal("a resolved attempt must not be re-resolved differently; one id names one attempt")
 	}
 }
@@ -10712,7 +10712,7 @@ func TestRecordActivityOutcome_FoldsExitedAndFailed(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			a, store, id, v, cred := newExecutionStore(t)
 			v = openTestActivity(t, a, id, v, cred)
-			if _, err := a.RecordActivityOutcome(execRC(), id, v, "C-X", tt.outcome, tt.reason, "detail", cred, fwra.IdempotencyKey("k16")); err != nil {
+			if _, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", tt.outcome, tt.reason, "detail", cred, fwra.IdempotencyKey("k16")); err != nil {
 				t.Fatalf("RecordActivityOutcome: %v", err)
 			}
 			row := readConstruction(t, store, id, cred, "C-X")
@@ -10735,7 +10735,7 @@ func TestRecordOperatorNote_FoldsTheDeliveryStamp(t *testing.T) {
 
 	note := OperatorNoteInput{NoteID: "n1", Kind: NoteSendBack, Gate: "detailed_design", Text: "tighten it"}
 	var err error
-	if v, err = a.RecordOperatorNote(execRC(), id, v, "C-X", note, "C-X:detailedDesign:2", cred, fwra.IdempotencyKey("k17")); err != nil {
+	if v, err = a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", note, "C-X:detailedDesign:2", cred, fwra.IdempotencyKey("k17")); err != nil {
 		t.Fatalf("RecordOperatorNote: %v", err)
 	}
 	row := readConstruction(t, store, id, cred, "C-X")
@@ -10750,7 +10750,7 @@ func TestRecordOperatorNote_FoldsTheDeliveryStamp(t *testing.T) {
 		t.Fatal("a note delivered at record time is not pending")
 	}
 	// An undelivered note is still the ordinary case, and still pending.
-	if _, err = a.RecordOperatorNote(execRC(), id, v, "C-X",
+	if _, err = a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X",
 		OperatorNoteInput{NoteID: "n2", Kind: NoteRetry, Gate: "", Text: "retry it"}, "", cred, fwra.IdempotencyKey("k18")); err != nil {
 		t.Fatalf("RecordOperatorNote (undelivered): %v", err)
 	}
@@ -10770,7 +10770,7 @@ func TestStageTaskOutput_StagesTheModelAndNamesWhereItLanded(t *testing.T) {
 	if err != nil {
 		t.Fatalf("EncodeModel: %v", err)
 	}
-	ref, err := a.StageTaskOutput(execRC(), id, v, "C-X", "detailedDesign", "", env, cred, fwra.IdempotencyKey("k19"))
+	ref, err := a.StageTaskOutput(execRC(), id, v, NoActivityVersionExpectation, "C-X", "detailedDesign", "", env, cred, fwra.IdempotencyKey("k19"))
 	if err != nil {
 		t.Fatalf("StageTaskOutput: %v", err)
 	}
@@ -10787,7 +10787,7 @@ func TestStageTaskOutput_StagesTheModelAndNamesWhereItLanded(t *testing.T) {
 	// An empty envelope stages nothing, and saying so is better than a version bump that
 	// records no fact: construction's own output is staged on the branch by the agent and
 	// recorded through RecordAttemptOutcome's evidence, not here.
-	if _, err := a.StageTaskOutput(execRC(), id, ref.Version, "C-X", "construction", "", ModelEnvelope{}, cred, fwra.IdempotencyKey("k20")); err == nil ||
+	if _, err := a.StageTaskOutput(execRC(), id, ref.Version, NoActivityVersionExpectation, "C-X", "construction", "", ModelEnvelope{}, cred, fwra.IdempotencyKey("k20")); err == nil ||
 		kindOfErr(err) != fwra.ContractMisuse {
 		t.Fatalf("an empty envelope must be ContractMisuse; got %v", err)
 	}
@@ -10802,10 +10802,10 @@ func TestCommitActivityArtifacts_AppendsProducedOnce(t *testing.T) {
 	in := CommitArtifactsInput{TaskID: TaskConstruction, Commit: "abc123", ApprovedBy: "system-architect", DraftedBy: "junior-developer",
 		Artifacts: []ProducedArtifact{{Kind: "code", Title: "orders", Source: "server/internal/x", Produced: true}}}
 	var err error
-	if v, err = a.CommitActivityArtifacts(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k21")); err != nil {
+	if v, err = a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k21")); err != nil {
 		t.Fatalf("CommitActivityArtifacts: %v", err)
 	}
-	if _, err = a.CommitActivityArtifacts(execRC(), id, v, "C-X", in, cred, fwra.IdempotencyKey("k22")); err != nil {
+	if _, err = a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", in, cred, fwra.IdempotencyKey("k22")); err != nil {
 		t.Fatalf("CommitActivityArtifacts (re-issue): %v", err)
 	}
 	row := readConstruction(t, store, id, cred, "C-X")
@@ -10826,13 +10826,13 @@ func TestAcknowledgeStaleBasis_IsScopedToAnActivity(t *testing.T) {
 	a, _, id, v, cred := newExecutionStore(t)
 	v = openTestActivity(t, a, id, v, cred)
 
-	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-NOPE", KindMission, "unaffected", cred, fwra.IdempotencyKey("k25")); err == nil ||
+	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-NOPE", KindMission, "unaffected", cred, fwra.IdempotencyKey("k25")); err == nil ||
 		kindOfErr(err) != fwra.NotFound {
 		t.Fatalf("an activity with no row must be NotFound; got %v", err)
 	}
 	// The slot guard still fires underneath: mission is not committed here, so the
 	// acknowledgement has nothing to clear and says so rather than writing.
-	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-X", KindMission, "unaffected", cred, fwra.IdempotencyKey("k26")); err == nil ||
+	if _, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-X", KindMission, "unaffected", cred, fwra.IdempotencyKey("k26")); err == nil ||
 		kindOfErr(err) != fwra.ContractMisuse {
 		t.Fatalf("acknowledging a slot that is not committed must be ContractMisuse; got %v", err)
 	}
@@ -10851,67 +10851,67 @@ func TestActivityExecutionVerbs_RefuseEmptyIdentifiers(t *testing.T) {
 		call func() error
 	}{
 		{"OpenActivity/activityID", func() error {
-			_, err := a.OpenActivity(execRC(), id, v, "", ActivityTypeService, TestVariantPlan, LifecyclePin{TypeKey: "service", AssetsVersion: "x"}, cred, k)
+			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "", ActivityTypeService, TestVariantPlan, LifecyclePin{TypeKey: "service", AssetsVersion: "x"}, cred, k)
 			return err
 		}},
 		{"OpenActivity/pin", func() error {
-			_, err := a.OpenActivity(execRC(), id, v, "C-Y", ActivityTypeService, TestVariantPlan, LifecyclePin{}, cred, k)
+			_, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-Y", ActivityTypeService, TestVariantPlan, LifecyclePin{}, cred, k)
 			return err
 		}},
 		{"StageTaskOutput/taskID", func() error {
-			_, err := a.StageTaskOutput(execRC(), id, v, "C-X", "", "", ModelEnvelope{Kind: KindMission}, cred, k)
+			_, err := a.StageTaskOutput(execRC(), id, v, NoActivityVersionExpectation, "C-X", "", "", ModelEnvelope{Kind: KindMission}, cred, k)
 			return err
 		}},
 		{"RecordAttemptOutcome/attemptID", func() error {
-			_, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{TaskID: TaskDetailedDesign, Attempt: 1}, cred, k)
+			_, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", TaskAttemptInput{TaskID: TaskDetailedDesign, Attempt: 1}, cred, k)
 			return err
 		}},
 		{"RecordAttemptOutcome/taskID", func() error {
-			_, err := a.RecordAttemptOutcome(execRC(), id, v, "C-X", TaskAttemptInput{AttemptID: "a", Attempt: 1}, cred, k)
+			_, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", TaskAttemptInput{AttemptID: "a", Attempt: 1}, cred, k)
 			return err
 		}},
 		{"OpenReviewRound/roundID", func() error {
-			_, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
+			_, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", ReviewRoundInput{TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
 			return err
 		}},
 		{"OpenReviewRound/subjectRef", func() error {
-			_, err := a.OpenReviewRound(execRC(), id, v, "C-X", ReviewRoundInput{RoundID: "r", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
+			_, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", ReviewRoundInput{RoundID: "r", TaskID: TaskDesignReview, Reviews: TaskDetailedDesign, Round: 1}, cred, k)
 			return err
 		}},
 		{"AppendReviewVerdict/roundID", func() error {
-			_, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "", ReviewVerdict{ReviewerRole: "architect", Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
+			_, err := a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "", ReviewVerdict{ReviewerRole: "architect", Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
 			return err
 		}},
 		{"AppendReviewVerdict/reviewerRole", func() error {
-			_, err := a.AppendReviewVerdict(execRC(), id, v, "C-X", "r", ReviewVerdict{Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
+			_, err := a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "r", ReviewVerdict{Actor: "a", Verdict: VerdictApprove, AttemptID: "x"}, nil, nil, cred, k)
 			return err
 		}},
 		{"SetReviewCommentStatus/commentID", func() error {
-			_, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "r", "", ReviewCommentResolved, cred, k)
+			_, err := a.SetReviewCommentStatus(execRC(), id, v, NoActivityVersionExpectation, "C-X", "r", "", ReviewCommentResolved, cred, k)
 			return err
 		}},
 		{"SetReviewCommentStatus/status", func() error {
-			_, err := a.SetReviewCommentStatus(execRC(), id, v, "C-X", "r", "c", "banana", cred, k)
+			_, err := a.SetReviewCommentStatus(execRC(), id, v, NoActivityVersionExpectation, "C-X", "r", "c", "banana", cred, k)
 			return err
 		}},
 		{"DecideReviewRound/decidedBy", func() error {
-			_, err := a.DecideReviewRound(execRC(), id, v, "C-X", "r", RoundPassed, "", cred, k)
+			_, err := a.DecideReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", "r", RoundPassed, "", cred, k)
 			return err
 		}},
 		{"CommitActivityArtifacts/taskID", func() error {
-			_, err := a.CommitActivityArtifacts(execRC(), id, v, "C-X", CommitArtifactsInput{ApprovedBy: "a", DraftedBy: "d"}, cred, k)
+			_, err := a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, "C-X", CommitArtifactsInput{ApprovedBy: "a", DraftedBy: "d"}, cred, k)
 			return err
 		}},
 		{"RecordActivityOutcome/activityID", func() error {
-			_, err := a.RecordActivityOutcome(execRC(), id, v, "", ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, k)
+			_, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "", ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, k)
 			return err
 		}},
 		{"RecordOperatorNote/noteID", func() error {
-			_, err := a.RecordOperatorNote(execRC(), id, v, "C-X", OperatorNoteInput{Kind: NoteRetry, Text: "t"}, "", cred, k)
+			_, err := a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", OperatorNoteInput{Kind: NoteRetry, Text: "t"}, "", cred, k)
 			return err
 		}},
 		{"AcknowledgeStaleBasis/note", func() error {
-			_, err := a.AcknowledgeStaleBasis(execRC(), id, v, "C-X", KindMission, "  ", cred, k)
+			_, err := a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, "C-X", KindMission, "  ", cred, k)
 			return err
 		}},
 		{"ReadActivityExecution/activityID", func() error {
@@ -10956,14 +10956,14 @@ func TestAppendReviewVerdict_KeepsEveryReviewersComments(t *testing.T) {
 	v = openRoundFixture(t, a, id, v, cred)
 
 	var err error
-	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
 			Summary: "too wide", AttemptID: "C-X:detailedDesign:1"},
 		[]ReviewComment{{Anchor: "ops[3]", Text: "split this op", AuthorRole: "architect", Type: "changeRequest"}},
 		nil, cred, fwra.IdempotencyKey("m1")); err != nil {
 		t.Fatalf("AppendReviewVerdict (architect): %v", err)
 	}
-	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1",
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1",
 		ReviewVerdict{ReviewerRole: "qaEngineer", Actor: "qa-engineer", Verdict: VerdictSendBack,
 			Summary: "no test plan", AttemptID: "C-X:detailedDesign:1"},
 		[]ReviewComment{{Anchor: "ops[7]", Text: "where is the failure path tested", AuthorRole: "qaEngineer", Type: "changeRequest"}},
@@ -11004,10 +11004,10 @@ func TestAppendReviewVerdict_AReissuedBatchStillAppendsOnce(t *testing.T) {
 	verdict := ReviewVerdict{ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack,
 		Summary: "two things", AttemptID: "C-X:detailedDesign:1"}
 	var err error
-	if v, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m3")); err != nil {
+	if v, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m3")); err != nil {
 		t.Fatalf("AppendReviewVerdict: %v", err)
 	}
-	if _, err = a.AppendReviewVerdict(execRC(), id, v, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m4")); err != nil {
+	if _, err = a.AppendReviewVerdict(execRC(), id, v, NoActivityVersionExpectation, "C-X", "C-X:designReview:1", verdict, batch, nil, cred, fwra.IdempotencyKey("m4")); err != nil {
 		t.Fatalf("AppendReviewVerdict (re-issue under a fresh key): %v", err)
 	}
 	exec, _ := a.ReadActivityExecution(execRC(), id, "C-X")
@@ -11027,7 +11027,7 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	v = openTestActivity(t, a, id, v, cred)
 
 	// Re-opening with the SAME pin is the ordinary retry: a no-op success.
-	v2, err := a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m5"))
 	if err != nil {
 		t.Fatalf("re-opening with the same pin must succeed: %v", err)
@@ -11037,7 +11037,7 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	}
 	// A DIFFERENT pin is refused, and the message names both so the caller can see which
 	// release moved under it.
-	_, err = a.OpenActivity(execRC(), id, v2, "C-X", ActivityTypeService, TestVariantPlan,
+	_, err = a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
 		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.10.0"}, cred, fwra.IdempotencyKey("m6"))
 	if err == nil || kindOfErr(err) != fwra.ContractMisuse {
 		t.Fatalf("re-pinning must be ContractMisuse; got %v", err)
@@ -11066,13 +11066,13 @@ func TestOpenActivity_RefusesToResurrectAFinishedActivity(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			a, store, id, v, cred := newExecutionStore(t)
 			v = openTestActivity(t, a, id, v, cred)
-			v, err := a.RecordActivityOutcome(execRC(), id, v, "C-X", tt.outcome, tt.reason, "d", cred, fwra.IdempotencyKey("m7"))
+			v, err := a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", tt.outcome, tt.reason, "d", cred, fwra.IdempotencyKey("m7"))
 			if err != nil {
 				t.Fatalf("RecordActivityOutcome: %v", err)
 			}
 			before := readConstruction(t, store, id, cred, "C-X")
 
-			_, err = a.OpenActivity(execRC(), id, v, "C-X", ActivityTypeService, TestVariantPlan,
+			_, err = a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan,
 				LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("m8"))
 			if err == nil || kindOfErr(err) != fwra.Conflict {
 				t.Fatalf("re-opening an exited activity must be a Conflict; got %v", err)
@@ -11300,9 +11300,10 @@ func completedPhasesOf(s ActivityExecution) []ActivityMethodPhase {
 // ---- The per-activity Version (task 4, step 3) -------------------------------------
 
 // TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter pins the
-// per-activity optimistic check directly, because the twelve verbs all pass
-// noActivityVersionExpectation today (see its doc for which arm this facet took and why)
-// and nothing else can drive a stale expectation through them.
+// per-activity optimistic check at the UNIT level: the wrapper itself, over an in-memory
+// Project, with no store or credential in the way. The two tests below it drive the same
+// rule through a real verb on a real store, which is the arming stage 4a did; this one
+// keeps the rule readable in one screen.
 //
 // Three properties, one test, because they are one rule: a stale expectation is a
 // Conflict naming BOTH versions; a refused transition leaves the row — and its counter —
@@ -11341,7 +11342,7 @@ func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *test
 	// The honest no-op guard: a caller with no version to assert passes 0 and the
 	// transition still applies and still stamps.
 	p = newProject()
-	if err := withActivityVersion("RecordAttemptOutcome", "C-X", noActivityVersionExpectation, noop)(p); err != nil {
+	if err := withActivityVersion("RecordAttemptOutcome", "C-X", NoActivityVersionExpectation, noop)(p); err != nil {
 		t.Fatalf("no expectation must not refuse: %v", err)
 	}
 	if got := p.ActivityExecution["C-X"].Version; got != 8 {
@@ -11356,6 +11357,70 @@ func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *test
 	}
 	if got := p.ActivityExecution["C-X"].Version; got != 7 {
 		t.Fatalf("version = %d, want 7 — a failed transition stamps nothing", got)
+	}
+}
+
+// TestActivityExecutionRefusesAStaleActivityVersion drives the armed guard through a REAL
+// verb on a REAL store, which is what stage 4a changed: the callers can fill the parameter
+// now, so a stale one is refused instead of compared against a fabricated zero.
+//
+// A stale expectation is Conflict — the same class the git ref-CAS loss carries, because
+// it is the same "someone already moved this" the caller resolves by re-reading — and it
+// names both versions and says what to do. This is the guard that makes parallel children
+// safe: two writers on the SAME activity cannot interleave, while two children on
+// DIFFERENT activities never contend at all (the project-level CAS alone would have made
+// them).
+func TestActivityExecutionRefusesAStaleActivityVersion(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	held := verbRowVersion(t, a, id, "C-X")
+
+	v = verbDone(a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
+		AttemptID: AttemptID("C-X", TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+	}, cred, "k-fresh")).must(t)
+
+	// held is now one behind — the same value a second child would still be holding.
+	_, err := a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
+		AttemptID: AttemptID("C-X", TaskSRS, 2), TaskID: TaskSRS, Attempt: 2, Outcome: OutcomePassed,
+	}, cred, "k-stale")
+	if err == nil {
+		t.Fatal("a stale per-activity version must be refused")
+	}
+	if got := kindOf(t, err); got != fwra.Conflict {
+		t.Fatalf("kind = %v, want Conflict — the caller resolves it by re-reading", got)
+	}
+	if !strings.Contains(err.Error(), "re-read the activity and re-apply") {
+		t.Errorf("the Conflict must tell the caller what to do, got %q", err.Error())
+	}
+	if got := verbRowVersion(t, a, id, "C-X"); got != held+1 {
+		t.Fatalf("a refused write must leave the row where it found it: version = %d, want %d", got, held+1)
+	}
+}
+
+// TestActivityExecutionAcceptsTheUnreadPosture is the other half of the rule.
+// NoActivityVersionExpectation is still honoured, and it is not a loophole: it is the
+// posture of a writer that has not read the row — OpenActivity on a BIRTH, and a tool
+// writing history it never read. Every workflow caller reads the row from the project read
+// it already makes, so every workflow caller passes a real number.
+//
+// A BIRTH is the one case where the unread posture is the ONLY admissible one, so that is
+// asserted here too: a caller claiming to hold version 3 of a row this store does not have
+// read it somewhere this write is not going.
+func TestActivityExecutionAcceptsTheUnreadPosture(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+
+	if _, err := a.OpenActivity(execRC(), id, v, 3, "C-X", ActivityTypeService, TestVariantPlan,
+		LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}, cred, "k-phantom"); err == nil {
+		t.Fatal("a held version for a row that does not exist yet must be refused")
+	} else if got := kindOf(t, err); got != fwra.Conflict {
+		t.Fatalf("kind = %v, want Conflict", got)
+	}
+
+	v = openTestActivity(t, a, id, v, cred) // the birth itself passes the unread posture
+	if _, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", TaskAttemptInput{
+		AttemptID: AttemptID("C-X", TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+	}, cred, "k-unread"); err != nil {
+		t.Fatalf("the unread posture must still apply: %v", err)
 	}
 }
 
@@ -11416,7 +11481,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 
 		// ---- activityExecutionAccess's own (withActivityVersion) ----
 		{"RecordAttemptOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(a.RecordAttemptOutcome(execRC(), id, v, activity, TaskAttemptInput{
+			verbDone(a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, activity, TaskAttemptInput{
 				AttemptID: AttemptID(activity, TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
 			}, cred, "k-attempt")).must(t)
 		}},
@@ -11426,7 +11491,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		{"AppendReviewVerdict", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			v2 := openRoundFixture(t, a, id, v, cred)
 			before := verbRowVersion(t, a, id, activity)
-			verbDone(a.AppendReviewVerdict(execRC(), id, v2, activity, "C-X:designReview:1", ReviewVerdict{
+			verbDone(a.AppendReviewVerdict(execRC(), id, v2, NoActivityVersionExpectation, activity, "C-X:designReview:1", ReviewVerdict{
 				ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictApprove, AttemptID: "C-X:detailedDesign:1",
 			}, nil, nil, cred, "k-verdict")).must(t)
 			if got := verbRowVersion(t, a, id, activity); got != before+1 {
@@ -11435,11 +11500,11 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		}},
 		{"SetReviewCommentStatus", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			v2 := openRoundFixture(t, a, id, v, cred)
-			v3 := verbDone(a.AppendReviewVerdict(execRC(), id, v2, activity, "C-X:designReview:1", ReviewVerdict{
+			v3 := verbDone(a.AppendReviewVerdict(execRC(), id, v2, NoActivityVersionExpectation, activity, "C-X:designReview:1", ReviewVerdict{
 				ReviewerRole: "architect", Actor: "system-architect", Verdict: VerdictSendBack, AttemptID: "C-X:detailedDesign:1",
 			}, []ReviewComment{{Anchor: "ops[0]", Text: "split", AuthorRole: "architect"}}, nil, cred, "k-verdict")).must(t)
 			before := verbRowVersion(t, a, id, activity)
-			verbDone(a.SetReviewCommentStatus(execRC(), id, v3, activity, "C-X:designReview:1", "r1c1", ReviewCommentResolved, cred, "k-status")).must(t)
+			verbDone(a.SetReviewCommentStatus(execRC(), id, v3, NoActivityVersionExpectation, activity, "C-X:designReview:1", "r1c1", ReviewCommentResolved, cred, "k-status")).must(t)
 			if got := verbRowVersion(t, a, id, activity); got != before+1 {
 				t.Fatalf("SetReviewCommentStatus: version = %d, want %d", got, before+1)
 			}
@@ -11447,22 +11512,22 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 		{"DecideReviewRound", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			v2 := openRoundFixture(t, a, id, v, cred)
 			before := verbRowVersion(t, a, id, activity)
-			verbDone(a.DecideReviewRound(execRC(), id, v2, activity, "C-X:designReview:1", RoundPassed, "system-architect", cred, "k-decide")).must(t)
+			verbDone(a.DecideReviewRound(execRC(), id, v2, NoActivityVersionExpectation, activity, "C-X:designReview:1", RoundPassed, "system-architect", cred, "k-decide")).must(t)
 			if got := verbRowVersion(t, a, id, activity); got != before+1 {
 				t.Fatalf("DecideReviewRound: version = %d, want %d", got, before+1)
 			}
 		}},
 		{"CommitActivityArtifacts", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(a.CommitActivityArtifacts(execRC(), id, v, activity, CommitArtifactsInput{
+			verbDone(a.CommitActivityArtifacts(execRC(), id, v, NoActivityVersionExpectation, activity, CommitArtifactsInput{
 				TaskID: TaskCodeReview, ApprovedBy: "system-architect", DraftedBy: "junior-developer",
 				Artifacts: []ProducedArtifact{{Kind: "code", Title: "T", Source: "s"}},
 			}, cred, "k-commit")).must(t)
 		}},
 		{"RecordActivityOutcome", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(a.RecordActivityOutcome(execRC(), id, v, activity, ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, "k-outcome")).must(t)
+			verbDone(a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, activity, ActivityOutcomeCompleted, FailureReasonUnknown, "", cred, "k-outcome")).must(t)
 		}},
 		{"RecordOperatorNote (facet)", func(t *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
-			verbDone(a.RecordOperatorNote(execRC(), id, v, activity, note, "", cred, "k-facet-note")).must(t)
+			verbDone(a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, activity, note, "", cred, "k-facet-note")).must(t)
 		}},
 		{"AcknowledgeStaleBasis", func(_ *testing.T, a ActivityExecutionAccess, _ *GitStore, id ProjectID, v Version, cred RepoCredential) {
 			// The activity-scoped slot transition: it guards on the row existing but writes
@@ -11473,7 +11538,7 @@ func TestEveryMutatingVerbOnARowStampsItsVersion(t *testing.T) {
 			// Named here rather than omitted, so both exceptions are recorded decisions,
 			// and this one's error is deliberately unread — the slot it targets may not be
 			// committed.
-			_, _ = a.AcknowledgeStaleBasis(execRC(), id, v, activity, KindSystem, "seen", cred, "k-ack")
+			_, _ = a.AcknowledgeStaleBasis(execRC(), id, v, NoActivityVersionExpectation, activity, KindSystem, "seen", cred, "k-ack")
 		}},
 	}
 
