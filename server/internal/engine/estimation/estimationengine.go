@@ -1566,6 +1566,29 @@ func isCodeLayer(kind string) bool {
 // its dependencies are done. Emitting C-<planned component> hands it to a build agent.
 const buildStatusPlanned = "planned"
 
+// buildStatusExternal marks a component supplied from outside the project — the platform
+// utilities carry it. Like "planned" it derives no activity, but for the opposite reason:
+// planned means "no code YET", external means "not ours".
+const buildStatusExternal = "external"
+
+// knownBuildStatus reports whether s is a value the derivation understands. The empty
+// string is the common case (built, or to be built) and is legal.
+//
+// This is a CLOSED vocabulary on purpose. buildStatus is the one field in the model that
+// decides whether a component becomes a dispatchable activity at all, and the skip keys on
+// an exact string — so "Planned" is not a near-miss, it is a component handed to a build
+// agent by the 30-second pump sweep. An unknown value is a model defect: the derivation
+// refuses to build it (see deriveActivities) and DH-BUILDSTATUS-VOCAB names it at Error.
+// Widening this set is a founder ruling, not a fix for a red gate.
+func knownBuildStatus(s string) bool {
+	switch s {
+	case "", buildStatusPlanned, buildStatusExternal:
+		return true
+	default:
+		return false
+	}
+}
+
 // codingActivityFor emits the C-* coding activity for a handwritten code-layer
 // component, or false when the component doesn't qualify: generated transport (the
 // generator does that work), a non-code-layer kind such as resource, or a "provided"
@@ -1583,7 +1606,7 @@ const buildStatusPlanned = "planned"
 // A client with a UI surface gets its ONE activity from clientAppActivityFor instead,
 // whatever its constructionProfile — one activity per component, never two.
 func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
-	if c.BuildStatus == buildStatusPlanned {
+	if !knownBuildStatus(c.BuildStatus) || c.BuildStatus == buildStatusPlanned || c.BuildStatus == buildStatusExternal {
 		return DerivedActivity{}, false
 	}
 	if !isCodeLayer(c.Kind) || c.ConstructionProfile == "generated" || c.ConstructionProfile == "provided" {
@@ -1608,7 +1631,7 @@ func codingActivityFor(c SystemComponent) (DerivedActivity, bool) {
 // provisioningActivityFor emits the R-* provisioning activity for a vendor resource.
 // Owned stores get none — their schema/deploy work arrives as additive noncoding.
 func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
-	if c.BuildStatus == buildStatusPlanned {
+	if !knownBuildStatus(c.BuildStatus) || c.BuildStatus == buildStatusPlanned || c.BuildStatus == buildStatusExternal {
 		return DerivedActivity{}, false
 	}
 	if c.Kind != "resource" || c.Provisioning != "vendor" {
@@ -1640,7 +1663,7 @@ func provisioningActivityFor(c SystemComponent) (DerivedActivity, bool) {
 // (architectureEdges routes those relationships, because activityForComponent indexes
 // this activity by its client).
 func clientAppActivityFor(c SystemComponent) (DerivedActivity, bool) {
-	if c.BuildStatus == buildStatusPlanned {
+	if !knownBuildStatus(c.BuildStatus) || c.BuildStatus == buildStatusPlanned || c.BuildStatus == buildStatusExternal {
 		return DerivedActivity{}, false
 	}
 	if c.Kind != "client" || !c.UiSurface {

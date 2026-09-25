@@ -101,6 +101,9 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	assertAbsent(t, got, RuleVolTrace)
 	assertAbsent(t, got, RuleCovUCDynamic)
 	assertAbsent(t, got, RuleObjResolve)
+	// The committed state's three buildStatus values (null, "external", "planned") are
+	// all in the closed vocabulary — verified live in Step 1 of the task brief.
+	assertAbsent(t, got, RuleBuildStatusVocabulary)
 
 	// CC-* call-chain family (2026-07-30 callchain-realization; batch 1 landed
 	// 2026-08-01 Task 8, batch 2 landed 2026-08-01 Task 9, batch 3 landed
@@ -1069,6 +1072,40 @@ func assertNoVolWarnings(t *testing.T, findings []methodcheck.Finding, wantSecti
 	}
 }
 
+// TestBuildStatusVocabulary pins DH-BUILDSTATUS-VOCAB: a component whose buildStatus
+// is outside the closed set ("", "planned", "external") fires exactly one Error
+// finding naming that component; a component in the vocabulary — including the
+// null/absent case — stays silent.
+func TestBuildStatusVocabulary(t *testing.T) {
+	doc := sysDoc(comps(
+		compBuildStatus("typo-manager", "manager", "Planned"),
+		comp("clean-manager", "manager"),
+		compBuildStatus("planned-manager", "manager", "planned"),
+		compBuildStatus("external-util", "utility", "external"),
+	), rels(), nil)
+	findings := EvaluateRaw(mustMarshal(t, doc))
+
+	var got []methodcheck.Finding
+	for _, f := range findings {
+		if f.RuleID == RuleBuildStatusVocabulary {
+			got = append(got, f)
+		}
+	}
+	if len(got) != 1 {
+		t.Fatalf("want exactly 1 DH-BUILDSTATUS-VOCAB finding, got %d: %v", len(got), renderFindings(got))
+	}
+	f := got[0]
+	if f.Severity != methodcheck.SeverityError {
+		t.Errorf("DH-BUILDSTATUS-VOCAB severity = %v, want Error", f.Severity)
+	}
+	if f.Location == nil || f.Location.Section != "component typo-manager" {
+		t.Errorf("DH-BUILDSTATUS-VOCAB location = %+v, want section %q", f.Location, "component typo-manager")
+	}
+	if !strings.Contains(f.Message, "typo-manager") || !strings.Contains(f.Message, `"Planned"`) {
+		t.Errorf("DH-BUILDSTATUS-VOCAB message = %q, want it to name the component and the offending value", f.Message)
+	}
+}
+
 // TestCardinalityBandBoundaries pins the ch. 4 smallest-set band edges: counts AT
 // the band ceiling (3 Engines, 8 combined RA+Resources, 6 Utilities, ≥2 Managers)
 // stay silent — the bands are strict over-bounds, not at-bounds.
@@ -1330,6 +1367,14 @@ func comp(id, kind string) map[string]any {
 func compBlurb(id, kind, blurb string) map[string]any {
 	m := comp(id, kind)
 	m["encapsulates"] = blurb
+	return m
+}
+
+// compBuildStatus builds a component carrying a buildStatus value — the
+// DH-BUILDSTATUS-VOCAB negative-fixture builder.
+func compBuildStatus(id, kind, buildStatus string) map[string]any {
+	m := comp(id, kind)
+	m["buildStatus"] = buildStatus
 	return m
 }
 
