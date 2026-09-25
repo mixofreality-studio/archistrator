@@ -1470,7 +1470,7 @@ This is the commit stage 1 could not carry. Five Error-severity gates make it in
     ```
     Expected: three deletions × three file families, three additions; the build names every undefined `sdk.SystemDesign*`, `sdk.ProjectDesign*` and `sdk.Construction*` symbol. That list IS the work of this step.
   - [ ] **Re-point each harness file**, using the build errors as the checklist:
-    - `systemtests/internal/harness/httptransport.go` — every `sdk.NewSystemDesignHTTP` / `NewProjectDesignHTTP` / `NewConstructionHTTP` client and its per-op call becomes the one `sdk.NewDeliveryHTTP` client and the matching op of the twelve. Use Task 6 Step 9's dispatch tables as the old-op → new-op map; a test that called `SystemDesignGetProject` now calls `QueryProjectView` with `{Kind: "summary", ProjectID: …}`.
+    - `systemtests/internal/harness/httptransport.go` — the SDK emits ONE `sdk.HTTPClient` (`core.gen.go`, survives the prune; built inline at `httptransport.go:34`, unchanged) with per-manager METHODS (`func (c *HTTPClient) SystemDesignGetProject(ctx, projectID) (ProjectState, error)`) and `<Manager><Op>Request`/`Input` types in the pruned files. There is NO per-manager constructor to swap: the work is method + request-type renames — every `c.SystemDesign*`/`c.ProjectDesign*`/`c.Construction*` call and its request type becomes the matching `c.Delivery*` method of the twelve. Use Task 6 Step 9's dispatch tables as the old-op → new-op map; a test that called `SystemDesignGetProject` now calls `DeliveryQueryProjectView` with `{Kind: "summary", ProjectID: …}`. `sdk.ArtifactKind`/`sdk.Kind*` live in `types_shared.gen.go`, which survives the prune — `enums.go` needs only the renames the build errors name.
     - `systemtests/internal/harness/mcptransport.go` — the same substitution over the MCP tool names.
     - `systemtests/internal/harness/transport.go` — the transport-agnostic interface the two above satisfy: its method set shrinks to the twelve.
     - `systemtests/internal/harness/enums.go` — the ordinal/name tables re-key from three manager namespaces to one; `ProjectSessionStage`'s members keep their `Project…`-prefixed Go names (Step 3).
@@ -1563,7 +1563,7 @@ This is the commit stage 1 could not carry. Five Error-severity gates make it in
 
   MODEL. delivery-manager (contract deliveryManager, 12 ops) replaces
   system-design-manager, project-design-manager and construction-manager;
-  37 relationships out, 16 in (76 -> 55); execute-a-project-activity becomes the
+  37 relationships out, 17 in (76 -> 56); execute-a-project-activity becomes the
   third core use case, absorbing drive-system-design and
   execute-a-construction-activity, with commit-to-a-project-option demoted and
   eleven variations re-parented; 18 use cases and 18 dynamic views become 17 and
@@ -1882,7 +1882,7 @@ Twenty preview fixture states key their `ops` map by op id, and the uitests' RES
     "constructionQueryActivityView": "deliveryQueryActivityView"
   }
   ```
-  **Many-to-one is the whole difficulty, and it is THREE collapses, not one.** `deliveryQueryProjectView` absorbs 13 readers, `deliverySubmitReviewDecision` absorbs 9 writers, and `deliveryStartProject` absorbs 4. A fixture stubbing two members of any one group would collapse two `ops` entries onto one key and lose one — silently, producing a plausible and wrong screen. Every one of the three therefore gets a discriminator that mirrors what the real op discriminates on, so no fixture needs a hand decision:
+  **Many-to-one is the whole difficulty, and it is EIGHT collapses, not one — three large ones handled by `DISCRIMINATOR` and five small many-to-one groups that must ALSO be discriminated, never thrown on: `deliveryDispatchActivityTask` (3 old ops → discriminate by which request shape the fixture carries), `deliveryAskQuestions` (2 → by manager), `deliveryAcknowledgeStaleBasis` (2 → by manager), `deliverySetProjectRunState` (pause + resume → `{state: "paused"|"running"}` from the old op id), `deliverySetProjectExecutionPolicy` (set + update → both map to the one op; if a fixture carries both, keep the `update` result). Today zero fixtures carry two ops of any of these five groups (measured), so the `else` collision `throw` is a latent trap, not a live one — extend `DISCRIMINATOR` with all eight groups before running the script..** `deliveryQueryProjectView` absorbs 13 readers, `deliverySubmitReviewDecision` absorbs 8 writers, and `deliveryStartProject` absorbs 4. A fixture stubbing two members of any one group would collapse two `ops` entries onto one key and lose one — silently, producing a plausible and wrong screen. Every one of the three therefore gets a discriminator that mirrors what the real op discriminates on, so no fixture needs a hand decision:
 
   | Merged op | Discriminator | Per-old-op value |
   |---|---|---|
