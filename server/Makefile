@@ -248,8 +248,17 @@ encapsulation-check:
 # TestDerivedPlanMatchesCommittedState reads project.json out-of-tree (same reason
 # method-check uses -count=1: a green run would otherwise cache and a later
 # project.json edit would never re-run).
+# DERIVED_PLAN_PKG — the package that owns the plan-derivation gate and its writer
+# (TestDerivedPlanMatchesCommittedState / TestWriteDerivedPlan / TestResetConstructionState).
+# A variable rather than a literal because stage 4a MOVES that package: the three targets
+# below are part of the self-amendment procedure ("slots 9 and 10 are never hand-edited"),
+# and that procedure has to keep working DURING the one commit that relocates the package
+# it points at. Flipping one default is a reviewable line; sed-ing three recipes inside a
+# 40-file commit is not.
+DERIVED_PLAN_PKG ?= ./internal/manager/projectdesign/
+
 derived-plan-check:
-	GOWORK=off go test ./internal/manager/projectdesign/... -run TestDerivedPlanMatchesCommittedState -count=1 -v
+	GOWORK=off go test $(DERIVED_PLAN_PKG)... -run TestDerivedPlanMatchesCommittedState -count=1 -v
 
 # DERIVED-PLAN writer — the write half of derived-plan-check. Re-materializes slots 9
 # and 10 of .aiarch/state/project.json from the committed System through the Manager's
@@ -258,7 +267,7 @@ derived-plan-check:
 # slots downstream of the network are flagged staleBasis. project.json is never
 # hand-edited; this is how slots 9/10 change. A no-op when the plan is current.
 derived-plan-write:
-	DERIVED_PLAN_WRITE=1 GOWORK=off go test ./internal/manager/projectdesign/ -run '^TestWriteDerivedPlan$$' -count=1 -v
+	DERIVED_PLAN_WRITE=1 GOWORK=off go test $(DERIVED_PLAN_PKG) -run '^TestWriteDerivedPlan$$' -count=1 -v
 
 # CONSTRUCTION-STATE reset (founder ruling D9, 2026-09-12). Empties .activityConstruction,
 # recomputes .constructionProgress from the empty record, and flags the committed plan
@@ -266,4 +275,4 @@ derived-plan-write:
 # history: run it only when the plan has been re-derived and the old records name
 # activities it no longer holds.
 construction-state-reset:
-	CONSTRUCTION_STATE_RESET=1 GOWORK=off go test ./internal/manager/projectdesign/ -run '^TestResetConstructionState$$' -count=1 -v
+	CONSTRUCTION_STATE_RESET=1 GOWORK=off go test $(DERIVED_PLAN_PKG) -run '^TestResetConstructionState$$' -count=1 -v
