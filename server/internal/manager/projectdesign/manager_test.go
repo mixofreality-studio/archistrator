@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"reflect"
 	"slices"
@@ -32,7 +33,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/temporalproto"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -40,6 +43,7 @@ import (
 	"go.temporal.io/sdk/converter"
 	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -7457,5 +7461,304 @@ func Test_CoAuthorPhase2_WithdrawAtTheFailedGate_LeavesNoPendingRound(t *testing
 	}
 	if len(ps.withdrawn) == 0 {
 		t.Fatalf("the failed-gate withdraw must still record the slot withdraw; got %v", ps.withdrawn)
+	}
+}
+
+// ===========================================================================
+// STAGE 4a — THE PHASE-2 REPLAY HARNESS (plan 2026-09-25-activity-experience-
+// stage4a, task 1). The Phase-2 twin of construction's B1.0 harness and of
+// systemdesign's design-pre-stage4 set.
+//
+// coauthorphase2artifact.go carries SEVEN GetVersion fences and, until this
+// harness, the Phase-2 rail had ZERO recorded histories — so nothing mechanical
+// could tell a refactor that MOVED a durable command from one that did not. Stage
+// 4a moves this whole package into internal/manager/delivery under renamed private
+// symbols; a fixture captured HERE and replayed THERE is what makes that move
+// reviewable instead of hopeful. The fixture directory is named for what it pins —
+// phase2-pre-stage4 — and keeps that name after the git mv.
+//
+// The fixture is captured from an EXISTING test's command sequence, driven against
+// a real Temporal dev server (the Go SDK's TestWorkflowEnvironment exposes no
+// history, so the capture half cannot use the rig the tests themselves use):
+//
+//   - sdp-review-commit
+//     ← Test_AssembleSDPReviewWorkflow_Commit_HappyPath_EnginesRunInProcess
+//
+// Capture and replay build the workflows receiver from the SAME rig, because the
+// workflow body branches on its deps (the three estimate Engines run in-process).
+// Re-capture a directory with
+//
+//	PHASE2_HISTORY_CAPTURE=1 [PHASE2_HISTORY_CAPTURE_DIR=<dir>] GOWORK=off \
+//	  go test ./internal/manager/projectdesign/ -run '^Test_Capture_Phase2Histories$' -count=1
+//
+// It needs the `temporal` CLI on PATH (it starts an offline dev server through
+// testsuite.StartDevServer's ExistingPath, on its own namespace). NEVER re-capture
+// phase2-pre-stage4 on changed code: it is the record of what already ran.
+// ===========================================================================
+
+// phase2ReplayProjectID is fixed, not a fresh uuid, so a re-capture produces the
+// same workflow IDs as the fixture it replaces.
+const phase2ReplayProjectID = ProjectID("d6520000-0000-4000-8000-00000000d652")
+
+// phase2ReplayRig is one scenario's workflows receiver plus the fakes behind its
+// generated activities.
+type phase2ReplayRig struct {
+	wf   *workflows
+	ps   projectstate.ProjectStateAccess
+	pipe *fakePipeline
+}
+
+// activities backs every generated activity from the rig's fakes, exactly as the
+// production worker threads them (RegisterWorker), so a capture runs the real
+// registration path rather than the test env's hand-picked subset. pipe may be
+// absent for a scenario that never dispatches — the nil interface is only reached
+// if the workflow gets there.
+func (r phase2ReplayRig) activities() genActivities {
+	var pipe agenticjob.AgenticJobAccess
+	if r.pipe != nil {
+		pipe = r.pipe
+	}
+	acts := genActivities{
+		ProjectState:  r.ps,
+		Pipeline:      pipe,
+		Rail:          r.wf.Rail,
+		DesignSession: projectstate.NewDesignSessionAccess(r.ps),
+		Episodes:      &fakeEpisodes{},
+	}
+	if base, ok := r.ps.(execLedgerBase); ok {
+		acts.ActivityExecution = fakeActivityExecution{base.baseProjectState()}
+	}
+	return acts
+}
+
+// phase2ReplayCase is one captured history: its fixture location, its rig, and how
+// the capture tool drives it. drive returns the execution to export, and open=true
+// when the execution is still running and must be terminated after the export.
+type phase2ReplayCase struct {
+	dir   string
+	name  string
+	rig   func(t *testing.T) phase2ReplayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, taskQueue string, r phase2ReplayRig) (wfID, runID string, open bool)
+}
+
+func phase2ReplayFixturePath(c phase2ReplayCase) string {
+	return filepath.Join("testdata", "replay", c.dir, c.name+".json")
+}
+
+// phase2ReplayRegistrations are the workflows a fixture can belong to, under their
+// registered names — the same three names RegisterWorker is given in production.
+func phase2ReplayRegistrations(wf *workflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindCoAuthor, Fn: wf.CoAuthorPhase2ArtifactWorkflow},
+		{Name: executionKindSDPReview, Fn: wf.AssembleSDPReviewWorkflow},
+		{Name: executionKindPhaseAdvance, Fn: wf.Phase2AdvanceWorkflow},
+	}
+}
+
+// phase2ReplaySDPRig serves an SDP-ready Phase 2 to the assembly workflow: the
+// three estimate Engines are the REAL ones, and no pipeline is needed (the
+// assembly is a deterministic server-side join, never an agentic dispatch).
+func phase2ReplaySDPRig(t *testing.T) phase2ReplayRig {
+	t.Helper()
+	return phase2ReplayRig{
+		wf: newWorkflows(),
+		ps: &fakeProjectState{project: sdpReadyProject(projectstate.ProjectID(phase2ReplayProjectID))},
+	}
+}
+
+// phase2ReplayRecommendedOption re-runs the deterministic assembly to learn which
+// option the architect's commit signal binds — exactly as the source test does,
+// and off the workflow's own copy of the fixture project, so it races nothing.
+func phase2ReplayRecommendedOption(t *testing.T, wf *workflows) OptionID {
+	t.Helper()
+	pre, err := wf.assembleSdpReview(sdpReadyProject(projectstate.ProjectID(phase2ReplayProjectID)), "")
+	if err != nil {
+		t.Fatalf("pre-assembly: %v", err)
+	}
+	return OptionID(pre.Recommendation)
+}
+
+// phase2ReplayCases is every captured Phase-2 history. c.dir is the FINAL directory
+// name: stage 4a git mv's the directory into the delivery package under exactly
+// this string, so no task ever edits it.
+func phase2ReplayCases() []phase2ReplayCase {
+	return []phase2ReplayCase{
+		{
+			// The whole of the SDP spine: read → assemble the four options through the
+			// three Engines → stage → the option-commit gate → re-run the Engines on the
+			// chosen option → re-stage → commit.
+			dir: "phase2-pre-stage4", name: "sdp-review-commit",
+			rig: phase2ReplaySDPRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r phase2ReplayRig) (string, string, bool) {
+				chosen := phase2ReplayRecommendedOption(t, r.wf)
+				run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+					ID: sdpReviewWorkflowID(phase2ReplayProjectID), TaskQueue: tq,
+				}, executionKindSDPReview, sdpReviewInput{ProjectID: phase2ReplayProjectID})
+				if err != nil {
+					t.Fatalf("start sdp review: %v", err)
+				}
+				phase2ReplayAwaitStage(ctx, t, c, run.GetID(), "the option-commit gate", func(v SessionStateView) bool {
+					return v.Stage == StageAwaitingReview
+				})
+				phase2ReplaySignal(ctx, t, c, run.GetID(), signalSDPDecision, sdpDecisionSignal{
+					Decision: SDPCommit, OptionID: &chosen,
+				})
+				phase2ReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
+}
+
+// phase2ReplayAwaitStage polls the session query until ok reports the session has
+// reached the point the next command belongs at.
+func phase2ReplayAwaitStage(ctx context.Context, t *testing.T, c client.Client, wfID, what string, ok func(SessionStateView) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", querySessionState); err == nil {
+			var v SessionStateView
+			if enc.Get(&v) == nil && ok(v) {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never reached %s", wfID, what)
+}
+
+func phase2ReplaySignal(ctx context.Context, t *testing.T, c client.Client, wfID, name string, arg any) {
+	t.Helper()
+	if err := c.SignalWorkflow(ctx, wfID, "", name, arg); err != nil {
+		t.Fatalf("signal %s to %s: %v", name, wfID, err)
+	}
+}
+
+func phase2ReplayAwaitDone(ctx context.Context, t *testing.T, run client.WorkflowRun) {
+	t.Helper()
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("%s did not complete cleanly: %v", run.GetID(), err)
+	}
+}
+
+// phase2ReplayExportHistory writes one run's full history in the CLI's JSON format,
+// which is what WorkflowReplayer.ReplayWorkflowHistoryFromJSONFile reads.
+func phase2ReplayExportHistory(ctx context.Context, c client.Client, wfID, runID, path string) error {
+	it := c.GetWorkflowHistory(ctx, wfID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	var h historypb.History
+	for it.HasNext() {
+		ev, err := it.Next()
+		if err != nil {
+			return err
+		}
+		h.Events = append(h.Events, ev)
+	}
+	b, err := temporalproto.CustomJSONMarshalOptions{Indent: "  "}.Marshal(&h)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+// Test_Capture_Phase2Histories is the CAPTURE TOOL behind the Phase-2 replay
+// fixtures (env-gated, like construction's). It is SKIPPED unless asked for by name,
+// because it REWRITES testdata/replay/. See the section header for when, and when
+// never, to run it.
+func Test_Capture_Phase2Histories(t *testing.T) {
+	if os.Getenv("PHASE2_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set PHASE2_HISTORY_CAPTURE=1 to (re)write testdata/replay/ fixtures")
+	}
+	only := os.Getenv("PHASE2_HISTORY_CAPTURE_DIR")
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "phase2-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	for i, sc := range phase2ReplayCases() {
+		if only != "" && sc.dir != only {
+			continue
+		}
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			r := sc.rig(t)
+			tq := fmt.Sprintf("phase2-replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       phase2ReplayRegistrations(r.wf),
+				ActivityOptions: activityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := phase2ReplayExportHistory(ctx, c, wfID, runID, phase2ReplayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", phase2ReplayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// phase2ReplayFixture replays one fixture against the current workflow code.
+func phase2ReplayFixture(t *testing.T, sc phase2ReplayCase) error {
+	t.Helper()
+	rep := worker.NewWorkflowReplayer()
+	for _, reg := range phase2ReplayRegistrations(sc.rig(t).wf) {
+		rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+	}
+	return rep.ReplayWorkflowHistoryFromJSONFile(nil, phase2ReplayFixturePath(sc))
+}
+
+// Test_Replay_Phase2Histories_StayDeterministic replays every captured Phase-2
+// history against the CURRENT workflow code. A non-determinism error here means the
+// command sequence moved — either add a GetVersion fence for the change, or revert
+// it. A missing fixture fails (it never skips), a fixture no case names fails too,
+// and the vacuity guard is deliberate: an empty fixture directory is a failure, not
+// a pass.
+func Test_Replay_Phase2Histories_StayDeterministic(t *testing.T) {
+	covered := map[string]bool{}
+	for _, sc := range phase2ReplayCases() {
+		path := phase2ReplayFixturePath(sc)
+		covered[path] = true
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with PHASE2_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if err := phase2ReplayFixture(t, sc); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "replay", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no replay fixtures found under testdata/replay")
+	}
+	for _, f := range files {
+		if !covered[f] {
+			t.Errorf("fixture %s has no replay case, so nothing replays it", f)
+		}
 	}
 }

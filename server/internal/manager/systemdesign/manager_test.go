@@ -7,6 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"slices"
 	"strings"
@@ -28,7 +31,9 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/stretchr/testify/mock"
 	enumspb "go.temporal.io/api/enums/v1"
+	historypb "go.temporal.io/api/history/v1"
 	"go.temporal.io/api/serviceerror"
+	"go.temporal.io/api/temporalproto"
 	workflowpb "go.temporal.io/api/workflow/v1"
 	"go.temporal.io/api/workflowservice/v1"
 	"go.temporal.io/sdk/activity"
@@ -36,6 +41,7 @@ import (
 	temporalmocks "go.temporal.io/sdk/mocks"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/testsuite"
+	"go.temporal.io/sdk/worker"
 	"go.temporal.io/sdk/workflow"
 )
 
@@ -13142,5 +13148,370 @@ func Test_RoundRepliesFor_ReKeysTheOpenRoundsRepliesAndDropsTheRest(t *testing.T
 	// No open round ⇒ nothing to append to.
 	if out := (&coAuthorState{}).roundRepliesFor([]projectstate.ReviewReply{{CommentID: "r1c1"}}); out != nil {
 		t.Fatalf("with no round open there is nothing to mirror; got %+v", out)
+	}
+}
+
+// ===========================================================================
+// STAGE 4a — THE DESIGN-RAIL REPLAY HARNESS (plan 2026-09-25-activity-experience-
+// stage4a, task 1). The design-rail twin of construction's B1.0 harness.
+//
+// coauthorartifact.go carries FOURTEEN GetVersion fences and, until this harness,
+// the design rail had ZERO recorded histories — so nothing mechanical could tell a
+// refactor that MOVED a durable command from one that did not. Stage 4a moves this
+// whole package into internal/manager/delivery under renamed private symbols; a
+// fixture captured HERE and replayed THERE is what makes that move reviewable
+// instead of hopeful. The fixture directory is therefore named for what it pins —
+// design-pre-stage4 — and keeps that name after the git mv.
+//
+// Every fixture is captured from an EXISTING test's command sequence, driven
+// against a real Temporal dev server: the Go SDK's TestWorkflowEnvironment exposes
+// no history, so the capture half cannot use the rig the tests themselves use.
+// Construction hit the same wall and took the same route, so this harness copies
+// its shape verbatim (the dev-server capture, the CLI's JSON encoding, the
+// per-directory walk, the vacuity guard).
+//
+//   - coauthor-approve-merge
+//     ← Test_CoAuthor_RailEnabled_BranchPRReadBackPlusOneMerge_HappyPath
+//   - coauthor-sendback-redraft-approve
+//     ← Test_CoAuthor_Rail_RejectRedraftsOnSameSessionBranchAndSamePR
+//   - phase-advance
+//     ← Test_PhaseAdvance_AllCommitted_Advances
+//
+// Capture and replay build the workflows receiver from the SAME rig, because the
+// workflow body branches on its deps (the rail half runs only when Rail/Repo are
+// wired). Re-capture a directory with
+//
+//	DESIGN_HISTORY_CAPTURE=1 [DESIGN_HISTORY_CAPTURE_DIR=<dir>] GOWORK=off \
+//	  go test ./internal/manager/systemdesign/ -run '^Test_Capture_DesignHistories$' -count=1
+//
+// It needs the `temporal` CLI on PATH (it starts an offline dev server through
+// testsuite.StartDevServer's ExistingPath, on its own namespace). NEVER re-capture
+// design-pre-stage4 on changed code: it is the record of what already ran.
+// ===========================================================================
+
+// designReplayProjectID is fixed, not a fresh uuid, so a re-capture produces the
+// same workflow IDs as the fixture it replaces.
+const designReplayProjectID = ProjectID("d6510000-0000-4000-8000-00000000d651")
+
+// designReplayRig is one scenario's workflows receiver plus the fakes behind its
+// generated activities.
+type designReplayRig struct {
+	wf   *workflows
+	ps   projectstate.ProjectStateAccess
+	pipe *fakePipeline
+}
+
+// activities backs every generated activity from the rig's fakes, exactly as the
+// production worker threads them (RegisterWorker), so a capture runs the real
+// registration path rather than the test env's hand-picked subset. pipe may be
+// absent for a scenario that never dispatches — the nil interface is only reached
+// if the workflow gets there.
+func (r designReplayRig) activities() genActivities {
+	var pipe agenticjob.AgenticJobAccess
+	if r.pipe != nil {
+		pipe = r.pipe
+	}
+	acts := genActivities{
+		ProjectState:  r.ps,
+		Pipeline:      pipe,
+		Rail:          r.wf.Rail,
+		DesignSession: projectstate.NewDesignSessionAccess(r.ps),
+		Episodes:      &fakeEpisodes{},
+	}
+	if base, ok := r.ps.(execLedgerBase); ok {
+		acts.ActivityExecution = fakeActivityExecution{base.baseProjectState()}
+	}
+	return acts
+}
+
+// designReplayCase is one captured history: its fixture location, its rig, and how
+// the capture tool drives it. drive returns the execution to export, and open=true
+// when the execution is still running and must be terminated after the export.
+type designReplayCase struct {
+	dir   string
+	name  string
+	rig   func(t *testing.T) designReplayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, taskQueue string, r designReplayRig) (wfID, runID string, open bool)
+}
+
+func designReplayFixturePath(c designReplayCase) string {
+	return filepath.Join("testdata", "replay", c.dir, c.name+".json")
+}
+
+// designReplayRegistrations are the workflows a fixture can belong to, under their
+// registered names — the same three names RegisterWorker is given in production.
+func designReplayRegistrations(wf *workflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindPhase, Fn: wf.SystemDesignPhaseWorkflow},
+		{Name: executionKindCoAuthor, Fn: wf.CoAuthorArtifactWorkflow},
+		{Name: executionKindPhaseAdvance, Fn: wf.PhaseAdvanceWorkflow},
+	}
+}
+
+// designReplayApproveRig is the rail happy path's rig (fakeRail, checkGreen).
+func designReplayApproveRig(t *testing.T) designReplayRig {
+	t.Helper()
+	base := &fakeProjectState{project: systemReadBack(t, designReplayProjectID)}
+	return designReplayRig{
+		wf:   newRailWorkflows(&fakeRail{checkGreen: true}),
+		ps:   &branchAwareFakeProjectState{fakeProjectState: base},
+		pipe: newFakePipeline(),
+	}
+}
+
+// designReplaySendBackRig is the reject-redraft proof's rig (the scripted rail +
+// the sequence-logging project state, so the redraft rides the one session branch).
+func designReplaySendBackRig(t *testing.T) designReplayRig {
+	t.Helper()
+	log := &seqLog{}
+	base := &fakeProjectState{project: systemReadBack(t, designReplayProjectID)}
+	return designReplayRig{
+		wf:   newSeqRailWorkflows(newScriptedRail(true, log)),
+		ps:   &seqProjectState{fakeProjectState: base, log: log},
+		pipe: newFakePipeline(),
+	}
+}
+
+// designReplayPhaseAdvanceRig serves an all-committed Phase 1 to the seal workflow.
+func designReplayPhaseAdvanceRig(t *testing.T) designReplayRig {
+	t.Helper()
+	proj := allPhase1Committed(t)
+	proj.ID = projectstate.ProjectID(designReplayProjectID)
+	return designReplayRig{wf: newWorkflows(), ps: &fakeProjectState{project: proj}}
+}
+
+// designReplayCases is every captured design-rail history. c.dir is the FINAL
+// directory name: stage 4a git mv's the directory into the delivery package under
+// exactly this string, so no task ever edits it.
+func designReplayCases() []designReplayCase {
+	return []designReplayCase{
+		{
+			// The whole of the rail happy path: mint → OpenBranch → dispatch → OpenPR →
+			// read-back → stage → critique → gate → approve → re-mint → status → merge →
+			// commit on main.
+			dir: "design-pre-stage4", name: "coauthor-approve-merge",
+			rig: designReplayApproveRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ designReplayRig) (string, string, bool) {
+				run := designReplayStartCoAuthor(ctx, t, c, tq)
+				designReplayAwaitStage(ctx, t, c, run.GetID(), "the review gate", func(v SessionStateView) bool {
+					return v.Stage == StageAwaitingReview
+				})
+				designReplaySignal(ctx, t, c, run.GetID(), signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+				designReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// The send-back path, which is where the fences earn their keep: the round's
+			// reject record, the retained feedback seeded to the ledger, the redraft on the
+			// SAME session branch and PR, then round 2's approve and the one merge.
+			dir: "design-pre-stage4", name: "coauthor-sendback-redraft-approve",
+			rig: designReplaySendBackRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r designReplayRig) (string, string, bool) {
+				run := designReplayStartCoAuthor(ctx, t, c, tq)
+				designReplayAwaitStage(ctx, t, c, run.GetID(), "the review gate", func(v SessionStateView) bool {
+					return v.Stage == StageAwaitingReview
+				})
+				before := designReplaySubmits(r.pipe)
+				designReplaySignal(ctx, t, c, run.GetID(), signalReviewDecision, reviewDecisionSignal{
+					Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "rework decomposition"},
+				})
+				designReplayAwaitStage(ctx, t, c, run.GetID(), "the redraft's review gate", func(v SessionStateView) bool {
+					return v.Stage == StageAwaitingReview && designReplaySubmits(r.pipe) > before
+				})
+				designReplaySignal(ctx, t, c, run.GetID(), signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove})
+				designReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// The Phase-1 seal: the completeness read, then AdvancePhase.
+			dir: "design-pre-stage4", name: "phase-advance",
+			rig: designReplayPhaseAdvanceRig,
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ designReplayRig) (string, string, bool) {
+				run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+					ID: phaseAdvanceWorkflowID(designReplayProjectID), TaskQueue: tq,
+				}, executionKindPhaseAdvance, phaseAdvanceInput{ProjectID: designReplayProjectID})
+				if err != nil {
+					t.Fatalf("start phase advance: %v", err)
+				}
+				designReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+	}
+}
+
+func designReplayStartCoAuthor(ctx context.Context, t *testing.T, c client.Client, tq string) client.WorkflowRun {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID: coAuthorWorkflowID(designReplayProjectID, KindSystem), TaskQueue: tq,
+	}, executionKindCoAuthor, coAuthorInput{ProjectID: designReplayProjectID, ArtifactKind: KindSystem})
+	if err != nil {
+		t.Fatalf("start co-author: %v", err)
+	}
+	return run
+}
+
+// designReplayAwaitStage polls the session query until ok reports the session has
+// reached the point the next command belongs at.
+func designReplayAwaitStage(ctx context.Context, t *testing.T, c client.Client, wfID, what string, ok func(SessionStateView) bool) {
+	t.Helper()
+	deadline := time.Now().Add(time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", querySessionState); err == nil {
+			var v SessionStateView
+			if enc.Get(&v) == nil && ok(v) {
+				return
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never reached %s", wfID, what)
+}
+
+func designReplaySignal(ctx context.Context, t *testing.T, c client.Client, wfID, name string, arg any) {
+	t.Helper()
+	if err := c.SignalWorkflow(ctx, wfID, "", name, arg); err != nil {
+		t.Fatalf("signal %s to %s: %v", name, wfID, err)
+	}
+}
+
+func designReplayAwaitDone(ctx context.Context, t *testing.T, run client.WorkflowRun) {
+	t.Helper()
+	wctx, cancel := context.WithTimeout(ctx, time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("%s did not complete cleanly: %v", run.GetID(), err)
+	}
+}
+
+// designReplaySubmits counts the design-job dispatches a rig's fake has served.
+func designReplaySubmits(p *fakePipeline) int {
+	if p == nil {
+		return 0
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return len(p.submits)
+}
+
+// designReplayExportHistory writes one run's full history in the CLI's JSON format,
+// which is what WorkflowReplayer.ReplayWorkflowHistoryFromJSONFile reads.
+func designReplayExportHistory(ctx context.Context, c client.Client, wfID, runID, path string) error {
+	it := c.GetWorkflowHistory(ctx, wfID, runID, false, enumspb.HISTORY_EVENT_FILTER_TYPE_ALL_EVENT)
+	var h historypb.History
+	for it.HasNext() {
+		ev, err := it.Next()
+		if err != nil {
+			return err
+		}
+		h.Events = append(h.Events, ev)
+	}
+	b, err := temporalproto.CustomJSONMarshalOptions{Indent: "  "}.Marshal(&h)
+	if err != nil {
+		return err
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(path, append(b, '\n'), 0o644)
+}
+
+// Test_Capture_DesignHistories is the CAPTURE TOOL behind the design-rail replay
+// fixtures (env-gated, like construction's). It is SKIPPED unless asked for by name,
+// because it REWRITES testdata/replay/. See the section header for when, and when
+// never, to run it.
+func Test_Capture_DesignHistories(t *testing.T) {
+	if os.Getenv("DESIGN_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set DESIGN_HISTORY_CAPTURE=1 to (re)write testdata/replay/ fixtures")
+	}
+	only := os.Getenv("DESIGN_HISTORY_CAPTURE_DIR")
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "design-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	for i, sc := range designReplayCases() {
+		if only != "" && sc.dir != only {
+			continue
+		}
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			r := sc.rig(t)
+			tq := fmt.Sprintf("design-replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       designReplayRegistrations(r.wf),
+				ActivityOptions: activityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := designReplayExportHistory(ctx, c, wfID, runID, designReplayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", designReplayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// designReplayFixture replays one fixture against the current workflow code.
+func designReplayFixture(t *testing.T, sc designReplayCase) error {
+	t.Helper()
+	rep := worker.NewWorkflowReplayer()
+	for _, reg := range designReplayRegistrations(sc.rig(t).wf) {
+		rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+	}
+	return rep.ReplayWorkflowHistoryFromJSONFile(nil, designReplayFixturePath(sc))
+}
+
+// Test_Replay_DesignHistories_StayDeterministic replays every captured design-rail
+// history against the CURRENT workflow code. A non-determinism error here means the
+// command sequence moved — either add a GetVersion fence for the change, or revert
+// it. A missing fixture fails (it never skips), a fixture no case names fails too,
+// and the vacuity guard is deliberate: an empty fixture directory is a failure, not
+// a pass.
+func Test_Replay_DesignHistories_StayDeterministic(t *testing.T) {
+	covered := map[string]bool{}
+	for _, sc := range designReplayCases() {
+		path := designReplayFixturePath(sc)
+		covered[path] = true
+		t.Run(sc.dir+"/"+sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with DESIGN_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if err := designReplayFixture(t, sc); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+	files, err := filepath.Glob(filepath.Join("testdata", "replay", "*", "*.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) == 0 {
+		t.Fatal("no replay fixtures found under testdata/replay")
+	}
+	for _, f := range files {
+		if !covered[f] {
+			t.Errorf("fixture %s has no replay case, so nothing replays it", f)
+		}
 	}
 }
