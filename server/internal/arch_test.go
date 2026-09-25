@@ -451,15 +451,22 @@ var encapsulationAllowlistData = map[string][]string{
 	// workflow/activity methods, every *Input/*Args/*Signal payload struct, the consumer-mirror
 	// seam/enum types, the workflow/signal name consts) was UNEXPORTED — only these registration
 	// entrypoints cross the package boundary.
-	// RegisterSchedules registers the two platform-wide construction Schedules at
-	// startup (Task 7c): the pump sweep (30s) and the replan sweep (5m).
-	"internal/manager/construction": {
+	// RegisterSchedules registers the two platform-wide delivery Schedules at startup
+	// (the pump sweep, 30s, and the replan sweep, 5m). MaterializeActivityPlan is the
+	// single render-on-read entry point for the Phase-2 plan — it derives the baseline
+	// from the committed System and applies the authored deltas — and is exported
+	// because the slot-9/10 read path that calls it lives OUTSIDE this package
+	// (projectstate.ProjectStateAccess) and because the drift gate (make
+	// derived-plan-check) reads it. It came across from internal/manager/projectdesign
+	// with the stage-4a collapse; nothing else about it changed.
+	"internal/manager/delivery": {
+		"MaterializeActivityPlan",
 		"RegisterManagerWorker",
 		"RegisterSchedules",
 		"RegisterWorker",
 		"TaskQueue",
 	},
-	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
+	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// operatedStateReconcile Schedule at startup.
 	"internal/manager/operations": {
 		"RegisterManagerWorker",
@@ -467,32 +474,11 @@ var encapsulationAllowlistData = map[string][]string{
 		"RegisterWorker",
 		"TaskQueue",
 	},
-	// Temporal registration entrypoints (see construction). MaterializeActivityPlan
-	// (Task 10, 2026-08-09 derived-activity-list stage 1) is the single render-on-read
-	// entry point for the Phase-2 plan — it derives the baseline from the committed
-	// System and applies the authored deltas. Exported because the slot-9/10 read path
-	// that calls it lives OUTSIDE this package (projectstate.ProjectStateAccess). Its
-	// first PRODUCTION caller is now in-package (materializePhase2Draft, on the Phase-2
-	// co-author staging seam), so it is no longer the published-but-unwired surface
-	// stage 1 left behind; the export stays for the out-of-package read path and for the
-	// drift gate.
-	"internal/manager/projectdesign": {
-		"MaterializeActivityPlan",
-		"RegisterManagerWorker",
-		"RegisterWorker",
-		"TaskQueue",
-	},
-	// Temporal registration entrypoints (see construction). RegisterSchedules registers the
+	// Temporal registration entrypoints (see delivery). RegisterSchedules registers the
 	// shortfallSweep Schedule.
 	"internal/manager/billing": {
 		"RegisterManagerWorker",
 		"RegisterSchedules",
-		"RegisterWorker",
-		"TaskQueue",
-	},
-	// Temporal registration entrypoints (see construction).
-	"internal/manager/systemdesign": {
-		"RegisterManagerWorker",
 		"RegisterWorker",
 		"TaskQueue",
 	},

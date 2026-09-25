@@ -46,17 +46,15 @@ func TestProjectJSONLoadsUnderPublishedProjectmodel(t *testing.T) {
 		t.Logf("projectmodel warning: %s", w)
 	}
 
-	// Second, cheap assertion: pin the five manager contract keys the rest of
-	// this codebase (dispatch, construction, generators) hardcodes by name.
+	// Second, cheap assertion: pin the three manager contract keys the rest of
+	// this codebase (dispatch, delivery, generators) hardcodes by name.
 	// An accidental rename in project.json must fail HERE, with a clear
 	// message pointing at the renamed key, not deep inside a generator that
 	// silently emits nothing for a key it no longer recognizes.
 	wantManagers := map[string]string{
-		"systemDesignManager":  "Manager",
-		"projectDesignManager": "Manager",
-		"constructionManager":  "Manager",
-		"operationsManager":    "Manager",
-		"billingManager":       "Manager",
+		"deliveryManager":   "Manager",
+		"operationsManager": "Manager",
+		"billingManager":    "Manager",
 	}
 	for key, wantLayer := range wantManagers {
 		c, ok := model.Contracts[key]

@@ -56,12 +56,14 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		t.Fatalf("parseSlots on the committed state: %v", perr)
 	}
 
-	// systemDesignManager (16 ops) and constructionManager (13) are both past the
-	// App-C max of 12 (Warning). constructionManager's 13th is the read-only
-	// QueryActivityView (unified-activity spec 2026-09-20, stage 0); both contracts
-	// dissolve into the 12-op deliveryManager in stage 4. The index is by rule id, so
-	// one assertion covers both.
-	assertPresent(t, got, RuleContractOpMax, methodcheck.SeverityWarning)
+	// DH-CONTRACT-OPCOUNT-MAX goes SILENT at stage 4a. It fires only ABOVE 12 ops, and the
+	// two contracts that carried it — systemDesignManager (16) and constructionManager (13)
+	// — dissolved into the 12-op deliveryManager. Measured on the committed state after the
+	// collapse, the largest surviving contract is 12 (deliveryManager itself,
+	// constructionTransitionAccess and activityExecutionAccess, all three exactly at the
+	// limit), so nothing is left to fire on. This is the FIRST time the repo has had no
+	// Manager contract past App-C's ceiling.
+	assertAbsent(t, got, RuleContractOpMax)
 	// Objective-coverage advisory: ERA-DEPENDENT. While any objective is referenced
 	// by neither an objectiveLinks entry nor a legacy justifyingObjective, the
 	// orphaned-business-need advisory fires at Warning; once every objective is
@@ -93,9 +95,15 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// name survives replay until the stage-4 drain. Two verbs now exist on two
 	// facets with differing signatures (AcknowledgeStaleBasis, RecordOperatorNote),
 	// which is exactly the dead-op duplicate this rule reports — at Warning, as a
-	// TRANSITIONAL fact. It clears with the post-drain deletion; when it does, flip
-	// this back to assertAbsent. (The rule itself stays proven by its negative
-	// fixture.)
+	// TRANSITIONAL fact.
+	//
+	// CORRECTION (stage 4a): the stage-3 earmark said this flips when the deprecated
+	// facets are deleted. That is WRONG and re-checking it is why the pin stays.
+	// Deleting constructionTransitionAccess kills the RecordOperatorNote duplicate but
+	// NOT the AcknowledgeStaleBasis one — projectStateAccess publishes that verb too,
+	// and spec §5.3 keeps projectStateAccess at its 9 ops. The pin stays until one of
+	// those two verbs goes, not until the drain. (The rule itself stays proven by its
+	// negative fixture.)
 	assertPresent(t, got, RuleContractDeadOp, methodcheck.SeverityWarning)
 	// No dangling volatility trace, no unarchitected core use case.
 	assertAbsent(t, got, RuleVolTrace)
@@ -105,49 +113,42 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// all in the closed vocabulary — verified live in Step 1 of the task brief.
 	assertAbsent(t, got, RuleBuildStatusVocabulary)
 
-	// CC-* call-chain family (2026-07-30 callchain-realization; batch 1 landed
-	// 2026-08-01 Task 8, batch 2 landed 2026-08-01 Task 9, batch 3 landed
-	// 2026-08-01 Task 10 — ALL 16 dynamic views now realized). Eligible node
-	// count (action + timeEvent + acceptEvent nodes — the step-REQUIRING
-	// kinds) was 124 corpus-wide across the 16 use cases; Task 10's three
-	// slot-4 honesty amendments (download's work-merges/git-clone/provider-
-	// archive/hold-source, onboard's create-connected, cost-projection's
-	// report-unknown — each converted action → note, zero edge edits) removed
-	// 6 eligible nodes, so the corpus-wide base is now 118. Batch 1+2 realized
-	// 81 of those (uc1-drive-system-design 14, uc2-commit-project-option 7,
-	// uc3-execute-construction-activity 11, uc4-operate-delivered-system 12,
-	// uc5-bill-user-for-usage 7, var-manage-projects 7, var-track-weekly-
-	// progress 7, var-replan-scope-change 10, var-retry-declined-invoice 6).
-	// Batch 3 realizes the remaining 37 across the final seven views:
-	// var-onboard-new-customer (5 eligible post-Amendment-B),
-	// var-add-use-case (7), var-view-state-log (4),
-	// var-download-source (1 eligible post-Amendment-A),
-	// var-view-cost-projection (5 eligible post-Amendment-C),
-	// var-ask-review-question (7), var-send-back-redraft (8). 81 + 37 = 118 =
-	// the full corpus. So:
+	// CC-* call-chain family (2026-07-30 callchain-realization; batches 1-3 landed
+	// 2026-08-01, D0 added the two construction variations, stage 4a collapsed the
+	// three Managers into one). The eligible node count — action + timeEvent +
+	// acceptEvent nodes, the step-REQUIRING kinds — is RE-MEASURED here rather than
+	// carried forward: it was 129 corpus-wide across 18 use cases before stage 4a;
+	// deleting drive-system-design (14 eligible nodes) and
+	// execute-a-construction-activity (11) and adding execute-a-project-activity
+	// (11: one pump-fires timeEvent plus ten actions) makes it 115 across 17 use
+	// cases. All 115 are realized. So:
 	//
 	//   * CC-COVERAGE fires ZERO times — every step-REQUIRING activity node in
-	//     the committed state is now realized by exactly one step. 16/16
-	//     dynamic views realized.
-	//   * CC-TRIGGER-EVENT stays at 0 — no batch touched a slot-4 diagram
-	//     entry's trigger shape.
+	//     the committed state is realized by exactly one step. 17/17 dynamic
+	//     views realized.
+	//   * CC-TRIGGER-EVENT stays at 0. Stage 4a moved ONE trigger:
+	//     replan-under-scope-change went busMessage → timer (its replan-triggered
+	//     entry node acceptEvent → timeEvent), because the replan hand-off stopped
+	//     being a queued Manager→Manager message when the two Managers became one
+	//     and is now the delivery rail's own scheduled sweep. The new core use case
+	//     execute-a-project-activity is timer-triggered and enters on pump-fires.
 	//   * every step-walking rule (CC-STEP-*, CC-ENDPOINT-RESOLVES, CC-ACTOR-*,
-	//     CC-PATH-CONNECTED) stays SILENT — genuinely clean on all sixteen
+	//     CC-PATH-CONNECTED) stays SILENT — genuinely clean on all seventeen
 	//     realized views. That is the realization's success criterion, so the
-	//     assertAbsent block below is now load-bearing over all sixteen views:
+	//     assertAbsent block below is load-bearing over all seventeen views:
 	//     a regression in the walker shows up here.
 	//
 	// The exact counts mirror the platform framework-go/methodcheck gate's
-	// inventory on this same committed document (verified 2026-08-01 against
-	// `aiarch-state-mcp validate --slot System`, which runs both tiers and
-	// reports 2x these counts) — a drift here means this mirror parses the
-	// slot-4 activity / slot-5 step shapes differently than the platform gate.
+	// inventory on this same committed document (`aiarch-state-mcp validate --slot
+	// System` runs both tiers and reports 2x these counts) — a drift here means
+	// this mirror parses the slot-4 activity / slot-5 step shapes differently than
+	// the platform gate.
 	assertAbsent(t, got, RuleCCCoverage)
-	// CC-TRIGGER-EVENT (Task 7, 2026-08-01): the 5 timer/busMessage use cases
-	// that lacked a matching event entry each now declare one (execute's
-	// pump-fires timeEvent, operate's schedule-fires timeEvent, bill's
-	// period-elapses timeEvent, retry's charge-declined timeEvent, replan's
-	// replan-triggered acceptEvent) — the rule is silent on the committed state.
+	// CC-TRIGGER-EVENT (Task 7, 2026-08-01; re-measured at stage 4a): every
+	// timer/busMessage use case declares a matching event entry — operate's
+	// schedule-fires, bill's period-elapses, retry's charge-declined, replan's
+	// replan-triggered (now a timeEvent) and the new core's pump-fires — so the
+	// rule is silent on the committed state.
 	assertAbsent(t, got, RuleCCTriggerEvent)
 	var ccCoverageCount, ccTriggerCount int
 	ccCoverageUseCases := map[string]bool{}
@@ -163,10 +164,10 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		}
 	}
 	if ccCoverageCount != 0 {
-		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 0 (all 18 dynamic views are realized — matches the platform gate's inventory; investigate any drift, don't just re-pin)", ccCoverageCount)
+		t.Errorf("CC-COVERAGE fired %d times on the committed state, want 0 (all 17 dynamic views are realized — matches the platform gate's inventory; investigate any drift, don't just re-pin)", ccCoverageCount)
 	}
 	if len(ccCoverageUseCases) != 0 {
-		t.Errorf("CC-COVERAGE fired across %d use cases, want 0 — all 18 committed use cases' dynamic views are realized (drive-system-design; batch 1's commit/execute/operate/bill; batch 2's manage-projects/track-weekly/replan/retry; batch 3's onboard/add-use-case/view-log/download/cost-projection/ask/send-back; D0's resume/re-queue)", len(ccCoverageUseCases))
+		t.Errorf("CC-COVERAGE fired across %d use cases, want 0 — all 17 committed use cases' dynamic views are realized (batch 1's commit/operate/bill; batch 2's manage-projects/track-weekly/replan/retry; batch 3's onboard/add-use-case/view-log/download/cost-projection/ask/send-back; D0's resume/re-queue; stage 4a's execute-a-project-activity)", len(ccCoverageUseCases))
 	}
 	// NAMED-CULPRIT GUARDS (PoC + Tasks 8/9/10, F6/F7). With ccCoverageCount pinned
 	// at 0 these carry the WHOLE regression duty: a change that un-realizes one
@@ -176,9 +177,7 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 	// A table, not sixteen copies of one `if`: adding a use case is a row, and the
 	// message stays identical across every view by construction.
 	realizedViews := []struct{ useCase, amendment string }{
-		{"drive-system-design", "PoC"},
 		{"commit-to-a-project-option", "batch-1"},
-		{"execute-a-construction-activity", "batch-1"},
 		{"operate-a-delivered-system", "batch-1"},
 		{"bill-the-user-for-usage", "batch-1"},
 		{"manage-projects", "batch-2"},
@@ -194,6 +193,7 @@ func TestGreenFixtureAdvisoriesFire(t *testing.T) {
 		{"send-back-change-requests-for-a-redraft", "batch-3"},
 		{"resume-paused-construction", "D0"},
 		{"requeue-a-failed-construction-activity", "D0"},
+		{"execute-a-project-activity", "stage-4a"},
 	}
 	for _, v := range realizedViews {
 		if ccCoverageUseCases["useCase "+v.useCase] {

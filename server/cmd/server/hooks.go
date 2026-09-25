@@ -122,10 +122,8 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
@@ -529,17 +527,15 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 	return web.DevConfig{Enabled: cfg.AuthDevMode, Principal: devPrincipal()}
 }
 
-// WrapManagers decorates the four web/MCP-exposed managers with the composition-root
+// WrapManagers decorates the two web/MCP-exposed managers with the composition-root
 // logging seam (managerlog.go): every Infrastructure-kind error surfaced to a client
 // — through either transport — is logged once server-side with op/projectID/cause.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 	return WebManagers{
-		ConstructionManager: loggingConstructionManager{inner: managers.ConstructionManager, log: h.logger},
+		DeliveryManager: loggingDeliveryManager{inner: managers.DeliveryManager, log: h.logger},
 		OperationsManager: projectScopedOperationsManager{
 			OperationsManager: loggingOperationsManager{inner: managers.OperationsManager, log: h.logger},
 		},
-		ProjectDesignManager: loggingProjectDesignManager{inner: managers.ProjectDesignManager, log: h.logger},
-		SystemDesignManager:  loggingSystemDesignManager{inner: managers.SystemDesignManager, log: h.logger},
 	}
 }
 
@@ -596,7 +592,7 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
 	root.Handle("/mcp", newMCPHandler(dev, validator,
-		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
+		managers.DeliveryManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
 	// GET /api/v1/capabilities — the ONE thing that tells the webApp which
@@ -1041,10 +1037,12 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
-		// construction: the two startup Schedules (Task 7c;
-		// constructionmanager.go's executionKindPumpSweep/executionKindReplanSweep).
-		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: construction.TaskQueue},
-		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: construction.TaskQueue},
+		// delivery: the two startup Schedules (Task 7c; deliverymanager.go's
+		// executionKindPumpSweep/executionKindReplanSweep). The WORKFLOW TYPE names are
+		// unchanged at stage 4a (R2 — nineteen replay fixtures replay against them); only
+		// the task queue and the Schedule ids moved to the delivery namespace.
+		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
+		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: delivery.TaskQueue},
 	}
 }
 
@@ -1080,7 +1078,7 @@ func (h *appHooks) FinalizeMessageBus(cfg *Config, v messagebus.MessageBus) mess
 func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.ExecutionKind]bool {
 	kinds := make(map[messagebus.ExecutionKind]bool)
 	for kind, binding := range h.MessageBusTemporalArgs(cfg) {
-		if binding.TaskQueue == construction.TaskQueue {
+		if binding.TaskQueue == delivery.TaskQueue {
 			kinds[kind] = true
 		}
 	}
@@ -1136,75 +1134,51 @@ func registerConstruction(cfg *Config) bool {
 	return cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != ""
 }
 
-func (h *appHooks) RegisterConstructionManagerWorker(cfg *Config) bool {
-	return registerConstruction(cfg)
-}
+// RegisterDeliveryManagerWorker registers UNCONDITIONALLY at stage 4a. Before the
+// collapse the construction worker was gated on registerConstruction(cfg) while the two
+// design workers registered unconditionally; one worker now carries all eleven workflow
+// types, so gating it would take the design rails down with construction. The dry-run /
+// no-repo restraint the gate expressed has not been lost — it lives on the SCHEDULES
+// (FinalizeMessageBus's dryRunConstructionScheduleGate), which is where "do not actually
+// drive construction" belongs. registerConstruction stays as that gate's input.
+func (h *appHooks) RegisterDeliveryManagerWorker(_ *Config) bool { return true }
 
-// The design + operations managers register unconditionally: their optional-dormant
-// deps (the PR rail / artifact store) simply go dormant when absent — the CoAuthor
-// spine + the operations workflows run unchanged (hand run() always registered them).
-func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool    { return true }
-func (h *appHooks) RegisterProjectDesignManagerWorker(_ *Config) bool { return true }
-func (h *appHooks) RegisterSystemDesignManagerWorker(_ *Config) bool  { return true }
+// Operations registers unconditionally too: its optional-dormant deps simply go dormant
+// when absent — the operations workflows run unchanged (hand run() always registered them).
+func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool { return true }
 
-func (h *appHooks) ConstructionManagerEscalationWaitTimeout() time.Duration {
+func (h *appHooks) DeliveryManagerEscalationWaitTimeout() time.Duration {
 	return h.config.ConstructionEscalationTimeout
 }
 
-func (h *appHooks) ConstructionManagerInterventionMode() string {
+func (h *appHooks) DeliveryManagerInterventionMode() string {
 	return h.config.ConstructionInterventionMode
 }
 
-// ProjectDesignManagerRepo / SystemDesignManagerRepo are the design PR-rail repo
-// resolvers (run()'s buildDesignRepoResolvers): projectID → per-project RepoRef via
-// the sourcecontrol catalog (name-as-identity). nil when repo-less (rail dormant).
-func (h *appHooks) ProjectDesignManagerRepo() func(projectID projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-	if h.scCatalog == nil {
-		if h.gitLocalRailBound() {
-			return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
-			}
-		}
-		return nil
-	}
-	return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-		return h.repoForProject(projectstate.ProjectID(pid))
-	}
-}
-
-func (h *appHooks) SystemDesignManagerRepo() func(projectID systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-	if h.scCatalog == nil {
-		if h.gitLocalRailBound() {
-			return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
-			}
-		}
-		return nil
-	}
-	return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-		return h.repoForProject(projectstate.ProjectID(pid))
-	}
-}
-
-// gitLocalRailBound reports whether the bound sourceControlAccess is the GitLocal PR
-// rail: the local profile's binding arm builds it, and the creds-win Finalize keeps it
-// only when no GitHub App creds exist (scCatalog/scAccess nil). The design managers'
-// repo resolvers must then resolve every project to the deterministic local RepoRef so
-// the rail lifecycle (branch → PR → merge) activates. ConstructionManagerRepo stays on
-// the catalog-only path: construction keeps its local-merge-job flow this pass.
-func (h *appHooks) gitLocalRailBound() bool {
-	return resolveProfile(h.config) == "local"
-}
-
-// ConstructionManagerRepo is the construction venue resolver (B5, gh-mode): projectID →
-// the project's own RepoRef via the sourcecontrol catalog. Non-nil retargets every
-// construction dispatch to the project repo (aiarch-construct.yml) AND activates the
-// branch→PR rail; nil (repo-less server) keeps the central-repo fallback + dormant rail.
-func (h *appHooks) ConstructionManagerRepo() func(projectID construction.ProjectID) (sourcecontrol.RepoRef, bool) {
+// DeliveryManagerRepo is the ONE repo resolver the merged Manager threads into all
+// three moved rails: projectID → the project's own RepoRef via the sourcecontrol
+// catalog (name-as-identity). Non-nil retargets every construction dispatch to the
+// project repo (aiarch-construct.yml) AND activates the branch→PR rail; nil (a
+// repo-less server) keeps the central-repo fallback + a dormant rail.
+//
+// EARMARK (stage 4a, hooks.go): the three hooks it replaces did NOT agree. The two
+// DESIGN hooks carried a second arm — when no GitHub App catalog is bound AND the
+// profile is "local", they resolved every project to the deterministic GitLocal
+// RepoRef so the local design rail's branch → PR → merge lifecycle activates; the
+// CONSTRUCTION hook had no such arm ("construction keeps its local-merge-job flow this
+// pass"). One dep cannot carry both. This merged hook keeps the CONSTRUCTION body, per
+// the stage-4a plan's tie-break, because it errs toward a DORMANT rail: a nil resolver
+// puts the design spine back on its documented main-path behaviour (read-back and stage
+// on main, no branch/PR ops), whereas the design body would have switched construction's
+// local PR rail ON. The consequence is real and deliberate: on the "local" profile with
+// no GitHub App creds, the design rails now run rail-dormant. 4b restores the local
+// design rail behind the generic walker's venue strategy — until then, a local-profile
+// design rail needs a bound catalog.
+func (h *appHooks) DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
 		return nil
 	}
-	return func(pid construction.ProjectID) (sourcecontrol.RepoRef, bool) {
+	return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 		return h.repoForProject(projectstate.ProjectID(pid))
 	}
 }
@@ -1221,10 +1195,10 @@ func (h *appHooks) repoForProject(projectID projectstate.ProjectID) (sourcecontr
 	return ref, true
 }
 
-// SystemDesignManagerRepoBase is the project-wide construction-repo WEB base the
-// systemDesignManager composes each git row's clickable prUrl from; "" when the
+// DeliveryManagerRepoBase is the project-wide construction-repo WEB base the
+// delivery Manager composes each git row's clickable prUrl from; "" when the
 // construction repo is unconfigured.
-func (h *appHooks) SystemDesignManagerRepoBase() string {
+func (h *appHooks) DeliveryManagerRepoBase() string {
 	c := h.config
 	return constructionRepoBase(c.GithubAppAPIBaseURL, c.ConstructionRepoOwner, c.ConstructionRepoName)
 }

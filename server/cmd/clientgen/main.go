@@ -57,12 +57,12 @@ const (
 )
 
 // exposedManagers is the set of web-wired manager contracts to generate the
-// client layer for (the 5 managers mounted by the former hand-written web.go;
-// settlement is intentionally excluded — it is not web-wired).
+// client layer for. Stage 4a collapsed the three design/construction Managers
+// into deliveryManager, so the web-wired set is TWO; billingManager is still
+// deliberately excluded — it is not web-wired (it has a Temporal worker and an
+// SDK, which is why cmd/appgen's `managers` list is a different, larger set).
 var exposedManagers = []string{
-	"systemDesignManager",
-	"projectDesignManager",
-	"constructionManager",
+	"deliveryManager",
 	"operationsManager",
 }
 

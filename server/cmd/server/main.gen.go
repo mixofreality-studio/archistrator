@@ -3,7 +3,7 @@
 package main
 
 // Web-exposed managers are DRIVER-CONFIGURED (Config.WebExposedManagers),
-// NOT derived from System relationships: constructionManager, operationsManager, projectDesignManager, systemDesignManager.
+// NOT derived from System relationships: deliveryManager, operationsManager.
 
 import (
 	"context"
@@ -22,10 +22,8 @@ import (
 	security "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	telemetry "github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/telemetry"
 	web "github.com/mixofreality-studio/archistrator/server/internal/client/web"
-	constructionweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/construction"
+	deliveryweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/delivery"
 	operationsweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/operations"
-	projectdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/projectdesign"
-	systemdesignweb "github.com/mixofreality-studio/archistrator/server/internal/client/web/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/autoscaler"
 	enginebilling "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/estimation"
@@ -33,10 +31,8 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/operationestimation"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
 	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
@@ -63,10 +59,8 @@ const serviceName = "archistrator-server"
 // WebManagers is the typed bundle of web-exposed managers the composition
 // root threads through the logging wrap and into the transports.
 type WebManagers struct {
-	ConstructionManager  construction.ConstructionManager
-	OperationsManager    operations.OperationsManager
-	ProjectDesignManager projectdesign.ProjectDesignManager
-	SystemDesignManager  systemdesign.SystemDesignManager
+	DeliveryManager   delivery.DeliveryManager
+	OperationsManager operations.OperationsManager
 }
 
 // Hooks is the composition-root policy seam: the genuinely-compositional
@@ -289,11 +283,11 @@ type Hooks interface {
 	// dry-run stub swap-in) — the identity implementation is always correct.
 	FinalizeUsageAccess(cfg *Config, v usage.UsageAccess) usage.UsageAccess
 
-	// RegisterConstructionManagerWorker reports whether to register the ConstructionManager
+	// RegisterDeliveryManagerWorker reports whether to register the DeliveryManager
 	// Temporal Worker. The manager has ≥1 optional-dormant dependency, so its
 	// Worker registration is composition-root policy (return true to always
 	// register; gate on the dep presence / a dry-run stub otherwise).
-	RegisterConstructionManagerWorker(cfg *Config) bool
+	RegisterDeliveryManagerWorker(cfg *Config) bool
 
 	// RegisterOperationsManagerWorker reports whether to register the OperationsManager
 	// Temporal Worker. The manager has ≥1 optional-dormant dependency, so its
@@ -301,53 +295,29 @@ type Hooks interface {
 	// register; gate on the dep presence / a dry-run stub otherwise).
 	RegisterOperationsManagerWorker(cfg *Config) bool
 
-	// RegisterProjectDesignManagerWorker reports whether to register the ProjectDesignManager
-	// Temporal Worker. The manager has ≥1 optional-dormant dependency, so its
-	// Worker registration is composition-root policy (return true to always
-	// register; gate on the dep presence / a dry-run stub otherwise).
-	RegisterProjectDesignManagerWorker(cfg *Config) bool
-
-	// RegisterSystemDesignManagerWorker reports whether to register the SystemDesignManager
-	// Temporal Worker. The manager has ≥1 optional-dormant dependency, so its
-	// Worker registration is composition-root policy (return true to always
-	// register; gate on the dep presence / a dry-run stub otherwise).
-	RegisterSystemDesignManagerWorker(cfg *Config) bool
-
-	// ConstructionManagerEscalationWaitTimeout supplies a composition-root value the deployment model
+	// DeliveryManagerEscalationWaitTimeout supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
 	// dependency that stays unbuilt in the active profile.
-	ConstructionManagerEscalationWaitTimeout() time.Duration
+	DeliveryManagerEscalationWaitTimeout() time.Duration
 
-	// ConstructionManagerInterventionMode supplies a composition-root value the deployment model
+	// DeliveryManagerInterventionMode supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
 	// dependency that stays unbuilt in the active profile.
-	ConstructionManagerInterventionMode() string
+	DeliveryManagerInterventionMode() string
 
-	// ConstructionManagerRepo supplies a composition-root value the deployment model
+	// DeliveryManagerRepo supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
 	// dependency that stays unbuilt in the active profile.
-	ConstructionManagerRepo() func(projectID construction.ProjectID) (sourcecontrol.RepoRef, bool)
+	DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool)
 
-	// ProjectDesignManagerRepo supplies a composition-root value the deployment model
+	// DeliveryManagerRepoBase supplies a composition-root value the deployment model
 	// cannot express (a func-typed resolver, or a scalar/interface dep with no
 	// setting/binding link). Return the zero value (nil for an interface) for a
 	// dependency that stays unbuilt in the active profile.
-	ProjectDesignManagerRepo() func(projectID projectdesign.ProjectID) (sourcecontrol.RepoRef, bool)
-
-	// SystemDesignManagerRepo supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	SystemDesignManagerRepo() func(projectID systemdesign.ProjectID) (sourcecontrol.RepoRef, bool)
-
-	// SystemDesignManagerRepoBase supplies a composition-root value the deployment model
-	// cannot express (a func-typed resolver, or a scalar/interface dep with no
-	// setting/binding link). Return the zero value (nil for an interface) for a
-	// dependency that stays unbuilt in the active profile.
-	SystemDesignManagerRepoBase() string
+	DeliveryManagerRepoBase() string
 }
 
 // RunGenerated performs the container's boot walk: signal context → telemetry
@@ -631,21 +601,21 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 		return err
 	}
 	logger.Info("billingManager Temporal Schedules registered")
-	constructionManager := construction.NewConstructionManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.ConstructionManagerEscalationWaitTimeout(), hooks.ConstructionManagerInterventionMode(), hooks.ConstructionManagerRepo())
-	if hooks.RegisterConstructionManagerWorker(cfg) {
-		wConstructionManager := worker.New(tc, construction.TaskQueue, worker.Options{})
-		construction.RegisterManagerWorker(wConstructionManager, constructionManager)
-		if err := wConstructionManager.Start(); err != nil {
+	deliveryManager := delivery.NewDeliveryManager(tc, projectStateAccess, artifactAccess, interventionEngine, reviewEngine, estimationEngine, operationEstimationEngine, billingEngine, agenticJobAccess, sourceControlAccess, constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess, activityExecutionAccess, messageBus, episodeAccess, hooks.DeliveryManagerEscalationWaitTimeout(), hooks.DeliveryManagerInterventionMode(), hooks.DeliveryManagerRepo(), hooks.DeliveryManagerRepoBase())
+	if hooks.RegisterDeliveryManagerWorker(cfg) {
+		wDeliveryManager := worker.New(tc, delivery.TaskQueue, worker.Options{})
+		delivery.RegisterManagerWorker(wDeliveryManager, deliveryManager)
+		if err := wDeliveryManager.Start(); err != nil {
 			return err
 		}
-		defer wConstructionManager.Stop()
-		logger.Info("embedded temporal worker started", "taskQueue", construction.TaskQueue)
-		if err := construction.RegisterSchedules(ctx, messageBus); err != nil {
+		defer wDeliveryManager.Stop()
+		logger.Info("embedded temporal worker started", "taskQueue", delivery.TaskQueue)
+		if err := delivery.RegisterSchedules(ctx, messageBus); err != nil {
 			return err
 		}
-		logger.Info("constructionManager Temporal Schedules registered")
+		logger.Info("deliveryManager Temporal Schedules registered")
 	} else {
-		logger.Warn("constructionManager Worker NOT registered — optional-dormant dependencies absent (RegisterConstructionManagerWorker gate returned false)")
+		logger.Warn("deliveryManager Worker NOT registered — optional-dormant dependencies absent (RegisterDeliveryManagerWorker gate returned false)")
 	}
 	operationsManager := operations.NewOperationsManager(tc, operatedSystemStateAccess, operatedRuntimeAccess, usageAccess, artifactAccess, messageBus, interventionEngine, autoscalerEngine, operationEstimationEngine, projectStateAccess)
 	if hooks.RegisterOperationsManagerWorker(cfg) {
@@ -663,30 +633,6 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	} else {
 		logger.Warn("operationsManager Worker NOT registered — optional-dormant dependencies absent (RegisterOperationsManagerWorker gate returned false)")
 	}
-	projectDesignManager := projectdesign.NewProjectDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, estimationEngine, operationEstimationEngine, billingEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.ProjectDesignManagerRepo())
-	if hooks.RegisterProjectDesignManagerWorker(cfg) {
-		wProjectDesignManager := worker.New(tc, projectdesign.TaskQueue, worker.Options{})
-		projectdesign.RegisterManagerWorker(wProjectDesignManager, projectDesignManager)
-		if err := wProjectDesignManager.Start(); err != nil {
-			return err
-		}
-		defer wProjectDesignManager.Stop()
-		logger.Info("embedded temporal worker started", "taskQueue", projectdesign.TaskQueue)
-	} else {
-		logger.Warn("projectDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterProjectDesignManagerWorker gate returned false)")
-	}
-	systemDesignManager := systemdesign.NewSystemDesignManager(tc, projectStateAccess, agenticJobAccess, sourceControlAccess, hooks.SystemDesignManagerRepo(), estimationEngine, designSessionAccess, activityExecutionAccess, episodeAccess, hooks.SystemDesignManagerRepoBase())
-	if hooks.RegisterSystemDesignManagerWorker(cfg) {
-		wSystemDesignManager := worker.New(tc, systemdesign.TaskQueue, worker.Options{})
-		systemdesign.RegisterManagerWorker(wSystemDesignManager, systemDesignManager)
-		if err := wSystemDesignManager.Start(); err != nil {
-			return err
-		}
-		defer wSystemDesignManager.Stop()
-		logger.Info("embedded temporal worker started", "taskQueue", systemdesign.TaskQueue)
-	} else {
-		logger.Warn("systemDesignManager Worker NOT registered — optional-dormant dependencies absent (RegisterSystemDesignManagerWorker gate returned false)")
-	}
 
 	// Security Utility + auth boundary.
 	sec := security.New(security.WithPolicyDecisionPoint(hooks.PolicyDecisionPoint()))
@@ -697,18 +643,14 @@ func RunGenerated(cfg *Config, hooks Hooks, logger *slog.Logger) error {
 	dev := hooks.DevConfig(cfg)
 
 	webManagers := WebManagers{
-		ConstructionManager:  constructionManager,
-		OperationsManager:    operationsManager,
-		ProjectDesignManager: projectDesignManager,
-		SystemDesignManager:  systemDesignManager,
+		DeliveryManager:   deliveryManager,
+		OperationsManager: operationsManager,
 	}
 	webManagers = hooks.WrapManagers(webManagers)
 
 	genServer := web.NewServer(dev, validator,
-		&constructionweb.Handler{Manager: webManagers.ConstructionManager, Security: sec},
+		&deliveryweb.Handler{Manager: webManagers.DeliveryManager, Security: sec},
 		&operationsweb.Handler{Manager: webManagers.OperationsManager, Security: sec},
-		&projectdesignweb.Handler{Manager: webManagers.ProjectDesignManager, Security: sec},
-		&systemdesignweb.Handler{Manager: webManagers.SystemDesignManager, Security: sec},
 	)
 	root := http.NewServeMux()
 	root.Handle("/", genServer)

@@ -1,4 +1,4 @@
-// managerlog.go is the composition-root logging SEAM over the four web/MCP-exposed
+// managerlog.go is the composition-root logging SEAM over the two web/MCP-exposed
 // Managers. Each Manager is an interface consumed by BOTH the generated REST Handler
 // (internal/client/web) and the generated MCP tool Handler (internal/client/mcp); both
 // Handlers are handed the SAME wrapped instance, so wrapping once here is the single
@@ -23,10 +23,8 @@ import (
 	"github.com/google/uuid"
 
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 )
 
 // logInfraError logs a surfaced Infrastructure-kind manager error with its complete cause
@@ -43,218 +41,87 @@ func logInfraError(logger *slog.Logger, op, projectID string, err error) error {
 	return err
 }
 
-// --- SystemDesign ----------------------------------------------------------
+// --- Delivery --------------------------------------------------------------
 
-type loggingSystemDesignManager struct {
-	inner systemdesign.SystemDesignManager
+type loggingDeliveryManager struct {
+	inner delivery.DeliveryManager
 	log   *slog.Logger
 }
 
-func (m loggingSystemDesignManager) AdvancePhase(rc fwmanager.Context, projectID systemdesign.ProjectID, acknowledgeStale bool) (systemdesign.PhaseAdvanceResult, error) {
-	v, err := m.inner.AdvancePhase(rc, projectID, acknowledgeStale)
-	return v, logInfraError(m.log, "SystemDesign.AdvancePhase", string(projectID), err)
+func (m loggingDeliveryManager) StartProject(rc fwmanager.Context, owner delivery.OwnerScope, name string, projectID *delivery.ProjectID, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
+	// name-as-identity: on a create the supplied name IS the project id; on an
+	// update the caller addressed an existing one.
+	scope := name
+	if projectID != nil {
+		scope = string(*projectID)
+	}
+	v, err := m.inner.StartProject(rc, owner, name, projectID, model, research, start)
+	return v, logInfraError(m.log, "Delivery.StartProject", scope, err)
 }
 
-func (m loggingSystemDesignManager) CreateProject(rc fwmanager.Context, owner systemdesign.OwnerScope, name string) (systemdesign.ProjectID, error) {
-	// name-as-identity: the supplied name IS the project id.
-	v, err := m.inner.CreateProject(rc, owner, name)
-	return v, logInfraError(m.log, "SystemDesign.CreateProject", name, err)
-}
-
-func (m loggingSystemDesignManager) GetProject(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.ProjectState, error) {
-	v, err := m.inner.GetProject(rc, projectID)
-	return v, logInfraError(m.log, "SystemDesign.GetProject", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.DesignHealth, error) {
-	v, err := m.inner.GetDesignHealth(rc, projectID)
-	return v, logInfraError(m.log, "SystemDesign.GetDesignHealth", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID systemdesign.ProjectID, episodeID string) (systemdesign.EpisodeTimeline, error) {
-	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
-	return v, logInfraError(m.log, "SystemDesign.GetEpisodeTimeline", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) GetSessionState(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind) (systemdesign.SessionStateView, error) {
-	v, err := m.inner.GetSessionState(rc, projectID, kind)
-	return v, logInfraError(m.log, "SystemDesign.GetSessionState", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID systemdesign.ProjectID, artifactKind systemdesign.ArtifactKind) ([]systemdesign.EpisodeRecordView, error) {
-	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
-	return v, logInfraError(m.log, "SystemDesign.ListEpisodesForArtifact", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) ListProjects(rc fwmanager.Context, owner systemdesign.OwnerScope) ([]systemdesign.ProjectSummary, error) {
-	// A catalog op with no single project — the owner scope is the closest identity.
-	v, err := m.inner.ListProjects(rc, owner)
-	return v, logInfraError(m.log, "SystemDesign.ListProjects", string(owner), err)
-}
-
-func (m loggingSystemDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, feedback *systemdesign.ReviewFeedback) (systemdesign.SessionRef, error) {
-	v, err := m.inner.RequestArtifactDraft(rc, projectID, kind, feedback)
-	return v, logInfraError(m.log, "SystemDesign.RequestArtifactDraft", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) SetResearchInput(rc fwmanager.Context, projectID systemdesign.ProjectID, research systemdesign.ResearchInput) (systemdesign.Version, error) {
-	v, err := m.inner.SetResearchInput(rc, projectID, research)
-	return v, logInfraError(m.log, "SystemDesign.SetResearchInput", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) SetOperatingModel(rc fwmanager.Context, projectID systemdesign.ProjectID, model systemdesign.OperatingModel) (systemdesign.Version, error) {
-	v, err := m.inner.SetOperatingModel(rc, projectID, model)
-	return v, logInfraError(m.log, "SystemDesign.SetOperatingModel", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID systemdesign.ProjectID) (systemdesign.SessionRef, error) {
-	v, err := m.inner.StartSystemDesign(rc, projectID)
-	return v, logInfraError(m.log, "SystemDesign.StartSystemDesign", string(projectID), err)
-}
-
-func (m loggingSystemDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, decision systemdesign.ReviewDecision, feedback *systemdesign.ReviewFeedback) error {
-	return logInfraError(m.log, "SystemDesign.SubmitReviewDecision", string(projectID), m.inner.SubmitReviewDecision(rc, projectID, kind, decision, feedback))
-}
-
-func (m loggingSystemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, commentID string, status string) error {
-	return logInfraError(m.log, "SystemDesign.SetReviewCommentStatus", string(projectID), m.inner.SetReviewCommentStatus(rc, projectID, kind, commentID, status))
-}
-
-func (m loggingSystemDesignManager) AskQuestions(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, addressee string, questions []systemdesign.AnchoredComment) error {
-	return logInfraError(m.log, "SystemDesign.AskQuestions", string(projectID), m.inner.AskQuestions(rc, projectID, kind, addressee, questions))
-}
-
-func (m loggingSystemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID systemdesign.ProjectID, kind systemdesign.ArtifactKind, note string) error {
-	return logInfraError(m.log, "SystemDesign.AcknowledgeStaleBasis", string(projectID), m.inner.AcknowledgeStaleBasis(rc, projectID, kind, note))
-}
-
-// --- ProjectDesign ---------------------------------------------------------
-
-type loggingProjectDesignManager struct {
-	inner projectdesign.ProjectDesignManager
-	log   *slog.Logger
-}
-
-func (m loggingProjectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID projectdesign.ProjectID, acknowledgeStale bool) (projectdesign.PhaseAdvanceResult, error) {
-	v, err := m.inner.AdvanceToConstruction(rc, projectID, acknowledgeStale)
-	return v, logInfraError(m.log, "ProjectDesign.AdvanceToConstruction", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID projectdesign.ProjectID, episodeID string) (projectdesign.EpisodeTimeline, error) {
-	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
-	return v, logInfraError(m.log, "ProjectDesign.GetEpisodeTimeline", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) GetSessionState(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind) (projectdesign.SessionStateView, error) {
-	v, err := m.inner.GetSessionState(rc, projectID, kind)
-	return v, logInfraError(m.log, "ProjectDesign.GetSessionState", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID projectdesign.ProjectID, artifactKind projectdesign.ArtifactKind) ([]projectdesign.EpisodeRecordView, error) {
-	v, err := m.inner.ListEpisodesForArtifact(rc, projectID, artifactKind)
-	return v, logInfraError(m.log, "ProjectDesign.ListEpisodesForArtifact", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, feedback *projectdesign.ReviewFeedback) (projectdesign.SessionRef, error) {
-	v, err := m.inner.RequestArtifactDraft(rc, projectID, kind, feedback)
-	return v, logInfraError(m.log, "ProjectDesign.RequestArtifactDraft", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) RequestSDPCommit(rc fwmanager.Context, projectID projectdesign.ProjectID) (projectdesign.SessionRef, error) {
-	v, err := m.inner.RequestSDPCommit(rc, projectID)
-	return v, logInfraError(m.log, "ProjectDesign.RequestSDPCommit", string(projectID), err)
-}
-
-func (m loggingProjectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, commentID string, status string) error {
-	return logInfraError(m.log, "ProjectDesign.SetReviewCommentStatus", string(projectID), m.inner.SetReviewCommentStatus(rc, projectID, kind, commentID, status))
-}
-
-func (m loggingProjectDesignManager) AskQuestions(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, addressee string, questions []projectdesign.AnchoredComment) error {
-	return logInfraError(m.log, "ProjectDesign.AskQuestions", string(projectID), m.inner.AskQuestions(rc, projectID, kind, addressee, questions))
-}
-
-func (m loggingProjectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, note string) error {
-	return logInfraError(m.log, "ProjectDesign.AcknowledgeStaleBasis", string(projectID), m.inner.AcknowledgeStaleBasis(rc, projectID, kind, note))
-}
-
-func (m loggingProjectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID projectdesign.ProjectID, kind projectdesign.ArtifactKind, decision projectdesign.ReviewDecision, feedback *projectdesign.ReviewFeedback) error {
-	return logInfraError(m.log, "ProjectDesign.SubmitReviewDecision", string(projectID), m.inner.SubmitReviewDecision(rc, projectID, kind, decision, feedback))
-}
-
-func (m loggingProjectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID projectdesign.ProjectID, decision projectdesign.SDPDecision, optionID *projectdesign.OptionID, feedback *projectdesign.ReviewFeedback) error {
-	return logInfraError(m.log, "ProjectDesign.SubmitSDPDecision", string(projectID), m.inner.SubmitSDPDecision(rc, projectID, decision, optionID, feedback))
-}
-
-// --- Construction ----------------------------------------------------------
-
-type loggingConstructionManager struct {
-	inner construction.ConstructionManager
-	log   *slog.Logger
-}
-
-func (m loggingConstructionManager) ExecuteNextActivity(rc fwmanager.Context, projectID construction.ProjectID, tickID string) (construction.PumpResult, error) {
+func (m loggingDeliveryManager) ExecuteNextActivity(rc fwmanager.Context, projectID delivery.ProjectID, tickID string) (delivery.PumpResult, error) {
 	v, err := m.inner.ExecuteNextActivity(rc, projectID, tickID)
-	return v, logInfraError(m.log, "Construction.ExecuteNextActivity", string(projectID), err)
+	return v, logInfraError(m.log, "Delivery.ExecuteNextActivity", string(projectID), err)
 }
 
-func (m loggingConstructionManager) GetEpisodeTimeline(rc fwmanager.Context, projectID construction.ProjectID, episodeID string) (construction.EpisodeTimeline, error) {
-	v, err := m.inner.GetEpisodeTimeline(rc, projectID, episodeID)
-	return v, logInfraError(m.log, "Construction.GetEpisodeTimeline", string(projectID), err)
+func (m loggingDeliveryManager) DispatchActivityTask(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, feedback *delivery.ReviewFeedback) (delivery.SessionRef, error) {
+	v, err := m.inner.DispatchActivityTask(rc, projectID, activityID, taskID, feedback)
+	return v, logInfraError(m.log, "Delivery.DispatchActivityTask", string(projectID), err)
 }
 
-func (m loggingConstructionManager) GetSessionState(rc fwmanager.Context, projectID construction.ProjectID, activityID *construction.ActivityID) (construction.ConstructionSessionView, error) {
-	v, err := m.inner.GetSessionState(rc, projectID, activityID)
-	return v, logInfraError(m.log, "Construction.GetSessionState", string(projectID), err)
+func (m loggingDeliveryManager) SubmitReviewDecision(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, decision delivery.ReviewDecisionInput, feedback *delivery.ReviewFeedback) error {
+	return logInfraError(m.log, "Delivery.SubmitReviewDecision", string(projectID),
+		m.inner.SubmitReviewDecision(rc, projectID, activityID, taskID, decision, feedback))
 }
 
-func (m loggingConstructionManager) ResumeProject(rc fwmanager.Context, projectID construction.ProjectID) error {
-	err := m.inner.ResumeProject(rc, projectID)
-	return logInfraError(m.log, "Construction.ResumeProject", string(projectID), err)
+func (m loggingDeliveryManager) AskQuestions(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, addressee string, questions []delivery.AnchoredComment) error {
+	return logInfraError(m.log, "Delivery.AskQuestions", string(projectID),
+		m.inner.AskQuestions(rc, projectID, activityID, taskID, addressee, questions))
 }
 
-func (m loggingConstructionManager) GetPumpStatus(rc fwmanager.Context, projectID construction.ProjectID) (construction.PumpStatus, error) {
-	v, err := m.inner.GetPumpStatus(rc, projectID)
-	return v, logInfraError(m.log, "Construction.GetPumpStatus", string(projectID), err)
+func (m loggingDeliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, note string) error {
+	return logInfraError(m.log, "Delivery.AcknowledgeStaleBasis", string(projectID),
+		m.inner.AcknowledgeStaleBasis(rc, projectID, activityID, taskID, note))
 }
 
-func (m loggingConstructionManager) ListEpisodesForActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID string) ([]construction.EpisodeRecordView, error) {
-	v, err := m.inner.ListEpisodesForActivity(rc, projectID, activityID)
-	return v, logInfraError(m.log, "Construction.ListEpisodesForActivity", string(projectID), err)
+func (m loggingDeliveryManager) SetProjectRunState(rc fwmanager.Context, projectID delivery.ProjectID, runState delivery.ProjectRunState, reason string) error {
+	return logInfraError(m.log, "Delivery.SetProjectRunState", string(projectID),
+		m.inner.SetProjectRunState(rc, projectID, runState, reason))
 }
 
-func (m loggingConstructionManager) QueryActivityView(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID) (construction.ActivityView, error) {
-	v, err := m.inner.QueryActivityView(rc, projectID, activityID)
-	return v, logInfraError(m.log, "Construction.QueryActivityView", string(projectID), err)
+func (m loggingDeliveryManager) OverrideActivity(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, override delivery.ActivityOverride) error {
+	return logInfraError(m.log, "Delivery.OverrideActivity", string(projectID),
+		m.inner.OverrideActivity(rc, projectID, activityID, override))
 }
 
-func (m loggingConstructionManager) OverrideActivity(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID, override construction.ActivityOverride) error {
-	return logInfraError(m.log, "Construction.OverrideActivity", string(projectID), m.inner.OverrideActivity(rc, projectID, activityID, override))
-}
-
-func (m loggingConstructionManager) PauseProject(rc fwmanager.Context, projectID construction.ProjectID, reason string) error {
-	return logInfraError(m.log, "Construction.PauseProject", string(projectID), m.inner.PauseProject(rc, projectID, reason))
-}
-
-func (m loggingConstructionManager) RunReplanSweep(rc fwmanager.Context, projectID *construction.ProjectID, tickID string) (construction.ReplanSweepResult, error) {
+func (m loggingDeliveryManager) ReplanProject(rc fwmanager.Context, projectID *delivery.ProjectID, tickID string) (delivery.ReplanSweepResult, error) {
 	// A cross-project sweep addresses no single project when projectID is nil.
 	scope := ""
 	if projectID != nil {
 		scope = string(*projectID)
 	}
-	v, err := m.inner.RunReplanSweep(rc, projectID, tickID)
-	return v, logInfraError(m.log, "Construction.RunReplanSweep", scope, err)
+	v, err := m.inner.ReplanProject(rc, projectID, tickID)
+	return v, logInfraError(m.log, "Delivery.ReplanProject", scope, err)
 }
 
-func (m loggingConstructionManager) SetReviewPolicy(rc fwmanager.Context, projectID construction.ProjectID, preset string) error {
-	return logInfraError(m.log, "Construction.SetReviewPolicy", string(projectID), m.inner.SetReviewPolicy(rc, projectID, preset))
+func (m loggingDeliveryManager) SetProjectExecutionPolicy(rc fwmanager.Context, projectID delivery.ProjectID, policy delivery.ExecutionPolicyInput) error {
+	return logInfraError(m.log, "Delivery.SetProjectExecutionPolicy", string(projectID),
+		m.inner.SetProjectExecutionPolicy(rc, projectID, policy))
 }
 
-func (m loggingConstructionManager) SubmitPhaseDecision(rc fwmanager.Context, projectID construction.ProjectID, activityID construction.ActivityID, phase string, decision construction.PhaseDecision, feedback *construction.ReviewFeedback) error {
-	return logInfraError(m.log, "Construction.SubmitPhaseDecision", string(projectID), m.inner.SubmitPhaseDecision(rc, projectID, activityID, phase, decision, feedback))
+func (m loggingDeliveryManager) QueryProjectView(rc fwmanager.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+	// The projects view addresses an owner rather than one project.
+	scope := ""
+	if query.ProjectID != nil {
+		scope = *query.ProjectID
+	}
+	v, err := m.inner.QueryProjectView(rc, query)
+	return v, logInfraError(m.log, "Delivery.QueryProjectView", scope, err)
 }
 
-func (m loggingConstructionManager) UpdateReviewPolicy(rc fwmanager.Context, projectID construction.ProjectID, policy construction.ReviewPolicyInput) error {
-	return logInfraError(m.log, "Construction.UpdateReviewPolicy", string(projectID), m.inner.UpdateReviewPolicy(rc, projectID, policy))
+func (m loggingDeliveryManager) QueryActivityView(rc fwmanager.Context, projectID delivery.ProjectID, activityID delivery.ActivityID) (delivery.ActivityView, error) {
+	v, err := m.inner.QueryActivityView(rc, projectID, activityID)
+	return v, logInfraError(m.log, "Delivery.QueryActivityView", string(projectID), err)
 }
 
 // --- Operations ------------------------------------------------------------

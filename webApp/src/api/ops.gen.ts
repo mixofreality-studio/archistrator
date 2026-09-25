@@ -50,70 +50,65 @@ export const OP_BINDINGS = {
     tool: null,
     composition: true,
   },
-  constructionExecuteNextActivity: {
+  deliveryAcknowledgeStaleBasis: {
     method: 'POST',
-    path: '/api/v1/construction/execute-next-activity/{projectID}',
-    tool: 'constructionExecuteNextActivity',
+    path: '/api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}',
+    tool: 'deliveryAcknowledgeStaleBasis',
   },
-  constructionGetEpisodeTimeline: {
+  deliveryAskQuestions: {
+    method: 'POST',
+    path: '/api/v1/delivery/ask-questions/{projectID}/{activityID}',
+    tool: 'deliveryAskQuestions',
+  },
+  deliveryDispatchActivityTask: {
+    method: 'POST',
+    path: '/api/v1/delivery/dispatch-activity-task/{projectID}/{activityID}',
+    tool: 'deliveryDispatchActivityTask',
+  },
+  deliveryExecuteNextActivity: {
+    method: 'POST',
+    path: '/api/v1/delivery/execute-next-activity/{projectID}',
+    tool: 'deliveryExecuteNextActivity',
+  },
+  deliveryOverrideActivity: {
+    method: 'POST',
+    path: '/api/v1/delivery/override-activity/{projectID}/{activityID}',
+    tool: 'deliveryOverrideActivity',
+  },
+  deliveryQueryActivityView: {
     method: 'GET',
-    path: '/api/v1/construction/get-episode-timeline/{projectID}',
-    tool: 'constructionGetEpisodeTimeline',
+    path: '/api/v1/delivery/query-activity-view/{projectID}/{activityID}',
+    tool: 'deliveryQueryActivityView',
   },
-  constructionGetPumpStatus: {
-    method: 'GET',
-    path: '/api/v1/construction/get-pump-status/{projectID}',
-    tool: 'constructionGetPumpStatus',
-  },
-  constructionGetSessionState: {
-    method: 'GET',
-    path: '/api/v1/construction/get-session-state/{projectID}/{activityID}',
-    tool: 'constructionGetSessionState',
-  },
-  constructionListEpisodesForActivity: {
-    method: 'GET',
-    path: '/api/v1/construction/list-episodes-for-activity/{projectID}',
-    tool: 'constructionListEpisodesForActivity',
-  },
-  constructionOverrideActivity: {
+  deliveryQueryProjectView: {
     method: 'POST',
-    path: '/api/v1/construction/override-activity/{projectID}/{activityID}',
-    tool: 'constructionOverrideActivity',
+    path: '/api/v1/delivery/query-project-view',
+    tool: 'deliveryQueryProjectView',
   },
-  constructionPauseProject: {
+  deliveryReplanProject: {
     method: 'POST',
-    path: '/api/v1/construction/pause-project/{projectID}',
-    tool: 'constructionPauseProject',
+    path: '/api/v1/delivery/replan-project/{projectID}',
+    tool: 'deliveryReplanProject',
   },
-  constructionQueryActivityView: {
-    method: 'GET',
-    path: '/api/v1/construction/query-activity-view/{projectID}/{activityID}',
-    tool: 'constructionQueryActivityView',
-  },
-  constructionResumeProject: {
+  deliverySetProjectExecutionPolicy: {
     method: 'POST',
-    path: '/api/v1/construction/resume-project/{projectID}',
-    tool: 'constructionResumeProject',
+    path: '/api/v1/delivery/set-project-execution-policy/{projectID}',
+    tool: 'deliverySetProjectExecutionPolicy',
   },
-  constructionRunReplanSweep: {
+  deliverySetProjectRunState: {
     method: 'POST',
-    path: '/api/v1/construction/run-replan-sweep/{projectID}',
-    tool: 'constructionRunReplanSweep',
+    path: '/api/v1/delivery/set-project-run-state/{projectID}',
+    tool: 'deliverySetProjectRunState',
   },
-  constructionSetReviewPolicy: {
+  deliveryStartProject: {
     method: 'POST',
-    path: '/api/v1/construction/set-review-policy/{projectID}',
-    tool: 'constructionSetReviewPolicy',
+    path: '/api/v1/delivery/start-project/{projectID}',
+    tool: 'deliveryStartProject',
   },
-  constructionSubmitPhaseDecision: {
+  deliverySubmitReviewDecision: {
     method: 'POST',
-    path: '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}',
-    tool: 'constructionSubmitPhaseDecision',
-  },
-  constructionUpdateReviewPolicy: {
-    method: 'POST',
-    path: '/api/v1/construction/update-review-policy/{projectID}',
-    tool: 'constructionUpdateReviewPolicy',
+    path: '/api/v1/delivery/submit-review-decision/{projectID}/{activityID}',
+    tool: 'deliverySubmitReviewDecision',
   },
   operationsApplyDelinquencyPolicy: {
     method: 'POST',
@@ -154,141 +149,6 @@ export const OP_BINDINGS = {
     method: 'POST',
     path: '/api/v1/operations/withdraw-system/{operatedAppID}',
     tool: 'operationsWithdrawSystem',
-  },
-  projectDesignAcknowledgeStaleBasis: {
-    method: 'POST',
-    path: '/api/v1/project-design/acknowledge-stale-basis/{projectID}',
-    tool: 'projectDesignAcknowledgeStaleBasis',
-  },
-  projectDesignAdvanceToConstruction: {
-    method: 'POST',
-    path: '/api/v1/project-design/advance-to-construction/{projectID}',
-    tool: 'projectDesignAdvanceToConstruction',
-  },
-  projectDesignAskQuestions: {
-    method: 'POST',
-    path: '/api/v1/project-design/ask-questions/{projectID}',
-    tool: 'projectDesignAskQuestions',
-  },
-  projectDesignGetEpisodeTimeline: {
-    method: 'GET',
-    path: '/api/v1/project-design/get-episode-timeline/{projectID}',
-    tool: 'projectDesignGetEpisodeTimeline',
-  },
-  projectDesignGetSessionState: {
-    method: 'GET',
-    path: '/api/v1/project-design/get-session-state/{projectID}',
-    tool: 'projectDesignGetSessionState',
-  },
-  projectDesignListEpisodesForArtifact: {
-    method: 'GET',
-    path: '/api/v1/project-design/list-episodes-for-artifact/{projectID}',
-    tool: 'projectDesignListEpisodesForArtifact',
-  },
-  projectDesignRequestArtifactDraft: {
-    method: 'POST',
-    path: '/api/v1/project-design/request-artifact-draft/{projectID}',
-    tool: 'projectDesignRequestArtifactDraft',
-  },
-  projectDesignRequestSdpCommit: {
-    method: 'POST',
-    path: '/api/v1/project-design/request-sdp-commit/{projectID}',
-    tool: 'projectDesignRequestSDPCommit',
-  },
-  projectDesignSetReviewCommentStatus: {
-    method: 'POST',
-    path: '/api/v1/project-design/set-review-comment-status/{projectID}',
-    tool: 'projectDesignSetReviewCommentStatus',
-  },
-  projectDesignSubmitReviewDecision: {
-    method: 'POST',
-    path: '/api/v1/project-design/submit-review-decision/{projectID}',
-    tool: 'projectDesignSubmitReviewDecision',
-  },
-  projectDesignSubmitSdpDecision: {
-    method: 'POST',
-    path: '/api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}',
-    tool: 'projectDesignSubmitSDPDecision',
-  },
-  systemDesignAcknowledgeStaleBasis: {
-    method: 'POST',
-    path: '/api/v1/system-design/acknowledge-stale-basis/{projectID}',
-    tool: 'systemDesignAcknowledgeStaleBasis',
-  },
-  systemDesignAdvancePhase: {
-    method: 'POST',
-    path: '/api/v1/system-design/advance-phase/{projectID}',
-    tool: 'systemDesignAdvancePhase',
-  },
-  systemDesignAskQuestions: {
-    method: 'POST',
-    path: '/api/v1/system-design/ask-questions/{projectID}',
-    tool: 'systemDesignAskQuestions',
-  },
-  systemDesignCreateProject: {
-    method: 'POST',
-    path: '/api/v1/system-design/create-project',
-    tool: 'systemDesignCreateProject',
-  },
-  systemDesignGetDesignHealth: {
-    method: 'GET',
-    path: '/api/v1/system-design/get-design-health/{projectID}',
-    tool: 'systemDesignGetDesignHealth',
-  },
-  systemDesignGetEpisodeTimeline: {
-    method: 'GET',
-    path: '/api/v1/system-design/get-episode-timeline/{projectID}',
-    tool: 'systemDesignGetEpisodeTimeline',
-  },
-  systemDesignGetProject: {
-    method: 'GET',
-    path: '/api/v1/system-design/get-project/{projectID}',
-    tool: 'systemDesignGetProject',
-  },
-  systemDesignGetSessionState: {
-    method: 'GET',
-    path: '/api/v1/system-design/get-session-state/{projectID}',
-    tool: 'systemDesignGetSessionState',
-  },
-  systemDesignListEpisodesForArtifact: {
-    method: 'GET',
-    path: '/api/v1/system-design/list-episodes-for-artifact/{projectID}',
-    tool: 'systemDesignListEpisodesForArtifact',
-  },
-  systemDesignListProjects: {
-    method: 'GET',
-    path: '/api/v1/system-design/list-projects',
-    tool: 'systemDesignListProjects',
-  },
-  systemDesignRequestArtifactDraft: {
-    method: 'POST',
-    path: '/api/v1/system-design/request-artifact-draft/{projectID}',
-    tool: 'systemDesignRequestArtifactDraft',
-  },
-  systemDesignSetOperatingModel: {
-    method: 'POST',
-    path: '/api/v1/system-design/set-operating-model/{projectID}',
-    tool: 'systemDesignSetOperatingModel',
-  },
-  systemDesignSetResearchInput: {
-    method: 'POST',
-    path: '/api/v1/system-design/set-research-input/{projectID}',
-    tool: 'systemDesignSetResearchInput',
-  },
-  systemDesignSetReviewCommentStatus: {
-    method: 'POST',
-    path: '/api/v1/system-design/set-review-comment-status/{projectID}',
-    tool: 'systemDesignSetReviewCommentStatus',
-  },
-  systemDesignStartSystemDesign: {
-    method: 'POST',
-    path: '/api/v1/system-design/start-system-design/{projectID}',
-    tool: 'systemDesignStartSystemDesign',
-  },
-  systemDesignSubmitReviewDecision: {
-    method: 'POST',
-    path: '/api/v1/system-design/submit-review-decision/{projectID}',
-    tool: 'systemDesignSubmitReviewDecision',
   },
 } as const;
 

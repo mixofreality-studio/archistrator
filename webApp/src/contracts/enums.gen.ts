@@ -16,7 +16,7 @@
 // the raw Go varnames; keep a small hand mapping for those.
 
 // --- ActiveRole ----------------------------------------------------------
-// Sources: SystemDesignActiveRole, ProjectDesignActiveRole (identical; folded)
+// Sources: DeliveryActiveRole
 export const ACTIVE_ROLE_GO_VARNAMES = [
   'ActiveRoleNone',
   'ActiveRoleArchitect',
@@ -40,7 +40,7 @@ export const ACTIVE_ROLE_APP_TO_ORDINAL: Readonly<Record<ActiveRole, number>> = 
   productManager: 2,
 };
 // --- ActiveStep ----------------------------------------------------------
-// Sources: SystemDesignActiveStep, ProjectDesignActiveStep (identical; folded)
+// Sources: DeliveryActiveStep
 export const ACTIVE_STEP_GO_VARNAMES = [
   'ActiveStepNone',
   'ActiveStepDrafting',
@@ -66,7 +66,7 @@ export const ACTIVE_STEP_APP_TO_ORDINAL: Readonly<Record<ActiveStep, number>> = 
   revising: 3,
 };
 // --- ActivityBuildStatus -------------------------------------------------
-// Sources: SystemDesignActivityBuildStatus
+// Sources: DeliveryActivityBuildStatus
 export const ACTIVITY_BUILD_STATUS_GO_VARNAMES = [
   'BuildInConstruction',
   'BuildInReview',
@@ -81,7 +81,7 @@ export const ACTIVITY_BUILD_STATUS_ORDINAL_TO_GO_VARNAME: readonly ActivityBuild
 
 // NOT mechanically derivable to an app string: Mechanical derivation gives ("inConstruction"/"inReview"/"integrated"/"failed"), but enumMappings.ts buildStatusRowFromOrdinal returns kebab-case ("in-construction"/"in-review"/"integrated"/"failed"). Every member now maps 1:1 — ordinal 3 (BuildFailed) is a TERMINAL row state of its own and is NO LONGER folded into "in-construction" — so the only remaining divergence is the kebab-case convention, not a bug.
 // --- ActivityConstructionPhase -------------------------------------------
-// Sources: SystemDesignActivityConstructionPhase
+// Sources: DeliveryActivityConstructionPhase
 export const ACTIVITY_CONSTRUCTION_PHASE_GO_VARNAMES = [
   'ActivityConstructionNotStarted',
   'ActivityConstructionRunning',
@@ -117,7 +117,7 @@ export const ACTIVITY_CONSTRUCTION_PHASE_APP_TO_ORDINAL: Readonly<
   failed: 3,
 };
 // --- ActivityTaskKind ----------------------------------------------------
-// Sources: ConstructionActivityTaskKind
+// Sources: DeliveryActivityTaskKind
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const ACTIVITY_TASK_KIND_VALUES = ['dispatch', 'review'] as const;
 
@@ -129,7 +129,7 @@ export const ACTIVITY_TASK_KIND_GO_VARNAMES = [
 ] as const;
 
 // --- ActivityTaskState ---------------------------------------------------
-// Sources: ConstructionActivityTaskState
+// Sources: DeliveryActivityTaskState
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const ACTIVITY_TASK_STATE_VALUES = [
   'pending',
@@ -154,7 +154,7 @@ export const ACTIVITY_TASK_STATE_GO_VARNAMES = [
 ] as const;
 
 // --- ActivityType --------------------------------------------------------
-// Sources: SystemDesignActivityType
+// Sources: DeliveryActivityType
 export const ACTIVITY_TYPE_GO_VARNAMES = [
   'ActivityTypeService',
   'ActivityTypeFrontend',
@@ -203,7 +203,7 @@ export const ACTIVITY_TYPE_APP_TO_ORDINAL: Readonly<Record<ActivityType, number>
   projectDesign: 9,
 };
 // --- ActivityViewState ---------------------------------------------------
-// Sources: ConstructionActivityViewState
+// Sources: DeliveryActivityViewState
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const ACTIVITY_VIEW_STATE_VALUES = [
   'notStarted',
@@ -224,7 +224,7 @@ export const ACTIVITY_VIEW_STATE_GO_VARNAMES = [
 ] as const;
 
 // --- ArtifactKind --------------------------------------------------------
-// Sources: SystemDesignArtifactKind, ProjectDesignArtifactKind (identical; folded)
+// Sources: DeliveryArtifactKind
 export const ARTIFACT_KIND_GO_VARNAMES = [
   'KindMission',
   'KindGlossary',
@@ -294,7 +294,7 @@ export const ARTIFACT_KIND_APP_TO_ORDINAL: Readonly<Record<ArtifactKind, number>
   sdpReview: 16,
 };
 // --- ArtifactStage -------------------------------------------------------
-// Sources: SystemDesignArtifactStage
+// Sources: DeliveryArtifactStage
 export const ARTIFACT_STAGE_GO_VARNAMES = [
   'ArtifactStageEmpty',
   'ArtifactStageAwaitingReview',
@@ -377,7 +377,7 @@ export const AUTOSCALER_MODE_ORDINAL_TO_GO_VARNAME: readonly AutoscalerModeGoVar
 
 // NOT mechanically derivable to an app string: Mechanical derivation gives lowerCamel ("auto"/"manual"), but enums.ts autoscalerModeFromOrdinal returns PascalCase ("Auto"/"Manual"/"Unknown"). Casing convention diff, not a bug.
 // --- CICheckState --------------------------------------------------------
-// Sources: SystemDesignCICheckState
+// Sources: DeliveryCICheckState
 export const CI_CHECK_STATE_GO_VARNAMES = [
   'CICheckPending',
   'CICheckSuccess',
@@ -391,7 +391,7 @@ export const CI_CHECK_STATE_ORDINAL_TO_GO_VARNAME: readonly CICheckStateGoVarnam
 
 // NOT mechanically derivable to an app string: Mechanical derivation gives ("pending"/"success"/"failure"), but enums.ts ciStatusFromOrdinal returns ("in_progress"/"success"/"failed") — different words entirely for 2 of 3 members. Semantic naming diff, not a bug.
 // --- ConstructionStage ---------------------------------------------------
-// Sources: ConstructionConstructionStage
+// Sources: DeliveryConstructionStage
 export const CONSTRUCTION_STAGE_GO_VARNAMES = [
   'ConstructionStageUnknown',
   'StageDispatching',
@@ -471,7 +471,7 @@ export const DESIRED_STATE_REASON_APP_TO_ORDINAL: Readonly<Record<DesiredStateRe
   delinquency: 4,
 };
 // --- EpisodeKind ---------------------------------------------------------
-// Sources: ConstructionEpisodeKind, ProjectDesignEpisodeKind, SystemDesignEpisodeKind (identical; folded)
+// Sources: DeliveryEpisodeKind
 export const EPISODE_KIND_GO_VARNAMES = [
   'EpisodeKindDesign',
   'EpisodeKindConstruction',
@@ -506,7 +506,7 @@ export const EPISODE_KIND_APP_TO_ORDINAL: Readonly<Record<EpisodeKind, number>> 
   answer: 4,
 };
 // --- EpisodeOutcome ------------------------------------------------------
-// Sources: ConstructionEpisodeOutcome, ProjectDesignEpisodeOutcome, SystemDesignEpisodeOutcome (identical; folded)
+// Sources: DeliveryEpisodeOutcome
 export const EPISODE_OUTCOME_GO_VARNAMES = [
   'EpisodeSucceeded',
   'EpisodeFailed',
@@ -534,7 +534,7 @@ export const EPISODE_OUTCOME_APP_TO_ORDINAL: Readonly<Record<EpisodeOutcome, num
   gap: 3,
 };
 // --- FailureReason -------------------------------------------------------
-// Sources: SystemDesignFailureReason
+// Sources: DeliveryFailureReason
 export const FAILURE_REASON_GO_VARNAMES = [
   'FailureReasonUnknown',
   'FailureReasonPipelineFailed',
@@ -609,7 +609,7 @@ export const HEALTH_STATE_APP_TO_ORDINAL: Readonly<Record<HealthState, number>> 
   unhealthy: 2,
 };
 // --- OperatorNoteKind ----------------------------------------------------
-// Sources: SystemDesignOperatorNoteKind
+// Sources: DeliveryOperatorNoteKind
 export const OPERATOR_NOTE_KIND_GO_VARNAMES = [
   'OperatorNoteKindUnknown',
   'OperatorNoteKindSendBack',
@@ -651,7 +651,7 @@ export const OPERATOR_NOTE_KIND_APP_TO_ORDINAL: Readonly<Record<OperatorNoteKind
   requeue: 6,
 };
 // --- OverrideKind --------------------------------------------------------
-// Sources: ConstructionOverrideKind
+// Sources: DeliveryOverrideKind
 export const OVERRIDE_KIND_GO_VARNAMES = [
   'OverrideUnknown',
   'OverrideTakeover',
@@ -712,7 +712,7 @@ export const PATCH_KIND_APP_TO_ORDINAL: Readonly<Record<PatchKind, number>> = {
   policy: 3,
 };
 // --- PhaseDecision -------------------------------------------------------
-// Sources: ConstructionPhaseDecision
+// Sources: DeliveryPhaseDecision
 export const PHASE_DECISION_GO_VARNAMES = [
   'PhaseDecisionUnknown',
   'PhaseApprove',
@@ -736,7 +736,7 @@ export const PHASE_DECISION_APP_TO_ORDINAL: Readonly<Record<PhaseDecision, numbe
   sendBack: 2,
 };
 // --- PipelinePhase -------------------------------------------------------
-// Sources: ConstructionPipelinePhase
+// Sources: DeliveryPipelinePhase
 export const PIPELINE_PHASE_GO_VARNAMES = [
   'PipelinePhaseUnknown',
   'PipelinePending',
@@ -753,7 +753,7 @@ export const PIPELINE_PHASE_ORDINAL_TO_GO_VARNAME: readonly PipelinePhaseGoVarna
 
 // NOT mechanically derivable to an app string: Mechanical derivation gives ordinal 5 (PipelineCancelled) -> "cancelled", but enums.ts pipelinePhaseFromOrdinal deliberately folds ordinal 5 into the same app value as ordinal 4 ("failed") — "the app has no distinct cancelled state". Deliberate product simplification, not a bug.
 // --- ProjectPhase --------------------------------------------------------
-// Sources: SystemDesignPhase
+// Sources: DeliveryPhase
 export const PROJECT_PHASE_GO_VARNAMES = [
   'PhaseSystemDesign',
   'PhaseProjectDesign',
@@ -776,18 +776,27 @@ export const PROJECT_PHASE_APP_TO_ORDINAL: Readonly<Record<ProjectPhase, number>
   projectDesign: 1,
   construction: 2,
 };
+// --- ProjectRunState -----------------------------------------------------
+// Sources: DeliveryProjectRunState
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const PROJECT_RUN_STATE_VALUES = ['running', 'paused'] as const;
+
+export type ProjectRunState = (typeof PROJECT_RUN_STATE_VALUES)[number];
+
+export const PROJECT_RUN_STATE_GO_VARNAMES = ['ProjectRunning', 'ProjectPaused'] as const;
+
 // --- ProjectSessionStage -------------------------------------------------
-// Sources: ProjectDesignSessionStage
+// Sources: DeliveryProjectSessionStage
 export const PROJECT_SESSION_STAGE_GO_VARNAMES = [
-  'SessionStageUnknown',
-  'StageDrafting',
-  'StageAssemblingSDP',
-  'StageAwaitingReview',
-  'StageRedrafting',
-  'StageCommitted',
-  'StageWithdrawn',
-  'StageRefused',
-  'StageDraftFailed',
+  'ProjectSessionStageUnknown',
+  'ProjectStageDrafting',
+  'ProjectStageAssemblingSDP',
+  'ProjectStageAwaitingReview',
+  'ProjectStageRedrafting',
+  'ProjectStageCommitted',
+  'ProjectStageWithdrawn',
+  'ProjectStageRefused',
+  'ProjectStageDraftFailed',
 ] as const;
 
 export type ProjectSessionStageGoVarname = (typeof PROJECT_SESSION_STAGE_GO_VARNAMES)[number];
@@ -796,13 +805,40 @@ export const PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME: readonly ProjectSessio
   PROJECT_SESSION_STAGE_GO_VARNAMES;
 
 // NOT mechanically derivable to an app string: StageAssemblingSDP derives to "assemblingSDP" (lowerFirst only lowercases the leading letter); the hand table uses "assemblingSdp". Casing convention diff, not a bug.
+// --- ProjectViewKind -----------------------------------------------------
+// Sources: DeliveryProjectViewKind
+// String-valued enum — the wire value is already the app string (no ordinal indirection).
+export const PROJECT_VIEW_KIND_VALUES = [
+  'summary',
+  'projects',
+  'session',
+  'pump',
+  'designHealth',
+  'episodes',
+  'timeline',
+] as const;
+
+export type ProjectViewKind = (typeof PROJECT_VIEW_KIND_VALUES)[number];
+
+export const PROJECT_VIEW_KIND_GO_VARNAMES = [
+  'ProjectViewSummary',
+  'ProjectViewProjects',
+  'ProjectViewSession',
+  'ProjectViewPump',
+  'ProjectViewDesignHealth',
+  'ProjectViewEpisodes',
+  'ProjectViewTimeline',
+] as const;
+
 // --- ReviewDecision ------------------------------------------------------
-// Sources: SystemDesignReviewDecision, ProjectDesignReviewDecision (identical; folded)
+// Sources: DeliveryReviewDecision
 export const REVIEW_DECISION_GO_VARNAMES = [
   'ReviewDecisionUnknown',
   'ReviewApprove',
   'ReviewReject',
   'ReviewWithdraw',
+  'ReviewAdvance',
+  'ReviewSetCommentStatus',
 ] as const;
 
 export type ReviewDecisionGoVarname = (typeof REVIEW_DECISION_GO_VARNAMES)[number];
@@ -810,7 +846,14 @@ export type ReviewDecisionGoVarname = (typeof REVIEW_DECISION_GO_VARNAMES)[numbe
 export const REVIEW_DECISION_ORDINAL_TO_GO_VARNAME: readonly ReviewDecisionGoVarname[] =
   REVIEW_DECISION_GO_VARNAMES;
 
-export const REVIEW_DECISION_APP_STRINGS = ['unknown', 'approve', 'reject', 'withdraw'] as const;
+export const REVIEW_DECISION_APP_STRINGS = [
+  'unknown',
+  'approve',
+  'reject',
+  'withdraw',
+  'advance',
+  'setCommentStatus',
+] as const;
 
 export type ReviewDecision = (typeof REVIEW_DECISION_APP_STRINGS)[number];
 
@@ -822,9 +865,11 @@ export const REVIEW_DECISION_APP_TO_ORDINAL: Readonly<Record<ReviewDecision, num
   approve: 1,
   reject: 2,
   withdraw: 3,
+  advance: 4,
+  setCommentStatus: 5,
 };
 // --- ReviewVerdictKind ---------------------------------------------------
-// Sources: ConstructionReviewVerdictKind
+// Sources: DeliveryReviewVerdictKind
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const REVIEW_VERDICT_KIND_VALUES = ['approve', 'sendBack', 'abstain'] as const;
 
@@ -853,7 +898,7 @@ export const RUNTIME_STATUS_SEAM_ORDINAL_TO_GO_VARNAME: readonly RuntimeStatusSe
 
 // NOT mechanically derivable to an app string: Mechanical derivation gives ("unknown"/"pending"/"healthy"/"degraded"/"withdrawn"), but enums.ts runtimePhaseFromOrdinal returns PascalCase AND renames ordinal 2 (RuntimeStatusHealthy) to "Running". Casing + semantic rename, not a bug.
 // --- SDPDecision ---------------------------------------------------------
-// Sources: ProjectDesignSDPDecision
+// Sources: DeliverySDPDecision
 export const SDP_DECISION_GO_VARNAMES = [
   'SDPDecisionUnknown',
   'SDPCommit',
@@ -877,7 +922,7 @@ export const SDP_DECISION_APP_TO_ORDINAL: Readonly<Record<SDPDecision, number>> 
   rejectAll: 2,
 };
 // --- SessionStage --------------------------------------------------------
-// Sources: SystemDesignSessionStage
+// Sources: DeliverySessionStage
 export const SESSION_STAGE_GO_VARNAMES = [
   'SessionStageUnknown',
   'StageDrafting',
@@ -920,7 +965,7 @@ export const SESSION_STAGE_APP_TO_ORDINAL: Readonly<Record<SessionStage, number>
   draftFailed: 7,
 };
 // --- Severity ------------------------------------------------------------
-// Sources: SystemDesignSeverity, ProjectDesignSeverity (identical; folded)
+// Sources: DeliverySeverity
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const SEVERITY_VALUES = ['info', 'warning', 'error'] as const;
 
@@ -929,7 +974,7 @@ export type Severity = (typeof SEVERITY_VALUES)[number];
 export const SEVERITY_GO_VARNAMES = ['SeverityInfo', 'SeverityWarning', 'SeverityError'] as const;
 
 // --- TaskRevisionOutcome -------------------------------------------------
-// Sources: ConstructionTaskRevisionOutcome
+// Sources: DeliveryTaskRevisionOutcome
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const TASK_REVISION_OUTCOME_VALUES = [
   'running',
@@ -952,7 +997,7 @@ export const TASK_REVISION_OUTCOME_GO_VARNAMES = [
 ] as const;
 
 // --- TaskRevisionProvenance ----------------------------------------------
-// Sources: ConstructionTaskRevisionProvenance
+// Sources: DeliveryTaskRevisionProvenance
 // String-valued enum — the wire value is already the app string (no ordinal indirection).
 export const TASK_REVISION_PROVENANCE_VALUES = ['synthesized', 'backfilled', 'observed'] as const;
 
@@ -965,7 +1010,7 @@ export const TASK_REVISION_PROVENANCE_GO_VARNAMES = [
 ] as const;
 
 // --- TestingVariant ------------------------------------------------------
-// Sources: SystemDesignTestingVariant
+// Sources: DeliveryTestingVariant
 export const TESTING_VARIANT_GO_VARNAMES = [
   'TestVariantPlan',
   'TestVariantHarness',

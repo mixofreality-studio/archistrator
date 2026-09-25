@@ -151,18 +151,18 @@ func patchKind(name string) sdk.PatchKind { return patchKindByWire[name] }
 
 // --- stage decoders (response-only) ------------------------------------------
 
-var systemStageWire = map[sdk.SystemDesignSessionStage]string{
-	sdk.SystemDesignSessionStageUnknown: "unknown",
-	sdk.SystemDesignStageDrafting:       "drafting",
-	sdk.SystemDesignStageAwaitingReview: "awaitingReview",
-	sdk.SystemDesignStageRedrafting:     "redrafting",
-	sdk.SystemDesignStageCommitted:      "committed",
-	sdk.SystemDesignStageWithdrawn:      "withdrawn",
-	sdk.SystemDesignStageRefused:        "refused",
-	sdk.SystemDesignStageDraftFailed:    "draftFailed",
+var systemStageWire = map[sdk.SessionStage]string{
+	sdk.SessionStageUnknown: "unknown",
+	sdk.StageDrafting:       "drafting",
+	sdk.StageAwaitingReview: "awaitingReview",
+	sdk.StageRedrafting:     "redrafting",
+	sdk.StageCommitted:      "committed",
+	sdk.StageWithdrawn:      "withdrawn",
+	sdk.StageRefused:        "refused",
+	sdk.StageDraftFailed:    "draftFailed",
 }
 
-func systemStageName(s sdk.SystemDesignSessionStage) string {
+func systemStageName(s sdk.SessionStage) string {
 	if name, ok := systemStageWire[s]; ok {
 		return name
 	}
@@ -173,19 +173,19 @@ func systemStageName(s sdk.SystemDesignSessionStage) string {
 // (assemblingSdp at ordinal 2). ProjectDesignStageAssemblingSDP is HAND-MAPPED
 // to "assemblingSdp" — the mechanical lower-first of the SDK varname would give
 // "assemblingSDP" (mirrors webApp/scripts/gen-enums.mjs NON_MECHANICAL).
-var projectStageWire = map[sdk.ProjectDesignSessionStage]string{
-	sdk.ProjectDesignSessionStageUnknown: "unknown",
-	sdk.ProjectDesignStageDrafting:       "drafting",
-	sdk.ProjectDesignStageAssemblingSDP:  "assemblingSdp",
-	sdk.ProjectDesignStageAwaitingReview: "awaitingReview",
-	sdk.ProjectDesignStageRedrafting:     "redrafting",
-	sdk.ProjectDesignStageCommitted:      "committed",
-	sdk.ProjectDesignStageWithdrawn:      "withdrawn",
-	sdk.ProjectDesignStageRefused:        "refused",
-	sdk.ProjectDesignStageDraftFailed:    "draftFailed",
+var projectStageWire = map[sdk.ProjectSessionStage]string{
+	sdk.ProjectSessionStageUnknown: "unknown",
+	sdk.ProjectStageDrafting:       "drafting",
+	sdk.ProjectStageAssemblingSDP:  "assemblingSdp",
+	sdk.ProjectStageAwaitingReview: "awaitingReview",
+	sdk.ProjectStageRedrafting:     "redrafting",
+	sdk.ProjectStageCommitted:      "committed",
+	sdk.ProjectStageWithdrawn:      "withdrawn",
+	sdk.ProjectStageRefused:        "refused",
+	sdk.ProjectStageDraftFailed:    "draftFailed",
 }
 
-func projectStageName(s sdk.ProjectDesignSessionStage) string {
+func projectStageName(s sdk.ProjectSessionStage) string {
 	if name, ok := projectStageWire[s]; ok {
 		return name
 	}
@@ -258,3 +258,118 @@ func strPtrVal(s *string) string {
 	}
 	return *s
 }
+
+// ---------------------------------------------------------------------------
+// STAGE 4a — THE ACTIVITY/TASK ADDRESS OF AN ARTIFACT KIND
+//
+// The twelve-op deliveryManager addresses work by {activityID, taskID}, not by
+// artifact kind: a draft is a DISPATCH task of a design activity and a verdict is
+// its REVIEW task. The tables below are the harness's copy of that address, and
+// they mirror the committed method-assets lifecycles exactly — requirements owns
+// the four Phase-1 drafts, architecture owns the System draft, and projectDesign
+// owns the single computed sdpReview gate.
+// ---------------------------------------------------------------------------
+
+// designActivityFor is the activity that owns an artifact kind's tasks.
+func designActivityFor(kind string) sdk.ActivityID {
+	switch kind {
+	case "mission", "glossary", "scrubbedRequirements", "volatilities", "coreUseCases":
+		return "requirements"
+	case "system", "operationalConcepts", "standardCheck":
+		return "architecture"
+	default:
+		return "projectDesign"
+	}
+}
+
+// draftTaskFor is the DISPATCH task that produces an artifact kind.
+func draftTaskFor(kind string) string {
+	if t, ok := designDraftTasks[kind]; ok {
+		return t
+	}
+	return "sdpReview"
+}
+
+// reviewTaskFor is the REVIEW task that judges an artifact kind's draft.
+func reviewTaskFor(kind string) string {
+	if t, ok := designReviewTasks[kind]; ok {
+		return t
+	}
+	return "sdpReview"
+}
+
+var designDraftTasks = map[string]string{
+	"mission":      "missionDraft",
+	"glossary":     "glossaryDraft",
+	"volatilities": "volatilitiesDraft",
+	"coreUseCases": "coreUseCasesDraft",
+	"system":       "architectureDraft",
+}
+
+var designReviewTasks = map[string]string{
+	"mission":      "missionReview",
+	"glossary":     "glossaryReview",
+	"volatilities": "volatilitiesReview",
+	"coreUseCases": "coreUseCasesReview",
+	"system":       "architectureReview",
+}
+
+// sdpReviewDecision maps the SDP vocabulary onto the merged ReviewDecision: the M0
+// gate's commit is an approve and its reject-all is a reject.
+func sdpReviewDecision(name string) sdk.ReviewDecision {
+	if name == "rejectAll" {
+		return sdk.ReviewReject
+	}
+	return sdk.ReviewApprove
+}
+
+// phaseReviewDecision maps the construction gate's vocabulary onto the merged
+// ReviewDecision: approve stays approve and sendBack is a reject.
+func phaseReviewDecision(name string) sdk.ReviewDecision {
+	if name == "sendBack" {
+		return sdk.ReviewReject
+	}
+	return sdk.ReviewApprove
+}
+
+// activityViewStateName is the ActivityView's coarse state as its raw wire string —
+// the enum is a STRING enum (notStarted | running | awaitingReview | done | failed), so
+// the value IS the name and no ordinal table is needed.
+func activityViewStateName(s sdk.ActivityViewState) string { return string(s) }
+
+// ---------------------------------------------------------------------------
+// STAGE 4a — the reverse of designActivityFor/draftTaskFor: the plan's steps
+// address a TASK, and the harness's transport-agnostic vocabulary still speaks
+// artifact kinds, so the runner needs the task -> kind direction too.
+// ---------------------------------------------------------------------------
+
+// ArtifactKindForTask is the artifact a design lifecycle task is about — "" when the
+// task id names no design artifact (a construction lifecycle phase, which the
+// construction gate takes verbatim).
+func ArtifactKindForTask(taskID string) string {
+	for kind, draft := range designDraftTasks {
+		if draft == taskID {
+			return kind
+		}
+	}
+	for kind, review := range designReviewTasks {
+		if review == taskID {
+			return kind
+		}
+	}
+	if taskID == "sdpReview" {
+		return "sdpReview"
+	}
+	return ""
+}
+
+// IsPhase2ArtifactKind reports whether a kind belongs to Project Design (Phase 2) — the
+// split QueryProjectView's session arm routes on, and the one the harness's two
+// GetSessionState reads mirror.
+func IsPhase2ArtifactKind(kind string) bool {
+	return int(artifactKind(kind)) >= int(sdk.KindPlanningAssumptions)
+}
+
+// ReviewAdvanceOrdinal is the merged ReviewDecision's phase-seal ordinal, exported so
+// the generated-table runner can recognise an advance without re-declaring the enum.
+const ReviewAdvanceOrdinal = sdk.ReviewAdvance

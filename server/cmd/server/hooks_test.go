@@ -18,7 +18,7 @@ import (
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
@@ -398,7 +398,7 @@ func TestFinalizeMessageBus_NotDryRun_RegistersConstructionSchedules(t *testing.
 }
 
 // constructionExecutionKinds must resolve to exactly the two kinds bound to
-// construction.TaskQueue in MessageBusTemporalArgs's table, staying in sync
+// delivery.TaskQueue in MessageBusTemporalArgs's table, staying in sync
 // automatically as that table evolves.
 func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 	h := &appHooks{}
@@ -417,12 +417,12 @@ func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 		}
 	}
 
-	// Sanity: every kind resolved really does map to construction.TaskQueue in
+	// Sanity: every kind resolved really does map to delivery.TaskQueue in
 	// the underlying table (guards against the filter drifting from its intent).
 	table := h.MessageBusTemporalArgs(&Config{})
 	for k := range kinds {
-		if table[k].TaskQueue != construction.TaskQueue {
-			t.Fatalf("kind %q resolved with TaskQueue %q, want %q", k, table[k].TaskQueue, construction.TaskQueue)
+		if table[k].TaskQueue != delivery.TaskQueue {
+			t.Fatalf("kind %q resolved with TaskQueue %q, want %q", k, table[k].TaskQueue, delivery.TaskQueue)
 		}
 	}
 }

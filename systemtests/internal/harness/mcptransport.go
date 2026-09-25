@@ -40,133 +40,173 @@ func (t *mcpTransport) Name() string { return "mcp" }
 
 func (t *mcpTransport) Close() error { return nil }
 
+// --- STAGE 4a ---------------------------------------------------------------
+//
+// Re-pointed onto the twelve-op deliveryManager exactly as httptransport.go is, and
+// deliberately body-for-body identical to it: the two surfaces must speak the same
+// twelve ops or R4's cross-surface equivalence is not being tested.
+
 // --- UC1 (system-design / Phase-1) ------------------------------------------
 
 func (t *mcpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	id, err := t.client.SystemDesignCreateProject(ctx, testOwner, name)
-	return string(id), sentinelError(err)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, "", nil, nil, false)
+	return string(res.ProjectID), sentinelError(err)
 }
 
 func (t *mcpTransport) ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error) {
-	rows, err := t.client.SystemDesignListProjects(ctx, sdk.OwnerScope(owner))
+	scope := sdk.OwnerScope(owner)
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewProjects, Owner: &scope,
+	})
 	if err != nil {
 		return nil, sentinelError(err)
 	}
-	return toProjectSummaries(rows), nil
+	return toProjectSummaries(view.Projects), nil
 }
 
 func (t *mcpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
-	_, err := t.client.SystemDesignSetResearchInput(ctx, sdk.ProjectID(projectID), toResearchInput(sources))
+	research := toResearchInput(sources)
+	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, &research, false)
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	ref, err := t.client.SystemDesignStartSystemDesign(ctx, sdk.ProjectID(projectID))
-	return string(ref), sentinelError(err)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, nil, true)
+	if res.Session == nil {
+		return "", sentinelError(err)
+	}
+	return string(*res.Session), sentinelError(err)
 }
 
 func (t *mcpTransport) RequestArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	ref, err := t.client.SystemDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), draftTaskFor(kind), nil)
 	return string(ref), sentinelError(err)
 }
 
 func (t *mcpTransport) GetSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	view, err := t.client.SystemDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
-	if err != nil {
+	view, err := t.querySession(ctx, projectID, kind)
+	if err != nil || view.Session == nil {
+		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
+		// observable yet" to a poller — never fatal here.
 		return SessionState{}, false, sentinelError(err)
 	}
+	s := view.Session
 	return SessionState{
-		ProjectID:     string(view.ProjectID),
-		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
-		Stage:         systemStageName(view.Stage),
-		FailureReason: strPtrVal(view.FailureReason),
+		ProjectID:     string(s.ProjectID),
+		ArtifactKind:  artifactKindNameOf(s.ArtifactKind),
+		Stage:         systemStageName(s.Stage),
+		FailureReason: strPtrVal(s.FailureReason),
 	}, true, nil
 }
 
 func (t *mcpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	err := t.client.SystemDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
-		artifactKind(kind), reviewDecision(decision), systemFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), reviewTaskFor(kind),
+		sdk.ReviewDecisionInput{Decision: reviewDecision(decision)}, systemFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
-	res, err := t.client.SystemDesignAdvancePhase(ctx, sdk.ProjectID(projectID), false)
-	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+	// The phase seal is the ReviewAdvance decision on the architecture activity's gate;
+	// the outcome is read back through the summary view, not returned by the write.
+	ack := false
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"architecture", "architectureReview",
+		sdk.ReviewDecisionInput{Decision: sdk.ReviewAdvance, AcknowledgeStale: &ack}, nil)
+	if err != nil {
+		return false, nil, sentinelError(err)
+	}
+	return t.phaseAdvanced(ctx, projectID, sdk.PhaseProjectDesign)
 }
 
 // --- UC2 (project-design / Phase-2) -----------------------------------------
 
 func (t *mcpTransport) RequestProjectArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	ref, err := t.client.ProjectDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), draftTaskFor(kind), nil)
 	return string(ref), sentinelError(err)
 }
 
 func (t *mcpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	view, err := t.client.ProjectDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
-	if err != nil {
+	view, err := t.querySession(ctx, projectID, kind)
+	if err != nil || view.ProjectSession == nil {
 		return SessionState{}, false, sentinelError(err)
 	}
+	s := view.ProjectSession
 	return SessionState{
-		ProjectID:     string(view.ProjectID),
-		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
-		Stage:         projectStageName(view.Stage),
-		FailureReason: strPtrVal(view.FailureReason),
+		ProjectID:     string(s.ProjectID),
+		ArtifactKind:  artifactKindNameOf(s.ArtifactKind),
+		Stage:         projectStageName(s.Stage),
+		FailureReason: strPtrVal(s.FailureReason),
 	}, true, nil
 }
 
 func (t *mcpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	err := t.client.ProjectDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
-		artifactKind(kind), reviewDecision(decision), projectFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), reviewTaskFor(kind),
+		sdk.ReviewDecisionInput{Decision: reviewDecision(decision)}, projectFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) RequestSDPCommit(ctx context.Context, projectID string) (string, error) {
-	ref, err := t.client.ProjectDesignRequestSDPCommit(ctx, sdk.ProjectID(projectID))
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview", nil)
 	return string(ref), sentinelError(err)
 }
 
 func (t *mcpTransport) SubmitSDPDecision(ctx context.Context, projectID, decision, optionID, feedback string) error {
-	// Same "-" no-option placeholder policy as the HTTP transport: the tool's
-	// optionID input is a required path-mirror on the server; pass the VALUE
-	// sdk.OptionID placeholder when the SDP decision carries no option.
-	seg := optionID
-	if seg == "" {
-		seg = "-"
+	// optionID is a PATH segment on this route; the ServeMux pattern requires it
+	// even for rejectAll (which carries no option) — "-" is the harness's
+	// placeholder for "no option". The SDK takes a VALUE sdk.OptionID.
+	in := sdk.ReviewDecisionInput{Decision: sdpReviewDecision(decision)}
+	if optionID != "" {
+		in.OptionID = &optionID
 	}
-	err := t.client.ProjectDesignSubmitSDPDecision(ctx, sdk.ProjectID(projectID),
-		sdpDecision(decision), sdk.OptionID(seg), projectFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview", in, projectFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
-	res, err := t.client.ProjectDesignAdvanceToConstruction(ctx, sdk.ProjectID(projectID), false)
-	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+	ack := false
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview",
+		sdk.ReviewDecisionInput{Decision: sdk.ReviewAdvance, AcknowledgeStale: &ack}, nil)
+	if err != nil {
+		return false, nil, sentinelError(err)
+	}
+	return t.phaseAdvanced(ctx, projectID, sdk.PhaseConstruction)
 }
 
 // --- UC3 (construction / Phase-3) -------------------------------------------
 
 func (t *mcpTransport) ExecuteNextActivity(ctx context.Context, projectID, tickID string) (bool, string, error) {
-	res, err := t.client.ConstructionExecuteNextActivity(ctx, sdk.ProjectID(projectID), tickID)
+	res, err := t.client.DeliveryExecuteNextActivity(ctx, sdk.ProjectID(projectID), tickID)
 	return res.Dispatched, activityIDPtrVal(res.ActivityID), sentinelError(err)
 }
 
 func (t *mcpTransport) GetConstructionSessionState(ctx context.Context, projectID, activityID string) (ConstructionSessionState, error) {
-	view, err := t.client.ConstructionGetSessionState(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID))
-	if err != nil {
+	id := activityID
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSession, ProjectID: &projectID, ActivityID: &id,
+	})
+	if err != nil || view.ConstructionSession == nil {
 		return ConstructionSessionState{}, sentinelError(err)
 	}
-	return toConstructionSessionState(view), nil
+	return toConstructionSessionState(*view.ConstructionSession), nil
 }
 
 func (t *mcpTransport) SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error {
-	err := t.client.ConstructionSubmitPhaseDecision(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
-		phase, phaseDecision(decision), constructionFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
+		phase, sdk.ReviewDecisionInput{Decision: phaseReviewDecision(decision)}, constructionFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error {
-	err := t.client.ConstructionUpdateReviewPolicy(ctx, sdk.ProjectID(projectID),
-		sdk.ReviewPolicyInput{GatedPhasesByType: gatedPhasesByType})
+	policy := sdk.ReviewPolicyInput{GatedPhasesByType: gatedPhasesByType}
+	err := t.client.DeliverySetProjectExecutionPolicy(ctx, sdk.ProjectID(projectID),
+		sdk.ExecutionPolicyInput{Policy: &policy})
 	return sentinelError(err)
 }
 
@@ -203,4 +243,39 @@ func (t *mcpTransport) ApplyDelinquencyPolicy(ctx context.Context, customerID st
 func (t *mcpTransport) WithdrawSystem(ctx context.Context, operatedAppID, changeID, notes string) (bool, error) {
 	res, err := t.client.OperationsWithdrawSystem(ctx, operatedAppID, changeID, sdk.WithdrawReason{Notes: notes})
 	return res.Withdrawn, sentinelError(err)
+}
+
+func (t *mcpTransport) querySession(ctx context.Context, projectID, kind string) (sdk.ProjectView, error) {
+	ak := artifactKind(kind)
+	return t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSession, ProjectID: &projectID, ArtifactKind: &ak,
+	})
+}
+
+func (t *mcpTransport) phaseAdvanced(ctx context.Context, projectID string, want sdk.Phase) (bool, []string, error) {
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSummary, ProjectID: &projectID,
+	})
+	if err != nil || view.Summary == nil {
+		return false, nil, sentinelError(err)
+	}
+	if view.Summary.Phase == want {
+		return true, nil, nil
+	}
+	var missing []string
+	for _, slot := range view.Summary.Slots {
+		if slot.Stage != sdk.ArtifactStageCommitted {
+			missing = append(missing, slot.Kind)
+		}
+	}
+	return false, missing, nil
+}
+
+// QueryActivityView reads one activity's whole lifecycle through the twelve-op surface.
+func (t *mcpTransport) QueryActivityView(ctx context.Context, projectID, activityID string) (string, error) {
+	view, err := t.client.DeliveryQueryActivityView(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID))
+	if err != nil {
+		return "", sentinelError(err)
+	}
+	return activityViewStateName(view.State), nil
 }

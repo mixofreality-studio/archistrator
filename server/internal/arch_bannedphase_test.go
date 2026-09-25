@@ -43,7 +43,7 @@ import (
 //
 // Same posture as arch_activitynames_test.go: a pure, in-memory checker
 // (table-tested both directions below) wired to a real-tree walk over the
-// packages that own (projectstate) or dispatch (manager/construction) the
+// packages that own (projectstate) or dispatch (manager/delivery) the
 // Task/Attempt/Phase vocabulary. *.gen.go and *_test.go are excluded, exactly
 // as every other hand-file gate in this package excludes them.
 const bannedPhaseMsg = "%s: top-level %s %q reintroduces the banned bare 'phase'/'Phase' identifier — this level is MethodTask or TaskAttempt now (see arch_bannedphase_test.go)"
@@ -52,7 +52,7 @@ const bannedPhaseMsg = "%s: top-level %s %q reintroduces the banned bare 'phase'
 // directories this gate walks for real enforcement.
 var bannedPhaseScopeDirs = []string{
 	"resourceaccess/projectstate",
-	"manager/construction",
+	"manager/delivery",
 }
 
 // bannedPhaseExempt reports whether a top-level declaration named exactly

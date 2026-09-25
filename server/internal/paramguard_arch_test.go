@@ -12,7 +12,7 @@ package internal_test
 // contract-strictness audit found three operations where it did not, each silently
 // harmful rather than loudly broken:
 //
-//   - constructionManager.SubmitPhaseDecision's `phase` — signalled through to a
+//   - deliveryManager.SubmitReviewDecision's `taskID` — signalled through to a
 //     child workflow's phase gate, where "" could never match a real phase, so the
 //     decision was a no-op that looked like a success.
 //   - {systemDesign,projectDesign}Manager.AcknowledgeStaleBasis's `note` — the
@@ -48,11 +48,9 @@ const projectDocPath = "../../.aiarch/state/project.json"
 
 // managerDirs maps a contract component key to the package directory implementing it.
 var managerDirs = map[string]string{
-	"billingManager":       "manager/billing",
-	"constructionManager":  "manager/construction",
-	"operationsManager":    "manager/operations",
-	"projectDesignManager": "manager/projectdesign",
-	"systemDesignManager":  "manager/systemdesign",
+	"billingManager":    "manager/billing",
+	"deliveryManager":   "manager/delivery",
+	"operationsManager": "manager/operations",
 }
 
 // requiredString names one required string a Manager operation must inspect: either
@@ -79,7 +77,7 @@ func TestManagerRequiredStringsAreInspected(t *testing.T) {
 			t.Errorf("%s: no required strings found; this gate would check air for it", component)
 			continue
 		}
-		bodies := managerOpBodies(t, dir)
+		bodies := managerOpBodies(t, dir, component)
 		for _, w := range wants {
 			body, found := bodies[w.op]
 			if !found {
@@ -246,12 +244,16 @@ func requiredStringFields(c contractComponent, s schemaNode, prefix string, dept
 // Go body reading.
 // ---------------------------------------------------------------------------
 
-// managerOpBodies loads dir and returns every METHOD body by method name. Methods
-// on any receiver are included: a Manager package holds exactly one Manager type,
-// and a name collision would only make the gate stricter. packages.Load (not
-// parser.ParseDir) so build tags are honoured, matching the posture of the other
-// arch tests in this package.
-func managerOpBodies(t *testing.T, dir string) map[string]*ast.BlockStmt {
+// managerOpBodies loads dir and returns the CONTRACT IMPL's method bodies by method
+// name. The receiver is filtered to impl (the component key, which is also the
+// unexported impl type's name — deliveryManager, operationsManager, billingManager),
+// because since stage 4a a Manager package no longer holds exactly one Manager type:
+// internal/manager/delivery also carries the three moved rails, whose ops share
+// several method NAMES with the twelve contract ops but take different parameters.
+// Keying on the name alone would have let whichever body loaded last answer for the
+// contract — an unstable, and weaker, gate. packages.Load (not parser.ParseDir) so
+// build tags are honoured, matching the posture of the other arch tests here.
+func managerOpBodies(t *testing.T, dir, impl string) map[string]*ast.BlockStmt {
 	t.Helper()
 	cfg := &packages.Config{Mode: packages.NeedSyntax | packages.NeedFiles, Dir: "..", Tests: false}
 	pkgs, err := packages.Load(cfg, "./internal/"+dir)
@@ -266,7 +268,7 @@ func managerOpBodies(t *testing.T, dir string) map[string]*ast.BlockStmt {
 		for _, file := range pkg.Syntax {
 			for _, decl := range file.Decls {
 				fn, ok := decl.(*ast.FuncDecl)
-				if !ok || fn.Recv == nil || fn.Body == nil {
+				if !ok || fn.Recv == nil || fn.Body == nil || receiverTypeName(fn) != impl {
 					continue
 				}
 				out[fn.Name.Name] = fn.Body
@@ -274,9 +276,24 @@ func managerOpBodies(t *testing.T, dir string) map[string]*ast.BlockStmt {
 		}
 	}
 	if len(out) == 0 {
-		t.Fatalf("%s: loaded no methods; the gate would pass vacuously for it", dir)
+		t.Fatalf("%s: loaded no methods on %s; the gate would pass vacuously for it", dir, impl)
 	}
 	return out
+}
+
+// receiverTypeName is a method's receiver base type name, pointer or value.
+func receiverTypeName(fn *ast.FuncDecl) string {
+	if fn.Recv == nil || len(fn.Recv.List) != 1 {
+		return ""
+	}
+	expr := fn.Recv.List[0].Type
+	if star, ok := expr.(*ast.StarExpr); ok {
+		expr = star.X
+	}
+	if id, ok := expr.(*ast.Ident); ok {
+		return id.Name
+	}
+	return ""
 }
 
 // inspectsExpr reports whether want (an identifier, or a dotted selector path) is

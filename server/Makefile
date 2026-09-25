@@ -255,7 +255,7 @@ encapsulation-check:
 # and that procedure has to keep working DURING the one commit that relocates the package
 # it points at. Flipping one default is a reviewable line; sed-ing three recipes inside a
 # 40-file commit is not.
-DERIVED_PLAN_PKG ?= ./internal/manager/projectdesign/
+DERIVED_PLAN_PKG ?= ./internal/manager/delivery/
 
 derived-plan-check:
 	GOWORK=off go test $(DERIVED_PLAN_PKG)... -run TestDerivedPlanMatchesCommittedState -count=1 -v

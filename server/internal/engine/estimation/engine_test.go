@@ -1777,8 +1777,8 @@ func loadSystemFixture(t *testing.T) SystemView {
 	if err := json.Unmarshal(raw, &sv); err != nil {
 		t.Fatalf("decode fixture: %v", err)
 	}
-	if len(sv.Components) != 37 {
-		t.Fatalf("fixture has %d components, want the live 37", len(sv.Components))
+	if len(sv.Components) != 35 {
+		t.Fatalf("fixture has %d components, want the live 35", len(sv.Components))
 	}
 	return sv
 }
@@ -1877,8 +1877,7 @@ var table11_1Set = []string{
 	"C-project-state-access", "C-source-control-access", "C-usage-access",
 	"C-autoscaler-engine", "C-billing-engine", "C-design-health-engine", "C-estimation-engine",
 	"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
-	"C-billing-manager", "C-construction-manager", "C-operations-manager",
-	"C-project-design-manager", "C-system-design-manager",
+	"C-billing-manager", "C-delivery-manager", "C-operations-manager",
 	"U-SPA-web-client",
 	"N-IT",
 }
@@ -1914,7 +1913,7 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	if len(plan.Dependencies) != len(table11_1Set)-1 {
 		t.Errorf("derived %d dependency rows, want one per activity but the root (%d)", len(plan.Dependencies), len(table11_1Set)-1)
 	}
-	if want := []string{"C-billing-manager", "C-construction-manager", "C-system-design-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
+	if want := []string{"C-billing-manager", "C-delivery-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
 		t.Errorf("U-SPA-web-client dependsOn = %v, want %v", deps["U-SPA-web-client"], want)
 	}
 	if want := []string{"N-STP", "U-SPA-web-client"}; !reflect.DeepEqual(deps["N-IT"], want) {

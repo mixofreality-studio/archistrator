@@ -149,6 +149,12 @@ type Transport interface {
 	// firing id — a duplicate tickID must not double-dispatch (RA-idempotency
 	// promoted to the client surface, STP-UC3-B1).
 	ExecuteNextActivity(ctx context.Context, projectID, tickID string) (dispatched bool, activityID string, err error)
+
+	// QueryActivityView is the Activity Experience's single read (stage 4a): one
+	// activity's whole lifecycle — its task DAG, each task's state, and the gate it is
+	// waiting at. It returns the activity's coarse state name; the harness asserts on
+	// that rather than re-modelling the whole view, which the SPA owns.
+	QueryActivityView(ctx context.Context, projectID, activityID string) (state string, err error)
 	// GetConstructionSessionState reads the per-activity UC3 supervision view
 	// (constructionManager.md ConstructionSessionView). activityID is REQUIRED — the
 	// published route has no project-level (nil-activityID) query form.
