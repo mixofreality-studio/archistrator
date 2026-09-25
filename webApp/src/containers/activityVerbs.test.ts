@@ -110,8 +110,55 @@ void test('the M0 gate still resolves its own threads — Phase-2 has that op', 
     artifactKind: 'SdpReview',
   });
   assert.deepEqual(v.commentStatus, { kind: 'sdpDecision' });
-  assert.equal(v.ask.kind, 'none');
   assert.equal(v.rerun.kind, 'none');
+});
+
+// Spec §6: "comments and questions allowed" at M0. `projectDesignAskQuestions`
+// has always existed (src/api/ops.gen.ts); only the HOOK was missing, which is
+// why this table used to record the M0 ask as `none` and the gate offered an Ask
+// that dispatched nothing.
+void test('the M0 gate ASKS on its own rail — a different op from its decision', () => {
+  const v = verbsFor({ type: 'projectDesign', taskId: 'sdpReview', lifecyclePhase: 'sdp' });
+  assert.deepEqual(v.ask, { kind: 'projectAsk', artifactKind: 'sdpReview' });
+  assert.notEqual(
+    v.ask.kind,
+    v.approve.kind,
+    'asking a question is not deciding the gate — two ops, two targets'
+  );
+});
+
+// The other side of the same rule, and the one C1 is about: a construction gate
+// has NO question op, so its ask target stays `none` and the bar/composer hide
+// the affordance rather than offering one that dispatches nothing (ruling R2).
+void test('every construction type refuses the ask, and the two design rails offer it', () => {
+  for (const type of [
+    'service',
+    'frontend',
+    'testing',
+    'deployment',
+    'documentation',
+    'uiDesign',
+    'integration',
+  ]) {
+    assert.equal(
+      verbsFor({ type, taskId: 'codeReview', lifecyclePhase: 'construction' }).ask.kind,
+      'none',
+      `${type} has no AskQuestions op`
+    );
+  }
+  assert.equal(
+    verbsFor({
+      type: 'requirements',
+      taskId: 'missionReview',
+      lifecyclePhase: 'mission',
+      artifactKind: 'Mission',
+    }).ask.kind,
+    'designReviewDecision'
+  );
+  assert.equal(
+    verbsFor({ type: 'projectDesign', taskId: 'sdpReview', lifecyclePhase: 'sdp' }).ask.kind,
+    'projectAsk'
+  );
 });
 
 void test('a testing activity is a construction activity — variant does not change the rail', () => {

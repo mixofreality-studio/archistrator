@@ -78,6 +78,32 @@ export function freeformNotesFrom(comments: readonly PostedComment[]): string {
 }
 
 /**
+ * FOLDS the anchored change-requests into the free-form notes, for the one rail
+ * whose op carries no `comments` array of its own: `SubmitSDPDecision`, whose
+ * body is `feedback.notes` and nothing else.
+ *
+ * Every other decision op takes `{ notes, comments }` and keeps the two apart, so
+ * the anchor survives as structure. Here it cannot, and the choice is between
+ * losing the comments entirely (what the M0 gate did: staged, counted on the bar,
+ * then cleared by `reset()` with the approval recording none of them) and carrying
+ * them as text. Text wins — the anchor path goes in front of each line so the
+ * reader of the ledger can still tell what each note was pinned to.
+ *
+ * Order: the free-form notes first (they are the reviewer's own summary), then one
+ * line per anchored comment in staging order. Empty pieces are dropped, so a batch
+ * with only comments produces no leading blank line and an empty batch produces ''.
+ */
+export function foldCommentsIntoNotes(notes: string, comments: readonly AnchoredComment[]): string {
+  const lines: string[] = [];
+  if (notes.trim().length > 0) lines.push(notes);
+  for (const c of comments) {
+    if (c.text.trim().length === 0) continue;
+    lines.push(c.jsonPath.length > 0 ? `${c.jsonPath} — ${c.text}` : c.text);
+  }
+  return lines.join('\n');
+}
+
+/**
  * The QUESTION entries, mapped into the "Ask" payload — the third destination, and
  * the one `toWireEntries`/`freeformNotesFrom` deliberately exclude.
  *

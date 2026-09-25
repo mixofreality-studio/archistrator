@@ -24,6 +24,9 @@
  *                              artifact kind.
  *   projectDesign (activity 3)
  *       approve               → SubmitSDPDecision, then AdvanceToConstruction
+ *       ask / resolve / reopen → the PROJECT-DESIGN rail: AskQuestions and
+ *                              SetReviewCommentStatus both exist there (spec §6:
+ *                              "comments and questions allowed" at M0).
  *       send back             → NOTHING (spec R7): the plan is derived, so
  *                              changing it means amending the Architecture.
  *
@@ -35,7 +38,8 @@
  * would hand every design review `undefined` and silently strip its approve
  * verb, so this refuses loudly instead of inventing one.
  */
-import type { ArtifactKind, ArtifactKindFull } from '../contracts/types.ts';
+import type { ArtifactKind, ArtifactKindFull, ProjectArtifactKind } from '../contracts/types.ts';
+import { SDP_REVIEW_KIND } from '../contracts/types.ts';
 import { NO_ARTIFACT_KIND } from '../components/activity/activityCopy.ts';
 import { SLOT_KIND } from '../components/activity/taskArtifactFor.ts';
 
@@ -43,12 +47,20 @@ export type VerbTarget =
   | { kind: 'constructionPhaseDecision'; lifecyclePhase: string }
   | { kind: 'designReviewDecision'; artifactKind: ArtifactKind }
   | { kind: 'sdpDecision' }
+  /**
+   * The Phase-2 question rail (`projectDesignAskQuestions`). Separate from
+   * `sdpDecision` because it is a different op with a different body — the
+   * decision commits an option, this one appends question entries to the M0
+   * review ledger without deciding anything.
+   */
+  | { kind: 'projectAsk'; artifactKind: ProjectArtifactKind }
   | { kind: 'none'; reason: string };
 
 export interface VerbsFor {
   approve: VerbTarget;
   /** `{ kind: 'none' }` for projectDesign (spec R7). */
   sendBack: VerbTarget;
+  /** `{ kind: 'none' }` for construction (R2/GAP-6) — no `AskQuestions` op there. */
   ask: VerbTarget;
   /** `{ kind: 'none' }` for construction (R2/GAP-6). */
   commentStatus: VerbTarget;
@@ -87,9 +99,6 @@ const NO_CONSTRUCTION_THREAD_OP =
 const NO_SDP_SEND_BACK =
   'The M0 gate has no send-back: the plan is derived, so changing it means amending the Architecture.';
 
-const NO_SDP_ASK =
-  'The project-design rail has no question op, so a question here is recorded as a comment on the review.';
-
 const NO_SDP_RERUN =
   'The SDP review is re-derived from the committed plan, not re-run from this gate.';
 
@@ -112,7 +121,9 @@ export function verbsFor(input: {
     return {
       approve: sdp,
       sendBack: { kind: 'none', reason: NO_SDP_SEND_BACK },
-      ask: { kind: 'none', reason: NO_SDP_ASK },
+      // Spec §6: comments AND questions are allowed at M0. The op has always
+      // existed (`projectDesignAskQuestions`); what was missing was the hook.
+      ask: { kind: 'projectAsk', artifactKind: SDP_REVIEW_KIND },
       // The Phase-2 rail DOES have SetReviewCommentStatus — the M0 gate can
       // resolve and reopen its own threads even though it can never send back.
       commentStatus: sdp,

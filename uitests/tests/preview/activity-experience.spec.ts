@@ -9,7 +9,10 @@
  * read-only surface still enrols its rows' anchors, so a past round's margin card
  * is PLACED) and `OpRow` (a service contract's operations do the same, so a
  * design-review comment on an op sits level with it). Neither branch is reachable
- * under `node --test`, which is why they are asserted here.
+ * under `node --test`, which is why they are asserted here. The same describe
+ * block now also pins `OptionRow` (an SDP option row enrols its own anchor), and
+ * a case below pins the OTHER half of C1: a rail with no question op offers no
+ * way to stage a question.
  *
  * TWO THINGS THE PREVIEW CANNOT SHOW, and what stands in for them:
  *
@@ -309,6 +312,55 @@ test.describe('activity experience: what each body says', () => {
     expect(offBundle).toEqual([]);
   });
 
+  // C1. `resolveSubmitVerb` used to answer a staged QUESTION with an `ask` verb
+  // BEFORE it looked at whether the rail had a question op — and ~30 of the 32
+  // gates have none (`constructionManager` has no AskQuestions, R2/GAP-6). One
+  // staged question therefore replaced Approve AND Send back with a button the
+  // container's ask handler returns early from: a dead end on the gate. The fix
+  // is a pair, and this case pins the half a unit test cannot reach — the
+  // composer that stages the question is not there to stage it.
+
+  test('a construction gate offers NO way to stage a question, and keeps its primary verb', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', SERVICE);
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+    // The gate is live and awaiting a human, which is what makes the verb below
+    // the thing at stake.
+    await expect(page.getByTestId(TESTID.submitBarPrimary)).toBeVisible();
+
+    // Open the draft composer the only way this screen offers one without a row.
+    await page.getByTestId(TESTID.marginAddNote).click();
+    await expect(page.getByTestId(TESTID.marginComposer)).toBeVisible();
+
+    // The composer IS open (its change-request toggle is there), and the Question
+    // toggle is ABSENT — not disabled. A control that cannot be used is not one.
+    await expect(page.getByTestId(TESTID.marginComposerChangeRequest)).toBeVisible();
+    await expect(page.getByTestId(TESTID.marginComposerQuestion)).toHaveCount(0);
+
+    // And the bar still carries the verb the reviewer came for.
+    await expect(page.getByTestId(TESTID.submitBarPrimary)).toBeVisible();
+    await expect(page.getByTestId(TESTID.submitBarNotice)).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('…while the M0 gate, which HAS a question op, still offers the toggle', async ({ page }) => {
+    // The discrimination: the composer is not question-less everywhere. Spec §6
+    // allows comments AND questions at M0, and `projectDesignAskQuestions` is the
+    // op behind it.
+    const offBundle = await openState(page, 'activity-experience', 'project-design-m0');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    await page.getByTestId(TESTID.marginAddNote).click();
+    await expect(page.getByTestId(TESTID.marginComposer)).toBeVisible();
+    await expect(page.getByTestId(TESTID.marginComposerQuestion)).toBeVisible();
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
   test('a gate whose reviewer set could not be proposed shows the engine refusal, not an empty strip', async ({
     page,
   }) => {
@@ -367,11 +419,19 @@ test.describe('activity experience: §7.5 — the anchors a margin card is place
     await expect(placed).toBeVisible();
     await expect(unplaced.getByTestId(TESTID.marginCard('m0r1c2'))).toHaveCount(0);
 
+    // …and so is a card anchored to an SDP OPTION row: `OptionRow` enrols
+    // `sdpOptionAnchor(solutionKind)` (final fix wave, I4 — before it, the one
+    // surface whose whole job is choosing between options could not place a
+    // single comment on one).
+    await expect(page.getByTestId(TESTID.marginCard('m0r1c1'))).toBeVisible();
+    await expect(unplaced.getByTestId(TESTID.marginCard('m0r1c1'))).toHaveCount(0);
+
     // The control, and the reason this is a discrimination and not a tautology:
-    // an SDP option row enrols NO anchor, so a comment on one has nothing to sit
-    // beside and lands in the unanchored group, which leads the margin.
-    const orphan = page.getByTestId(TESTID.marginCard('m0r1c1'));
-    await expect(unplaced.getByTestId(TESTID.marginCard('m0r1c1'))).toHaveCount(1);
+    // `m0r1c3` points at an option kind The Method never assembles, so no row can
+    // ever enrol it and the card lands in the unanchored group, which leads the
+    // margin.
+    const orphan = page.getByTestId(TESTID.marginCard('m0r1c3'));
+    await expect(unplaced.getByTestId(TESTID.marginCard('m0r1c3'))).toHaveCount(1);
     // Placed means an OFFSET, not a slot in a list: the card sits level with a
     // row far down the artifact, well below the group that leads the column.
     const placedBox = await placed.boundingBox();

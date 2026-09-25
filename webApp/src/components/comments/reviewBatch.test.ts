@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   toWireEntries,
+  foldCommentsIntoNotes,
   freeformNotesFrom,
   isQuestion,
   pendingQuestionsFrom,
@@ -117,4 +118,67 @@ void test('change-requests never ride the Ask payload, replies included', () => 
   const changeRequestReply: PostedComment = { text: 'still vague', anchor: null, replyTo: 'r1c1' };
   const note: PostedComment = { text: 'a plain note', anchor: null };
   assert.equal(pendingQuestionsFrom([changeRequestReply, note]).length, 0);
+});
+
+// I2: `SubmitSDPDecision` carries ONE feedback field, so the M0 approve folds the
+// anchored comments into it. Before the fold they were staged, counted on the bar
+// and then cleared by `reset()` — the approval recorded none of them.
+
+void test('the fold puts the free-form notes first, then one anchored line each', () => {
+  assert.equal(
+    foldCommentsIntoNotes('Cost is the binding constraint.', [
+      {
+        jsonPath: '$.options[kind=compressedSolution]',
+        anchorText: 'Compressed',
+        text: 'why not this one?',
+        replyTo: '',
+      },
+      {
+        jsonPath: '$.activities[name="C-review-engine"]',
+        anchorText: 'C-review-engine',
+        text: '15 days is the estimate?',
+        replyTo: '',
+      },
+    ]),
+    'Cost is the binding constraint.\n' +
+      '$.options[kind=compressedSolution] — why not this one?\n' +
+      '$.activities[name="C-review-engine"] — 15 days is the estimate?'
+  );
+});
+
+void test('the fold with no notes produces no leading blank line, and an empty batch is empty', () => {
+  assert.equal(
+    foldCommentsIntoNotes('', [
+      {
+        jsonPath: '$.options[kind=normalSolution]',
+        anchorText: 'Normal',
+        text: 'agreed',
+        replyTo: '',
+      },
+    ]),
+    '$.options[kind=normalSolution] — agreed'
+  );
+  assert.equal(foldCommentsIntoNotes('', []), '');
+  assert.equal(foldCommentsIntoNotes('   ', []), '');
+});
+
+void test('a reply (no jsonPath) folds as its own text, and an empty comment is dropped', () => {
+  assert.equal(
+    foldCommentsIntoNotes('', [
+      { jsonPath: '', anchorText: '', text: 'answering the earlier point', replyTo: 'm0r1c1' },
+      { jsonPath: '$.options[kind=normalSolution]', anchorText: 'Normal', text: '  ', replyTo: '' },
+    ]),
+    'answering the earlier point'
+  );
+});
+
+void test('the fold loses nothing: every staged comment text appears in the result', () => {
+  const comments = [
+    { jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' },
+    { jsonPath: '$.b', anchorText: 'b', text: 'second', replyTo: '' },
+    { jsonPath: '', anchorText: '', text: 'third', replyTo: 'x1' },
+  ];
+  const folded = foldCommentsIntoNotes('notes', comments);
+  for (const c of comments) assert.ok(folded.includes(c.text), `${c.text} survived the fold`);
+  assert.equal(folded.split('\n').length, 4);
 });

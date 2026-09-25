@@ -97,6 +97,7 @@ import {
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
 import { openThreadCount, toReviewThread } from '../components/activity/threadAdapter.ts';
+import { foldCommentsIntoNotes } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
   taskArtifactFor,
@@ -125,6 +126,7 @@ import {
 import {
   useAcknowledgeProjectStaleBasis,
   useAdvanceToConstruction,
+  useProjectAskQuestions,
   useSetProjectReviewCommentStatus,
   useSubmitSDPDecision,
 } from '../hooks/useProjectDesignMutations';
@@ -239,6 +241,7 @@ export function ActivityExperienceContainer({
   const setDesignCommentStatus = useSetReviewCommentStatus(projectId);
   const setProjectCommentStatus = useSetProjectReviewCommentStatus(projectId);
   const askQuestionsMut = useAskQuestions(projectId);
+  const askProjectMut = useProjectAskQuestions(projectId);
   const requestDraft = useRequestArtifactDraft(projectId);
   const overrideActivity = useOverrideActivity(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
@@ -347,6 +350,11 @@ export function ActivityExperienceContainer({
   const questionCount = pendingQuestions().length;
   const changeRequestCount = comments.length - questionCount;
   const canSetCommentStatus = verbs.commentStatus.kind !== 'none';
+  // This rail has a question op at all. Both design phases do; construction does
+  // not (R2/GAP-6). It gates BOTH the composer's Question toggle and the bar's
+  // Ask verb, so a question can never be staged where pressing Ask would dispatch
+  // nothing — and the bar can never lose Approve/Send back to an Ask that does.
+  const canAsk = verbs.ask.kind !== 'none';
 
   /** Approve or send back, on whichever rail this activity's type names. */
   const decide = (approve: boolean): void => {
@@ -400,8 +408,20 @@ export function ActivityExperienceContainer({
       case 'sdpDecision':
         // Approve IS commit-then-advance (spec §6): the option binds the plan of
         // record, and the advance is what unlocks construction.
+        //
+        // `SubmitSDPDecision`'s body carries ONE feedback field (`notes`) and no
+        // `comments` array, so the anchored comments are FOLDED into it. Without
+        // that fold, every comment a reviewer pinned to an option or an activity
+        // row was dropped on the floor by the `reset()` below — staged, counted on
+        // the bar, and then gone, with the approval recording none of it.
         submitSdp.mutate(
-          { decision: 'commit', detail: { optionId: sdpOption, feedback: notes } },
+          {
+            decision: 'commit',
+            detail: {
+              optionId: sdpOption,
+              feedback: foldCommentsIntoNotes(notes, wireComments),
+            },
+          },
           {
             onSuccess: () => {
               reset();
@@ -410,6 +430,7 @@ export function ActivityExperienceContainer({
           }
         );
         return;
+      case 'projectAsk':
       case 'none':
         return;
     }
@@ -425,14 +446,22 @@ export function ActivityExperienceContainer({
         overrideActivity.mutate({ activityId, kind: 'retry' });
         return;
       case 'sdpDecision':
+      case 'projectAsk':
       case 'none':
         return;
     }
   };
 
+  /**
+   * Send the staged questions, grouped by addressee — one batch per role, because
+   * the op addresses a whole batch to one role. BOTH design phases have the op
+   * (Phase 1 `systemDesignAskQuestions`, Phase 2 `projectDesignAskQuestions`);
+   * construction has neither, and `verbs.ask` is `none` there, which is also what
+   * takes the Ask verb off its bar and the Question toggle out of its composer.
+   */
   const askQuestions = (): void => {
     const target = verbs.ask;
-    if (target.kind !== 'designReviewDecision') return;
+    if (target.kind !== 'designReviewDecision' && target.kind !== 'projectAsk') return;
     const pending = pendingQuestions();
     if (pending.length === 0) return;
     const byAddressee = new Map<'pm' | 'architect', typeof pending>();
@@ -441,16 +470,17 @@ export function ActivityExperienceContainer({
       byAddressee.set(key, [...(byAddressee.get(key) ?? []), q]);
     }
     for (const [addressee, group] of byAddressee) {
-      askQuestionsMut.mutate({
-        kind: target.artifactKind,
-        addressee,
-        questions: group.map((q) => ({
-          jsonPath: q.jsonPath,
-          text: q.text,
-          anchorText: q.anchorText,
-          replyTo: q.replyTo,
-        })),
-      });
+      const questions = group.map((q) => ({
+        jsonPath: q.jsonPath,
+        text: q.text,
+        anchorText: q.anchorText,
+        replyTo: q.replyTo,
+      }));
+      if (target.kind === 'projectAsk') {
+        askProjectMut.mutate({ kind: target.artifactKind, addressee, questions });
+        continue;
+      }
+      askQuestionsMut.mutate({ kind: target.artifactKind, addressee, questions });
     }
   };
 
@@ -461,7 +491,7 @@ export function ActivityExperienceContainer({
       return;
     }
     if (target.kind === 'sdpDecision') {
-      setProjectCommentStatus.mutate({ kind: 'sdpReview', commentID, status });
+      setProjectCommentStatus.mutate({ kind: SDP_REVIEW_KIND, commentID, status });
     }
   };
 
@@ -491,6 +521,7 @@ export function ActivityExperienceContainer({
         });
         return;
       case 'constructionPhaseDecision':
+      case 'projectAsk':
       case 'none':
         return;
     }
@@ -506,6 +537,7 @@ export function ActivityExperienceContainer({
         acknowledgeProjectStale.mutate({ kind: SDP_REVIEW_KIND, note: staleNote });
         return;
       case 'constructionPhaseDecision':
+      case 'projectAsk':
       case 'none':
         return;
     }
@@ -541,6 +573,11 @@ export function ActivityExperienceContainer({
     node?.kind === 'review' && marginOpen
       ? (scrollRoot: HTMLElement | null): ReactNode => (
           <CommentMargin
+            // A question cannot be STAGED where it could never be SENT: the
+            // construction rail has no AskQuestions op (R2/GAP-6), so its composer
+            // renders no Question toggle at all. The bar's own `allowAsk` is the
+            // other half of the same fact.
+            allowQuestions={canAsk}
             // On a read-only history a DECIDED thread is the point of the history,
             // not noise in it, so resolved cards stay open instead of collapsing
             // to a one-liner nobody can act on anyway.
@@ -682,10 +719,11 @@ export function ActivityExperienceContainer({
         ) : (
           <ReviewBody
             advance={advanceSurface}
+            allowAsk={canAsk}
             allowSendBack={verbs.allowSendBack}
             approveCopy={verbs.approveCopy}
             artifact={artifact}
-            askPending={askQuestionsMut.isPending}
+            askPending={askQuestionsMut.isPending || askProjectMut.isPending}
             contractJoin={contractJoin}
             decisionPending={decisionPending}
             facts={facts}

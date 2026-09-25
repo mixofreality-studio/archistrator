@@ -183,6 +183,9 @@ export const UI_IDENTIFIERS = {
     SUBMIT_BAR: 'submit-bar',
     SUBMIT_BAR_PRIMARY: 'submit-bar-primary',
     SUBMIT_BAR_CONSEQUENCE: 'submit-bar-consequence',
+    // The second line beneath the consequence: what the verb will NOT do. Today
+    // written only by questions staged on a rail with no question op.
+    SUBMIT_BAR_NOTICE: 'submit-bar-notice',
     SUBMIT_BAR_MENU_BUTTON: 'submit-bar-menu-button',
     SUBMIT_BAR_MENU: 'submit-bar-menu',
     // A secondary (overflow) verb, keyed by its action ('withdraw' / 'retry').

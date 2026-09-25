@@ -107,6 +107,7 @@ export const TESTID = {
   // Ask), plus its consequence line: what pressing the verb will actually dispatch.
   submitBar: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR,
   submitBarPrimary: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_PRIMARY,
+  submitBarNotice: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_NOTICE,
   submitBarConsequence: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_CONSEQUENCE,
 
   // The five Phase-1 artifact renderers' ROOTS. `ArtifactRenderer` dispatches on
@@ -221,6 +222,11 @@ export const TESTID = {
   marginToggle: UI_IDENTIFIERS.Chat.TOGGLE,
   marginComposerInput: UI_IDENTIFIERS.Chat.INPUT,
   marginComposerSubmit: UI_IDENTIFIERS.Chat.SEND,
+  // The draft card's two type toggles. The QUESTION one is absent on a rail with
+  // no AskQuestions op (every construction activity type — R2/GAP-6), which is
+  // how "a question cannot be staged where it cannot be sent" is observed.
+  marginComposerChangeRequest: UI_IDENTIFIERS.Chat.TYPE_CHANGE_REQUEST,
+  marginComposerQuestion: UI_IDENTIFIERS.Chat.TYPE_QUESTION,
   // The margin proper (UI_IDENTIFIERS.Margin): the column, the unanchored group,
   // the in-place draft card and the per-thread card/reply/resolve/reopen builders.
   // A placed card sits LEVEL with the row it anchors to — there is no separate

@@ -1,7 +1,7 @@
 /**
  * Phase-2 co-authoring mutations: request an artifact draft, submit a per-artifact
- * gate decision, assemble the SDP review, submit the SDP option decision, and
- * advance the phase. Each invalidates the affected project head-state + Phase-2
+ * gate decision, ask questions, assemble the SDP review, submit the SDP option
+ * decision, and advance the phase. Each invalidates the affected project head-state + Phase-2
  * session queries so the UI re-reads fresh server state (never setQueryData). The
  * Phase-2 TWIN of useDesignMutations.ts.
  */
@@ -23,6 +23,7 @@ import type {
   AnchoredComment,
   ProjectArtifactKind,
   ProjectPhaseAdvanceResponse,
+  ReviewCommentAddressee,
   ReviewCommentStatus,
   ReviewDecision,
   SDPDecision,
@@ -130,6 +131,47 @@ export function useSetProjectReviewCommentStatus(
           commentID: vars.commentID,
           status: vars.status,
         } satisfies OpBody<'projectDesignSetReviewCommentStatus'>,
+      });
+      return undefined;
+    },
+    onSuccess: (_data, vars) => invalidateArtifact(client, projectId, vars.kind),
+  });
+}
+
+export interface ProjectAskQuestionsVars {
+  kind: ProjectArtifactKind;
+  /** The role every question in this batch is addressed to. */
+  addressee: Exclude<ReviewCommentAddressee, ''>;
+  questions: AnchoredComment[];
+}
+
+/**
+ * Ask clarifying QUESTIONS about a Phase-2 artifact WITHOUT sending it back — the
+ * Phase-2 TWIN of `useAskQuestions` (useDesignMutations.ts), and the reason the M0
+ * gate can take a question at all.
+ *
+ * `projectDesignAskQuestions` has existed on the wire and in `ops.gen.ts` the whole
+ * time; only this hook was missing, so `containers/activityVerbs.ts` recorded the
+ * M0 ask as "no op" and the gate offered a dead Ask button. Nothing about the
+ * server changed here.
+ *
+ * On success it invalidates the project head-state + the Phase-2 session query for
+ * the kind, so the review thread re-reads with the new asks on it.
+ */
+export function useProjectAskQuestions(
+  projectId: string
+): UseMutationResult<undefined, Error, ProjectAskQuestionsVars> {
+  const client = useQueryClient();
+  const { ops } = useOpsClient();
+  return useMutation<undefined, Error, ProjectAskQuestionsVars>({
+    mutationFn: async (vars) => {
+      await ops.call('projectDesignAskQuestions', {
+        path: { projectID: projectId },
+        body: {
+          kind: artifactKindToOrdinal(vars.kind),
+          addressee: vars.addressee,
+          questions: vars.questions,
+        } satisfies OpBody<'projectDesignAskQuestions'>,
       });
       return undefined;
     },

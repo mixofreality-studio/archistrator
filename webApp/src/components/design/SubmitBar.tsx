@@ -106,6 +106,16 @@ export interface SubmitBarProps {
    * rendered anywhere, including the overflow menu.
    */
   allowSendBack?: boolean;
+  /**
+   * Forwarded straight into `resolveSubmitVerb`. False on a rail with no question
+   * op (every construction activity type — R2/GAP-6), where an Ask primary verb
+   * would dispatch nothing and would have replaced Approve and Send back to do
+   * it. Default true — the design rails and the MCP widget are unaffected. The
+   * composer that stages questions is hidden on the same flag
+   * (`CommentMargin.allowQuestions`), so the notice below is a backstop for notes
+   * staged before it was, not the normal path.
+   */
+  allowAsk?: boolean;
   /** Forwarded straight into `resolveSubmitVerb` — overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
   approveCopy?: { label: string; consequence: string } | undefined;
   /** Omitted where withdrawing does not apply (e.g. a clean committed slot). */
@@ -130,6 +140,7 @@ export function SubmitBar({
   onAmend,
   allowEmptySendBack = false,
   allowSendBack = true,
+  allowAsk = true,
   approveCopy,
   onWithdraw,
   withdrawPending = false,
@@ -147,6 +158,7 @@ export function SubmitBar({
     openThreads,
     allowEmptySendBack,
     allowSendBack,
+    allowAsk,
     approveCopy,
   });
 
@@ -230,6 +242,19 @@ export function SubmitBar({
             variant="caption"
           >
             {verb.consequence}
+          </Typography>
+        ) : null}
+        {/* What the verb will NOT do, on its own line and in its own colour: an
+            `approveCopy` replaces the consequence above, so a warning folded into
+            that string would vanish on exactly the gate that overrides it. */}
+        {verb.notice.length > 0 ? (
+          <Typography
+            data-testid={UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_NOTICE}
+            role="status"
+            sx={{ mt: 0.5, color: t.dangerFg, display: 'block' }}
+            variant="caption"
+          >
+            {verb.notice}
           </Typography>
         ) : null}
       </Box>

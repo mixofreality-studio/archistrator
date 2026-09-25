@@ -34,6 +34,7 @@ import { BandedScatter, type ScatterPoint } from './charts';
 import { ComputedBadge, AuthoredBadge } from './computed';
 import { useComments } from '../comments/CommentContext';
 import { sdpOptionAnchor } from '../comments/CommentContext';
+import { useRegisterAnchor } from '../comments/AnchorRegistry';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** The per-row "Comment on this item" affordance for the ARIA-table option rows. */
@@ -67,6 +68,67 @@ function RowCommentButton({
         <ChatBubbleOutlineIcon sx={{ fontSize: 14 }} />
       </IconButton>
     </Tooltip>
+  );
+}
+
+/**
+ * One option's `role="row"` in the options table, with its comment ANCHOR
+ * enrolled. Extracted from the parent's `.map()` body for the same reason
+ * `ContractSignatureList`'s `OpRow` is: it calls {@link useRegisterAnchor}, a
+ * hook, which React forbids inside a loop callback.
+ *
+ * Before this, `armOption` armed `sdpOptionAnchor(solutionKind)` and NOTHING
+ * enrolled it, so every comment on an option — the one surface whose whole job is
+ * choosing between options — could only fall into the margin's UNPLACED group, on
+ * the live gate and in history alike.
+ *
+ * The ref goes on the row's FIRST CELL, not on the row itself: the row is
+ * `display: contents` (it has to be, so its cells are items of the outer grid),
+ * and an element with no box has an empty `getBoundingClientRect()` — it would
+ * have enrolled an anchor that measures as offset 0 and placed the card at the
+ * top of the margin, which is a worse lie than leaving it unplaced. The first
+ * cell is the OPTION name, the visual start of the row the reader armed.
+ */
+function OptionRow({
+  option,
+  t,
+  children,
+}: {
+  option: SdpOptionView;
+  t: Tokens;
+  /** The remaining cells, rendered by the caller (they need its formatters). */
+  children: ReactNode;
+}): ReactNode {
+  const registerAnchor = useRegisterAnchor(sdpOptionAnchor(option.solutionKind));
+  return (
+    <Box role="row" sx={ROW_REVEAL_SX}>
+      <Box
+        ref={registerAnchor}
+        role="cell"
+        sx={{
+          px: 1.25,
+          py: 0.9,
+          borderBottom: `1px solid ${t.line}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.6,
+        }}
+      >
+        <Box
+          sx={{
+            width: 9,
+            height: 9,
+            bgcolor: solutionAccentColor(t, option.solutionKind),
+            border: `1.5px solid ${t.line}`,
+          }}
+        />
+        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
+          {SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind}
+        </Typography>
+        {option.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
+      </Box>
+      {children}
+    </Box>
   );
 }
 
@@ -336,33 +398,7 @@ export function SdpReviewView({
               ))}
             </Box>
             {view.options.map((o) => (
-              <Box key={o.optionId} role="row" sx={ROW_REVEAL_SX}>
-                <Box
-                  role="cell"
-                  sx={{
-                    px: 1.25,
-                    py: 0.9,
-                    borderBottom: `1px solid ${t.line}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.6,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 9,
-                      height: 9,
-                      bgcolor: solutionAccentColor(t, o.solutionKind),
-                      border: `1.5px solid ${t.line}`,
-                    }}
-                  />
-                  <Typography
-                    sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}
-                  >
-                    {SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
-                  </Typography>
-                  {o.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
-                </Box>
+              <OptionRow key={o.optionId} option={o} t={t}>
                 <Cell t={t}>{formatDurationDays(o.durationDays)}</Cell>
                 <Cell t={t}>{formatMoney(o.buildCost)}</Cell>
                 <Cell strong t={t}>
@@ -405,7 +441,7 @@ export function SdpReviewView({
                     />
                   ) : null}
                 </Box>
-              </Box>
+              </OptionRow>
             ))}
           </Box>
         </Box>

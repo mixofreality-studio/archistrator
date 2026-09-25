@@ -97,6 +97,7 @@ export function ReviewBody({
   decisionPending,
   askPending,
   allowSendBack,
+  allowAsk,
   approveCopy,
   threadReadOnly,
   onApprove,
@@ -174,6 +175,13 @@ export function ReviewBody({
   decisionPending: boolean;
   askPending: boolean;
   allowSendBack: boolean;
+  /**
+   * This rail can send a question at all. False on every construction type
+   * (R2/GAP-6): the bar then never offers an Ask, and a question staged before
+   * the composer was hidden is reported by the bar's notice instead of turning
+   * the one verb on the gate into a button that dispatches nothing.
+   */
+  allowAsk: boolean;
   approveCopy?: { label: string; consequence: string } | undefined;
   /** The rail behind this gate has no comment-status op (R2) — say so once. */
   threadReadOnly: boolean;
@@ -323,6 +331,7 @@ export function ReviewBody({
 
       {live ? (
         <SubmitBar
+          allowAsk={allowAsk}
           allowSendBack={allowSendBack}
           approveCopy={approveCopy}
           askPending={askPending}
