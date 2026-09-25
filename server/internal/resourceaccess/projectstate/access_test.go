@@ -11370,31 +11370,114 @@ func TestWithActivityVersion_RefusesAStaleExpectationAndStampsTheCounter(t *test
 // safe: two writers on the SAME activity cannot interleave, while two children on
 // DIFFERENT activities never contend at all (the project-level CAS alone would have made
 // them).
+//
+// BOTH shapes of guarded verb are driven, because the facet has two and only one of them
+// would be caught by testing the other. A STAMPING verb runs inside withActivityVersion
+// and advances the row's counter; AcknowledgeStaleBasis calls the same check explicitly
+// and then writes the SLOT, so it honours the expectation while advancing nothing — and a
+// guard that is only checked and never stamped is exactly the guard a refactor deletes
+// without a single test noticing.
 func TestActivityExecutionRefusesAStaleActivityVersion(t *testing.T) {
-	a, _, id, v, cred := newExecutionStore(t)
-	v = openTestActivity(t, a, id, v, cred)
-	held := verbRowVersion(t, a, id, "C-X")
+	cases := []struct {
+		name string
+		// seed prepares whatever the verb needs beyond an opened activity and returns the
+		// project version to write from.
+		seed func(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential) Version
+		// apply runs the verb ONCE with the per-activity version its caller is holding.
+		apply func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error)
+		// stamps is whether an APPLIED transition advances the row's own counter.
+		stamps bool
+	}{
+		{
+			name: "RecordAttemptOutcome",
+			seed: func(_ *testing.T, _ *GitStore, _ ProjectID, v Version, _ RepoCredential) Version { return v },
+			apply: func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error) {
+				return a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
+					AttemptID: key, TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+				}, cred, fwra.IdempotencyKey(key))
+			},
+			stamps: true,
+		},
+		{
+			// The slot the acknowledgement clears has to be committed AND stale for the
+			// transition to write anything, or "a fresh expectation applies" would be
+			// indistinguishable from the slot guard refusing underneath it.
+			name: "AcknowledgeStaleBasis",
+			seed: seedStaleGlossary,
+			apply: func(a ActivityExecutionAccess, id ProjectID, v Version, held int64, cred RepoCredential, key string) (Version, error) {
+				return a.AcknowledgeStaleBasis(execRC(), id, v, held, "C-X", KindGlossary, "no term changes", cred, fwra.IdempotencyKey(key))
+			},
+			stamps: false,
+		},
+	}
 
-	v = verbDone(a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
-		AttemptID: AttemptID("C-X", TaskSRS, 1), TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
-	}, cred, "k-fresh")).must(t)
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			a, store, id, v, cred := newExecutionStore(t)
+			v = openTestActivity(t, a, id, v, cred)
+			v = c.seed(t, store, id, v, cred)
+			held := verbRowVersion(t, a, id, "C-X")
 
-	// held is now one behind — the same value a second child would still be holding.
-	_, err := a.RecordAttemptOutcome(execRC(), id, v, held, "C-X", TaskAttemptInput{
-		AttemptID: AttemptID("C-X", TaskSRS, 2), TaskID: TaskSRS, Attempt: 2, Outcome: OutcomePassed,
-	}, cred, "k-stale")
-	if err == nil {
-		t.Fatal("a stale per-activity version must be refused")
+			v, err := c.apply(a, id, v, held, cred, "k-fresh")
+			if err != nil {
+				t.Fatalf("a fresh expectation must apply: %v", err)
+			}
+			after := verbRowVersion(t, a, id, "C-X")
+			switch {
+			case c.stamps && after != held+1:
+				t.Fatalf("an applied transition advances the counter: version = %d, want %d", after, held+1)
+			case !c.stamps && after != held:
+				t.Fatalf("this verb writes the slot, not the row: version = %d, want %d", after, held)
+			}
+
+			// A STAMPING verb has left `held` one behind — the value a second child would
+			// still be holding. A non-stamping one has not moved the row at all, so the
+			// stale number has to be fabricated to say the same thing: "I read this
+			// somewhere this write is not going."
+			stale := held
+			if !c.stamps {
+				stale = held + 1
+			}
+			if _, err = c.apply(a, id, v, stale, cred, "k-stale"); err == nil {
+				t.Fatal("a stale per-activity version must be refused")
+			}
+			if got := kindOf(t, err); got != fwra.Conflict {
+				t.Fatalf("kind = %v, want Conflict — the caller resolves it by re-reading", got)
+			}
+			if !strings.Contains(err.Error(), "re-read the activity and re-apply") {
+				t.Errorf("the Conflict must tell the caller what to do, got %q", err.Error())
+			}
+			if got := verbRowVersion(t, a, id, "C-X"); got != after {
+				t.Fatalf("a refused write must leave the row where it found it: version = %d, want %d", got, after)
+			}
+		})
 	}
-	if got := kindOf(t, err); got != fwra.Conflict {
-		t.Fatalf("kind = %v, want Conflict — the caller resolves it by re-reading", got)
+}
+
+// seedStaleGlossary commits Mission then Glossary and AMENDS Mission, which is what makes
+// the committed Glossary stale — the only state in which an acknowledgement has anything
+// to clear. Returns the project version after the amend.
+func seedStaleGlossary(t *testing.T, store *GitStore, id ProjectID, v Version, cred RepoCredential) Version {
+	t.Helper()
+	ctx := context.Background()
+	stageCommit := func(v Version, kind ArtifactKind, model ArtifactModel, tag string) Version {
+		staged, err := store.StageArtifactForReviewOnBranch(ctx, id, v, "", model, cred, fwra.IdempotencyKey("wf:stage:"+tag))
+		if err != nil {
+			t.Fatalf("stage %s: %v", tag, err)
+		}
+		committed, err := store.CommitArtifact(ctx, id, staged, kind, cred, fwra.IdempotencyKey("wf:commit:"+tag))
+		if err != nil {
+			t.Fatalf("commit %s: %v", tag, err)
+		}
+		return committed
 	}
-	if !strings.Contains(err.Error(), "re-read the activity and re-apply") {
-		t.Errorf("the Conflict must tell the caller what to do, got %q", err.Error())
+	v = stageCommit(v, KindMission, &MissionStatement{Vision: "v1", Mission: "m1"}, "mission1")
+	v = stageCommit(v, KindGlossary, &Glossary{}, "glossary1")
+	v = stageCommit(v, KindMission, &MissionStatement{Vision: "v2", Mission: "m2"}, "mission2")
+	if !readProject(t, store, id, cred).Glossary.StaleBasis {
+		t.Fatal("precondition: the Glossary must be stale after the Mission amend")
 	}
-	if got := verbRowVersion(t, a, id, "C-X"); got != held+1 {
-		t.Fatalf("a refused write must leave the row where it found it: version = %d, want %d", got, held+1)
-	}
+	return v
 }
 
 // TestActivityExecutionAcceptsTheUnreadPosture is the other half of the rule.

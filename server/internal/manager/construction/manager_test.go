@@ -2707,6 +2707,7 @@ func (f *fakeProjectState) RecordActivityExited(_ fwra.Context, _ projectstate.P
 		return 0, err
 	}
 	f.exited = append(f.exited, exitCall{activityID: activityID, outcome: outcome})
+	f.stampRow(activityID)
 	return f.bump(), nil
 }
 
@@ -2717,6 +2718,7 @@ func (f *fakeProjectState) RecordActivityFailed(_ fwra.Context, _ projectstate.P
 		return 0, err
 	}
 	f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
+	f.stampRow(activityID)
 	return f.bump(), nil
 }
 
@@ -2845,15 +2847,17 @@ func (f *fakeProjectState) RecordActivityMerged(_ fwra.Context, _ projectstate.P
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ActivityType, _ projectstate.TestingVariant, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordActivityStarted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.ActivityType, _ projectstate.TestingVariant, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.stampRow(activityID)
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) RecordActivityCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) RecordActivityCompleted(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	f.stampRow(activityID)
 	return f.bump(), nil
 }
 
@@ -2940,10 +2944,19 @@ func (f *fakeProjectState) execution(activityID string) projectstate.ActivityExe
 // to stamp it too, or a workflow test would never see the drift a run's copy of the row
 // version takes when an old-rail write lands between two new-rail ones.
 //
-// It stamps an EXISTING row and never births one. These verbs run on a ledger-on
-// execution only AFTER OpenActivity has birthed the row (step 0 of the spine), and
-// birthing a bare row here would hand every ledger-OFF test an activity row its run never
-// opened. Callers hold the lock.
+// EVERY retired verb that stamps in production calls it — the nine in
+// TestEveryMutatingVerbOnARowStampsItsVersion's first block: RecordChangeReviewed,
+// RecordActivityExited, RecordActivityFailed, RecordOperatorNote,
+// RecordOperatorNoteDelivered, RecordPhaseStarted, RecordPhaseCompleted,
+// RecordActivityStarted, RecordActivityCompleted. Mirroring only the four that a ledger-on
+// run reaches today would leave the double passing exactly where production Conflicts the
+// moment a fence moves, which is the shape of hazard this whole guard exists to refuse.
+//
+// It stamps an EXISTING row and never births one. A run reaches these verbs with a row
+// only after OpenActivity birthed it (step 0 of the spine), and birthing a bare row here
+// would hand every ledger-OFF test an activity row its run never opened — a row with no
+// pin, no StartedAt and no ledger, which the coarse-phase derivations would then read.
+// Callers hold the lock.
 func (f *fakeProjectState) stampRow(activityID string) {
 	row, ok := f.project.ActivityExecution[activityID]
 	if !ok {

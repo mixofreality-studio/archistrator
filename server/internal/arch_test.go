@@ -997,9 +997,20 @@ var encapsulationAllowlistData = map[string][]string{
 		// CONTRACT VOCABULARY for a generated parameter (stage 4a). The eleven mutating
 		// verbs on activityExecutionAccess take an expectedActivityVersion, and this const
 		// is the one value that means "I have not read this row" — the posture OpenActivity
-		// takes on a birth and a migration tool takes over history it never read. It is
-		// exported for the same reason a generated enum member is: a caller outside the
-		// package cannot fill a generated parameter honestly without the name for its
+		// takes on a BIRTH, when there is no row yet to hold a version of.
+		//
+		// Its only CODE users outside this package today are the three Managers'
+		// hand-rolled activityExecutionAccess doubles, which compare against it to decide
+		// whether a caller is asserting a row version at all. (The three production
+		// Managers name it in doc comments, to say what their zero-seeded activityVersion
+		// means — they do not reference the value.) That is a thin roster on purpose: the
+		// PRODUCTION caller arrives in Task 6, when the moved workflows fill the parameter
+		// for real. No migration or backfill tool calls this facet at all —
+		// cmd/backfill-attempts and cmd/migrate-activity-execution write through the
+		// store's own verbs, not through it.
+		//
+		// It is exported for the same reason a generated enum member is: a caller outside
+		// the package cannot fill a generated parameter honestly without the name for its
 		// sentinel, and the alternative is every caller writing a bare 0.
 		"NoActivityVersionExpectation",
 		"NewGitStore",
