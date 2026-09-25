@@ -25,11 +25,12 @@
       "caseIds": [
         "STP-UC3-H1",
         "STP-UC3-H2",
+        "STP-UC3-H3",
         "STP-UC3-N1",
         "STP-UC3-N2",
         "STP-UC3-B1"
       ],
-      "sourceHash": "cf6fff77724f8fd3c9c6e240db37bbb5b2ca4241a5cb2b86d7056ef0ff315244"
+      "sourceHash": "3cb35a1df4df47ca864fe7e1d323dac050292bef697e8921a3062498b729199b"
     },
     "STP-UC4": {
       "file": "stp_uc4_table.gen.go",

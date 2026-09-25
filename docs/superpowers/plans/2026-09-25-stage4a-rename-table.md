@@ -75,14 +75,9 @@ cd server && GOWORK=off go run ./cmd/aiarch-state-mcp validate --root /tmp/base 
 **Baseline 48 → end state 43, net −5, 0 errors throughout.** The end state (43/0) is
 also what the stage-4a plan predicted.
 
-> DISCREPANCY, recorded rather than reconciled. Task 6's fix-round-1 review gave the
-> baseline as 46, net −3, with `DH-CONTRACT-DEADOP` 0→2 NEW on
-> `projectStateAccess.RecordOperatorNote`. That does not reproduce with the recipe
-> above: the baseline measures 48, and both `DH-CONTRACT-DEADOP` findings are already
-> present at `b10c9fce` with byte-identical messages, so the count is 2→2 and neither
-> is new. Whoever holds the 46 should re-run the recipe; the end state is not in
-> dispute either way, and `engine_test.go` pins `DH-CONTRACT-DEADOP` present at
-> Warning, which is true before and after.
+> Settled in re-review: baseline 48, end state 43, net −5, with `DH-CONTRACT-DEADOP`
+> unmoved at 2→2 (`AcknowledgeStaleBasis`, `RecordOperatorNote`) — the 46 came from a
+> stale scratch blob (sha `1883c2a1`) rather than `b10c9fce`'s `ccf09f4d`.
 
 ## The table
 

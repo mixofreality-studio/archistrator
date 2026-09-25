@@ -32204,6 +32204,36 @@
               ]
             },
             {
+              "id": "STP-UC3-H3",
+              "kind": "happy",
+              "title": "The loop closes: after the approval, the pump dispatches the NEXT activity",
+              "proves": "That a gate approval does not merely end one activity — the delivery pump picks the network up again and dispatches the next eligible activity. This is the one fact that makes the chain a LOOP rather than a line, and it is asserted nowhere else in UC3: H2’s tick is pre-override, and STP-UC3-B1’s pair proves tick idempotency, not progress.",
+              "expectedOutcome": "A tick after STP-UC3-H1’s approved gate reports dispatched=true.",
+              "steps": [
+                {
+                  "seq": 1,
+                  "component": "deliveryManager",
+                  "operation": "ExecuteNextActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-2026-07-02T10:00:00Z"
+                    }
+                  ],
+                  "expect": {
+                    "result": "{\"dispatched\":true}",
+                    "errorExpected": false
+                  },
+                  "assertion": "A later tick progresses construction: on the approved review the PR merges, the activity records its exit, and the pump dispatches the NEXT eligible activity — the loop closes. It runs against the state STP-UC3-H1 left behind (the runner mints ONE project per scenario and replays its cases in authored order), which is the same convention STP-UC3-N1 already depends on. It is a case of its own because a second pump tick placed AFTER the gate inside H1 walks that case’s entry chain backwards — STP-WALK-LEGAL (Error), which is per-case; here the only entry op is the tick itself, so the walk is trivially in order."
+                }
+              ]
+            },
+            {
               "id": "STP-UC3-N1",
               "kind": "negative",
               "title": "Pump does not dispatch when no activity is eligible",
