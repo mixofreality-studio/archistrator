@@ -123,22 +123,28 @@ export function pipelinePhaseFromOrdinal(ordinal: number): PipelinePhase {
 }
 
 // --- ProjectSessionStage ------------------------------------------------------
-// StageAssemblingSDP derives mechanically to "assemblingSDP" (lowerFirst only
-// lowercases the leading letter); the app uses "assemblingSdp". Casing
-// convention diff, not a bug — every other member is mechanical.
+// ProjectStageAssemblingSDP derives mechanically to "projectStageAssemblingSDP"
+// (the local type name "ProjectSessionStage" shares no whole-word run with the
+// varname's "ProjectStage" prefix, so nothing strips); the app uses
+// "assemblingSdp". Naming + casing convention diff, not a bug.
+//
+// The varnames carry the `Project` infix since stage 4a: one Manager namespace
+// publishes BOTH session-stage shapes, and the projectDesign rail's consts were
+// prefixed to clear the collision with the Phase-1 rail's (whose ordinals differ
+// — this one inserts AssemblingSDP at 2 — so they could not be folded).
 
 const PROJECT_SESSION_STAGE_APP_STRING: Readonly<
   Record<ProjectSessionStageGoVarname, ProjectSessionStage>
 > = {
-  SessionStageUnknown: 'unknown',
-  StageDrafting: 'drafting',
-  StageAssemblingSDP: 'assemblingSdp',
-  StageAwaitingReview: 'awaitingReview',
-  StageRedrafting: 'redrafting',
-  StageCommitted: 'committed',
-  StageWithdrawn: 'withdrawn',
-  StageRefused: 'refused',
-  StageDraftFailed: 'draftFailed',
+  ProjectSessionStageUnknown: 'unknown',
+  ProjectStageDrafting: 'drafting',
+  ProjectStageAssemblingSDP: 'assemblingSdp',
+  ProjectStageAwaitingReview: 'awaitingReview',
+  ProjectStageRedrafting: 'redrafting',
+  ProjectStageCommitted: 'committed',
+  ProjectStageWithdrawn: 'withdrawn',
+  ProjectStageRefused: 'refused',
+  ProjectStageDraftFailed: 'draftFailed',
 };
 
 export function projectSessionStageFromOrdinal(ordinal: number): ProjectSessionStage {

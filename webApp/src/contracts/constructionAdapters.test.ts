@@ -19,7 +19,7 @@ import type { NetworkModel } from './types.ts';
 import { mapConstructionRow } from './wire.ts';
 import type { components } from './schema.ts';
 
-type WireConstructionStatus = components['schemas']['SystemDesignActivityConstructionStatus'];
+type WireConstructionStatus = components['schemas']['DeliveryActivityConstructionStatus'];
 
 void test("an activity gated on a milestone is eligible once the milestone's own dependsOn are all done", () => {
   const network: NetworkModel = {

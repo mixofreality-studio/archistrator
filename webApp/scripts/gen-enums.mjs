@@ -24,9 +24,10 @@
  * raw Go varnames (ordinal-indexed), never a derived app string, so nobody
  * mistakes the derivation for the real (hand-maintained) mapping.
  *
- * Enums whose enum+varnames arrays are byte-identical across multiple manager
- * namespaces (e.g. SystemDesignArtifactKind == ProjectDesignArtifactKind) are
- * folded into ONE logical table — see DEDUPE_GROUPS.
+ * DEDUPE_GROUPS folded enums whose enum+varnames arrays were byte-identical
+ * across manager namespaces into ONE logical table. It is EMPTY since stage 4a —
+ * one Manager publishes each enum exactly once — but the mechanism stays for the
+ * next facet split.
  */
 import yaml from 'js-yaml';
 
@@ -91,7 +92,14 @@ const OUTPUT_NAMES = {
  * server/*.go iota order) to carry byte-identical enum + x-enum-varnames
  * arrays. Only the first member of each group is emitted; the rest are
  * asserted (at generation time) to still match, so drift trips a build error
- * instead of silently forking the tables. */
+ * instead of silently forking the tables.
+ *
+ * EMPTY since stage 4a. Every group here existed because ArtifactKind,
+ * ReviewDecision, Severity, ActiveRole, ActiveStep, EpisodeKind and
+ * EpisodeOutcome were published once per design/construction Manager. One
+ * Manager publishes each exactly once, so the assertion has nothing to
+ * compare — the fork it guarded against is now structurally impossible.
+ * Keep the mechanism: it costs nothing and the next facet split will want it. */
 const DEDUPE_GROUPS = [];
 
 /** Logical output names for which the mechanical derivation does NOT
@@ -99,8 +107,13 @@ const DEDUPE_GROUPS = [];
  * emitted as a header comment. These get raw-varname tables only. */
 const NON_MECHANICAL = {
   ProjectSessionStage:
-    'StageAssemblingSDP derives to "assemblingSDP" (lowerFirst only lowercases the ' +
-    'leading letter); the hand table uses "assemblingSdp". Casing convention diff, not a bug.',
+    'Since stage 4a the varnames carry a "Project" infix (ProjectStageDrafting, ...) — one ' +
+    "Manager namespace publishes BOTH session-stage shapes and the projectDesign rail's " +
+    'consts were prefixed to clear the collision (the ordinals differ, so they could not be ' +
+    'folded). "ProjectStage" is not a whole-word run of the local type name ' +
+    '"ProjectSessionStage", so nothing strips and the derivation falls through to the full ' +
+    'lowerFirst varname ("projectStageDrafting"). enumMappings.ts keeps the short hand forms ' +
+    '("drafting"/"assemblingSdp"/...). Not mechanically derivable.',
   PipelinePhase:
     'Mechanical derivation gives ordinal 5 (PipelineCancelled) -> "cancelled", but ' +
     'enums.ts pipelinePhaseFromOrdinal deliberately folds ordinal 5 into the same app ' +
@@ -268,11 +281,11 @@ export function generateEnumsModule(oasSource) {
 // npm run gen:api) from api/openapi.yaml x-enum-varnames. DO NOT EDIT.
 //
 // Every OpenAPI component schema carrying x-enum-varnames becomes one block
-// below. Enums byte-identical across manager namespaces (e.g.
-// SystemDesignArtifactKind / ProjectDesignArtifactKind) are folded into one
-// logical table — see the "Sources:" line on each block. The dedup guard
-// (DEDUPE_GROUPS, asserted byte-identical at generation time) lives in
-// gen-enums.mjs, not here.
+// below, and the "Sources:" line names the schema(s) it came from. Enums
+// byte-identical across manager namespaces used to be folded into one logical
+// table; since stage 4a one Manager publishes each enum exactly once, so every
+// block has a single source. The dedup guard (DEDUPE_GROUPS, asserted
+// byte-identical at generation time) lives in gen-enums.mjs, not here.
 //
 // Where the Go varname -> app-string derivation (strip the shared type-name
 // prefix, lowerFirst the remainder) reproduces src/contracts/enums.ts's hand

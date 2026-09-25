@@ -2,11 +2,11 @@
 // npm run gen:api) from api/openapi.yaml x-enum-varnames. DO NOT EDIT.
 //
 // Every OpenAPI component schema carrying x-enum-varnames becomes one block
-// below. Enums byte-identical across manager namespaces (e.g.
-// SystemDesignArtifactKind / ProjectDesignArtifactKind) are folded into one
-// logical table — see the "Sources:" line on each block. The dedup guard
-// (DEDUPE_GROUPS, asserted byte-identical at generation time) lives in
-// gen-enums.mjs, not here.
+// below, and the "Sources:" line names the schema(s) it came from. Enums
+// byte-identical across manager namespaces used to be folded into one logical
+// table; since stage 4a one Manager publishes each enum exactly once, so every
+// block has a single source. The dedup guard (DEDUPE_GROUPS, asserted
+// byte-identical at generation time) lives in gen-enums.mjs, not here.
 //
 // Where the Go varname -> app-string derivation (strip the shared type-name
 // prefix, lowerFirst the remainder) reproduces src/contracts/enums.ts's hand
@@ -804,7 +804,7 @@ export type ProjectSessionStageGoVarname = (typeof PROJECT_SESSION_STAGE_GO_VARN
 export const PROJECT_SESSION_STAGE_ORDINAL_TO_GO_VARNAME: readonly ProjectSessionStageGoVarname[] =
   PROJECT_SESSION_STAGE_GO_VARNAMES;
 
-// NOT mechanically derivable to an app string: StageAssemblingSDP derives to "assemblingSDP" (lowerFirst only lowercases the leading letter); the hand table uses "assemblingSdp". Casing convention diff, not a bug.
+// NOT mechanically derivable to an app string: Since stage 4a the varnames carry a "Project" infix (ProjectStageDrafting, ...) — one Manager namespace publishes BOTH session-stage shapes and the projectDesign rail's consts were prefixed to clear the collision (the ordinals differ, so they could not be folded). "ProjectStage" is not a whole-word run of the local type name "ProjectSessionStage", so nothing strips and the derivation falls through to the full lowerFirst varname ("projectStageDrafting"). enumMappings.ts keeps the short hand forms ("drafting"/"assemblingSdp"/...). Not mechanically derivable.
 // --- ProjectViewKind -----------------------------------------------------
 // Sources: DeliveryProjectViewKind
 // String-valued enum — the wire value is already the app string (no ordinal indirection).

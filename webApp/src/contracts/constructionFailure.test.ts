@@ -26,7 +26,7 @@ import { buildStatusRowFromOrdinal } from './enumMappings.ts';
 import { mapProjectState } from './wire.ts';
 
 type Schemas = components['schemas'];
-type WireConstructionStatus = Schemas['SystemDesignActivityConstructionStatus'];
+type WireConstructionStatus = Schemas['DeliveryActivityConstructionStatus'];
 
 /** ProjectActivityBuildStatus ordinals, as the Go consts order them. */
 const BUILD_IN_CONSTRUCTION = 0;
@@ -65,7 +65,7 @@ function wireRow(over: Partial<WireConstructionStatus>): WireConstructionStatus 
 
 function wireProjectState(
   rows: Record<string, WireConstructionStatus>
-): Schemas['SystemDesignProjectState'] {
+): Schemas['DeliveryProjectState'] {
   return {
     activityExecution: rows,
     GitRows: {},
