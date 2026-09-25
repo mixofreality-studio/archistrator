@@ -28,7 +28,9 @@
 //     so the construction block reads `fwmanager` here;
 //   - the package-private name collisions: byte-identical twins collapsed to one
 //     copy (marked in place), everything whose body differed prefixed by rail
-//     (`sd` / `pd` / `cs`) — the full rename table is in this commit's message.
+//     (`sd` / `pd` / `cs`) — the full 199-row rename table, so a reader of this file
+//     can find the symbol the pre-merge blame names, is tracked at
+//     docs/superpowers/plans/2026-09-25-stage4a-rename-table.md.
 //
 // Nineteen Temporal replay fixtures assert that nothing else changed.
 //
