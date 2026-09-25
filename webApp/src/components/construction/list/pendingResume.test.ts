@@ -22,7 +22,6 @@ import { taskDetailStateFor } from '../detail/detailPaneState.ts';
 import { anyRowInFlight, beginControlFor, notStartedActivities } from '../lens/beginControl.ts';
 import { owedWorkFor, probeCandidatesFor } from '../tasks/owedWork.ts';
 import { owedMarksFor } from '../tasks/owedChip.ts';
-import { laneChipFor } from '../graph/hoverCard.ts';
 import { computeActivityStatuses } from '../../../contracts/constructionAdapters.ts';
 import { BILLING, doneRow, pendingRow } from './pendingResumeFixtures.ts';
 
@@ -70,14 +69,15 @@ void test('a pending row reads WAITING — never running — in the list, the gr
   assert.equal(taskDetailStateFor(BILLING, { lifecyclePhase: 'integration' }), 'waiting');
   // A TASK selection is about that task's own attempt.
   assert.equal(taskDetailStateFor(BILLING, { task: 'srs' }), 'passed');
-  // The waiting chip; the graph lane and the pane name its phase.
+  // The waiting chip, and the phase the pane names.
   assert.equal(chipFor('waiting')?.state, 'waiting');
   assert.equal(activityChipLabel(BILLING, undefined), 'Integration pending');
-  assert.deepEqual(laneChipFor(BILLING, undefined), {
-    label: 'Integration pending',
-    size: 'xs',
-    state: 'waiting',
-  });
+  // The GRAPH's own hover-card chip used to be cross-asserted here
+  // (`laneChipFor(BILLING, undefined)` === the same label, size 'xs', state
+  // 'waiting'), so the list's wording and the graph's could not drift apart.
+  // Task 13 deleted the graph lens and its hover card, so the cross-check has no
+  // second party left; `activityChipLabel` above is the one remaining source of
+  // that label and is asserted on its own.
   // Without pendingResume the same head-state reads running — the bug this fixes.
   const inReview: ConstructionRow = { ...BILLING };
   delete inReview.pendingResume;

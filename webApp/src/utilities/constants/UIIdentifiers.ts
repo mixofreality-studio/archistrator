@@ -47,6 +47,9 @@ export const UI_IDENTIFIERS = {
     tocRow: (kind: string) => `toc-row-${kind}`,
     OPEN_SYSTEM_DESIGN: 'open-system-design',
     OPEN_PROJECT_DESIGN: 'open-project-design',
+    // The ONE card that replaced the three phase cards (stage 5 §7.4): the plan
+    // is the project's one working surface now, so home base offers one door.
+    OPEN_PLAN: 'home-base-open-plan',
     // Ghost-project recovery affordance (repo adopted but head-state init failed).
     GHOST_PANEL: 'home-base-ghost-panel',
     GHOST_FINISH_SETUP: 'home-base-ghost-finish-setup',
@@ -62,6 +65,13 @@ export const UI_IDENTIFIERS = {
     artifactStep: (kind: string) => `artifact-step-${kind}`,
   },
   UseCaseCarousel: {
+    // The renderer's own root. It says "UseCaseCarousel MOUNTED" and nothing
+    // more — the classification → renderer seam is what a black-box case needs
+    // to assert now that the Activity Experience is the only surface that
+    // reaches these views (stage 5, Task 14). Carried on the populated root
+    // AND on the drafted-nothing-yet branch, so the id means the renderer ran,
+    // not that the artifact had content.
+    ROOT: 'usecase-carousel',
     // The Core Use Cases artifact's grouped use-case picker (Core / Variations
     // ListSubheader sections — A6). Selectable black-box via testid rather than
     // its "Use case" label text.
@@ -173,10 +183,20 @@ export const UI_IDENTIFIERS = {
     SUBMIT_BAR: 'submit-bar',
     SUBMIT_BAR_PRIMARY: 'submit-bar-primary',
     SUBMIT_BAR_CONSEQUENCE: 'submit-bar-consequence',
+    // The second line beneath the consequence: what the verb will NOT do. Today
+    // written only by questions staged on a rail with no question op.
+    SUBMIT_BAR_NOTICE: 'submit-bar-notice',
     SUBMIT_BAR_MENU_BUTTON: 'submit-bar-menu-button',
     SUBMIT_BAR_MENU: 'submit-bar-menu',
     // A secondary (overflow) verb, keyed by its action ('withdraw' / 'retry').
     submitBarMenuItem: (action: string) => `submit-bar-menu-item-${action}`,
+  },
+  Mission: {
+    // The Mission artifact's renderer (MissionView): Vision + Mission Statement
+    // as prose, Business Objectives as a CommentableList. Root only — every
+    // element inside it is reached by its comment anchor, not by a testid.
+    // See UseCaseCarousel.ROOT for why the root id exists.
+    ROOT: 'mission-view',
   },
   Glossary: {
     // The glossary reference widget (GlossaryView): search + Four-Questions
@@ -230,6 +250,8 @@ export const UI_IDENTIFIERS = {
     ownerLink: (index: number) => `volatility-owner-link-${String(index)}`,
   },
   Architecture: {
+    // The renderer's own root (see UseCaseCarousel.ROOT for why these exist).
+    ROOT: 'architecture-view',
     VIEW_SWITCH: 'arch-view-switch',
     VIEW_STATIC: 'static',
     VIEW_DYNAMIC: 'dynamic',
@@ -794,6 +816,66 @@ export const UI_IDENTIFIERS = {
     TIMELINE_FILTER: 'episode-timeline-filter',
     /** The panel header's count, plus the optional scope caption after it. */
     HEADER_COUNT: 'episodes-header-count',
+  },
+  // The branching activity-lifecycle stepper (components/activity/LifecycleGraph):
+  // one pip per internal task of an activity (Figure A-1), plus the per-node
+  // revision menu (right-click / ContextMenu key / the active pill's caret), and the
+  // body's revision select it is a shortcut to.
+  ActivityLifecycle: {
+    GRAPH: 'lifecycle-graph',
+    MINI: 'lifecycle-graph-mini',
+    node: (nodeId: string) => `lifecycle-node-${nodeId}`,
+    nodeMenuButton: (nodeId: string) => `lifecycle-node-menu-${nodeId}`,
+    phase: (phaseId: string) => `lifecycle-phase-${phaseId}`,
+    REVISION_MENU: 'lifecycle-revision-menu',
+    REVISION_SELECT: 'lifecycle-revision-select',
+    revisionOption: (n: number) => `lifecycle-revision-option-${String(n)}`,
+    laneLabel: (nodeId: string) => `lifecycle-lane-label-${nodeId}`,
+    revisionItem: (nodeId: string, n: number) => `lifecycle-revision-${nodeId}-${String(n)}`,
+  },
+  // The per-activity ACTIVITY EXPERIENCE (`/project/$projectId/activity/$activityId`),
+  // stage 5. Every id here has a named placing site in the stage plan (Task 7's
+  // table): SCREEN lands with the route, the rest with the bodies in Tasks 8-10.
+  // An id declared here and never placed on an element is the same failure as an
+  // id asserted by a test and never declared.
+  Activity: {
+    SCREEN: 'activity-screen',
+    EYEBROW: 'activity-eyebrow',
+    DISPATCH_BODY: 'activity-dispatch-body',
+    REVIEW_BODY: 'activity-review-body',
+    REVIEWERS_STRIP: 'activity-reviewers-strip',
+    REVIEW_SET_ERROR: 'activity-review-set-error',
+    TASK_FACTS: 'activity-task-facts',
+    SUB_ATTEMPTS: 'activity-sub-attempts',
+    HISTORY_BANNER: 'activity-history-banner',
+    BACK_TO_LATEST: 'activity-back-to-latest',
+    HISTORY_CAPTION: 'activity-history-caption',
+    REVISION_NOTE: 'activity-revision-note',
+    ADVANCE_ERROR: 'activity-advance-error',
+    ADVANCE_RETRY: 'activity-advance-retry',
+    ADVANCE_ANYWAY: 'activity-advance-anyway',
+    ARTIFACT_PANEL: 'activity-artifact-panel',
+    ARTIFACT_UNAVAILABLE: 'activity-artifact-unavailable',
+    AMEND_ARCHITECTURE: 'activity-amend-architecture',
+    reviewerChip: (role: string) => `activity-reviewer-${role}`,
+  },
+  // The PLAN (`/project/$projectId/plan?lens=list|graph|tasks`), stage 5 — the one
+  // surface that replaces the construction console's three lenses. SCREEN lands
+  // with the route; the lens toggle, list and graph ids land in Task 11.
+  Plan: {
+    SCREEN: 'plan-screen',
+    LENS_LIST: 'plan-lens-list',
+    LENS_GRAPH: 'plan-lens-graph',
+    LENS_TASKS: 'plan-lens-tasks',
+    LIST: 'plan-list',
+    GRAPH: 'plan-graph',
+    M0_DIVIDER: 'plan-m0-divider',
+    GUTTER: 'plan-gutter',
+    UNPLACED_NOTE: 'plan-unplaced-note',
+    row: (activityId: string) => `plan-row-${activityId}`,
+    tile: (activityId: string) => `plan-tile-${activityId}`,
+    milestone: (id: string) => `plan-milestone-${id}`,
+    gutterRow: (row: string) => `plan-gutter-${row}`,
   },
   // The preview build's own chrome (src/previewShell/, design-renderer-data.md
   // §2′.1): the loud banner a fixture miss or a blocked request raises, and the

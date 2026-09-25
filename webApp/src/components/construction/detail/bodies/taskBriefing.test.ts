@@ -1,20 +1,22 @@
 /**
- * The unknown body's pure half (taskBriefing.ts) plus the body dispatch
- * (bodyDispatch.ts) and the pane's provenance/evidence scoping
- * (detailPaneState.ts). Node's type-stripping test runner cannot load a `.tsx`
- * module at all, which is exactly why all three are plain `.ts` siblings of the
+ * The unknown body's pure half (taskBriefing.ts) and the provenance/evidence
+ * scoping (detailPaneState.ts). Node's type-stripping test runner cannot load a
+ * `.tsx` module at all, which is exactly why both are plain `.ts` siblings of the
  * components that render them.
+ *
+ * Task 13 removed the middle third of this file — the DISPATCH cases over
+ * `bodyDispatch.ts` (`detailBodyFor`, `selectedTaskIsGate`,
+ * `artifactRendererKeyFor`, `testingArtifactRendererKeyFor`). That module went
+ * with the DetailPane it dispatched for; its mapping was PORTED into
+ * `components/activity/taskArtifactFor.ts` in Task 9 and is covered by
+ * `taskArtifactFor.test.ts`, so the rule is still pinned — on the module that
+ * now owns it.
  */
 /// <reference types="node" />
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 
-import type {
-  ConstructionRow,
-  ProjectStateWithGit,
-  TaskAttemptRow,
-  TestScenarioView,
-} from '../../../../contracts/types.ts';
+import type { ConstructionRow, TaskAttemptRow } from '../../../../contracts/types.ts';
 import { worstOriginOf, provenanceBasesOf } from '../../provenanceAxis.ts';
 import { evidencePointerFor, provenanceNodeFor, selectedAttemptOf } from '../detailPaneState.ts';
 import {
@@ -30,12 +32,6 @@ import {
   UNKNOWN_STATEMENT,
   UNKNOWN_STATEMENT_UNSCOPED,
 } from './taskBriefing.ts';
-import {
-  artifactRendererKeyFor,
-  detailBodyFor,
-  selectedTaskIsGate,
-  testingArtifactRendererKeyFor,
-} from './bodyDispatch.ts';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -80,26 +76,6 @@ function rulingAttempt(task: string): TaskAttemptRow {
         'serviceContracts[artifactAccess] + founderRuling[2026-09-09]=assume any component that is fully implemented is done and reviewed and integrated',
     },
   });
-}
-
-function scenario(id: string): TestScenarioView {
-  return { id, useCase: `uc-${id}`, title: `Scenario ${id}`, cases: [] };
-}
-
-/** A project carrying a committed system test plan / a recorded test run. */
-function projectWith(
-  testingState: Partial<NonNullable<ProjectStateWithGit['testingState']>>
-): ProjectStateWithGit {
-  return {
-    projectId: 'p1',
-    name: 'p1',
-    owner: 'usr-1',
-    phase: 'construction',
-    version: 1,
-    research: { sources: [] },
-    slots: [],
-    testingState: { testRuns: [], defects: [], ...testingState },
-  };
 }
 
 // ---------------------------------------------------------------------------
@@ -259,157 +235,6 @@ void test('a task the profile does not carry is absent too', () => {
   assert.ok(absence !== undefined);
   assert.equal(absence.scope, 'task');
   assert.match(absence.statement, /by design, not missing data/);
-});
-
-// ---------------------------------------------------------------------------
-// Dispatch — the order of the questions IS the design
-// ---------------------------------------------------------------------------
-
-void test('absence is decided BEFORE "no record", so it can never read as a gap', () => {
-  const r = row({ kind: 'deployment' });
-  assert.equal(detailBodyFor(r, { lifecyclePhase: 'test_plan' }, 'unknown'), 'absent');
-});
-
-void test('no record lands on the unknown body — the majority path', () => {
-  const r = row({ kind: 'service' });
-  assert.equal(
-    detailBodyFor(r, { lifecyclePhase: 'requirements', task: 'srs' }, 'unknown'),
-    'unknown'
-  );
-  assert.equal(detailBodyFor(r, {}, 'notStarted'), 'unknown');
-});
-
-void test('a gate task with a record is a review; a work task is its artifact or its episodes', () => {
-  const service = row({ kind: 'service', attempts: [rulingAttempt('srs')] });
-  assert.equal(detailBodyFor(service, { task: 'designReview' }, 'passed'), 'review');
-  // The contract is placed by artifactPlacement.ts: with a primary placement the
-  // task is its artifact; without one, its episodes.
-  assert.equal(
-    detailBodyFor(service, { task: 'detailedDesign' }, 'passed', undefined, true),
-    'artifact'
-  );
-  assert.equal(detailBodyFor(service, { task: 'detailedDesign' }, 'passed'), 'episode');
-  // Deployment is CUT for this stage: no renderer, so it falls through to the
-  // episode body rather than to an empty artifact frame.
-  const deployment = row({ kind: 'deployment' });
-  assert.equal(detailBodyFor(deployment, { task: 'construction' }, 'passed'), 'episode');
-});
-
-void test('an activity-level selection gets the episode body, which is activity-level too', () => {
-  assert.equal(detailBodyFor(row({ kind: 'service' }), {}, 'passed'), 'episode');
-});
-
-void test('selectedTaskIsGate reads the generated profile, not the task name', () => {
-  const r = row({ kind: 'service' });
-  assert.equal(selectedTaskIsGate(r, { task: 'codeReview' }), true);
-  assert.equal(selectedTaskIsGate(r, { task: 'construction' }), false);
-  assert.equal(selectedTaskIsGate(r, {}), false);
-});
-
-void test('the cut classifications resolve to no artifact renderer', () => {
-  const inPhase = { task: 'detailedDesign' };
-  // The service contract is placed, not dispatched (artifactPlacement.ts).
-  assert.equal(artifactRendererKeyFor(row({ kind: 'service' }), inPhase), undefined);
-  assert.equal(artifactRendererKeyFor(row({ kind: 'uiDesign' }), inPhase), 'uiDesign');
-  assert.equal(
-    artifactRendererKeyFor(row({ kind: 'testing', variant: 'plan' }), { task: 'construction' }),
-    'testing:plan'
-  );
-  for (const kind of ['deployment', 'documentation', 'integration'] as const) {
-    assert.equal(artifactRendererKeyFor(row({ kind }), { task: 'construction' }), undefined, kind);
-  }
-  // A testing variant with no authored renderer falls back honestly too.
-  assert.equal(
-    artifactRendererKeyFor(row({ kind: 'testing', variant: 'perf' }), { task: 'construction' }),
-    undefined
-  );
-  assert.equal(artifactRendererKeyFor(row({ classified: false }), inPhase), undefined);
-});
-
-void test('an artifact renderer is scoped to ITS OWN phase, never spread across the activity', () => {
-  const service = row({ kind: 'service' });
-  // The contract is placed per phase by artifactPlacement.ts (its own tests pin
-  // that SRS never shows it); this dispatch resolves no service renderer at all.
-  assert.equal(artifactRendererKeyFor(service, { task: 'detailedDesign' }), undefined);
-  // ...so SRS, a Requirements task, must NOT be captioned with it. The service
-  // contract is not the SRS, and placing it there would claim it is.
-  assert.equal(artifactRendererKeyFor(service, { task: 'srs' }), undefined);
-  assert.equal(detailBodyFor(service, { task: 'srs' }, 'passed'), 'episode');
-  // The phase comes from the task's own profile entry, so a stale `p=` in the
-  // URL cannot move an artifact into a phase it does not belong to.
-  assert.equal(
-    artifactRendererKeyFor(service, { lifecyclePhase: 'detailed_design', task: 'srs' }),
-    undefined
-  );
-});
-
-// ---------------------------------------------------------------------------
-// A committed testing artifact outranks "no record" (N-STP unreachable fix)
-// ---------------------------------------------------------------------------
-
-void test('a testing:plan row with no build evidence still renders its committed plan', () => {
-  const nStp = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
-  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
-
-  // The bare activity row — the plainest click.
-  assert.equal(detailBodyFor(nStp, {}, 'notStarted', project), 'artifact');
-  // Its own phases (Plan Authoring = construction, Plan Review = integration),
-  // with no task named.
-  assert.equal(
-    detailBodyFor(nStp, { lifecyclePhase: 'construction' }, 'notStarted', project),
-    'artifact'
-  );
-  assert.equal(
-    detailBodyFor(nStp, { lifecyclePhase: 'integration' }, 'notStarted', project),
-    'artifact'
-  );
-  // A non-gate task within one of those phases.
-  assert.equal(detailBodyFor(nStp, { task: 'construction' }, 'unknown', project), 'artifact');
-  // A gate task still owes the review surface, not the plain artifact one.
-  assert.equal(detailBodyFor(nStp, { task: 'codeReview' }, 'unknown', project), 'review');
-  assert.equal(detailBodyFor(nStp, { task: 'testing' }, 'unknown', project), 'review');
-});
-
-void test('the bypass never widens past the plan’s own phases', () => {
-  const nStp = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
-  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
-  // Requirements ("Use-Case Trace": srs/srsReview) is not where the plan lives —
-  // untouched by the bypass, exactly the pre-fix reading.
-  assert.equal(
-    detailBodyFor(nStp, { lifecyclePhase: 'requirements' }, 'notStarted', project),
-    'unknown'
-  );
-  assert.equal(detailBodyFor(nStp, { task: 'srs' }, 'unknown', project), 'unknown');
-  assert.equal(detailBodyFor(nStp, { task: 'srsReview' }, 'unknown', project), 'unknown');
-});
-
-void test('a testing:plan row with no committed plan is untouched by the bypass', () => {
-  const noPlan = row({ kind: 'testing', variant: 'plan', hasBuildEvidence: false });
-  assert.equal(testingArtifactRendererKeyFor(noPlan, {}, undefined), undefined);
-  assert.equal(detailBodyFor(noPlan, {}, 'notStarted', undefined), 'unknown');
-  // An empty scenarios array reads the same as none at all.
-  const emptyPlan = projectWith({ systemTestPlan: { scenarios: [] } });
-  assert.equal(detailBodyFor(noPlan, {}, 'notStarted', emptyPlan), 'unknown');
-});
-
-void test('a testing:systemTest row renders once a test run is recorded', () => {
-  const nIt = row({ kind: 'testing', variant: 'systemTest', hasBuildEvidence: false });
-  const project = projectWith({ testRuns: [{ id: 'TR-1', passed: 1, failed: 0, note: '' }] });
-  assert.equal(testingArtifactRendererKeyFor(nIt, {}, project), 'testing:systemTest');
-  assert.equal(detailBodyFor(nIt, {}, 'notStarted', project), 'artifact');
-  // No recorded run: untouched.
-  const noRuns = projectWith({ testRuns: [] });
-  assert.equal(testingArtifactRendererKeyFor(nIt, {}, noRuns), undefined);
-  assert.equal(detailBodyFor(nIt, {}, 'notStarted', noRuns), 'unknown');
-});
-
-void test('the bypass never reaches service/uiDesign/frontend — their gate stays exactly as is', () => {
-  const project = projectWith({ systemTestPlan: { scenarios: [scenario('STP-UC1')] } });
-  for (const kind of ['service', 'uiDesign', 'frontend'] as const) {
-    const r = row({ kind, hasBuildEvidence: false });
-    assert.equal(testingArtifactRendererKeyFor(r, {}, project), undefined, kind);
-    assert.equal(detailBodyFor(r, {}, 'notStarted', project), 'unknown', kind);
-  }
 });
 
 // ---------------------------------------------------------------------------

@@ -7,7 +7,7 @@
  * What this pins, against the built bundle served statically (the `preview`
  * project in playwright.config.ts; no Go server, no network):
  *   - each fixture state renders through the REAL components (the rows the
- *     console draws are exactly the fixture's activities; the landing's card is
+ *     PLAN draws are exactly the fixture's activities; the landing's card is
  *     the fixture's project; a pending read holds the real loading state; an
  *     error fixture reaches the real error UI);
  *   - an unfixtured call fails LOUDLY (the alarm, the incident log);
@@ -15,69 +15,44 @@
  *   - a nested preview inside a preview is refused;
  *   - memory history: the page URL is never rewritten;
  *   - an unknown state is an honest error page, never a guess.
+ *
+ * STAGE 5 RETARGET (Task 12). The first two cases used to drive
+ * `?screen=construction`, whose `ActivityTreeView` Task 13 deletes. All four
+ * guarantees are unchanged — the real screen draws exactly the fixture's
+ * activities, an unfixtured call is LOUD, nothing but the bundle is fetched, a
+ * nested preview is refused — they are simply asserted over the PLAN's fixtures
+ * now, and the unclassified-row guarantee moved with them.
+ *
+ * STAGE 5 TEARDOWN (Task 13). The construction console is deleted and its route
+ * redirects, so the `construction/` fixture screen is gone. Three of its states
+ * MOVED to `plan/` unchanged but for their route — `loading` (the pending read),
+ * `begin-confirm` (Begin + its confirm, ported onto the plan in Task 11) and
+ * `owed-gate` (the TASKS lens, which survives per spec §7.3) — and their cases
+ * below moved with them. Two states and their cases are RETIRED with the
+ * surface they drove: `service-pane` (the shared DetailPane) and
+ * `built-surface-link` (the pane's FrontendArtifactView). The `built-surface-link`
+ * case's SCRIPTED half — window.open is refused and opens no second tab — is kept
+ * below on `plan/list`; its real-link half (an `<a target="_blank">` the
+ * navigation guard refuses) has NO surviving preview vehicle, because no fixture
+ * on the plan or the activity screen renders an external link today. That is an
+ * EARMARK for stage 6: capture a frontend (`U-SPA-web-client`) activity fixture,
+ * and the `navigation-blocked` incident kind gets its black-box guard back.
  */
-import { readFileSync } from 'node:fs';
-import type { Page, Request } from '@playwright/test';
 import { test, expect } from '../support/dispatchGuard.js';
 import { TESTID } from '../support/testids.js';
-
-const FIXTURES = new URL('../../preview-fixtures/web-client/', import.meta.url);
-
-interface FixtureFile {
-  route: string;
-  ops: Record<string, { result?: unknown; error?: { message?: string } }>;
-}
-
-function fixture(screen: string, state: string): FixtureFile {
-  return JSON.parse(
-    readFileSync(new URL(`${screen}/${state}.json`, FIXTURES), 'utf8')
-  ) as FixtureFile;
-}
-
-interface Incident {
-  kind: 'fixture-miss' | 'network-blocked' | 'navigation-blocked';
-  detail: string;
-}
-
-function incidents(page: Page): Promise<Incident[] | null> {
-  return page.evaluate(
-    () =>
-      (
-        window as unknown as {
-          __ARCHISTRATOR_PREVIEW__?: { incidents: Incident[] };
-        }
-      ).__ARCHISTRATOR_PREVIEW__?.incidents ?? null
-  );
-}
+import { fixture, incidents, openState } from '../support/previewShell.js';
 
 /**
- * Every request the page makes that is not the static bundle itself. A preview
- * answers from fixtures, so this must stay empty.
+ * "Every plan row, whatever its activity id." DERIVED from the id builder, the
+ * same way `plan.spec.ts` derives it: a hand-typed `/^plan-row-/` would go on
+ * matching nothing — silently, as a count of 0 against a count of 0 — the day
+ * `UI_IDENTIFIERS.Plan.row` is renamed.
  */
-function watchNetwork(page: Page): string[] {
-  const offBundle: string[] = [];
-  page.on('request', (req: Request) => {
-    const url = new URL(req.url());
-    const isBundle =
-      url.pathname === '/index.html' ||
-      url.pathname.startsWith('/assets/') ||
-      url.protocol === 'data:';
-    if (!isBundle) offBundle.push(`${req.method()} ${req.url()}`);
-  });
-  return offBundle;
-}
-
-async function openState(page: Page, screen: string, state: string): Promise<string[]> {
-  const offBundle = watchNetwork(page);
-  await page.goto(`/index.html?screen=${screen}&state=${state}`);
-  return offBundle;
-}
+const PLAN_ROW_RE = new RegExp(`^${TESTID.planRow('')}`);
 
 test.describe('preview shell: the real app over fixtures', () => {
-  test('construction · resting: the real console draws exactly the fixture activities', async ({
-    page,
-  }) => {
-    const data = fixture('construction', 'resting');
+  test('plan · list: the real plan draws exactly the fixture activities', async ({ page }) => {
+    const data = fixture('plan', 'list');
     const project = data.ops['systemDesignGetProject']?.result as {
       Name: string;
       activityExecution: Record<string, unknown>;
@@ -85,12 +60,12 @@ test.describe('preview shell: the real app over fixtures', () => {
     const activityIds = Object.keys(project.activityExecution);
     expect(activityIds.length).toBeGreaterThan(0);
 
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
     for (const id of activityIds) {
-      await expect(page.getByTestId(TESTID.constructionListRow(id))).toBeVisible();
+      await expect(page.getByTestId(TESTID.planRow(id))).toBeVisible();
     }
-    await expect(page.getByTestId(/^construction-list-row-/)).toHaveCount(activityIds.length);
+    await expect(page.getByTestId(PLAN_ROW_RE)).toHaveCount(activityIds.length);
     await expect(page.getByText(project.Name, { exact: true }).first()).toBeVisible();
 
     // Clean: nothing missed, nothing blocked, nothing sent.
@@ -98,11 +73,11 @@ test.describe('preview shell: the real app over fixtures', () => {
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);
     // Memory history: the router opened the fixture's route without touching the URL.
-    expect(page.url()).toMatch(/\/index\.html\?screen=construction&state=resting$/);
-    await expect(page).toHaveTitle('Preview · construction · resting · fixture data');
+    expect(page.url()).toMatch(/\/index\.html\?screen=plan&state=list$/);
+    await expect(page).toHaveTitle('Preview · plan · list · fixture data');
   });
 
-  test('construction · unclassified-row: an activity the classifier refused to type renders UNCLASSIFIED with zero lifecycle sub-rows', async ({
+  test('plan · unclassified: an activity the classifier refused to type is still LISTED, and draws no mini lifecycle', async ({
     page,
   }) => {
     interface Row {
@@ -110,8 +85,9 @@ test.describe('preview shell: the real app over fixtures', () => {
       classified: boolean;
       Phases: unknown[];
     }
-    const project = fixture('construction', 'unclassified-row').ops['systemDesignGetProject']
-      ?.result as { activityExecution: Record<string, Row> };
+    const project = fixture('plan', 'unclassified').ops['systemDesignGetProject']?.result as {
+      activityExecution: Record<string, Row>;
+    };
     const rows = Object.values(project.activityExecution);
     // The fixture's whole point (spec §9 AC4): exactly one row the server could
     // not type — ClassifyType's ok=false — carrying no phases on the wire.
@@ -123,29 +99,21 @@ test.describe('preview shell: the real app over fixtures', () => {
     const knownId = rows.find((r) => r.classified && r.Phases.length > 0)?.ActivityID ?? '';
     expect(knownId).not.toEqual('');
 
-    const offBundle = await openState(page, 'construction', 'unclassified-row');
-    const unknown = page.getByTestId(TESTID.constructionListRow(unknownId));
+    const offBundle = await openState(page, 'plan', 'unclassified');
+    // The COMMITTED activity list decides what exists, so the row is there even
+    // though the server could not type it.
+    const unknown = page.getByTestId(TESTID.planRow(unknownId));
     await expect(unknown).toBeVisible();
-    // It says what it is, and never guesses a kind.
-    await expect(unknown).toContainText('UNCLASSIFIED');
+    await expect(unknown).toContainText('Unclassified');
+    // And it draws NO mini lifecycle: miniLifecycleFromRow returns [] over a row
+    // with no phases, which is what the "—" in its place says out loud.
+    await expect(unknown.getByTestId(TESTID.lifecycleGraphMini)).toHaveCount(0);
+    await expect(unknown).toContainText('—');
 
-    // ArrowRight is the tree's expand gesture. Nothing opens: an unclassified
-    // activity has no phase and no task rows to open. The sub-row ids are the
-    // tree's own (`<activityId>::<phase>[::<task>]`).
-    await unknown.click();
-    await page.keyboard.press('ArrowRight');
-    await expect(
-      page.getByTestId(new RegExp(`^construction-list-row-${unknownId}::`))
-    ).toHaveCount(0);
-
-    // The control: the SAME gesture on a typed activity does open its lifecycle,
-    // so the count above measures the classification, not a dead keystroke.
-    const known = page.getByTestId(TESTID.constructionListRow(knownId));
-    await known.click();
-    await page.keyboard.press('ArrowRight');
-    await expect(
-      page.getByTestId(new RegExp(`^construction-list-row-${knownId}::`)).first()
-    ).toBeVisible();
+    // The control: a typed neighbour DOES draw one, so the count above measures
+    // the classification rather than a mini lifecycle nothing renders anywhere.
+    const known = page.getByTestId(TESTID.planRow(knownId));
+    await expect(known.getByTestId(TESTID.lifecycleGraphMini)).toHaveCount(1);
 
     // Incidents first: a miss names the op it missed, which a bare alarm count does not.
     expect(await incidents(page)).toEqual([]);
@@ -153,13 +121,13 @@ test.describe('preview shell: the real app over fixtures', () => {
     expect(offBundle).toEqual([]);
   });
 
-  test('construction · loading: a pending read holds the real loading state', async ({ page }) => {
-    const offBundle = await openState(page, 'construction', 'loading');
+  test('plan · loading: a pending read holds the real loading state', async ({ page }) => {
+    const offBundle = await openState(page, 'plan', 'loading');
     await expect(page.getByRole('progressbar').first()).toBeVisible();
     // It stays loading: the fixture never answers.
     await page.waitForTimeout(2_000);
     await expect(page.getByRole('progressbar').first()).toBeVisible();
-    await expect(page.getByTestId(TESTID.constructionListTree)).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.planList)).toHaveCount(0);
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);
   });
@@ -202,46 +170,28 @@ test.describe('preview shell: the real app over fixtures', () => {
  * session probe, Begin, the phase decision) now ride the OpsClient, so the
  * preview answers them from fixtures instead of the network guard refusing them.
  * Each case below is a state P1 could not show.
+ *
+ * Task 13: the two `service-pane` cases are RETIRED with the shared DetailPane.
+ * What they held, and where it now lives (or does not):
+ *   • "the real pane shows the service contract" → `activity-experience.spec.ts`
+ *     §12 mounts `serviceContractRoot` on the activity screen over the same
+ *     `C-billing-state-access` contract, so the renderer keeps its preview guard;
+ *   • "a live session makes the gate read *awaiting you*" → the activity screen
+ *     says this with `lifecycleNode(...)`'s `aria-current="step"` plus the gate's
+ *     own submit bar (§2a/§2b), not with a pane state chip;
+ *   • "Approve runs the REAL mutation over the fixture transport and a 4xx reads
+ *     *Rejected*" → NOT covered anywhere. EARMARK: no preview fixture answers a
+ *     submit with an error, so the app's 4xx→rejection mapping has no black-box
+ *     guard left after this commit (`construction-tasks-lens.spec.ts` pinned the
+ *     REST half and is deleted in this same commit).
  */
-test.describe('preview shell: the construction detail, Begin and the owed gate (P1b)', () => {
+test.describe('preview shell: Begin and the owed gate (P1b)', () => {
   const GATE = 'C-billing-state-access';
 
-  test('construction · service-pane: the real pane shows the service contract and the live session', async ({
+  test('plan · begin-confirm: Begin opens the real confirm; Cancel closes it and dispatches nothing', async ({
     page,
   }) => {
-    const offBundle = await openState(page, 'construction', 'service-pane');
-    const pane = page.getByTestId(TESTID.constructionDetailPane);
-    await expect(pane).toBeVisible();
-    // The session fixture (awaiting approval) reached the pane through the
-    // migrated session probe: that is what makes the gate "awaiting you".
-    await expect(page.getByTestId(TESTID.constructionDetailStateChip)).toHaveText(/awaiting you/i);
-    const contract = pane.getByTestId(TESTID.serviceContractRoot);
-    await expect(contract).toBeVisible();
-    await expect(contract).toContainText('billingStateAccess');
-    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
-    expect(await incidents(page)).toEqual([]);
-    expect(offBundle).toEqual([]);
-  });
-
-  test('construction · service-pane: Approve runs the real mutation over the fixture transport; its 409 reads "Rejected"', async ({
-    page,
-  }) => {
-    const data = fixture('construction', 'service-pane');
-    expect(data.ops['constructionSubmitPhaseDecision']?.error?.message).toBeTruthy();
-    const offBundle = await openState(page, 'construction', 'service-pane');
-    await page.getByTestId(TESTID.constructionDetailAction('approve')).click();
-    // A 4xx is a rejection (the same mapping construction-tasks-lens.spec pins on REST).
-    await expect(page.getByTestId(TESTID.constructionDetailDecisionFlow)).toContainText('Rejected');
-    // The fixture answered it: not a miss, not a blocked request, nothing sent.
-    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
-    expect(await incidents(page)).toEqual([]);
-    expect(offBundle).toEqual([]);
-  });
-
-  test('construction · begin-confirm: Begin opens the real confirm; Cancel closes it and dispatches nothing', async ({
-    page,
-  }) => {
-    const data = fixture('construction', 'begin-confirm');
+    const data = fixture('plan', 'begin-confirm');
     // A dispatch from this state must be LOUD: execute-next-activity has no fixture.
     expect(data.ops['constructionExecuteNextActivity']).toBeUndefined();
     const project = data.ops['systemDesignGetProject']?.result as {
@@ -253,7 +203,7 @@ test.describe('preview shell: the construction detail, Begin and the owed gate (
       .sort();
     expect(unrecorded.length).toBeGreaterThan(0);
 
-    const offBundle = await openState(page, 'construction', 'begin-confirm');
+    const offBundle = await openState(page, 'plan', 'begin-confirm');
     const begin = page.getByTestId(TESTID.constructionBegin);
     await expect(begin).toHaveText(/Begin construction/);
     await expect(begin).toBeEnabled();
@@ -277,10 +227,10 @@ test.describe('preview shell: the construction detail, Begin and the owed gate (
     expect(offBundle).toEqual([]);
   });
 
-  test('construction · owed-gate: the real TASKS lens owes exactly the fixture gate', async ({
+  test('plan · owed-gate: the real TASKS lens owes exactly the fixture gate', async ({
     page,
   }) => {
-    const offBundle = await openState(page, 'construction', 'owed-gate');
+    const offBundle = await openState(page, 'plan', 'owed-gate');
     await expect(page.getByTestId(TESTID.constructionTasksLens)).toBeVisible();
     const row = page.getByTestId(TESTID.constructionTasksRow(`${GATE}:gate`));
     await expect(row).toBeVisible();
@@ -300,7 +250,7 @@ test.describe('preview shell: loud failures and closed doors', () => {
     page.on('console', (msg) => {
       if (msg.type() === 'error') errors.push(msg.text());
     });
-    const offBundle = await openState(page, 'construction', 'unfixtured-read');
+    const offBundle = await openState(page, 'plan', 'unfixtured-read');
     const alarm = page.getByTestId(TESTID.previewAlarm);
     await expect(alarm).toBeVisible();
     await expect(alarm).toContainText('fixture-miss: systemDesignGetProject');
@@ -318,8 +268,8 @@ test.describe('preview shell: loud failures and closed doors', () => {
   test('every other request is blocked by the guard before it leaves the page', async ({
     page,
   }) => {
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
 
     const outcome = await page.evaluate(async () => {
       const result: Record<string, string> = {};
@@ -357,8 +307,8 @@ test.describe('preview shell: loud failures and closed doors', () => {
   });
 
   test('the nested preview is off: a frame inside the preview is refused', async ({ page }) => {
-    const offBundle = await openState(page, 'construction', 'resting');
-    await expect(page.getByTestId(TESTID.constructionListTree)).toBeVisible();
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
     const violated = await page.evaluate(
       () =>
         new Promise<string>((resolve) => {
@@ -377,34 +327,21 @@ test.describe('preview shell: loud failures and closed doors', () => {
     expect(offBundle).toEqual([]);
   });
 
-  test('the nested preview is off in the pane: its "Open in a new tab" link is refused', async ({
-    page,
-    context,
-  }) => {
+  /**
+   * Task 13: what is left of "the nested preview is off in the pane". The pane
+   * that carried the `<a target="_blank">` is deleted, and no surviving preview
+   * fixture renders an external link (the plan's TASKS rows carry a GitHub link
+   * only when the row has a `prUrl`, and neither `plan/tasks` nor `plan/owed-gate`
+   * does). So the SCRIPTED refusal is kept — window.open throws and opens no
+   * second tab — and the real-link half is EARMARKED for stage 6, together with
+   * the `navigation-blocked` incident kind it was the only cover for.
+   */
+  test('a scripted window.open is refused and opens no second tab', async ({ page, context }) => {
     const opened: string[] = [];
     context.on('page', (p) => opened.push(p.url()));
-    const offBundle = await openState(page, 'construction', 'built-surface-link');
+    const offBundle = await openState(page, 'plan', 'list');
+    await expect(page.getByTestId(TESTID.planList)).toBeVisible();
 
-    // The REAL detail pane (FrontendArtifactView), rendering the fixture's ui-code route.
-    await expect(page.getByTestId(TESTID.constructionFrontendView)).toBeVisible();
-    const link = page.getByTestId(TESTID.constructionFrontendOpenLink);
-    await expect(link).toBeVisible();
-    await expect(link).toHaveAttribute('target', '_blank');
-
-    await link.click();
-    await expect(page.getByTestId(TESTID.previewAlarm)).toContainText('navigation-blocked:');
-    await expect
-      .poll(() => incidents(page))
-      .toEqual([
-        {
-          kind: 'navigation-blocked',
-          detail: expect.stringContaining(
-            '/project/archistrator/construction'
-          ) as unknown as string,
-        },
-      ]);
-
-    // The scripted form is refused too.
     const scripted = await page.evaluate(() => {
       try {
         window.open('/index.html?screen=landing&state=resting');
@@ -424,13 +361,13 @@ test.describe('preview shell: loud failures and closed doors', () => {
   test('an unknown state is an honest error page listing what the build carries', async ({
     page,
   }) => {
-    await openState(page, 'construction', 'no-such-state');
+    await openState(page, 'plan', 'no-such-state');
     const errorPage = page.getByTestId(TESTID.previewErrorPage);
     await expect(errorPage).toBeVisible();
-    await expect(errorPage).toContainText('Screen "construction" has no state "no-such-state".');
-    await expect(errorPage.getByRole('link', { name: 'construction · resting' })).toBeVisible();
+    await expect(errorPage).toContainText('Screen "plan" has no state "no-such-state".');
+    await expect(errorPage.getByRole('link', { name: 'plan · list' })).toBeVisible();
     await expect(errorPage.getByRole('link', { name: 'landing · load-error' })).toBeVisible();
     // It never guessed a state: the app did not boot.
-    await expect(page.getByTestId(TESTID.constructionListTree)).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.planList)).toHaveCount(0);
   });
 });

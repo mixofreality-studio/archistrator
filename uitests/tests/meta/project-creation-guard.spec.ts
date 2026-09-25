@@ -94,7 +94,13 @@ test('every spec that opens a project runs under the shared dispatch guard', () 
   const opens = /openSharedProject\(|createProjectFromLanding\(|openStubbedProject\(|stubCreatedProject\(/;
   const guarded = /import \{[^}]*\btest\b[^}]*\} from '\.\/support\/dispatchGuard\.js'/;
   const specs = sources().filter((f) => f.endsWith('.spec.ts') && opens.test(read(f)));
-  expect(specs.length).toBeGreaterThan(6);
+  // A floor on the SCAN, not on the suite: it fails if the regex above ever stops
+  // matching real specs (a renamed flow helper, a moved directory) and this check
+  // starts passing over an empty set. Stage 5 Task 13 retired the 38 specs that
+  // drove the construction console and the design rails, taking this set from 7
+  // to 5 — billing, close-and-no-render, homebase, landing, team — so the floor
+  // moves with it. Lower it only for the same reason: a spec genuinely left.
+  expect(specs.length).toBeGreaterThan(4);
   for (const f of specs) {
     const src = read(f);
     expect(src, `${f} opens a project without the dispatch guard`).toMatch(guarded);

@@ -98,6 +98,26 @@ export interface SubmitBarProps {
    * it never demotes Approve as the primary verb.
    */
   allowEmptySendBack?: boolean;
+  /**
+   * Forwarded straight into `resolveSubmitVerb`. False on a surface where
+   * sending back is not a verb at all (spec R7: the Project Design M0 gate —
+   * to change the plan you amend the Architecture). Default true — every
+   * existing mounting is unaffected. When false, no send-back affordance is
+   * rendered anywhere, including the overflow menu.
+   */
+  allowSendBack?: boolean;
+  /**
+   * Forwarded straight into `resolveSubmitVerb`. False on a rail with no question
+   * op (every construction activity type — R2/GAP-6), where an Ask primary verb
+   * would dispatch nothing and would have replaced Approve and Send back to do
+   * it. Default true — the design rails and the MCP widget are unaffected. The
+   * composer that stages questions is hidden on the same flag
+   * (`CommentMargin.allowQuestions`), so the notice below is a backstop for notes
+   * staged before it was, not the normal path.
+   */
+  allowAsk?: boolean;
+  /** Forwarded straight into `resolveSubmitVerb` — overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
+  approveCopy?: { label: string; consequence: string } | undefined;
   /** Omitted where withdrawing does not apply (e.g. a clean committed slot). */
   onWithdraw?: (() => void) | undefined;
   withdrawPending?: boolean;
@@ -119,6 +139,9 @@ export function SubmitBar({
   onAsk,
   onAmend,
   allowEmptySendBack = false,
+  allowSendBack = true,
+  allowAsk = true,
+  approveCopy,
   onWithdraw,
   withdrawPending = false,
   onRetry,
@@ -134,6 +157,9 @@ export function SubmitBar({
     stagedQuestions,
     openThreads,
     allowEmptySendBack,
+    allowSendBack,
+    allowAsk,
+    approveCopy,
   });
 
   const busy = primaryBusy(verb.action, pending, askPending);
@@ -216,6 +242,19 @@ export function SubmitBar({
             variant="caption"
           >
             {verb.consequence}
+          </Typography>
+        ) : null}
+        {/* What the verb will NOT do, on its own line and in its own colour: an
+            `approveCopy` replaces the consequence above, so a warning folded into
+            that string would vanish on exactly the gate that overrides it. */}
+        {verb.notice.length > 0 ? (
+          <Typography
+            data-testid={UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_NOTICE}
+            role="status"
+            sx={{ mt: 0.5, color: t.dangerFg, display: 'block' }}
+            variant="caption"
+          >
+            {verb.notice}
           </Typography>
         ) : null}
       </Box>

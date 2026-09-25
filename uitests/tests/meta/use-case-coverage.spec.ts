@@ -42,19 +42,23 @@ const TAG_RE = /tagUseCase\(\s*['"]([a-z0-9-]+)['"]\s*\)/g;
  */
 const KNOWN_GAPS: Record<string, string> = {
   'commit-to-a-project-option':
-    "The SDP decision UI (SdpReviewView — option cards + commit/reject-all gate, " +
-    'UI_IDENTIFIERS.SdpReview.*) only renders while a Phase-2 spine is LIVE and ' +
-    "awaiting the SDP decision. ProjectDesignExperience.tsx short-circuits " +
-    '`isSdpStep && committed` straight to the read-only AdvancePanel (not the ' +
-    'decision UI) the instant sdpReview is committed. Reaching that live decision ' +
-    'window needs driving the FULL Phase-2 co-author spine (8 sequential artifact ' +
-    'drafts: planningAssumptions…riskModel) with no seed/import API — this harness ' +
-    'is deliberately un-cheatable (see README) and drives no state-injection route. ' +
-    'The one seeded project with committed Phase-2 state ("archistrator") has ' +
-    'already advanced past this gate, so no committed OR live state reachable today ' +
-    'renders the decision UI. Revisit once a live Phase-2-through-SDP flow is worth ' +
-    'the cost (the Phase-1 equivalent already runs ~12,000,000ms in ' +
-    'architecture-views.spec — Phase 2 would be strictly more expensive).',
+    'The SDP decision UI (SdpReviewView — option cards + the M0 approve bar, ' +
+    'UI_IDENTIFIERS.SdpReview.*) renders only while the Project Design activity ' +
+    'is AWAITING that decision. Stage 5 moved it from the Phase-2 rail onto the ' +
+    'Activity Experience (`/project/$id/activity/projectDesign?task=sdpReview`, ' +
+    'spec §6): one deterministic M0 cost-approval gate with no send-back. ' +
+    'Reaching that live window still needs driving the FULL Phase-2 sequence ' +
+    '(8 sequential artifact drafts: planningAssumptions…riskModel) with no ' +
+    'seed/import API — this harness is deliberately un-cheatable (see README) and ' +
+    'drives no state-injection route. The one seeded project with committed ' +
+    'Phase-2 state ("archistrator") has already advanced past the gate, so no live ' +
+    'state reachable from a real server renders the decision UI. ' +
+    'PARTIALLY COVERED OFF-LEDGER: `tests/preview/activity-experience.spec.ts` ' +
+    'pins the gate deterministically over the `project-design-m0` fixture (the ' +
+    'Approve verb, the absence of any send-back, the amend-architecture link, and ' +
+    'the read-only history) — but `preview/` is outside this scan by design, and a ' +
+    'fixture is not a live commit. Revisit once a live Phase-2-through-SDP run is ' +
+    'worth the cost.',
 };
 
 test.beforeEach(async ({ request }) => {

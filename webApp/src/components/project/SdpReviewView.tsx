@@ -6,7 +6,7 @@
  * (submitSDPDecision rejectAll). Ported visual design from ux-mock SdpReview, bound
  * to the real typed SdpReview candidate model via api/projectAdapters.toSdpReviewView.
  */
-import { useCallback, useRef, useState, type ReactNode } from 'react';
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react';
 import Box from '@mui/material/Box';
 import Paper from '@mui/material/Paper';
 import Typography from '@mui/material/Typography';
@@ -34,6 +34,7 @@ import { BandedScatter, type ScatterPoint } from './charts';
 import { ComputedBadge, AuthoredBadge } from './computed';
 import { useComments } from '../comments/CommentContext';
 import { sdpOptionAnchor } from '../comments/CommentContext';
+import { useRegisterAnchor } from '../comments/AnchorRegistry';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
 /** The per-row "Comment on this item" affordance for the ARIA-table option rows. */
@@ -70,6 +71,67 @@ function RowCommentButton({
   );
 }
 
+/**
+ * One option's `role="row"` in the options table, with its comment ANCHOR
+ * enrolled. Extracted from the parent's `.map()` body for the same reason
+ * `ContractSignatureList`'s `OpRow` is: it calls {@link useRegisterAnchor}, a
+ * hook, which React forbids inside a loop callback.
+ *
+ * Before this, `armOption` armed `sdpOptionAnchor(solutionKind)` and NOTHING
+ * enrolled it, so every comment on an option — the one surface whose whole job is
+ * choosing between options — could only fall into the margin's UNPLACED group, on
+ * the live gate and in history alike.
+ *
+ * The ref goes on the row's FIRST CELL, not on the row itself: the row is
+ * `display: contents` (it has to be, so its cells are items of the outer grid),
+ * and an element with no box has an empty `getBoundingClientRect()` — it would
+ * have enrolled an anchor that measures as offset 0 and placed the card at the
+ * top of the margin, which is a worse lie than leaving it unplaced. The first
+ * cell is the OPTION name, the visual start of the row the reader armed.
+ */
+function OptionRow({
+  option,
+  t,
+  children,
+}: {
+  option: SdpOptionView;
+  t: Tokens;
+  /** The remaining cells, rendered by the caller (they need its formatters). */
+  children: ReactNode;
+}): ReactNode {
+  const registerAnchor = useRegisterAnchor(sdpOptionAnchor(option.solutionKind));
+  return (
+    <Box role="row" sx={ROW_REVEAL_SX}>
+      <Box
+        ref={registerAnchor}
+        role="cell"
+        sx={{
+          px: 1.25,
+          py: 0.9,
+          borderBottom: `1px solid ${t.line}`,
+          display: 'flex',
+          alignItems: 'center',
+          gap: 0.6,
+        }}
+      >
+        <Box
+          sx={{
+            width: 9,
+            height: 9,
+            bgcolor: solutionAccentColor(t, option.solutionKind),
+            border: `1.5px solid ${t.line}`,
+          }}
+        />
+        <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}>
+          {SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind}
+        </Typography>
+        {option.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
+      </Box>
+      {children}
+    </Box>
+  );
+}
+
 /** Shared sx that reveals a row's comment button on row hover / keyboard focus. */
 const ROW_REVEAL_SX = {
   display: 'contents',
@@ -95,17 +157,55 @@ export function SdpReviewView({
   readOnly = false,
   onCommit,
   onRejectAll,
+  decision = 'own',
+  onChoose,
 }: {
   envelope: ProjectArtifactModelEnvelope | undefined;
   /** A decision mutation is in flight — disable the gate. */
   pending: boolean;
-  /** The SDP is already committed — render the decision gate disabled, read-only. */
+  /**
+   * The SDP is already committed, or the reader is on a past revision — the
+   * decision gate is read-only.
+   *
+   * Read-only is INERT, not merely disabled: the option cards stop being radios
+   * altogether (no `role`, no `aria-checked`, no tab stop, no cursor, no
+   * handlers) and present the standing choice in words, so a read-only surface
+   * carries no focusable control that does nothing and no orphaned ARIA. Which
+   * option was chosen is said as text, never by colour alone.
+   */
   readOnly?: boolean;
   onCommit: (optionId: string) => void;
   onRejectAll: (feedback: string) => void;
+  /**
+   * WHERE the decision is made. `'own'` (the default) is today's terminal gate —
+   * choose an option, Commit & unlock Phase 3, Reject all — exactly as the
+   * Project Design experience has always rendered it, and every existing caller
+   * is untouched.
+   *
+   * `'chooser'` keeps the option radiogroup and DROPS both verbs, for a surface
+   * that owns the decision itself: the Activity Experience routes every review
+   * verb through ONE SubmitBar (spec §7.2), and the M0 gate has no send-back at
+   * all (spec R7) — so a second Commit button and a live Reject all would be
+   * both a duplicate verb and a verb that does not exist here. The standing
+   * choice is reported through {@link onChoose} instead. The Phase-2 twin of
+   * `SubmitBar.allowSendBack` (RULING R11).
+   */
+  decision?: 'own' | 'chooser';
+  /**
+   * The option the reader currently has selected, reported on every change AND
+   * once on mount (the architect's recommendation) — a controlling surface must
+   * know which plan its own Approve would commit before anything is touched.
+   * Give it a STABLE identity (a `useState` setter, or `useCallback`).
+   */
+  onChoose?: ((optionId: string) => void) | undefined;
 }): ReactNode {
   const t = useTokens();
-  const { setAnchor } = useComments();
+  // `enabled` is the read-only surface's switch: this view hand-rolls its option
+  // rows' comment button instead of going through `CommentableList`, which reads
+  // the same flag (CommentableList.tsx:273). Without it the Activity
+  // Experience's read-only history — which shadows the provider with a disabled
+  // one — would still render a focusable button whose arm is a no-op.
+  const { setAnchor, enabled: commentsEnabled } = useComments();
   const view = toSdpReviewView(envelope);
   const [chosen, setChosen] = useState<string>(view.recommendation);
   const [feedback, setFeedback] = useState('');
@@ -162,6 +262,14 @@ export function SdpReviewView({
     });
   };
 
+  const selected = chosen.length > 0 ? chosen : (view.options[0]?.optionId ?? '');
+
+  // Report the standing choice upward. Above the early return because a hook
+  // cannot sit after one; a no-op when nobody is listening (`decision: 'own'`).
+  useEffect(() => {
+    onChoose?.(selected);
+  }, [selected, onChoose]);
+
   if (view.options.length === 0) {
     return (
       <Typography sx={{ py: 6, textAlign: 'center', color: t.muted, fontFamily: t.mono }}>
@@ -169,8 +277,6 @@ export function SdpReviewView({
       </Typography>
     );
   }
-
-  const selected = chosen.length > 0 ? chosen : (view.options[0]?.optionId ?? '');
 
   // time–cost: duration (days) × build cost (major units)
   const costPts: ScatterPoint[] = view.options.map((o) => ({
@@ -292,33 +398,7 @@ export function SdpReviewView({
               ))}
             </Box>
             {view.options.map((o) => (
-              <Box key={o.optionId} role="row" sx={ROW_REVEAL_SX}>
-                <Box
-                  role="cell"
-                  sx={{
-                    px: 1.25,
-                    py: 0.9,
-                    borderBottom: `1px solid ${t.line}`,
-                    display: 'flex',
-                    alignItems: 'center',
-                    gap: 0.6,
-                  }}
-                >
-                  <Box
-                    sx={{
-                      width: 9,
-                      height: 9,
-                      bgcolor: solutionAccentColor(t, o.solutionKind),
-                      border: `1.5px solid ${t.line}`,
-                    }}
-                  />
-                  <Typography
-                    sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 11.5, color: t.ink }}
-                  >
-                    {SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
-                  </Typography>
-                  {o.recommended ? <StarIcon sx={{ fontSize: 13, color: t.accent }} /> : null}
-                </Box>
+              <OptionRow key={o.optionId} option={o} t={t}>
                 <Cell t={t}>{formatDurationDays(o.durationDays)}</Cell>
                 <Cell t={t}>{formatMoney(o.buildCost)}</Cell>
                 <Cell strong t={t}>
@@ -350,16 +430,18 @@ export function SdpReviewView({
                     />
                   ) : null}
                   <Box sx={{ flexGrow: 1 }} />
-                  <RowCommentButton
-                    label={SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
-                    t={t}
-                    testKey={o.optionId}
-                    onArm={() => {
-                      armOption(o);
-                    }}
-                  />
+                  {commentsEnabled ? (
+                    <RowCommentButton
+                      label={SOLUTION_LABELS[o.solutionKind] ?? o.solutionKind}
+                      t={t}
+                      testKey={o.optionId}
+                      onArm={() => {
+                        armOption(o);
+                      }}
+                    />
+                  ) : null}
                 </Box>
-              </Box>
+              </OptionRow>
             ))}
           </Box>
         </Box>
@@ -448,14 +530,18 @@ export function SdpReviewView({
               color: t.accentText,
             }}
           >
-            {readOnly ? 'DECISION CAPTURE — COMMITTED' : 'DECISION CAPTURE — THE SDP GATE'}
+            {readOnly
+              ? 'DECISION CAPTURE — COMMITTED'
+              : decision === 'chooser'
+                ? 'DECISION CAPTURE — CHOOSE THE OPTION'
+                : 'DECISION CAPTURE — THE SDP GATE'}
           </Typography>
           <Box sx={{ flexGrow: 1 }} />
           <AuthoredBadge label={readOnly ? 'committed' : 'you decide'} t={t} />
         </Box>
 
         <Box sx={{ p: 2.5 }}>
-          {rejecting && !readOnly ? (
+          {rejecting && !readOnly && decision === 'own' ? (
             <RejectAll
               feedback={feedback}
               pending={pending}
@@ -480,11 +566,14 @@ export function SdpReviewView({
                   mb: 1,
                 }}
               >
-                1 · CHOOSE AN OPTION
+                {readOnly ? 'THE OPTION ON RECORD' : '1 · CHOOSE AN OPTION'}
               </Typography>
               <Box
+                // `group` and not `radiogroup`: read-only, the cards are not
+                // radios (OptionCard), and a radiogroup containing none is
+                // orphaned ARIA. The heading above it stops instructing, too.
                 aria-labelledby="sdp-choose-option-label"
-                role="radiogroup"
+                role={readOnly ? 'group' : 'radiogroup'}
                 sx={{
                   display: 'grid',
                   gridTemplateColumns: {
@@ -499,6 +588,7 @@ export function SdpReviewView({
                   <OptionCard
                     key={o.optionId}
                     option={o}
+                    readOnly={readOnly}
                     refCb={(el) => {
                       optionRefs.current[i] = el;
                     }}
@@ -527,35 +617,41 @@ export function SdpReviewView({
                   <Typography sx={{ fontFamily: t.body, fontSize: 11.5, color: t.muted }}>
                     {readOnly
                       ? 'This decision is already bound as the plan of record.'
-                      : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
+                      : decision === 'chooser'
+                        ? 'Approving this review binds it as the plan of record and unlocks Phase 3 (Construction).'
+                        : 'Commit binds the plan of record and unlocks Phase 3 (Construction).'}
                   </Typography>
                 </Box>
                 <Box sx={{ flexGrow: 1 }} />
-                <Button
-                  color="inherit"
-                  data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
-                  disabled={pending || readOnly}
-                  startIcon={<ReplayIcon />}
-                  sx={{ color: t.muted }}
-                  variant="text"
-                  onClick={() => {
-                    setRejecting(true);
-                  }}
-                >
-                  Reject all
-                </Button>
-                <Button
-                  color="primary"
-                  data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
-                  disabled={pending || readOnly || selected.length === 0}
-                  startIcon={<CheckIcon />}
-                  variant="contained"
-                  onClick={() => {
-                    onCommit(selected);
-                  }}
-                >
-                  Commit &amp; unlock Phase 3
-                </Button>
+                {decision === 'own' ? (
+                  <>
+                    <Button
+                      color="inherit"
+                      data-testid={UI_IDENTIFIERS.SdpReview.REJECT_ALL}
+                      disabled={pending || readOnly}
+                      startIcon={<ReplayIcon />}
+                      sx={{ color: t.muted }}
+                      variant="text"
+                      onClick={() => {
+                        setRejecting(true);
+                      }}
+                    >
+                      Reject all
+                    </Button>
+                    <Button
+                      color="primary"
+                      data-testid={UI_IDENTIFIERS.SdpReview.COMMIT}
+                      disabled={pending || readOnly || selected.length === 0}
+                      startIcon={<CheckIcon />}
+                      variant="contained"
+                      onClick={() => {
+                        onCommit(selected);
+                      }}
+                    >
+                      Commit &amp; unlock Phase 3
+                    </Button>
+                  </>
+                ) : null}
               </Box>
             </>
           )}
@@ -565,10 +661,14 @@ export function SdpReviewView({
   );
 }
 
+/** The read-only card's word for the standing choice — never colour alone. */
+const CHOSEN_MARK = 'CHOSEN';
+
 function OptionCard({
   t,
   option,
   selected,
+  readOnly,
   refCb,
   onSelect,
   onKeyDown,
@@ -576,6 +676,8 @@ function OptionCard({
   t: Tokens;
   option: SdpOptionView;
   selected: boolean;
+  /** Inert presentation: no role, no tab stop, no handlers. See {@link SdpReviewView}. */
+  readOnly: boolean;
   refCb: (el: HTMLDivElement | null) => void;
   onSelect: () => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
@@ -583,24 +685,34 @@ function OptionCard({
   const label = SOLUTION_LABELS[option.solutionKind] ?? option.solutionKind;
   return (
     <Box
-      aria-checked={selected}
-      aria-label={`${label}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}`}
+      // A read-only card is not a radio that refuses to change — it is not a
+      // radio. Keeping `role="radio"` with a tab stop and a pointer cursor left a
+      // control a keyboard reader could reach and press to no effect, inside a
+      // radiogroup that no longer exists.
+      aria-checked={readOnly ? undefined : selected}
+      aria-label={
+        readOnly
+          ? undefined
+          : `${label}, ${formatMoney(option.buildCost)}, risk ${option.compositeRisk.toFixed(2)}`
+      }
       data-testid={UI_IDENTIFIERS.SdpReview.optionCard(option.optionId)}
       ref={refCb}
-      role="radio"
+      role={readOnly ? undefined : 'radio'}
       sx={{
         p: 1.5,
-        cursor: 'pointer',
+        cursor: readOnly ? 'default' : 'pointer',
         border: `2px solid ${selected ? t.accent : t.line}`,
         borderRadius: t.radius / 8 + 0.5,
         bgcolor: selected ? t.awaitingBg : 'transparent',
         boxShadow: selected && t.hardShadow ? `3px 3px 0 ${t.shadowColor}` : 'none',
         transition: 'all 90ms ease',
-        '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 },
+        ...(readOnly
+          ? {}
+          : { '&:focus-visible': { outline: `2px solid ${t.accent}`, outlineOffset: 2 } }),
       }}
-      tabIndex={selected ? 0 : -1}
-      onClick={onSelect}
-      onKeyDown={onKeyDown}
+      tabIndex={readOnly ? undefined : selected ? 0 : -1}
+      onClick={readOnly ? undefined : onSelect}
+      onKeyDown={readOnly ? undefined : onKeyDown}
     >
       <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.6 }}>
         <Box
@@ -616,6 +728,21 @@ function OptionCard({
         <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 12, color: t.ink }}>
           {label}
         </Typography>
+        {/* With the radio role gone, the dot is colour alone — which is not a
+            signal. The word is. */}
+        {readOnly && selected ? (
+          <Typography
+            sx={{
+              fontFamily: t.mono,
+              fontWeight: 700,
+              fontSize: 9.5,
+              letterSpacing: '0.12em',
+              color: t.accent,
+            }}
+          >
+            {CHOSEN_MARK}
+          </Typography>
+        ) : null}
       </Box>
       <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, mt: 0.5 }}>
         {formatMoney(option.buildCost)} · risk {option.compositeRisk.toFixed(2)}

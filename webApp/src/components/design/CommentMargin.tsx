@@ -128,6 +128,8 @@ export function CommentMargin({
   onResolve,
   onReopen,
   onCollapse,
+  expandResolved,
+  allowQuestions = true,
 }: {
   /** The durable server review-ledger thread for the active slot. */
   thread?: readonly ReviewCommentView[];
@@ -150,6 +152,24 @@ export function CommentMargin({
   onReopen?: ((id: string) => void) | undefined;
   /** Collapse the margin (narrow viewports open it again from the chrome header). */
   onCollapse: () => void;
+  /**
+   * Show resolved threads as full cards instead of collapsing them to a one-liner —
+   * passed straight through to every {@link MarginThreadCard}. Default `false` fits
+   * the live review rail; a read-only history (spec §7.2) sets this `true`, where a
+   * decided thread is the point of the history, not noise in it.
+   */
+  expandResolved?: boolean | undefined;
+  /**
+   * False on a rail with NO question op (every construction activity type —
+   * R2/GAP-6): the composer's Question toggle is not rendered, so a question
+   * cannot be staged where it could never be sent. Default true.
+   *
+   * This is the FIRST half of the pair; `SubmitBar.allowAsk` is the second. A
+   * question already staged before this flag applied (the accumulator is durable,
+   * keyed per task) is still reported by the bar's notice rather than silently
+   * riding nothing.
+   */
+  allowQuestions?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const { comments, remove, anchor, setAnchor, enabled } = useComments();
@@ -304,6 +324,7 @@ export function CommentMargin({
   const renderItem = (item: MarginItem): ReactNode =>
     item.kind === 'draft' ? (
       <MarginDraftCard
+        allowQuestions={allowQuestions}
         anchor={item.anchor}
         committed={committed}
         t={t}
@@ -316,6 +337,7 @@ export function CommentMargin({
       <MarginThreadCard
         active={activeId === item.key}
         entry={item.entry}
+        expandResolved={expandResolved}
         stagedReplies={stagedReplies.get(item.entry.id) ?? []}
         statusPending={statusPending}
         onActivate={() => {
@@ -655,12 +677,15 @@ function StagedNoteCard({
  * (Ruling P17) — every review verb converges through that one bar.
  */
 function MarginDraftCard({
+  allowQuestions,
   anchor,
   committed,
   onCancel,
   onStaged,
   t,
 }: {
+  /** See {@link CommentMargin}'s prop of the same name — the Question toggle's switch. */
+  allowQuestions: boolean;
   /** The armed anchor this draft is filed against, or `null` for a free-form note. */
   anchor: Anchor | null;
   committed: boolean;
@@ -757,16 +782,22 @@ function MarginDraftCard({
             setCommentType('changeRequest');
           }}
         />
-        <ComposerToggle
-          active={commentType === 'question'}
-          label="Question"
-          t={t}
-          testid={UI_IDENTIFIERS.Chat.TYPE_QUESTION}
-          onClick={() => {
-            setCommentType('question');
-          }}
-        />
-        {commentType === 'question' ? (
+        {/* Not rendered at all where a question could not be sent (R2/GAP-6) —
+            not a disabled toggle: a control that cannot be used is not one. The
+            state below stays `changeRequest`, which is its initial value, so
+            nothing can leave this card as a question either. */}
+        {allowQuestions ? (
+          <ComposerToggle
+            active={commentType === 'question'}
+            label="Question"
+            t={t}
+            testid={UI_IDENTIFIERS.Chat.TYPE_QUESTION}
+            onClick={() => {
+              setCommentType('question');
+            }}
+          />
+        ) : null}
+        {allowQuestions && commentType === 'question' ? (
           <>
             <Typography sx={{ fontFamily: t.mono, fontSize: 10, color: t.muted, ml: 0.5 }}>
               to

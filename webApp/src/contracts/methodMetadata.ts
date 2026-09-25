@@ -6,21 +6,26 @@
  * table-of-contents.
  *
  * The single hand-authored source for artifact-kind display data (appgen
- * step4-task5 consolidation): PHASE1_ORDER/PHASE2_ORDER below are the ordered
- * kind lists (this DISPLAY order is PRODUCT DATA — it legitimately differs from
- * the wire's ArtifactKind ordinal order, e.g. Phase-2's wire ordinals run
- * mission..sdpReview across both phases, not per-phase from 0) and
+ * step4-task5 consolidation): PHASE1_ORDER below is the ordered kind list (this
+ * DISPLAY order is PRODUCT DATA — it legitimately differs from the wire's
+ * ArtifactKind ordinal order, which runs mission..sdpReview across both phases,
+ * not per-phase from 0) and
  * METHOD_METADATA[kind].title is the display label. types.ts used to duplicate
  * both (PHASE1_ARTIFACTS/PHASE2_DRAFTABLE_ARTIFACTS for order,
  * ARTIFACT_LABELS/PROJECT_ARTIFACT_LABELS for title) — deleted, since every
  * value was either identical to what lives here or (PHASE2_DRAFTABLE_ARTIFACTS)
  * unused. No separate numeric `order`/`phase` fields were added to
- * MethodArtifactMeta: a kind's position in PHASE1_ORDER/PHASE2_ORDER already IS
- * its order, and which array it appears in already IS its phase — consumers
- * that need an ordered, phase-scoped kind list read PHASE1_ORDER/PHASE2_ORDER
- * directly (cast to the narrower ArtifactKind/ProjectArtifactKind union, same
- * pattern as HomeBase.tsx/ProjectDesignExperience.tsx/DesignExperience.tsx)
- * rather than re-deriving it from per-entry fields.
+ * MethodArtifactMeta: a kind's position in PHASE1_ORDER already IS its order —
+ * consumers that need an ordered, phase-scoped kind list read PHASE1_ORDER
+ * directly (cast to the narrower ArtifactKind union, the pattern HomeBase.tsx
+ * uses) rather than re-deriving it from per-entry fields.
+ *
+ * There was a PHASE2_ORDER beside it. Stage 5 Task 13 deleted it with its last
+ * three readers — `adapters.toPhaseCards`, `graph/m0Gate.ts` and
+ * `routes/ProjectDesignExperience.tsx` — all of which went with the design rails
+ * and the construction console (spec §7.4). The Phase-2 kinds themselves are
+ * untouched: they keep their METHOD_METADATA entries and their wire ordinals, and
+ * the plan reaches them through the Project Design ACTIVITY.
  */
 import type { ArtifactKindFull } from './types';
 
@@ -65,19 +70,6 @@ export const PHASE1_ORDER: readonly ArtifactKindFull[] = [
   'volatilities',
   'coreUseCases',
   'system',
-] as const;
-
-/** Phase-2 (Project Design) artifacts, in server-exposed order. */
-export const PHASE2_ORDER: readonly ArtifactKindFull[] = [
-  'planningAssumptions',
-  'activityList',
-  'network',
-  'normalSolution',
-  'decompressedSolution',
-  'subcriticalSolution',
-  'compressedSolution',
-  'riskModel',
-  'sdpReview',
 ] as const;
 
 export const METHOD_METADATA: Record<ArtifactKindFull, MethodArtifactMeta> = {

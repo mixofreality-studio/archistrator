@@ -1,0 +1,18 @@
+{
+  "route": "/project/archistrator/plan?lens=list",
+  "title": "Plan · an unfixtured read",
+  "note": "TEST-ONLY: get-project has no fixture, so the preview must fail LOUDLY (a fixture-miss error and the preview alarm). A designed state would never omit it. Replaces construction/unfixtured-read.json, whose screen Task 13 deletes.",
+  "ops": {
+    "compositionGetUserinfo": {
+      "result": {
+        "kind": "user",
+        "sub": "dev-architect",
+        "preferred_username": "dev-architect",
+        "name": "Preview Architect",
+        "roles": [
+          "architect"
+        ]
+      }
+    }
+  }
+}

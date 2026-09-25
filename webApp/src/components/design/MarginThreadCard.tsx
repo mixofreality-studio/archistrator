@@ -59,6 +59,7 @@ export function MarginThreadCard({
   statusPending,
   stagedReplies,
   onDiscardStaged,
+  expandResolved,
 }: {
   entry: ReviewCommentView;
   /** The margin's single expanded card. Inactive cards render compact. */
@@ -79,6 +80,14 @@ export function MarginThreadCard({
   stagedReplies?: readonly StagedReply[];
   /** Drop a staged reply by its accumulator index. */
   onDiscardStaged?: ((index: number) => void) | undefined;
+  /**
+   * Show resolved threads as full cards instead of the collapsed one-liner below.
+   * Default `false` (today's collapse) fits the live review rail, where a decided
+   * thread is settled business and should cost one line of margin. A read-only
+   * history (spec §7.2) sets this `true`: a decided thread there is the POINT of
+   * the history, not noise in it, so it stays expanded.
+   */
+  expandResolved?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const { post, enabled } = useComments();
@@ -86,8 +95,9 @@ export function MarginThreadCard({
   const resolved = entry.status === 'resolved';
 
   // A resolved thread that is not the active card collapses to a single muted
-  // line: the decision is made, so it should cost one line of margin, not a card.
-  if (resolved && !active) {
+  // line: the decision is made, so it should cost one line of margin, not a card —
+  // unless the caller asked resolved threads to stay expanded (expandResolved).
+  if (resolved && !active && expandResolved !== true) {
     return (
       <Box
         data-testid={UI_IDENTIFIERS.Margin.card(entry.id)}

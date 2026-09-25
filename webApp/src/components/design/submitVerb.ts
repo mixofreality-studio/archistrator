@@ -18,6 +18,15 @@ export interface SubmitVerb {
   label: string;
   /** Always shown beneath the verb: what pressing it actually dispatches. */
   consequence: string;
+  /**
+   * A second line beneath the consequence, for what the verb will NOT do. Empty
+   * whenever there is nothing to warn about — today it is written by exactly one
+   * situation: questions staged on a rail with no question op (`allowAsk: false`),
+   * which no batch verb carries, because `toWireEntries` and `freeformNotesFrom`
+   * both exclude questions. Kept OUT of `consequence` so an `approveCopy` that
+   * replaces the consequence cannot swallow the warning with it.
+   */
+  notice: string;
   disabled: boolean;
   /**
    * Verbs offered in the overflow menu ALONGSIDE Withdraw/Retry, never as the
@@ -49,15 +58,44 @@ export function resolveSubmitVerb(input: {
    * nothing staged and nothing blocking always sees Approve, on every surface.
    */
   allowEmptySendBack?: boolean;
+  /**
+   * False on a surface where sending back is not a verb at all (spec R7: the
+   * Project Design M0 gate — to change the plan you amend the Architecture).
+   * Staged change requests then STAY comments: they ride the approval as
+   * recorded feedback rather than flipping the primary verb to a redraft that
+   * has nowhere to go. Default true — every existing caller is unchanged.
+   */
+  allowSendBack?: boolean;
+  /**
+   * False on a rail with NO question op — every construction activity type, where
+   * `constructionManager` has neither `AskQuestions` nor `SetReviewCommentStatus`
+   * (R2/GAP-6). The ask branch is then skipped entirely and the verb resolves as
+   * if no question had been staged, so one staged question can never leave the
+   * reviewer with a dead Ask button and no Approve or Send back at all. What the
+   * questions will NOT do is said in {@link SubmitVerb.notice} rather than
+   * silently dropped. Default true — every existing caller is unchanged.
+   */
+  allowAsk?: boolean;
+  /** Overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
+  approveCopy?: { label: string; consequence: string } | undefined;
 }): SubmitVerb {
   const {
     committed,
     stage,
     stagedChangeRequests: crs,
-    stagedQuestions: qs,
+    stagedQuestions: rawQuestions,
     openThreads,
     allowEmptySendBack = false,
+    allowSendBack = true,
+    allowAsk = true,
+    approveCopy,
   } = input;
+  // A question staged on a rail that cannot send one is not part of this batch:
+  // it counts towards nothing, colours no consequence, and is reported once in
+  // `notice`. Counting it would put a number on the button that the button does
+  // not send.
+  const qs = allowAsk ? rawQuestions : 0;
+  const notice = allowAsk ? '' : questionsNotSent(rawQuestions);
   const staged = crs + qs;
   const consequence = describeConsequence(crs, qs, committed);
   // RULING P19: STAGE decides whether a live draft is under review, NOT
@@ -70,21 +108,31 @@ export function resolveSubmitVerb(input: {
   const liveDraft = stage === 'drafted' || stage === 'awaitingReview';
 
   // Questions alone never redraft — that is the whole point of the ask path.
+  // Unreachable when `allowAsk` is false: `qs` is 0 there, so a questions-only
+  // batch falls through to Approve (or Send back, if change requests are staged
+  // too) instead of offering an Ask this rail cannot dispatch.
   if (staged > 0 && crs === 0) {
     return {
       action: 'ask',
       label: `Ask (${String(qs)}) — no redraft`,
       consequence,
+      notice,
       disabled: false,
       secondaryActions: [],
     };
   }
-  if (staged > 0) {
+  // RULING R11 (spec §6/R7): on a surface with no send-back — today only the
+  // Project Design M0 gate — staged change requests are not a redraft trigger,
+  // because there is nothing to redraft: the plan is computed, and changing it
+  // means amending the Architecture. They ride the approval as recorded
+  // feedback and the primary verb stays Approve.
+  if (staged > 0 && allowSendBack) {
     return committed
       ? {
           action: 'amend',
           label: `Amend (${String(staged)})`,
           consequence,
+          notice,
           disabled: false,
           secondaryActions: [],
         }
@@ -92,6 +140,7 @@ export function resolveSubmitVerb(input: {
           action: 'sendBack',
           label: `Send back (${String(staged)})`,
           consequence,
+          notice,
           disabled: false,
           secondaryActions: [],
         };
@@ -103,29 +152,54 @@ export function resolveSubmitVerb(input: {
   // is still a live draft an MCP host needs to be able to send back, exactly
   // like an uncommitted one. Only a genuinely inert, sealed artifact
   // (`!liveDraft`, i.e. `stage: 'other'`) offers no secondary at all.
-  const secondaryActions: SubmitAction[] = allowEmptySendBack && liveDraft ? ['sendBack'] : [];
+  const secondaryActions: SubmitAction[] =
+    allowEmptySendBack && liveDraft && allowSendBack ? ['sendBack'] : [];
   // No live draft AND the slot is committed: a truly clean, sealed artifact —
   // nothing to approve, nothing to send back. An amendment under active review
   // (`liveDraft` above) is NOT this case even though it too is `committed`.
   if (!liveDraft && committed) {
-    return { action: 'none', label: '', consequence: '', disabled: true, secondaryActions };
+    return {
+      action: 'none',
+      label: '',
+      consequence: '',
+      notice,
+      disabled: true,
+      secondaryActions,
+    };
   }
   if (openThreads > 0) {
     return {
       action: 'approve',
       label: `Resolve ${String(openThreads)} thread${openThreads === 1 ? '' : 's'} to approve`,
       consequence: 'Open change requests block approval',
+      notice,
       disabled: true,
       secondaryActions,
     };
   }
   return {
     action: 'approve',
-    label: 'Approve',
-    consequence: 'Commits the artifact and advances',
+    label: approveCopy?.label ?? 'Approve',
+    consequence: approveCopy?.consequence ?? 'Commits the artifact and advances',
+    notice,
     disabled: false,
     secondaryActions,
   };
+}
+
+/**
+ * The second line on a rail with no question op: what the staged questions will
+ * NOT do. It lives here, beside {@link describeConsequence}, because it is the
+ * same kind of sentence — the bar's own account of what pressing the verb sends —
+ * and because `submitVerb.ts` is shared with the MCP widget, which must not reach
+ * into the Activity Experience's copy module for it.
+ *
+ * Empty for zero questions: there is nothing to warn about, and "0 questions will
+ * not be sent" is noise on every gate in the product.
+ */
+export function questionsNotSent(questions: number): string {
+  if (questions <= 0) return '';
+  return `${String(questions)} staged question${questions === 1 ? '' : 's'} will NOT be sent: this review has no question op yet. Discard ${questions === 1 ? 'it' : 'them'}, or restage ${questions === 1 ? 'it' : 'them'} as a change request.`;
 }
 
 /**

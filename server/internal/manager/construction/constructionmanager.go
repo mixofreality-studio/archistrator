@@ -783,8 +783,10 @@ func (m *constructionManager) GetSessionState(rc fwm.Context, projectID ProjectI
 // that have no round — every gate of every row written before the ledger existed — and
 // the revision's provenance is what tells a reader which of the two they are looking at.
 // An id the committed activity list does not
-// hold is NotFound — today that includes the requirements, architecture and
-// projectDesign activities, which become real in stage 2.
+// hold is NotFound. Since stage 2 that list HOLDS requirements, architecture and
+// projectDesign (slot 9 opens with all three), so a design activity reads like any
+// other — ClassifyType tolerates ErrDesignActivityNotDispatchable for exactly this
+// reason, and LifecycleKeyFor resolves all three against method-assets.
 //
 // The live session is read ONCE and both the attempt list and the gate come out of that
 // one read: state rule 1 answers awaitingHuman for the gate task matching the live gate

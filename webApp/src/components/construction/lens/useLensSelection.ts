@@ -1,42 +1,79 @@
 /**
- * Lens state for the construction console: WHICH lens is showing and WHAT is
- * selected — both held in the URL's search params, plus the shared toolbar
- * state, held in a module-level store keyed by a content signature.
+ * The plan's LENS: which of the three lenses is showing (held in the URL) and the
+ * shared toolbar state (held in a module-level store keyed by a content
+ * signature).
  *
- * Why the URL and not component state
- * -----------------------------------
- * The console polls the project read every 1.5s while the construction pump is
- * cascading. Component-held selection dies to that poll: any remount (a tab
- * switch, a suspense boundary, an envelope-identity change that re-keys a
- * subtree) drops it, and the operator loses their place mid-glance. NetworkView
- * already had to work around exactly this with a module-level selection store
- * (see NetworkView.tsx signatureOf/selectionStore) — this module keeps that
- * pattern for the toolbar and goes one better for SELECTION, which lives in the
- * URL instead:
+ * ── What this file used to be, and what stage 5 left ────────────────────────
+ * It was the construction console's whole selection codec: the lens AND the
+ * selected task attempt AND the artifact view, all in the URL —
+ * `?lens=list&a=<activityId>&p=<phase>&k=<task>&n=<attempt>&av=&focus=&sc=` —
+ * because the console polled every 1.5s while the pump cascaded and any remount
+ * dropped component-held selection.
  *
- *   ?lens=list&a=<activityId>&p=<lifecyclePhase>&k=<task>&n=<attempt>
+ * Spec §7.4 deleted that console and its shared DetailPane. An activity is its
+ * own full-screen route now (`/project/$id/activity/$activityId?task=&rev=`), so
+ * every one of those params addresses nothing, and Task 13 deleted the codec that
+ * read and wrote them (`parseLensSearch`, `serializeLensSearch`,
+ * `artifactKeptFor`, `useLensSelection`, `LensState`, `ArtifactViewState`,
+ * `ARTIFACT_VIEW_IDS`, `LegacyLensSearchParams`) together with its last consumer.
  *
- *   - the shared detail pane never OWNS selection, so it cannot lose it;
- *   - a remount cannot wipe it — the URL is outside React's tree entirely;
- *   - a link addresses exactly ONE task attempt, which is how a review
- *     notification will deep-link an operator straight to the thing it wants.
+ * Three things survive, and this is why each one is still here rather than moved:
  *
- * The codec below is total: every malformed value degrades to something
- * renderable rather than propagating. An unknown lens falls back to `list`
- * (a blank surface is worse than the default one) and a non-numeric attempt is
- * DROPPED rather than handed downstream as `NaN`.
+ *   - `validateLensSearch` — the plan route's `validateSearch`, and the
+ *     now-redirecting construction route's. One line over
+ *     `contracts/routePaths.planSearch`, so the two cannot disagree.
+ *   - `LensSelection` — narrowed to the two members the TASKS lens actually
+ *     reads. It is no longer a URL shape; it is the "which row is marked" value
+ *     TasksLens and decisionFlow pass between them.
+ *   - the TOOLBAR half (`SCOPE_IDS` … `useLensToolbar`) — the NetworkView
+ *     signature-store pattern, which `list/activityScope.ts` and `PlanContainer`
+ *     both need and which was never about the URL.
  */
-import { useCallback, useMemo, useState } from 'react';
-import { getRouteApi } from '@tanstack/react-router';
+import { useCallback, useState } from 'react';
+// The explicit `.ts` is what lets `node --test` load this module directly
+// (operationsGuard.ts does the same) — Node's resolver does not guess extensions.
+import { LENS_IDS, planSearch } from '../../../contracts/routePaths.ts';
 
 // ---------------------------------------------------------------------------
 // Lens identity
 // ---------------------------------------------------------------------------
 
-export const LENS_IDS = ['list', 'graph', 'tasks'] as const;
+/**
+ * Re-exported, not redeclared: the plan route and the redirecting construction
+ * route must agree on what a lens IS, and two copies of the array are how they
+ * end up disagreeing. The one array lives in contracts/routePaths.ts, which
+ * components may import and `routes/` is not.
+ */
+export { LENS_IDS };
 export type LensId = (typeof LENS_IDS)[number];
 
-/** The one selectable thing, at whatever depth the operator has reached. */
+/**
+ * The one selectable thing. The URL stopped carrying it in stage 5 (the plan's
+ * one search param is `lens`); it is now an in-memory value — "which row is
+ * marked, and at which task" — that the TASKS lens passes down
+ * (TasksLens.isSelected, decisionFlow).
+ *
+ * ── Task 13 tried to narrow this to `{ activityId, task }` and could not ────
+ * The plan's teardown table says to keep only the two members `TasksLens.tsx`
+ * and `decisionFlow.ts` ANNOTATE with. Measured: narrowing it puts tsc into 30
+ * errors across FIVE kept modules, because the pure state helpers that take a
+ * `LensSelection` read the other two —
+ *
+ *   detail/detailPaneState.ts   `.attempt` (:219, :298, :310, :341) and
+ *                               `.lifecyclePhase` (:407, :461, :546, :548) —
+ *                               and PlanList, PlanTile, planTiles, TasksLens,
+ *                               activityRowPresentation and activityTree all
+ *                               import from it;
+ *   detail/bodies/taskBriefing.ts  `.lifecyclePhase` (:124, :169, :422);
+ *   tasks/decisionFlow.ts          `.lifecyclePhase` (:348).
+ *
+ * So all four members STAY. Cutting the two would mean deleting live branches of
+ * kept modules — a second, unbriefed deletion — which the plan forbids: a red
+ * typecheck after a cut means the cut was wrong, not that something else should
+ * go. Retiring `lifecyclePhase`/`attempt` is a real piece of work (those helpers
+ * still address a task ATTEMPT, which is the DetailPane's shape) and belongs to
+ * the stage-6 pass that retires `detailPaneState.ts` itself.
+ */
 export interface LensSelection {
   activityId?: string;
   lifecyclePhase?: string;
@@ -46,264 +83,29 @@ export interface LensSelection {
 }
 
 /**
- * Which view of the selected activity's artifact is showing (`av`), and whether
- * it is open full-viewport in the FOCUS view (`focus=1`) — the designer's §3
- * deep links. In the URL for the same reason selection is: the 1.5s poll's
- * remount cannot reset a tab or close the focus view.
- */
-export const ARTIFACT_VIEW_IDS = ['code', 'component', 'dynamic', 'facets'] as const;
-export type ArtifactViewId = (typeof ARTIFACT_VIEW_IDS)[number];
-
-export interface ArtifactViewState {
-  view?: ArtifactViewId;
-  focus?: true;
-  /**
-   * A system test plan scenario (`sc`) — how a component's "reached through"
-   * coverage row opens N-STP AT that scenario, not at its first (designer check
-   * on renderers S1, B2). The scenario browser's store reads it.
-   */
-  scenario?: string;
-}
-
-export interface LensState {
-  lens: LensId;
-  selection: LensSelection;
-  /** Present only when a view or the focus view is set — absent is the default. */
-  artifact?: ArtifactViewState;
-}
-
-/**
- * The wire shape of the route's search params. `parseLensSearch` takes the looser
- * `Record<string, unknown>` (the URL hands over whatever it likes), so callers
- * holding one of these SPREAD it in — `parseLensSearch({ ...search })`.
+ * The wire shape of the route's search params — `lens` and nothing else, as of
+ * stage 5 (R8). `a`/`p`/`k`/`n` addressed a task attempt inside the DetailPane
+ * and `av`/`focus`/`sc` a view of its artifact; that pane is gone, the plan's
+ * only selection is its lens, and a param that addresses nothing has no business
+ * in the address bar.
  */
 export interface LensSearchParams {
   lens?: LensId;
-  a?: string;
-  p?: string;
-  k?: string;
-  n?: number;
-  av?: ArtifactViewId;
-  focus?: 1;
-  sc?: string;
-}
-
-function isArtifactViewId(value: unknown): value is ArtifactViewId {
-  return typeof value === 'string' && (ARTIFACT_VIEW_IDS as readonly string[]).includes(value);
-}
-
-/** `focus=1` (string or number) is on; anything else is off. */
-function focusOf(value: unknown): true | undefined {
-  return value === 1 || value === '1' ? true : undefined;
-}
-
-function isLensId(value: unknown): value is LensId {
-  return typeof value === 'string' && (LENS_IDS as readonly string[]).includes(value);
-}
-
-/** A non-empty string, or nothing. An empty param is an absent param. */
-function nonEmpty(value: unknown): string | undefined {
-  return typeof value === 'string' && value.length > 0 ? value : undefined;
 }
 
 /**
- * A 1-based attempt index, or nothing. `'x'`, `''`, `'1.5'`, `'0'` and `'-3'`
- * all yield undefined — passing `NaN` downstream would render as "attempt NaN"
- * and silently poison every comparison that touches it.
- */
-function attemptOf(value: unknown): number | undefined {
-  if (typeof value !== 'string' && typeof value !== 'number') return undefined;
-  if (typeof value === 'string' && value.trim().length === 0) return undefined;
-  const n = Number(value);
-  return Number.isInteger(n) && n >= 1 ? n : undefined;
-}
-
-/** Decode the URL's search params into the lens + selection the console renders. */
-export function parseLensSearch(search: Record<string, unknown>): LensState {
-  const rawLens = search['lens'];
-  const activityId = nonEmpty(search['a']);
-  const lifecyclePhase = nonEmpty(search['p']);
-  const task = nonEmpty(search['k']);
-  const attempt = attemptOf(search['n']);
-  const view = isArtifactViewId(search['av']) ? search['av'] : undefined;
-  // The artifact's view belongs to a selected activity; without one it is junk.
-  const focus = activityId !== undefined ? focusOf(search['focus']) : undefined;
-  const scenario = activityId !== undefined ? nonEmpty(search['sc']) : undefined;
-  const artifact: ArtifactViewState = {
-    ...(view !== undefined && activityId !== undefined ? { view } : {}),
-    ...(focus !== undefined ? { focus } : {}),
-    ...(scenario !== undefined ? { scenario } : {}),
-  };
-  return {
-    lens: isLensId(rawLens) ? rawLens : 'list',
-    selection: {
-      ...(activityId !== undefined ? { activityId } : {}),
-      ...(lifecyclePhase !== undefined ? { lifecyclePhase } : {}),
-      ...(task !== undefined ? { task } : {}),
-      ...(attempt !== undefined ? { attempt } : {}),
-    },
-    ...(Object.keys(artifact).length > 0 ? { artifact } : {}),
-  };
-}
-
-/**
- * Encode lens + selection back into search params.
+ * The route's `validateSearch`, for BOTH the plan route and the legacy
+ * construction route that redirects into it (R8 — the redirect's
+ * `planSearchFromLegacy` reads the `lens` this emits). A deep link validates instead
+ * of throwing; an unknown lens falls back to `list`, and `lens` is ALWAYS
+ * emitted, even for the default — validateSearch's output IS the address bar.
  *
- * `lens` is ALWAYS emitted, even for the default `list`. The route's
- * validateSearch output IS the URL's search — anything it omits is stripped from
- * the address bar — so dropping `lens=list` would quietly rewrite a shared deep
- * link, which is the exact failure this whole shape exists to prevent.
- */
-export function serializeLensSearch({ lens, selection, artifact }: LensState): LensSearchParams {
-  const withActivity = selection.activityId !== undefined;
-  return {
-    lens,
-    ...(selection.activityId !== undefined ? { a: selection.activityId } : {}),
-    ...(selection.lifecyclePhase !== undefined ? { p: selection.lifecyclePhase } : {}),
-    ...(selection.task !== undefined ? { k: selection.task } : {}),
-    ...(selection.attempt !== undefined ? { n: selection.attempt } : {}),
-    ...(withActivity && artifact?.view !== undefined ? { av: artifact.view } : {}),
-    ...(withActivity && artifact?.focus === true ? { focus: 1 as const } : {}),
-    ...(withActivity && artifact?.scenario !== undefined ? { sc: artifact.scenario } : {}),
-  };
-}
-
-/**
- * The route's `validateSearch`: normalize whatever arrived in the URL into the
- * typed params. A deep link validates instead of throwing; junk keys and junk
- * values are dropped rather than rendered.
+ * The rule itself is `contracts/routePaths.planSearch`, not a copy: the two
+ * routes must agree, and the containers construct the same object when they
+ * navigate.
  */
 export function validateLensSearch(search: Record<string, unknown>): LensSearchParams {
-  return serializeLensSearch(parseLensSearch(search));
-}
-
-// ---------------------------------------------------------------------------
-// The hook — TanStack Router's search params as the single source of selection
-// ---------------------------------------------------------------------------
-
-const routeApi = getRouteApi('/project/$projectId/construction');
-
-export interface LensSelectionApi extends LensState {
-  setLens: (lens: LensId) => void;
-  /**
-   * Replace the selection wholesale (a shallower click clears what is below it).
-   * The artifact view (`av`, `focus`) survives only while the ACTIVITY stays the
-   * same — choosing an attempt from inside the focus view must not close it —
-   * unless `artifact` is passed, which replaces it.
-   */
-  select: (
-    selection: LensSelection,
-    artifact?: ArtifactViewState,
-    /**
-     * `history: true` PUSHES an entry, so Back returns to where the reader was.
-     * For a jump to ANOTHER activity from inside an artifact — a neighbour hop, a
-     * "reached through" row (designer recheck on S2) — which is a navigation,
-     * not a glance.
-     */
-    opts?: { history?: boolean }
-  ) => void;
-  /** Show another view of the selected artifact (the contract's tab). */
-  setArtifactView: (view: ArtifactViewId) => void;
-  /** Show another system test plan scenario (`sc`), replacing the URL entry. */
-  setScenario: (scenario: string) => void;
-  /**
-   * Open or close the focus view. Opening adds a HISTORY entry, so browser Back
-   * closes it (§3); closing replaces, and the caller decides whether to go back.
-   */
-  setFocus: (on: boolean) => void;
-  /** Drop the selection, keeping the lens. */
-  clear: () => void;
-}
-
-/** The artifact view a new selection keeps: the old one iff the activity is the same. */
-export function artifactKeptFor(
-  prev: LensState,
-  next: LensSelection,
-  explicit?: ArtifactViewState
-): ArtifactViewState | undefined {
-  if (explicit !== undefined) return explicit;
-  return prev.selection.activityId === next.activityId ? prev.artifact : undefined;
-}
-
-export function useLensSelection(): LensSelectionApi {
-  const search = routeApi.useSearch();
-  const navigate = routeApi.useNavigate();
-
-  const state = useMemo(() => parseLensSearch({ ...search }), [search]);
-
-  // `replace: true` — lens/selection changes are a glance, not a navigation. A
-  // history entry per click would make Back useless for leaving the console.
-  // The one exception is OPENING the focus view (setFocus), which Back closes.
-  const push = useCallback(
-    (next: LensState, opts?: { history: boolean }): void => {
-      void navigate({ search: serializeLensSearch(next), replace: opts?.history !== true });
-    },
-    [navigate]
-  );
-
-  const setLens = useCallback(
-    (lens: LensId): void => {
-      push({ ...state, lens });
-    },
-    [push, state]
-  );
-
-  const select = useCallback(
-    (
-      selection: LensSelection,
-      artifact?: ArtifactViewState,
-      opts?: { history?: boolean }
-    ): void => {
-      const kept = artifactKeptFor(state, selection, artifact);
-      push(
-        { lens: state.lens, selection, ...(kept !== undefined ? { artifact: kept } : {}) },
-        { history: opts?.history === true }
-      );
-    },
-    [push, state]
-  );
-
-  const setArtifactView = useCallback(
-    (view: ArtifactViewId): void => {
-      push({ ...state, artifact: { ...state.artifact, view } });
-    },
-    [push, state]
-  );
-
-  const setScenario = useCallback(
-    (scenario: string): void => {
-      push({ ...state, artifact: { ...state.artifact, scenario } });
-    },
-    [push, state]
-  );
-
-  const setFocus = useCallback(
-    (on: boolean): void => {
-      const rest: ArtifactViewState = { ...state.artifact };
-      delete rest.focus;
-      push(
-        { ...state, artifact: on ? { ...rest, focus: true } : rest },
-        { history: on && state.artifact?.focus !== true }
-      );
-    },
-    [push, state]
-  );
-
-  const clear = useCallback((): void => {
-    push({ lens: state.lens, selection: {} });
-  }, [push, state.lens]);
-
-  return {
-    lens: state.lens,
-    selection: state.selection,
-    ...(state.artifact !== undefined ? { artifact: state.artifact } : {}),
-    setLens,
-    select,
-    setArtifactView,
-    setScenario,
-    setFocus,
-    clear,
-  };
+  return planSearch(search['lens']);
 }
 
 // ---------------------------------------------------------------------------

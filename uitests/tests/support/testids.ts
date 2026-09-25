@@ -64,7 +64,10 @@ export const TESTID = {
 
   // Home base (route `/project/$projectId/home`)
   homeBaseScreen: UI_IDENTIFIERS.HomeBase.SCREEN,
-  resumeDesign: UI_IDENTIFIERS.HomeBase.RESUME_DESIGN,
+  // The ONE card that replaced the three phase cards (stage 5 §7.4) and its
+  // "Open plan →" button. It took over from `resumeDesign` (the header button
+  // that opened the design rail), which Task 13 deleted along with the rail.
+  homeBaseOpenPlan: UI_IDENTIFIERS.HomeBase.OPEN_PLAN,
   artifactToc: UI_IDENTIFIERS.HomeBase.ARTIFACT_TOC,
   economicsStrip: UI_IDENTIFIERS.HomeBase.ECONOMICS_STRIP,
   // NOTE: phase ids are the typed PhaseId values — systemDesign / projectDesign /
@@ -104,7 +107,18 @@ export const TESTID = {
   // Ask), plus its consequence line: what pressing the verb will actually dispatch.
   submitBar: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR,
   submitBarPrimary: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_PRIMARY,
+  submitBarNotice: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_NOTICE,
   submitBarConsequence: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_CONSEQUENCE,
+
+  // The five Phase-1 artifact renderers' ROOTS. `ArtifactRenderer` dispatches on
+  // the committed slot's `kind`, and since stage 5 the Activity Experience's
+  // review body is the only surface that reaches them — so these five ids are
+  // what pins "the right renderer mounted for this review task"
+  // (tests/preview/activity-renderers.spec.ts). `glossaryRoot` and
+  // `volatilityMap` below are the same thing under their older names.
+  missionRoot: UI_IDENTIFIERS.Mission.ROOT,
+  architectureRoot: UI_IDENTIFIERS.Architecture.ROOT,
+  useCaseCarouselRoot: UI_IDENTIFIERS.UseCaseCarousel.ROOT,
 
   // Glossary artifact — the searchable, filterable reference widget (search +
   // Four-Questions category chips + grouped term list). Chips key by the BASE
@@ -208,6 +222,11 @@ export const TESTID = {
   marginToggle: UI_IDENTIFIERS.Chat.TOGGLE,
   marginComposerInput: UI_IDENTIFIERS.Chat.INPUT,
   marginComposerSubmit: UI_IDENTIFIERS.Chat.SEND,
+  // The draft card's two type toggles. The QUESTION one is absent on a rail with
+  // no AskQuestions op (every construction activity type — R2/GAP-6), which is
+  // how "a question cannot be staged where it cannot be sent" is observed.
+  marginComposerChangeRequest: UI_IDENTIFIERS.Chat.TYPE_CHANGE_REQUEST,
+  marginComposerQuestion: UI_IDENTIFIERS.Chat.TYPE_QUESTION,
   // The margin proper (UI_IDENTIFIERS.Margin): the column, the unanchored group,
   // the in-place draft card and the per-thread card/reply/resolve/reopen builders.
   // A placed card sits LEVEL with the row it anchors to — there is no separate
@@ -472,6 +491,80 @@ export const TESTID = {
   episodeExportCsv: UI_IDENTIFIERS.Episodes.EXPORT_CSV,
   episodeOutcomeChip: UI_IDENTIFIERS.Episodes.outcomeChip,
   episodeTimelineFilter: UI_IDENTIFIERS.Episodes.TIMELINE_FILTER,
+
+  // ── STAGE 5: the PLAN and the ACTIVITY EXPERIENCE ────────────────────────
+  // The two surfaces that replace the construction console's three lenses and
+  // its detail pane. Values imported like every other entry here: a rename of
+  // one of these ids must fail ONE import resolution, not drift silently.
+
+  // The plan (route `/project/$projectId/plan?lens=list|graph|tasks`).
+  planScreen: UI_IDENTIFIERS.Plan.SCREEN,
+  planLensList: UI_IDENTIFIERS.Plan.LENS_LIST,
+  planLensGraph: UI_IDENTIFIERS.Plan.LENS_GRAPH,
+  planLensTasks: UI_IDENTIFIERS.Plan.LENS_TASKS,
+  planList: UI_IDENTIFIERS.Plan.LIST,
+  planGraph: UI_IDENTIFIERS.Plan.GRAPH,
+  // The "◆ M0 · plan & cost approved" band the LIST draws after the last
+  // front-end activity, and the GRAPH's own milestone node.
+  planM0Divider: UI_IDENTIFIERS.Plan.M0_DIVIDER,
+  planGutter: UI_IDENTIFIERS.Plan.GUTTER,
+  planUnplacedNote: UI_IDENTIFIERS.Plan.UNPLACED_NOTE,
+  planRow: UI_IDENTIFIERS.Plan.row,
+  planTile: UI_IDENTIFIERS.Plan.tile,
+  planMilestone: UI_IDENTIFIERS.Plan.milestone,
+  planGutterRow: UI_IDENTIFIERS.Plan.gutterRow,
+
+  // The per-activity full-screen experience
+  // (route `/project/$projectId/activity/$activityId?task=&rev=`).
+  activityScreen: UI_IDENTIFIERS.Activity.SCREEN,
+  activityEyebrow: UI_IDENTIFIERS.Activity.EYEBROW,
+  activityDispatchBody: UI_IDENTIFIERS.Activity.DISPATCH_BODY,
+  activityReviewBody: UI_IDENTIFIERS.Activity.REVIEW_BODY,
+  activityReviewersStrip: UI_IDENTIFIERS.Activity.REVIEWERS_STRIP,
+  activityReviewSetError: UI_IDENTIFIERS.Activity.REVIEW_SET_ERROR,
+  activityTaskFacts: UI_IDENTIFIERS.Activity.TASK_FACTS,
+  activitySubAttempts: UI_IDENTIFIERS.Activity.SUB_ATTEMPTS,
+  // The read-only history of a non-latest revision, and the one way back.
+  activityHistoryBanner: UI_IDENTIFIERS.Activity.HISTORY_BANNER,
+  activityBackToLatest: UI_IDENTIFIERS.Activity.BACK_TO_LATEST,
+  activityHistoryCaption: UI_IDENTIFIERS.Activity.HISTORY_CAPTION,
+  activityRevisionNote: UI_IDENTIFIERS.Activity.REVISION_NOTE,
+  // The M0 approve is commit-then-advance; a failed advance says so here.
+  activityAdvanceError: UI_IDENTIFIERS.Activity.ADVANCE_ERROR,
+  activityAdvanceRetry: UI_IDENTIFIERS.Activity.ADVANCE_RETRY,
+  activityAdvanceAnyway: UI_IDENTIFIERS.Activity.ADVANCE_ANYWAY,
+  activityArtifactPanel: UI_IDENTIFIERS.Activity.ARTIFACT_PANEL,
+  activityArtifactUnavailable: UI_IDENTIFIERS.Activity.ARTIFACT_UNAVAILABLE,
+  activityAmendArchitecture: UI_IDENTIFIERS.Activity.AMEND_ARCHITECTURE,
+  activityReviewerChip: UI_IDENTIFIERS.Activity.reviewerChip,
+
+  // The branching lifecycle stepper in the experience's spine bar, its per-node
+  // revision menu (right-click / Shift+F10 / the active pill's caret) and the
+  // body's revision select the menu is a shortcut to.
+  lifecycleGraph: UI_IDENTIFIERS.ActivityLifecycle.GRAPH,
+  lifecycleGraphMini: UI_IDENTIFIERS.ActivityLifecycle.MINI,
+  lifecycleNode: UI_IDENTIFIERS.ActivityLifecycle.node,
+  lifecycleNodeMenuButton: UI_IDENTIFIERS.ActivityLifecycle.nodeMenuButton,
+  lifecyclePhase: UI_IDENTIFIERS.ActivityLifecycle.phase,
+  lifecycleRevisionMenu: UI_IDENTIFIERS.ActivityLifecycle.REVISION_MENU,
+  lifecycleRevisionSelect: UI_IDENTIFIERS.ActivityLifecycle.REVISION_SELECT,
+  lifecycleRevisionOption: UI_IDENTIFIERS.ActivityLifecycle.revisionOption,
+  lifecycleLaneLabel: UI_IDENTIFIERS.ActivityLifecycle.laneLabel,
+  lifecycleRevisionItem: UI_IDENTIFIERS.ActivityLifecycle.revisionItem,
+
+  // The SDP review's option cards — the M0 gate's artifact. Live, they are a
+  // radiogroup; read-only (a past round) they are inert presentations marked
+  // CHOSEN, which is what the history assertions measure.
+  sdpGate: UI_IDENTIFIERS.SdpReview.GATE,
+  sdpCommit: UI_IDENTIFIERS.SdpReview.COMMIT,
+  sdpRejectAll: UI_IDENTIFIERS.SdpReview.REJECT_ALL,
+  sdpOptionCard: UI_IDENTIFIERS.SdpReview.optionCard,
+
+  // The submit bar's overflow (Withdraw / Send back / Retry). A gate with no
+  // send-back anywhere has neither the menu button nor its item.
+  submitBarMenuButton: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_MENU_BUTTON,
+  submitBarMenu: UI_IDENTIFIERS.DesignExperience.SUBMIT_BAR_MENU,
+  submitBarMenuItem: UI_IDENTIFIERS.DesignExperience.submitBarMenuItem,
 
   // Billing (route `/project/$projectId/billing`).
   billingRoot: UI_IDENTIFIERS.Billing.ROOT,

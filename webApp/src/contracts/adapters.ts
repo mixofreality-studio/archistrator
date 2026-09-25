@@ -12,7 +12,6 @@ import type {
   ArtifactModelEnvelope,
   ArtifactSlotView,
   ArtifactStageOrdinal,
-  ProjectPhase,
   ProjectState,
   PlanningAssumptionsModel,
   ActivityListModel,
@@ -43,7 +42,7 @@ import type {
   Volatilities,
 } from './types';
 import { toDeploymentEdges, type DeploymentEdgeView } from './deploymentEdges';
-import { METHOD_METADATA, PHASE1_ORDER, PHASE2_ORDER } from './methodMetadata';
+import { METHOD_METADATA } from './methodMetadata';
 import { ARTIFACT_STAGE_APP_STRINGS } from './enums.gen';
 import { dynamicViewLabel, indexUseCaseNames } from './dynamicViewLabels';
 import { ownerUseCaseId, toUseCaseView, viewKeyForUseCase, type UseCaseView } from './useCaseViews';
@@ -51,101 +50,68 @@ import { linearizeSteps, personParticipants } from './realization';
 import { assertNever } from './exhaustive';
 
 // ---------------------------------------------------------------------------
-// Phase spine — the three Method phases as locked/active/done cards.
+// The project's current phase — the ONE line the home base's plan card shows.
 // ---------------------------------------------------------------------------
 
 /** Stable identifier for one of the three Method phases (used in routes/testids). */
 export type PhaseId = 'systemDesign' | 'projectDesign' | 'construction';
 
-/** One phase-card view model: progress + lock/active state for the home base. */
-export interface PhaseCardView {
+/**
+ * The headline for one Method phase: its number, its name, and the one line that
+ * says what happens in it.
+ *
+ * ── What this replaced (stage 5 Task 13, §7.4) ─────────────────────────────
+ * `toPhaseCards` built THREE `PhaseCardView`s — each with a committed/total
+ * progress pair, a `locked` flag and an `active` flag — for the home base's three
+ * phase cards. Those cards described a project that moved through System Design →
+ * Project Design → Construction as three separate PLACES, each with its own rail.
+ * There is one place now: the plan, with Requirements / Architecture / Project
+ * Design as its first three activities. Task 11 replaced the three cards with the
+ * ONE plan card, which reads a phase's number, title and subtitle and nothing
+ * else — so the progress, lock and active machinery (and `PHASE2_ORDER`, whose
+ * only use was counting Phase-2 slots) had no reader left.
+ */
+export interface PhaseHeadline {
   id: PhaseId;
   index: number;
   title: string;
   subtitle: string;
-  /** Committed slots in this phase. */
-  done: number;
-  /** Total artifact slots required in this phase (0 for construction). */
-  total: number;
-  /** True until the prior phase is the current/sealed phase. */
-  locked: boolean;
-  /** True when this is the project's current phase and still has owed slots. */
-  active: boolean;
-  /**
-   * True on the construction card only, when the derived "Operating" state
-   * applies (Task 14, finish-construction) — every construction activity has
-   * integrated. Presentation overlay: `active`/`locked` are unchanged by it: the
-   * card is still the project's current phase, just rendered with the DONE
-   * treatment instead of ACTIVE. Absent (never false) for the other two cards.
-   */
-  operating?: boolean;
 }
 
-const PHASE_META: Record<PhaseId, { index: number; title: string; subtitle: string }> = {
+const PHASE_META: Record<PhaseId, PhaseHeadline> = {
   systemDesign: {
+    id: 'systemDesign',
     index: 1,
     title: 'System Design',
-    subtitle: 'Business alignment → volatilities → architecture.',
+    subtitle: 'Business alignment \u2192 volatilities \u2192 architecture.',
   },
   projectDesign: {
+    id: 'projectDesign',
     index: 2,
     title: 'Project Design',
     subtitle: 'Activities, network, the four options, SDP review.',
   },
   construction: {
+    id: 'construction',
     index: 3,
     title: 'Construction',
     subtitle: 'Supervised build against the committed plan.',
   },
 };
 
-/** Phase-ordinal for lock comparison — earlier phases unlock later ones. */
-const PHASE_ORDINAL: Record<ProjectPhase, number> = {
-  systemDesign: 1,
-  projectDesign: 2,
-  construction: 3,
-  unknown: 0,
-};
-
 /**
- * Builds the three phase cards from the project head-state. Phase progress is the
- * committed-slot count over the phase's required slots; a phase is locked until
- * the project has reached (or passed) it, and active when it is the current phase
- * with owed slots. `operating` (Task 14) is the caller-supplied derived
- * construction-complete signal (ProjectStateWithGit.operating) — plumbed in
- * rather than recomputed here, since toPhaseCards takes the bare ProjectState
- * shape and the derivation needs the raw construction head-state this type
- * doesn't carry.
+ * The project's CURRENT phase, read straight off the head-state's `phase`.
+ *
+ * `toPhaseCards` derived this as "the first card whose `active` is true, else the
+ * first card", where `active` meant "this phase AND it still has owed slots" — so
+ * a project whose current phase had every slot committed fell back to System
+ * Design, which was wrong on its face and only went unnoticed because the three
+ * cards all rendered anyway. Reading `project.phase` says the same thing where it
+ * was right and the truth where it was not. `unknown` (a project the server could
+ * not place) reads as System Design, which is where a project starts.
  */
-export function toPhaseCards(project: ProjectState, operating?: boolean): PhaseCardView[] {
-  const committed = new Set(
-    project.slots.filter((s) => slotStageFromOrdinal(s.stage) === 'committed').map((s) => s.kind)
-  );
-  const current = PHASE_ORDINAL[project.phase];
-
-  const card = (id: PhaseId, kinds: readonly ArtifactKindFull[]): PhaseCardView => {
-    const meta = PHASE_META[id];
-    const total = kinds.length;
-    const done = kinds.filter((k) => committed.has(k)).length;
-    const locked = meta.index > current;
-    const active = meta.index === current && (total === 0 || done < total);
-    return {
-      id,
-      index: meta.index,
-      title: meta.title,
-      subtitle: meta.subtitle,
-      done,
-      total,
-      locked,
-      active,
-    };
-  };
-
-  return [
-    card('systemDesign', PHASE1_ORDER),
-    card('projectDesign', PHASE2_ORDER),
-    { ...card('construction', []), ...(operating === true ? { operating: true } : {}) },
-  ];
+export function currentPhaseOf(project: ProjectState): PhaseHeadline {
+  return PHASE_META[project.phase === 'unknown' ? 'systemDesign' : project.phase];
 }
 
 // ---------------------------------------------------------------------------

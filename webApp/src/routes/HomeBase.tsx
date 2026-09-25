@@ -20,7 +20,7 @@ import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import BuildOutlinedIcon from '@mui/icons-material/BuildOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
 import { AppShell } from '../components/AppShell';
-import { EconomicsStrip, PhaseCard } from '../components/HomeBaseParts';
+import { EconomicsStrip } from '../components/HomeBaseParts';
 import { ReviewPolicyControl } from '../components/ReviewPolicyControl';
 import { ArtifactPane } from '../components/ArtifactPane';
 import { StageChip } from '../components/StageChip';
@@ -39,43 +39,15 @@ import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { operationsEnabled } from '../utilities/capabilities';
 import { useCreateProject } from '../hooks/useCreateProject';
 import { useSetReviewPolicy } from '../hooks/useConstructionMutations';
-import {
-  toArtifactTableOfContents,
-  toPhaseCards,
-  type PhaseCardView,
-  type PhaseId,
-} from '../contracts/adapters';
+import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
 import type { ProjectStateWithGit } from '../contracts/types';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
+import { PLAN_PATH, planSearch } from '../contracts/routePaths';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import type { Tokens } from '../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
 const routeApi = getRouteApi('/project/$projectId/home');
-
-/** Defensive fallback so the header never crashes on an empty phase list. */
-const FALLBACK_PHASE: PhaseCardView = {
-  id: 'systemDesign',
-  index: 1,
-  title: 'System Design',
-  subtitle: '',
-  done: 0,
-  total: 0,
-  locked: false,
-  active: true,
-};
-
-/** The experience route per phase: design experiences for 1–2, the console for 3. */
-type PhaseRoute =
-  | '/project/$projectId/design/system/{-$stepSlug}'
-  | '/project/$projectId/design/project/{-$stepSlug}'
-  | '/project/$projectId/construction';
-
-const PHASE_DESIGN_ROUTE: Record<PhaseId, PhaseRoute | null> = {
-  systemDesign: '/project/$projectId/design/system/{-$stepSlug}',
-  projectDesign: '/project/$projectId/design/project/{-$stepSlug}',
-  construction: '/project/$projectId/construction',
-};
 
 export function HomeBase(): ReactNode {
   const { projectId } = routeApi.useParams();
@@ -258,8 +230,6 @@ function HomeBaseBody({
       .sort((a, b) => order.indexOf(a.kind) - order.indexOf(b.kind));
   }, [project]);
 
-  const phases = useMemo(() => toPhaseCards(project, project.operating), [project]);
-
   // Default selection: first committed, else first non-empty, else first.
   const defaultKind =
     toc.find((a) => a.stage === 'committed')?.kind ??
@@ -271,11 +241,10 @@ function HomeBaseBody({
   const selectedEnvelope = project.slots.find((s) => s.kind === selected?.kind)?.model;
 
   const committedCount = toc.filter((a) => a.stage === 'committed').length;
-  const currentPhase = phases.find((p) => p.active) ?? phases[0] ?? FALLBACK_PHASE;
-  const designRoute = PHASE_DESIGN_ROUTE[currentPhase.id];
+  const currentPhase = currentPhaseOf(project);
 
-  const openDesign = (route: PhaseRoute): void => {
-    void navigate({ to: route, params: { projectId } });
+  const openPlan = (): void => {
+    void navigate({ to: PLAN_PATH, params: { projectId }, search: () => planSearch('list') });
   };
 
   return (
@@ -290,43 +259,43 @@ function HomeBaseBody({
           </Typography>
         </Box>
         <Box sx={{ flexGrow: 1 }} />
-        {/* Operating (Task 14): once construction is fully complete there is nothing
-            left to "resume" — the button is hidden entirely (not relabeled), same
-            treatment as ConstructionConsole's begin/resume button. */}
-        {designRoute !== null &&
-          !(currentPhase.id === 'construction' && project.operating === true) && (
-            <Button
-              color="primary"
-              data-testid={UI_IDENTIFIERS.HomeBase.RESUME_DESIGN}
-              endIcon={<ArrowForwardIcon />}
-              size="large"
-              variant="contained"
-              onClick={() => {
-                openDesign(designRoute);
-              }}
-            >
-              {/* Phase-specific: "Resume Construction" / "Resume Project Design" / … */}
-              {committedCount > 0 ? `Resume ${currentPhase.title}` : `Enter ${currentPhase.title}`}
-            </Button>
-          )}
+        {/* The header's "Resume <phase>" button is gone (stage 5 Task 13). It
+            opened the design rail / the construction console — three doors for
+            three phases — and every one of those routes now redirects to the
+            plan. Retargeting it would have put a SECOND "open the plan" control
+            two rows above the plan card, saying the same phase name the card's
+            own eyebrow says. One door. */}
       </Box>
 
       <EconomicsStrip project={project} />
 
-      {/* Phase progress cards — one per phase (System Design → Project Design → Construction).
-          The active phase's card is the live one; locked phases are greyed out. */}
-      <Box sx={{ display: 'flex', gap: 2, mb: 3, mt: 3, flexWrap: 'wrap' }}>
-        {phases.map((phase) => (
-          <Box key={phase.id} sx={{ flex: '1 1 200px', minWidth: 0 }}>
-            <PhaseCard
-              phase={phase}
-              onResume={() => {
-                const route = PHASE_DESIGN_ROUTE[phase.id];
-                if (route !== null) openDesign(route);
-              }}
-            />
+      {/* ONE card, not three (stage 5 §7.4). The three phase cards described a
+          project that moved through System Design → Project Design →
+          Construction as three separate places; the plan is the one place now,
+          and Requirements / Architecture / Project Design are simply its first
+          three activities. The headline state is the project's current phase —
+          the same fact the top-right button already names — so the card says
+          where the project is and opens the one surface that shows it. */}
+      <Box sx={{ mb: 3, mt: 3 }}>
+        <Paper
+          data-testid={UI_IDENTIFIERS.HomeBase.OPEN_PLAN}
+          sx={{ p: 2.5, display: 'flex', alignItems: 'center', gap: 2, flexWrap: 'wrap' }}
+        >
+          <Box sx={{ flexGrow: 1, minWidth: 0 }}>
+            <Typography sx={{ fontFamily: t.mono, fontWeight: 700, fontSize: 13, color: t.muted }}>
+              {`PHASE ${String(currentPhase.index)} · ${currentPhase.title.toUpperCase()}`}
+            </Typography>
+            <Typography sx={{ color: t.ink }} variant="h6">
+              Project plan
+            </Typography>
+            <Typography sx={{ color: t.muted }} variant="caption">
+              {currentPhase.subtitle}
+            </Typography>
           </Box>
-        ))}
+          <Button endIcon={<ArrowForwardIcon />} variant="outlined" onClick={openPlan}>
+            Open plan
+          </Button>
+        </Paper>
       </Box>
 
       {/* Review-policy preset dial (vibes / checkpoints / full) + the permanent
@@ -403,7 +372,7 @@ function HomeBaseBody({
                   {selected.stateAddress}
                 </Typography>
               </Box>
-              {selected.stage === 'awaitingReview' && designRoute !== null && (
+              {selected.stage === 'awaitingReview' && (
                 <Box
                   sx={{
                     mb: 2,
@@ -424,12 +393,16 @@ function HomeBaseBody({
                     }}
                   >
                     <LockOutlinedIcon sx={{ fontSize: 14 }} /> This draft is awaiting your gate.
+                    {/* Task 13: this used to open the phase's own design rail at
+                        this artifact's step. The gate lives on the artifact's
+                        ACTIVITY now, and which activity a slot belongs to is the
+                        plan's own mapping (planTiles / taskArtifactFor), not this
+                        screen's — so the link goes to the plan, whose TASKS lens
+                        lists exactly the decisions that are owed. */}
                     <Box
                       component="span"
                       sx={{ textDecoration: 'underline', cursor: 'pointer' }}
-                      onClick={() => {
-                        openDesign(designRoute);
-                      }}
+                      onClick={openPlan}
                     >
                       Review &amp; decide →
                     </Box>

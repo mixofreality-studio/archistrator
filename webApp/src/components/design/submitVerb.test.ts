@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { resolveSubmitVerb } from './submitVerb.ts';
+import { questionsNotSent, resolveSubmitVerb } from './submitVerb.ts';
 
 const base = {
   committed: false,
@@ -191,4 +191,172 @@ void test('a SEALED committed slot (stage: other) still offers no secondary, eve
 void test('allowEmptySendBack: false offers no secondary on an active amendment either', () => {
   const v = resolveSubmitVerb({ ...base, committed: true, stage: 'awaitingReview' });
   assert.deepEqual(v.secondaryActions, []);
+});
+
+void test('allowSendBack:false keeps approve primary with change requests staged', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 3,
+    stagedQuestions: 0,
+    openThreads: 0,
+    allowSendBack: false,
+  });
+  assert.equal(verb.action, 'approve');
+  assert.equal(verb.disabled, false);
+  assert.deepEqual(
+    verb.secondaryActions,
+    [],
+    'send back is not offered anywhere, not even in the overflow'
+  );
+});
+
+void test('allowSendBack:false still routes a questions-only batch to ask', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 2,
+    openThreads: 0,
+    allowSendBack: false,
+  });
+  assert.equal(
+    verb.action,
+    'ask',
+    'asking is not sending back — the M0 gate still takes questions'
+  );
+});
+
+void test('approveCopy replaces the label and consequence of the approve verb only', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 0,
+    openThreads: 0,
+    allowSendBack: false,
+    approveCopy: {
+      label: 'Approve plan & cost — start construction',
+      consequence: 'Commits the SDP and releases construction',
+    },
+  });
+  assert.equal(verb.label, 'Approve plan & cost — start construction');
+  assert.equal(verb.consequence, 'Commits the SDP and releases construction');
+});
+
+void test('approveCopy does not leak into the blocked-approve variant', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 0,
+    openThreads: 2,
+    allowSendBack: false,
+    approveCopy: { label: 'Approve plan & cost — start construction', consequence: 'x' },
+  });
+  assert.equal(verb.disabled, true);
+  assert.equal(
+    verb.label,
+    'Resolve 2 threads to approve',
+    'the blocked verb says what blocks it, not what it would do'
+  );
+});
+
+// C1: a staged QUESTION must never turn the bar into a dead end. The ask branch
+// used to run BEFORE the allowSendBack branch and regardless of whether the rail
+// HAD a question op, so on the ~30 gates whose `ask` target is `none` (every
+// construction type) one staged question replaced Approve AND Send back with an
+// "Ask (1)" the container's ask handler returns early from. `allowAsk: false`
+// skips the branch and resolves as if the question had not been staged; the
+// question is reported in `notice` rather than silently dropped.
+
+void test('allowAsk:false with ONE question staged and no send-back still APPROVES, with the M0 copy — THE C1 CASE', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 1,
+    openThreads: 0,
+    allowSendBack: false,
+    allowAsk: false,
+    approveCopy: {
+      label: 'Approve plan & cost — start construction',
+      consequence: 'Commits the chosen option as the plan of record and starts construction',
+    },
+  });
+  assert.equal(verb.action, 'approve');
+  assert.equal(verb.disabled, false);
+  assert.equal(verb.label, 'Approve plan & cost — start construction');
+  assert.equal(
+    verb.consequence,
+    'Commits the chosen option as the plan of record and starts construction',
+    'the override still owns the consequence — the warning is a separate line'
+  );
+  assert.equal(verb.notice, questionsNotSent(1));
+  assert.match(verb.notice, /will NOT be sent/);
+});
+
+void test('allowAsk:false with a question AND a change request sends back, counting only what it sends', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 1,
+    stagedQuestions: 1,
+    openThreads: 0,
+    allowAsk: false,
+  });
+  assert.equal(verb.action, 'sendBack');
+  assert.equal(
+    verb.label,
+    'Send back (1)',
+    'the question rides nothing, so it is not in the count'
+  );
+  assert.equal(verb.consequence, '1 change request → redraft');
+  assert.equal(verb.notice, questionsNotSent(1));
+});
+
+void test('allowAsk:false and allowSendBack both omitted is byte-identical to the shipped behaviour', () => {
+  const input = {
+    committed: false,
+    stage: 'awaitingReview' as const,
+    stagedChangeRequests: 1,
+    stagedQuestions: 2,
+    openThreads: 0,
+  };
+  const omitted = resolveSubmitVerb(input);
+  const explicit = resolveSubmitVerb({ ...input, allowAsk: true, allowSendBack: true });
+  assert.deepEqual(explicit, omitted);
+  assert.equal(omitted.action, 'sendBack');
+  assert.equal(omitted.label, 'Send back (3)');
+  assert.equal(omitted.notice, '', 'a rail that CAN ask warns about nothing');
+});
+
+void test('allowAsk:false with nothing staged warns about nothing', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 0,
+    stagedQuestions: 0,
+    openThreads: 0,
+    allowAsk: false,
+  });
+  assert.equal(verb.action, 'approve');
+  assert.equal(verb.notice, '');
+});
+
+void test('the dropped-question notice is singular and plural, and empty at zero', () => {
+  assert.equal(questionsNotSent(0), '');
+  assert.match(questionsNotSent(1), /^1 staged question will NOT be sent/);
+  assert.match(questionsNotSent(3), /^3 staged questions will NOT be sent/);
+});
+
+void test('the default is unchanged: allowSendBack omitted still sends back on staged change requests', () => {
+  const verb = resolveSubmitVerb({
+    committed: false,
+    stage: 'awaitingReview',
+    stagedChangeRequests: 1,
+    stagedQuestions: 0,
+    openThreads: 0,
+  });
+  assert.equal(verb.action, 'sendBack');
 });

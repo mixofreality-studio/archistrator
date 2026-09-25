@@ -6,14 +6,30 @@
  *
  *   /                                  → ProjectsLanding (catalog / create)
  *   /project/$projectId/home                      → HomeBase (wraps itself in the AppShell)
- *   /project/$projectId/design/system/{-$stepSlug}  → SystemDesignScreen (phase 1, full-screen)
- *   /project/$projectId/design/project/{-$stepSlug} → ProjectDesignScreen (phase 2, full-screen)
- *   /project/$projectId/construction              → ConstructionConsoleScreen (phase 3, full-screen)
+ *   /project/$projectId/plan                      → PlanScreen (the ONE plan surface, full-screen)
+ *   /project/$projectId/activity/$activityId      → ActivityExperienceScreen (one activity, full-screen)
+ *   /project/$projectId/design/system/{-$stepSlug}  → redirect to /plan
+ *   /project/$projectId/design/project/{-$stepSlug} → redirect to /plan
+ *   /project/$projectId/construction                → redirect to /plan
  *
- * The design experiences carry an OPTIONAL step slug as the last path segment
- * ({-$stepSlug}, kebab-case of the step title — see slugForKind) so a step is
- * deep-linkable and survives reload; absent, the experience normalizes the URL
- * to its derived default step.
+ * The last three are the OLD rails, which the plan and the Activity Experience
+ * replace (spec §7.4). Their screens are DELETED; the paths stay REGISTERED and
+ * redirect in `beforeLoad`, because an unregistered path is the router's
+ * not-found, which is a worse answer to an old bookmark than the screen that
+ * replaced it. The redirect itself lives in `activityRedirect.ts` — split out for
+ * the same reason operationsGuard.ts is: a `beforeLoad` written inline here
+ * cannot be unit-tested — and is covered by activityRedirect.test.ts.
+ *
+ * `beforeLoad` throws before any component renders, so the three routes need no
+ * component at all. They are registered with `component: undefined`, which
+ * TanStack renders as an `<Outlet/>`; giving them a screen export would be a
+ * module that can never mount, and defining a local `() => null` here would break
+ * this file's no-local-components rule (below).
+ *
+ * The design experiences kept an OPTIONAL step slug as the last path segment
+ * ({-$stepSlug}) so an old deep link into a step still MATCHES the route and is
+ * redirected, rather than falling through to not-found. The slug itself is
+ * dropped: the plan has no steps.
  *
  * Each route component is a self-contained screen export (no local component
  * definitions here) so fast-refresh stays happy alongside the router factory.
@@ -27,14 +43,25 @@ import {
 } from '@tanstack/react-router';
 import { ProjectsLanding } from './ProjectsLanding';
 import { HomeBase } from './HomeBase';
-import { SystemDesignScreen, ProjectDesignScreen } from './DesignExperience';
-import { ConstructionConsoleScreen } from './ConstructionConsole';
 import { OperationsConsoleScreen } from './OperationsConsole';
 import { ChangeRequestsScreen } from './ChangeRequests';
 import { SubprojectFlowScreen } from './SubprojectFlow';
 import { BillingScreen } from './Billing';
 import { TeamScreen } from './TeamView';
+import { PlanScreen } from './Plan';
+import { ActivityExperienceScreen } from './ActivityExperience';
 import { operationsBeforeLoad } from './operationsGuard';
+// One import for both new paths: activityRedirect owns the redirect the old rails
+// take and re-exports the literals it redirects between, so the path a route
+// registers and the path the redirect names cannot drift.
+import {
+  ACTIVITY_PATH,
+  PLAN_PATH,
+  designRedirectSearch,
+  planSearchFromLegacy,
+  redirectToPlan,
+} from './activityRedirect';
+import { activitySearch } from '../contracts/routePaths';
 import { validateLensSearch } from '../components/construction/lens/useLensSelection';
 import type { Capabilities } from '../utilities/capabilities';
 
@@ -62,47 +89,58 @@ const homeRoute = createRoute({
   component: HomeBase,
 });
 
+const planRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: PLAN_PATH,
+  component: PlanScreen,
+  // The plan's LENS is the only selection left in the URL — the DetailPane's
+  // a/p/k/n/av/focus/sc died with it (spec §7.4). An unknown lens falls back
+  // to `list` instead of throwing, and `lens` is ALWAYS emitted, even for the
+  // default, because validateSearch's output IS the address bar: dropping it
+  // would quietly rewrite a shared deep link.
+  validateSearch: validateLensSearch,
+});
+
+const activityRoute = createRoute({
+  getParentRoute: () => rootRoute,
+  path: ACTIVITY_PATH,
+  component: ActivityExperienceScreen,
+  // ?task=<lifecycle task id>&rev=<1-based revision>. Both optional: absent,
+  // the experience opens the default task (spec §7.2 — awaiting-human →
+  // failed → running → last passed → first) at its latest revision. The codec
+  // is `contracts/routePaths.activitySearch`, not an inline lambda, because
+  // the containers construct the same object when they navigate and a second
+  // copy of the rule is how two callers end up disagreeing about `?rev=0`.
+  validateSearch: (search: Record<string, unknown>): { task?: string; rev?: number } =>
+    activitySearch(search['task'], search['rev']),
+});
+
+// ── The three OLD rails: registered, componentless, redirecting ──────────────
+// See this file's header. `beforeLoad` throws a redirect, so nothing under these
+// paths ever renders.
+
 const systemDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/design/system/{-$stepSlug}',
-  component: SystemDesignScreen,
-  // Optional ?view=<dynamic-view-key>&step=<1-based-seq> deep link: the
-  // Architecture step's viewer preselects the Dynamic lens on that view (the
-  // use-case → call-chain jump), landing on a specific step of the chain when
-  // `step` also parses as a positive integer. A dangling key / bad step is
-  // harmless — the viewer falls back to its defaults.
-  validateSearch: (search: Record<string, unknown>): { view?: string; step?: number } => {
-    const view = search['view'];
-    const step = search['step'];
-    const stepValid =
-      (typeof step === 'string' || typeof step === 'number') &&
-      Number.isInteger(Number(step)) &&
-      Number(step) > 0;
-    return {
-      ...(typeof view === 'string' && view.length > 0 ? { view } : {}),
-      ...(stepValid ? { step: Number(step) } : {}),
-    };
-  },
+  beforeLoad: ({ params }) => redirectToPlan(params.projectId, designRedirectSearch()),
 });
 
 const projectDesignRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/design/project/{-$stepSlug}',
-  component: ProjectDesignScreen,
+  beforeLoad: ({ params }) => redirectToPlan(params.projectId, designRedirectSearch()),
 });
 
 const constructionRoute = createRoute({
   getParentRoute: () => rootRoute,
   path: '/project/$projectId/construction',
-  component: ConstructionConsoleScreen,
-  // The construction console's lens + selection live in the search params —
-  // ?lens=list&a=<activityId>&p=<lifecyclePhase>&k=<task>&n=<attempt> — so the
-  // shared detail pane never owns selection, the 1.5s cascade poll's remount
-  // cannot wipe it, and a link addresses exactly one task attempt. Registering
-  // the schema here is what makes a deep link VALIDATE (an unknown lens falls
-  // back to `list`, a junk attempt is dropped) instead of throwing or rendering
-  // a blank surface. See lens/useLensSelection.ts.
+  // The PLAN's rule, restored (it was spelled out inline as the console's legacy
+  // a/p/k/n/av/focus/sc codec while that screen was still mounted). `beforeLoad`
+  // runs after validateSearch, and `planSearchFromLegacy` keeps only the lens —
+  // every pane param addressed a DetailPane that no longer exists.
   validateSearch: validateLensSearch,
+  beforeLoad: ({ params, search }) =>
+    redirectToPlan(params.projectId, planSearchFromLegacy({ ...search })),
 });
 
 const operationsRoute = createRoute({
@@ -149,6 +187,8 @@ const teamRoute = createRoute({
 const routeTree = rootRoute.addChildren([
   landingRoute,
   homeRoute,
+  planRoute,
+  activityRoute,
   systemDesignRoute,
   projectDesignRoute,
   constructionRoute,
