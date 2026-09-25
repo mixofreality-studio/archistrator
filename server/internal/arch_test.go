@@ -1,8 +1,12 @@
 package internal_test
 
 import (
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"slices"
 	"sort"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -187,6 +191,167 @@ func TestRestrictedImportViolations(t *testing.T) {
 	if importers != 6 {
 		t.Errorf("importers = %d, want 6 (manager + fake + engine + RA + 2 impostors)", importers)
 	}
+}
+
+// TestBuildStatusVocabulariesAgree pins the two INDEPENDENT copies of the buildStatus
+// closed vocabulary to each other: estimation's knownBuildStatus (estimationengine.go)
+// and designhealth's DH-BUILDSTATUS-VOCAB rule, componentBuildStatusVocabularyFindings
+// (designhealthengine.go). The two copies exist because designhealth may import only
+// the two published platform modules plus stdlib (its own file header), so it cannot
+// import the in-flight estimation package, and the platform's projectmodel.
+// SystemComponent — the tolerant codegen slice designhealth reads — carries no
+// buildStatus field to hang a SHARED check off (extending it is a platform release,
+// earmarked, not done here). Without this test, a founder-ruled widening of one copy
+// (e.g. adding "retired") would silently drift from the other: the derivation would
+// build a component design-health calls a defect, or the reverse.
+//
+// Reads each function's own SOURCE via go/ast rather than importing either package, so
+// it needs no export from estimation (knownBuildStatus is deliberately unexported —
+// nothing outside its own package's tests calls it, see the encapsulation gate) and it
+// adds no Go-level dependency either package's import-boundary doctrine would object
+// to. A case naming a same-file const identifier (estimation's buildStatusPlanned/
+// buildStatusExternal) is resolved back to its literal value; designhealth's case
+// already spells its three values as raw string literals.
+func TestBuildStatusVocabulariesAgree(t *testing.T) {
+	estimationSet := buildStatusVocabularyFromSource(t,
+		"engine/estimation/estimationengine.go", "knownBuildStatus")
+	designhealthSet := buildStatusVocabularyFromSource(t,
+		"engine/designhealth/designhealthengine.go", "componentBuildStatusVocabularyFindings")
+
+	sort.Strings(estimationSet)
+	sort.Strings(designhealthSet)
+	if !slices.Equal(estimationSet, designhealthSet) {
+		t.Errorf("buildStatus vocabularies drifted: estimation.knownBuildStatus = %v, "+
+			"designhealth DH-BUILDSTATUS-VOCAB = %v — widen or narrow BOTH copies "+
+			"together (see designhealthengine.go's import-boundary note for why they "+
+			"cannot share one Go symbol)", estimationSet, designhealthSet)
+	}
+}
+
+// buildStatusVocabularyFromSource parses path (a file path relative to this test's own
+// package directory, internal/) and returns the constant string values of funcName's
+// FIRST switch statement's first case clause — the closed-vocabulary list both
+// knownBuildStatus and componentBuildStatusVocabularyFindings key their case on before
+// any default/fallthrough. Fails loudly (t.Fatalf, never a silent empty result) the
+// moment either function's shape moves out from under this scan, so a refactor that
+// breaks the drift guard cannot pass unnoticed.
+func buildStatusVocabularyFromSource(t *testing.T, path, funcName string) []string {
+	t.Helper()
+	fset := token.NewFileSet()
+	file, err := parser.ParseFile(fset, path, nil, parser.SkipObjectResolution)
+	if err != nil {
+		t.Fatalf("parse %s: %v", path, err)
+	}
+
+	fn := funcDeclByName(file, funcName)
+	if fn == nil {
+		t.Fatalf("%s: func %s not found", path, funcName)
+	}
+	cc := leadingSwitchCase(fn)
+	if cc == nil {
+		t.Fatalf("%s: %s: no leading value case found in a switch statement — want the "+
+			"vocabulary list first, default (or the loop's fallthrough) last", path, funcName)
+	}
+
+	consts := stringConstsInFile(file)
+	values := make([]string, 0, len(cc.List))
+	for _, expr := range cc.List {
+		v, ok := caseExprStringValue(expr, consts)
+		if !ok {
+			t.Fatalf("%s: %s: case expr %v does not resolve to a same-file string literal or const",
+				path, funcName, expr)
+		}
+		values = append(values, v)
+	}
+	if len(values) == 0 {
+		t.Fatalf("%s: %s: resolved zero case values; this scan is checking air", path, funcName)
+	}
+	return values
+}
+
+// funcDeclByName returns file's top-level function declaration named name, or nil.
+func funcDeclByName(file *ast.File, name string) *ast.FuncDecl {
+	for _, d := range file.Decls {
+		if fd, ok := d.(*ast.FuncDecl); ok && fd.Name.Name == name {
+			return fd
+		}
+	}
+	return nil
+}
+
+// leadingSwitchCase returns fn's FIRST switch statement's FIRST case clause — the
+// closed-vocabulary list both knownBuildStatus and
+// componentBuildStatusVocabularyFindings key their case on before any
+// default/fallthrough — or nil if fn has no switch, or that switch's first clause is
+// the default rather than a value case.
+func leadingSwitchCase(fn *ast.FuncDecl) *ast.CaseClause {
+	var sw *ast.SwitchStmt
+	ast.Inspect(fn, func(n ast.Node) bool {
+		if sw != nil {
+			return false
+		}
+		if s, ok := n.(*ast.SwitchStmt); ok {
+			sw = s
+			return false
+		}
+		return true
+	})
+	if sw == nil || len(sw.Body.List) == 0 {
+		return nil
+	}
+	cc, ok := sw.Body.List[0].(*ast.CaseClause)
+	if !ok || cc.List == nil {
+		return nil
+	}
+	return cc
+}
+
+// caseExprStringValue resolves one switch-case expression to its string value: a
+// literal ("planned") unquotes directly, an identifier (buildStatusPlanned) resolves
+// through consts (the same file's top-level string const declarations).
+func caseExprStringValue(expr ast.Expr, consts map[string]string) (string, bool) {
+	switch e := expr.(type) {
+	case *ast.BasicLit:
+		v, err := strconv.Unquote(e.Value)
+		if err != nil {
+			return "", false
+		}
+		return v, true
+	case *ast.Ident:
+		v, ok := consts[e.Name]
+		return v, ok
+	default:
+		return "", false
+	}
+}
+
+// stringConstsInFile maps every top-level `const NAME = "literal"` declaration in file
+// to its string value — just enough to resolve knownBuildStatus's buildStatusPlanned/
+// buildStatusExternal case identifiers back to what they actually spell.
+func stringConstsInFile(file *ast.File) map[string]string {
+	out := map[string]string{}
+	for _, d := range file.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.CONST {
+			continue
+		}
+		for _, spec := range gd.Specs {
+			vs, ok := spec.(*ast.ValueSpec)
+			if !ok || len(vs.Names) != len(vs.Values) {
+				continue
+			}
+			for i, name := range vs.Names {
+				lit, ok := vs.Values[i].(*ast.BasicLit)
+				if !ok || lit.Kind != token.STRING {
+					continue
+				}
+				if v, err := strconv.Unquote(lit.Value); err == nil {
+					out[name.Name] = v
+				}
+			}
+		}
+	}
+	return out
 }
 
 // appArchSpec is the app's Method layer model — the SINGLE source of truth shared by
