@@ -911,7 +911,7 @@ func sessionStageLabel(s SessionStage) string {
 }
 
 // advancePhase — op 2.3. Temporal Workflow (entry; StartWorkflow, workflow id
-// {projectId}:phaseAdvance). Returns the gating outcome.
+// {projectId}:phaseAdvance:systemDesign). Returns the gating outcome.
 //
 // AdvancePhase is the exported public op.
 //
@@ -4874,9 +4874,16 @@ const (
 )
 
 // phaseAdvanceWorkflowID derives the continuity token for the short-lived gating
-// workflow: {projectId}:phaseAdvance (systemDesignManager.md §6.1).
+// workflow: {projectId}:phaseAdvance:systemDesign (systemDesignManager.md §6.1).
+//
+// The rail suffix is NOT decoration. projectDesignManager derived the same
+// {projectId}:phaseAdvance string; the two never collided only because they polled
+// different task queues and never ran at once. Stage 4a puts both on the single
+// `delivery` queue, where USE_EXISTING would silently join the OTHER rail's advance.
+// Existing in-flight advances keep the old id — they are covered by the stage-4 drain,
+// and a phase advance is seconds long.
 func phaseAdvanceWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:phaseAdvance", projectID)
+	return fmt.Sprintf("%s:phaseAdvance:systemDesign", projectID)
 }
 
 // slotFor returns the named Project slot for a Phase-1 kind.

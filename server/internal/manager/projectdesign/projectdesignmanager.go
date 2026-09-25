@@ -790,7 +790,7 @@ func sessionStageLabel(s SessionStage) string {
 }
 
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
-// workflow id {projectId}:phaseAdvance). Returns the gating outcome.
+// workflow id {projectId}:phaseAdvance:projectDesign). Returns the gating outcome.
 //
 // F55 STALE-SLOT GATE (Phase-2 twin). A back-edge amendment flags every downstream committed
 // slot StaleBasis. Sealing Phase 2 over a stale committed slot silently advances to
@@ -2582,9 +2582,11 @@ func sdpReviewWorkflowID(projectID ProjectID) string {
 	return fmt.Sprintf("%s:sdpReview", projectID)
 }
 
-// phaseAdvanceWorkflowID derives the continuity token: {projectId}:phaseAdvance.
+// phaseAdvanceWorkflowID derives the continuity token: {projectId}:phaseAdvance:projectDesign.
+// See systemDesign's phaseAdvanceWorkflowID for why the rail suffix is load-bearing —
+// the two Managers derived the same string before stage 4a put them on one task queue.
 func phaseAdvanceWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:phaseAdvance", projectID)
+	return fmt.Sprintf("%s:phaseAdvance:projectDesign", projectID)
 }
 
 // ---------------------------------------------------------------------------
