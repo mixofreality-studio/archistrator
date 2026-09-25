@@ -85,6 +85,18 @@ func (wf *csWorkflows) constructRepoTarget(projectID ProjectID) (agenticjob.Repo
 	if !ok {
 		return agenticjob.RepoTarget{}, "", nil
 	}
+	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). The merged
+	// Manager threads ONE repo resolver into all three rails, and on the "local"
+	// profile with no GitHub App catalog that resolver answers with the deterministic
+	// GitLocal RepoRef — which is what the two design rails need to run their branch →
+	// PR → merge lifecycle locally, and which construction has never dispatched
+	// against. Before the merge construction was simply handed nil there; recognising
+	// the ref here reproduces that byte-for-byte (zero RepoTarget, empty workflow file
+	// ⇒ the RA falls back to the configured central construction repo and the PR-rail
+	// slice stays dormant) without splitting the dep back into two.
+	if repoRef == sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectID)) {
+		return agenticjob.RepoTarget{}, "", nil
+	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
 	if err != nil {
 		return agenticjob.RepoTarget{}, "", err

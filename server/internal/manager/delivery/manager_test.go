@@ -32204,3 +32204,55 @@ func Test_Replay_EveryFixtureDirectoryIsNamed(t *testing.T) {
 		}
 	}
 }
+
+// ===========================================================================
+// STAGE 4a fix round 1 — a GITLOCAL ref is not a construction venue.
+//
+// The merged Manager threads ONE repo resolver into all three rails, and on the
+// "local" profile with no GitHub App catalog that resolver answers with the
+// deterministic GitLocal RepoRef — which the two DESIGN rails need (it is what
+// activates their branch → PR → merge lifecycle on local git) and which construction
+// has never dispatched against: before the merge, construction's own hook returned nil
+// there. constructRepoTarget therefore recognises the ref and reproduces that nil
+// byte-for-byte. The composition-root half of the same pair is
+// Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef (cmd/server).
+// ===========================================================================
+
+func Test_ConstructRepoTarget_GitLocalRefIsNotAConstructionVenue(t *testing.T) {
+	const projectID = ProjectID("proj-local-1")
+	wf := &csWorkflows{Repo: func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+	}}
+
+	target, workflowFile, err := wf.constructRepoTarget(projectID)
+	if err != nil {
+		t.Fatalf("a GitLocal ref must resolve quietly, not error: %v", err)
+	}
+	if target != (agenticjob.RepoTarget{}) {
+		t.Fatalf("RepoTarget = %+v, want the ZERO target — construction falls back to the configured central repo", target)
+	}
+	if workflowFile != "" {
+		t.Fatalf("workflow file = %q, want \"\" so the RA leaves the dispatch's repo fields zero", workflowFile)
+	}
+}
+
+// Test_ConstructRepoTarget_CatalogRefIsTheVenue is the positive companion: a real
+// (catalog-resolved) RepoRef still retargets the dispatch at the project's own repo, so
+// the guard above narrows nothing but the GitLocal case.
+func Test_ConstructRepoTarget_CatalogRefIsTheVenue(t *testing.T) {
+	// the same opaque literal every other rail fixture in this file uses.
+	wf := &csWorkflows{Repo: func(ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.RepoRef("acme|acme/billing-svc"), true
+	}}
+
+	target, workflowFile, err := wf.constructRepoTarget("proj-1")
+	if err != nil {
+		t.Fatalf("constructRepoTarget: %v", err)
+	}
+	if target.Owner != "acme" || target.Name != "billing-svc" {
+		t.Fatalf("RepoTarget = %+v, want {acme billing-svc}", target)
+	}
+	if workflowFile != constructWorkflowFileName {
+		t.Fatalf("workflow file = %q, want %q", workflowFile, constructWorkflowFileName)
+	}
+}

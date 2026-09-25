@@ -8,7 +8,7 @@
         "STP-UC1-N2",
         "STP-UC1-B1"
       ],
-      "sourceHash": "4339d04244f2bc458c7cdf9b883c042e5d3d68ba7633f224c1eabbb794ed6646"
+      "sourceHash": "ce50a013c6088985043bcf557bd0a29a9adbe176bc86f27a840edfcb23a406c5"
     },
     "STP-UC2": {
       "file": "stp_uc2_table.gen.go",
@@ -18,7 +18,7 @@
         "STP-UC2-N2",
         "STP-UC2-B1"
       ],
-      "sourceHash": "b66feecff112639a01d8870d2d9112d57a2d201c28925931e5001cc7a898f40d"
+      "sourceHash": "e00fbefca36e89e8ddbb7917ffe346fa1237bca899cf150dc8b81e4b4334241c"
     },
     "STP-UC3": {
       "file": "stp_uc3_table.gen.go",
@@ -29,7 +29,7 @@
         "STP-UC3-N2",
         "STP-UC3-B1"
       ],
-      "sourceHash": "d8b9fd14e6a3009ffb0bfa3f3679fc86477277881c19d543745a1601557b71d1"
+      "sourceHash": "cf6fff77724f8fd3c9c6e240db37bbb5b2ca4241a5cb2b86d7056ef0ff315244"
     },
     "STP-UC4": {
       "file": "stp_uc4_table.gen.go",

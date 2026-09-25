@@ -20,6 +20,7 @@ import (
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 	"github.com/mixofreality-studio/archistrator/server/internal/utility/messagebus"
 )
 
@@ -635,4 +636,48 @@ type fakeRegisterOperationsManager struct {
 func (f *fakeRegisterOperationsManager) RegisterOperatedApp(_ fwmanager.Context, _ uuid.UUID, _ uuid.UUID, _ string, _ string) (operations.Version, error) {
 	f.calls++
 	return 1, nil
+}
+
+// ---------------------------------------------------------------------------
+// STAGE 4a — DeliveryManagerRepo keeps the three hooks' PER-RAIL behaviour.
+//
+// One dep now feeds all three moved rails, and the three hooks it replaced did not
+// agree about the repo-less local profile: the two DESIGN hooks resolved every project
+// to the deterministic GitLocal RepoRef (which is what activates their branch → PR →
+// merge lifecycle on local git), while the CONSTRUCTION hook returned nil (dormant).
+// The hook now answers with the design arm and the construction rail recognises a
+// GitLocal ref at its own use site — so these two tests, plus
+// Test_ConstructRepoTarget_GitLocalRefIsNotAConstructionVenue in the delivery package,
+// are the pair that pins both halves.
+// ---------------------------------------------------------------------------
+
+// Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef is the DESIGN rails'
+// half: on the local profile with no GitHub App catalog bound, every project must
+// resolve, and to the deterministic GitLocal RepoRef — a nil resolver here is what
+// silently put the local design rail back on its main-path (rail-dormant) behaviour.
+func Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef(t *testing.T) {
+	h := &appHooks{config: &Config{ProjectStateGitLocal: true}}
+
+	resolve := h.DeliveryManagerRepo()
+	if resolve == nil {
+		t.Fatal("the local profile must resolve a repo for every project; nil leaves the design rail dormant")
+	}
+	got, ok := resolve("proj-1")
+	if !ok {
+		t.Fatal("the local resolver must report ok for every project")
+	}
+	if want := sourcecontrol.GitLocalRepoRefForProject("proj-1"); got != want {
+		t.Fatalf("local RepoRef = %q, want the deterministic GitLocal ref %q", got, want)
+	}
+}
+
+// Test_DeliveryManagerRepo_CloudProfile_NoCatalog_IsDormant is the other arm: without
+// a catalog AND off the local profile there is no repo to resolve, so the rail stays
+// dormant exactly as every one of the three old hooks did.
+func Test_DeliveryManagerRepo_CloudProfile_NoCatalog_IsDormant(t *testing.T) {
+	h := &appHooks{config: &Config{}}
+
+	if resolve := h.DeliveryManagerRepo(); resolve != nil {
+		t.Fatal("a repo-less cloud boot must resolve no repo (nil), keeping the rail dormant")
+	}
 }

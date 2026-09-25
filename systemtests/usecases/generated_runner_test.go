@@ -299,6 +299,7 @@ var opTable = map[string]map[string]opFunc{
 		"QueryProjectView":     opQueryProjectView,
 		"QueryActivityView":    opQueryActivityView,
 		"ExecuteNextActivity":  opExecuteNextActivity,
+		"OverrideActivity":     opOverrideActivity,
 	},
 }
 
@@ -354,6 +355,29 @@ func opQueryProjectView(ctx context.Context, _ *testing.T, tr harness.Transport,
 		st, _, err := tr.GetSessionState(ctx, q.ProjectID, harness.ArtifactKindName(q.ArtifactKind))
 		return st.Stage, err
 	}
+}
+
+// opOverrideActivity drives the escalation gate's own entry — the chain's third link.
+func opOverrideActivity(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	ov, err := decodeActivityOverride(inputValue(ins, "override"))
+	if err != nil {
+		return "", err
+	}
+	return "", tr.OverrideActivity(ctx, inputValue(ins, "projectID"), inputValue(ins, "activityID"), ov.Kind, ov.Notes)
+}
+
+// activityOverride is the sliver of the plan's ActivityOverride literal this runner reads.
+type activityOverride struct {
+	Kind  int    `json:"kind"`
+	Notes string `json:"notes"`
+}
+
+func decodeActivityOverride(raw string) (activityOverride, error) {
+	var ov activityOverride
+	if raw == "" {
+		return ov, nil
+	}
+	return ov, json.Unmarshal([]byte(raw), &ov)
 }
 
 func opQueryActivityView(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {

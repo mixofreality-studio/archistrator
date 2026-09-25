@@ -7981,13 +7981,29 @@
                     "from": "operator",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "reads the escalation and steers the activity — the steer lands on deliveryManager.overrideActivity(projectId, activityId, override): retry | skip | takeover"
+                    "label": "reads the escalation and steers the activity",
+                    "alt": "s1"
                   },
                   {
                     "from": "operator",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "steers the activity over the MCP surface — the same deliveryManager.overrideActivity entry (R4 cross-surface equivalence)"
+                    "label": "steers the activity over the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "overrideActivity(projectId, activityId, override) — retry | skip | takeover",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "overrideActivity(projectId, activityId, override) — same Manager entry",
+                    "alt": "s2"
                   }
                 ]
               },
@@ -8048,13 +8064,29 @@
                     "from": "architect-user",
                     "to": "web-client",
                     "mode": "sync",
-                    "label": "reads the staged artifact and the agent verdicts; approves or sends back with anchored comments — the decision lands on deliveryManager.submitReviewDecision(projectId, activityId, taskId, decision, feedback?)"
+                    "label": "reads the staged artifact and the agent verdicts; approves or sends back with anchored comments",
+                    "alt": "s1"
                   },
                   {
                     "from": "architect-user",
                     "to": "mcp-client",
                     "mode": "sync",
-                    "label": "decides over the MCP surface — the same deliveryManager.submitReviewDecision entry (R4 cross-surface equivalence)"
+                    "label": "decides over the MCP surface (R4 cross-surface equivalence)",
+                    "alt": "s1"
+                  },
+                  {
+                    "from": "web-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, activityId, taskId, decision, feedback?)",
+                    "alt": "s2"
+                  },
+                  {
+                    "from": "mcp-client",
+                    "to": "delivery-manager",
+                    "mode": "sync",
+                    "label": "submitReviewDecision(projectId, activityId, taskId, decision, feedback?) — same Manager entry",
+                    "alt": "s2"
                   }
                 ]
               },
@@ -31159,6 +31191,76 @@
                 {
                   "seq": 6,
                   "component": "deliveryManager",
+                  "operation": "ExecuteNextActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-stp-uc1-chain"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false
+                  },
+                  "assertion": "The delivery pump accepts the tick for this project: the one entry every activity of the network is driven through, whatever its type."
+                },
+                {
+                  "seq": 7,
+                  "component": "deliveryManager",
+                  "operation": "QueryActivityView",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "requirements",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false
+                  },
+                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
+                },
+                {
+                  "seq": 8,
+                  "component": "deliveryManager",
+                  "operation": "OverrideActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "requirements",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "override",
+                      "value": "{\"kind\":1,\"notes\":\"Operator steer attempted while the activity is NOT escalated \\u2014 the chain's third entry op, exercised at the one point it is refused.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ActivityOverride"
+                    }
+                  ],
+                  "expect": {
+                    "errorExpected": true,
+                    "errorCode": "PreconditionFailed"
+                  },
+                  "assertion": "REFUSED: overrideActivity is the escalation gate’s own entry, not a general-purpose write, so the operator steer is rejected while the activity is not awaiting a takeover. The same op succeeds in STP-UC3-H2, where the activity really is escalated — which is what makes this the honest third link of the chain rather than a filler step."
+                },
+                {
+                  "seq": 9,
+                  "component": "deliveryManager",
                   "operation": "SubmitReviewDecision",
                   "inputs": [
                     {
@@ -31192,7 +31294,7 @@
                   "assertion": "decision=1 (ReviewApprove); no error. A follow-up GetSessionState shows stage=5 (StageCommitted)."
                 },
                 {
-                  "seq": 7,
+                  "seq": 10,
                   "component": "deliveryManager",
                   "operation": "SubmitReviewDecision",
                   "inputs": [
@@ -31221,49 +31323,6 @@
                     "errorExpected": false
                   },
                   "assertion": "PRECONDITION: kinds 0-7 all committed. advanced=true and missingArtifacts is empty - the phase seals. acknowledgeStale=false — no stale basis is in play in this scenario."
-                },
-                {
-                  "seq": 8,
-                  "component": "deliveryManager",
-                  "operation": "ExecuteNextActivity",
-                  "inputs": [
-                    {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "tickID",
-                      "value": "tick-stp-uc1-chain"
-                    }
-                  ],
-                  "expect": {
-                    "result": "",
-                    "errorExpected": false
-                  },
-                  "assertion": "The delivery pump accepts the tick for this project: the one entry every activity of the network is driven through, whatever its type."
-                },
-                {
-                  "seq": 9,
-                  "component": "deliveryManager",
-                  "operation": "QueryActivityView",
-                  "inputs": [
-                    {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "activityID",
-                      "value": "requirements",
-                      "schemaRef": "#/$defs/ActivityID"
-                    }
-                  ],
-                  "expect": {
-                    "result": "",
-                    "errorExpected": false
-                  },
-                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
                 }
               ]
             },
@@ -31521,6 +31580,76 @@
                 {
                   "seq": 3,
                   "component": "deliveryManager",
+                  "operation": "ExecuteNextActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "tickID",
+                      "value": "tick-stp-uc2-chain"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false
+                  },
+                  "assertion": "The delivery pump accepts the tick for this project: the one entry every activity of the network is driven through, whatever its type."
+                },
+                {
+                  "seq": 4,
+                  "component": "deliveryManager",
+                  "operation": "QueryActivityView",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "projectDesign",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false
+                  },
+                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
+                },
+                {
+                  "seq": 5,
+                  "component": "deliveryManager",
+                  "operation": "OverrideActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "projectDesign",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "override",
+                      "value": "{\"kind\":1,\"notes\":\"Operator steer attempted while the activity is NOT escalated \\u2014 the chain's third entry op, exercised at the one point it is refused.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ActivityOverride"
+                    }
+                  ],
+                  "expect": {
+                    "errorExpected": true,
+                    "errorCode": "PreconditionFailed"
+                  },
+                  "assertion": "REFUSED: overrideActivity is the escalation gate’s own entry, not a general-purpose write, so the operator steer is rejected while the activity is not awaiting a takeover. The same op succeeds in STP-UC3-H2, where the activity really is escalated — which is what makes this the honest third link of the chain rather than a filler step."
+                },
+                {
+                  "seq": 6,
+                  "component": "deliveryManager",
                   "operation": "SubmitReviewDecision",
                   "inputs": [
                     {
@@ -31554,7 +31683,7 @@
                   "assertion": "decision=1 (SDPCommit) with a real option id; no error. chosenOption is recorded and work items open."
                 },
                 {
-                  "seq": 4,
+                  "seq": 7,
                   "component": "deliveryManager",
                   "operation": "SubmitReviewDecision",
                   "inputs": [
@@ -31583,49 +31712,6 @@
                     "errorExpected": false
                   },
                   "assertion": "advanced=true; the project enters Phase 3. acknowledgeStale=false — no stale basis is in play in this scenario."
-                },
-                {
-                  "seq": 5,
-                  "component": "deliveryManager",
-                  "operation": "ExecuteNextActivity",
-                  "inputs": [
-                    {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "tickID",
-                      "value": "tick-stp-uc2-chain"
-                    }
-                  ],
-                  "expect": {
-                    "result": "",
-                    "errorExpected": false
-                  },
-                  "assertion": "The delivery pump accepts the tick for this project: the one entry every activity of the network is driven through, whatever its type."
-                },
-                {
-                  "seq": 6,
-                  "component": "deliveryManager",
-                  "operation": "QueryActivityView",
-                  "inputs": [
-                    {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "activityID",
-                      "value": "projectDesign",
-                      "schemaRef": "#/$defs/ActivityID"
-                    }
-                  ],
-                  "expect": {
-                    "result": "",
-                    "errorExpected": false
-                  },
-                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
                 }
               ]
             },
@@ -31944,6 +32030,55 @@
                 {
                   "seq": 3,
                   "component": "deliveryManager",
+                  "operation": "QueryActivityView",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    }
+                  ],
+                  "expect": {
+                    "result": "",
+                    "errorExpected": false
+                  },
+                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
+                },
+                {
+                  "seq": 4,
+                  "component": "deliveryManager",
+                  "operation": "OverrideActivity",
+                  "inputs": [
+                    {
+                      "name": "projectID",
+                      "value": "proj-aiarch-01",
+                      "schemaRef": "#/$defs/ProjectID"
+                    },
+                    {
+                      "name": "activityID",
+                      "value": "C-BILLENG",
+                      "schemaRef": "#/$defs/ActivityID"
+                    },
+                    {
+                      "name": "override",
+                      "value": "{\"kind\":1,\"notes\":\"Operator steer attempted while the activity is NOT escalated \\u2014 the chain's third entry op, exercised at the one point it is refused.\",\"comments\":null}",
+                      "schemaRef": "#/$defs/ActivityOverride"
+                    }
+                  ],
+                  "expect": {
+                    "errorExpected": true,
+                    "errorCode": "PreconditionFailed"
+                  },
+                  "assertion": "REFUSED: overrideActivity is the escalation gate’s own entry, not a general-purpose write, so the operator steer is rejected while the activity is not awaiting a takeover. The same op succeeds in STP-UC3-H2, where the activity really is escalated — which is what makes this the honest third link of the chain rather than a filler step."
+                },
+                {
+                  "seq": 5,
+                  "component": "deliveryManager",
                   "operation": "SubmitReviewDecision",
                   "inputs": [
                     {
@@ -31977,47 +32112,21 @@
                   "assertion": "decision=1 (PhaseApprove); no error. The activity advances to the construction phase."
                 },
                 {
-                  "seq": 4,
+                  "seq": 6,
                   "component": "deliveryManager",
-                  "operation": "ExecuteNextActivity",
+                  "operation": "QueryProjectView",
                   "inputs": [
                     {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "tickID",
-                      "value": "tick-2026-07-02T10:00:00Z"
+                      "name": "query",
+                      "value": "{\"kind\":\"pump\",\"projectId\":\"proj-aiarch-01\"}",
+                      "schemaRef": "#/$defs/ProjectViewQuery"
                     }
                   ],
                   "expect": {
-                    "result": "{\"dispatched\":true}",
+                    "result": "{\"kind\":\"pump\",\"pump\":{\"open\":true}}",
                     "errorExpected": false
                   },
-                  "assertion": "A later tick progresses construction; on approved review the PR merges and the activity records an exit."
-                },
-                {
-                  "seq": 5,
-                  "component": "deliveryManager",
-                  "operation": "QueryActivityView",
-                  "inputs": [
-                    {
-                      "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
-                    },
-                    {
-                      "name": "activityID",
-                      "value": "C-BILLENG",
-                      "schemaRef": "#/$defs/ActivityID"
-                    }
-                  ],
-                  "expect": {
-                    "result": "",
-                    "errorExpected": false
-                  },
-                  "assertion": "The activity reads back through the ONE Activity Experience read: its task DAG, each task’s state, and the gate it is waiting at."
+                  "assertion": "The pump is still running once the gate passes — read, not driven: a second tick here would walk the use case’s entry chain backwards. On an approved review the PR merges and the cascading pump carries construction on."
                 }
               ]
             },

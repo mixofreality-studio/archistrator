@@ -136,12 +136,15 @@ type Transport interface {
 	AdvanceToConstruction(ctx context.Context, projectID string) (advanced bool, missing []string, err error)
 
 	// --- UC3 (construction / Phase-3) superviseConstruction intents -----------
-	// These drive the constructionManager facet (POST .../construction/...). Only
-	// the ops STP-UC3's cases drive (plus UpdateReviewPolicy, the minimal staging
-	// op that makes the detailed_design phase gate actually suspend for a human
-	// decision) are exposed — constructionManager.OverrideActivity/PauseProject/
-	// RunReplanSweep are read (construction_handlers.gen.go) but not wire-driven by
-	// any STP-UC3 case, so they are NOT added here.
+	// These drive the delivery Manager's construction rail (POST .../delivery/...).
+	// Only the ops the plan's cases actually drive are exposed (plus
+	// UpdateReviewPolicy, the minimal staging op that makes the detailed_design
+	// phase gate actually suspend for a human decision); PauseProject/ReplanProject
+	// are published but wire-driven by no case, so they are NOT added here.
+	//
+	// OverrideActivity joined at stage 4a: execute-a-project-activity's call chain
+	// runs escalate-operator through it, so every scenario's happy case now walks it
+	// (STP-CHAIN-COVER) — at the one point it is REFUSED, which is the assertion.
 
 	// ExecuteNextActivity pumps ONE construction tick: dispatches the next eligible
 	// activity (the dependency-network frontier, no unmet predecessors) or reports a
@@ -155,6 +158,12 @@ type Transport interface {
 	// waiting at. It returns the activity's coarse state name; the harness asserts on
 	// that rather than re-modelling the whole view, which the SPA owns.
 	QueryActivityView(ctx context.Context, projectID, activityID string) (state string, err error)
+	// OverrideActivity delivers the operator's steer to an activity waiting at an
+	// escalation: retry, skip, take over or reassign. kind is the OverrideKind
+	// ordinal and notes is required. It is REFUSED (FailedPrecondition) while the
+	// activity is not awaiting a takeover — the plan's happy cases assert exactly
+	// that, and STP-UC3-H2 asserts the accepting side.
+	OverrideActivity(ctx context.Context, projectID, activityID string, kind int, notes string) error
 	// GetConstructionSessionState reads the per-activity UC3 supervision view
 	// (constructionManager.md ConstructionSessionView). activityID is REQUIRED — the
 	// published route has no project-level (nil-activityID) query form.

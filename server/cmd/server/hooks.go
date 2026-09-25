@@ -1161,26 +1161,40 @@ func (h *appHooks) DeliveryManagerInterventionMode() string {
 // project repo (aiarch-construct.yml) AND activates the branch→PR rail; nil (a
 // repo-less server) keeps the central-repo fallback + a dormant rail.
 //
-// EARMARK (stage 4a, hooks.go): the three hooks it replaces did NOT agree. The two
-// DESIGN hooks carried a second arm — when no GitHub App catalog is bound AND the
-// profile is "local", they resolved every project to the deterministic GitLocal
-// RepoRef so the local design rail's branch → PR → merge lifecycle activates; the
-// CONSTRUCTION hook had no such arm ("construction keeps its local-merge-job flow this
-// pass"). One dep cannot carry both. This merged hook keeps the CONSTRUCTION body, per
-// the stage-4a plan's tie-break, because it errs toward a DORMANT rail: a nil resolver
-// puts the design spine back on its documented main-path behaviour (read-back and stage
-// on main, no branch/PR ops), whereas the design body would have switched construction's
-// local PR rail ON. The consequence is real and deliberate: on the "local" profile with
-// no GitHub App creds, the design rails now run rail-dormant. 4b restores the local
-// design rail behind the generic walker's venue strategy — until then, a local-profile
-// design rail needs a bound catalog.
+// PER-RAIL BEHAVIOUR IS PRESERVED THROUGH ONE DEP (stage 4a fix round 1). The three
+// hooks this replaces did NOT agree: the two DESIGN hooks carried a second arm — when
+// no GitHub App catalog is bound AND the profile is "local", resolve every project to
+// the deterministic GitLocal RepoRef, which is what activates the local design rail's
+// branch → PR → merge lifecycle — while the CONSTRUCTION hook returned nil there
+// ("construction keeps its local-merge-job flow this pass"). Collapsing to the
+// construction body would have taken the local design rail down; collapsing to the
+// design body would have switched construction's local PR rail ON. Neither is
+// acceptable, and no contract change is needed to avoid both: this hook returns the
+// DESIGN arm (the superset), and the construction rail recognises a GitLocal ref at its
+// single use site and treats it as "no per-project venue", which is exactly the nil it
+// used to be handed (constructRepoTarget, internal/manager/delivery/constructactivity.go).
+// The selection moved; no rail's behaviour did.
 func (h *appHooks) DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
+		if h.gitLocalRailBound() {
+			return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
+				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
+			}
+		}
 		return nil
 	}
 	return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 		return h.repoForProject(projectstate.ProjectID(pid))
 	}
+}
+
+// gitLocalRailBound reports whether the bound sourceControlAccess is the GitLocal PR
+// rail: the local profile's binding arm builds it, and the creds-win Finalize keeps it
+// only when no GitHub App creds exist (scCatalog/scAccess nil). The design rails' repo
+// resolution must then resolve every project to the deterministic local RepoRef so the
+// rail lifecycle (branch → PR → merge) activates.
+func (h *appHooks) gitLocalRailBound() bool {
+	return resolveProfile(h.config) == "local"
 }
 
 // repoForProject resolves one project's RepoRef through the sourcecontrol catalog,

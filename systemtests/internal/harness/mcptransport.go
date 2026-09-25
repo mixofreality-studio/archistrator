@@ -279,3 +279,10 @@ func (t *mcpTransport) QueryActivityView(ctx context.Context, projectID, activit
 	}
 	return activityViewStateName(view.State), nil
 }
+
+// OverrideActivity delivers the operator's steer through the twelve-op surface.
+func (t *mcpTransport) OverrideActivity(ctx context.Context, projectID, activityID string, kind int, notes string) error {
+	err := t.client.DeliveryOverrideActivity(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
+		sdk.ActivityOverride{Kind: sdk.OverrideKind(kind), Notes: notes})
+	return sentinelError(err)
+}
