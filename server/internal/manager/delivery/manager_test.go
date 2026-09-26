@@ -1289,6 +1289,11 @@ type fakeProjectState struct {
 	advanced  int
 
 	version projectstate.Version
+
+	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1).
+	// nil for every other test, and every call site is guarded, so a shape case and an
+	// ordinary design-rail test run against the SAME double rather than two that drift.
+	rec *shapeRecorder
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
@@ -1536,6 +1541,9 @@ type fakePipeline struct {
 	// has not unwound yet). An empty script means "never any episode".
 	episodes []*agenticjob.EpisodeSummary
 	observes int
+
+	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1).
+	rec *shapeRecorder
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
@@ -1592,6 +1600,13 @@ func (p *fakePipeline) SubmitAgenticJob(rc fwra.Context, spec agenticjob.Pipelin
 	p.nextID++
 	name := "design-run/" + uuid.NewString()
 	p.handlePhase[name] = phase
+	// The shape oracle's dispatch record (stage 4b1 Task 1). A design dispatch carries no
+	// `phase` input — its bag is artifact_kind + job_mode + command — so the COMMAND is
+	// what is recorded here; a design task's start is recorded from its review round
+	// instead, which is the only per-task landmark this rail actually has.
+	if p.rec != nil {
+		p.rec.jobDispatched(spec.DispatchInputs[dispatchInputCommand])
+	}
 	return agenticjob.PipelineHandle(name), nil
 }
 
@@ -1923,6 +1938,13 @@ func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.Pr
 				return // already open: a no-op success, not a second round
 			}
 		}
+		// The shape oracle (stage 4b1 Task 1): a review task's START is the round opening,
+		// recorded AFTER the idempotent-reopen check so a re-entry at the same id is not
+		// counted twice.
+		if f.rec != nil {
+			f.rec.taskStarted(string(round.TaskID))
+			f.rec.roundOpened(round.RoundID)
+		}
 		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
 			RoundID:    round.RoundID,
 			TaskID:     round.TaskID,
@@ -2003,6 +2025,15 @@ func (f fakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.
 				continue
 			}
 			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			// The shape oracle (stage 4b1 Task 1): the decision, and — on a PASS — the
+			// review task's completion. A sent-back round does NOT complete its task: the
+			// pair re-opens, which is the whole claim of the send-back shape.
+			if f.rec != nil {
+				f.rec.roundDecided(roundID, string(outcome))
+				if outcome == projectstate.RoundPassed {
+					f.rec.taskCompleted(string(r.TaskID))
+				}
+			}
 			return
 		}
 	})
@@ -23632,6 +23663,11 @@ type csFakeProjectState struct {
 	// resumed counts RecordOperatorResumed calls (B1.7).
 	resumed int
 
+	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1).
+	// nil for every other test, and every call site is guarded, so a shape case and a
+	// replay fixture exercise the SAME store semantics rather than two that drift.
+	rec *shapeRecorder
+
 	// stampConflicts, when >0, returns fwra.Conflict on the next N
 	// RecordOperatorNoteDelivered calls only (a stamp that cannot land, M4).
 	stampConflicts int
@@ -24068,6 +24104,13 @@ func (f csFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 				return // already open: a no-op success, not a second round
 			}
 		}
+		// The shape oracle (stage 4b1 Task 1): a review task's START is the round opening,
+		// recorded AFTER the idempotent-reopen check so a re-entry at the same id is not
+		// counted twice.
+		if f.rec != nil {
+			f.rec.taskStarted(string(round.TaskID))
+			f.rec.roundOpened(round.RoundID)
+		}
 		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
 			RoundID:    round.RoundID,
 			TaskID:     round.TaskID,
@@ -24113,6 +24156,15 @@ func (f csFakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstat
 				continue
 			}
 			r.Outcome, r.DecidedBy, r.DecidedAt = outcome, decidedBy, testLedgerClock.Format(time.RFC3339)
+			// The shape oracle (stage 4b1 Task 1): the decision, and — on a PASS — the
+			// review task's completion. A sent-back round does NOT complete its task: the
+			// pair re-opens, which is the whole claim of the send-back shape.
+			if f.rec != nil {
+				f.rec.roundDecided(roundID, string(outcome))
+				if outcome == projectstate.RoundPassed {
+					f.rec.taskCompleted(string(r.TaskID))
+				}
+			}
 			return
 		}
 	})
@@ -24312,13 +24364,42 @@ type csFakePipeline struct {
 	// runURL, when set, marks the observation as coming from the REMOTE venue (the
 	// GitHub-Actions arm stamps the run's html URL; the local executor never does).
 	runURL string
+
+	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1);
+	// recTask carries the work task of the LAST submit so the observe that reaches a
+	// terminal phase can name what finished. Correlating through the last submit is the
+	// same technique failOncePipeline already uses, and it is exact here for the same
+	// reason: runPipeline submits then immediately observes, sequentially.
+	rec     *shapeRecorder
+	recTask string
 }
 
 func (p *csFakePipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
+	p.recordShapeSubmit(spec)
 	return agenticjob.PipelineHandle("wf-" + string(spec.ActivityID)), nil
+}
+
+// recordShapeSubmit is the shape oracle's dispatch hook (stage 4b1 Task 1): the command
+// this dispatch runs, and the START of the phase's AI-WORK task — AgentTaskFor, the same
+// derivation runPipeline itself uses, so the recorder never invents a task the ledger does
+// not hold. A merge job carries no phase and no command; it is recorded under the job key
+// so the dispatch is not silently missing from the record. Callers hold the lock.
+func (p *csFakePipeline) recordShapeSubmit(spec agenticjob.PipelineSpec) {
+	if p.rec == nil {
+		return
+	}
+	phase := spec.DispatchInputs["phase"]
+	if phase == "" {
+		p.recTask = ""
+		p.rec.jobDispatched("job:" + spec.DispatchInputs[agenticjob.DispatchInputJobKey])
+		return
+	}
+	p.recTask = string(projectstate.AgentTaskFor(projectstate.ActivityMethodPhase(phase)))
+	p.rec.jobDispatched(spec.DispatchInputs["command"])
+	p.rec.taskStarted(p.recTask)
 }
 
 func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
@@ -24328,6 +24409,14 @@ func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.Pipeline
 	ph := p.phase
 	if ph == PipelinePhaseUnknown {
 		ph = PipelineSucceeded
+	}
+	// The shape oracle's COMPLETION hook (stage 4b1 Task 1), and the fork's discriminator:
+	// a work task completes where its PIPELINE reaches a terminal, not where the walker
+	// marks the task passed — a gated branch's task passes only after its human decision,
+	// and the fork's claim is about the work overlapping, not the gates.
+	if p.rec != nil && p.recTask != "" && (ph == PipelineSucceeded || ph == PipelineFailed || ph == PipelineCancelled) {
+		p.rec.taskCompleted(p.recTask)
+		p.recTask = ""
 	}
 	return agenticjob.PipelineObservation{
 		Phase:      contractPipelinePhase(ph),
@@ -32381,4 +32470,773 @@ func Test_DeliveryManager_CatalogResolver_ConstructionRailEnabled(t *testing.T) 
 	if !m.cs.railEnabled()("proj-1") {
 		t.Fatal("a catalog-resolved project repo must light the construction PR rail")
 	}
+}
+
+// ---------------------------------------------------------------------------
+// THE LIFECYCLE-SHAPE ORACLE (stage 4b1 Task 1). Spec §9 asks for a Temporal
+// test-suite case per lifecycle SHAPE: linear, fork/join in both branch orders,
+// send-back re-opens only the judged pair, join waits for all, M0 no-send-back,
+// human floor under vibes. They are written HERE, against the pre-4b1 rails, so
+// that the generic DAG child is judged by cases that already ran rather than by
+// cases written alongside it.
+//
+// THREE OF THE SEVEN FAIL TODAY, DELIBERATELY. The current child walks
+// in.Activity.Phases — a FLAT []ActivityMethodPhase from
+// ProfileFor(typ,variant).PhaseIDs() — so `service`'s phase order runs test_plan
+// AFTER detailed_design and the fork in lifecycles.json (stp dependsOn
+// [srsReview]; testing dependsOn [integration, stpReview]) is never read. A case
+// marked shapeFailsUntilTheDAG asserts the parallel order and is SKIPPED with its
+// reason until Task 8 lands; Task 8 Step 10 flips it to shapePassesToday and the
+// flip is the acceptance. A skipped case that is never flipped is a plan failure,
+// which is why shapeFailsUntilTheDAG names the task that owes it.
+// ---------------------------------------------------------------------------
+
+// shapeExpectation says whether a shape case can pass against the code in the
+// tree at the commit that reads it.
+type shapeExpectation int
+
+const (
+	shapePassesToday shapeExpectation = iota
+	shapeFailsUntilTheDAG
+)
+
+// shapeOutcome is what every shape case asserts on.
+//
+// TWO order fields, and the distinction is the whole reason the fork is testable.
+// TaskOrder is the order tasks were STARTED, and it is IDENTICAL in both branch-order
+// cases by construction: readyTasks fans out in lifecycle DECLARATION order, which is
+// deterministic, so once srsReview passes it always returns [detailedDesign, stp] in
+// that order. Branch order is not a walker variable and must never be asserted as one.
+// What a branch order actually changes is which branch's pipeline COMPLETES first, so
+// CompletedOrder is the discriminator.
+//
+// Timeline is the THIRD field, and it is here because the fork's own claim — "both
+// branches were in flight at once" — cannot be stated on the other two at all. They are
+// separate projections of one walk, so "detailedDesign started before stp finished"
+// compares an index in one slice against an index in another, which means nothing: the
+// FIRST draft of this oracle did exactly that and passed today's strictly serial walk
+// for the design-first case. Timeline is the merged log those two are projections of —
+// "start:<task>" / "done:<task>" in the order they happened — and the overlap is
+// asserted there. TaskOrder and CompletedOrder stay because Tasks 8 Step 10 and 11 Step
+// 5 name them, and because declaration order and the completion discriminator read
+// better as their own lists.
+type shapeOutcome struct {
+	TaskOrder      []string
+	CompletedOrder []string
+	Timeline       []string
+	Dispatched     []string
+	RoundsOpened   []string
+	RoundsDecided  map[string]string
+	Reopened       []string
+	PhaseAdvanced  bool
+}
+
+// The Timeline event prefixes. Bare literals on purpose: the log is read by an assertion
+// in this file and by nothing else, and a shared constant would invite a reader to
+// believe it is a wire format.
+const (
+	shapeEventStarted   = "start:"
+	shapeEventCompleted = "done:"
+)
+
+// lifecycleShapeCase is one shape, its lifecycle key, the driver that runs it on
+// whatever child the tree currently registers, and what it may assert today.
+type lifecycleShapeCase struct {
+	name      string
+	typeKey   string
+	drive     func(t *testing.T, rig *shapeRig) shapeOutcome
+	wantToday shapeExpectation
+}
+
+// shapeRecorder is the observation side. Every task start, dispatch, round open and
+// round decision the rig's fakes see is appended here in the order it happened;
+// nothing is sorted, because order IS the assertion.
+type shapeRecorder struct {
+	mu        sync.Mutex
+	started   []string
+	completed []string
+	events    []string
+	jobs      []string
+	opened    []string
+	decided   map[string]string
+}
+
+func newShapeRecorder() *shapeRecorder {
+	return &shapeRecorder{decided: map[string]string{}}
+}
+
+func (r *shapeRecorder) taskStarted(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.started = append(r.started, taskID)
+	r.events = append(r.events, shapeEventStarted+taskID)
+}
+
+// taskCompleted is the fork's discriminator. It is recorded where the task's
+// PIPELINE reaches a terminal — not where the walker marks the task passed — because
+// a gated branch's task passes only after its human decision, and the fork's claim is
+// about the work overlapping, not the gates.
+func (r *shapeRecorder) taskCompleted(taskID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.completed = append(r.completed, taskID)
+	r.events = append(r.events, shapeEventCompleted+taskID)
+}
+
+func (r *shapeRecorder) jobDispatched(command string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.jobs = append(r.jobs, command)
+}
+
+func (r *shapeRecorder) roundOpened(roundID string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.opened = append(r.opened, roundID)
+}
+
+func (r *shapeRecorder) roundDecided(roundID, outcome string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.decided[roundID] = outcome
+}
+
+// outcome snapshots the recorder. Copies rather than handing out the slices, so a
+// case that keeps driving after reading cannot retro-edit its own assertion.
+func (r *shapeRecorder) outcome(reopened []string, phaseAdvanced bool) shapeOutcome {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	out := shapeOutcome{
+		TaskOrder:      append([]string(nil), r.started...),
+		CompletedOrder: append([]string(nil), r.completed...),
+		Timeline:       append([]string(nil), r.events...),
+		Dispatched:     append([]string(nil), r.jobs...),
+		RoundsOpened:   append([]string(nil), r.opened...),
+		RoundsDecided:  make(map[string]string, len(r.decided)),
+		Reopened:       append([]string(nil), reopened...),
+		PhaseAdvanced:  phaseAdvanced,
+	}
+	maps.Copy(out.RoundsDecided, r.decided)
+	return out
+}
+
+// shapeRig wraps whichever rig the tree's current child needs, plus the recorder
+// the outcome is read out of. It declares NO fake of its own: the doubles are the
+// ones the existing scenarios already register — registerConstruct's
+// csFakeProjectState + csFakePipeline, registerCoAuthor's fakeProjectState +
+// fakePipeline, pdRegisterGenActivities' pdFakeProjectState — each simply handed the
+// recorder, so a shape case and a replay fixture exercise ONE set of store semantics
+// rather than two that drift. Task 8 re-points `register` at the generic child;
+// nothing else in this region changes.
+type shapeRig struct {
+	env      *testsuite.TestWorkflowEnvironment
+	rec      *shapeRecorder
+	register func(env *testsuite.TestWorkflowEnvironment)
+
+	// The STORE of the rail this lifecycle runs on today — exactly one is wired, and
+	// each driver reads the one its case belongs to. A store is here, while the
+	// pipeline double is not, for one reason: the two ledger-derived fields of
+	// shapeOutcome (Reopened, PhaseAdvanced) are read out of the store rather than
+	// observed at a hook, because a re-dispatch is a second attempt on a work task
+	// and that is a row, not an event. Everything else arrives through the recorder.
+	cs     *csFakeProjectState
+	design *fakeProjectState
+	pd     *pdFakeProjectState
+	// pdwf is the SDP rail's receiver, needed because the case must pre-assemble the
+	// review to learn which option to commit — the same thing the existing SDP tests do.
+	pdwf *pdWorkflows
+
+	// branchCompletesFirst is the fork's only knob: which branch of the
+	// srsReview fan-out the case wants to reach its pipeline terminal FIRST.
+	// Today's flat phase walk cannot honour it (the branches are serialised by the
+	// phase order), which is exactly why the two fork cases are skipped; Task 8's
+	// dispatch strategy reads it, and the two cases then differ in nothing else.
+	branchCompletesFirst projectstate.MethodTask
+}
+
+// The ids the shape cases run under. Stable literals, because a shape case's
+// assertions are read against the ledger row these key.
+const (
+	shapeProjectID    = ProjectID("shape-p")
+	shapeServiceID    = "C-Orders"
+	shapeDeploymentID = "R-Deploy"
+	shapeSDPActivity  = "P-SDP"
+)
+
+// newShapeRig builds the rig for one lifecycle on the rails as they stand. The
+// per-lifecycle arm is the ONE place that knows which child a lifecycle runs on
+// today, so Tasks 8/9/10 re-point a lifecycle by editing one arm.
+//
+// Every construction-rail rig wires the REAL review engine: the gate verdict is the
+// behaviour under test in four of the seven shapes, and a scripted verdict would let
+// exactly the regression the vibes defect was made of pass.
+func newShapeRig(t *testing.T, typeKey string) *shapeRig {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	switch typeKey {
+	case "deployment", "service":
+		ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+		ps.rec = rig.rec
+		pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
+		deps := gateDeps(ps)
+		deps.Review = review.NewReviewEngine()
+		wf := csNewWorkflows(deps)
+		rig.cs = ps
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerConstruct(env, wf, ps, pipe) }
+	case "requirements":
+		vibes := projectstate.ReviewPresetVibes
+		ps := &fakeProjectState{project: projectstate.Project{
+			ID:           projectstate.ProjectID(uuid.NewString()),
+			Version:      1,
+			Mission:      awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
+			ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
+		}}
+		ps.rec = rig.rec
+		pipe := newFakePipeline()
+		pipe.rec = rig.rec
+		wf := newWorkflows()
+		rig.design = ps
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerCoAuthor(env, wf, ps, pipe) }
+	case "projectDesign":
+		ps := &pdFakeProjectState{project: sdpReadyProject(projectstate.ProjectID(uuid.NewString()))}
+		wf := pdNewWorkflows()
+		rig.pd, rig.pdwf = ps, wf
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) {
+			env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(pdExecutionKindSDPReview))
+			pdRegisterGenActivities(env, ps, nil, nil)
+		}
+	default:
+		t.Fatalf("newShapeRig: no rail is wired for lifecycle %q — add its arm rather than defaulting it, "+
+			"because a shape case silently driving the wrong child would pass for the wrong reason", typeKey)
+	}
+	return rig
+}
+
+// lifecycleShapeCases returns the seven shapes spec §9 names, in a fixed order.
+// Task 8 Step 10 appends three more — continue-as-new-mid-walk (R-L),
+// fork-signal-reaches-the-named-task and full-inbox-does-not-wedge-the-router (the
+// signal router) — none of which spec §9 names, because collapsing four per-kind
+// executions into one walk is what creates an unbounded history, a shared-channel
+// race and a delivery-overflow path all at once.
+// The names are contract: Task 8 Step 10, Task 9 Step 7, Task 10 Step 6 and Task 11
+// Step 5 each name the subset they must turn green.
+func lifecycleShapeCases() []lifecycleShapeCase {
+	return []lifecycleShapeCase{
+		{
+			// LINEAR. `deployment` is three phases, D→R each, no fork — the shape the
+			// flat phase walk and the DAG walk must agree on exactly.
+			name: "linear-deployment", typeKey: "deployment",
+			drive: driveLinearDeployment, wantToday: shapePassesToday,
+		},
+		{
+			// FORK, STP BRANCH COMPLETING FIRST. srsReview passes, then stp and
+			// detailedDesign are BOTH started (in declaration order, which is fixed);
+			// this case lets the STP branch's pipeline reach terminal first.
+			name: "fork-join-service-stp-first", typeKey: "service",
+			drive: driveServiceForkSTPFirst, wantToday: shapeFailsUntilTheDAG,
+		},
+		{
+			// FORK, DESIGN BRANCH COMPLETING FIRST. The same DAG, the other completion
+			// order. Two cases, not one: a walker that serialized the branches would
+			// pass whichever single case matched its accident.
+			name: "fork-join-service-design-first", typeKey: "service",
+			drive: driveServiceForkDesignFirst, wantToday: shapeFailsUntilTheDAG,
+		},
+		{
+			// SEND-BACK RE-OPENS ONLY THE JUDGED PAIR. designReview sends back; the
+			// assertion is that Reopened == ["detailedDesign"] and that stp/srs are NOT
+			// in it — a re-walk that re-dispatched the whole phase list would pass a
+			// naive "it redrafted" assertion.
+			name: "sendback-reopens-only-the-judged-pair", typeKey: "service",
+			drive: driveServiceSendBackJudgedPair, wantToday: shapePassesToday,
+		},
+		{
+			// JOIN WAITS FOR ALL. `testing` dependsOn [integration, stpReview]; the
+			// assertion is that its round does NOT open while either is unpassed.
+			name: "join-waits-for-all", typeKey: "service",
+			drive: driveServiceJoinWaits, wantToday: shapeFailsUntilTheDAG,
+		},
+		{
+			// M0 NO SEND-BACK. The projectDesign lifecycle's one review task: approve
+			// advances the root phase; a send-back is refused, not absorbed.
+			name: "m0-no-sendback", typeKey: "projectDesign",
+			drive: driveM0NoSendBack, wantToday: shapePassesToday,
+		},
+		{
+			// HUMAN FLOOR UNDER VIBES. Preset "vibes" auto-approves a design review and
+			// STILL holds M0 for a human — the non-overridable spend floor
+			// (reviewengine.go:432). One case, both halves.
+			name: "human-floor-under-vibes", typeKey: "requirements",
+			drive: driveVibesFloor, wantToday: shapePassesToday,
+		},
+	}
+}
+
+// ---- the drivers -----------------------------------------------------------
+
+// shapeDeploymentActivity is the LINEAR activity: three phases, each a dispatch and
+// the review that judges it, and no fan-out anywhere in the lifecycle.
+func shapeDeploymentActivity() constructionActivity {
+	return constructionActivity{
+		ActivityID:  shapeDeploymentID,
+		Kind:        activityKindConstruction,
+		ComponentID: "comp-deploy",
+		Layer:       "engine",
+		Type:        projectstate.ActivityTypeDeployment,
+		Phases:      projectstate.ProfileFor(projectstate.ActivityTypeDeployment, 0).PhaseIDs(),
+	}
+}
+
+func driveLinearDeployment(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome(shapeDeploymentID)
+}
+
+// driveServiceWalk is the body the three ungated service cases share: one `service`
+// activity, no gate, run to its terminal. They differ in ONE field — which branch the
+// case wants to reach its pipeline terminal first — and in nothing else, deliberately:
+// the START order is lifecycle declaration order, which is not a case variable, so a
+// driver that also reordered the starts would be asserting its own script instead of
+// the walker's.
+func driveServiceWalk(t *testing.T, rig *shapeRig, completesFirst projectstate.MethodTask) shapeOutcome {
+	t.Helper()
+	rig.branchCompletesFirst = completesFirst
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome(shapeServiceID)
+}
+
+func driveServiceForkSTPFirst(t *testing.T, rig *shapeRig) shapeOutcome {
+	return driveServiceWalk(t, rig, projectstate.TaskSTP)
+}
+
+func driveServiceForkDesignFirst(t *testing.T, rig *shapeRig) shapeOutcome {
+	return driveServiceWalk(t, rig, projectstate.TaskDetailedDesign)
+}
+
+// driveServiceJoinWaits runs the same walk as the fork cases and asserts on the JOIN
+// rather than on the fan-out: `testing` depends on both `integration` and `stpReview`,
+// and its round must not open while either is unpassed.
+//
+// It asks for the DESIGN branch first, which is what makes the join observable at all:
+// the STP branch then lags behind the design branch's whole pipeline — detailed design
+// → construction → integration — so `stpReview` passes AFTER `integration` and the
+// joining review genuinely has to wait for a predecessor it did not gate. Under the
+// flat phase walk stpReview always passes before integration is dispatched, so the wait
+// is never exercised; that is why this case is skipped rather than green today.
+func driveServiceJoinWaits(t *testing.T, rig *shapeRig) shapeOutcome {
+	return driveServiceWalk(t, rig, projectstate.TaskDetailedDesign)
+}
+
+// driveServiceSendBackJudgedPair gates detailed_design, sends the draft back once,
+// then approves the redraft. The claim is about what the send-back did NOT touch.
+func driveServiceSendBackJudgedPair(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(b12SendBack(rig.env, "detailed_design", "name the failure"), 30*time.Second)
+	rig.env.RegisterDelayedCallback(b12Decide(rig.env, "detailed_design", PhaseApprove), 90*time.Second)
+	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome(shapeServiceID)
+}
+
+// driveM0NoSendBack drives the SDP review — the projectDesign lifecycle's single
+// review task, on the rail that carries it TODAY (AssembleSDPReviewWorkflow; Task 9
+// re-points it at the generic child). It sends a RejectAll first and then commits, so
+// the case's real claim is exercised rather than assumed: whatever today's rail does
+// with a rejection, it must never DECIDE the M0 round as a send-back, because the
+// projectDesign lifecycle has no send-back edge to re-open.
+func driveM0NoSendBack(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	pre, err := rig.pdwf.assembleSdpReview(rig.pd.project, "")
+	if err != nil {
+		t.Fatalf("pre-assembling the SDP review: %v", err)
+	}
+	chosen := OptionID(pre.Recommendation)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(pdSignalSDPDecision, sdpDecisionSignal{
+			Decision: SDPRejectAll, Feedback: &ReviewFeedback{Notes: "cut the cost"},
+		})
+	}, time.Second)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(pdSignalSDPDecision, sdpDecisionSignal{Decision: SDPCommit, OptionID: &chosen})
+	}, 2*time.Second)
+	rig.env.ExecuteWorkflow(pdExecutionKindSDPReview, sdpReviewInput{ProjectID: ProjectID(rig.pd.project.ID)})
+	shapeRequireCompleted(t, rig.env)
+
+	// The root phase's advance IS the commit of the artifact its one review task
+	// judges. Task 9 re-points this at the child's phase advance; the fact asserted
+	// does not change with the rail.
+	advanced := len(rig.pd.committed) == 1 && rig.pd.committed[0] == projectstate.KindSdpReview
+	return rig.rec.outcome(nil, advanced)
+}
+
+// driveVibesFloor is ONE case with two halves, because the claim is a conjunction:
+// under the SAME committed vibes policy a design review auto-approves AND M0 still
+// holds for a human. Splitting them would let a policy that auto-approved everything
+// pass the first half alone.
+//
+// The M0 half is asked of the REAL review engine rather than driven as a second
+// workflow: the floor is the engine's answer (requiresHuman's row 2), the SDP rail
+// has no autogate to consult it today, and a second execution on a second env would
+// prove only that a workflow with no autogate waits.
+func driveVibesFloor(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
+		ProjectID: ProjectID(rig.design.project.ID), ArtifactKind: KindMission,
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	var outcome coAuthorOutcome
+	if err := rig.env.GetWorkflowResult(&outcome); err != nil {
+		t.Fatalf("decode co-author outcome: %v", err)
+	}
+	if outcome != coAuthorApproved {
+		t.Fatalf("a vibes policy must auto-approve the design review with NO human signal; got outcome %d", outcome)
+	}
+
+	set, err := review.NewReviewEngine().ProposeReviews(
+		fweng.Context{Context: context.Background()},
+		review.ReviewChange{ActivityID: shapeSDPActivity},
+		review.ActivityTypeProjectDesign, "sdp", "",
+		review.ReviewPolicy{Preset: projectstate.ReviewPresetVibes}, false, nil)
+	if err != nil {
+		t.Fatalf("the review engine must answer for the M0 gate: %v", err)
+	}
+	if !set.RequiresHuman {
+		t.Fatalf("the non-overridable spend floor must hold M0 for a human even under vibes; the engine said no, reason %q", set.Reason)
+	}
+
+	advanced := len(rig.design.committed) == 1 && rig.design.committed[0] == projectstate.KindMission
+	return rig.rec.outcome(nil, advanced)
+}
+
+// ---- shared driver plumbing ------------------------------------------------
+
+// shapeRequireCompleted is the precondition every case shares: a driver that did not
+// reach a terminal proves nothing about the shape, and a nil workflow error on an
+// incomplete execution is the failure mode that reads as a pass.
+func shapeRequireCompleted(t *testing.T, env *testsuite.TestWorkflowEnvironment) {
+	t.Helper()
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("the shape driver did not reach a terminal; the outcome it would read is a snapshot of an unfinished walk")
+	}
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+}
+
+// csOutcome snapshots the recorder plus the two facts that live in the STORE rather
+// than at a hook: which work tasks were re-opened, and whether the activity reached
+// its binary exit.
+func (r *shapeRig) csOutcome(activityID string) shapeOutcome {
+	return r.rec.outcome(shapeReopenedWorkTasks(r.cs.execution(activityID)), shapeExitedCompleted(r.cs, activityID))
+}
+
+// shapeReopenedWorkTasks reads the re-opened set off the attempt ledger: a WORK task
+// with a second attempt is a task that was dispatched again. The review task of the
+// judged pair is deliberately not in it — every send-back opens a second round by
+// construction, so counting rounds would make the set unfalsifiable, while a second
+// DISPATCH is the fact a re-walk of the whole phase list would get wrong.
+func shapeReopenedWorkTasks(row projectstate.ActivityExecution) []string {
+	var out []string
+	seen := map[projectstate.MethodTask]bool{}
+	for _, a := range row.Attempts {
+		if a.Attempt < 2 || seen[a.Task] || projectstate.AgentTaskFor(a.Phase) != a.Task {
+			continue
+		}
+		seen[a.Task] = true
+		out = append(out, string(a.Task))
+	}
+	return out
+}
+
+// shapeExitedCompleted reports the activity's binary exit, read through the double's
+// one answer for it (csFakeProjectState.exited is fed by BOTH the retired verb and
+// the ledger's RecordActivityOutcome, so this holds whichever rail wrote it).
+func shapeExitedCompleted(ps *csFakeProjectState, activityID string) bool {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	for _, e := range ps.exited {
+		if e.activityID == activityID && e.outcome == projectstate.ActivityOutcomeCompleted {
+			return true
+		}
+	}
+	return false
+}
+
+// ---- the runner ------------------------------------------------------------
+
+// Test_LifecycleShapes is the differential oracle: the seven shapes, run against
+// whatever child this commit registers. A shapeFailsUntilTheDAG case is skipped
+// with the task that owes it named in the skip message, so `go test -v` prints the
+// remaining work rather than hiding it.
+func Test_LifecycleShapes(t *testing.T) {
+	for _, c := range lifecycleShapeCases() {
+		t.Run(c.name, func(t *testing.T) {
+			if c.wantToday == shapeFailsUntilTheDAG {
+				t.Skip("asserts the lifecycle DAG's parallelism; the flat phase walk cannot satisfy it — flipped to shapePassesToday by stage 4b1 Task 8")
+			}
+			assertShape(t, c.name, c.drive(t, newShapeRig(t, c.typeKey)))
+		})
+	}
+}
+
+// assertShape holds the per-case expectations. There is no default arm that passes:
+// a case added without its assertion is a Fatalf, so the table cannot grow a row
+// that goes green by saying nothing.
+func assertShape(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	switch name {
+	case "linear-deployment":
+		assertShapeLinearDeployment(t, name, got)
+	case "fork-join-service-stp-first":
+		assertShapeForkOverlap(t, name, got)
+		shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "stp", "detailedDesign")
+	case "fork-join-service-design-first":
+		assertShapeForkOverlap(t, name, got)
+		shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "detailedDesign", "stp")
+	case "sendback-reopens-only-the-judged-pair":
+		assertShapeSendBackJudgedPair(t, name, got)
+	case "join-waits-for-all":
+		assertShapeJoinWaits(t, name, got)
+	case "m0-no-sendback":
+		assertShapeM0NoSendBack(t, name, got)
+	case "human-floor-under-vibes":
+		assertShapeVibesFloor(t, name, got)
+	default:
+		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
+	}
+}
+
+// assertShapeLinearDeployment pins the shape the flat walk and the DAG walk must agree
+// on EXACTLY: three phases, each one dispatch then the review that judges it, every
+// round auto-passed by a policy that gates nothing, nothing re-opened.
+//
+// The merge job is in Dispatched on purpose. It is the one dispatch that is not a
+// lifecycle task — the local merge hold's own job — and naming it is what keeps this
+// case honest: an assertion that only counted the three commands would not notice a
+// fourth dispatch appearing or the merge hold disappearing.
+func assertShapeLinearDeployment(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	pairs := []string{"detailedDesign", "designReview", "construction", "codeReview", "integration", "testing"}
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, pairs)
+	shapeWantOrder(t, name, "CompletedOrder", got.CompletedOrder, pairs)
+	shapeWantOrder(t, name, "Dispatched", got.Dispatched, []string{
+		"deployment-detailed-design", "deployment-construction", "deployment-integration", "job:merge",
+	})
+	shapeWantOrder(t, name, "RoundsOpened", got.RoundsOpened, []string{
+		shapeDeploymentID + ":designReview:1", shapeDeploymentID + ":codeReview:1", shapeDeploymentID + ":testing:1",
+	})
+	shapeWantEveryRound(t, name, got.RoundsDecided, string(projectstate.RoundPassed))
+	if len(got.Reopened) != 0 {
+		t.Fatalf("%s: a linear lifecycle with no send-back re-opens nothing; got %v", name, got.Reopened)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// assertShapeForkOverlap is the half both branch-order cases share: the fan-out STARTS
+// in lifecycle declaration order (asserted, so a data reorder in lifecycles.json is
+// caught rather than absorbed) and BOTH branches are in flight at once. The overlap is
+// read off the MERGED Timeline and nowhere else — the two starts must both precede the
+// first completion of either — because that is the one statement TaskOrder and
+// CompletedOrder cannot make between them (see shapeOutcome.Timeline). A walker that
+// serialises the branches satisfies the declaration-order half and fails this one, which
+// is the whole reason there are two fork cases instead of one.
+func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantBefore(t, name, "TaskOrder", got.TaskOrder, "detailedDesign", "stp")
+	firstDone := shapeFirstIndexOf(got.Timeline,
+		shapeEventCompleted+"detailedDesign", shapeEventCompleted+"stp")
+	if firstDone < 0 {
+		t.Fatalf("%s: neither fork branch ever completed; Timeline=%v", name, got.Timeline)
+	}
+	for _, branch := range []string{"detailedDesign", "stp"} {
+		if started := slices.Index(got.Timeline, shapeEventStarted+branch); started < 0 || started > firstDone {
+			t.Fatalf("%s: the branches were SERIALISED — %q happened before %q, so the two were never in flight at once. Timeline=%v",
+				name, got.Timeline[firstDone], shapeEventStarted+branch, got.Timeline)
+		}
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// assertShapeSendBackJudgedPair is the send-back's real claim, which is about what did
+// NOT happen: exactly ONE work task was dispatched again, and the siblings the re-walk
+// of a flat phase list would have re-dispatched are absent from Reopened.
+func assertShapeSendBackJudgedPair(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantOrder(t, name, "Reopened", got.Reopened, []string{string(projectstate.TaskDetailedDesign)})
+	for _, sibling := range []string{"srs", "stp", "construction", "integration"} {
+		if slices.Contains(got.Reopened, sibling) {
+			t.Fatalf("%s: the send-back judged detailed_design, so %q must not be re-opened; Reopened=%v",
+				name, sibling, got.Reopened)
+		}
+	}
+	// The pair: the judged dispatch ran twice and its review opened twice, and the round
+	// that was sent back is the FIRST of them — round 2 is the one that passed.
+	if n := shapeCount(got.TaskOrder, "detailedDesign"); n != 2 {
+		t.Fatalf("%s: the judged dispatch must start exactly twice; got %d in %v", name, n, got.TaskOrder)
+	}
+	if n := shapeCount(got.TaskOrder, "designReview"); n != 2 {
+		t.Fatalf("%s: the judging review must open exactly twice; got %d in %v", name, n, got.TaskOrder)
+	}
+	if n := shapeCount(got.CompletedOrder, "designReview"); n != 1 {
+		t.Fatalf("%s: a sent-back round does not complete its task, so designReview completes ONCE; got %d in %v",
+			name, n, got.CompletedOrder)
+	}
+	shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:1", string(projectstate.RoundSentBack))
+	shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:2", string(projectstate.RoundPassed))
+	if sent := shapeRoundsWith(got.RoundsDecided, string(projectstate.RoundSentBack)); len(sent) != 1 {
+		t.Fatalf("%s: one send-back is one sent-back round; got %v", name, sent)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// assertShapeJoinWaits is the join: `testing` dependsOn [integration, stpReview], and
+// the case drives the STP branch to LAG so the join is observable at all — under the
+// flat phase walk stpReview always passes before integration is even dispatched, so
+// the wait is never exercised and the assertion below cannot be satisfied.
+func assertShapeJoinWaits(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "integration", "stpReview")
+	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "stpReview", "testing")
+	shapeWantBefore(t, name, "CompletedOrder", got.CompletedOrder, "integration", "testing")
+	// And the join holds at the ROUND, not merely at the completion: the joining review
+	// must not even OPEN while a predecessor is unpassed.
+	shapeWantBefore(t, name, "RoundsOpened", got.RoundsOpened,
+		shapeServiceID+":stpReview:1", shapeServiceID+":testing:1")
+	if last := len(got.RoundsOpened) - 1; last < 0 || got.RoundsOpened[last] != shapeServiceID+":testing:1" {
+		t.Fatalf("%s: the join's round is the last one opened; RoundsOpened=%v", name, got.RoundsOpened)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// assertShapeM0NoSendBack: the projectDesign lifecycle has ONE review task and no
+// send-back edge, so no round of it may ever be DECIDED as a send-back — whatever the
+// rail does with a rejection — and the approve advances the root phase.
+//
+// Today's SDP rail writes no round at all, so the send-back half holds vacuously and
+// the advance half is the load-bearing one. Task 9 re-points the case at the child,
+// where the same two sentences become non-vacuous without being rewritten: that is
+// what makes this a differential oracle rather than a description of today.
+func assertShapeM0NoSendBack(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+	if sent := shapeRoundsWith(got.RoundsDecided, string(projectstate.RoundSentBack)); len(sent) != 0 {
+		t.Fatalf("%s: M0 has no send-back edge, so no round may be decided sentBack; got %v", name, sent)
+	}
+}
+
+// assertShapeVibesFloor is the design half of the conjunction; the M0 half is asserted
+// inside driveVibesFloor, because "the engine holds M0 for a human" is not an order
+// fact and forcing it into shapeOutcome would make it less legible, not more.
+func assertShapeVibesFloor(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantOrder(t, name, "Dispatched", got.Dispatched, []string{"mission-draft", "mission-critique"})
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, []string{"missionReview"})
+	if len(got.RoundsDecided) == 0 {
+		t.Fatalf("%s: an auto-approved gate is still a gate that HAPPENED — it must leave its round; got none", name)
+	}
+	shapeWantEveryRound(t, name, got.RoundsDecided, string(projectstate.RoundPassed))
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// ---- assertion vocabulary --------------------------------------------------
+
+func shapeWantOrder(t *testing.T, name, field string, got, want []string) {
+	t.Helper()
+	if !slices.Equal(got, want) {
+		t.Fatalf("%s: %s = %v, want %v", name, field, got, want)
+	}
+}
+
+// shapeWantBefore is the ONE ordering primitive every shape shares. It fails loudly on
+// an absent element rather than treating -1 as "earlier", which is how an ordering
+// assertion quietly becomes vacuous.
+func shapeWantBefore(t *testing.T, name, field string, got []string, first, second string) {
+	t.Helper()
+	i, j := slices.Index(got, first), slices.Index(got, second)
+	switch {
+	case i < 0:
+		t.Fatalf("%s: %s does not contain %q at all; got %v", name, field, first, got)
+	case j < 0:
+		t.Fatalf("%s: %s does not contain %q at all; got %v", name, field, second, got)
+	case i >= j:
+		t.Fatalf("%s: %s must have %q before %q; got %v", name, field, first, second, got)
+	}
+}
+
+func shapeWantAdvanced(t *testing.T, name string, advanced bool) {
+	t.Helper()
+	if !advanced {
+		t.Fatalf("%s: the lifecycle must reach its terminal and advance its phase", name)
+	}
+}
+
+func shapeWantRound(t *testing.T, name string, decided map[string]string, roundID, want string) {
+	t.Helper()
+	got, ok := decided[roundID]
+	if !ok {
+		t.Fatalf("%s: round %q was never decided; decided=%v", name, roundID, decided)
+	}
+	if got != want {
+		t.Fatalf("%s: round %q decided %q, want %q", name, roundID, got, want)
+	}
+}
+
+func shapeWantEveryRound(t *testing.T, name string, decided map[string]string, want string) {
+	t.Helper()
+	for _, roundID := range slices.Sorted(maps.Keys(decided)) {
+		if decided[roundID] != want {
+			t.Fatalf("%s: round %q decided %q, want every round %q", name, roundID, decided[roundID], want)
+		}
+	}
+}
+
+// shapeRoundsWith returns the round ids decided with the given outcome, sorted, so a
+// failure names them instead of reporting a count.
+func shapeRoundsWith(decided map[string]string, outcome string) []string {
+	var out []string
+	for roundID, got := range decided {
+		if got == outcome {
+			out = append(out, roundID)
+		}
+	}
+	slices.Sort(out)
+	return out
+}
+
+// shapeFirstIndexOf returns the position of the EARLIEST of the named events in the
+// merged timeline, or -1 when none of them happened.
+func shapeFirstIndexOf(timeline []string, events ...string) int {
+	for i, e := range timeline {
+		if slices.Contains(events, e) {
+			return i
+		}
+	}
+	return -1
+}
+
+func shapeCount(xs []string, v string) int {
+	n := 0
+	for _, x := range xs {
+		if x == v {
+			n++
+		}
+	}
+	return n
 }
