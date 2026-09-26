@@ -167,6 +167,40 @@ const (
 	// designhealth findings carry no separate artifact-family attribution, so
 	// this is just the rule id + section, like its CC-* siblings.
 	RuleCUCActorRequired methodcheck.RuleID = "CUC-ACTOR-REQUIRED"
+
+	// STATE-VALIDATION family (stage 4b1, founder rulings R8/R-B): the thirteen
+	// Method conformance rules that used to live in the delivery Manager's
+	// co-author session (coauthorartifact.go's view()-appended kind checks and its
+	// stateValidationFindingGenerators table). They were Method rules in a Manager
+	// — the Manager computed them inline over the DRAFT it held and surfaced them
+	// as SessionStateView.Findings. They need no new surface here: EvaluateRaw
+	// reads slots[n].model with NO status filter, and the design rail stages a
+	// draft into its slot before the gate opens, so as ordinary engine rules they
+	// see the same staged draft the session showed and surface through the
+	// existing QueryProjectView{designHealth} view.
+	//
+	// The ids are spelled EXACTLY as the Manager spelled them, and — like the CC-*
+	// family above, and for the same reason — they are NOT DH-namespaced: nine of
+	// them are the SAME rule-id strings the platform framework-go/methodcheck gate
+	// emits, and the webApp's Design Health surface joins on rule id across both
+	// call sites. That means a violating draft is reported by BOTH tiers at the
+	// `aiarch-state-mcp validate` seam (which runs both), exactly as the CC-*
+	// family already is; the four with no platform twin (USECASE-ACTIVITY-MISSING,
+	// DV-TITLE-EMPTY, SYS-VOLATILITY-COVERAGE, SYS-SERVICES-EXPLOSION) would have
+	// been LOST outright had they stayed behind in the Manager.
+	RuleSysRAOrphan          methodcheck.RuleID = "SYS-RA-ORPHAN"
+	RuleSysEncapsulates      methodcheck.RuleID = "SYS-ENCAPSULATES"
+	RuleSysRelDup            methodcheck.RuleID = "SYS-REL-DUP"
+	RuleDVTitleEmpty         methodcheck.RuleID = "DV-TITLE-EMPTY"
+	RuleUCVariationRef       methodcheck.RuleID = "UC-VARIATION-REF"
+	RuleGlossFourQ           methodcheck.RuleID = "GLOSS-FOURQ"
+	RuleSRIDUnique           methodcheck.RuleID = "SR-ID-UNIQUE"
+	RuleOPCTopicCoverage     methodcheck.RuleID = "OPC-TOPIC-COVERAGE"
+	RuleUCActivityMissing    methodcheck.RuleID = "USECASE-ACTIVITY-MISSING"
+	RuleUCDynamicMissing     methodcheck.RuleID = "USECASE-DYNAMIC-MISSING"
+	RuleSysLayerDegenerate   methodcheck.RuleID = "SYSTEM-LAYER-DEGENERATE"
+	RuleVolCoverage          methodcheck.RuleID = "SYS-VOLATILITY-COVERAGE"
+	RuleSysServicesExplosion methodcheck.RuleID = "SYS-SERVICES-EXPLOSION"
 )
 
 // Input is the decoded, rule-ready view of one project.json: the published
@@ -192,6 +226,7 @@ func Evaluate(in Input) []methodcheck.Finding {
 	out = append(out, coverageFindings(in)...)
 	out = append(out, callChainFindings(in)...)
 	out = append(out, contractFindings(in)...)
+	out = append(out, stateValidationFindings(in)...)
 	return out
 }
 
@@ -372,12 +407,17 @@ func isDirectional(fromKind, toKind string) bool {
 // kinds never). The kind→artifact mapping used here:
 //
 //	0 businessAlignment (vision/objectives/mission)   3 volatilities
-//	2 requirements (Required Behaviors)               4 core use cases
-//	5 systemDesign (components/relationships/          6 operational concepts
-//	  dynamicViews)                                       (objectiveLinks; legacy
-//	                                                      decisions w/ justifyingObjective)
+//	1 glossary (items w/ term/definition/category)    4 core use cases
+//	2 requirements (Required Behaviors)               5 systemDesign (components/
+//	6 operational concepts (objectiveLinks; legacy      relationships/dynamicViews)
+//	  decisions w/ justifyingObjective)
 const (
-	kindBusinessAlignment   = 0
+	kindBusinessAlignment = 0
+	// kindGlossary is the Glossary slot's ArtifactKind ordinal. GLOSS-FOURQ (moved out
+	// of the delivery Manager in stage 4b1) is the first rule to read it, so this is
+	// the first absorber for it; the ordinal is wire-frozen, so it is safe to name by
+	// number here exactly as its six siblings are.
+	kindGlossary            = 1
 	kindRequirements        = 2
 	kindVolatilities        = 3
 	kindCoreUseCases        = 4
@@ -394,6 +434,9 @@ type slotData struct {
 	Volatilities []volatility
 	CoreUseCases []coreUseCase
 	DynamicViews []dynamicView
+	// GlossaryTerms are the glossary slot's items — the Four-Questions join surface
+	// GLOSS-FOURQ reads (moved out of the delivery Manager in stage 4b1).
+	GlossaryTerms []glossaryTerm
 	// SystemRevision is the systemDesign slot's current revision counter, kept for
 	// the deferred slot-revision drift rule (see task report); read now so the
 	// wiring is in place when per-finding basisRevision provenance lands.
@@ -444,9 +487,30 @@ type volatility struct {
 	Traces []string `json:"traces"`
 }
 
+// glossaryTerm mirrors one glossary item: the term, its definition, and the
+// Four-Questions category the term answers ("Who" | "What" | "How" | "Where").
+// The wire keys are the committed Glossary artifact's own (items[].term /
+// .definition / .category) — NOT a terms[]/question shape.
+type glossaryTerm struct {
+	Term       string `json:"term"`
+	Definition string `json:"definition"`
+	Category   string `json:"category"`
+}
+
 type coreUseCase struct {
 	ID             string
 	Classification string
+	// Name is the use case's human name. The rules moved out of the delivery Manager
+	// in stage 4b1 label their findings by NAME (falling back to "use case <n>" on the
+	// 1-based ordinal), so the name is absorbed to keep their message text identical.
+	Name string
+	// VariationOf is the core use case this nonCore permutation varies, nil when
+	// absent — UC-VARIATION-REF's subject. Kept a pointer so "absent" and "present but
+	// blank" stay distinguishable, exactly as the app's typed model distinguishes them.
+	VariationOf *string
+	// RejectionReason is the decision-level argument for a nonCore classification (the
+	// symmetric twin of EssenceRationale), also read by UC-VARIATION-REF.
+	RejectionReason string
 	// EssenceRationale is the decision-level essence-of-the-business argument for a
 	// core classification (the symmetric twin of the nonCore rejectionReason). Nil
 	// when the wire field is absent or null — the DH-UC-ESSENCE-MISSING subject.
@@ -511,12 +575,15 @@ type coreUseCaseSlot struct {
 	Decisions []struct {
 		UseCase struct {
 			ID             string           `json:"id"`
+			Name           string           `json:"name"`
 			Classification string           `json:"classification"`
+			VariationOf    *string          `json:"variationOf"`
 			Trigger        string           `json:"trigger"`
 			Actors         []ucActorRef     `json:"actors"`
 			Activity       *activityDiagram `json:"activity"`
 		} `json:"useCase"`
 		EssenceRationale *string `json:"essenceRationale"`
+		RejectionReason  string  `json:"rejectionReason"`
 	} `json:"decisions"`
 }
 
@@ -529,9 +596,12 @@ type coreUseCaseSlot struct {
 // unknown JSON keys are ignored), which the chain rules treat as nothing to
 // check, not an error.
 type dynamicView struct {
-	UseCaseID string     `json:"useCaseId"`
-	Key       string     `json:"key"`
-	Steps     []callStep `json:"steps"`
+	UseCaseID string `json:"useCaseId"`
+	Key       string `json:"key"`
+	// Title is the human name of the call chain, DV-TITLE-EMPTY's subject (moved out
+	// of the delivery Manager in stage 4b1).
+	Title string     `json:"title"`
+	Steps []callStep `json:"steps"`
 }
 
 type callStep struct {
@@ -617,6 +687,8 @@ func parseSlots(raw []byte) (slotData, error) {
 		switch slot.Kind {
 		case kindBusinessAlignment:
 			absorbObjectives(slot.Model, &out)
+		case kindGlossary:
+			absorbGlossary(slot.Model, &out)
 		case kindRequirements:
 			absorbRequirements(slot.Model, &out)
 		case kindVolatilities:
@@ -639,6 +711,18 @@ func absorbObjectives(model json.RawMessage, out *slotData) {
 	}
 	_ = json.Unmarshal(model, &m)
 	out.Objectives = append(out.Objectives, m.Objectives...)
+}
+
+// absorbGlossary folds the glossary slot's items into out, tolerantly — the same
+// discipline every absorber follows: a missing or malformed slot yields an empty
+// section rather than an error, because a rule must be able to say "no glossary"
+// and a parse failure on one slot must not blind the other rules.
+func absorbGlossary(model json.RawMessage, out *slotData) {
+	var m struct {
+		Items []glossaryTerm `json:"items"`
+	}
+	_ = json.Unmarshal(model, &m)
+	out.GlossaryTerms = append(out.GlossaryTerms, m.Items...)
 }
 
 // absorbRequirements folds the scrubbed-requirements slot's items into out.
@@ -669,6 +753,9 @@ func absorbCoreUseCases(model json.RawMessage, out *slotData) {
 		out.CoreUseCases = append(out.CoreUseCases, coreUseCase{
 			ID:               d.UseCase.ID,
 			Classification:   d.UseCase.Classification,
+			Name:             d.UseCase.Name,
+			VariationOf:      d.UseCase.VariationOf,
+			RejectionReason:  d.RejectionReason,
 			EssenceRationale: d.EssenceRationale,
 			Trigger:          d.UseCase.Trigger,
 			Actors:           d.UseCase.Actors,
@@ -2663,4 +2750,653 @@ func containsFold(haystack, needle string) bool {
 		return false
 	}
 	return strings.Contains(strings.ToLower(haystack), strings.ToLower(needle))
+}
+
+// ==========================================================================
+// rules_statevalidation — folded here by the Engine file-layout standard (one
+// handwritten impl file per Engine component).
+// ==========================================================================
+
+// rules_statevalidation holds the thirteen Method conformance rules that MOVED
+// here from the delivery Manager's co-author session in stage 4b1 (founder
+// rulings R8/R-B). See the STATE-VALIDATION family note in this file's rule-id
+// const block for why they moved and why their ids are not DH-namespaced.
+//
+// THE MOVE IS A SIMPLIFICATION, NOT A PORT. In the Manager each generator was
+// scoped to ONE ArtifactKind (an early `if kind != KindSystem { return nil }`)
+// because the session held exactly one drafted artifact, and the three
+// cross-artifact rules had to be handed their committed counterpart as a THIRD
+// PARAMETER (useCaseDynamicFindings(kind, draft, committedCoreUseCases),
+// servicesExplosionFindings(kind, draft, committedCoreUseCases),
+// volatilityCoverageFindings(kind, draft, committedVolatilities)). Here they need
+// neither: slotData carries every slot at once, so a rule reads the slots it
+// joins and an absent slot simply leaves it nothing to check — the same posture as
+// every rule already in this package.
+//
+// Messages and severities are carried across BYTE-IDENTICAL. The Manager's copies
+// were the review-panel display twins of platform methodcheck rules, so a reworded
+// copy would render as a second, differently-phrased finding for one defect.
+
+// stateValidationFindings runs the moved family in the Manager's own order: the
+// eight former stateValidationFindingGenerators entries first, then the five
+// view()-appended kind checks.
+func stateValidationFindings(in Input) []methodcheck.Finding {
+	var out []methodcheck.Finding
+	out = append(out, raOrphanFindings(in)...)
+	out = append(out, encapsulatesFindings(in)...)
+	out = append(out, relDupFindings(in)...)
+	out = append(out, dvTitleFindings(in)...)
+	out = append(out, variationRefFindings(in)...)
+	out = append(out, glossaryFourQFindings(in)...)
+	out = append(out, scrubbedIDFindings(in)...)
+	out = append(out, opcTopicFindings(in)...)
+	out = append(out, useCaseActivityFindings(in)...)
+	out = append(out, useCaseDynamicFindings(in)...)
+	out = append(out, systemLayerDegenerateFindings(in)...)
+	out = append(out, volatilityCoverageFindings(in)...)
+	out = append(out, servicesExplosionFindings(in)...)
+	return out
+}
+
+// raOrphanFindings — SYS-RA-ORPHAN (error). Every ResourceAccess component must have at
+// least one outbound sync/queued relationship to a Resource (or to a documented external
+// system — an edge target that is not itself a modeled component). A ResourceAccess that
+// reaches no resource encapsulates nothing.
+func raOrphanFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil {
+		return nil
+	}
+	sys := in.Model.System
+	kindByID := make(map[string]string, len(sys.Components))
+	for _, c := range sys.Components {
+		kindByID[c.ID] = c.Kind
+	}
+	var out []methodcheck.Finding
+	for i, c := range sys.Components {
+		if c.Kind != "resourceAccess" {
+			continue
+		}
+		reaches := false
+		for _, r := range sys.Relationships {
+			if r.From != c.ID {
+				continue
+			}
+			if r.Mode != "sync" && r.Mode != "queued" {
+				continue
+			}
+			toKind, known := kindByID[r.To]
+			// A Resource target, or an external target (not a modeled component),
+			// satisfies the rule.
+			if !known || toKind == "resource" {
+				reaches = true
+				break
+			}
+		}
+		if !reaches {
+			label := componentDisplayLabel(c, i)
+			out = append(out, finding(RuleSysRAOrphan, methodcheck.SeverityError, i, "component "+label,
+				fmt.Sprintf("ResourceAccess %q has no outbound sync/queued relationship to a resource (or documented external system); every ResourceAccess must encapsulate at least one resource.", label)))
+		}
+	}
+	return out
+}
+
+// componentDisplayLabel names a component for a finding message: its name, else its
+// id, else its 1-based ordinal.
+func componentDisplayLabel(c projectmodel.SystemComponent, i int) string {
+	if strings.TrimSpace(c.Name) != "" {
+		return c.Name
+	}
+	if strings.TrimSpace(c.ID) != "" {
+		return c.ID
+	}
+	return fmt.Sprintf("component %d", i+1)
+}
+
+// encapsulatesFindings — SYS-ENCAPSULATES. Scoped to the volatility-OWNING kinds only
+// (manager/engine/resourceAccess), per the-method-architecture doctrine (QA rider R5,
+// 2026-07-17): Clients encapsulate the client volatility as a LAYER (a transport entry
+// point owns no per-component volatility), and Resources/Utilities are required to be
+// empty (a physical store or cappuccino-machine utility owns nothing). Firing on those
+// kinds produced only false positives (gtdapp's approved architecture: 2 client ERR +
+// 4 resource WARN, all bogus). The same M/E/RA non-empty rule is ALSO enforced hard on
+// the write path by the app's projectstate.RequireModelFields; this live-tier twin keeps
+// a pre-existing violating committed state rendering with the finding visible.
+//
+// The blurb is read from the absorbed encapsulatesBlurbs map rather than off the
+// component, because the published projectmodel.SystemComponent carries no
+// encapsulates field — the same posture DH-VOL-ENCAP-MISSING already takes. The map
+// stores only non-empty values, so an absent key IS an empty encapsulates.
+func encapsulatesFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil {
+		return nil
+	}
+	var out []methodcheck.Finding
+	for i, c := range in.Model.System.Components {
+		switch c.Kind {
+		case "manager", "engine", "resourceAccess":
+			// volatility-owning kinds — the rule applies
+		default:
+			continue // client/resource/utility legitimately carry an empty encapsulates
+		}
+		if strings.TrimSpace(in.Slots.encapsulatesBlurbs[c.ID]) != "" {
+			continue
+		}
+		label := componentDisplayLabel(c, i)
+		out = append(out, finding(RuleSysEncapsulates, methodcheck.SeverityError, i, "component "+label,
+			fmt.Sprintf("component %q has an empty encapsulates; a manager, engine, or resource-access must name the volatility it owns.", label)))
+	}
+	return out
+}
+
+// relDupFindings — SYS-REL-DUP. An EXACT duplicate relationship (same from, to AND mode)
+// is an ERROR (a redundant edge). Two edges on the SAME (from,to) pair that differ (a
+// label-split) are a WARNING suggesting the labels be aggregated with " | " onto one edge.
+func relDupFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil {
+		return nil
+	}
+	rels := in.Model.System.Relationships
+	type pair struct{ from, to string }
+	exact := map[string]int{}           // from|to|mode → count
+	byPair := map[pair]map[string]int{} // (from,to) → distinct label → count
+	order := []pair{}
+	for _, r := range rels {
+		ek := r.From + "|" + r.To + "|" + r.Mode
+		exact[ek]++
+		p := pair{r.From, r.To}
+		if byPair[p] == nil {
+			byPair[p] = map[string]int{}
+			order = append(order, p)
+		}
+		byPair[p][r.Label]++
+	}
+	var out []methodcheck.Finding
+	for _, p := range order {
+		labels := byPair[p]
+		total := 0
+		for _, n := range labels {
+			total += n
+		}
+		if total < 2 {
+			continue
+		}
+		// Exact duplicate on any (from,to,mode)?
+		dup := false
+		for _, r := range rels {
+			if r.From == p.from && r.To == p.to && exact[r.From+"|"+r.To+"|"+r.Mode] > 1 {
+				dup = true
+				break
+			}
+		}
+		section := fmt.Sprintf("relationship %s → %s", p.from, p.to)
+		if dup {
+			out = append(out, finding(RuleSysRelDup, methodcheck.SeverityError, 0, section,
+				fmt.Sprintf("relationship %s → %s is declared more than once with the same mode; remove the exact duplicate edge.", p.from, p.to)))
+		} else if len(labels) > 1 {
+			out = append(out, finding(RuleSysRelDup, methodcheck.SeverityWarning, 0, section,
+				fmt.Sprintf("relationship %s → %s is split across %d edges with different labels; aggregate them onto one edge with a \" | \"-joined label.", p.from, p.to, len(labels))))
+		}
+	}
+	return out
+}
+
+// dvTitleFindings — DV-TITLE-EMPTY (error; F10 gate lint, QA amendment 2026-07-17: the
+// gtdapp architecture staged dynamic views with empty titles and no lint flagged them).
+// Every dynamic view must carry a non-empty, non-whitespace title — the title is the
+// human name of the call chain at the review panel and in the rendered DSL; an untitled
+// view is unreviewable. It has NO platform methodcheck twin: had it stayed in the
+// Manager it would have been lost outright.
+func dvTitleFindings(in Input) []methodcheck.Finding {
+	var out []methodcheck.Finding
+	for i, dv := range in.Slots.DynamicViews {
+		if strings.TrimSpace(dv.Title) != "" {
+			continue
+		}
+		label := dv.Key
+		if label == "" {
+			label = fmt.Sprintf("dynamic view %d", i+1)
+		}
+		out = append(out, finding(RuleDVTitleEmpty, methodcheck.SeverityError, i, "dynamic view "+label,
+			fmt.Sprintf("dynamic view %q (use case %q) has an empty title; every dynamic view must carry a human-readable call-chain title.", label, dv.UseCaseID)))
+	}
+	return out
+}
+
+// variationRefFindings — UC-VARIATION-REF (error). variationOf, when set, must resolve to
+// an existing use-case id whose target is CORE. A nonCore use case must carry a non-empty
+// rejectionReason. A core use case must NOT carry a variationOf (it is the base, not a
+// permutation).
+func variationRefFindings(in Input) []methodcheck.Finding {
+	coreIDs := map[string]bool{}
+	for _, uc := range in.Slots.CoreUseCases {
+		if uc.Classification == "core" {
+			coreIDs[uc.ID] = true
+		}
+	}
+	var out []methodcheck.Finding
+	for i, uc := range in.Slots.CoreUseCases {
+		label := uc.Name
+		if label == "" {
+			label = fmt.Sprintf("use case %d", i+1)
+		}
+		section := "use case " + label
+		if uc.Classification == "core" {
+			if uc.VariationOf != nil && strings.TrimSpace(*uc.VariationOf) != "" {
+				out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+					fmt.Sprintf("core use case %q declares a variationOf (%q); a core use case is a base, not a variation — clear variationOf or reclassify it nonCore.", label, *uc.VariationOf)))
+			}
+			continue
+		}
+		// nonCore
+		if uc.VariationOf == nil || strings.TrimSpace(*uc.VariationOf) == "" {
+			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("nonCore use case %q has no variationOf; a nonCore use case must link to the core use case it permutes.", label)))
+		} else if !coreIDs[*uc.VariationOf] {
+			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("nonCore use case %q has variationOf %q, which does not resolve to an existing CORE use case.", label, *uc.VariationOf)))
+		}
+		if strings.TrimSpace(uc.RejectionReason) == "" {
+			out = append(out, finding(RuleUCVariationRef, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("nonCore use case %q has an empty rejectionReason; state why it is not core.", label)))
+		}
+	}
+	return out
+}
+
+// canonicalGlossaryCategories is the closed Four-Questions category set (ch. 4).
+var canonicalGlossaryCategories = map[string]bool{"Who": true, "What": true, "How": true, "Where": true}
+
+// glossaryFourQFindings — GLOSS-FOURQ. WARNING coverage: at least one term should cover
+// each of Who / What / How / Where. ERROR: a term whose category is not one of the four
+// canonical values.
+//
+// The coverage half is SKIPPED while the glossary slot is empty: the Manager ran this
+// rule only when a Glossary draft was in hand, so "no glossary at all" meant silence,
+// not four Warnings. Here every state is in hand at once, and an uncommitted glossary
+// must stay silent for the same reason a core-use-case join stays silent before slot 4
+// exists.
+func glossaryFourQFindings(in Input) []methodcheck.Finding {
+	if len(in.Slots.GlossaryTerms) == 0 {
+		return nil
+	}
+	var out []methodcheck.Finding
+	counts := map[string]int{}
+	for i, it := range in.Slots.GlossaryTerms {
+		cat := strings.TrimSpace(it.Category)
+		if !canonicalGlossaryCategories[cat] {
+			out = append(out, finding(RuleGlossFourQ, methodcheck.SeverityError, i, "glossary term "+it.Term,
+				fmt.Sprintf("glossary term %q has non-canonical category %q; use one of Who|What|How|Where.", it.Term, it.Category)))
+			continue
+		}
+		counts[cat]++
+	}
+	for _, cat := range []string{"Who", "What", "How", "Where"} {
+		if counts[cat] == 0 {
+			out = append(out, finding(RuleGlossFourQ, methodcheck.SeverityWarning, 0, "glossary",
+				fmt.Sprintf("no glossary term covers the %q question; the Four Questions each want at least one term.", cat)))
+		}
+	}
+	return out
+}
+
+// scrubbedIDFindings — SR-ID-UNIQUE (error). Every scrubbed requirement must carry a
+// non-empty, unique id and a non-empty statement. It needs no new absorber: the
+// requirements slot's id/statement pair was already absorbed for DH-VOL-TRACE's
+// resolution join.
+func scrubbedIDFindings(in Input) []methodcheck.Finding {
+	var out []methodcheck.Finding
+	seen := map[string]bool{}
+	for i, it := range in.Slots.Requirements {
+		id := strings.TrimSpace(it.ID)
+		section := fmt.Sprintf("requirement %d", i+1)
+		switch {
+		case id == "":
+			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("scrubbed requirement %d has an empty id; every requirement needs a stable non-empty id.", i+1)))
+		case seen[id]:
+			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("scrubbed requirement id %q is duplicated; requirement ids must be unique.", id)))
+		default:
+			seen[id] = true
+		}
+		if strings.TrimSpace(it.Statement) == "" {
+			out = append(out, finding(RuleSRIDUnique, methodcheck.SeverityError, i, section,
+				fmt.Sprintf("scrubbed requirement %q has an empty statement.", it.ID)))
+		}
+	}
+	return out
+}
+
+// opcTopicFindings — OPC-TOPIC-COVERAGE is OBSOLETE under the Wave-2 typed
+// DeploymentOperationsModel: the free-text decisions[].topic list it nudged over is gone,
+// replaced by required typed fields (deploymentScenario, constructionVenue, scaling/infra
+// blocks, trust summaries) that the schema itself enforces — there is nothing left to
+// nudge. It arrives here INERT (it returned no findings in the Manager either) so the
+// rule inventory this move carries across is complete and RuleOPCTopicCoverage keeps its
+// id reserved; a typed-model successor is a later design-health concern, not this seam.
+// TestOPCTopicCoverageIsInert pins the emptiness so it is a stated fact rather than a
+// rule that quietly went dead, and the parity test's mutant loop skips it BY NAME for
+// the same reason: a rule that cannot fire has no red mutant.
+func opcTopicFindings(_ Input) []methodcheck.Finding {
+	return nil
+}
+
+// useCaseActivityFindings returns one ERROR finding per use case whose activity
+// diagram is missing or structurally empty. The founder ruling (2026-07-05) requires
+// EVERY use case — core AND supporting — to carry a non-empty activity diagram with an
+// ENTRY (a start node, or a timeEvent/acceptEvent node with no incoming edge — tier
+// parity with methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+// rules_statevalidation.go, ratified 2026-07-30) plus at least one action step. The
+// Action's CI validate check does NOT enforce this (the committed gtdapp CoreUseCases
+// shipped core use cases with "activity": null), and it has NO platform methodcheck
+// twin of its own, so this is the surface that flags a diagram-less use case. It
+// classifies the defect only — full UML well-formedness stays the Action's CI concern.
+func useCaseActivityFindings(in Input) []methodcheck.Finding {
+	var out []methodcheck.Finding
+	for i, uc := range in.Slots.CoreUseCases {
+		reason := activityDefect(uc.Activity)
+		if reason == "" {
+			continue
+		}
+		label := uc.Name
+		if label == "" {
+			label = fmt.Sprintf("use case %d", i+1)
+		}
+		out = append(out, finding(RuleUCActivityMissing, methodcheck.SeverityError, i, "use case "+label,
+			fmt.Sprintf("Use case %q %s; every use case (core AND supporting) must carry a non-empty activity diagram with an entry (a start node, or an edge-less timeEvent/acceptEvent) and at least one action step.", label, reason)))
+	}
+	return out
+}
+
+// activityDefect classifies why a use case's activity diagram fails the founder's
+// non-empty floor, or "" when it is acceptable (present, with an ENTRY — a start
+// node, or a timeEvent/acceptEvent node with no incoming edge (tier parity with
+// methodcheck's activityHasEntryAndAction, framework-go/methodcheck/
+// rules_statevalidation.go, ratified 2026-07-30) — AND at least one action node).
+// It deliberately does NOT re-validate full UML well-formedness (decision/merge,
+// fork/join, guards) — that is the Action's CI check; this only enforces "the
+// diagram exists and carries the minimum meaningful nodes".
+func activityDefect(a *activityDiagram) string {
+	if a == nil {
+		return "has no activity diagram (activity is null)"
+	}
+	if len(a.Nodes) == 0 {
+		return "has an empty activity diagram (no nodes)"
+	}
+	incoming := make(map[string]int, len(a.Nodes))
+	for _, e := range a.Edges {
+		incoming[e.To]++
+	}
+	var hasEntry, hasAction bool
+	for _, n := range a.Nodes {
+		if n.Kind == "start" {
+			hasEntry = true
+		}
+		if (n.Kind == "timeEvent" || n.Kind == "acceptEvent") && incoming[n.ID] == 0 {
+			hasEntry = true
+		}
+		if n.Kind == "action" {
+			hasAction = true
+		}
+	}
+	switch {
+	case !hasEntry && !hasAction:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent) and no action step"
+	case !hasEntry:
+		return "has an activity diagram with no entry (no start node, and no edge-less timeEvent/acceptEvent)"
+	case !hasAction:
+		return "has an activity diagram with no action step"
+	}
+	return ""
+}
+
+// useCaseDynamicFindings returns one ERROR finding per committed use case the System
+// leaves without a dynamic view. The founder extension (2026-07-05) requires EVERY use
+// case — core AND nonCore variation — to carry a call chain in the architecture, going
+// beyond Löwy who validates only the core (that core subset is this package's own
+// DH-COV-UC-DYNAMIC, whose narrower scope is why both survive the move: a nonCore
+// variation with no chain is invisible to it).
+//
+// In the Manager this rule was handed the committed CoreUseCases as a third parameter,
+// because the session held only the System draft it was judging; here slotData carries
+// every slot at once, so the join needs no parameter — the structural reason this move
+// is a simplification and not a port.
+func useCaseDynamicFindings(in Input) []methodcheck.Finding {
+	if len(in.Slots.CoreUseCases) == 0 {
+		return nil
+	}
+	covered := make(map[string]bool, len(in.Slots.DynamicViews))
+	for _, dv := range in.Slots.DynamicViews {
+		covered[dv.UseCaseID] = true
+	}
+	var out []methodcheck.Finding
+	for i, uc := range in.Slots.CoreUseCases {
+		if covered[uc.ID] {
+			continue
+		}
+		label := uc.Name
+		if label == "" {
+			label = fmt.Sprintf("use case %d", i+1)
+		}
+		kindWord := "use case"
+		if uc.Classification != "core" {
+			kindWord = "nonCore use-case variation"
+		}
+		out = append(out, finding(RuleUCDynamicMissing, methodcheck.SeverityError, i, "use case "+label,
+			fmt.Sprintf("Use case %q has no dynamic view in the System; every %s (core AND nonCore variation) must carry its own call chain.", label, kindWord)))
+	}
+	return out
+}
+
+// systemLayerDegenerateFindings returns ERROR findings for a layer-DEGENERATE System.
+// Two independent degeneracy signals (F81):
+//
+//  1. STRUCTURE: a Method system decomposes into at least one Manager (the workflow
+//     encapsulation) AND at least one ResourceAccess (the resource encapsulation). A
+//     system with zero of either is degenerate — the classic all-client corruption
+//     (every component's layer omitted → defaulted to client) has zero of both.
+//  2. NAME↔LAYER: a component whose NAME carries a Method stereotype suffix must sit in
+//     the matching layer ("…Manager"→manager, "…Engine"→engine, "…Access"→resourceAccess,
+//     "…Client"→client, "…Store"/"…Resource"→resource). A name/layer contradiction is the
+//     fingerprint of a defaulted layer (e.g. "OrderManager" carrying layer=client).
+//
+// It stays SILENT on an absent/empty System rather than reporting "zero Managers" for a
+// project whose architecture is not drafted yet — the Manager only ran it when a System
+// draft was in hand, and the engine reaches the same posture by guarding on the
+// component inventory.
+func systemLayerDegenerateFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil || len(in.Model.System.Components) == 0 {
+		return nil
+	}
+	comps := in.Model.System.Components
+	var out []methodcheck.Finding
+	var managers, resourceAccess int
+	for _, c := range comps {
+		switch c.Kind {
+		case "manager":
+			managers++
+		case "resourceAccess":
+			resourceAccess++
+		}
+	}
+	if managers == 0 {
+		out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
+			"the System has zero Managers; a Method system must encapsulate at least one workflow in a Manager (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")"))
+	}
+	if resourceAccess == 0 {
+		out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, 0, "system layers",
+			"the System has zero ResourceAccess components; a Method system must encapsulate at least one resource behind a ResourceAccess (an all-client architecture is the F81 corruption where every component's layer was omitted and defaulted to \"client\")"))
+	}
+	for i, c := range comps {
+		if want, suffix, mismatch := nameLayerMismatch(c.Name, c.Layer); mismatch {
+			label := c.Name
+			if label == "" {
+				label = fmt.Sprintf("component %d", i+1)
+			}
+			out = append(out, finding(RuleSysLayerDegenerate, methodcheck.SeverityError, i, "component "+label,
+				fmt.Sprintf("component %q ends in %q but declares layer %q instead of %q; a component's name stereotype and its layer must agree (a mismatch is the fingerprint of an omitted, defaulted layer)", label, suffix, c.Layer, want)))
+		}
+	}
+	return out
+}
+
+// nameLayerMismatch reports whether a component NAME's Method stereotype suffix
+// contradicts its declared layer. Returns the layer the name IMPLIES, the matched
+// suffix, and whether there is a mismatch. A name with no recognized suffix never
+// mismatches.
+func nameLayerMismatch(name, layer string) (string, string, bool) {
+	type rule struct {
+		suffix string
+		want   string
+	}
+	// Order matters: "…Resource" and "…Store" both imply resource; check specific suffixes.
+	rules := []rule{
+		{"Manager", "manager"},
+		{"Engine", "engine"},
+		{"Access", "resourceAccess"},
+		{"Client", "client"},
+		{"Store", "resource"},
+		{"Resource", "resource"},
+	}
+	trimmed := strings.TrimSpace(name)
+	for _, r := range rules {
+		if strings.HasSuffix(trimmed, r.suffix) {
+			if layer != r.want {
+				return r.want, r.suffix, true
+			}
+			return r.want, r.suffix, false
+		}
+	}
+	return layer, "", false
+}
+
+// volatilityCoverageFindings — SYS-VOLATILITY-COVERAGE (error; F10 gate lint, QA
+// amendment 2026-07-17: gtdapp committed volatilities that no component claimed and
+// nothing flagged the hole). Every COMMITTED volatility must be encapsulated by a
+// component — i.e. its name appears in some component's encapsulates prose — or carry
+// an explicit disposition. The System model has no dedicated disposition field, so a
+// disposition note also lives in a component's encapsulates prose (e.g. "storage
+// volatility: deferred — variable, handled by configuration"); this lint therefore
+// fires only on TOTAL SILENCE — a committed volatility that appears in NO component's
+// encapsulates text at all.
+//
+// It is the PROSE half of the volatility join and survives alongside this package's
+// typed DH-VOL-ENCAP-MISSING, which the typed encapsulatesVolatilities lists make
+// authoritative: the two answer different questions (is the volatility CLAIMED in prose
+// a reviewer reads, versus is it JOINED by the typed edge), so neither subsumes the
+// other. Like its two siblings above, it took the committed counterpart as a third
+// parameter in the Manager and needs none here — slotData carries every slot at once.
+// It stays silent while no System is drafted, exactly as the Manager did.
+func volatilityCoverageFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil || len(in.Model.System.Components) == 0 {
+		return nil
+	}
+	var encapsulations []string
+	for _, c := range in.Model.System.Components {
+		if e := strings.ToLower(strings.TrimSpace(in.Slots.encapsulatesBlurbs[c.ID])); e != "" {
+			encapsulations = append(encapsulations, e)
+		}
+	}
+	var out []methodcheck.Finding
+	for i, v := range in.Slots.Volatilities {
+		name := strings.ToLower(strings.TrimSpace(v.Name))
+		if name == "" {
+			continue // an unnamed volatility is the Volatilities artifact's own defect
+		}
+		mentioned := false
+		for _, e := range encapsulations {
+			if strings.Contains(e, name) {
+				mentioned = true
+				break
+			}
+		}
+		if mentioned {
+			continue
+		}
+		out = append(out, finding(RuleVolCoverage, methodcheck.SeverityError, i, "volatility "+v.Name,
+			fmt.Sprintf("committed volatility %q is claimed by no component's encapsulates and carries no disposition note; encapsulate it in a component, or record an explicit disposition (e.g. \"%s: deferred — <why>\") in the owning component's encapsulates prose.", v.Name, v.Name)))
+	}
+	return out
+}
+
+// servicesExplosionFindings — SYS-SERVICES-EXPLOSION (warning; F10 gate lint, QA
+// amendment 2026-07-17). The one-Manager-per-use-case anti-pattern (ch. 3 services
+// explosion / functional decomposition in disguise): when the Manager count exactly
+// equals the committed CORE use-case count AND at least 60% of Manager names mirror a
+// core use case's name, the decomposition likely encapsulates use cases, not
+// volatilities. Heuristic — a WARNING, not an error: a small system can legitimately
+// land on equal counts, so the name-mirroring threshold gates the signal. It is the
+// third and last of the rules the Manager handed a committed counterpart as a
+// parameter; slotData carries it here.
+func servicesExplosionFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil || len(in.Slots.CoreUseCases) == 0 {
+		return nil
+	}
+	var managerStems []string
+	var managerNames []string
+	for _, c := range in.Model.System.Components {
+		if c.Kind != "manager" {
+			continue
+		}
+		managerNames = append(managerNames, c.Name)
+		managerStems = append(managerStems, normalizeNameToken(strings.TrimSuffix(strings.TrimSpace(c.Name), "Manager")))
+	}
+	var coreNames []string
+	for _, uc := range in.Slots.CoreUseCases {
+		if uc.Classification == "core" {
+			coreNames = append(coreNames, normalizeNameToken(uc.Name))
+		}
+	}
+	managers := len(managerStems)
+	if managers == 0 || managers != len(coreNames) {
+		return nil
+	}
+	mirrored, mirroredNames := mirroredManagerNames(managerStems, managerNames, coreNames)
+	// >= 60% name-mirroring (integer arithmetic; no float drift).
+	if mirrored*100 < 60*managers {
+		return nil
+	}
+	return []methodcheck.Finding{finding(RuleSysServicesExplosion, methodcheck.SeverityWarning, 0, "system managers",
+		fmt.Sprintf(
+			"the System declares exactly one Manager per committed core use case (%d each) and %d of %d Manager names mirror a core use case (%s); this is the services-explosion fingerprint — a Manager encapsulates a VOLATILITY for a family of use cases, not a single use case. Re-examine the decomposition axis.",
+			managers, mirrored, managers, strings.Join(mirroredNames, ", ")))}
+}
+
+// mirroredManagerNames counts the Manager stems that mirror a committed core use-case
+// name (substring containment either way, on normalized tokens) and returns the display
+// names of the mirroring Managers for the finding message. Pure — deterministic over
+// its inputs.
+func mirroredManagerNames(managerStems, managerNames, coreNames []string) (int, []string) {
+	mirrored := 0
+	var mirroredNames []string
+	for i, stem := range managerStems {
+		if stem == "" {
+			continue
+		}
+		for _, ucName := range coreNames {
+			if ucName == "" {
+				continue
+			}
+			if strings.Contains(ucName, stem) || strings.Contains(stem, ucName) {
+				mirrored++
+				mirroredNames = append(mirroredNames, managerNames[i])
+				break
+			}
+		}
+	}
+	return mirrored, mirroredNames
+}
+
+// normalizeNameToken lowercases and strips every non-alphanumeric rune so Manager
+// stems and use-case names compare on their word content ("Match Tradesman" ==
+// "MatchTradesman" == "match-tradesman").
+func normalizeNameToken(s string) string {
+	var b strings.Builder
+	for _, r := range strings.ToLower(s) {
+		if (r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		}
+	}
+	return b.String()
 }

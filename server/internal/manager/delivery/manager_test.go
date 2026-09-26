@@ -4203,154 +4203,6 @@ func Test_SessionStageIsLive(t *testing.T) {
 // start node and at least one action step; a diagram-less use case surfaces as one
 // ERROR-severity finding on the review panel so the human gate flags it.
 
-// ucd builds a UseCaseDecision carrying a named use case with the given activity diagram.
-func ucd(name string, activity *projectstate.ActivityDiagram) projectstate.UseCaseDecision {
-	return projectstate.UseCaseDecision{
-		UseCase: projectstate.UseCase{Name: name, Activity: activity},
-	}
-}
-
-// wellFormedActivity is the minimum acceptable diagram: a start node -> action -> end.
-func wellFormedActivity() *projectstate.ActivityDiagram {
-	return &projectstate.ActivityDiagram{
-		Nodes: []projectstate.ActivityNode{
-			{ID: "n1", Kind: projectstate.NodeStart},
-			{ID: "n2", Kind: projectstate.NodeAction, Label: "Do the thing"},
-			{ID: "n3", Kind: projectstate.NodeEnd},
-		},
-		Edges: []projectstate.ActivityEdge{
-			{From: "n1", To: "n2"},
-			{From: "n2", To: "n3"},
-		},
-	}
-}
-
-// eventEntryActivity has NO start node; its only entry is an edge-less timeEvent node
-// (tier parity with methodcheck's activityHasEntryAndAction, 2026-07-30
-// callchain-realization) -> action -> end. Acceptable.
-func eventEntryActivity() *projectstate.ActivityDiagram {
-	return &projectstate.ActivityDiagram{
-		Nodes: []projectstate.ActivityNode{
-			{ID: "n1", Kind: projectstate.NodeTimeEvent, Label: "midnight"},
-			{ID: "n2", Kind: projectstate.NodeAction, Label: "Do the thing"},
-			{ID: "n3", Kind: projectstate.NodeEnd},
-		},
-		Edges: []projectstate.ActivityEdge{
-			{From: "n1", To: "n2"},
-			{From: "n2", To: "n3"},
-		},
-	}
-}
-
-// eventNodeWithIncomingEdgeActivity has NO start node, and its only event node HAS an
-// incoming edge — it is mid-flow, not an entry — so it must NOT satisfy UC-ACT-PRESENT.
-func eventNodeWithIncomingEdgeActivity() *projectstate.ActivityDiagram {
-	return &projectstate.ActivityDiagram{
-		Nodes: []projectstate.ActivityNode{
-			{ID: "n1", Kind: projectstate.NodeAction, Label: "Do the thing"},
-			{ID: "n2", Kind: projectstate.NodeAcceptEvent, Label: "await message"},
-		},
-		Edges: []projectstate.ActivityEdge{
-			{From: "n1", To: "n2"},
-		},
-	}
-}
-
-// A use case with a null or structurally-empty activity produces exactly one ERROR
-// finding; a use case with a start + action diagram produces none.
-func Test_useCaseActivityFindings_FlagsMissingAndEmptyDiagrams(t *testing.T) {
-	noStart := &projectstate.ActivityDiagram{
-		Nodes: []projectstate.ActivityNode{{ID: "n1", Kind: projectstate.NodeAction, Label: "step"}},
-	}
-	noAction := &projectstate.ActivityDiagram{
-		Nodes: []projectstate.ActivityNode{{ID: "n1", Kind: projectstate.NodeStart}},
-	}
-
-	draft := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
-		ucd("Capture", nil),                             // null activity — the observed gtdapp defect
-		ucd("Clarify", &projectstate.ActivityDiagram{}), // empty diagram (no nodes)
-		ucd("Organize", noStart),                        // nodes but no start
-		ucd("Reflect", noAction),                        // nodes but no action
-		ucd("Engage", wellFormedActivity()),             // acceptable — no finding
-	}}
-
-	findings := useCaseActivityFindings(KindCoreUseCases, draft)
-	if len(findings) != 4 {
-		t.Fatalf("expected 4 ERROR findings (one per diagram-less use case), got %d: %+v", len(findings), findings)
-	}
-
-	wantNames := []string{"Capture", "Clarify", "Organize", "Reflect"}
-	for i, f := range findings {
-		if f.Severity != SeverityError {
-			t.Errorf("finding %d: want SeverityError, got %v", i, f.Severity)
-		}
-		if string(f.RuleID) != "USECASE-ACTIVITY-MISSING" {
-			t.Errorf("finding %d: want RuleID USECASE-ACTIVITY-MISSING, got %q", i, f.RuleID)
-		}
-		if !strings.Contains(f.Message, wantNames[i]) {
-			t.Errorf("finding %d: message %q must name use case %q", i, f.Message, wantNames[i])
-		}
-		if f.Location == nil || f.Location.Ordinal != int64(i) {
-			t.Errorf("finding %d: want Location.Ordinal %d, got %+v", i, i, f.Location)
-		}
-	}
-	// The acceptable use case (index 4) must not appear.
-	for _, f := range findings {
-		if strings.Contains(f.Message, "Engage") {
-			t.Errorf("well-formed use case Engage must not be flagged; got %q", f.Message)
-		}
-	}
-}
-
-// The gate is scoped to CoreUseCases: any other artifact kind, a nil draft, or a
-// wrong-typed draft yields no findings (so the nil-when-empty Findings wire form is
-// preserved for every other artifact).
-func Test_useCaseActivityFindings_ScopedToCoreUseCasesKind(t *testing.T) {
-	full := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", nil)}}
-
-	if got := useCaseActivityFindings(KindMission, full); got != nil {
-		t.Errorf("non-CoreUseCases kind must yield no findings, got %+v", got)
-	}
-	if got := useCaseActivityFindings(KindCoreUseCases, nil); got != nil {
-		t.Errorf("nil draft must yield no findings, got %+v", got)
-	}
-	// A draft whose every use case carries a well-formed diagram yields no findings.
-	ok := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{ucd("Capture", wellFormedActivity())}}
-	if got := useCaseActivityFindings(KindCoreUseCases, ok); got != nil {
-		t.Errorf("all-diagrammed draft must yield no findings, got %+v", got)
-	}
-}
-
-// Tier parity (2026-07-30 callchain-realization): an ENTRY is a start node OR an
-// edge-less timeEvent/acceptEvent node — mirrors methodcheck's
-// activityHasEntryAndAction (framework-go/methodcheck/rules_statevalidation.go).
-func Test_useCaseActivityFindings_EventEntryTierParity(t *testing.T) {
-	draft := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
-		ucd("NightlySweep", eventEntryActivity()),                // event-only entry — acceptable
-		ucd("AwaitMessage", eventNodeWithIncomingEdgeActivity()), // event node HAS incoming edge — not an entry
-		ucd("Capture", wellFormedActivity()),                     // start-rooted — stays green
-	}}
-
-	findings := useCaseActivityFindings(KindCoreUseCases, draft)
-	if len(findings) != 1 {
-		t.Fatalf("expected exactly 1 ERROR finding (AwaitMessage's event node is not an entry), got %d: %+v", len(findings), findings)
-	}
-	f := findings[0]
-	if !strings.Contains(f.Message, "AwaitMessage") {
-		t.Errorf("finding must name use case AwaitMessage, got %q", f.Message)
-	}
-	if !strings.Contains(f.Message, "no entry") {
-		t.Errorf("finding must name the entry rule honestly, got %q", f.Message)
-	}
-	// findings has exactly 1 element (asserted above), already bound to f —
-	// no need to loop over findings again to check what it doesn't mention.
-	for _, name := range []string{"NightlySweep", "Capture"} {
-		if strings.Contains(f.Message, name) {
-			t.Errorf("use case %q must not be flagged; got %q", name, f.Message)
-		}
-	}
-}
-
 // askquestions_dispatch_test.go — F82 coverage for the System-Design answer-job dispatch
 // twin (the manager kinds 2/5 go through THIS manager). Mirrors the projectdesign tests:
 // a dispatch fires (incl. on a LIVE session branch), re-fires with a fresh key, and logs a
@@ -5747,86 +5599,6 @@ func TestTestingStateToContract(t *testing.T) {
 // ERROR-severity finding on the review panel so the human gate flags it. This is the
 // review-panel twin of methodcheck's USECASE-DYNAMIC-MISSING (the authoritative gate
 // putDraftModel enforces while the agent authors).
-
-// cucWith builds a committed CoreUseCases carrying the named use cases with the given
-// ids and classifications.
-func cucWith(decisions ...projectstate.UseCaseDecision) *projectstate.CoreUseCases {
-	return &projectstate.CoreUseCases{Decisions: decisions}
-}
-
-func uc(id, name string, class projectstate.Classification) projectstate.UseCaseDecision {
-	return projectstate.UseCaseDecision{
-		UseCase: projectstate.UseCase{ID: projectstate.UseCaseID(id), Name: name, Classification: class},
-	}
-}
-
-func systemWithViews(useCaseIDs ...string) *projectstate.System {
-	var dvs []projectstate.DynamicView
-	for _, id := range useCaseIDs {
-		dvs = append(dvs, projectstate.DynamicView{UseCaseID: id, Key: "uc" + id, Title: "view " + id})
-	}
-	return &projectstate.System{DynamicViews: dvs}
-}
-
-// A System draft that leaves committed use cases without a dynamic view flags exactly
-// those use cases (core AND nonCore variation), and none of the covered ones.
-func Test_useCaseDynamicFindings_FlagsUncoveredUseCases(t *testing.T) {
-	committed := cucWith(
-		uc("capture", "Capture", projectstate.ClassCore),              // covered
-		uc("clarify", "Clarify", projectstate.ClassCore),              // UNCOVERED (core)
-		uc("clarify-bulk", "Clarify Bulk", projectstate.ClassNonCore), // UNCOVERED (nonCore variation)
-		uc("engage", "Engage", projectstate.ClassNonCore),             // covered
-	)
-	draft := systemWithViews("capture", "engage")
-
-	findings := useCaseDynamicFindings(KindSystem, draft, committed)
-	if len(findings) != 2 {
-		t.Fatalf("expected 2 ERROR findings (one per uncovered use case), got %d: %+v", len(findings), findings)
-	}
-	wantNames := []string{"Clarify", "Clarify Bulk"}
-	for i, f := range findings {
-		if f.Severity != SeverityError {
-			t.Errorf("finding %d: want SeverityError, got %v", i, f.Severity)
-		}
-		if string(f.RuleID) != "USECASE-DYNAMIC-MISSING" {
-			t.Errorf("finding %d: want RuleID USECASE-DYNAMIC-MISSING, got %q", i, f.RuleID)
-		}
-		if !strings.Contains(f.Message, wantNames[i]) {
-			t.Errorf("finding %d: message %q must name use case %q", i, f.Message, wantNames[i])
-		}
-	}
-	// The nonCore-variation message must name it as such.
-	if !strings.Contains(findings[1].Message, "nonCore use-case variation") {
-		t.Errorf("nonCore finding must be labelled as a variation, got %q", findings[1].Message)
-	}
-	for _, f := range findings {
-		if strings.Contains(f.Message, "Capture") || strings.Contains(f.Message, "Engage") {
-			t.Errorf("covered use case must not be flagged; got %q", f.Message)
-		}
-	}
-}
-
-// The gate is scoped to KindSystem with a committed CoreUseCases: any other kind, a
-// nil/absent committed set, a nil draft, or a wrong-typed draft yields no findings.
-func Test_useCaseDynamicFindings_ScopedToSystemKind(t *testing.T) {
-	committed := cucWith(uc("capture", "Capture", projectstate.ClassCore))
-	draft := systemWithViews() // no views at all
-
-	if got := useCaseDynamicFindings(KindCoreUseCases, draft, committed); got != nil {
-		t.Errorf("non-System kind must yield no findings, got %+v", got)
-	}
-	if got := useCaseDynamicFindings(KindSystem, draft, nil); got != nil {
-		t.Errorf("nil committed CoreUseCases must yield no findings, got %+v", got)
-	}
-	if got := useCaseDynamicFindings(KindSystem, nil, committed); got != nil {
-		t.Errorf("nil draft must yield no findings, got %+v", got)
-	}
-	// Every use case covered → no findings.
-	full := systemWithViews("capture")
-	if got := useCaseDynamicFindings(KindSystem, full, committed); got != nil {
-		t.Errorf("all-covered draft must yield no findings, got %+v", got)
-	}
-}
 
 // =============================================================================
 // I-DESIGN-DISPATCH Part 3 — the WIRING-LEVEL PROOF (test-engineer). This file
@@ -9177,110 +8949,6 @@ func Test_CoAuthor_RailEnabled_GateRemint_VersionGate_PreFeatureAttemptSkipsRemi
 // its layer) surfaces as ERROR findings on the review panel. This is the review-panel
 // twin of methodcheck's SYSTEM-LAYER-DEGENERATE.
 
-func comp(id, name string, kind projectstate.ComponentKind, layer projectstate.Layer) projectstate.Component {
-	return projectstate.Component{ID: id, Name: name, Kind: kind, Layer: layer}
-}
-
-// A healthy system with a Manager and a ResourceAccess and consistent names raises no
-// degeneracy finding.
-func Test_systemLayerDegenerate_HealthySystemClean(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		comp("c", "WebClient", projectstate.CompClient, projectstate.LayerClient),
-		comp("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager),
-		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
-	}}
-	if f := systemLayerDegenerateFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("healthy system should be clean, got: %+v", f)
-	}
-}
-
-// The live F81 corruption: every component defaulted to client (kind+layer both omitted).
-// Zero Managers AND zero ResourceAccess AND every stereotyped name contradicts client.
-func Test_systemLayerDegenerate_AllClientFlagged(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		comp("m", "OrderManager", projectstate.CompClient, projectstate.LayerClient),
-		comp("e", "PricingEngine", projectstate.CompClient, projectstate.LayerClient),
-		comp("ra", "OrderAccess", projectstate.CompClient, projectstate.LayerClient),
-	}}
-	f := systemLayerDegenerateFindings(KindSystem, sys)
-	if len(f) == 0 {
-		t.Fatal("an all-client system must be flagged")
-	}
-	var zeroMgr, zeroRA, nameMismatch int
-	for _, fi := range f {
-		if fi.RuleID != "SYSTEM-LAYER-DEGENERATE" {
-			t.Fatalf("unexpected rule id %q", fi.RuleID)
-		}
-		switch {
-		case strings.Contains(fi.Message, "zero Managers"):
-			zeroMgr++
-		case strings.Contains(fi.Message, "zero ResourceAccess"):
-			zeroRA++
-		case strings.Contains(fi.Message, "ends in"):
-			nameMismatch++
-		}
-	}
-	if zeroMgr != 1 || zeroRA != 1 {
-		t.Fatalf("expected one zero-managers and one zero-resourceAccess finding, got mgr=%d ra=%d", zeroMgr, zeroRA)
-	}
-	if nameMismatch != 3 {
-		t.Fatalf("expected 3 name/layer mismatch findings (Manager, Engine, Access), got %d", nameMismatch)
-	}
-}
-
-// Zero managers alone (has RA) still trips the structure rule.
-func Test_systemLayerDegenerate_ZeroManagers(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
-	}}
-	f := systemLayerDegenerateFindings(KindSystem, sys)
-	if len(f) != 1 || !strings.Contains(f[0].Message, "zero Managers") {
-		t.Fatalf("expected exactly the zero-managers finding, got: %+v", f)
-	}
-}
-
-// A single name/layer contradiction with otherwise-healthy structure trips only the
-// name rule.
-func Test_systemLayerDegenerate_NameLayerMismatch(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		comp("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager),
-		comp("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess),
-		// A component named "…Engine" but sitting in the client layer.
-		comp("e", "PricingEngine", projectstate.CompEngine, projectstate.LayerClient),
-	}}
-	f := systemLayerDegenerateFindings(KindSystem, sys)
-	if len(f) != 1 {
-		t.Fatalf("expected exactly one finding, got: %+v", f)
-	}
-	if !strings.Contains(f[0].Message, "PricingEngine") || !strings.Contains(f[0].Message, "engine") {
-		t.Fatalf("finding should name the offending component and its expected layer, got: %v", f[0].Message)
-	}
-}
-
-// A "…Store"/"…Resource" name implies the resource layer.
-func Test_systemLayerDegenerate_StoreImpliesResource(t *testing.T) {
-	if want, suffix, mismatch := nameLayerMismatch("EventStore", projectstate.LayerClient); !mismatch || want != projectstate.LayerResource || suffix != "Store" {
-		t.Fatalf("EventStore in client layer should mismatch to resource, got want=%v suffix=%q mismatch=%v", want, suffix, mismatch)
-	}
-	if _, _, mismatch := nameLayerMismatch("EventStore", projectstate.LayerResource); mismatch {
-		t.Fatal("EventStore in resource layer should be consistent")
-	}
-}
-
-// A name with no recognized stereotype suffix never mismatches.
-func Test_systemLayerDegenerate_UnstereotypedNameOK(t *testing.T) {
-	if _, _, mismatch := nameLayerMismatch("Utilities", projectstate.LayerUtility); mismatch {
-		t.Fatal("an unstereotyped name must not mismatch")
-	}
-}
-
-// The rule is inert for non-System artifacts.
-func Test_systemLayerDegenerate_NonSystemInert(t *testing.T) {
-	if f := systemLayerDegenerateFindings(KindCoreUseCases, &projectstate.CoreUseCases{}); f != nil {
-		t.Fatalf("rule must be inert for non-System artifacts, got: %+v", f)
-	}
-}
-
 // ---- F22: read-model research slimming -------------------------------------
 
 // The project read (GetProject → ProjectState) must carry research source TITLES and
@@ -9975,105 +9643,11 @@ func rel(from, to string, mode projectstate.CallMode, label string) projectstate
 	return projectstate.Relationship{From: from, To: to, Mode: mode, Label: label}
 }
 
-func hasRule(fs []Finding, id string, sev Severity) bool {
-	for _, f := range fs {
-		if string(f.RuleID) == id && f.Severity == sev {
-			return true
-		}
-	}
-	return false
-}
-
 // ---- SYS-RA-ORPHAN ----
-
-func Test_raOrphan_HealthyReachesResource(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
-			compE("store", "OrderStore", projectstate.CompResource, projectstate.LayerResource, ""),
-		},
-		Relationships: []projectstate.Relationship{rel("ra", "store", projectstate.CallSync, "reads")},
-	}
-	if f := raOrphanFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("an RA that reaches a resource is not orphan, got: %+v", f)
-	}
-}
-
-func Test_raOrphan_NoResourceEdgeFlagged(t *testing.T) {
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "the order workflow"),
-			compE("ra", "OrderAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "the order store"),
-		},
-		Relationships: []projectstate.Relationship{rel("mgr", "ra", projectstate.CallSync, "loads")},
-	}
-	if !hasRule(raOrphanFindings(KindSystem, sys), "SYS-RA-ORPHAN", SeverityError) {
-		t.Fatal("an RA with no outbound edge to a resource must be flagged SYS-RA-ORPHAN")
-	}
-}
-
-func Test_raOrphan_ExternalTargetSatisfies(t *testing.T) {
-	// An edge to an id that is not a modeled component is a documented external system.
-	sys := &projectstate.System{
-		Components: []projectstate.Component{
-			compE("ra", "GitHubAccess", projectstate.CompResourceAccess, projectstate.LayerResourceAccess, "GitHub"),
-		},
-		Relationships: []projectstate.Relationship{rel("ra", "github.com", projectstate.CallQueued, "calls")},
-	}
-	if f := raOrphanFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("an RA reaching an external target is not orphan, got: %+v", f)
-	}
-}
 
 // ---- SYS-ENCAPSULATES ----
 
-// R5 (2026-07-17): SYS-ENCAPSULATES is scoped to the volatility-OWNING kinds
-// (manager/engine/resourceAccess). Empty encapsulates on a Client (owns client
-// volatility as a layer) or a Resource (a physical store owns nothing) is
-// Method-correct and must NOT fire.
-func Test_encapsulates_EmptyManagerError_ClientAndResourceExempt(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("c", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
-		compE("r", "GitRepo", projectstate.CompResource, projectstate.LayerResource, ""),
-		compE("m", "OrderManager", projectstate.CompManager, projectstate.LayerManager, ""),
-	}}
-	f := encapsulatesFindings(KindSystem, sys)
-	if !hasRule(f, "SYS-ENCAPSULATES", SeverityError) {
-		t.Fatal("an empty-encapsulates manager must be an ERROR finding")
-	}
-	// The empty client and empty resource legitimately carry no volatility.
-	for _, fi := range f {
-		if strings.Contains(fi.Message, "WebClient") || strings.Contains(fi.Message, "GitRepo") {
-			t.Fatalf("a client/resource must not be flagged for empty encapsulates, got: %+v", fi)
-		}
-	}
-}
-
 // ---- SYS-REL-DUP ----
-
-func Test_relDup_ExactDuplicateError(t *testing.T) {
-	sys := &projectstate.System{Relationships: []projectstate.Relationship{
-		rel("a", "b", projectstate.CallSync, "x"),
-		rel("a", "b", projectstate.CallSync, "x"),
-	}}
-	if !hasRule(relDupFindings(KindSystem, sys), "SYS-REL-DUP", SeverityError) {
-		t.Fatal("an exact (from,to,mode) duplicate must be a SYS-REL-DUP error")
-	}
-}
-
-func Test_relDup_LabelSplitWarning(t *testing.T) {
-	sys := &projectstate.System{Relationships: []projectstate.Relationship{
-		rel("a", "b", projectstate.CallSync, "reads"),
-		rel("a", "b", projectstate.CallQueued, "writes"),
-	}}
-	f := relDupFindings(KindSystem, sys)
-	if hasRule(f, "SYS-REL-DUP", SeverityError) {
-		t.Fatal("distinct-mode edges are not an exact duplicate")
-	}
-	if !hasRule(f, "SYS-REL-DUP", SeverityWarning) {
-		t.Fatal("a same-pair label split must be a SYS-REL-DUP warning")
-	}
-}
 
 // DV-CHAIN-CONNECTED and its tests (dvChainFindings) were RETIRED 2026-07-30
 // (callchain-realization Task 6): the rule duplicated — and, under the step-keyed
@@ -10083,266 +9657,15 @@ func Test_relDup_LabelSplitWarning(t *testing.T) {
 
 // ---- DV-TITLE-EMPTY (F10 gate lint) ----
 
-func Test_dvTitle_PresentClean(t *testing.T) {
-	sys := &projectstate.System{DynamicViews: []projectstate.DynamicView{
-		{UseCaseID: "uc1", Key: "uc1-chain", Title: "Match Tradesman call chain"},
-	}}
-	if f := dvTitleFindings(KindSystem, sys); len(f) != 0 {
-		t.Fatalf("a titled dynamic view is clean, got: %+v", f)
-	}
-}
-
-func Test_dvTitle_EmptyAndWhitespaceError(t *testing.T) {
-	sys := &projectstate.System{DynamicViews: []projectstate.DynamicView{
-		{UseCaseID: "uc1", Key: "uc1-chain", Title: ""},
-		{UseCaseID: "uc2", Key: "uc2-chain", Title: "   "},
-	}}
-	f := dvTitleFindings(KindSystem, sys)
-	if len(f) != 2 {
-		t.Fatalf("want one DV-TITLE-EMPTY error per untitled view, got: %+v", f)
-	}
-	if !hasRule(f, "DV-TITLE-EMPTY", SeverityError) {
-		t.Fatal("an empty dynamic-view title must be a DV-TITLE-EMPTY error")
-	}
-}
-
-func Test_dvTitle_OtherKindNil(t *testing.T) {
-	if f := dvTitleFindings(KindCoreUseCases, &projectstate.CoreUseCases{}); f != nil {
-		t.Fatalf("dvTitleFindings must be nil for non-System kinds, got: %+v", f)
-	}
-}
-
 // ---- SYS-VOLATILITY-COVERAGE (F10 gate lint) ----
-
-func Test_volatilityCoverage_ClaimedClean(t *testing.T) {
-	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
-		{Name: "notification transport", Axis: projectstate.AxisSameCustomerOverTime},
-		{Name: "matching algorithm", Axis: projectstate.AxisAllCustomersAtOneTime},
-	}}
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "workflow volatility; notification transport"),
-		compE("eng", "MatchingEngine", projectstate.CompEngine, projectstate.LayerEngine, "Matching algorithm volatility"),
-	}}
-	if f := volatilityCoverageFindings(KindSystem, sys, committed); len(f) != 0 {
-		t.Fatalf("claimed volatilities (case-insensitive prose match) are clean, got: %+v", f)
-	}
-}
-
-func Test_volatilityCoverage_DispositionNoteClean(t *testing.T) {
-	// An explicit disposition in encapsulates prose (not an encapsulation claim per se)
-	// still counts — the lint fires only on TOTAL silence.
-	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
-		{Name: "report layout", Axis: projectstate.AxisSameCustomerOverTime},
-	}}
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager,
-			"order workflow. report layout: deferred — variable handled by client-side templates, not architectural"),
-	}}
-	if f := volatilityCoverageFindings(KindSystem, sys, committed); len(f) != 0 {
-		t.Fatalf("a dispositioned volatility is clean, got: %+v", f)
-	}
-}
-
-func Test_volatilityCoverage_UnclaimedError(t *testing.T) {
-	committed := &projectstate.Volatilities{Items: []projectstate.Volatility{
-		{Name: "notification transport", Axis: projectstate.AxisSameCustomerOverTime},
-		{Name: "storage substrate", Axis: projectstate.AxisSameCustomerOverTime},
-	}}
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("mgr", "OrderManager", projectstate.CompManager, projectstate.LayerManager, "notification transport"),
-	}}
-	f := volatilityCoverageFindings(KindSystem, sys, committed)
-	if len(f) != 1 || !hasRule(f, "SYS-VOLATILITY-COVERAGE", SeverityError) {
-		t.Fatalf("want exactly one SYS-VOLATILITY-COVERAGE error for the silent volatility, got: %+v", f)
-	}
-	if !strings.Contains(f[0].Message, "storage substrate") {
-		t.Fatalf("the finding must name the unclaimed volatility, got: %q", f[0].Message)
-	}
-}
-
-func Test_volatilityCoverage_NoCommittedVolatilitiesNil(t *testing.T) {
-	sys := &projectstate.System{}
-	if f := volatilityCoverageFindings(KindSystem, sys, nil); f != nil {
-		t.Fatalf("no committed Volatilities ⇒ nil findings, got: %+v", f)
-	}
-}
 
 // ---- SYS-SERVICES-EXPLOSION (F10 gate lint) ----
 
-func explosionCoreUseCases(names ...string) *projectstate.CoreUseCases {
-	cuc := &projectstate.CoreUseCases{}
-	for i, n := range names {
-		cuc.Decisions = append(cuc.Decisions,
-			ucDecision(fmt.Sprintf("uc%d", i+1), n, projectstate.ClassCore, "", ""))
-	}
-	return cuc
-}
-
-func Test_servicesExplosion_MirroredOnePerUseCaseWarns(t *testing.T) {
-	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
-		compE("m2", "ClarifyInboxManager", projectstate.CompManager, projectstate.LayerManager, "y"),
-		compE("m3", "ReviewProjectsManager", projectstate.CompManager, projectstate.LayerManager, "z"),
-	}}
-	f := servicesExplosionFindings(KindSystem, sys, committed)
-	if !hasRule(f, "SYS-SERVICES-EXPLOSION", SeverityWarning) {
-		t.Fatalf("|Managers| == |core use cases| with 100%% name-mirroring must warn, got: %+v", f)
-	}
-}
-
-func Test_servicesExplosion_VolatilityNamedManagersClean(t *testing.T) {
-	// Same counts, but Manager names encode volatilities (not use cases): below the
-	// 60%% mirroring threshold ⇒ no warning (equal counts alone are not the signal).
-	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("m1", "IntakeManager", projectstate.CompManager, projectstate.LayerManager, "x"),
-		compE("m2", "SchedulingManager", projectstate.CompManager, projectstate.LayerManager, "y"),
-		compE("m3", "ReviewProjectsManager", projectstate.CompManager, projectstate.LayerManager, "z"),
-	}}
-	if f := servicesExplosionFindings(KindSystem, sys, committed); len(f) != 0 {
-		t.Fatalf("1 of 3 mirrored (33%%) is below the 60%% threshold, got: %+v", f)
-	}
-}
-
-func Test_servicesExplosion_CountMismatchClean(t *testing.T) {
-	// Fewer Managers than core use cases — the Method-typical shape — never warns,
-	// even with a mirrored name.
-	committed := explosionCoreUseCases("Capture Commitment", "Clarify Inbox", "Review Projects")
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
-		compE("m2", "PlanningManager", projectstate.CompManager, projectstate.LayerManager, "y"),
-	}}
-	if f := servicesExplosionFindings(KindSystem, sys, committed); len(f) != 0 {
-		t.Fatalf("|Managers| != |core use cases| must not warn, got: %+v", f)
-	}
-}
-
-func Test_servicesExplosion_NoCommittedUseCasesNil(t *testing.T) {
-	sys := &projectstate.System{Components: []projectstate.Component{
-		compE("m1", "CaptureCommitmentManager", projectstate.CompManager, projectstate.LayerManager, "x"),
-	}}
-	if f := servicesExplosionFindings(KindSystem, sys, nil); f != nil {
-		t.Fatalf("no committed CoreUseCases ⇒ nil findings, got: %+v", f)
-	}
-}
-
 // ---- UC-VARIATION-REF ----
-
-func ucDecision(id, name string, class projectstate.Classification, variationOf, rejection string) projectstate.UseCaseDecision {
-	uc := projectstate.UseCase{
-		ID:             projectstate.UseCaseID(id),
-		Name:           name,
-		Trigger:        projectstate.TriggerClientAction,
-		Classification: class,
-	}
-	if variationOf != "" {
-		v := projectstate.UseCaseID(variationOf)
-		uc.VariationOf = &v
-	}
-	return projectstate.UseCaseDecision{UseCase: uc, RejectionReason: rejection}
-}
-
-func Test_variationRef_ValidClean(t *testing.T) {
-	cuc := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
-		ucDecision("base", "Base", projectstate.ClassCore, "", ""),
-		ucDecision("var", "Variation", projectstate.ClassNonCore, "base", "narrower slice"),
-	}}
-	if f := variationRefFindings(KindCoreUseCases, cuc); len(f) != 0 {
-		t.Fatalf("a well-formed variation set is clean, got: %+v", f)
-	}
-}
-
-func Test_variationRef_Violations(t *testing.T) {
-	cuc := &projectstate.CoreUseCases{Decisions: []projectstate.UseCaseDecision{
-		ucDecision("base", "Base", projectstate.ClassCore, "nonsense", ""), // core with variationOf
-		ucDecision("v1", "V1", projectstate.ClassNonCore, "ghost", "why"),  // unresolved variationOf
-		ucDecision("v2", "V2", projectstate.ClassNonCore, "base", ""),      // empty rejectionReason
-	}}
-	f := variationRefFindings(KindCoreUseCases, cuc)
-	if !hasRule(f, "UC-VARIATION-REF", SeverityError) {
-		t.Fatal("expected UC-VARIATION-REF errors")
-	}
-	var coreVar, unresolved, noReason bool
-	for _, fi := range f {
-		switch {
-		case strings.Contains(fi.Message, "core use case") && strings.Contains(fi.Message, "base, not a variation"):
-			coreVar = true
-		case strings.Contains(fi.Message, "does not resolve"):
-			unresolved = true
-		case strings.Contains(fi.Message, "empty rejectionReason"):
-			noReason = true
-		}
-	}
-	if !coreVar || !unresolved || !noReason {
-		t.Fatalf("missing a violation class: coreVar=%v unresolved=%v noReason=%v (%+v)", coreVar, unresolved, noReason, f)
-	}
-}
 
 // ---- GLOSS-FOURQ ----
 
-func Test_glossaryFourQ_NonCanonicalError_And_CoverageWarning(t *testing.T) {
-	g := &projectstate.Glossary{Items: []projectstate.GlossaryItem{
-		{Term: "User", Category: "Who"},
-		{Term: "Bogus", Category: "Nonsense"},
-	}}
-	f := glossaryFourQFindings(KindGlossary, g)
-	if !hasRule(f, "GLOSS-FOURQ", SeverityError) {
-		t.Fatal("a non-canonical category must be a GLOSS-FOURQ error")
-	}
-	// What/How/Where uncovered → warnings.
-	if !hasRule(f, "GLOSS-FOURQ", SeverityWarning) {
-		t.Fatal("uncovered Four-Questions categories must warn")
-	}
-}
-
-func Test_glossaryFourQ_FullCoverageClean(t *testing.T) {
-	g := &projectstate.Glossary{Items: []projectstate.GlossaryItem{
-		{Term: "A", Category: "Who"}, {Term: "B", Category: "What"},
-		{Term: "C", Category: "How"}, {Term: "D", Category: "Where"},
-	}}
-	if f := glossaryFourQFindings(KindGlossary, g); len(f) != 0 {
-		t.Fatalf("full canonical coverage is clean, got: %+v", f)
-	}
-}
-
 // ---- SR-ID-UNIQUE ----
-
-func Test_scrubbedID_Violations(t *testing.T) {
-	sr := &projectstate.ScrubbedRequirements{Items: []projectstate.Requirement{
-		{ID: "R1", Statement: "ok"},
-		{ID: "", Statement: "no id"},
-		{ID: "R1", Statement: "dup id"},
-		{ID: "R2", Statement: ""},
-	}}
-	f := scrubbedIDFindings(KindScrubbedRequirements, sr)
-	var empty, dup, noStmt bool
-	for _, fi := range f {
-		if fi.RuleID != "SR-ID-UNIQUE" || fi.Severity != SeverityError {
-			t.Fatalf("unexpected finding %+v", fi)
-		}
-		switch {
-		case strings.Contains(fi.Message, "empty id"):
-			empty = true
-		case strings.Contains(fi.Message, "duplicated"):
-			dup = true
-		case strings.Contains(fi.Message, "empty statement"):
-			noStmt = true
-		}
-	}
-	if !empty || !dup || !noStmt {
-		t.Fatalf("missing a violation class: empty=%v dup=%v noStmt=%v", empty, dup, noStmt)
-	}
-}
-
-func Test_scrubbedID_Clean(t *testing.T) {
-	sr := &projectstate.ScrubbedRequirements{Items: []projectstate.Requirement{
-		{ID: "R1", Statement: "a"}, {ID: "R2", Statement: "b"},
-	}}
-	if f := scrubbedIDFindings(KindScrubbedRequirements, sr); len(f) != 0 {
-		t.Fatalf("unique non-empty ids are clean, got: %+v", f)
-	}
-}
 
 // OPC-TOPIC-COVERAGE was retired with the Wave-2 typed DeploymentOperationsModel: the
 // free-text decisions[].topic list the nudge walked no longer exists (the topics are now
@@ -10387,13 +9710,22 @@ func Test_staleCommittedPhase1Kinds_NamesCause(t *testing.T) {
 	}
 }
 
-// ---- read-safety: a pre-existing VIOLATING committed state decodes, then yields findings ----
+// ---- read-safety: a pre-existing VIOLATING committed state still decodes ----
 
-func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
+// Test_ViolatingCommittedState_Decodes pins the codec half of the read-safety
+// invariant: a committed state that violates a Method rule is a FINDING-class
+// violation, not a codec failure, so reading it must never hard-fail — the design
+// surface has to render the defect before an amendment can fix it.
+//
+// The FINDING half of this test moved out with the rules themselves (stage 4b1): that
+// this same shape fires SYS-RA-ORPHAN and correctly exempts the empty client from
+// SYS-ENCAPSULATES is now asserted in internal/engine/designhealth's parity test,
+// against its own red mutants.
+func Test_ViolatingCommittedState_Decodes(t *testing.T) {
 	// A System with an ORPHAN ResourceAccess (no edge to a resource) — a
 	// finding-class violation, NOT a codec failure. (Empty encapsulates on an
 	// M/E/RA is rejected by the encoder outright, so it cannot seed a committed
-	// state; the empty client here is R5-exempt and correctly raises nothing.)
+	// state; the empty client here is R5-exempt.)
 	sys := &projectstate.System{
 		Components: []projectstate.Component{
 			compE("web", "WebClient", projectstate.CompClient, projectstate.LayerClient, ""),
@@ -10419,13 +9751,8 @@ func Test_ViolatingCommittedState_DecodesThenFindings(t *testing.T) {
 	if err != nil || !ok {
 		t.Fatalf("a violating committed state must still decode (read-safety): ok=%v err=%v", ok, err)
 	}
-	model := got.SystemDesign.Model
-	if !hasRule(raOrphanFindings(KindSystem, model), "SYS-RA-ORPHAN", SeverityError) {
-		t.Fatal("orphan RA must surface as a finding on the decoded committed state")
-	}
-	// The empty client is R5-exempt: a legitimate empty encapsulates, no finding.
-	if hasRule(encapsulatesFindings(KindSystem, model), "SYS-ENCAPSULATES", SeverityError) {
-		t.Fatal("empty-encapsulates client must NOT fire SYS-ENCAPSULATES (R5 scoping)")
+	if _, isSystem := got.SystemDesign.Model.(*projectstate.System); !isSystem {
+		t.Fatalf("the decoded violating state must still carry a typed System model, got %T", got.SystemDesign.Model)
 	}
 }
 
@@ -13294,6 +12621,43 @@ func Test_RoundRepliesFor_ReKeysTheOpenRoundsRepliesAndDropsTheRest(t *testing.T
 	// No open round ⇒ nothing to append to.
 	if out := (&coAuthorState{}).roundRepliesFor([]projectstate.ReviewReply{{CommentID: "r1c1"}}); out != nil {
 		t.Fatalf("with no round open there is nothing to mirror; got %+v", out)
+	}
+}
+
+// Test_coAuthorStateView_ServesNoMethodFindings states the emptiness stage 4b1 created,
+// so it is a tested fact rather than an untested regression. The thirteen Method rules
+// this session used to compute inline moved to internal/engine/designhealth and surface
+// through QueryProjectView{designHealth}; the draft below violates SEVERAL of them (an
+// orphan ResourceAccess, an empty-encapsulates Manager, a name/layer contradiction, no
+// dynamic views) and the session's own view must now report NONE of it.
+//
+// The session-local warning path is unchanged, so the same state with an unresolved
+// critique still carries exactly its one finding — which is what keeps this an
+// assertion about WHICH findings left rather than about the field being dead.
+func Test_coAuthorStateView_ServesNoMethodFindings(t *testing.T) {
+	violating := &projectstate.System{Components: []projectstate.Component{
+		{ID: "mgr", Name: "OrderManager", Kind: projectstate.CompManager, Layer: projectstate.LayerClient},
+		{ID: "ra", Name: "OrderAccess", Kind: projectstate.CompResourceAccess, Layer: projectstate.LayerResourceAccess},
+	}}
+	s := &coAuthorState{projectID: "p", artifactKind: KindSystem, stage: StageAwaitingReview, draft: violating}
+
+	got, err := s.view()
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if len(got.Findings) != 0 {
+		t.Fatalf("the Method rules moved to designhealth in stage 4b1 and surface through "+
+			"QueryProjectView{designHealth}; the session must serve no findings of its own, got %+v", got.Findings)
+	}
+
+	s.unresolvedCritique = "the PM never converged"
+	s.critique = &CritiqueView{Role: critiqueRoleArchitect}
+	got, err = s.view()
+	if err != nil {
+		t.Fatalf("view: %v", err)
+	}
+	if len(got.Findings) != 1 || got.Findings[0].RuleID != RuleID("ARCHITECT-CRITIQUE-UNRESOLVED") {
+		t.Fatalf("the session-local unresolved-critique warning stays; got %+v", got.Findings)
 	}
 }
 
