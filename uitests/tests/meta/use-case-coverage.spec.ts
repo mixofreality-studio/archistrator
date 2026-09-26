@@ -7,7 +7,7 @@
  * This is a META-check, not a UI test: it drives no browser page. It:
  *
  *   (a) fetches the CORE-classified use case ids over the wire — the SAME
- *       GetProject("archistrator") read gating.ts's constructionArtifactsAvailable
+ *       summary-view read of "archistrator" in gating.ts's constructionArtifactsAvailable
  *       uses, via the new fetchCoreUseCases — and self-skips (requireServer
  *       pattern) when the server behind the SPA proxy is unreachable;
  *   (b) STATICALLY scans tests/*.spec.ts SOURCE (readdir + regex — it does NOT
@@ -39,27 +39,18 @@ const TAG_RE = /tagUseCase\(\s*['"]([a-z0-9-]+)['"]\s*\)/g;
  * Core use cases with NO reachable UI flow today, and why — verified against
  * the webApp screen/route source, not assumed. Remove an entry the moment a
  * real spec tags that id.
+ *
+ * EMPTY since stage 4a. The one entry this map carried,
+ * `commit-to-a-project-option`, stopped being a CORE use case in `5354b1f2`:
+ * the model reclassified it a variation of `execute-a-project-activity` (spec
+ * §4 / R4 — "3 core use cases"). This map is consulted for core ids only, so
+ * the entry documented a gap that can no longer occur, and a dead entry reads
+ * to the next person as a live coverage hole. The M0 gate it described is
+ * still pinned deterministically off-ledger by
+ * `tests/preview/activity-experience.spec.ts` over the `project-design-m0`
+ * fixture; `preview/` is outside this scan by design.
  */
-const KNOWN_GAPS: Record<string, string> = {
-  'commit-to-a-project-option':
-    'The SDP decision UI (SdpReviewView — option cards + the M0 approve bar, ' +
-    'UI_IDENTIFIERS.SdpReview.*) renders only while the Project Design activity ' +
-    'is AWAITING that decision. Stage 5 moved it from the Phase-2 rail onto the ' +
-    'Activity Experience (`/project/$id/activity/projectDesign?task=sdpReview`, ' +
-    'spec §6): one deterministic M0 cost-approval gate with no send-back. ' +
-    'Reaching that live window still needs driving the FULL Phase-2 sequence ' +
-    '(8 sequential artifact drafts: planningAssumptions…riskModel) with no ' +
-    'seed/import API — this harness is deliberately un-cheatable (see README) and ' +
-    'drives no state-injection route. The one seeded project with committed ' +
-    'Phase-2 state ("archistrator") has already advanced past the gate, so no live ' +
-    'state reachable from a real server renders the decision UI. ' +
-    'PARTIALLY COVERED OFF-LEDGER: `tests/preview/activity-experience.spec.ts` ' +
-    'pins the gate deterministically over the `project-design-m0` fixture (the ' +
-    'Approve verb, the absence of any send-back, the amend-architecture link, and ' +
-    'the read-only history) — but `preview/` is outside this scan by design, and a ' +
-    'fixture is not a live commit. Revisit once a live Phase-2-through-SDP run is ' +
-    'worth the cost.',
-};
+const KNOWN_GAPS: Record<string, string> = {};
 
 test.beforeEach(async ({ request }) => {
   await requireServer(request, BASE);

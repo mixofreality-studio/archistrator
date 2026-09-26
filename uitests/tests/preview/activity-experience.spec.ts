@@ -365,7 +365,7 @@ test.describe('activity experience: what each body says', () => {
     page,
   }) => {
     const view = fixture('activity-experience', 'review-set-error').ops[
-      'constructionQueryActivityView'
+      'deliveryQueryActivityView'
     ]?.result as { reviewSetError: string };
     expect(view.reviewSetError).toBeTruthy();
 

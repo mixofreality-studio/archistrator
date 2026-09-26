@@ -30,7 +30,7 @@ import (
 	fwgithub "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github"
 	gh "github.com/mixofreality-studio/archistrator-platform/framework-go-infrastructure-github/testinfra"
 	fwm "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	ps "github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -43,7 +43,7 @@ func iraRC(ctx context.Context) fwm.Context { return fwm.Context{Context: ctx} }
 
 // iraDeltaHarness bundles the wired-together pieces of one I-RA-Δ scenario.
 type iraDeltaHarness struct {
-	mgr     systemdesign.SystemDesignManager
+	mgr     delivery.DeliveryManager
 	fakeGH  *gh.FakeGitHub
 	gitRepo *fwgithub.GitStore // the per-project on-disk git repo (projectstate seam)
 	ctx     context.Context
@@ -88,7 +88,7 @@ func newIRADeltaHarness(t *testing.T) *iraDeltaHarness {
 	// missed until Task 8's `go vet ./...` pass surfaced it as a build break).
 	// activityExecutionAccess (stage 3 task 6) is nil for the same reason: this
 	// harness drives no co-author workflow, so nothing reaches the round ledger. ---
-	mgr := systemdesign.NewSystemDesignManager(nil, stateAdapter, nil, scAccess, nil, nil, nil, nil, nil, "")
+	mgr := delivery.NewDeliveryManager(nil, stateAdapter, nil, nil, nil, nil, nil, nil, nil, scAccess, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
 
 	return &iraDeltaHarness{mgr: mgr, fakeGH: fake, gitRepo: rawRepo, ctx: context.Background()}
 }
@@ -119,11 +119,11 @@ func TestIRADelta_AdoptSucceedsWithPreExistingContent_ThenCreates(t *testing.T) 
 	h.fakeGH.SeedRepoFile(iraDeltaAccount, "my-system", "README.md", []byte("# hello"))
 	h.fakeGH.SeedRepoFile(iraDeltaAccount, "my-system", ".github/workflows/claude.yml", []byte("name: claude"))
 
-	id, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice@example.com"), "my-system")
+	id, err := iraStartProject(h, "alice@example.com", "my-system")
 	if err != nil {
 		t.Fatalf("CreateProject over a non-empty repo must SUCCEED (permissive adopt), got: %v", err)
 	}
-	if id != systemdesign.ProjectID("my-system") {
+	if id != delivery.ProjectID("my-system") {
 		t.Fatalf("project id = %q, want name-as-identity my-system", id)
 	}
 
@@ -153,7 +153,7 @@ func TestIRADelta_NotUnderInstallation_DoesNotCreate(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	// The repo is NOT seeded → GET /repos/acme/ghost 404s under the installation.
 
-	_, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice@example.com"), "ghost")
+	_, err := iraStartProject(h, "alice@example.com", "ghost")
 	if err == nil {
 		t.Fatal("CreateProject must FAIL when the repo is not under the installation")
 	}
@@ -183,11 +183,11 @@ func TestIRADelta_FreshCreate_EmptyRepo(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	h.fakeGH.SeedEmptyRepo(iraDeltaAccount, "fresh-svc", true)
 
-	id, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("bob@example.com"), "fresh-svc")
+	id, err := iraStartProject(h, "bob@example.com", "fresh-svc")
 	if err != nil {
 		t.Fatalf("CreateProject (fresh empty repo): %v", err)
 	}
-	if id != systemdesign.ProjectID("fresh-svc") {
+	if id != delivery.ProjectID("fresh-svc") {
 		t.Fatalf("project id = %q, want fresh-svc", id)
 	}
 
@@ -203,11 +203,11 @@ func TestIRADelta_FreshCreate_EmptyRepo(t *testing.T) {
 		t.Fatalf("the committed design workflow file is empty")
 	}
 	// createProject — the project is born at version 1 with name-as-identity.
-	st, err := h.mgr.GetProject(iraRC(h.ctx), id)
+	st, err := iraGetProject(h, id)
 	if err != nil {
-		t.Fatalf("GetProject: %v", err)
+		t.Fatalf("queryProjectView(summary): %v", err)
 	}
-	if st.ProjectID != id || st.Version != 1 || st.Phase != systemdesign.PhaseSystemDesign {
+	if st.ProjectID != id || st.Version != 1 || st.Phase != delivery.PhaseSystemDesign {
 		t.Fatalf("fresh project = id=%s v=%d phase=%v, want fresh-svc/1/SystemDesign", st.ProjectID, st.Version, st.Phase)
 	}
 	assertProjectStateCommitted(t, h, "fresh-svc", "fresh-svc")
@@ -255,31 +255,31 @@ func TestIRADelta_ResumeFromExistingAiarchState(t *testing.T) {
 	}
 
 	// CreateProject against the repo with prior state → RESUME (no error, no clobber).
-	id, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("carol@example.com"), "resumed-svc")
+	id, err := iraStartProject(h, "carol@example.com", "resumed-svc")
 	if err != nil {
 		t.Fatalf("CreateProject (resume) must NOT error on an existing .aiarch/ state, got: %v", err)
 	}
-	if id != systemdesign.ProjectID("resumed-svc") {
+	if id != delivery.ProjectID("resumed-svc") {
 		t.Fatalf("resume project id = %q, want resumed-svc", id)
 	}
 
 	// The returned project reflects CURRENT PROGRESS — the prior version/phase/slot SURVIVE.
-	st, err := h.mgr.GetProject(iraRC(h.ctx), id)
+	st, err := iraGetProject(h, id)
 	if err != nil {
-		t.Fatalf("GetProject (resumed): %v", err)
+		t.Fatalf("queryProjectView(summary, resumed): %v", err)
 	}
-	if st.Version != 4 || st.Phase != systemdesign.PhaseProjectDesign || st.Name != "Resumed Service" {
+	if st.Version != 4 || st.Phase != delivery.PhaseProjectDesign || st.Name != "Resumed Service" {
 		t.Fatalf("resume clobbered/reset state: got v%d/%v/%q, want v4/ProjectDesign/Resumed Service",
 			st.Version, st.Phase, st.Name)
 	}
 	// The committed Mission slot from the prior run survives the resume.
-	var missionStage systemdesign.ArtifactStage = -1
+	var missionStage delivery.ArtifactStage = -1
 	for _, slot := range st.Slots {
 		if slot.Kind == ps.KindMission.WireName() {
 			missionStage = slot.Stage
 		}
 	}
-	if missionStage != systemdesign.ArtifactStageCommitted {
+	if missionStage != delivery.ArtifactStageCommitted {
 		t.Fatalf("resume lost the prior committed Mission slot: stage = %v, want StageCommitted", missionStage)
 	}
 
@@ -301,7 +301,7 @@ func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 	seedInstallationFor(h.fakeGH, iraDeltaAccount)
 	h.fakeGH.SeedEmptyRepo(iraDeltaAccount, "idem-svc", true)
 
-	if _, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice"), "idem-svc"); err != nil {
+	if _, err := iraStartProject(h, "alice", "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (first): %v", err)
 	}
 	commitsAfterFirst := countIRARequests(h.fakeGH, "POST", "/repos/acme/idem-svc/git/commits")
@@ -311,7 +311,7 @@ func TestIRADelta_WorkflowFileIdempotent(t *testing.T) {
 
 	// Second create against the SAME repo: the on-disk state already exists → RESUME;
 	// the scaffold is byte-identical → no second commit.
-	if _, err := h.mgr.CreateProject(iraRC(h.ctx), systemdesign.OwnerScope("alice"), "idem-svc"); err != nil {
+	if _, err := iraStartProject(h, "alice", "idem-svc"); err != nil {
 		t.Fatalf("CreateProject (second, resume) must not error, got: %v", err)
 	}
 	commitsAfterSecond := countIRARequests(h.fakeGH, "POST", "/repos/acme/idem-svc/git/commits")
@@ -361,4 +361,25 @@ func countIRARequests(fake *gh.FakeGitHub, method, path string) int {
 		}
 	}
 	return n
+}
+
+// iraStartProject / iraGetProject are the stage-4a shims over the twelve-op
+// deliveryManager: the former systemDesignManager.CreateProject is StartProject with
+// no model/research and start=false, and its GetProject is the summary arm of
+// QueryProjectView. The proof they carry is unchanged — only the entry point moved.
+func iraStartProject(h *iraDeltaHarness, owner, name string) (delivery.ProjectID, error) {
+	res, err := h.mgr.StartProject(iraRC(h.ctx), delivery.OwnerScope(owner), name, nil, nil, nil, false)
+	return res.ProjectID, err
+}
+
+func iraGetProject(h *iraDeltaHarness, id delivery.ProjectID) (delivery.ProjectState, error) {
+	pid := string(id)
+	view, err := h.mgr.QueryProjectView(iraRC(h.ctx), delivery.ProjectViewQuery{
+		Kind:      delivery.ProjectViewSummary,
+		ProjectID: &pid,
+	})
+	if err != nil || view.Summary == nil {
+		return delivery.ProjectState{}, err
+	}
+	return *view.Summary, nil
 }

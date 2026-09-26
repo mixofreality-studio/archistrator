@@ -8,8 +8,8 @@
  * `/api/v1/<mgr>/<op>[/{param}...]`, where <mgr> and <op> are single kebab-case
  * path segments. The server's MCP tool name for that same operation is
  * `<camelMgr><PascalOp>` — e.g.
- * `/api/v1/system-design/get-session-state/{projectID}` (GET) binds to tool
- * `systemDesignGetSessionState`. This generator derives that binding for EVERY
+ * `/api/v1/delivery/query-activity-view/{projectID}/{activityID}` (GET) binds to
+ * tool `deliveryQueryActivityView`. This generator derives that binding for EVERY
  * method+path pair in the OAS; nobody hand-maintains the table, and a path that
  * does not fit the shape fails the build loudly instead of silently mis-binding.
  *

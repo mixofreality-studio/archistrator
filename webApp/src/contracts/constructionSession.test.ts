@@ -10,7 +10,7 @@ import assert from 'node:assert/strict';
 import { mapConstructionSession } from './wire.ts';
 import type { components } from './schema.ts';
 
-type WireSession = components['schemas']['ConstructionConstructionSessionView'];
+type WireSession = components['schemas']['DeliveryConstructionSessionView'];
 
 void test('the gate, its occurrence, the redraft budget and the attempt reach the mapped view', () => {
   const wire: WireSession = {

@@ -4,7 +4,55 @@
  */
 
 export interface paths {
-  '/api/v1/construction/execute-next-activity/{projectID}': {
+  '/api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AcknowledgeStaleBasis'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/delivery/ask-questions/{projectID}/{activityID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['AskQuestions'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/delivery/dispatch-activity-task/{projectID}/{activityID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['DispatchActivityTask'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/delivery/execute-next-activity/{projectID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -20,71 +68,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/get-episode-timeline/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetEpisodeTimeline'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/construction/get-pump-status/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetPumpStatus'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/construction/get-session-state/{projectID}/{activityID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetSessionState'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/construction/list-episodes-for-activity/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['ListEpisodesForActivity'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/construction/override-activity/{projectID}/{activityID}': {
+  '/api/v1/delivery/override-activity/{projectID}/{activityID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -100,23 +84,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/pause-project/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['PauseProject'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/construction/query-activity-view/{projectID}/{activityID}': {
+  '/api/v1/delivery/query-activity-view/{projectID}/{activityID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -132,7 +100,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/resume-project/{projectID}': {
+  '/api/v1/delivery/query-project-view': {
     parameters: {
       query?: never;
       header?: never;
@@ -141,14 +109,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['ResumeProject'];
+    post: operations['QueryProjectView'];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/run-replan-sweep/{projectID}': {
+  '/api/v1/delivery/replan-project/{projectID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -157,14 +125,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['RunReplanSweep'];
+    post: operations['ReplanProject'];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/set-review-policy/{projectID}': {
+  '/api/v1/delivery/set-project-execution-policy/{projectID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -173,14 +141,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['SetReviewPolicy'];
+    post: operations['SetProjectExecutionPolicy'];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/submit-phase-decision/{projectID}/{activityID}': {
+  '/api/v1/delivery/set-project-run-state/{projectID}': {
     parameters: {
       query?: never;
       header?: never;
@@ -189,14 +157,14 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['SubmitPhaseDecision'];
+    post: operations['SetProjectRunState'];
     delete?: never;
     options?: never;
     head?: never;
     patch?: never;
     trace?: never;
   };
-  '/api/v1/construction/update-review-policy/{projectID}': {
+  '/api/v1/delivery/start-project': {
     parameters: {
       query?: never;
       header?: never;
@@ -205,7 +173,23 @@ export interface paths {
     };
     get?: never;
     put?: never;
-    post: operations['UpdateReviewPolicy'];
+    post: operations['StartProject'];
+    delete?: never;
+    options?: never;
+    head?: never;
+    patch?: never;
+    trace?: never;
+  };
+  '/api/v1/delivery/submit-review-decision/{projectID}/{activityID}': {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    get?: never;
+    put?: never;
+    post: operations['SubmitReviewDecision'];
     delete?: never;
     options?: never;
     head?: never;
@@ -340,444 +324,67 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/project-design/acknowledge-stale-basis/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AcknowledgeStaleBasis'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/advance-to-construction/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AdvanceToConstruction'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/ask-questions/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AskQuestions'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/get-episode-timeline/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetEpisodeTimeline_2'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/get-session-state/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetSessionState_2'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/list-episodes-for-artifact/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['ListEpisodesForArtifact'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/request-artifact-draft/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['RequestArtifactDraft'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/request-sdp-commit/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['RequestSDPCommit'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/set-review-comment-status/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SetReviewCommentStatus'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/submit-review-decision/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SubmitReviewDecision'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/project-design/submit-sdp-decision/{projectID}/{optionID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SubmitSDPDecision'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/acknowledge-stale-basis/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AcknowledgeStaleBasis_2'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/advance-phase/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AdvancePhase'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/ask-questions/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['AskQuestions_2'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/create-project': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['CreateProject'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/get-design-health/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetDesignHealth'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/get-episode-timeline/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetEpisodeTimeline_3'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/get-project/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetProject'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/get-session-state/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['GetSessionState_3'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/list-episodes-for-artifact/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['ListEpisodesForArtifact_2'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/list-projects': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get: operations['ListProjects'];
-    put?: never;
-    post?: never;
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/request-artifact-draft/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['RequestArtifactDraft_2'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/set-operating-model/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SetOperatingModel'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/set-research-input/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SetResearchInput'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/set-review-comment-status/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SetReviewCommentStatus_2'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/start-system-design/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['StartSystemDesign'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
-  '/api/v1/system-design/submit-review-decision/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['SubmitReviewDecision_2'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
 }
 export type webhooks = Record<string, never>;
 export interface components {
   schemas: {
-    ConstructionActivityID: string;
-    ConstructionActivityLifecyclePhase: {
+    /** @enum {integer} */
+    DeliveryActiveRole: 0 | 1 | 2;
+    /** @enum {integer} */
+    DeliveryActiveStep: 0 | 1 | 2 | 3;
+    /** @enum {integer} */
+    DeliveryActivityBuildStatus: 0 | 1 | 2 | 3;
+    /** @enum {integer} */
+    DeliveryActivityConstructionPhase: 0 | 1 | 2 | 3;
+    DeliveryActivityConstructionStatus: {
+      ActivityID: string;
+      /** @description The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true. */
+      BuildStatus: components['schemas']['DeliveryActivityBuildStatus'];
+      CurrentPhase: components['schemas']['DeliveryActivityMethodPhase'];
+      FailureDetail: string;
+      FailureReason: components['schemas']['DeliveryFailureReason'];
+      Kind: components['schemas']['DeliveryActivityType'];
+      /** @description The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true. */
+      Phase: components['schemas']['DeliveryActivityConstructionPhase'];
+      Phases: null | components['schemas']['DeliveryPhaseCompletion'][];
+      Produced: null | components['schemas']['DeliveryProducedArtifact'][];
+      Type: components['schemas']['DeliveryActivityType'];
+      Variant: components['schemas']['DeliveryTestingVariant'];
+      attempts?: components['schemas']['DeliveryTaskAttempt'][];
+      classified: boolean;
+      /** Format: date-time */
+      completedAt?: null | string;
+      hasBuildEvidence: boolean;
+      layer: string;
+      layerBand: string;
+      /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it whole; then it names that dispatch's attempt. Delivery is at-least-once: when a note's delivery stamp cannot be written, the note stays pending and the next attempt carries it again, so an agent may see one note twice but never zero times, and never twice in the same attempt. When the pending notes exceed the 16 KiB one dispatch carries, the oldest wait for a later attempt so the newest arrives whole. A note recorded where no agent runs next (a merge-only retry, a takeover, or a finished activity) stays pending until the activity's next agent dispatch. Omitted when there are none. */
+      operatorNotes?: null | components['schemas']['DeliveryOperatorNote'][];
+      /** @description Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
+      pendingResume?: components['schemas']['DeliveryPendingResume'];
+      /** @description True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
+      recorded: boolean;
+      /** Format: date-time */
+      startedAt?: null | string;
+      /** @description The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed. */
+      worstOrigin?: string;
+    };
+    DeliveryActivityGitStatus: {
+      ActivityID: string;
+      ArchApproved: boolean;
+      BranchName: string;
+      BranchRef: string;
+      CICheck: components['schemas']['DeliveryCICheckState'];
+      CRLabel: string;
+      IsRevert: boolean;
+      Merged: boolean;
+      PrNumber: number;
+      PrURL: string;
+      PullRequestRef: string;
+      /** Format: date-time */
+      UpdatedAt: string;
+    };
+    DeliveryActivityID: string;
+    DeliveryActivityLifecyclePhase: {
       /** @description True iff the gate task's state is passed. */
       completed: boolean;
       /** @description The review task whose pass IS this lifecycle phase's binary exit criterion. */
@@ -788,15 +395,16 @@ export interface components {
       /** @description The share of the activity's progress this lifecycle phase carries; the weights of one activity sum to 100. */
       weight: number;
     };
-    ConstructionActivityOverride: {
-      comments?: null | components['schemas']['ConstructionAnchoredComment'][];
-      kind: components['schemas']['ConstructionOverrideKind'];
+    DeliveryActivityMethodPhase: string;
+    DeliveryActivityOverride: {
+      comments?: null | components['schemas']['DeliveryAnchoredComment'][];
+      kind: components['schemas']['DeliveryOverrideKind'];
       notes: string;
     };
     /** @enum {string} */
-    ConstructionActivityTaskKind: 'dispatch' | 'review';
+    DeliveryActivityTaskKind: 'dispatch' | 'review';
     /** @enum {string} */
-    ConstructionActivityTaskState:
+    DeliveryActivityTaskState:
       | 'pending'
       | 'locked'
       | 'running'
@@ -804,51 +412,110 @@ export interface components {
       | 'passed'
       | 'sentBack'
       | 'failed';
-    ConstructionActivityTaskView: {
+    DeliveryActivityTaskView: {
       /** @description The task ids that must pass before this one may start. Two tasks that share a predecessor run in parallel; a task with several waits for all of them. */
       dependsOn: string[];
       /** @description The task id within the lifecycle (a Figure A-1 task id for a construction activity). */
       id: string;
-      kind: components['schemas']['ConstructionActivityTaskKind'];
+      kind: components['schemas']['DeliveryActivityTaskKind'];
       /** @description The id of the lifecycle phase this task belongs to. */
       phase: string;
       /** @description For a review task, the dispatch task it judges — the pair a send-back re-opens. Omitted on a dispatch task. */
       reviews?: string;
       /** @description Oldest first. A dispatch task and the review task that judges it share revision numbers. */
-      revisions: components['schemas']['ConstructionTaskRevisionView'][];
-      state: components['schemas']['ConstructionActivityTaskState'];
+      revisions: components['schemas']['DeliveryTaskRevisionView'][];
+      state: components['schemas']['DeliveryActivityTaskState'];
       title: string;
     };
+    /** @enum {integer} */
+    DeliveryActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
     /** @description One activity's lifecycle, per-task revisions and live review set: the Activity Experience's single read. Derived on read from the attempt ledger, the episode ledger, the operator notes, the stored lifecycle-phase completions and the live session; nothing here is stored. */
-    ConstructionActivityView: {
-      activityId: components['schemas']['ConstructionActivityID'];
+    DeliveryActivityView: {
+      activityId: components['schemas']['DeliveryActivityID'];
       /** @description The architecture component this activity builds. Omitted for an activity with none (the system test plan, system testing). */
       componentId?: string;
       /** @description The activity's display title from the committed activity list; its id when the list carries no title. */
       name: string;
       /** @description The lifecycle phases (Figure A-2) in lifecycle order. */
-      phases: components['schemas']['ConstructionActivityLifecyclePhase'][];
+      phases: components['schemas']['DeliveryActivityLifecyclePhase'][];
       /** @description Who reviews the artifact at the gate the activity is waiting at. Present only while its live session awaits approval at a lifecycle-phase gate. */
-      reviewSet?: components['schemas']['ConstructionReviewSet'];
+      reviewSet?: components['schemas']['DeliveryReviewSet'];
       /** @description Why reviewSet is absent at a live gate: the review engine refused the proposal. Omitted when the engine answered or no gate is live. */
       reviewSetError?: string;
-      state: components['schemas']['ConstructionActivityViewState'];
+      state: components['schemas']['DeliveryActivityViewState'];
       /** @description Every task of the lifecycle DAG, in lifecycle order — including the tasks nothing has happened on yet. */
-      tasks: components['schemas']['ConstructionActivityTaskView'][];
+      tasks: components['schemas']['DeliveryActivityTaskView'][];
       /** @description The activity type's wire name: service, frontend, testing, deployment, documentation, uiDesign or integration. */
       type: string;
       /** @description The testing variant's wire name (plan, harness, perf, systemTest or qaProcess). Omitted unless type is testing. */
       variant?: string;
     };
     /** @enum {string} */
-    ConstructionActivityViewState: 'notStarted' | 'running' | 'awaitingHuman' | 'done' | 'failed';
-    ConstructionAnchoredComment: {
+    DeliveryActivityViewState: 'notStarted' | 'running' | 'awaitingHuman' | 'done' | 'failed';
+    DeliveryAnchoredComment: {
+      anchorText: string;
       jsonPath: string;
       replyTo: string;
       text: string;
     };
-    ConstructionConstructionSessionView: {
-      activityId?: components['schemas']['ConstructionActivityID'];
+    /** @enum {integer} */
+    DeliveryArtifactKind: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9 | 10 | 11 | 12 | 13 | 14 | 15 | 16;
+    DeliveryArtifactSlotModel: {
+      kind: string;
+      model?:
+        | components['schemas']['ModelActivityList']
+        | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelDeploymentOperationsModel']
+        | components['schemas']['ModelGlossary']
+        | components['schemas']['ModelMissionStatement']
+        | components['schemas']['ModelNetwork']
+        | components['schemas']['ModelPlanningAssumptions']
+        | components['schemas']['ModelRiskModel']
+        | components['schemas']['ModelScrubbedRequirements']
+        | components['schemas']['ModelSdpReview']
+        | components['schemas']['ModelSolution']
+        | components['schemas']['ModelStandardCheck']
+        | components['schemas']['ModelSystem']
+        | components['schemas']['ModelVolatilities'];
+    };
+    DeliveryArtifactSlotView: {
+      kind: string;
+      model: components['schemas']['DeliveryArtifactSlotModel'];
+      notes?: null | string;
+      provenance?: unknown;
+      revisions?: number;
+      stage: components['schemas']['DeliveryArtifactStage'];
+      staleBasis?: boolean;
+      staleBasisCause?: unknown;
+    };
+    /** @enum {integer} */
+    DeliveryArtifactStage: 0 | 1 | 2 | 3 | 4;
+    DeliveryAttemptProvenance: {
+      basis?: string;
+      /** Format: date-time */
+      generatedAt?: null | string;
+      generator?: string;
+      origin: string;
+    };
+    /** @enum {integer} */
+    DeliveryCICheckState: 0 | 1 | 2;
+    DeliveryCheckItem: {
+      guideline: string;
+      justification: string;
+      section: string;
+      /** @enum {string} */
+      status: 'pass' | 'waived' | 'fail';
+    };
+    DeliveryConstructionProgress: {
+      EV: components['schemas']['DeliveryEVCurve'];
+      HandOffModel: string;
+      SupervisionCap: number;
+      TotalWeeks: number;
+      Week: number;
+      points?: null | components['schemas']['DeliveryEvPoint'][];
+    };
+    DeliveryConstructionSessionView: {
+      activityId?: components['schemas']['DeliveryActivityID'];
       /** @description The current supervision attempt, 1-based: a variance retry, an operator Retry and an escalation's re-dispatch each start the next one. 0 before the first attempt and on the project-level view. */
       attempt: number;
       /** @description How many supervision attempts the activity gets before it fails with VarianceExhausted, so a client never hardcodes the number. 0 on the project-level view. */
@@ -865,82 +532,343 @@ export interface components {
        * @description When an escalation stops waiting and fails the activity: awaitingSince plus the escalation-wait window. Omitted for phase approval gates and the merge hold, and for an escalation that waits indefinitely.
        */
       awaitingUntil?: string;
-      pipelinePhase?: components['schemas']['ConstructionPipelinePhase'];
-      projectId: components['schemas']['ConstructionProjectID'];
+      pipelinePhase?: components['schemas']['DeliveryPipelinePhase'];
+      projectId: components['schemas']['DeliveryProjectID'];
       /** @description True when the phase gate this activity is waiting at can take no further SendBack redraft: a gate redrafts at most 4 times and refuses the fifth send-back, so approve it, or steer the activity with OverrideActivity. Recomputed on entry to every gate; false at the merge hold and at an escalation. */
       redraftExhausted: boolean;
-      reviewSet?: components['schemas']['ConstructionReviewSet'];
+      reviewSet?: components['schemas']['DeliveryReviewSet'];
       /** @description Why reviewSet is absent at a gate: the review engine refused to propose reviewers. It is a defect in the Manager's call or in the engine, never an operator error, and the gate itself is unaffected — Approve and SendBack work. Omitted whenever the engine answered. */
       reviewSetError?: string;
-      stage: components['schemas']['ConstructionConstructionStage'];
-      variance?: components['schemas']['ConstructionFlaggedVariance'];
+      stage: components['schemas']['DeliveryConstructionStage'];
+      variance?: components['schemas']['DeliveryFlaggedVariance'];
     };
     /** @enum {integer} */
-    ConstructionConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    DeliveryConstructionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    DeliveryContractOp: {
+      Inputs: null | components['schemas']['DeliveryContractStruct'][];
+      Note: string;
+      Outputs: null | components['schemas']['DeliveryContractStruct'][];
+      Signature: string;
+      Stereotype: string;
+    };
+    DeliveryContractParty: {
+      How: string;
+      Layer: string;
+      Name: string;
+    };
+    DeliveryContractRevision: {
+      At: string;
+      By: string;
+      ByActivity: string;
+      Rev: string;
+      Summary: string;
+    };
+    DeliveryContractStruct: {
+      Fields: null | components['schemas']['DeliveryGoField'][];
+      Name: string;
+    };
+    DeliveryCritiqueView: {
+      role: string;
+      round: number;
+      summary: string;
+      verdict: string;
+    };
+    DeliveryDefectView: {
+      id: string;
+      note: string;
+      severity: string;
+      title: string;
+    };
+    DeliveryDesignHealth: {
+      attestations: components['schemas']['DeliveryCheckItem'][];
+      evaluatedAtRevision: number;
+      findings: components['schemas']['DeliveryFinding'][];
+      waivers: components['schemas']['DeliveryCheckItem'][];
+    };
+    DeliveryDraftModel: {
+      kind: string;
+      model?:
+        | components['schemas']['ModelActivityList']
+        | components['schemas']['ModelCoreUseCases']
+        | components['schemas']['ModelDeploymentOperationsModel']
+        | components['schemas']['ModelGlossary']
+        | components['schemas']['ModelMissionStatement']
+        | components['schemas']['ModelNetwork']
+        | components['schemas']['ModelPlanningAssumptions']
+        | components['schemas']['ModelRiskModel']
+        | components['schemas']['ModelScrubbedRequirements']
+        | components['schemas']['ModelSdpReview']
+        | components['schemas']['ModelSolution']
+        | components['schemas']['ModelStandardCheck']
+        | components['schemas']['ModelSystem']
+        | components['schemas']['ModelVolatilities'];
+    };
+    DeliveryEVCurve: {
+      earned: null | number[];
+      planned: null | number[];
+      spi: number;
+      weeks: null | number[];
+    };
     /** @enum {integer} */
-    ConstructionEpisodeKind: 0 | 1 | 2 | 3 | 4;
-    ConstructionEpisodeLineage: {
+    DeliveryEpisodeKind: 0 | 1 | 2 | 3 | 4;
+    DeliveryEpisodeLineage: {
       activityId?: string;
       runId: string;
       workflowId: string;
     };
     /** @enum {integer} */
-    ConstructionEpisodeOutcome: 0 | 1 | 2 | 3;
-    ConstructionEpisodeRecordView: {
+    DeliveryEpisodeOutcome: 0 | 1 | 2 | 3;
+    DeliveryEpisodeRecordView: {
       costUsd?: number;
       /** Format: date-time */
       endedAt: string;
       episodeId: string;
       gapReason?: string;
-      kind: components['schemas']['ConstructionEpisodeKind'];
-      lineage?: components['schemas']['ConstructionEpisodeLineage'];
+      kind: components['schemas']['DeliveryEpisodeKind'];
+      lineage?: components['schemas']['DeliveryEpisodeLineage'];
       model?: string;
       numTurns?: number;
-      outcome: components['schemas']['ConstructionEpisodeOutcome'];
+      outcome: components['schemas']['DeliveryEpisodeOutcome'];
       /** Format: date-time */
       startedAt: string;
-      streamedUsage?: components['schemas']['ConstructionEpisodeUsage'];
-      subagentSpans?: components['schemas']['ConstructionSubagentSpan'][];
+      streamedUsage?: components['schemas']['DeliveryEpisodeUsage'];
+      subagentSpans?: components['schemas']['DeliverySubagentSpan'][];
       targetRef: string;
       toolCallCounts?: {
         [key: string]: number;
       };
       tracePath?: string;
-      usage: components['schemas']['ConstructionEpisodeUsage'];
+      usage: components['schemas']['DeliveryEpisodeUsage'];
       workerClass?: string;
     };
-    ConstructionEpisodeTimeline: {
-      events: components['schemas']['ConstructionTimelineEvent'][];
-      record: components['schemas']['ConstructionEpisodeRecordView'];
+    DeliveryEpisodeTimeline: {
+      events: components['schemas']['DeliveryTimelineEvent'][];
+      record: components['schemas']['DeliveryEpisodeRecordView'];
     };
-    ConstructionEpisodeUsage: {
+    DeliveryEpisodeUsage: {
       cacheCreate: number;
       cacheRead: number;
       in: number;
       out: number;
     };
-    ConstructionErrorResponse: {
+    DeliveryErrorResponse: {
       code: string;
       error: string;
     };
-    ConstructionFlaggedVariance: {
-      activityId: components['schemas']['ConstructionActivityID'];
-      projectId: components['schemas']['ConstructionProjectID'];
-      summary: string;
+    DeliveryEvPoint: {
+      acPct?: number;
+      earnedPct: number;
+      note: string;
+      plannedPct: number;
+      week: number;
+    };
+    DeliveryEvidenceRef: {
+      kind: string;
+      ref: string;
+    };
+    DeliveryExecutionPolicyInput: {
+      policy?: components['schemas']['DeliveryReviewPolicyInput'];
+      preset: string;
     };
     /** @enum {integer} */
-    ConstructionOverrideKind: 0 | 1 | 2 | 3 | 4;
+    DeliveryFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
+    DeliveryFinding: {
+      location?: components['schemas']['DeliveryLocation'];
+      message: string;
+      ruleId: components['schemas']['DeliveryRuleID'];
+      severity: components['schemas']['DeliverySeverity'];
+    };
+    DeliveryFlaggedVariance: {
+      activityId: components['schemas']['DeliveryActivityID'];
+      projectId: components['schemas']['DeliveryProjectID'];
+      summary: string;
+    };
+    DeliveryGoField: {
+      Name: string;
+      Note: string;
+      Type: string;
+    };
+    DeliveryLocation: {
+      ordinal: number;
+      section: string;
+    };
+    DeliveryNoteComment: {
+      /** @description Where the comment is anchored in the artifact under review, as a JSONPath. */
+      jsonPath: string;
+      /** @description The comment, verbatim. */
+      text: string;
+    };
+    DeliveryOperatingModel: string;
+    DeliveryOperatorNote: {
+      /** @description Anchored comments that rode with the note. Omitted when there are none. */
+      comments?: null | components['schemas']['DeliveryNoteComment'][];
+      /**
+       * Format: date-time
+       * @description When the delivery was recorded. Omitted while the note is pending.
+       */
+      deliveredAt?: null | string;
+      /** @description The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending (never set for a note the dispatch carried only in part), and always for a skip note, which nothing runs after. */
+      deliveredToAttemptId?: string;
+      /** @description The gate the note was written at: a lifecycle phase's wire name, "merge" or "takeover". Omitted when none applies. */
+      gate?: string;
+      /** @description Why the note was written. */
+      kind: components['schemas']['DeliveryOperatorNoteKind'];
+      /** @description The note's id. */
+      noteId: string;
+      /**
+       * Format: date-time
+       * @description When the store recorded the note (server clock).
+       */
+      recordedAt: string;
+      /** @description The operator's note, verbatim. */
+      text: string;
+    };
+    /**
+     * @description Why an operator wrote a note: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered), 6 requeue.
+     * @enum {integer}
+     */
+    DeliveryOperatorNoteKind: 0 | 1 | 2 | 3 | 4 | 5 | 6;
+    DeliveryOptionID: string;
     /** @enum {integer} */
-    ConstructionPhaseDecision: 0 | 1 | 2;
+    DeliveryOverrideKind: 0 | 1 | 2 | 3 | 4;
+    DeliveryOwnerScope: string;
+    /** @description One unsatisfied direct dependency of an integration-pending row. */
+    DeliveryPendingDependency: {
+      /** @description The dependency id as the network authors it: an activity id or a milestone id. */
+      id: string;
+      /** @description Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect). */
+      reason: string;
+    };
+    /** @description Where an integration-pending row resumes, and what it waits on first. */
+    DeliveryPendingResume: {
+      /** @description The first lifecycle phase of the row's profile that its resolved phase set does not hold complete: the phase the pump would run first. */
+      fromPhase: components['schemas']['DeliveryActivityMethodPhase'];
+      /** @description The row's direct network dependencies that are not satisfied, in authored order. Empty when every dependency is satisfied: the row is next in line. */
+      waitsOn: components['schemas']['DeliveryPendingDependency'][];
+    };
     /** @enum {integer} */
-    ConstructionPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
-    ConstructionProjectID: string;
-    ConstructionPumpResult: {
-      activityId?: components['schemas']['ConstructionActivityID'];
+    DeliveryPhase: 0 | 1 | 2;
+    DeliveryPhaseAdvanceResult: {
+      advanced: boolean;
+      missingArtifacts: null | components['schemas']['DeliveryArtifactKind'][];
+    };
+    DeliveryPhaseCompletion: {
+      ArtifactRef: string;
+      Completed: boolean;
+      Label: string;
+      Phase: components['schemas']['DeliveryActivityMethodPhase'];
+      Weight: number;
+      /** Format: date-time */
+      completedAt?: null | string;
+    };
+    /** @enum {integer} */
+    DeliveryPhaseDecision: 0 | 1 | 2;
+    /** @enum {integer} */
+    DeliveryPipelinePhase: 0 | 1 | 2 | 3 | 4 | 5;
+    DeliveryProducedArtifact: {
+      Kind: string;
+      Note: string;
+      Produced: boolean;
+      Source: string;
+      Title: string;
+    };
+    DeliveryProjectID: string;
+    /** @enum {string} */
+    DeliveryProjectRunState: 'running' | 'paused';
+    /** @enum {integer} */
+    DeliveryProjectSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
+    DeliveryProjectSessionStateView: {
+      activeRole: components['schemas']['DeliveryActiveRole'];
+      activeStep: components['schemas']['DeliveryActiveStep'];
+      artifactKind: components['schemas']['DeliveryArtifactKind'];
+      draft: components['schemas']['DeliveryDraftModel'];
+      failureReason?: null | string;
+      findings?: null | components['schemas']['DeliveryFinding'][];
+      projectId: components['schemas']['DeliveryProjectID'];
+      reviewThread?: null | components['schemas']['DeliveryReviewCommentView'][];
+      round: number;
+      stage: components['schemas']['DeliveryProjectSessionStage'];
+      stageName: string;
+    };
+    DeliveryProjectState: {
+      GitRows: {
+        [key: string]: components['schemas']['DeliveryActivityGitStatus'];
+      };
+      Name: string;
+      Owner: components['schemas']['DeliveryOwnerScope'];
+      Phase: components['schemas']['DeliveryPhase'];
+      /** @enum {string} */
+      PhaseName: 'system-design' | 'project-design' | 'construction';
+      ProjectID: components['schemas']['DeliveryProjectID'];
+      Research: components['schemas']['DeliveryResearchInput'];
+      ServiceContracts: {
+        [key: string]: components['schemas']['DeliveryServiceContract'];
+      };
+      Slots: null | components['schemas']['DeliveryArtifactSlotView'][];
+      Version: number;
+      /** @description One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale. */
+      activityExecution: {
+        [key: string]: components['schemas']['DeliveryActivityConstructionStatus'];
+      };
+      constructionProgress?: components['schemas']['DeliveryConstructionProgress'];
+      /** @description True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
+      constructionStarted: boolean;
+      operatingModel: components['schemas']['DeliveryOperatingModel'];
+      /** @description True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead. */
+      operatorPaused: boolean;
+      /** @description The reason the operator gave when pausing construction. Omitted when construction is not paused. */
+      pauseReason?: string;
+      reviewPolicy?: components['schemas']['DeliveryReviewPolicyView'];
+      testingState?: components['schemas']['DeliveryTestingStateView'];
+    };
+    DeliveryProjectSummary: {
+      CommittedCount: number;
+      ConstructionComplete?: boolean;
+      Name: string;
+      Owner: components['schemas']['DeliveryOwnerScope'];
+      Phase: components['schemas']['DeliveryPhase'];
+      /** @enum {string} */
+      PhaseName: 'system-design' | 'project-design' | 'construction';
+      ProjectID: components['schemas']['DeliveryProjectID'];
+      TotalCount: number;
+      /** Format: date-time */
+      UpdatedAt: string;
+    };
+    DeliveryProjectView: {
+      constructionSession?: components['schemas']['DeliveryConstructionSessionView'];
+      designHealth?: components['schemas']['DeliveryDesignHealth'];
+      episodes?: null | components['schemas']['DeliveryEpisodeRecordView'][];
+      kind: components['schemas']['DeliveryProjectViewKind'];
+      projectSession?: components['schemas']['DeliveryProjectSessionStateView'];
+      projects?: null | components['schemas']['DeliveryProjectSummary'][];
+      pump?: components['schemas']['DeliveryPumpStatus'];
+      session?: components['schemas']['DeliverySessionStateView'];
+      summary?: components['schemas']['DeliveryProjectState'];
+      timeline?: components['schemas']['DeliveryEpisodeTimeline'];
+    };
+    /** @enum {string} */
+    DeliveryProjectViewKind:
+      | 'summary'
+      | 'projects'
+      | 'session'
+      | 'pump'
+      | 'designHealth'
+      | 'episodes'
+      | 'timeline';
+    DeliveryProjectViewQuery: {
+      activityId?: null | string;
+      artifactKind?: components['schemas']['DeliveryArtifactKind'];
+      episodeId?: null | string;
+      kind: components['schemas']['DeliveryProjectViewKind'];
+      owner?: components['schemas']['DeliveryOwnerScope'];
+      projectId?: null | string;
+    };
+    DeliveryPumpResult: {
+      activityId?: components['schemas']['DeliveryActivityID'];
       dispatched: boolean;
     };
     /** @description Whether the project's one construction pump is running now. It is one fact, deliberately separate from the recorded operator pause and from any activity's live session: a client combines them. */
-    ConstructionPumpStatus: {
+    DeliveryPumpStatus: {
       /** @description True iff the project's one construction pump ({projectId}:nextActivity) has a RUNNING execution now. A pump cascading between activities reads as open (it continues as new under the same id). False when no pump has run for the project, or the last one closed (it drained quiet, was paused, or failed). */
       open: boolean;
       /**
@@ -949,19 +877,62 @@ export interface components {
        */
       runStartedAt?: string;
     };
-    ConstructionReplanSweepResult: {
-      flaggedVariances?: null | components['schemas']['ConstructionFlaggedVariance'][];
+    DeliveryReplanSweepResult: {
+      flaggedVariances?: null | components['schemas']['DeliveryFlaggedVariance'][];
     };
-    ConstructionReviewFeedback: {
-      comments?: null | components['schemas']['ConstructionAnchoredComment'][];
+    DeliveryResearchInput: {
+      sources: null | components['schemas']['DeliveryResearchSource'][];
+    };
+    DeliveryResearchSource: {
+      content: string;
+      contentBytes?: number;
+      title: string;
+    };
+    DeliveryReviewCommentReply: {
+      at: string;
+      authorRole: string;
+      id: string;
+      text: string;
+    };
+    DeliveryReviewCommentView: {
+      addressee: string;
+      anchor: string;
+      anchorText: string;
+      authorRole: string;
+      id: string;
+      reopened: boolean;
+      replies: components['schemas']['DeliveryReviewCommentReply'][];
+      response?: string;
+      round: number;
+      status: string;
+      text: string;
+      type: string;
+    };
+    /** @enum {integer} */
+    DeliveryReviewDecision: 0 | 1 | 2 | 3 | 4 | 5;
+    DeliveryReviewDecisionInput: {
+      acknowledgeStale?: boolean;
+      commentId?: string;
+      commentStatus?: string;
+      decision: components['schemas']['DeliveryReviewDecision'];
+      optionId?: null | string;
+    };
+    DeliveryReviewFeedback: {
+      comments?: null | components['schemas']['DeliveryAnchoredComment'][];
       notes: string;
     };
-    ConstructionReviewPolicyInput: {
+    DeliveryReviewPolicyInput: {
       gatedPhasesByType: {
         [key: string]: string[];
       };
     };
-    ConstructionReviewRosterSeat: {
+    DeliveryReviewPolicyView: {
+      gatedPhasesByType: {
+        [key: string]: string[];
+      };
+      preset?: string;
+    };
+    DeliveryReviewRosterSeat: {
       /** @description The agent or person filling that role for this round. */
       actor: string;
       /** @description Whether the round could not be decided passed without this reviewer's verdict. */
@@ -969,14 +940,14 @@ export interface components {
       /** @description The reviewer's Method role (architect, productManager, qaEngineer, ...). */
       role: string;
     };
-    ConstructionReviewSet: {
+    DeliveryReviewSet: {
       /** @description The engine's one-line explanation of the gate verdict (preset, policy row, non-overridable floor, or the project-design spend floor). Omitted when the engine refused to propose. */
       reason?: string;
       /** @description Whether the review engine requires a human decision at this gate. Display-only on the session view: the enforced gate is the suspend itself. */
       requiresHuman?: boolean;
-      reviewers?: null | components['schemas']['ConstructionReviewer'][];
+      reviewers?: null | components['schemas']['DeliveryReviewer'][];
     };
-    ConstructionReviewSubjectRef: {
+    DeliveryReviewSubjectRef: {
       /**
        * @description What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.
        * @enum {string}
@@ -985,14 +956,14 @@ export interface components {
       /** @description What the round judged: the staged commit sha, the pull request a reviewer opens, or the artifact's own ref. The artifact AS OF a revision is a git read of this ref — no second copy is stored. */
       ref: string;
     };
-    ConstructionReviewThreadComment: {
+    DeliveryReviewThreadComment: {
       addressee?: string;
       anchor: string;
       anchorText?: string;
       authorRole: string;
       id: string;
       reopened: boolean;
-      replies: components['schemas']['ConstructionReviewThreadReply'][];
+      replies: components['schemas']['DeliveryReviewThreadReply'][];
       round: number;
       /**
        * @description Derived by the store from the comment's replies; carried through verbatim so the screen shows what the reviewer left behind.
@@ -1006,7 +977,7 @@ export interface components {
        */
       type: 'changeRequest' | 'question' | 'staleAck';
     };
-    ConstructionReviewThreadReply: {
+    DeliveryReviewThreadReply: {
       /** @description RFC3339, verbatim from the ledger. */
       at: string;
       authorRole: string;
@@ -1017,8 +988,8 @@ export interface components {
      * @description One reviewer's answer in a round. Agent and human verdicts are the same kind of row; abstain is a reviewer who was asked and declined, which is not silence.
      * @enum {string}
      */
-    ConstructionReviewVerdictKind: 'approve' | 'sendBack' | 'abstain';
-    ConstructionReviewVerdictView: {
+    DeliveryReviewVerdictKind: 'approve' | 'sendBack' | 'abstain';
+    DeliveryReviewVerdictView: {
       /** @description The agent or person who gave it. Omitted when the role alone identifies the reviewer. */
       actor?: string;
       /** @description RFC3339, stamped by the store when the verdict was appended, verbatim. A string and not a date-time: the ledger holds it as one, and parsing it here would turn an unstamped legacy verdict into the zero instant. */
@@ -1028,27 +999,87 @@ export interface components {
       reviewerRole: string;
       /** @description The reviewer's one-line reason, verbatim. */
       summary?: string;
-      verdict: components['schemas']['ConstructionReviewVerdictKind'];
+      verdict: components['schemas']['DeliveryReviewVerdictKind'];
     };
-    ConstructionReviewer: {
+    DeliveryReviewer: {
       mayAmend: boolean;
       perspective: string;
       referenceArtifact?: null | string;
       role: string;
     };
-    ConstructionSubagentSpan: {
+    DeliveryRuleID: string;
+    /** @enum {integer} */
+    DeliverySDPDecision: 0 | 1 | 2;
+    DeliveryServiceContract: {
+      Component: string;
+      DataContracts: null | string[];
+      ErrorModel: string;
+      Idempotency: string;
+      Inbound: null | components['schemas']['DeliveryContractParty'][];
+      Layer: string;
+      Ops: null | components['schemas']['DeliveryContractOp'][];
+      Outbound: null | components['schemas']['DeliveryContractParty'][];
+      Revisions: null | components['schemas']['DeliveryContractRevision'][];
+      Status: string;
+      Stereotype: string;
+      Volatility: string;
+    };
+    DeliverySessionRef: string;
+    /** @enum {integer} */
+    DeliverySessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
+    DeliverySessionStateView: {
+      activeRole: components['schemas']['DeliveryActiveRole'];
+      activeStep: components['schemas']['DeliveryActiveStep'];
+      artifactKind: components['schemas']['DeliveryArtifactKind'];
+      critique?: components['schemas']['DeliveryCritiqueView'];
+      draft: components['schemas']['DeliveryDraftModel'];
+      failureReason?: null | string;
+      failureRunUrl?: null | string;
+      findings?: null | components['schemas']['DeliveryFinding'][];
+      projectId: components['schemas']['DeliveryProjectID'];
+      reviewThread?: null | components['schemas']['DeliveryReviewCommentView'][];
+      round: number;
+      runUrl?: null | string;
+      stage: components['schemas']['DeliverySessionStage'];
+      stageName: string;
+    };
+    /** @enum {string} */
+    DeliverySeverity: 'info' | 'warning' | 'error';
+    DeliveryStartProjectResult: {
+      projectId: components['schemas']['DeliveryProjectID'];
+      session?: components['schemas']['DeliverySessionRef'];
+      version: components['schemas']['DeliveryVersion'];
+    };
+    DeliverySubagentSpan: {
       /** Format: date-time */
       endedAt?: string;
       /** Format: date-time */
       startedAt?: string;
       toolUseId: string;
     };
-    ConstructionTaskRevisionComment: {
+    DeliverySystemTestPlanView: {
+      scenarios: null | components['schemas']['DeliveryTestScenarioView'][];
+    };
+    DeliveryTaskAttempt: {
+      actor?: string;
+      attempt: number;
+      attemptId: string;
+      /** Format: date-time */
+      endedAt?: null | string;
+      evidence: components['schemas']['DeliveryEvidenceRef'];
+      outcome: string;
+      phase: components['schemas']['DeliveryActivityMethodPhase'];
+      provenance: components['schemas']['DeliveryAttemptProvenance'];
+      /** Format: date-time */
+      startedAt?: null | string;
+      task: string;
+    };
+    DeliveryTaskRevisionComment: {
       jsonPath: string;
       text: string;
     };
     /** @enum {string} */
-    ConstructionTaskRevisionOutcome:
+    DeliveryTaskRevisionOutcome:
       | 'running'
       | 'awaitingHuman'
       | 'passed'
@@ -1059,13 +1090,13 @@ export interface components {
      * @description The worst origin among the revision's attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed.
      * @enum {string}
      */
-    ConstructionTaskRevisionProvenance: 'synthesized' | 'backfilled' | 'observed';
-    ConstructionTaskRevisionView: {
+    DeliveryTaskRevisionProvenance: 'synthesized' | 'backfilled' | 'observed';
+    DeliveryTaskRevisionView: {
       /** @description Every attempt of the revision, as "<activityId>:<task>:<n>" — the TargetRef of each attempt's episode. More than one means the work was retried before it reached the gate. */
       attemptIds: string[];
       commentCount: number;
       /** @description The anchored comments that rode with a send-back. On a persisted round it is a flat projection of `thread` — the same anchors and texts, so a reader that has only ever known this field keeps working — and the replies, the open/answered/resolved status and the reopen flag live in `thread` and only there. */
-      comments: components['schemas']['ConstructionTaskRevisionComment'][];
+      comments: components['schemas']['DeliveryTaskRevisionComment'][];
       /** @description RFC3339, stamped by the store when the round was decided, verbatim. Omitted while it is undecided and on a reconstructed revision. */
       decidedAt?: string;
       /** @description Who decided the round. Omitted while it is undecided and on a reconstructed revision. */
@@ -1081,26 +1112,74 @@ export interface components {
       n: number;
       /** @description The reviewer's send-back note, verbatim. Omitted unless outcome is sentBack and a note was recorded. On a persisted round it is the last send-back verdict's summary — the same words, read off the record that owns them instead of matched to it by position. */
       note?: string;
-      outcome: components['schemas']['ConstructionTaskRevisionOutcome'];
-      provenance: components['schemas']['ConstructionTaskRevisionProvenance'];
+      outcome: components['schemas']['DeliveryTaskRevisionOutcome'];
+      provenance: components['schemas']['DeliveryTaskRevisionProvenance'];
       /** @description The roster the round was opened with, as the reviewEngine computed it. Empty on a reconstructed revision: a pre-ledger row recorded who reviewed nowhere. */
-      reviewers?: components['schemas']['ConstructionReviewRosterSeat'][];
+      reviewers?: components['schemas']['DeliveryReviewRosterSeat'][];
       /** @description The stored round number. Equal to n for a persisted round the construction rail wrote; for a design round it is that artifact kind's own count, so two kinds at one gate can both hold 1 — which is why both this and n are carried. Derived for a reconstructed revision, from the gate attempt's own number. Omitted on a dispatch revision and on a reconstruction placed beneath the ledger, neither of which has a round number to give. */
       round?: number;
       /** Format: date-time */
       startedAt?: null | string;
       /** @description What this revision judged. The artifact as of a non-latest revision is read from it. Omitted on a reconstructed revision, which has no record of its subject. */
-      subjectRef?: components['schemas']['ConstructionReviewSubjectRef'];
+      subjectRef?: components['schemas']['DeliveryReviewSubjectRef'];
       /** @description The round's comment thread with its replies and resolutions — the same comments the design rails' ArtifactSlot.reviewThread carries, which is a read-through to this until stage 6. */
-      thread?: components['schemas']['ConstructionReviewThreadComment'][];
+      thread?: components['schemas']['DeliveryReviewThreadComment'][];
       /** @description Every reviewer's answer in this round, agent and human alike. Empty on a dispatch revision and on a revision reconstructed from a pre-ledger row. */
-      verdicts?: components['schemas']['ConstructionReviewVerdictView'][];
+      verdicts?: components['schemas']['DeliveryReviewVerdictView'][];
     };
-    ConstructionTimelineEvent: {
+    DeliveryTestArgView: {
+      name: string;
+      schemaRef: string;
+      value: string;
+    };
+    DeliveryTestCaseView: {
+      expectedOutcome: string;
+      id: string;
+      kind: string;
+      proves: string;
+      steps: null | components['schemas']['DeliveryTestStepView'][];
+      title: string;
+    };
+    DeliveryTestExpectView: {
+      errorCode: string;
+      errorExpected: boolean;
+      result: string;
+    };
+    DeliveryTestRunView: {
+      failed: number;
+      id: string;
+      note: string;
+      passed: number;
+    };
+    DeliveryTestScenarioView: {
+      cases: null | components['schemas']['DeliveryTestCaseView'][];
+      description: string;
+      id: string;
+      title: string;
+      useCase: string;
+    };
+    DeliveryTestStepView: {
+      assertion: string;
+      component: string;
+      expect: components['schemas']['DeliveryTestExpectView'];
+      inputs: null | components['schemas']['DeliveryTestArgView'][];
+      operation: string;
+      seq: number;
+      status: string;
+    };
+    DeliveryTestingStateView: {
+      defects: null | components['schemas']['DeliveryDefectView'][];
+      systemTestPlan?: components['schemas']['DeliverySystemTestPlanView'];
+      testRuns: null | components['schemas']['DeliveryTestRunView'][];
+    };
+    /** @enum {integer} */
+    DeliveryTestingVariant: 0 | 1 | 2 | 3 | 4;
+    DeliveryTimelineEvent: {
       eventType: string;
       raw?: null;
       seq: number;
     };
+    DeliveryVersion: number;
     ModelActivityDiagram: {
       edges: null | components['schemas']['ModelActivityEdge'][];
       nodes: null | components['schemas']['ModelActivityNode'][];
@@ -1704,721 +1783,6 @@ export interface components {
     OperationsWithdrawResult: {
       withdrawn: boolean;
     };
-    /** @enum {integer} */
-    ProjectDesignActiveRole: 0 | 1 | 2;
-    /** @enum {integer} */
-    ProjectDesignActiveStep: 0 | 1 | 2 | 3;
-    ProjectDesignAnchoredComment: {
-      anchorText: string;
-      jsonPath: string;
-      replyTo: string;
-      text: string;
-    };
-    /** @enum {integer} */
-    ProjectDesignArtifactKind:
-      | 0
-      | 1
-      | 2
-      | 3
-      | 4
-      | 5
-      | 6
-      | 7
-      | 8
-      | 9
-      | 10
-      | 11
-      | 12
-      | 13
-      | 14
-      | 15
-      | 16;
-    ProjectDesignDraftModel: {
-      kind: string;
-      model?:
-        | components['schemas']['ModelActivityList']
-        | components['schemas']['ModelCoreUseCases']
-        | components['schemas']['ModelDeploymentOperationsModel']
-        | components['schemas']['ModelGlossary']
-        | components['schemas']['ModelMissionStatement']
-        | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelPlanningAssumptions']
-        | components['schemas']['ModelRiskModel']
-        | components['schemas']['ModelScrubbedRequirements']
-        | components['schemas']['ModelSdpReview']
-        | components['schemas']['ModelSolution']
-        | components['schemas']['ModelStandardCheck']
-        | components['schemas']['ModelSystem']
-        | components['schemas']['ModelVolatilities'];
-    };
-    /** @enum {integer} */
-    ProjectDesignEpisodeKind: 0 | 1 | 2 | 3 | 4;
-    ProjectDesignEpisodeLineage: {
-      activityId?: string;
-      runId: string;
-      workflowId: string;
-    };
-    /** @enum {integer} */
-    ProjectDesignEpisodeOutcome: 0 | 1 | 2 | 3;
-    ProjectDesignEpisodeRecordView: {
-      costUsd?: number;
-      /** Format: date-time */
-      endedAt: string;
-      episodeId: string;
-      gapReason?: string;
-      kind: components['schemas']['ProjectDesignEpisodeKind'];
-      lineage?: components['schemas']['ProjectDesignEpisodeLineage'];
-      model?: string;
-      numTurns?: number;
-      outcome: components['schemas']['ProjectDesignEpisodeOutcome'];
-      /** Format: date-time */
-      startedAt: string;
-      streamedUsage?: components['schemas']['ProjectDesignEpisodeUsage'];
-      subagentSpans?: components['schemas']['ProjectDesignSubagentSpan'][];
-      targetRef: string;
-      toolCallCounts?: {
-        [key: string]: number;
-      };
-      tracePath?: string;
-      usage: components['schemas']['ProjectDesignEpisodeUsage'];
-      workerClass?: string;
-    };
-    ProjectDesignEpisodeTimeline: {
-      events: components['schemas']['ProjectDesignTimelineEvent'][];
-      record: components['schemas']['ProjectDesignEpisodeRecordView'];
-    };
-    ProjectDesignEpisodeUsage: {
-      cacheCreate: number;
-      cacheRead: number;
-      in: number;
-      out: number;
-    };
-    ProjectDesignErrorResponse: {
-      code: string;
-      error: string;
-    };
-    ProjectDesignFinding: {
-      location?: components['schemas']['ProjectDesignLocation'];
-      message: string;
-      ruleId: components['schemas']['ProjectDesignRuleID'];
-      severity: components['schemas']['ProjectDesignSeverity'];
-    };
-    ProjectDesignLocation: {
-      ordinal: number;
-      section: string;
-    };
-    ProjectDesignOptionID: string;
-    ProjectDesignPhaseAdvanceResult: {
-      advanced: boolean;
-      missingArtifacts: null | components['schemas']['ProjectDesignArtifactKind'][];
-    };
-    ProjectDesignProjectID: string;
-    ProjectDesignReviewCommentReply: {
-      at: string;
-      authorRole: string;
-      id: string;
-      text: string;
-    };
-    ProjectDesignReviewCommentView: {
-      addressee: string;
-      anchor: string;
-      anchorText: string;
-      authorRole: string;
-      id: string;
-      reopened: boolean;
-      replies: components['schemas']['ProjectDesignReviewCommentReply'][];
-      response?: string;
-      round: number;
-      status: string;
-      text: string;
-      type: string;
-    };
-    /** @enum {integer} */
-    ProjectDesignReviewDecision: 0 | 1 | 2 | 3;
-    ProjectDesignReviewFeedback: {
-      comments?: null | components['schemas']['ProjectDesignAnchoredComment'][];
-      notes: string;
-    };
-    ProjectDesignRuleID: string;
-    /** @enum {integer} */
-    ProjectDesignSDPDecision: 0 | 1 | 2;
-    ProjectDesignSessionRef: string;
-    /** @enum {integer} */
-    ProjectDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-    ProjectDesignSessionStateView: {
-      activeRole: components['schemas']['ProjectDesignActiveRole'];
-      activeStep: components['schemas']['ProjectDesignActiveStep'];
-      artifactKind: components['schemas']['ProjectDesignArtifactKind'];
-      draft: components['schemas']['ProjectDesignDraftModel'];
-      failureReason?: null | string;
-      findings?: null | components['schemas']['ProjectDesignFinding'][];
-      projectId: components['schemas']['ProjectDesignProjectID'];
-      reviewThread?: null | components['schemas']['ProjectDesignReviewCommentView'][];
-      round: number;
-      stage: components['schemas']['ProjectDesignSessionStage'];
-      stageName: string;
-    };
-    /** @enum {string} */
-    ProjectDesignSeverity: 'info' | 'warning' | 'error';
-    ProjectDesignSubagentSpan: {
-      /** Format: date-time */
-      endedAt?: string;
-      /** Format: date-time */
-      startedAt?: string;
-      toolUseId: string;
-    };
-    ProjectDesignTimelineEvent: {
-      eventType: string;
-      raw?: null;
-      seq: number;
-    };
-    /** @enum {integer} */
-    SystemDesignActiveRole: 0 | 1 | 2;
-    /** @enum {integer} */
-    SystemDesignActiveStep: 0 | 1 | 2 | 3;
-    /** @enum {integer} */
-    SystemDesignActivityBuildStatus: 0 | 1 | 2 | 3;
-    /** @enum {integer} */
-    SystemDesignActivityConstructionPhase: 0 | 1 | 2 | 3;
-    SystemDesignActivityConstructionStatus: {
-      ActivityID: string;
-      /** @description The coarse build status. Meaningless when hasBuildEvidence is false (or classified is false): its zero value names InConstruction, which on such a row reports nothing, not work in progress. Read it only when both flags are true. */
-      BuildStatus: components['schemas']['SystemDesignActivityBuildStatus'];
-      CurrentPhase: components['schemas']['SystemDesignActivityMethodPhase'];
-      FailureDetail: string;
-      FailureReason: components['schemas']['SystemDesignFailureReason'];
-      Kind: components['schemas']['SystemDesignActivityType'];
-      /** @description The coarse lifecycle-phase roll-up. Meaningless when hasBuildEvidence is false (or classified is false): nothing has been resolved to roll up, so the value is the enum's zero, not a reported phase. Read it only when both flags are true. */
-      Phase: components['schemas']['SystemDesignActivityConstructionPhase'];
-      Phases: null | components['schemas']['SystemDesignPhaseCompletion'][];
-      Produced: null | components['schemas']['SystemDesignProducedArtifact'][];
-      Type: components['schemas']['SystemDesignActivityType'];
-      Variant: components['schemas']['SystemDesignTestingVariant'];
-      attempts?: components['schemas']['SystemDesignTaskAttempt'][];
-      classified: boolean;
-      /** Format: date-time */
-      completedAt?: null | string;
-      hasBuildEvidence: boolean;
-      layer: string;
-      layerBand: string;
-      /** @description Every note an operator recorded against this activity (a send-back's feedback, a steer's reason), append-only and in recorded order. A note is pending until an agent dispatch carries it whole; then it names that dispatch's attempt. Delivery is at-least-once: when a note's delivery stamp cannot be written, the note stays pending and the next attempt carries it again, so an agent may see one note twice but never zero times, and never twice in the same attempt. When the pending notes exceed the 16 KiB one dispatch carries, the oldest wait for a later attempt so the newest arrives whole. A note recorded where no agent runs next (a merge-only retry, a takeover, or a finished activity) stays pending until the activity's next agent dispatch. Omitted when there are none. */
-      operatorNotes?: null | components['schemas']['SystemDesignOperatorNote'][];
-      /** @description Present iff no construction pump opened this row (no start stamp) yet its attempt ledger resolves some lifecycle phases complete and others not: an integration-pending row the backfill recorded. It is NOT in flight (nothing is running it) and it is not under review. Omitted on every other row: not started, pump-written, and done. */
-      pendingResume?: components['schemas']['SystemDesignPendingResume'];
-      /** @description True iff a stored .activityExecution head-state row exists for this activity. False on a planned-no-record row: one the server emits because the committed activity list names the activity but nothing has been recorded for it yet. Such a row carries no attempts and no worstOrigin, and its BuildStatus and Phase are meaningless. */
-      recorded: boolean;
-      /** Format: date-time */
-      startedAt?: null | string;
-      /** @description The least-trustworthy provenance origin across attempts (synthesized, then backfilled, then observed). Omitted when recorded is false. Meaningless when attempts is empty: the roll-up seeds an empty ledger to observed, which says nothing was derived from anything unknown, not that anything was observed. */
-      worstOrigin?: string;
-    };
-    SystemDesignActivityGitStatus: {
-      ActivityID: string;
-      ArchApproved: boolean;
-      BranchName: string;
-      BranchRef: string;
-      CICheck: components['schemas']['SystemDesignCICheckState'];
-      CRLabel: string;
-      IsRevert: boolean;
-      Merged: boolean;
-      PrNumber: number;
-      PrURL: string;
-      PullRequestRef: string;
-      /** Format: date-time */
-      UpdatedAt: string;
-    };
-    SystemDesignActivityMethodPhase: string;
-    /** @enum {integer} */
-    SystemDesignActivityType: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
-    SystemDesignAnchoredComment: {
-      anchorText: string;
-      jsonPath: string;
-      replyTo: string;
-      text: string;
-    };
-    /** @enum {integer} */
-    SystemDesignArtifactKind:
-      | 0
-      | 1
-      | 2
-      | 3
-      | 4
-      | 5
-      | 6
-      | 7
-      | 8
-      | 9
-      | 10
-      | 11
-      | 12
-      | 13
-      | 14
-      | 15
-      | 16;
-    SystemDesignArtifactSlotModel: {
-      kind: string;
-      model?:
-        | components['schemas']['ModelActivityList']
-        | components['schemas']['ModelCoreUseCases']
-        | components['schemas']['ModelDeploymentOperationsModel']
-        | components['schemas']['ModelGlossary']
-        | components['schemas']['ModelMissionStatement']
-        | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelPlanningAssumptions']
-        | components['schemas']['ModelRiskModel']
-        | components['schemas']['ModelScrubbedRequirements']
-        | components['schemas']['ModelSdpReview']
-        | components['schemas']['ModelSolution']
-        | components['schemas']['ModelStandardCheck']
-        | components['schemas']['ModelSystem']
-        | components['schemas']['ModelVolatilities'];
-    };
-    SystemDesignArtifactSlotView: {
-      kind: string;
-      model: components['schemas']['SystemDesignArtifactSlotModel'];
-      notes?: null | string;
-      provenance?: unknown;
-      revisions?: number;
-      stage: components['schemas']['SystemDesignArtifactStage'];
-      staleBasis?: boolean;
-      staleBasisCause?: unknown;
-    };
-    /** @enum {integer} */
-    SystemDesignArtifactStage: 0 | 1 | 2 | 3 | 4;
-    SystemDesignAttemptProvenance: {
-      basis?: string;
-      /** Format: date-time */
-      generatedAt?: null | string;
-      generator?: string;
-      origin: string;
-    };
-    /** @enum {integer} */
-    SystemDesignCICheckState: 0 | 1 | 2;
-    SystemDesignCheckItem: {
-      guideline: string;
-      justification: string;
-      section: string;
-      /** @enum {string} */
-      status: 'pass' | 'waived' | 'fail';
-    };
-    SystemDesignConstructionProgress: {
-      EV: components['schemas']['SystemDesignEVCurve'];
-      HandOffModel: string;
-      SupervisionCap: number;
-      TotalWeeks: number;
-      Week: number;
-      points?: null | components['schemas']['SystemDesignEvPoint'][];
-    };
-    SystemDesignContractOp: {
-      Inputs: null | components['schemas']['SystemDesignContractStruct'][];
-      Note: string;
-      Outputs: null | components['schemas']['SystemDesignContractStruct'][];
-      Signature: string;
-      Stereotype: string;
-    };
-    SystemDesignContractParty: {
-      How: string;
-      Layer: string;
-      Name: string;
-    };
-    SystemDesignContractRevision: {
-      At: string;
-      By: string;
-      ByActivity: string;
-      Rev: string;
-      Summary: string;
-    };
-    SystemDesignContractStruct: {
-      Fields: null | components['schemas']['SystemDesignGoField'][];
-      Name: string;
-    };
-    SystemDesignCritiqueView: {
-      role: string;
-      round: number;
-      summary: string;
-      verdict: string;
-    };
-    SystemDesignDefectView: {
-      id: string;
-      note: string;
-      severity: string;
-      title: string;
-    };
-    SystemDesignDesignHealth: {
-      attestations: components['schemas']['SystemDesignCheckItem'][];
-      evaluatedAtRevision: number;
-      findings: components['schemas']['SystemDesignFinding'][];
-      waivers: components['schemas']['SystemDesignCheckItem'][];
-    };
-    SystemDesignDraftModel: {
-      kind: string;
-      model?:
-        | components['schemas']['ModelActivityList']
-        | components['schemas']['ModelCoreUseCases']
-        | components['schemas']['ModelDeploymentOperationsModel']
-        | components['schemas']['ModelGlossary']
-        | components['schemas']['ModelMissionStatement']
-        | components['schemas']['ModelNetwork']
-        | components['schemas']['ModelPlanningAssumptions']
-        | components['schemas']['ModelRiskModel']
-        | components['schemas']['ModelScrubbedRequirements']
-        | components['schemas']['ModelSdpReview']
-        | components['schemas']['ModelSolution']
-        | components['schemas']['ModelStandardCheck']
-        | components['schemas']['ModelSystem']
-        | components['schemas']['ModelVolatilities'];
-    };
-    SystemDesignEVCurve: {
-      earned: null | number[];
-      planned: null | number[];
-      spi: number;
-      weeks: null | number[];
-    };
-    /** @enum {integer} */
-    SystemDesignEpisodeKind: 0 | 1 | 2 | 3 | 4;
-    SystemDesignEpisodeLineage: {
-      activityId?: string;
-      runId: string;
-      workflowId: string;
-    };
-    /** @enum {integer} */
-    SystemDesignEpisodeOutcome: 0 | 1 | 2 | 3;
-    SystemDesignEpisodeRecordView: {
-      costUsd?: number;
-      /** Format: date-time */
-      endedAt: string;
-      episodeId: string;
-      gapReason?: string;
-      kind: components['schemas']['SystemDesignEpisodeKind'];
-      lineage?: components['schemas']['SystemDesignEpisodeLineage'];
-      model?: string;
-      numTurns?: number;
-      outcome: components['schemas']['SystemDesignEpisodeOutcome'];
-      /** Format: date-time */
-      startedAt: string;
-      streamedUsage?: components['schemas']['SystemDesignEpisodeUsage'];
-      subagentSpans?: components['schemas']['SystemDesignSubagentSpan'][];
-      targetRef: string;
-      toolCallCounts?: {
-        [key: string]: number;
-      };
-      tracePath?: string;
-      usage: components['schemas']['SystemDesignEpisodeUsage'];
-      workerClass?: string;
-    };
-    SystemDesignEpisodeTimeline: {
-      events: components['schemas']['SystemDesignTimelineEvent'][];
-      record: components['schemas']['SystemDesignEpisodeRecordView'];
-    };
-    SystemDesignEpisodeUsage: {
-      cacheCreate: number;
-      cacheRead: number;
-      in: number;
-      out: number;
-    };
-    SystemDesignErrorResponse: {
-      code: string;
-      error: string;
-    };
-    SystemDesignEvPoint: {
-      acPct?: number;
-      earnedPct: number;
-      note: string;
-      plannedPct: number;
-      week: number;
-    };
-    SystemDesignEvidenceRef: {
-      kind: string;
-      ref: string;
-    };
-    /** @enum {integer} */
-    SystemDesignFailureReason: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8 | 9;
-    SystemDesignFinding: {
-      location?: components['schemas']['SystemDesignLocation'];
-      message: string;
-      ruleId: components['schemas']['SystemDesignRuleID'];
-      severity: components['schemas']['SystemDesignSeverity'];
-    };
-    SystemDesignGoField: {
-      Name: string;
-      Note: string;
-      Type: string;
-    };
-    SystemDesignLocation: {
-      ordinal: number;
-      section: string;
-    };
-    SystemDesignNoteComment: {
-      /** @description Where the comment is anchored in the artifact under review, as a JSONPath. */
-      jsonPath: string;
-      /** @description The comment, verbatim. */
-      text: string;
-    };
-    SystemDesignOperatingModel: string;
-    SystemDesignOperatorNote: {
-      /** @description Anchored comments that rode with the note. Omitted when there are none. */
-      comments?: null | components['schemas']['SystemDesignNoteComment'][];
-      /**
-       * Format: date-time
-       * @description When the delivery was recorded. Omitted while the note is pending.
-       */
-      deliveredAt?: null | string;
-      /** @description The AttemptID ("<activityId>:<task>:<n>", the TargetRef of that dispatch's episode) of the agent dispatch that carried this note. Omitted while the note is pending (never set for a note the dispatch carried only in part), and always for a skip note, which nothing runs after. */
-      deliveredToAttemptId?: string;
-      /** @description The gate the note was written at: a lifecycle phase's wire name, "merge" or "takeover". Omitted when none applies. */
-      gate?: string;
-      /** @description Why the note was written. */
-      kind: components['schemas']['SystemDesignOperatorNoteKind'];
-      /** @description The note's id. */
-      noteId: string;
-      /**
-       * Format: date-time
-       * @description When the store recorded the note (server clock).
-       */
-      recordedAt: string;
-      /** @description The operator's note, verbatim. */
-      text: string;
-    };
-    /**
-     * @description Why an operator wrote a note: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered), 6 requeue.
-     * @enum {integer}
-     */
-    SystemDesignOperatorNoteKind: 0 | 1 | 2 | 3 | 4 | 5 | 6;
-    SystemDesignOwnerScope: string;
-    /** @description One unsatisfied direct dependency of an integration-pending row. */
-    SystemDesignPendingDependency: {
-      /** @description The dependency id as the network authors it: an activity id or a milestone id. */
-      id: string;
-      /** @description Why it is unsatisfied. notBuilt: an activity that is not Done. builtNotIntegrated: an activity that is itself integration-pending. milestoneNotReached: a milestone whose own dependencies are not all satisfied. unresolved: an id naming neither an activity nor a milestone, or a milestone cycle (a plan defect). */
-      reason: string;
-    };
-    /** @description Where an integration-pending row resumes, and what it waits on first. */
-    SystemDesignPendingResume: {
-      /** @description The first lifecycle phase of the row's profile that its resolved phase set does not hold complete: the phase the pump would run first. */
-      fromPhase: components['schemas']['SystemDesignActivityMethodPhase'];
-      /** @description The row's direct network dependencies that are not satisfied, in authored order. Empty when every dependency is satisfied: the row is next in line. */
-      waitsOn: components['schemas']['SystemDesignPendingDependency'][];
-    };
-    /** @enum {integer} */
-    SystemDesignPhase: 0 | 1 | 2;
-    SystemDesignPhaseAdvanceResult: {
-      advanced: boolean;
-      missingArtifacts: null | components['schemas']['SystemDesignArtifactKind'][];
-    };
-    SystemDesignPhaseCompletion: {
-      ArtifactRef: string;
-      Completed: boolean;
-      Label: string;
-      Phase: components['schemas']['SystemDesignActivityMethodPhase'];
-      Weight: number;
-      /** Format: date-time */
-      completedAt?: null | string;
-    };
-    SystemDesignProducedArtifact: {
-      Kind: string;
-      Note: string;
-      Produced: boolean;
-      Source: string;
-      Title: string;
-    };
-    SystemDesignProjectID: string;
-    SystemDesignProjectState: {
-      GitRows: {
-        [key: string]: components['schemas']['SystemDesignActivityGitStatus'];
-      };
-      Name: string;
-      Owner: components['schemas']['SystemDesignOwnerScope'];
-      Phase: components['schemas']['SystemDesignPhase'];
-      /** @enum {string} */
-      PhaseName: 'system-design' | 'project-design' | 'construction';
-      ProjectID: components['schemas']['SystemDesignProjectID'];
-      Research: components['schemas']['SystemDesignResearchInput'];
-      ServiceContracts: {
-        [key: string]: components['schemas']['SystemDesignServiceContract'];
-      };
-      Slots: null | components['schemas']['SystemDesignArtifactSlotView'][];
-      Version: number;
-      /** @description One view row per activity, keyed by ActivityID — the stored .activityExecution rows plus a planned-no-record row for every activity the committed list names and nothing has been recorded for. Renamed from ActivityConstruction in stage-3 task 4 with the stored map it projects: the row's derived members (Phase, Phases, CurrentPhase, Kind, BuildStatus) are COMPUTED here from the two ledgers and are no longer stored anywhere. The view type keeps its own name until the stage-5 Activity Experience replaces it wholesale. */
-      activityExecution: {
-        [key: string]: components['schemas']['SystemDesignActivityConstructionStatus'];
-      };
-      constructionProgress?: components['schemas']['SystemDesignConstructionProgress'];
-      /** @description True iff construction has started for this project: some stored .activityExecution row carries a head fact only the construction pump writes (a start stamp, an exit stamp, or a recorded failure) or an attempt of origin observed. Reconstructed attempts (backfilled or synthesized) never count, and a planned-no-record row has no stored state to count. Decides Begin versus Resume. */
-      constructionStarted: boolean;
-      operatingModel: components['schemas']['SystemDesignOperatingModel'];
-      /** @description True while an operator's pause of this project's construction is recorded (PauseProject); cleared by ResumeProject. Every construction pump honours it, the 30-second sweep skips the project, and Begin (ExecuteNextActivity) is refused until it is cleared: the console offers Resume instead. */
-      operatorPaused: boolean;
-      /** @description The reason the operator gave when pausing construction. Omitted when construction is not paused. */
-      pauseReason?: string;
-      reviewPolicy?: components['schemas']['SystemDesignReviewPolicyView'];
-      testingState?: components['schemas']['SystemDesignTestingStateView'];
-    };
-    SystemDesignProjectSummary: {
-      CommittedCount: number;
-      ConstructionComplete?: boolean;
-      Name: string;
-      Owner: components['schemas']['SystemDesignOwnerScope'];
-      Phase: components['schemas']['SystemDesignPhase'];
-      /** @enum {string} */
-      PhaseName: 'system-design' | 'project-design' | 'construction';
-      ProjectID: components['schemas']['SystemDesignProjectID'];
-      TotalCount: number;
-      /** Format: date-time */
-      UpdatedAt: string;
-    };
-    SystemDesignResearchInput: {
-      sources: null | components['schemas']['SystemDesignResearchSource'][];
-    };
-    SystemDesignResearchSource: {
-      content: string;
-      contentBytes?: number;
-      title: string;
-    };
-    SystemDesignReviewCommentReply: {
-      at: string;
-      authorRole: string;
-      id: string;
-      text: string;
-    };
-    SystemDesignReviewCommentView: {
-      addressee: string;
-      anchor: string;
-      anchorText: string;
-      authorRole: string;
-      id: string;
-      reopened: boolean;
-      replies: components['schemas']['SystemDesignReviewCommentReply'][];
-      response?: string;
-      round: number;
-      status: string;
-      text: string;
-      type: string;
-    };
-    /** @enum {integer} */
-    SystemDesignReviewDecision: 0 | 1 | 2 | 3;
-    SystemDesignReviewFeedback: {
-      comments?: null | components['schemas']['SystemDesignAnchoredComment'][];
-      notes: string;
-    };
-    SystemDesignReviewPolicyView: {
-      gatedPhasesByType: {
-        [key: string]: string[];
-      };
-      preset?: string;
-    };
-    SystemDesignRuleID: string;
-    SystemDesignServiceContract: {
-      Component: string;
-      DataContracts: null | string[];
-      ErrorModel: string;
-      Idempotency: string;
-      Inbound: null | components['schemas']['SystemDesignContractParty'][];
-      Layer: string;
-      Ops: null | components['schemas']['SystemDesignContractOp'][];
-      Outbound: null | components['schemas']['SystemDesignContractParty'][];
-      Revisions: null | components['schemas']['SystemDesignContractRevision'][];
-      Status: string;
-      Stereotype: string;
-      Volatility: string;
-    };
-    SystemDesignSessionRef: string;
-    /** @enum {integer} */
-    SystemDesignSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
-    SystemDesignSessionStateView: {
-      activeRole: components['schemas']['SystemDesignActiveRole'];
-      activeStep: components['schemas']['SystemDesignActiveStep'];
-      artifactKind: components['schemas']['SystemDesignArtifactKind'];
-      critique?: components['schemas']['SystemDesignCritiqueView'];
-      draft: components['schemas']['SystemDesignDraftModel'];
-      failureReason?: null | string;
-      failureRunUrl?: null | string;
-      findings?: null | components['schemas']['SystemDesignFinding'][];
-      projectId: components['schemas']['SystemDesignProjectID'];
-      reviewThread?: null | components['schemas']['SystemDesignReviewCommentView'][];
-      round: number;
-      runUrl?: null | string;
-      stage: components['schemas']['SystemDesignSessionStage'];
-      stageName: string;
-    };
-    /** @enum {string} */
-    SystemDesignSeverity: 'info' | 'warning' | 'error';
-    SystemDesignSubagentSpan: {
-      /** Format: date-time */
-      endedAt?: string;
-      /** Format: date-time */
-      startedAt?: string;
-      toolUseId: string;
-    };
-    SystemDesignSystemTestPlanView: {
-      scenarios: null | components['schemas']['SystemDesignTestScenarioView'][];
-    };
-    SystemDesignTaskAttempt: {
-      actor?: string;
-      attempt: number;
-      attemptId: string;
-      /** Format: date-time */
-      endedAt?: null | string;
-      evidence: components['schemas']['SystemDesignEvidenceRef'];
-      outcome: string;
-      phase: components['schemas']['SystemDesignActivityMethodPhase'];
-      provenance: components['schemas']['SystemDesignAttemptProvenance'];
-      /** Format: date-time */
-      startedAt?: null | string;
-      task: string;
-    };
-    SystemDesignTestArgView: {
-      name: string;
-      schemaRef: string;
-      value: string;
-    };
-    SystemDesignTestCaseView: {
-      expectedOutcome: string;
-      id: string;
-      kind: string;
-      proves: string;
-      steps: null | components['schemas']['SystemDesignTestStepView'][];
-      title: string;
-    };
-    SystemDesignTestExpectView: {
-      errorCode: string;
-      errorExpected: boolean;
-      result: string;
-    };
-    SystemDesignTestRunView: {
-      failed: number;
-      id: string;
-      note: string;
-      passed: number;
-    };
-    SystemDesignTestScenarioView: {
-      cases: null | components['schemas']['SystemDesignTestCaseView'][];
-      description: string;
-      id: string;
-      title: string;
-      useCase: string;
-    };
-    SystemDesignTestStepView: {
-      assertion: string;
-      component: string;
-      expect: components['schemas']['SystemDesignTestExpectView'];
-      inputs: null | components['schemas']['SystemDesignTestArgView'][];
-      operation: string;
-      seq: number;
-      status: string;
-    };
-    SystemDesignTestingStateView: {
-      defects: null | components['schemas']['SystemDesignDefectView'][];
-      systemTestPlan?: components['schemas']['SystemDesignSystemTestPlanView'];
-      testRuns: null | components['schemas']['SystemDesignTestRunView'][];
-    };
-    /** @enum {integer} */
-    SystemDesignTestingVariant: 0 | 1 | 2 | 3 | 4;
-    SystemDesignTimelineEvent: {
-      eventType: string;
-      raw?: null;
-      seq: number;
-    };
-    SystemDesignVersion: number;
   };
   responses: never;
   parameters: never;
@@ -2428,12 +1792,288 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
+  AcknowledgeStaleBasis: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          note: string;
+          taskID: string;
+        };
+      };
+    };
+    responses: {
+      /** @description no content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+    };
+  };
+  AskQuestions: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          addressee: string;
+          questions: components['schemas']['DeliveryAnchoredComment'][];
+          taskID: string;
+        };
+      };
+    };
+    responses: {
+      /** @description no content */
+      204: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content?: never;
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+    };
+  };
+  DispatchActivityTask: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path: {
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
+      };
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          feedback?: components['schemas']['DeliveryReviewFeedback'];
+          taskID: string;
+        };
+      };
+    };
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliverySessionRef'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+    };
+  };
   ExecuteNextActivity: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
+        projectID: components['schemas']['DeliveryProjectID'];
       };
       cookie?: never;
     };
@@ -2451,7 +2091,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionPumpResult'];
+          'application/json': components['schemas']['DeliveryPumpResult'];
         };
       };
       /** @description contract misuse */
@@ -2460,7 +2100,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -2469,7 +2109,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -2478,7 +2118,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -2487,7 +2127,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -2496,7 +2136,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -2505,7 +2145,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -2514,352 +2154,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-    };
-  };
-  GetEpisodeTimeline: {
-    parameters: {
-      query: {
-        episodeID: string;
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionEpisodeTimeline'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-    };
-  };
-  GetPumpStatus: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionPumpStatus'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-    };
-  };
-  GetSessionState: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-        activityID: components['schemas']['ConstructionActivityID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionConstructionSessionView'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-    };
-  };
-  ListEpisodesForActivity: {
-    parameters: {
-      query: {
-        activityID: string;
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionEpisodeRecordView'][];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
@@ -2869,15 +2164,15 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-        activityID: components['schemas']['ConstructionActivityID'];
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
       };
       cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
-          override: components['schemas']['ConstructionActivityOverride'];
+          override: components['schemas']['DeliveryActivityOverride'];
         };
       };
     };
@@ -2895,7 +2190,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -2904,7 +2199,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -2913,7 +2208,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -2922,7 +2217,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -2931,7 +2226,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -2940,7 +2235,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -2949,96 +2244,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-    };
-  };
-  PauseProject: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          reason: string;
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
@@ -3048,8 +2254,8 @@ export interface operations {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-        activityID: components['schemas']['ConstructionActivityID'];
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
       };
       cookie?: never;
     };
@@ -3061,7 +2267,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionActivityView'];
+          'application/json': components['schemas']['DeliveryActivityView'];
         };
       };
       /** @description contract misuse */
@@ -3070,7 +2276,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3079,7 +2285,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3088,7 +2294,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3097,7 +2303,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3106,7 +2312,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3115,7 +2321,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3124,28 +2330,34 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
   };
-  ResumeProject: {
+  QueryProjectView: {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-      };
+      path?: never;
       cookie?: never;
     };
-    requestBody?: never;
+    requestBody: {
+      content: {
+        'application/json': {
+          query: components['schemas']['DeliveryProjectViewQuery'];
+        };
+      };
+    };
     responses: {
-      /** @description no content */
-      204: {
+      /** @description success */
+      200: {
         headers: {
           [name: string]: unknown;
         };
-        content?: never;
+        content: {
+          'application/json': components['schemas']['DeliveryProjectView'];
+        };
       };
       /** @description contract misuse */
       400: {
@@ -3153,7 +2365,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3162,7 +2374,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3171,7 +2383,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3180,7 +2392,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3189,7 +2401,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3198,7 +2410,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3207,17 +2419,17 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
   };
-  RunReplanSweep: {
+  ReplanProject: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
+        projectID: components['schemas']['DeliveryProjectID'];
       };
       cookie?: never;
     };
@@ -3235,7 +2447,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionReplanSweepResult'];
+          'application/json': components['schemas']['DeliveryReplanSweepResult'];
         };
       };
       /** @description contract misuse */
@@ -3244,7 +2456,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3253,7 +2465,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3262,7 +2474,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3271,7 +2483,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3280,7 +2492,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3289,7 +2501,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3298,24 +2510,24 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
   };
-  SetReviewPolicy: {
+  SetProjectExecutionPolicy: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
+        projectID: components['schemas']['DeliveryProjectID'];
       };
       cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
-          preset: string;
+          policy: components['schemas']['DeliveryExecutionPolicyInput'];
         };
       };
     };
@@ -3333,7 +2545,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3342,7 +2554,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3351,7 +2563,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3360,7 +2572,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3369,7 +2581,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3378,7 +2590,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3387,27 +2599,25 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
   };
-  SubmitPhaseDecision: {
+  SetProjectRunState: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
-        activityID: components['schemas']['ConstructionActivityID'];
+        projectID: components['schemas']['DeliveryProjectID'];
       };
       cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
-          decision: components['schemas']['ConstructionPhaseDecision'];
-          feedback?: components['schemas']['ConstructionReviewFeedback'];
-          phase: string;
+          reason: string;
+          runState: components['schemas']['DeliveryProjectRunState'];
         };
       };
     };
@@ -3425,7 +2635,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3434,7 +2644,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3443,7 +2653,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3452,7 +2662,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3461,7 +2671,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3470,7 +2680,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3479,24 +2689,121 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
   };
-  UpdateReviewPolicy: {
+  StartProject: {
+    parameters: {
+      query?: never;
+      header?: never;
+      path?: never;
+      cookie?: never;
+    };
+    requestBody: {
+      content: {
+        'application/json': {
+          model?: components['schemas']['DeliveryOperatingModel'];
+          name: string;
+          owner: components['schemas']['DeliveryOwnerScope'];
+          projectID?: string;
+          research?: components['schemas']['DeliveryResearchInput'];
+          start: boolean;
+        };
+      };
+    };
+    responses: {
+      /** @description success */
+      200: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryStartProjectResult'];
+        };
+      };
+      /** @description contract misuse */
+      400: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description unauthenticated */
+      401: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description forbidden */
+      403: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description not found */
+      404: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description failed precondition */
+      409: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description internal error */
+      500: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+      /** @description infrastructure unavailable */
+      503: {
+        headers: {
+          [name: string]: unknown;
+        };
+        content: {
+          'application/json': components['schemas']['DeliveryErrorResponse'];
+        };
+      };
+    };
+  };
+  SubmitReviewDecision: {
     parameters: {
       query?: never;
       header?: never;
       path: {
-        projectID: components['schemas']['ConstructionProjectID'];
+        projectID: components['schemas']['DeliveryProjectID'];
+        activityID: components['schemas']['DeliveryActivityID'];
       };
       cookie?: never;
     };
     requestBody: {
       content: {
         'application/json': {
-          policy: components['schemas']['ConstructionReviewPolicyInput'];
+          decision: components['schemas']['DeliveryReviewDecisionInput'];
+          feedback?: components['schemas']['DeliveryReviewFeedback'];
+          taskID: string;
         };
       };
     };
@@ -3514,7 +2821,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description unauthenticated */
@@ -3523,7 +2830,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description forbidden */
@@ -3532,7 +2839,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description not found */
@@ -3541,7 +2848,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description failed precondition */
@@ -3550,7 +2857,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description internal error */
@@ -3559,7 +2866,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
       /** @description infrastructure unavailable */
@@ -3568,7 +2875,7 @@ export interface operations {
           [name: string]: unknown;
         };
         content: {
-          'application/json': components['schemas']['ConstructionErrorResponse'];
+          'application/json': components['schemas']['DeliveryErrorResponse'];
         };
       };
     };
@@ -4288,2408 +3595,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['OperationsErrorResponse'];
-        };
-      };
-    };
-  };
-  AcknowledgeStaleBasis: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          kind: components['schemas']['ProjectDesignArtifactKind'];
-          note: string;
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  AdvanceToConstruction: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          acknowledgeStale: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignPhaseAdvanceResult'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  AskQuestions: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          addressee: string;
-          kind: components['schemas']['ProjectDesignArtifactKind'];
-          questions: components['schemas']['ProjectDesignAnchoredComment'][];
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetEpisodeTimeline_2: {
-    parameters: {
-      query: {
-        episodeID: string;
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignEpisodeTimeline'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetSessionState_2: {
-    parameters: {
-      query: {
-        kind: components['schemas']['ProjectDesignArtifactKind'];
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignSessionStateView'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  ListEpisodesForArtifact: {
-    parameters: {
-      query: {
-        artifactKind: components['schemas']['ProjectDesignArtifactKind'];
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignEpisodeRecordView'][];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  RequestArtifactDraft: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          feedback?: components['schemas']['ProjectDesignReviewFeedback'];
-          kind: components['schemas']['ProjectDesignArtifactKind'];
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignSessionRef'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  RequestSDPCommit: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignSessionRef'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SetReviewCommentStatus: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          commentID: string;
-          kind: components['schemas']['ProjectDesignArtifactKind'];
-          status: string;
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SubmitReviewDecision: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          decision: components['schemas']['ProjectDesignReviewDecision'];
-          feedback?: components['schemas']['ProjectDesignReviewFeedback'];
-          kind: components['schemas']['ProjectDesignArtifactKind'];
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SubmitSDPDecision: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['ProjectDesignProjectID'];
-        optionID: components['schemas']['ProjectDesignOptionID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          decision: components['schemas']['ProjectDesignSDPDecision'];
-          feedback?: components['schemas']['ProjectDesignReviewFeedback'];
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['ProjectDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  AcknowledgeStaleBasis_2: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          kind: components['schemas']['SystemDesignArtifactKind'];
-          note: string;
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  AdvancePhase: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          acknowledgeStale: boolean;
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignPhaseAdvanceResult'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  AskQuestions_2: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          addressee: string;
-          kind: components['schemas']['SystemDesignArtifactKind'];
-          questions: components['schemas']['SystemDesignAnchoredComment'][];
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  CreateProject: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          name: string;
-          owner: components['schemas']['SystemDesignOwnerScope'];
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignProjectID'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetDesignHealth: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignDesignHealth'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetEpisodeTimeline_3: {
-    parameters: {
-      query: {
-        episodeID: string;
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignEpisodeTimeline'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetProject: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignProjectState'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  GetSessionState_3: {
-    parameters: {
-      query: {
-        kind: components['schemas']['SystemDesignArtifactKind'];
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignSessionStateView'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  ListEpisodesForArtifact_2: {
-    parameters: {
-      query: {
-        artifactKind: components['schemas']['SystemDesignArtifactKind'];
-      };
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignEpisodeRecordView'][];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  ListProjects: {
-    parameters: {
-      query: {
-        owner: components['schemas']['SystemDesignOwnerScope'];
-      };
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignProjectSummary'][];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  RequestArtifactDraft_2: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          feedback?: components['schemas']['SystemDesignReviewFeedback'];
-          kind: components['schemas']['SystemDesignArtifactKind'];
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignSessionRef'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SetOperatingModel: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          model: components['schemas']['SystemDesignOperatingModel'];
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignVersion'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SetResearchInput: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          research: components['schemas']['SystemDesignResearchInput'];
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignVersion'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SetReviewCommentStatus_2: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          commentID: string;
-          kind: components['schemas']['SystemDesignArtifactKind'];
-          status: string;
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  StartSystemDesign: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody?: never;
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignSessionRef'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-    };
-  };
-  SubmitReviewDecision_2: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['SystemDesignProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          decision: components['schemas']['SystemDesignReviewDecision'];
-          feedback?: components['schemas']['SystemDesignReviewFeedback'];
-          kind: components['schemas']['SystemDesignArtifactKind'];
-        };
-      };
-    };
-    responses: {
-      /** @description no content */
-      204: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content?: never;
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['SystemDesignErrorResponse'];
         };
       };
     };

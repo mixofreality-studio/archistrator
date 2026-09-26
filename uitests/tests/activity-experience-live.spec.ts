@@ -73,13 +73,20 @@ test('the plan lists the real project activities, and a row opens that activity'
   // for these literals). Stage 5 Task 13 moved both tags HERE, from specs it
   // deleted with the screens they drove: `drive-system-design` was on
   // architecture-views / artifact-affordances / design-experience /
-  // episodes-panel, which all drove `/design/system`; and
-  // `execute-a-construction-activity` was on construction-tracker, which drove
-  // `/construction`. Both use cases are now driven from the ONE plan: the
-  // design phases are activities 1–3 on it, and every construction activity is
-  // a row on it, so this smoke really does walk both.
+  // episodes-panel, which all drove `/design/system`; and the construction
+  // activity tag was on construction-tracker, which drove `/construction`. Both
+  // use cases are now driven from the ONE plan: the design phases are activities
+  // 1–3 on it, and every construction activity is a row on it, so this smoke
+  // really does walk both.
+  //
+  // The id is `execute-a-project-activity`: the model renamed it when one
+  // Activity Experience took over every rail (and absorbed
+  // `commit-to-a-project-option` into it). The coverage meta-check greps these
+  // literals against the COMMITTED core use case list, so the old
+  // `execute-a-construction-activity` tagged nothing and left the real use case
+  // reading as an uncovered gap.
   tagUseCase('drive-system-design');
-  tagUseCase('execute-a-construction-activity');
+  tagUseCase('execute-a-project-activity');
 
   await gotoApp(page, `/project/${PROJECT}/plan`);
 

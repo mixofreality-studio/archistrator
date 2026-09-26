@@ -120,6 +120,14 @@ const (
 	RuleObjResolve       methodcheck.RuleID = "DH-OBJ-RESOLVE"
 	RuleObjCoverage      methodcheck.RuleID = "DH-OBJ-COVERAGE"
 
+	// RuleBuildStatusVocabulary fires for a component whose buildStatus is outside the closed
+	// vocabulary the plan derivation understands ("", "planned", "external"). ERROR, not
+	// Warning: this is the one model field that decides whether a component becomes a
+	// dispatchable construction activity, the derivation keys on the exact string, and a
+	// near-miss ("Planned") is a component handed to a build agent by the pump sweep. There
+	// is nothing advisory about it.
+	RuleBuildStatusVocabulary methodcheck.RuleID = "DH-BUILDSTATUS-VOCAB"
+
 	// Contracts.
 	RuleContractOpReject methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-REJECT"
 	RuleContractOpMax    methodcheck.RuleID = "DH-CONTRACT-OPCOUNT-MAX"
@@ -413,6 +421,12 @@ type slotData struct {
 	// the same posture as encapsulatesBlurbs. Only non-empty lists are stored, so
 	// len(encapsulatesVolatilities) > 0 means the typed join is authored somewhere.
 	encapsulatesVolatilities map[string][]string
+	// buildStatuses maps a component id to its systemDesign `buildStatus` string.
+	// projectmodel's SystemComponent does not carry buildStatus — the same posture as
+	// encapsulatesBlurbs — so DH-BUILDSTATUS-VOCAB reads it from here. Only non-empty
+	// values are stored; a component absent from the map (buildStatus null, or the key
+	// missing entirely) is the same as an explicit "" to the vocabulary check.
+	buildStatuses map[string]string
 }
 
 type objective struct {
@@ -664,15 +678,16 @@ func absorbCoreUseCases(model json.RawMessage, out *slotData) {
 }
 
 // absorbSystemDesign folds the System slot: the dynamic views, the per-component
-// encapsulation blurbs and volatility claims, and the slot's revision counter.
-// Takes the whole slot (not just its model) because the revision is a sibling of
-// the model, not part of it.
+// encapsulation blurbs and volatility claims, the per-component buildStatus, and the
+// slot's revision counter. Takes the whole slot (not just its model) because the
+// revision is a sibling of the model, not part of it.
 func absorbSystemDesign(slot rawSlot, out *slotData) {
 	var m struct {
 		Components []struct {
 			ID                       string   `json:"id"`
 			Encapsulates             string   `json:"encapsulates"`
 			EncapsulatesVolatilities []string `json:"encapsulatesVolatilities"`
+			BuildStatus              string   `json:"buildStatus"`
 		} `json:"components"`
 		DynamicViews []dynamicView `json:"dynamicViews"`
 	}
@@ -684,12 +699,18 @@ func absorbSystemDesign(slot rawSlot, out *slotData) {
 	if out.encapsulatesVolatilities == nil {
 		out.encapsulatesVolatilities = map[string][]string{}
 	}
+	if out.buildStatuses == nil {
+		out.buildStatuses = map[string]string{}
+	}
 	for _, c := range m.Components {
 		if c.Encapsulates != "" {
 			out.encapsulatesBlurbs[c.ID] = c.Encapsulates
 		}
 		if len(c.EncapsulatesVolatilities) > 0 {
 			out.encapsulatesVolatilities[c.ID] = c.EncapsulatesVolatilities
+		}
+		if c.BuildStatus != "" {
+			out.buildStatuses[c.ID] = c.BuildStatus
 		}
 	}
 	// revisions is a scalar counter; tolerate absence.
@@ -2191,6 +2212,7 @@ func coverageFindings(in Input) []methodcheck.Finding {
 	out = append(out, volatilityEncapsulationFindings(in)...)
 	out = append(out, componentVolatilityDanglingFindings(in)...)
 	out = append(out, componentNoVolatilityFindings(in)...)
+	out = append(out, componentBuildStatusVocabularyFindings(in)...)
 	out = append(out, volatilityTraceFindings(in)...)
 	out = append(out, objectiveFindings(in)...)
 	return out
@@ -2384,6 +2406,32 @@ func componentNoVolatilityFindings(in Input) []methodcheck.Finding {
 			out = append(out, finding(RuleCompNoVolatility, methodcheck.SeverityWarning, i, "component "+c.ID,
 				fmt.Sprintf("%s component %q encapsulates no volatility — every Manager/Engine/ResourceAccess must encapsulate at least one area of volatility (Righting Software ch. 2: a component owning none is functional decomposition, the siren song)", c.Layer, c.ID)))
 		}
+	}
+	return out
+}
+
+// componentBuildStatusVocabularyFindings — DH-BUILDSTATUS-VOCAB: every component's
+// buildStatus must be a value the plan derivation understands. The estimation engine's
+// derivation keys on the exact string "", "planned", or "external"; this package cannot
+// import that in-flight server package (file header: only the two published platform
+// modules plus stdlib), so the closed set is restated here. A value outside it is a
+// model defect the derivation silently drops — no C-*/R-*/U-SPA-* activity is ever
+// emitted for it, and without this rule nothing else would say so. SeverityError: this
+// is the one field that decides whether a component becomes dispatchable at all, and a
+// near-miss ("Planned") is a component handed to a build agent by the pump sweep.
+func componentBuildStatusVocabularyFindings(in Input) []methodcheck.Finding {
+	if in.Model == nil || in.Model.System == nil {
+		return nil
+	}
+	var out []methodcheck.Finding
+	for i, c := range in.Model.System.Components {
+		status := in.Slots.buildStatuses[c.ID]
+		switch status {
+		case "", "planned", "external":
+			continue
+		}
+		out = append(out, finding(RuleBuildStatusVocabulary, methodcheck.SeverityError, i, "component "+c.ID,
+			fmt.Sprintf("component %s has buildStatus %q, which is not one of \"\", \"planned\", \"external\" — the plan derivation keys on the exact string, so this component derives no activity and no gate would otherwise say so", c.ID, status)))
 	}
 	return out
 }

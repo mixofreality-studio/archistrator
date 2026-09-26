@@ -12,30 +12,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { resolveViewKey } from './resolveView.ts';
 
-const REGISTRY_KEYS = new Set(['system-design-session', 'systemDesignGetSessionState']);
+const REGISTRY_KEYS = new Set(['system-design-session', 'deliveryQueryProjectView']);
 const hasKey = (key: string): boolean => REGISTRY_KEYS.has(key);
 
 void test('resolves via the tool _meta view id when present and registered', () => {
   const res = resolveViewKey(
     { ui: { resourceUri: 'ui://archistrator/shell.html', view: 'system-design-session' } },
-    'systemDesignGetSessionState',
+    'deliveryQueryProjectView',
     hasKey
   );
   assert.deepEqual(res, { key: 'system-design-session', resolvedBy: 'view' });
 });
 
 void test('falls back to tool name when _meta carries no ui.view', () => {
-  const res = resolveViewKey(undefined, 'systemDesignGetSessionState', hasKey);
-  assert.deepEqual(res, { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' });
+  const res = resolveViewKey(undefined, 'deliveryQueryProjectView', hasKey);
+  assert.deepEqual(res, { key: 'deliveryQueryProjectView', resolvedBy: 'toolName' });
 });
 
 void test('falls back to tool name when the _meta view id is not itself registered', () => {
   const res = resolveViewKey(
     { ui: { view: 'some-unregistered-view' } },
-    'systemDesignGetSessionState',
+    'deliveryQueryProjectView',
     hasKey
   );
-  assert.deepEqual(res, { key: 'systemDesignGetSessionState', resolvedBy: 'toolName' });
+  assert.deepEqual(res, { key: 'deliveryQueryProjectView', resolvedBy: 'toolName' });
 });
 
 void test('resolves to none when neither the view id nor the tool name is registered', () => {
@@ -44,23 +44,23 @@ void test('resolves to none when neither the view id nor the tool name is regist
 });
 
 void test('tolerates a malformed _meta.ui shape (non-object, missing view, non-string view)', () => {
-  assert.deepEqual(resolveViewKey({ ui: 'not-an-object' }, 'systemDesignGetSessionState', hasKey), {
-    key: 'systemDesignGetSessionState',
+  assert.deepEqual(resolveViewKey({ ui: 'not-an-object' }, 'deliveryQueryProjectView', hasKey), {
+    key: 'deliveryQueryProjectView',
     resolvedBy: 'toolName',
   });
-  assert.deepEqual(resolveViewKey({ ui: {} }, 'systemDesignGetSessionState', hasKey), {
-    key: 'systemDesignGetSessionState',
+  assert.deepEqual(resolveViewKey({ ui: {} }, 'deliveryQueryProjectView', hasKey), {
+    key: 'deliveryQueryProjectView',
     resolvedBy: 'toolName',
   });
-  assert.deepEqual(resolveViewKey({ ui: { view: 42 } }, 'systemDesignGetSessionState', hasKey), {
-    key: 'systemDesignGetSessionState',
+  assert.deepEqual(resolveViewKey({ ui: { view: 42 } }, 'deliveryQueryProjectView', hasKey), {
+    key: 'deliveryQueryProjectView',
     resolvedBy: 'toolName',
   });
 });
 
 void test('falls back to the single distinct view when the host omits toolInfo entirely (F-T11-3)', () => {
   const hasKey = (k: string): boolean =>
-    k === 'system-design-session' || k === 'systemDesignGetSessionState';
+    k === 'system-design-session' || k === 'deliveryQueryProjectView';
   const res = resolveViewKey(undefined, undefined, hasKey, ['system-design-session']);
   assert.equal(res.resolvedBy, 'singleViewDefault');
   assert.equal(res.key, 'system-design-session');

@@ -24,11 +24,12 @@ import (
 //
 // A step whose {Component,Operation} the opTable below does not map to a
 // Transport method is SKIPPED — naming the missing op — rather than failed.
-// Only systemDesignManager (STP-UC1) and projectDesignManager (STP-UC2) are
-// mapped today: their Transport coverage is complete. STP-UC3 (construction),
-// STP-UC4 (operations) and STP-UC5 (billing) report an honest scenario-level
-// skip until their op mappings are added here — the whole point of the
-// per-{component,operation} table below is that wiring a new use case is
+// Stage 4a made the three design/construction Managers ONE (deliveryManager,
+// twelve ops), so the table below has one component entry where it had two, and
+// STP-UC3's construction steps are mapped by the same entry rather than waiting
+// on their own. STP-UC4 (operations) and STP-UC5 (billing) still report an honest
+// scenario-level skip until their op mappings are added here — the whole point of
+// the per-{component,operation} table below is that wiring a new use case is
 // additive (new map entries), never a rewrite of this runner.
 //
 // SCOPE, documented rather than hidden (test-engineer boundary: flag
@@ -291,69 +292,175 @@ type opFunc func(ctx context.Context, t *testing.T, tr harness.Transport, ins []
 // component's map (e.g. "constructionManager": {...}) once their bespoke
 // tests' Transport coverage is likewise complete (design note: UC1+UC2 first).
 var opTable = map[string]map[string]opFunc{
-	"systemDesignManager": {
-		"CreateProject":        opCreateProject,
-		"SetResearchInput":     opSetResearchInput,
-		"StartSystemDesign":    opStartSystemDesign,
-		"RequestArtifactDraft": opRequestArtifactDraft,
-		"GetSessionState":      opSystemGetSessionState,
+	"deliveryManager": {
+		"StartProject":         opStartProject,
+		"DispatchActivityTask": opDispatchActivityTask,
 		"SubmitReviewDecision": opSubmitReviewDecision,
-		"AdvancePhase":         opAdvancePhase,
-	},
-	"projectDesignManager": {
-		"RequestSDPCommit":      opRequestSDPCommit,
-		"GetSessionState":       opProjectGetSessionState,
-		"SubmitSDPDecision":     opSubmitSDPDecision,
-		"AdvanceToConstruction": opAdvanceToConstruction,
+		"QueryProjectView":     opQueryProjectView,
+		"QueryActivityView":    opQueryActivityView,
+		"ExecuteNextActivity":  opExecuteNextActivity,
+		"OverrideActivity":     opOverrideActivity,
 	},
 }
 
-func opCreateProject(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+// opStartProject folds the three former entry ops (CreateProject, SetResearchInput,
+// StartSystemDesign) onto the one op that now serves them, exactly as the Manager does:
+// no projectID means create, a research argument means attach, start=true means begin.
+func opStartProject(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	if id := inputValue(ins, "projectID"); id != "" {
+		if raw := inputValue(ins, "research"); raw != "" {
+			sources, err := decodeResearch(raw)
+			if err != nil {
+				return "", err
+			}
+			return "", tr.SetResearchInput(ctx, id, sources)
+		}
+		if inputValue(ins, "start") == "true" {
+			return tr.StartDesign(ctx, id)
+		}
+		return id, nil
+	}
 	return tr.CreateProject(ctx, inputValue(ins, "name"))
 }
 
-func opSetResearchInput(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	sources, err := decodeResearch(inputValue(ins, "research"))
-	if err != nil {
-		return "", err
+// opDispatchActivityTask is the one dispatch: an artifact draft on either design rail,
+// or the projectDesign activity's single SDP assembly.
+func opDispatchActivityTask(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	task := inputValue(ins, "taskID")
+	if task == "sdpReview" {
+		return tr.RequestSDPCommit(ctx, inputValue(ins, "projectID"))
 	}
-	return "", tr.SetResearchInput(ctx, inputValue(ins, "projectID"), sources)
-}
-
-func opStartSystemDesign(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	return tr.StartDesign(ctx, inputValue(ins, "projectID"))
-}
-
-func opRequestArtifactDraft(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
+	kind := harness.ArtifactKindForTask(task)
+	if harness.IsPhase2ArtifactKind(kind) {
+		return tr.RequestProjectArtifactDraft(ctx, inputValue(ins, "projectID"), kind)
+	}
 	return tr.RequestArtifactDraft(ctx, inputValue(ins, "projectID"), kind)
 }
 
+// opQueryProjectView answers the plan's session reads through the one composed read; the
+// query object carries the selector, so the kind decides which Transport read runs.
+func opQueryProjectView(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	q, err := decodeProjectViewQuery(inputValue(ins, "query"))
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case q.ActivityID != "":
+		st, err := tr.GetConstructionSessionState(ctx, q.ProjectID, q.ActivityID)
+		return st.Stage, err
+	case harness.IsPhase2ArtifactKind(harness.ArtifactKindName(q.ArtifactKind)):
+		st, _, err := tr.GetProjectSessionState(ctx, q.ProjectID, harness.ArtifactKindName(q.ArtifactKind))
+		return st.Stage, err
+	default:
+		st, _, err := tr.GetSessionState(ctx, q.ProjectID, harness.ArtifactKindName(q.ArtifactKind))
+		return st.Stage, err
+	}
+}
+
+// opOverrideActivity drives the escalation gate's own entry — the chain's third link.
+func opOverrideActivity(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	ov, err := decodeActivityOverride(inputValue(ins, "override"))
+	if err != nil {
+		return "", err
+	}
+	return "", tr.OverrideActivity(ctx, inputValue(ins, "projectID"), inputValue(ins, "activityID"), ov.Kind, ov.Notes)
+}
+
+// activityOverride is the sliver of the plan's ActivityOverride literal this runner reads.
+type activityOverride struct {
+	Kind  int    `json:"kind"`
+	Notes string `json:"notes"`
+}
+
+func decodeActivityOverride(raw string) (activityOverride, error) {
+	var ov activityOverride
+	if raw == "" {
+		return ov, nil
+	}
+	return ov, json.Unmarshal([]byte(raw), &ov)
+}
+
+func opQueryActivityView(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	return tr.QueryActivityView(ctx, inputValue(ins, "projectID"), inputValue(ins, "activityID"))
+}
+
+func opExecuteNextActivity(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
+	dispatched, activityID, err := tr.ExecuteNextActivity(ctx, inputValue(ins, "projectID"), inputValue(ins, "tickID"))
+	return fmt.Sprintf("{\"dispatched\":%t,\"activityId\":%q}", dispatched, activityID), err
+}
+
+// projectViewQuery is the sliver of the plan's ProjectViewQuery literal this runner
+// reads: enough to pick which Transport read a `session` step means.
+type projectViewQuery struct {
+	Kind         string `json:"kind"`
+	ProjectID    string `json:"projectId"`
+	ActivityID   string `json:"activityId"`
+	ArtifactKind int    `json:"artifactKind"`
+}
+
+func decodeProjectViewQuery(raw string) (projectViewQuery, error) {
+	var q projectViewQuery
+	if raw == "" {
+		return q, nil
+	}
+	return q, json.Unmarshal([]byte(raw), &q)
+}
+
+// opSubmitReviewDecision is the ONE gate write: the decision object names the verdict and
+// the task names which gate it lands on, so this routes by task exactly as the Manager
+// does — the SDP gate, a design artifact's review, a phase seal, or a construction phase.
 func opSubmitReviewDecision(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
-	decision := harness.ReviewDecisionName(atoiOrZero(inputValue(ins, "decision")))
+	dec, err := decodeReviewDecisionInput(inputValue(ins, "decision"))
+	if err != nil {
+		return "", err
+	}
+	projectID := inputValue(ins, "projectID")
+	task := inputValue(ins, "taskID")
 	notes := extractNotes(inputValue(ins, "feedback"))
-	return "", tr.SubmitReview(ctx, inputValue(ins, "projectID"), kind, decision, notes)
+	if dec.Decision == int(harness.ReviewAdvanceOrdinal) {
+		if task == "sdpReview" {
+			advanced, missing, aerr := tr.AdvanceToConstruction(ctx, projectID)
+			return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), aerr
+		}
+		advanced, missing, aerr := tr.AdvancePhase(ctx, projectID)
+		return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), aerr
+	}
+	decision := harness.ReviewDecisionName(dec.Decision)
+	if task == "sdpReview" {
+		sdp := "commit"
+		if decision == "reject" {
+			sdp = "rejectAll"
+		}
+		return "", tr.SubmitSDPDecision(ctx, projectID, sdp, dec.OptionID, notes)
+	}
+	kind := harness.ArtifactKindForTask(task)
+	if kind == "" {
+		// Not a design task id: a construction gate, whose task id IS the lifecycle phase.
+		phase := "approve"
+		if decision == "reject" {
+			phase = "sendBack"
+		}
+		return "", tr.SubmitPhaseDecision(ctx, projectID, inputValue(ins, "activityID"), task, phase, notes)
+	}
+	if harness.IsPhase2ArtifactKind(kind) {
+		return "", tr.SubmitProjectReview(ctx, projectID, kind, decision, notes)
+	}
+	return "", tr.SubmitReview(ctx, projectID, kind, decision, notes)
 }
 
-func opAdvancePhase(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	advanced, missing, err := tr.AdvancePhase(ctx, inputValue(ins, "projectID"))
-	return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), err
+// reviewDecisionInput is the sliver of the plan's ReviewDecisionInput literal this runner
+// reads.
+type reviewDecisionInput struct {
+	Decision int    `json:"decision"`
+	OptionID string `json:"optionId"`
 }
 
-func opRequestSDPCommit(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	return tr.RequestSDPCommit(ctx, inputValue(ins, "projectID"))
-}
-
-func opSubmitSDPDecision(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	decision := harness.SDPDecisionName(atoiOrZero(inputValue(ins, "decision")))
-	notes := extractNotes(inputValue(ins, "feedback"))
-	return "", tr.SubmitSDPDecision(ctx, inputValue(ins, "projectID"), decision, inputValue(ins, "optionID"), notes)
-}
-
-func opAdvanceToConstruction(ctx context.Context, _ *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	advanced, missing, err := tr.AdvanceToConstruction(ctx, inputValue(ins, "projectID"))
-	return fmt.Sprintf("{\"advanced\":%t,\"missingArtifacts\":%v}", advanced, missing), err
+func decodeReviewDecisionInput(raw string) (reviewDecisionInput, error) {
+	var in reviewDecisionInput
+	if raw == "" {
+		return in, nil
+	}
+	return in, json.Unmarshal([]byte(raw), &in)
 }
 
 // --- session-state reads: best-effort poll, mirroring harness.TryReach* ---
@@ -362,34 +469,6 @@ const (
 	sessionPollTimeout  = 90 * time.Second
 	sessionPollInterval = 250 * time.Millisecond
 )
-
-func opSystemGetSessionState(ctx context.Context, t *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	projectID := inputValue(ins, "projectID")
-	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
-	stage, ok := pollUntilObservable(ctx, sessionPollTimeout, func() (string, bool) {
-		st, found, err := tr.GetSessionState(ctx, projectID, kind)
-		return st.Stage, err == nil && found && st.Stage != "" && st.Stage != "unknown"
-	})
-	if !ok {
-		t.Logf("GetSessionState(%s,%s): never reached an observable stage within %s — best-effort read (model/draft timing), not a hard gate", projectID, kind, sessionPollTimeout)
-		return "", nil
-	}
-	return fmt.Sprintf("{\"stage\":%q}", stage), nil
-}
-
-func opProjectGetSessionState(ctx context.Context, t *testing.T, tr harness.Transport, ins []generated.InputArg) (string, error) {
-	projectID := inputValue(ins, "projectID")
-	kind := harness.ArtifactKindName(atoiOrZero(inputValue(ins, "kind")))
-	stage, ok := pollUntilObservable(ctx, sessionPollTimeout, func() (string, bool) {
-		st, found, err := tr.GetProjectSessionState(ctx, projectID, kind)
-		return st.Stage, err == nil && found && st.Stage != "" && st.Stage != "unknown"
-	})
-	if !ok {
-		t.Logf("GetProjectSessionState(%s,%s): never reached an observable stage within %s — best-effort read (model/draft timing), not a hard gate", projectID, kind, sessionPollTimeout)
-		return "", nil
-	}
-	return fmt.Sprintf("{\"stage\":%q}", stage), nil
-}
 
 // pollUntilObservable polls fn (value, ready) until ready or timeout.
 func pollUntilObservable(ctx context.Context, timeout time.Duration, fn func() (string, bool)) (string, bool) {

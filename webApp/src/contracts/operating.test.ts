@@ -65,7 +65,7 @@ type Schemas = components['schemas'];
 const STAGE_AWAITING_REVIEW = 1 as const;
 const STAGE_COMMITTED = 2 as const;
 
-function doneIntegratedRow(id: string): Schemas['SystemDesignActivityConstructionStatus'] {
+function doneIntegratedRow(id: string): Schemas['DeliveryActivityConstructionStatus'] {
   return {
     ActivityID: id,
     BuildStatus: 2,
@@ -88,10 +88,10 @@ function doneIntegratedRow(id: string): Schemas['SystemDesignActivityConstructio
 }
 
 function wireState(
-  stage: Schemas['SystemDesignArtifactStage'],
+  stage: Schemas['DeliveryArtifactStage'],
   listed: readonly string[],
   rowIds: readonly string[]
-): Schemas['SystemDesignProjectState'] {
+): Schemas['DeliveryProjectState'] {
   return {
     activityExecution: Object.fromEntries(rowIds.map((id) => [id, doneIntegratedRow(id)])),
     GitRows: {},

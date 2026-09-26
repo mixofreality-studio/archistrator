@@ -71,7 +71,9 @@ void test('an EMPTY-body 404 is "no session" on the construction probe as it rid
     Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(404) });
   const ops = restOpsClient({ GET: answer, POST: answer } as never);
   const fetch = (): Promise<unknown> =>
-    ops.callForBody('constructionGetSessionState', { path: { projectID: 'p1', activityID: 'a1' } });
+    ops.callForBody('deliveryQueryProjectView', {
+      body: { query: { kind: 'session', projectId: 'p1', activityId: 'a1' } },
+    });
   assert.equal(isNoSessionError(await rejectionOf(fetch())), true);
   assert.equal(await sessionProbeQueryFn({ fetch, getCached: () => undefined })(), null);
   // An empty-body 502 is not absence: it stays an error.
@@ -79,8 +81,8 @@ void test('an EMPTY-body 404 is "no session" on the construction probe as it rid
     Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(502) });
   const failing = restOpsClient({ GET: bad, POST: bad } as never);
   const err = await rejectionOf(
-    failing.callForBody('constructionGetSessionState', {
-      path: { projectID: 'p1', activityID: 'a1' },
+    failing.callForBody('deliveryQueryProjectView', {
+      body: { query: { kind: 'session', projectId: 'p1', activityId: 'a1' } },
     })
   );
   assert.equal(isNoSessionError(err), false);
@@ -91,7 +93,9 @@ void test('an EMPTY-body 404 is "no session" on the design probe path (REST OpsC
     Promise.resolve({ data: undefined, error: undefined, response: emptyResponse(404) });
   const ops = restOpsClient({ GET: answer, POST: answer } as never);
   const fetch = (): Promise<unknown> =>
-    ops.call('systemDesignGetSessionState', { path: { projectID: 'p1' }, query: { kind: 1 } });
+    ops.call('deliveryQueryProjectView', {
+      body: { query: { kind: 'session', projectId: 'p1', artifactKind: 1 } },
+    });
   assert.equal(isNoSessionError(await rejectionOf(fetch())), true);
   assert.equal(await sessionProbeQueryFn({ fetch, getCached: () => undefined })(), null);
 });

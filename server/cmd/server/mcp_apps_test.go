@@ -59,7 +59,7 @@ func TestDevCORSPreflight(t *testing.T) {
 // TestMCPAppsSeam proves the full MCP-Apps wiring end to end over a real (in
 // memory) MCP session, following TestMCPMountInitializeAndListTools's pattern
 // (server/cmd/server/mcp_mount_test.go): (1) initialize + tools/list finds
-// systemDesignGetSessionState and asserts its _meta ui.resourceUri/ui.view match
+// deliveryQueryProjectView and asserts its _meta ui.resourceUri/ui.view match
 // what mcpemit stamps (mcpemit.go) and what project.json declares for this
 // artifact's view (ui.view: "system-design-session" — see the ratified spec,
 // "the same view ids drive the registry"); (2) resources/read that URI returns
@@ -70,7 +70,7 @@ func TestDevCORSPreflight(t *testing.T) {
 func TestMCPAppsSeam(t *testing.T) {
 	const webAppOrigin = "https://app.example.com"
 	const assetVersion = "42"
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, nil, webAppOrigin, assetVersion)
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, webAppOrigin, assetVersion)
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 
@@ -90,17 +90,17 @@ func TestMCPAppsSeam(t *testing.T) {
 	}
 	var tool *mcp.Tool
 	for _, tl := range res.Tools {
-		if tl.Name == "systemDesignGetSessionState" {
+		if tl.Name == "deliveryQueryProjectView" {
 			tool = tl
 			break
 		}
 	}
 	if tool == nil {
-		t.Fatalf("tools/list missing systemDesignGetSessionState; got: %s", strings.Join(toolNames(res.Tools), ", "))
+		t.Fatalf("tools/list missing deliveryQueryProjectView; got: %s", strings.Join(toolNames(res.Tools), ", "))
 	}
 	ui, ok := tool.Meta["ui"].(map[string]any)
 	if !ok {
-		t.Fatalf("systemDesignGetSessionState._meta.ui missing or wrong shape: %#v", tool.Meta["ui"])
+		t.Fatalf("deliveryQueryProjectView._meta.ui missing or wrong shape: %#v", tool.Meta["ui"])
 	}
 	if got := ui["resourceUri"]; got != shellResourceURI {
 		t.Errorf("_meta.ui.resourceUri = %v, want %q", got, shellResourceURI)
@@ -133,7 +133,7 @@ func TestMCPAppsSeam(t *testing.T) {
 // is required.
 func mustListTools(t *testing.T) []*mcp.Tool {
 	t.Helper()
-	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, nil, nil, "http://localhost:5173", "dev")
+	handler := newMCPHandler(web.DevConfig{Enabled: true}, nil, nil, nil, "http://localhost:5173", "dev")
 	ts := httptest.NewServer(handler)
 	defer ts.Close()
 

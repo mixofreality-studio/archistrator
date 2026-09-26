@@ -1777,8 +1777,8 @@ func loadSystemFixture(t *testing.T) SystemView {
 	if err := json.Unmarshal(raw, &sv); err != nil {
 		t.Fatalf("decode fixture: %v", err)
 	}
-	if len(sv.Components) != 37 {
-		t.Fatalf("fixture has %d components, want the live 37", len(sv.Components))
+	if len(sv.Components) != 35 {
+		t.Fatalf("fixture has %d components, want the live 35", len(sv.Components))
 	}
 	return sv
 }
@@ -1877,8 +1877,7 @@ var table11_1Set = []string{
 	"C-project-state-access", "C-source-control-access", "C-usage-access",
 	"C-autoscaler-engine", "C-billing-engine", "C-design-health-engine", "C-estimation-engine",
 	"C-intervention-engine", "C-operation-estimation-engine", "C-review-engine",
-	"C-billing-manager", "C-construction-manager", "C-operations-manager",
-	"C-project-design-manager", "C-system-design-manager",
+	"C-billing-manager", "C-delivery-manager", "C-operations-manager",
 	"U-SPA-web-client",
 	"N-IT",
 }
@@ -1914,7 +1913,7 @@ func TestParityDerivesTheTable11_1Network(t *testing.T) {
 	if len(plan.Dependencies) != len(table11_1Set)-1 {
 		t.Errorf("derived %d dependency rows, want one per activity but the root (%d)", len(plan.Dependencies), len(table11_1Set)-1)
 	}
-	if want := []string{"C-billing-manager", "C-construction-manager", "C-system-design-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
+	if want := []string{"C-billing-manager", "C-delivery-manager"}; !reflect.DeepEqual(deps["U-SPA-web-client"], want) {
 		t.Errorf("U-SPA-web-client dependsOn = %v, want %v", deps["U-SPA-web-client"], want)
 	}
 	if want := []string{"N-STP", "U-SPA-web-client"}; !reflect.DeepEqual(deps["N-IT"], want) {
@@ -2172,5 +2171,41 @@ func TestParityPlanSolvesThroughComputeNetwork(t *testing.T) {
 	}
 	if sol.Summary.CriticalPathActivityCount == 0 {
 		t.Error("derived plan has no critical path; the edge derivation produced a disconnected graph")
+	}
+}
+
+// A buildStatus the vocabulary does not know is a MODEL DEFECT, not a hint. The skip in
+// codingActivityFor/provisioningActivityFor/clientAppActivityFor keys on the exact string
+// "planned"; "Planned" sails past it, derives C-<id> into slot 9, and the 30-second pump
+// sweep hands a component with no code to a build agent. The derivation must never
+// re-interpret a value it does not recognise — it must refuse to recognise it, loudly,
+// and let the design-health gate name the component.
+func TestKnownBuildStatusIsAClosedVocabulary(t *testing.T) {
+	for _, ok := range []string{"", "planned", "external"} {
+		if !knownBuildStatus(ok) {
+			t.Errorf("knownBuildStatus(%q) = false, want true — this is a live value in the committed model", ok)
+		}
+	}
+	for _, bad := range []string{"Planned", "PLANNED", "plannned", "built", "todo", " planned"} {
+		if knownBuildStatus(bad) {
+			t.Errorf("knownBuildStatus(%q) = true, want false — a near-miss must not be accepted", bad)
+		}
+	}
+}
+
+// The typo case, end to end: a component whose buildStatus is "Planned" must NOT be
+// silently re-derived as buildable. The derivation treats an unknown value exactly as it
+// treats "planned" — it emits nothing — and the design-health gate is what names it.
+// Deriving nothing is the safe half: a missing activity is a visible hole in the plan,
+// where a spurious one is an agent spending money on a component that does not exist.
+func TestDeriveActivitiesEmitsNothingForAnUnknownBuildStatus(t *testing.T) {
+	sys := sampleSystem()
+	sys.Components = append(sys.Components,
+		SystemComponent{ID: "typo-manager", Name: "TypoManager", Kind: "manager", ConstructionProfile: "handwritten", BuildStatus: "Planned"},
+	)
+	for _, a := range deriveActivities(sys) {
+		if a.ComponentID == "typo-manager" {
+			t.Errorf("emitted %s for typo-manager, whose buildStatus %q is not in the vocabulary — a typo must never re-derive a planned component", a.Name, "Planned")
+		}
 	}
 }

@@ -69,7 +69,7 @@ import {
   type VolatilityPoint,
 } from '../contracts/adapters';
 import type { ArtifactModelEnvelope, Axis, RejectedVolatility } from '../contracts/types';
-import { useProject } from '../hooks/useProject';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { useComments, volatilityAnchor, rejectedVolatilityAnchor } from './comments/CommentContext';
 import {
   axesLayout,

@@ -11,10 +11,8 @@ import (
 	"go.temporal.io/sdk/workflow"
 
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 )
 
 // This file is the appgen migration's registered-Temporal-name gate: it replaces
@@ -24,7 +22,7 @@ import (
 // instead of a silent drift nobody notices until a production worker fails to
 // find a workflow/activity type.
 //
-// All five Managers now have ZERO custom Activities (B7-B10): every registered
+// All three Managers now have ZERO custom Activities (B7-B10): every registered
 // workflow and activity comes from the generated worker.gen.go's RegisterWorker,
 // fed by each Manager's hand-written WorkerManifest() (workermanifest.go). The
 // collection approach here calls the REAL WorkerManifest()/RegisterManagerWorker
@@ -62,68 +60,40 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 }
 
 // registeredTemporalNamesGolden is the committed, sorted set of every workflow
-// and activity name registered across all five Managers. A mismatch here means
-// the registered Temporal name set changed — review the diff, confirm it is
-// deliberate (e.g. an activity rename, which IS allowed per the ratified "clean
-// cut" — Global Constraints), and update this literal.
+// and activity name registered across the three Managers that own a Temporal
+// worker (delivery, operations, billing). A mismatch here means the registered
+// Temporal name set changed — review the diff, confirm it is deliberate, and
+// update this literal.
+//
+// STAGE 4a TOOK IT FROM 231 TO 139: NINETY-TWO REMOVALS. Stage 3's twenty-four
+// additions were safe to ship on their own, because an OLD worker simply never
+// serves a name it does not know and the new one does. Removals are the opposite
+// direction and they are why the drain is non-negotiable: a worker built from an
+// older commit can serve a workflow THIS one started, but a worker built from
+// this commit cannot serve one an older worker started. Nothing here shrank by
+// deleting a verb — the three design/construction Managers registered the SAME
+// RA dep surface three times over (each Manager's generated RegisterWorker
+// registers that Manager's whole dep set), and one Manager registers it once.
+// Every workflow TYPE name is unchanged (R2); what went is the duplication.
+//
+// Drain the old task queues (system-design, project-design, construction) and
+// delete the old Schedules (construction:pumpSweep, construction:replanSweep)
+// BEFORE this deploys — see Task 10.
 var registeredTemporalNamesGolden = []string{
-	// activityExecutionAccess (stage 3, tasks 3 and 6) — the twelve verbs of the fifth
-	// contract facet, registered THREE times over: once per Manager that took the dep. The
-	// construction Manager took it in task 3; both DESIGN Managers take it in task 6, because
-	// the design rails now dual-write their review rounds through it and the generated
-	// RegisterWorker registers a Manager's whole dep surface, not the subset its workflows
-	// call. Twenty-four ADDITIONS here, zero removals.
-	// DELIBERATE, and PURELY ADDITIVE: this update adds twelve names and removes none,
-	// which is the whole point of the additive shape. The three facets these verbs
-	// supersede keep every one of their registered names, so the thirteen construction
-	// replay fixtures stay byte-identical and an in-flight execution keeps finding the
-	// activity type its history recorded. Task 5 switches the workflow onto these behind
-	// workflow.GetVersion; the deletions are a post-drain commit, and THAT update will
-	// remove names and needs the drain note with it.
-	"activityExecutionAccess.acknowledgeStaleBasis",
-	"activityExecutionAccess.acknowledgeStaleBasis",
 	"activityExecutionAccess.acknowledgeStaleBasis",
 	"activityExecutionAccess.appendReviewVerdict",
-	"activityExecutionAccess.appendReviewVerdict",
-	"activityExecutionAccess.appendReviewVerdict",
-	"activityExecutionAccess.commitActivityArtifacts",
-	"activityExecutionAccess.commitActivityArtifacts",
 	"activityExecutionAccess.commitActivityArtifacts",
 	"activityExecutionAccess.decideReviewRound",
-	"activityExecutionAccess.decideReviewRound",
-	"activityExecutionAccess.decideReviewRound",
-	"activityExecutionAccess.openActivity",
-	"activityExecutionAccess.openActivity",
 	"activityExecutionAccess.openActivity",
 	"activityExecutionAccess.openReviewRound",
-	"activityExecutionAccess.openReviewRound",
-	"activityExecutionAccess.openReviewRound",
-	"activityExecutionAccess.readActivityExecution",
-	"activityExecutionAccess.readActivityExecution",
 	"activityExecutionAccess.readActivityExecution",
 	"activityExecutionAccess.recordActivityOutcome",
-	"activityExecutionAccess.recordActivityOutcome",
-	"activityExecutionAccess.recordActivityOutcome",
-	"activityExecutionAccess.recordAttemptOutcome",
-	"activityExecutionAccess.recordAttemptOutcome",
 	"activityExecutionAccess.recordAttemptOutcome",
 	"activityExecutionAccess.recordOperatorNote",
-	"activityExecutionAccess.recordOperatorNote",
-	"activityExecutionAccess.recordOperatorNote",
-	"activityExecutionAccess.setReviewCommentStatus",
-	"activityExecutionAccess.setReviewCommentStatus",
 	"activityExecutionAccess.setReviewCommentStatus",
 	"activityExecutionAccess.stageTaskOutput",
-	"activityExecutionAccess.stageTaskOutput",
-	"activityExecutionAccess.stageTaskOutput",
-	"agenticJobAccess.cancelAgenticJob",
-	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.cancelAgenticJob",
 	"agenticJobAccess.observeAgenticJob",
-	"agenticJobAccess.observeAgenticJob",
-	"agenticJobAccess.observeAgenticJob",
-	"agenticJobAccess.submitAgenticJob",
-	"agenticJobAccess.submitAgenticJob",
 	"agenticJobAccess.submitAgenticJob",
 	"artifactAccess.retrieveConstructionOutput",
 	"artifactAccess.retrieveConstructionOutput",
@@ -159,37 +129,15 @@ var registeredTemporalNamesGolden = []string{
 	"constructionTransitionAccess.recordReviewPolicy",
 	"constructionTransitionAccess.recordServiceContractProduced",
 	"designSessionAccess.commitArtifactWithProvenance",
-	"designSessionAccess.commitArtifactWithProvenance",
-	"designSessionAccess.commitArtifactWithProvenance",
-	"designSessionAccess.readProjectOnBranch",
-	"designSessionAccess.readProjectOnBranch",
 	"designSessionAccess.readProjectOnBranch",
 	"designSessionAccess.reconcileBranchFromMain",
-	"designSessionAccess.reconcileBranchFromMain",
-	"designSessionAccess.reconcileBranchFromMain",
-	"designSessionAccess.rejectArtifactOnBranchWithComments",
-	"designSessionAccess.rejectArtifactOnBranchWithComments",
 	"designSessionAccess.rejectArtifactOnBranchWithComments",
 	"designSessionAccess.seedReviewCommentsOnBranch",
-	"designSessionAccess.seedReviewCommentsOnBranch",
-	"designSessionAccess.seedReviewCommentsOnBranch",
-	"designSessionAccess.setReviewCommentStatusOnBranch",
-	"designSessionAccess.setReviewCommentStatusOnBranch",
 	"designSessionAccess.setReviewCommentStatusOnBranch",
 	"designSessionAccess.stageArtifactForReviewOnBranch",
-	"designSessionAccess.stageArtifactForReviewOnBranch",
-	"designSessionAccess.stageArtifactForReviewOnBranch",
-	"designSessionAccess.withdrawArtifactOnBranch",
-	"designSessionAccess.withdrawArtifactOnBranch",
 	"designSessionAccess.withdrawArtifactOnBranch",
 	"episodeAccess.appendEpisode",
-	"episodeAccess.appendEpisode",
-	"episodeAccess.appendEpisode",
 	"episodeAccess.listEpisodes",
-	"episodeAccess.listEpisodes",
-	"episodeAccess.listEpisodes",
-	"episodeAccess.readTraceEvents",
-	"episodeAccess.readTraceEvents",
 	"episodeAccess.readTraceEvents",
 	"gitActivityStatusAccess.recordActivityArchApproved",
 	"gitActivityStatusAccess.recordActivityBranchOpened",
@@ -232,75 +180,35 @@ var registeredTemporalNamesGolden = []string{
 	"projectDesignSDPReview",
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.acknowledgeStaleBasis",
-	"projectStateAccess.acknowledgeStaleBasis",
-	"projectStateAccess.acknowledgeStaleBasis",
-	"projectStateAccess.advancePhase",
-	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.advancePhase",
 	"projectStateAccess.commitArtifact",
 	"projectStateAccess.commitArtifact",
-	"projectStateAccess.commitArtifact",
-	"projectStateAccess.commitArtifact",
-	"projectStateAccess.createProject",
-	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
 	"projectStateAccess.createProject",
 	"projectStateAccess.listProjects",
 	"projectStateAccess.listProjects",
-	"projectStateAccess.listProjects",
-	"projectStateAccess.listProjects",
-	"projectStateAccess.readProject",
-	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProject",
 	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.readProjectVersion",
-	"projectStateAccess.readProjectVersion",
-	"projectStateAccess.readProjectVersion",
 	"projectStateAccess.setOperatingModel",
 	"projectStateAccess.setOperatingModel",
-	"projectStateAccess.setOperatingModel",
-	"projectStateAccess.setOperatingModel",
-	"projectStateAccess.setResearchInput",
-	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"projectStateAccess.setResearchInput",
 	"revenueLedgerAccess.readRange",
 	"revenueLedgerAccess.recordInboundRevenue",
 	"revenueLedgerAccess.recordReversal",
 	"sourceControlAccess.adoptProjectRepo",
-	"sourceControlAccess.adoptProjectRepo",
-	"sourceControlAccess.adoptProjectRepo",
-	"sourceControlAccess.commitManagedFiles",
-	"sourceControlAccess.commitManagedFiles",
 	"sourceControlAccess.commitManagedFiles",
 	"sourceControlAccess.configureBranchProtection",
-	"sourceControlAccess.configureBranchProtection",
-	"sourceControlAccess.configureBranchProtection",
-	"sourceControlAccess.getInstallationToken",
-	"sourceControlAccess.getInstallationToken",
 	"sourceControlAccess.getInstallationToken",
 	"sourceControlAccess.getPullRequestStatus",
-	"sourceControlAccess.getPullRequestStatus",
-	"sourceControlAccess.getPullRequestStatus",
-	"sourceControlAccess.installAuthorizeApp",
-	"sourceControlAccess.installAuthorizeApp",
 	"sourceControlAccess.installAuthorizeApp",
 	"sourceControlAccess.mergePullRequest",
-	"sourceControlAccess.mergePullRequest",
-	"sourceControlAccess.mergePullRequest",
-	"sourceControlAccess.openBranch",
-	"sourceControlAccess.openBranch",
 	"sourceControlAccess.openBranch",
 	"sourceControlAccess.openPullRequest",
-	"sourceControlAccess.openPullRequest",
-	"sourceControlAccess.openPullRequest",
 	"sourceControlAccess.postReview",
-	"sourceControlAccess.postReview",
-	"sourceControlAccess.postReview",
-	"sourceControlAccess.syncManagedScaffold",
-	"sourceControlAccess.syncManagedScaffold",
 	"sourceControlAccess.syncManagedScaffold",
 	"systemDesignCoAuthor",
 	"systemDesignPhase",
@@ -326,17 +234,11 @@ func mustRegisteredNames(t *testing.T) []string {
 	billingMgr := billing.NewBillingManager(nil, nil, nil, nil, nil, nil, nil, nil)
 	billing.RegisterManagerWorker(&reg, billingMgr)
 
-	constructionMgr := construction.NewConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
-	construction.RegisterManagerWorker(&reg, constructionMgr)
+	deliveryMgr := delivery.NewDeliveryManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, "")
+	delivery.RegisterManagerWorker(&reg, deliveryMgr)
 
 	operationsMgr := operations.NewOperationsManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	operations.RegisterManagerWorker(&reg, operationsMgr)
-
-	projectDesignMgr := projectdesign.NewProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
-	projectdesign.RegisterManagerWorker(&reg, projectDesignMgr)
-
-	systemDesignMgr := systemdesign.NewSystemDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, "")
-	systemdesign.RegisterManagerWorker(&reg, systemDesignMgr)
 
 	all := append([]string{}, reg.workflows...)
 	all = append(all, reg.activities...)
@@ -344,7 +246,7 @@ func mustRegisteredNames(t *testing.T) []string {
 }
 
 // TestRegisteredTemporalNamesGolden collects every registered workflow +
-// activity name across all five Managers and compares the sorted set against
+// activity name across all three Managers and compares the sorted set against
 // the committed golden. A mismatch prints the full got-vs-want diff so a
 // deliberate rename is a one-line update, not an archaeology exercise.
 func TestRegisteredTemporalNamesGolden(t *testing.T) {

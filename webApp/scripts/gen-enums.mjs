@@ -4,9 +4,11 @@
  * enum schema).
  *
  * Derivation rule (per enum, independently):
- *   1. Strip the schema's manager-namespace prefix (SystemDesign / ProjectDesign
- *      / Construction / Operations) to get the enum's local Go type name
- *      (e.g. `SystemDesignArtifactKind` -> `ArtifactKind`).
+ *   1. Strip the schema's manager-namespace prefix (Delivery / Operations) to get
+ *      the enum's local Go type name (e.g. `DeliveryArtifactKind` ->
+ *      `ArtifactKind`). Stage 4a collapsed the three design/construction
+ *      namespaces into one, `Delivery`, which is also why DEDUPE_GROUPS is empty:
+ *      the enums that used to appear once per Manager now appear once, full stop.
  *   2. Split that local type name into PascalCase words (acronyms like `SDP`
  *      stay one word).
  *   3. For every contiguous run of those words (longest first), check whether
@@ -22,98 +24,96 @@
  * raw Go varnames (ordinal-indexed), never a derived app string, so nobody
  * mistakes the derivation for the real (hand-maintained) mapping.
  *
- * Enums whose enum+varnames arrays are byte-identical across multiple manager
- * namespaces (e.g. SystemDesignArtifactKind == ProjectDesignArtifactKind) are
- * folded into ONE logical table — see DEDUPE_GROUPS.
+ * DEDUPE_GROUPS folded enums whose enum+varnames arrays were byte-identical
+ * across manager namespaces into ONE logical table. It is EMPTY since stage 4a —
+ * one Manager publishes each enum exactly once — but the mechanism stays for the
+ * next facet split.
  */
 import yaml from 'js-yaml';
 
-const MANAGER_PREFIXES = ['SystemDesign', 'ProjectDesign', 'Construction', 'Operations'];
+const MANAGER_PREFIXES = ['Delivery', 'Operations'];
 
 /** Logical output name for each OAS schema name (post manager-prefix strip),
  * chosen to match the existing hand type name in src/contracts/types.ts where
  * one exists, for minimal import churn in Task 3. */
 const OUTPUT_NAMES = {
-  // deduped groups (see DEDUPE_GROUPS) key on the first-seen member; either
-  // alias resolves to the same logical name.
-  SystemDesignArtifactKind: 'ArtifactKind',
-  ProjectDesignArtifactKind: 'ArtifactKind',
-  SystemDesignReviewDecision: 'ReviewDecision',
-  ProjectDesignReviewDecision: 'ReviewDecision',
-  SystemDesignSeverity: 'Severity',
-  ProjectDesignSeverity: 'Severity',
-  // ActiveRole / ActiveStep are byte-identical across both design managers
-  // (see DEDUPE_GROUPS) — the drafting sub-step the UI's role line reads.
-  SystemDesignActiveRole: 'ActiveRole',
-  ProjectDesignActiveRole: 'ActiveRole',
-  SystemDesignActiveStep: 'ActiveStep',
-  ProjectDesignActiveStep: 'ActiveStep',
-  // distinct per-manager enums
-  SystemDesignSessionStage: 'SessionStage',
-  ProjectDesignSessionStage: 'ProjectSessionStage',
-  ProjectDesignSDPDecision: 'SDPDecision',
-  SystemDesignPhase: 'ProjectPhase',
-  SystemDesignArtifactStage: 'ArtifactStage',
-  SystemDesignFailureReason: 'FailureReason',
-  SystemDesignActivityType: 'ActivityType',
-  SystemDesignActivityBuildStatus: 'ActivityBuildStatus',
-  SystemDesignActivityConstructionPhase: 'ActivityConstructionPhase',
-  SystemDesignCICheckState: 'CICheckState',
-  SystemDesignTestingVariant: 'TestingVariant',
-  ConstructionConstructionStage: 'ConstructionStage',
-  ConstructionOverrideKind: 'OverrideKind',
-  ConstructionPhaseDecision: 'PhaseDecision',
-  ConstructionPipelinePhase: 'PipelinePhase',
+  // Stage 4a: ONE Manager namespace, so each logical name has ONE source schema.
+  // The two session-stage enums keep the names the SPA already uses — the merged
+  // contract carries BOTH ordinal shapes (the projectDesign one inserts
+  // StageAssemblingSDP at 2), so DeliverySessionStage is the Phase-1 enum and
+  // DeliveryProjectSessionStage the Phase-2 one, exactly as before the merge.
+  DeliveryArtifactKind: 'ArtifactKind',
+  DeliveryReviewDecision: 'ReviewDecision',
+  DeliverySeverity: 'Severity',
+  DeliveryActiveRole: 'ActiveRole',
+  DeliveryActiveStep: 'ActiveStep',
+  DeliverySessionStage: 'SessionStage',
+  DeliveryProjectSessionStage: 'ProjectSessionStage',
+  DeliverySDPDecision: 'SDPDecision',
+  DeliveryPhase: 'ProjectPhase',
+  DeliveryArtifactStage: 'ArtifactStage',
+  DeliveryFailureReason: 'FailureReason',
+  DeliveryActivityType: 'ActivityType',
+  DeliveryActivityBuildStatus: 'ActivityBuildStatus',
+  DeliveryActivityConstructionPhase: 'ActivityConstructionPhase',
+  DeliveryCICheckState: 'CICheckState',
+  DeliveryTestingVariant: 'TestingVariant',
+  DeliveryConstructionStage: 'ConstructionStage',
+  DeliveryOverrideKind: 'OverrideKind',
+  DeliveryPhaseDecision: 'PhaseDecision',
+  DeliveryPipelinePhase: 'PipelinePhase',
   // the activity experience's single read (QueryActivityView) — string-valued,
   // so the wire value IS the app string and there is no derivation to verify.
-  ConstructionActivityViewState: 'ActivityViewState',
-  ConstructionActivityTaskKind: 'ActivityTaskKind',
-  ConstructionActivityTaskState: 'ActivityTaskState',
-  ConstructionTaskRevisionOutcome: 'TaskRevisionOutcome',
-  ConstructionTaskRevisionProvenance: 'TaskRevisionProvenance',
+  DeliveryActivityViewState: 'ActivityViewState',
+  DeliveryActivityTaskKind: 'ActivityTaskKind',
+  DeliveryActivityTaskState: 'ActivityTaskState',
+  DeliveryTaskRevisionOutcome: 'TaskRevisionOutcome',
+  DeliveryTaskRevisionProvenance: 'TaskRevisionProvenance',
   // one reviewer's answer inside a persisted review round (stage 3); string-valued,
   // so the wire value IS the app string and there is no derivation to verify.
-  ConstructionReviewVerdictKind: 'ReviewVerdictKind',
+  DeliveryReviewVerdictKind: 'ReviewVerdictKind',
+  // the twelve-op surface's own enums (stage 4a).
+  DeliveryProjectRunState: 'ProjectRunState',
+  DeliveryProjectViewKind: 'ProjectViewKind',
   OperationsAutoscaleAction: 'AutoscaleAction',
   OperationsAutoscalerMode: 'AutoscalerMode',
   OperationsDesiredStateReason: 'DesiredStateReason',
   OperationsHealthState: 'HealthState',
   OperationsPatchKind: 'PatchKind',
   OperationsRuntimeStatusSeam: 'RuntimeStatusSeam',
-  // episode capture-seam enums (byte-identical across all three managers —
-  // see DEDUPE_GROUPS); new/unwired, no hand table to verify against.
-  ConstructionEpisodeKind: 'EpisodeKind',
-  ProjectDesignEpisodeKind: 'EpisodeKind',
-  SystemDesignEpisodeKind: 'EpisodeKind',
-  ConstructionEpisodeOutcome: 'EpisodeOutcome',
-  ProjectDesignEpisodeOutcome: 'EpisodeOutcome',
-  SystemDesignEpisodeOutcome: 'EpisodeOutcome',
+  // episode capture-seam enums; new/unwired, no hand table to verify against.
+  DeliveryEpisodeKind: 'EpisodeKind',
+  DeliveryEpisodeOutcome: 'EpisodeOutcome',
   // operator notes on a construction row (plan B1.1); new/unwired, no hand table yet.
-  SystemDesignOperatorNoteKind: 'OperatorNoteKind',
+  DeliveryOperatorNoteKind: 'OperatorNoteKind',
 };
 
 /** Groups of OAS schema names known (verified by one-off comparison against
  * server/*.go iota order) to carry byte-identical enum + x-enum-varnames
  * arrays. Only the first member of each group is emitted; the rest are
  * asserted (at generation time) to still match, so drift trips a build error
- * instead of silently forking the tables. */
-const DEDUPE_GROUPS = [
-  ['SystemDesignArtifactKind', 'ProjectDesignArtifactKind'],
-  ['SystemDesignReviewDecision', 'ProjectDesignReviewDecision'],
-  ['SystemDesignSeverity', 'ProjectDesignSeverity'],
-  ['SystemDesignActiveRole', 'ProjectDesignActiveRole'],
-  ['SystemDesignActiveStep', 'ProjectDesignActiveStep'],
-  ['ConstructionEpisodeKind', 'ProjectDesignEpisodeKind', 'SystemDesignEpisodeKind'],
-  ['ConstructionEpisodeOutcome', 'ProjectDesignEpisodeOutcome', 'SystemDesignEpisodeOutcome'],
-];
+ * instead of silently forking the tables.
+ *
+ * EMPTY since stage 4a. Every group here existed because ArtifactKind,
+ * ReviewDecision, Severity, ActiveRole, ActiveStep, EpisodeKind and
+ * EpisodeOutcome were published once per design/construction Manager. One
+ * Manager publishes each exactly once, so the assertion has nothing to
+ * compare — the fork it guarded against is now structurally impossible.
+ * Keep the mechanism: it costs nothing and the next facet split will want it. */
+const DEDUPE_GROUPS = [];
 
 /** Logical output names for which the mechanical derivation does NOT
  * reproduce webApp/src/contracts/enums.ts (or adapters.ts) exactly. Reason is
  * emitted as a header comment. These get raw-varname tables only. */
 const NON_MECHANICAL = {
   ProjectSessionStage:
-    'StageAssemblingSDP derives to "assemblingSDP" (lowerFirst only lowercases the ' +
-    'leading letter); the hand table uses "assemblingSdp". Casing convention diff, not a bug.',
+    'Since stage 4a the varnames carry a "Project" infix (ProjectStageDrafting, ...) — one ' +
+    "Manager namespace publishes BOTH session-stage shapes and the projectDesign rail's " +
+    'consts were prefixed to clear the collision (the ordinals differ, so they could not be ' +
+    'folded). "ProjectStage" is not a whole-word run of the local type name ' +
+    '"ProjectSessionStage", so nothing strips and the derivation falls through to the full ' +
+    'lowerFirst varname ("projectStageDrafting"). enumMappings.ts keeps the short hand forms ' +
+    '("drafting"/"assemblingSdp"/...). Not mechanically derivable.',
   PipelinePhase:
     'Mechanical derivation gives ordinal 5 (PipelineCancelled) -> "cancelled", but ' +
     'enums.ts pipelinePhaseFromOrdinal deliberately folds ordinal 5 into the same app ' +
@@ -149,6 +149,8 @@ const NON_MECHANICAL = {
  * against (new/unwired enums). The mechanical derivation is emitted as
  * best-effort — internally consistent, but unverified against product code. */
 const UNVERIFIED_MECHANICAL = new Set([
+  'ProjectRunState',
+  'ProjectViewKind',
   'FailureReason',
   'ActivityConstructionPhase',
   'DesiredStateReason',
@@ -279,11 +281,11 @@ export function generateEnumsModule(oasSource) {
 // npm run gen:api) from api/openapi.yaml x-enum-varnames. DO NOT EDIT.
 //
 // Every OpenAPI component schema carrying x-enum-varnames becomes one block
-// below. Enums byte-identical across manager namespaces (e.g.
-// SystemDesignArtifactKind / ProjectDesignArtifactKind) are folded into one
-// logical table — see the "Sources:" line on each block. The dedup guard
-// (DEDUPE_GROUPS, asserted byte-identical at generation time) lives in
-// gen-enums.mjs, not here.
+// below, and the "Sources:" line names the schema(s) it came from. Enums
+// byte-identical across manager namespaces used to be folded into one logical
+// table; since stage 4a one Manager publishes each enum exactly once, so every
+// block has a single source. The dedup guard (DEDUPE_GROUPS, asserted
+// byte-identical at generation time) lives in gen-enums.mjs, not here.
 //
 // Where the Go varname -> app-string derivation (strip the shared type-name
 // prefix, lowerFirst the remainder) reproduces src/contracts/enums.ts's hand

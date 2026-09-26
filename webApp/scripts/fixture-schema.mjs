@@ -17,6 +17,12 @@
  * that drifts from the contract fails. The OAS component schemas are carried
  * over as draft-07 `definitions`.
  *
+ * ONE op is keyed by op id AND selector: `deliveryQueryProjectView` answers a
+ * different body per `ProjectViewKind`, so its entry is
+ * `{ "<kind>": <answer>, … }` — see src/api/fixtureOps.ts, which resolves the
+ * kind from the call's own body. The kinds come from the OAS enum, never a hand
+ * list, so a kind added to the contract is admitted here the same day.
+ *
  * Used by: vite.preview.config.ts (validates every fixture when the preview
  * build starts, and emits the schema as dist-preview/fixtures.schema.json) and
  * fixture-schema.test.mjs.
@@ -106,32 +112,63 @@ const ERROR_SCHEMA = {
   },
 };
 
+/**
+ * The op whose fixture entry is a map from view kind to answer, and the OAS enum
+ * that names the kinds. Mirrors src/api/fixtureOps.ts's VIEW_OP: the transport
+ * reads the kind off the call's body, so only an op whose selector is ON THE WIRE
+ * can be keyed this way.
+ */
+export const VIEW_OP = 'deliveryQueryProjectView';
+const VIEW_KIND_SCHEMA = 'DeliveryProjectViewKind';
+
+function answerSchema(resultSchemaFor) {
+  return [
+    {
+      type: 'object',
+      required: ['result'],
+      additionalProperties: false,
+      properties: { result: resultSchemaFor },
+    },
+    {
+      type: 'object',
+      required: ['error'],
+      additionalProperties: false,
+      properties: { error: ERROR_SCHEMA },
+    },
+    {
+      type: 'object',
+      required: ['pending'],
+      additionalProperties: false,
+      properties: { pending: { const: true } },
+    },
+  ];
+}
+
+/** The seven `ProjectViewKind` values, from the OAS enum. Never a hand list. */
+export function viewKinds(doc) {
+  const kinds = doc.components?.schemas?.[VIEW_KIND_SCHEMA]?.enum;
+  if (!Array.isArray(kinds) || kinds.length === 0) {
+    throw new Error(
+      `fixture-schema: ${VIEW_KIND_SCHEMA} carries no enum in the OAS; ` +
+        `${VIEW_OP}'s per-kind fixture keys cannot be derived`
+    );
+  }
+  return kinds;
+}
+
 export function buildFixtureSchema(doc) {
   const ops = {};
   for (const [opId, binding] of Object.entries(opBindings(doc))) {
-    ops[opId] = {
-      description: `${binding.method} ${binding.path}`,
-      oneOf: [
-        {
-          type: 'object',
-          required: ['result'],
-          additionalProperties: false,
-          properties: { result: resultSchema(doc, opId, binding) },
-        },
-        {
-          type: 'object',
-          required: ['error'],
-          additionalProperties: false,
-          properties: { error: ERROR_SCHEMA },
-        },
-        {
-          type: 'object',
-          required: ['pending'],
-          additionalProperties: false,
-          properties: { pending: { const: true } },
-        },
-      ],
-    };
+    const answer = answerSchema(resultSchema(doc, opId, binding));
+    ops[opId] =
+      opId === VIEW_OP
+        ? {
+            description: `${binding.method} ${binding.path} — one answer per ProjectViewKind`,
+            type: 'object',
+            additionalProperties: false,
+            properties: Object.fromEntries(viewKinds(doc).map((k) => [k, { oneOf: answer }])),
+          }
+        : { description: `${binding.method} ${binding.path}`, oneOf: answer };
   }
   return {
     $schema: 'http://json-schema.org/draft-07/schema#',

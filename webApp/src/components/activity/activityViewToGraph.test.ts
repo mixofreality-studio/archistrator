@@ -37,9 +37,9 @@ function fixture(name: string): ActivityViewWire {
       continue;
     }
     const doc = JSON.parse(text) as {
-      ops: { constructionQueryActivityView: { result: ActivityViewWire } };
+      ops: { deliveryQueryActivityView: { result: ActivityViewWire } };
     };
-    return doc.ops.constructionQueryActivityView.result;
+    return doc.ops.deliveryQueryActivityView.result;
   }
   throw new Error(`fixture "${name}" is in neither tree: ${tried.join(', ')}`);
 }

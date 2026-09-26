@@ -5,7 +5,7 @@ import { openThreadCount, toReviewCommentView, toReviewThread } from './threadAd
 import type { components } from '../../contracts/schema.ts';
 import type { ReviewCommentView } from '../../contracts/types.ts';
 
-type ThreadWire = components['schemas']['ConstructionReviewThreadComment'];
+type ThreadWire = components['schemas']['DeliveryReviewThreadComment'];
 
 function wire(over: Partial<ThreadWire>): ThreadWire {
   return {

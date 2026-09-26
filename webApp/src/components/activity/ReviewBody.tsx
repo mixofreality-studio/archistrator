@@ -111,10 +111,10 @@ export function ReviewBody({
   revisions: readonly LifecycleRevision[];
   revision: number;
   onRevision: (n: number) => void;
-  reviewSet?: components['schemas']['ConstructionReviewSet'] | undefined;
+  reviewSet?: components['schemas']['DeliveryReviewSet'] | undefined;
   reviewSetError?: string | undefined;
-  roster?: readonly components['schemas']['ConstructionReviewRosterSeat'][] | undefined;
-  verdicts?: readonly components['schemas']['ConstructionReviewVerdictView'][] | undefined;
+  roster?: readonly components['schemas']['DeliveryReviewRosterSeat'][] | undefined;
+  verdicts?: readonly components['schemas']['DeliveryReviewVerdictView'][] | undefined;
   artifact: TaskArtifact;
   slots: readonly ArtifactSlotView[];
   vm: ArtifactActivityVM | undefined;

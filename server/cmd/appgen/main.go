@@ -81,7 +81,12 @@ var callerKeyedOps = map[string]map[string][]string{
 	"billingManager": {"merchantGateway": {"ChargeCustomer", "ValidateStoredInstrument"}},
 }
 
-var managers = []string{"systemDesignManager", "projectDesignManager", "constructionManager", "operationsManager", "billingManager"}
+// managers is the CODE-GENERATED set: temporalgen emits contract/activities/
+// invokers/worker for each, and generateSDK emits the systemtests SDK for each.
+// It deliberately differs from the web-wired sets (exposedManagers in
+// cmd/clientgen, WebExposedManagers below) — billingManager has a worker and an
+// SDK but no web mount.
+var managers = []string{"deliveryManager", "operationsManager", "billingManager"}
 
 func main() {
 	path := projectFile
@@ -153,9 +158,7 @@ func generateMain(m *projectmodel.Model) {
 		PackageName:  configPackage,
 		EnvPrefix:    envPrefix,
 		WebExposedManagers: []string{
-			"systemDesignManager",
-			"projectDesignManager",
-			"constructionManager",
+			"deliveryManager",
 			"operationsManager",
 		},
 		VariantHookArgs: map[string][]composegen.HookArgType{
@@ -300,7 +303,7 @@ func generateMain(m *projectmodel.Model) {
 }
 
 // generateSDK emits the self-contained client SDK (transportgen: HTTP + MCP,
-// stdlib-only) for the 5 managers into ../systemtests/internal/sdk with
+// stdlib-only) for the three managers into ../systemtests/internal/sdk with
 // prune-stale discipline (mirrors cmd/gen-systemtests): every *.gen.go not in
 // the fresh output set is deleted, so a manager/op removed from project.json can
 // never leave an orphan behind for the drift gate to trip on. UUIDAsString=true

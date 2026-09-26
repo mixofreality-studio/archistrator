@@ -204,8 +204,8 @@ function owedFor(
 
 /**
  * The three DESIGN activities at the head of the plan. They are dispatched by
- * the design rails, not the construction pump, so `constructionGetSessionState`
- * never answers for them and {@link owedFor}'s gate branch — which needs a live
+ * the design rails, not the construction pump, so the `session` project view asked
+ * with an activityId never answers for them, and {@link owedFor}'s gate branch — which needs a live
  * session at `awaitingApproval` — can never fire for one.
  */
 const DESIGN_KINDS: ReadonlySet<string> = new Set([
@@ -218,8 +218,8 @@ const DESIGN_KINDS: ReadonlySet<string> = new Set([
  * A DESIGN activity's owed decision, derived rather than probed.
  *
  * requirements / architecture / projectDesign are dispatched by the design
- * rails, not the construction pump, so `constructionGetSessionState` never
- * answers for them and `owedFor`'s gate branch cannot see them (it needs a
+ * rails, not the construction pump, so the `session` project view asked with an
+ * activityId never answers for them and `owedFor`'s gate branch cannot see them (it needs a
  * session at `awaitingApproval`). What IS visible, from the same project read
  * the plan already makes, is the artifact slot: a slot at
  * `stage === 'awaitingReview'` is precisely "a draft is staged and a human

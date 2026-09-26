@@ -1,100 +1,115 @@
 /**
- * WHICH OP EACH VERB DISPATCHES, per activity type (R12) — pure, React-free and
- * tested, so `node --test` loads it directly (hence the explicit `.ts` on the
- * relative VALUE imports).
+ * WHAT EACH VERB SENDS, per activity type (R12) — pure, React-free and tested, so
+ * `node --test` loads it directly (hence the explicit `.ts` on the relative VALUE
+ * imports).
  *
- * It NAMES A TARGET; it does not call a hook. The container maps a target onto
- * its hook, which is the only layer allowed to. Keeping the rule here rather than
- * in a `switch` inside the container is what lets the table be read and asserted
- * without a QueryClient in the way — and the table is not obvious: three rails
- * (construction, system design, project design) answer the same four verbs, and
- * two of the three are missing ops the third has.
+ * It NAMES A TARGET, never a hook: the container holds one hook per delivery op and
+ * maps a target onto it. What used to be a RAIL CHOICE here (three managers
+ * answering the same four verbs, two of them missing ops the third had) is now only
+ * a question of WHICH OP and, for a decision, which members of
+ * `ReviewDecisionInput` it fills. The server reads the rail off the committed
+ * activity list and resolves the artifact kind from the (activity, task) the
+ * container already has, so no target carries a kind any more.
  *
- * ── The three rails ─────────────────────────────────────────────────────────
- *   construction (everything but the three design activities)
- *       approve / send back  → SubmitPhaseDecision, keyed on the TASK's own
- *                              lifecycle phase (not the activity's current one)
- *       resolve / reopen     → NOTHING. `constructionManager` has no
- *                              SetReviewCommentStatus and no AskQuestions
- *                              (R2/GAP-6): the unified rail is read-unified and
- *                              write-asymmetric until stage 4's
- *                              SubmitReviewDecision.
- *   requirements / architecture (activities 1–2)
- *       every verb            → the system-design rail, keyed on the RESOLVED
- *                              artifact kind.
- *   projectDesign (activity 3)
- *       approve               → SubmitSDPDecision, then AdvanceToConstruction
- *       ask / resolve / reopen → the PROJECT-DESIGN rail: AskQuestions and
- *                              SetReviewCommentStatus both exist there (spec §6:
- *                              "comments and questions allowed" at M0).
- *       send back             → NOTHING (spec R7): the plan is derived, so
- *                              changing it means amending the Architecture.
+ * ── What is still asymmetric, and why that is not this file's bug ────────────
+ * Stage 4a unified the WRITE SURFACE, not every rail's verbs. `deliveryManager`
+ * answers ContractMisuse for, on the CONSTRUCTION rail:
+ *   - `ReviewSetCommentStatus` / `ReviewWithdraw` ("no comment-status or withdraw
+ *     verb until stage 4b"),
+ *   - `AskQuestions` ("no question verb until stage 4b"),
+ *   - `AcknowledgeStaleBasis` (same),
+ *   - `DispatchActivityTask` ("run/re-run has no op before stage 4b — a send-back
+ *     re-dispatches the task").
+ * So the R2/GAP-6 asymmetry SURVIVES 4a: it moved from "this manager has no op" to
+ * "the one manager refuses this rail", which is the same dead button to a user.
+ * This table therefore still withholds Ask, Resolve and the stale exits on a
+ * construction gate; `rerun` there is an Override(retry), which is a real op.
  *
- * ── The kind is an INPUT, and it is the RESOLVED one ────────────────────────
- * A review task carries no `artifactKind` of its own — it carries `reviews`, and
- * the dispatch it judges is what names the artifact (`artifactKindOf`,
- * activityViewToGraph.ts). The container feeds `taskFactsFor(view, taskId)
- * .artifactKind`. Reading `lifecycles.gen.ts`'s raw `task.artifactKind` here
- * would hand every design review `undefined` and silently strip its approve
- * verb, so this refuses loudly instead of inventing one.
+ * ── The M0 gate keeps its two special rules (spec §6/R7) ────────────────────
+ *   approve  → commits the chosen OPTION (the only intent carrying an optionId),
+ *              then ADVANCES; both are SubmitReviewDecision calls.
+ *   sendBack → nothing. The plan is DERIVED, so changing it means amending the
+ *              Architecture.
  */
-import type { ArtifactKind, ArtifactKindFull, ProjectArtifactKind } from '../contracts/types.ts';
-import { SDP_REVIEW_KIND } from '../contracts/types.ts';
+import { REVIEW_DECISION_APP_TO_ORDINAL } from '../contracts/enums.gen.ts';
+import type { components } from '../contracts/schema';
 import { NO_ARTIFACT_KIND } from '../components/activity/activityCopy.ts';
 import { SLOT_KIND } from '../components/activity/taskArtifactFor.ts';
 
+/**
+ * The wire ordinals this table hands out, named once and typed as the WIRE enum —
+ * so a table that named an ordinal outside ReviewDecision would not compile, and
+ * the appended members (4 advance, 5 setCommentStatus) cannot drift.
+ */
+type WireReviewDecision = components['schemas']['DeliveryReviewDecision'];
+
+export const REVIEW_APPROVE = REVIEW_DECISION_APP_TO_ORDINAL.approve as WireReviewDecision;
+export const REVIEW_REJECT = REVIEW_DECISION_APP_TO_ORDINAL.reject as WireReviewDecision;
+export const REVIEW_ADVANCE = REVIEW_DECISION_APP_TO_ORDINAL.advance as WireReviewDecision;
+export const REVIEW_SET_COMMENT_STATUS =
+  REVIEW_DECISION_APP_TO_ORDINAL.setCommentStatus as WireReviewDecision;
+
+/**
+ * WHICH OP a verb rides.
+ *
+ *  - `decision`        → SubmitReviewDecision, filling `decision` (and `optionId`
+ *                        when `needsOption`).
+ *  - `ask`             → AskQuestions (folding a reply into its question text when
+ *                        `foldReplies` — the Phase-2 ledger refuses a `replyTo`).
+ *  - `commentStatus`   → SubmitReviewDecision with the comment members, which the
+ *                        container fills per comment.
+ *  - `dispatch`        → DispatchActivityTask (a design draft or redraft).
+ *  - `override`        → OverrideActivity (construction's re-run).
+ *  - `acknowledgeStale`→ AcknowledgeStaleBasis.
+ *  - `none`            → nothing, carrying the REASON the bar renders.
+ */
 export type VerbTarget =
-  | { kind: 'constructionPhaseDecision'; lifecyclePhase: string }
-  | { kind: 'designReviewDecision'; artifactKind: ArtifactKind }
-  | { kind: 'sdpDecision' }
-  /**
-   * The Phase-2 question rail (`projectDesignAskQuestions`). Separate from
-   * `sdpDecision` because it is a different op with a different body — the
-   * decision commits an option, this one appends question entries to the M0
-   * review ledger without deciding anything.
-   */
-  | { kind: 'projectAsk'; artifactKind: ProjectArtifactKind }
+  | { kind: 'decision'; decision: WireReviewDecision; needsOption?: boolean }
+  | { kind: 'ask'; foldReplies?: boolean }
+  | { kind: 'commentStatus' }
+  | { kind: 'dispatch' }
+  | { kind: 'override' }
+  | { kind: 'acknowledgeStale' }
   | { kind: 'none'; reason: string };
 
 export interface VerbsFor {
   approve: VerbTarget;
   /** `{ kind: 'none' }` for projectDesign (spec R7). */
   sendBack: VerbTarget;
-  /** `{ kind: 'none' }` for construction (R2/GAP-6) — no `AskQuestions` op there. */
+  /** `{ kind: 'none' }` for construction until stage 4b. */
   ask: VerbTarget;
-  /** `{ kind: 'none' }` for construction (R2/GAP-6). */
+  /** `{ kind: 'none' }` for construction until stage 4b. */
   commentStatus: VerbTarget;
+  /** A design redraft, a construction Override(retry), or nothing (M0). */
   rerun: VerbTarget;
+  /** The "reviewed — unaffected" exit. `{ kind: 'none' }` for construction. */
+  acknowledgeStale: VerbTarget;
+  /** The other stale exit: AMEND. A design redraft carrying the reconcile
+   *  rationale; for M0 it is a NAVIGATION (amend the Architecture), which the
+   *  container owns because this table names ops, not routes. */
+  reconcileStale: VerbTarget;
   allowSendBack: boolean;
   approveCopy?: { label: string; consequence: string };
+  /** True where approve must also ADVANCE once it has committed (the M0 gate). */
+  advanceAfterApprove?: boolean;
 }
 
-/**
- * The Phase-1 slot kinds a DESIGN review decides on, in the vocabulary
- * `systemDesignSubmitReviewDecision` speaks. `SLOT_KIND` (taskArtifactFor.ts) is
- * the Go-cased → app-string half of the same journey and is not repeated here;
- * this second hop is what keeps `designReviewDecision.artifactKind` a genuine
- * Phase-1 `ArtifactKind` with no cast. `sdpReview` is deliberately absent: it is
- * a Phase-2 kind, and the projectDesign branch answers before this is reached.
- */
-const DESIGN_DECISION_KIND: Readonly<Partial<Record<ArtifactKindFull, ArtifactKind>>> = {
-  mission: 'mission',
-  glossary: 'glossary',
-  volatilities: 'volatilities',
-  coreUseCases: 'coreUseCases',
-  system: 'system',
-};
-
-/** The two design activities whose verbs ride the SYSTEM DESIGN rail. */
+/** The two design activities whose verbs ride the system-design rail. */
 const DESIGN_RAIL_TYPES: ReadonlySet<string> = new Set(['requirements', 'architecture']);
 
 /**
- * Why a construction gate offers no thread lifecycle (R2/GAP-6). Named here
- * rather than in `activityCopy.ts` because it is the REASON a target carries,
- * not a sentence any component renders on its own.
+ * Why a construction gate offers no thread lifecycle and no question. Named here
+ * rather than in `activityCopy.ts` because it is the REASON a target carries, not a
+ * sentence any component renders on its own.
+ *
+ * Stage 4a did NOT close this — `deliveryManager` refuses both on the construction
+ * rail "until stage 4b", so the button would dispatch a guaranteed 400.
  */
 const NO_CONSTRUCTION_THREAD_OP =
-  'A construction review thread cannot yet be resolved, reopened or replied to: the construction manager has no comment-status op.';
+  'A construction review thread cannot yet be resolved, reopened or replied to: the delivery manager has no comment-status or question verb for the construction rail until stage 4b.';
+
+const NO_CONSTRUCTION_STALE_OP =
+  'A construction activity has no stale-basis acknowledgement until stage 4b.';
 
 const NO_SDP_SEND_BACK =
   'The M0 gate has no send-back: the plan is derived, so changing it means amending the Architecture.';
@@ -113,57 +128,75 @@ export function verbsFor(input: {
   variant?: string | undefined;
   taskId: string;
   lifecyclePhase: string;
-  /** The RESOLVED kind from `taskFactsFor` (Task 2) — a review task has none of its own. */
+  /** The RESOLVED kind from `taskFactsFor` (Task 2) — a review task has none of its
+   *  own. It no longer chooses an OP; it only says whether this gate judges a design
+   *  artifact the SPA knows, which is what decides the design verbs. */
   artifactKind?: string | undefined;
 }): VerbsFor {
   if (input.type === 'projectDesign') {
-    const sdp: VerbTarget = { kind: 'sdpDecision' };
     return {
-      approve: sdp,
+      approve: { kind: 'decision', decision: REVIEW_APPROVE, needsOption: true },
       sendBack: { kind: 'none', reason: NO_SDP_SEND_BACK },
-      // Spec §6: comments AND questions are allowed at M0. The op has always
-      // existed (`projectDesignAskQuestions`); what was missing was the hook.
-      ask: { kind: 'projectAsk', artifactKind: SDP_REVIEW_KIND },
-      // The Phase-2 rail DOES have SetReviewCommentStatus — the M0 gate can
-      // resolve and reopen its own threads even though it can never send back.
-      commentStatus: sdp,
+      // Spec §6: comments AND questions are allowed at M0. A FOLLOW-UP question folds
+      // its reply into its own text: the Phase-2 ledger refuses a replyTo outright
+      // (pdCheckNoReplyTo, RULING P13), so sending one turns "reply in an M0 question
+      // thread, then Ask" into a 400 — the same asymmetry `needsOption` answers for the
+      // decision, answered the same way (askEntriesFor).
+      ask: { kind: 'ask', foldReplies: true },
+      commentStatus: { kind: 'commentStatus' },
       rerun: { kind: 'none', reason: NO_SDP_RERUN },
+      acknowledgeStale: { kind: 'acknowledgeStale' },
+      // The M0 plan is DERIVED: it is reconciled by amending what it derives from,
+      // which is a navigation to the Architecture activity, not an op.
+      reconcileStale: { kind: 'none', reason: NO_SDP_SEND_BACK },
       allowSendBack: false,
       approveCopy: { ...M0_APPROVE_COPY },
+      advanceAfterApprove: true,
     };
   }
 
   if (DESIGN_RAIL_TYPES.has(input.type)) {
+    // A design gate must name an artifact the SPA knows, or it judges nothing. The
+    // server would resolve the kind from the task on its own, but a task whose
+    // resolved kind is unknown here has no renderable artifact either, so refusing
+    // loudly is what keeps the bar honest — the same guard the three-rail table
+    // made, minus the op choice.
     const slot = input.artifactKind === undefined ? undefined : SLOT_KIND[input.artifactKind];
-    const kind = slot === undefined ? undefined : DESIGN_DECISION_KIND[slot];
-    const target: VerbTarget =
-      kind === undefined
-        ? { kind: 'none', reason: NO_ARTIFACT_KIND }
-        : { kind: 'designReviewDecision', artifactKind: kind };
+    if (slot === undefined) {
+      const none: VerbTarget = { kind: 'none', reason: NO_ARTIFACT_KIND };
+      return {
+        approve: none,
+        sendBack: none,
+        ask: none,
+        commentStatus: none,
+        rerun: none,
+        acknowledgeStale: none,
+        reconcileStale: none,
+        allowSendBack: false,
+      };
+    }
     return {
-      approve: target,
-      sendBack: target,
-      ask: target,
-      commentStatus: target,
-      rerun: target,
-      allowSendBack: kind !== undefined,
+      approve: { kind: 'decision', decision: REVIEW_APPROVE },
+      sendBack: { kind: 'decision', decision: REVIEW_REJECT },
+      ask: { kind: 'ask' },
+      commentStatus: { kind: 'commentStatus' },
+      rerun: { kind: 'dispatch' },
+      acknowledgeStale: { kind: 'acknowledgeStale' },
+      reconcileStale: { kind: 'dispatch' },
+      allowSendBack: true,
     };
   }
 
-  // Every other type is a CONSTRUCTION activity: one rail, one op, keyed on the
-  // task's own lifecycle phase. Its artifact kind ('SRS', 'DetailedDesign',
-  // 'Construction', 'Integration', 'STP') names no slot and is not consulted —
-  // a service gate never routes through the design op.
-  const phase: VerbTarget = {
-    kind: 'constructionPhaseDecision',
-    lifecyclePhase: input.lifecyclePhase,
-  };
+  // Every other type is a CONSTRUCTION activity. Approve and send back are the
+  // same op as everywhere else; the rest the rail still refuses.
   return {
-    approve: phase,
-    sendBack: phase,
+    approve: { kind: 'decision', decision: REVIEW_APPROVE },
+    sendBack: { kind: 'decision', decision: REVIEW_REJECT },
     ask: { kind: 'none', reason: NO_CONSTRUCTION_THREAD_OP },
     commentStatus: { kind: 'none', reason: NO_CONSTRUCTION_THREAD_OP },
-    rerun: phase,
+    rerun: { kind: 'override' },
+    acknowledgeStale: { kind: 'none', reason: NO_CONSTRUCTION_STALE_OP },
+    reconcileStale: { kind: 'none', reason: NO_CONSTRUCTION_STALE_OP },
     allowSendBack: true,
   };
 }

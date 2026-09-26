@@ -40,7 +40,7 @@
  */
 import { test, expect } from '../support/dispatchGuard.js';
 import { TESTID } from '../support/testids.js';
-import { fixture, incidents, openState } from '../support/previewShell.js';
+import { fixture, incidents, openState, viewAnswer, viewResult } from '../support/previewShell.js';
 
 /**
  * "Every plan row, whatever its activity id." DERIVED from the id builder, the
@@ -53,10 +53,10 @@ const PLAN_ROW_RE = new RegExp(`^${TESTID.planRow('')}`);
 test.describe('preview shell: the real app over fixtures', () => {
   test('plan · list: the real plan draws exactly the fixture activities', async ({ page }) => {
     const data = fixture('plan', 'list');
-    const project = data.ops['systemDesignGetProject']?.result as {
+    const project = viewResult<{
       Name: string;
       activityExecution: Record<string, unknown>;
-    };
+    }>(data, 'summary');
     const activityIds = Object.keys(project.activityExecution);
     expect(activityIds.length).toBeGreaterThan(0);
 
@@ -85,9 +85,10 @@ test.describe('preview shell: the real app over fixtures', () => {
       classified: boolean;
       Phases: unknown[];
     }
-    const project = fixture('plan', 'unclassified').ops['systemDesignGetProject']?.result as {
-      activityExecution: Record<string, Row>;
-    };
+    const project = viewResult<{ activityExecution: Record<string, Row> }>(
+      fixture('plan', 'unclassified'),
+      'summary',
+    );
     const rows = Object.values(project.activityExecution);
     // The fixture's whole point (spec §9 AC4): exactly one row the server could
     // not type — ClassifyType's ok=false — carrying no phases on the wire.
@@ -133,10 +134,11 @@ test.describe('preview shell: the real app over fixtures', () => {
   });
 
   test('landing · resting: the real catalog shows the fixture project', async ({ page }) => {
-    const [summary] = fixture('landing', 'resting').ops['systemDesignListProjects']?.result as {
-      ProjectID: string;
-      Name: string;
-    }[];
+    const rows = viewResult<{ ProjectID: string; Name: string }[]>(
+      fixture('landing', 'resting'),
+      'projects',
+    );
+    const [summary] = rows ?? [];
     expect(summary).toBeDefined();
     const offBundle = await openState(page, 'landing', 'resting');
     await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
@@ -149,8 +151,7 @@ test.describe('preview shell: the real app over fixtures', () => {
   });
 
   test('landing · load-error: an error fixture reaches the real error UI', async ({ page }) => {
-    const message = fixture('landing', 'load-error').ops['systemDesignListProjects']?.error
-      ?.message;
+    const message = viewAnswer(fixture('landing', 'load-error'), 'projects')?.error?.message;
     expect(message).toBeTruthy();
     const offBundle = await openState(page, 'landing', 'load-error');
     await expect(page.getByTestId(TESTID.projectsLandingScreen)).toBeVisible();
@@ -193,10 +194,10 @@ test.describe('preview shell: Begin and the owed gate (P1b)', () => {
   }) => {
     const data = fixture('plan', 'begin-confirm');
     // A dispatch from this state must be LOUD: execute-next-activity has no fixture.
-    expect(data.ops['constructionExecuteNextActivity']).toBeUndefined();
-    const project = data.ops['systemDesignGetProject']?.result as {
+    expect(data.ops['deliveryExecuteNextActivity']).toBeUndefined();
+    const project = viewResult<{
       activityExecution: Record<string, { ActivityID: string; recorded: boolean }>;
-    };
+    }>(data, 'summary');
     const unrecorded = Object.values(project.activityExecution)
       .filter((r) => !r.recorded)
       .map((r) => r.ActivityID)
@@ -253,14 +254,16 @@ test.describe('preview shell: loud failures and closed doors', () => {
     const offBundle = await openState(page, 'plan', 'unfixtured-read');
     const alarm = page.getByTestId(TESTID.previewAlarm);
     await expect(alarm).toBeVisible();
-    await expect(alarm).toContainText('fixture-miss: systemDesignGetProject');
+    await expect(alarm).toContainText('fixture-miss: deliveryQueryProjectView(summary)');
     await expect
       .poll(() => incidents(page))
       .toContainEqual({
         kind: 'fixture-miss',
-        detail: 'systemDesignGetProject',
+        detail: 'deliveryQueryProjectView(summary)',
       });
-    expect(errors.some((e) => e.includes('fixture-miss: systemDesignGetProject'))).toBe(true);
+    expect(errors.some((e) => e.includes('fixture-miss: deliveryQueryProjectView(summary)'))).toBe(
+      true,
+    );
     // A miss is not a silent network fallback: nothing left the page.
     expect(offBundle).toEqual([]);
   });
@@ -274,7 +277,7 @@ test.describe('preview shell: loud failures and closed doors', () => {
     const outcome = await page.evaluate(async () => {
       const result: Record<string, string> = {};
       try {
-        await fetch('/api/v1/system-design/get-project/archistrator');
+        await fetch('/api/v1/delivery/query-project-view');
         result['fetch'] = 'sent';
       } catch (e) {
         result['fetch'] = e instanceof Error ? `${e.name}: ${e.message}` : String(e);

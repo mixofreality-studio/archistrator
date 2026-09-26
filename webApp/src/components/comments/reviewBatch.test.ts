@@ -2,7 +2,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  askEntriesFor,
   toWireEntries,
+  decisionFeedbackFor,
   foldCommentsIntoNotes,
   freeformNotesFrom,
   isQuestion,
@@ -181,4 +183,166 @@ void test('the fold loses nothing: every staged comment text appears in the resu
   const folded = foldCommentsIntoNotes('notes', comments);
   for (const c of comments) assert.ok(folded.includes(c.text), `${c.text} survived the fold`);
   assert.equal(folded.split('\n').length, 4);
+});
+
+// Fix round 2: the M0 approve used to send `comments: toWire()` like every other
+// decision. `SubmitSDPDecision` has no comments array, and its Phase-2 ledger
+// refuses any batch carrying a replyTo (pdCheckNoReplyTo, RULING P13) — while the M0
+// gate OFFERS replies. So "architect replies in an M0 thread, then presses Approve"
+// was a 400. These pin the shape rule, not just the fold arithmetic.
+
+void test('an optionId decision sends NO comments array, and the key is absent not empty', () => {
+  const body = decisionFeedbackFor({
+    fold: true,
+    notes: 'Committing the compressed option.',
+    comments: [
+      {
+        jsonPath: '$.options[kind=compressedSolution]',
+        anchorText: 'C',
+        text: 'why?',
+        replyTo: '',
+      },
+    ],
+  });
+  // Absent, not []: the wire distinguishes them and the Manager reads feedback.Comments.
+  assert.equal('comments' in body, false);
+  assert.match(body.notes, /Committing the compressed option\./);
+  assert.match(body.notes, /why\?/);
+});
+
+void test('a REPLY in an M0 batch survives in the notes and never reaches the wire array', () => {
+  // The exact 400 scenario: a margin reply carries replyTo and no jsonPath.
+  const body = decisionFeedbackFor({
+    fold: true,
+    notes: '',
+    comments: [
+      { jsonPath: '', anchorText: '', text: 'answering the cost question', replyTo: 'm0r1c1' },
+    ],
+  });
+  assert.equal('comments' in body, false, 'no array means pdCheckNoReplyTo cannot fire');
+  assert.equal(body.notes, 'answering the cost question', 'and the reply is not dropped');
+});
+
+void test('every OTHER decision keeps its comments as structure, replyTo included', () => {
+  const comments = [
+    { jsonPath: '$.mission', anchorText: 'Mission', text: 'tighten this', replyTo: '' },
+    { jsonPath: '', anchorText: '', text: 'as discussed', replyTo: 'c7' },
+  ];
+  const body = decisionFeedbackFor({ fold: false, notes: 'see comments', comments });
+  assert.deepEqual(body.comments, comments);
+  assert.equal(body.notes, 'see comments');
+});
+
+void test('a comments-only non-M0 batch synthesizes notes, so a reject is never empty', () => {
+  const body = decisionFeedbackFor({
+    fold: false,
+    notes: '',
+    comments: [
+      { jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' },
+      { jsonPath: '$.b', anchorText: 'b', text: 'second', replyTo: '' },
+    ],
+  });
+  assert.equal(body.notes, 'first\nsecond');
+});
+
+void test('the returned comments array is a COPY — a later stage edit cannot mutate the sent body', () => {
+  const comments = [{ jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' }];
+  const body = decisionFeedbackFor({ fold: false, notes: 'n', comments });
+  assert.notEqual(body.comments, comments);
+  assert.deepEqual(body.comments, comments);
+});
+
+// Fix round 3 (pre-final): the M0 gate offers a QUESTION and a reply to one, and
+// AskQuestions runs through the same pdCheckNoReplyTo the M0 decision does — so
+// "reply to an answered M0 question, then Ask" was the same 400 the decision had.
+// askEntriesFor folds it, and only on that rail.
+
+void test('an M0 follow-up question folds its reply into the text and sends no replyTo', () => {
+  const entries = askEntriesFor({
+    fold: true,
+    questions: [
+      {
+        addressee: 'architect',
+        jsonPath: '',
+        anchorText: '',
+        text: 'That does not answer the cost objective',
+        replyTo: 'm0r1c0',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '',
+      anchorText: '',
+      text: 'follow-up to m0r1c0 — That does not answer the cost objective',
+      // Empty is what OPENS a new thread; a non-empty replyTo is what the ledger refuses.
+      replyTo: '',
+    },
+  ]);
+});
+
+void test('a FRESH M0 question is untouched by the fold — the prefix marks only a reply', () => {
+  const entries = askEntriesFor({
+    fold: true,
+    questions: [
+      {
+        addressee: 'pm',
+        jsonPath: '$.options[kind=compressedSolution]',
+        anchorText: 'Compressed',
+        text: 'Why is this one not recommended?',
+        replyTo: '',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '$.options[kind=compressedSolution]',
+      anchorText: 'Compressed',
+      text: 'Why is this one not recommended?',
+      replyTo: '',
+    },
+  ]);
+});
+
+void test('the M0 fold loses no text: every staged question survives it', () => {
+  const questions = [
+    { addressee: 'pm' as const, jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' },
+    { addressee: 'pm' as const, jsonPath: '', anchorText: '', text: 'second', replyTo: 'q1' },
+  ];
+  const entries = askEntriesFor({ fold: true, questions });
+  assert.equal(entries.length, questions.length);
+  for (const q of questions) {
+    assert.ok(
+      entries.some((e) => e.text.includes(q.text)),
+      `${q.text} survived the fold`
+    );
+  }
+  assert.equal(
+    entries.every((e) => e.replyTo === ''),
+    true,
+    'no entry may carry a replyTo onto the Phase-2 rail'
+  );
+});
+
+void test('on the DESIGN rail nothing folds: replyTo rides the Ask payload as before', () => {
+  const entries = askEntriesFor({
+    fold: false,
+    questions: [
+      {
+        addressee: 'architect',
+        jsonPath: '',
+        anchorText: '',
+        text: 'That does not answer the cost objective',
+        replyTo: 'r1c0',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '',
+      anchorText: '',
+      text: 'That does not answer the cost objective',
+      replyTo: 'r1c0',
+    },
+  ]);
 });

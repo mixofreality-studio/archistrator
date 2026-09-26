@@ -13,7 +13,7 @@ import { pendingOperatorNoteCount } from '../../../contracts/wire.ts';
 import type { components } from '../../../contracts/schema.ts';
 import type { RowState } from './activityRowPresentation.ts';
 
-type WireNote = components['schemas']['SystemDesignOperatorNote'];
+type WireNote = components['schemas']['DeliveryOperatorNote'];
 
 const note = (over: Partial<WireNote>): WireNote => ({
   noteId: 'C-x:note:r:1',

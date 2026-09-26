@@ -7,7 +7,7 @@
  *
  * Data flow:
  *  - `toolArgs` (from the host's tool-input notification) carries the flattened
- *    path+query for `systemDesignGetSessionState`: `{ projectID, kind }`.
+ *    session selector for `deliveryQueryProjectView`: `{ projectID, kind }`.
  *  - `seededResult` is that tool's first pushed result; we prime the session-state
  *    query cache from it in the first render so the screen paints instantly, then
  *    re-seed on every subsequent `mcp-tool-result` window event (agent re-runs).
@@ -38,19 +38,21 @@ import { slotStageFromOrdinal } from '../contracts/adapters';
 import { PHASE1_ORDER, METHOD_METADATA } from '../contracts/methodMetadata';
 import { mapSessionState, systemArtifactKindFromOrdinal } from '../contracts/wire';
 
-import { useDesignHealth } from '../hooks/useDesignHealth';
-import { useProject } from '../hooks/useProject';
+import { useDesignHealth } from '../hooks/useDeliveryQueries';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { useCapabilities } from '../hooks/useCapabilities';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { operationsEnabled } from '../utilities/capabilities';
 import { isSessionAbsent } from '../hooks/sessionPolling';
-import { useSessionState, sessionStateKey } from '../hooks/useSessionState';
+import { useSessionState, sessionStateKey } from '../hooks/useDeliveryQueries';
 import {
   useAcknowledgeStaleBasis,
-  useRequestArtifactDraft,
+  useDispatchActivityTask,
   useSubmitReviewDecision,
-} from '../hooks/useDesignMutations';
+} from '../hooks/useDeliveryMutations';
+import { REVIEW_APPROVE, REVIEW_REJECT } from './activityVerbs.ts';
+import { dispatchRefFor, reviewRefFor } from '../components/activity/designTaskRef.ts';
 
 import { SystemDesignView, type SpineStep } from '../components/design/SystemDesignView';
 import { DesignExperienceSkeleton } from '../components/design/DesignSkeleton';
@@ -188,7 +190,7 @@ export function McpSystemDesignContainer({
       const detail = (event as CustomEvent<McpUiToolResultNotification['params']>).detail;
       const structured = detail.structuredContent;
       if (structured === undefined) return;
-      const mapped = mapSessionState(structured as Schemas['SystemDesignSessionStateView']);
+      const mapped = mapSessionState(structured as Schemas['DeliverySessionStateView']);
       queryClient.setQueryData(sessionStateKey(projectId, mapped.artifactKind), mapped);
     };
     window.addEventListener('mcp-tool-result', handler);
@@ -221,16 +223,23 @@ export function McpSystemDesignContainer({
     if (seededResult !== undefined) {
       queryClient.setQueryData(
         sessionStateKey(projectId, initialKind),
-        mapSessionState(seededResult as Schemas['SystemDesignSessionStateView'])
+        mapSessionState(seededResult as Schemas['DeliverySessionStateView'])
       );
     }
     return Math.max(0, PHASE1_KINDS.indexOf(initialKind));
   });
   const safeIndex = Math.min(activeIndex, PHASE1_KINDS.length - 1);
   const activeKind: ArtifactKind = PHASE1_KINDS[safeIndex] ?? 'mission';
+  // This widget is KIND-addressed (its tool arg is an artifact-kind ordinal), but
+  // every delivery write is addressed (activityId, taskId). designTaskRef.ts inverts
+  // that from the same lifecycle data the server resolves with, so the two cannot
+  // drift. Both are defined for every Phase-1 kind; the `??` keeps the call sites
+  // total without a non-null assertion.
+  const draftRef = dispatchRefFor(activeKind) ?? { activityId: '', taskId: '' };
+  const gateRef = reviewRefFor(activeKind) ?? { activityId: '', taskId: '' };
 
   const session = useSessionState(projectId, activeKind, projectId.length > 0);
-  const requestDraft = useRequestArtifactDraft(projectId);
+  const requestDraft = useDispatchActivityTask(projectId);
   const submitReview = useSubmitReviewDecision(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
 
@@ -299,7 +308,9 @@ export function McpSystemDesignContainer({
 
   const onRequestDraft = (feedback?: string, onAccepted?: () => void): void => {
     requestDraft.mutate(
-      feedback !== undefined ? { kind: activeKind, feedback } : { kind: activeKind },
+      feedback !== undefined
+        ? { ...draftRef, artifactKind: activeKind, feedback }
+        : { ...draftRef, artifactKind: activeKind },
       // onAccepted (the amend composer's success hook) fires only when the server
       // accepts — so the composer clears its folded rail comments solely on success.
       onAccepted !== undefined ? { onSuccess: onAccepted } : undefined
@@ -316,7 +327,11 @@ export function McpSystemDesignContainer({
       return;
     }
     submitReview.mutate(
-      { kind: activeKind, decision },
+      {
+        ...gateRef,
+        artifactKind: activeKind,
+        decision: { decision: decision === 'approve' ? REVIEW_APPROVE : REVIEW_REJECT },
+      },
       {
         onSuccess: () => {
           if (decision === 'approve') {
@@ -345,7 +360,12 @@ export function McpSystemDesignContainer({
     if (composer.mode === 'reject') {
       if (text.length === 0) return;
       submitReview.mutate(
-        { kind: activeKind, decision: 'reject', detail: { feedback: text } },
+        {
+          ...gateRef,
+          artifactKind: activeKind,
+          decision: { decision: REVIEW_REJECT },
+          feedback: { notes: text },
+        },
         {
           onSuccess: closeComposer,
           onError: (err) => {
@@ -418,12 +438,12 @@ export function McpSystemDesignContainer({
               sessionMissing={sessionMissing}
               spine={spine}
               onAcknowledgeStale={(note) => {
-                acknowledgeStale.mutate({ kind: activeKind, note });
+                acknowledgeStale.mutate({ ...gateRef, artifactKind: activeKind, note });
               }}
               onClose={() => void app.requestTeardown()}
               onRequestDraft={onRequestDraft}
               onRetry={() => {
-                requestDraft.mutate({ kind: activeKind });
+                requestDraft.mutate({ ...draftRef, artifactKind: activeKind });
               }}
               onSelectStep={onSelectStep}
               onSubmitResearch={() => undefined}

@@ -122,10 +122,8 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
 	managerbilling "github.com/mixofreality-studio/archistrator/server/internal/manager/billing"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/artifact"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/billingstate"
@@ -529,17 +527,21 @@ func (h *appHooks) DevConfig(cfg *Config) web.DevConfig {
 	return web.DevConfig{Enabled: cfg.AuthDevMode, Principal: devPrincipal()}
 }
 
-// WrapManagers decorates the four web/MCP-exposed managers with the composition-root
+// WrapManagers decorates the two web/MCP-exposed managers with the composition-root
 // logging seam (managerlog.go): every Infrastructure-kind error surfaced to a client
 // — through either transport — is logged once server-side with op/projectID/cause.
+// Each manager then takes its project-scoped authorization guard on top
+// (projectScopedDeliveryManager / projectScopedOperationsManager), so a denial is
+// answered before any inner work, on either transport.
 func (h *appHooks) WrapManagers(managers WebManagers) WebManagers {
 	return WebManagers{
-		ConstructionManager: loggingConstructionManager{inner: managers.ConstructionManager, log: h.logger},
+		DeliveryManager: projectScopedDeliveryManager{
+			DeliveryManager: loggingDeliveryManager{inner: managers.DeliveryManager, log: h.logger},
+			security:        security.New(security.WithPolicyDecisionPoint(h.PolicyDecisionPoint())),
+		},
 		OperationsManager: projectScopedOperationsManager{
 			OperationsManager: loggingOperationsManager{inner: managers.OperationsManager, log: h.logger},
 		},
-		ProjectDesignManager: loggingProjectDesignManager{inner: managers.ProjectDesignManager, log: h.logger},
-		SystemDesignManager:  loggingSystemDesignManager{inner: managers.SystemDesignManager, log: h.logger},
 	}
 }
 
@@ -596,7 +598,7 @@ func (h *appHooks) mountRoutes(root *http.ServeMux, cfg *Config, dev web.DevConf
 	webAppOrigin := getenvString("ARCHISTRATOR_WEBAPP_ORIGIN", "http://localhost:5173")
 	assetVersion := getenvString("ARCHISTRATOR_WEBAPP_ASSET_VERSION", "dev")
 	root.Handle("/mcp", newMCPHandler(dev, validator,
-		managers.SystemDesignManager, managers.ProjectDesignManager, managers.ConstructionManager, managers.OperationsManager,
+		managers.DeliveryManager, managers.OperationsManager,
 		webAppOrigin, assetVersion))
 
 	// GET /api/v1/capabilities — the ONE thing that tells the webApp which
@@ -767,6 +769,97 @@ func (m projectScopedOperationsManager) RegisterOperatedApp(rc fwmanager.Context
 				operatedAppID, projectRef, want))
 	}
 	return m.OperationsManager.RegisterOperatedApp(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
+}
+
+// projectScopedDeliveryManager authorizes the TWO delivery ops that name a project in
+// their BODY against the project they name, which no generated handler can do:
+// StartProject's ADOPT arm, and every QueryProjectView that carries a projectId.
+//
+// The other TEN ops carry their projectID in the PATH, and the
+// http generator's convention turns a leading ID path param into
+// `Authorize(verb, {Kind:"project", ID:<that id>})` — the ONE mechanism binding an
+// authorization decision to a project (framework-go-http-generator httpgen/plan.go
+// planOp/resourceKindFor). These two ids ride the BODY, so the same convention gives
+// each the owner-scoped fallback `{Kind:"deliveryCatalog", ID:principal.Subject}`:
+// "may this principal start projects / read project views at all", never "may it touch
+// THAT project". A body id names a resource the catalog decision never sees.
+//
+// StartProject's id MUST ride the body (an ABSENT id is what means CREATE, and
+// net/http's mux cannot match an empty path segment — see the op's doc comment).
+// QueryProjectView's rides the body because the op folds THIRTEEN former readers into
+// one: `projectId` is a member of the ProjectViewQuery object, not a parameter, and a
+// query object cannot be a path segment. BOTH are stage-4a REGRESSIONS, not inherited
+// gaps — before Task 6 every one of those readers was a path route
+// (`system-design/get-project/{projectID}`, `get-session-state/{projectID}`,
+// `get-design-health/{projectID}`, `list-episodes-for-artifact/{projectID}`,
+// `get-episode-timeline/{projectID}`, `construction/get-pump-status/{projectID}`, …),
+// each authorizing `{project, id}`. Unguarded, any principal who may see the catalog
+// could read summary/session/pump/designHealth/episodes/timeline for ANY project id.
+//
+// So the guard re-asks the SAME question the path form asked, with the SAME verb and
+// the SAME resource ref, at the composition root — the one place holding the wired PDP
+// (PolicyDecisionPoint(); a Manager building its own would get the deny-by-default
+// evaluator and refuse everything). It sits here rather than inside the Manager façade
+// for the reason the sibling operations guard does: the decision belongs to the
+// deployment's policy engine, not to the Method component. It covers BOTH transports,
+// since WrapManagers hands the SAME instance to the REST handler and the MCP tools —
+// and the MCP surface authorizes nothing of its own, so before this the adopt arm was
+// unchecked there too.
+//
+// RULING (stage 4a pre-final): the generator is NOT changed to read a body id. A path
+// id is the convention's identity signal, and teaching it to reach into a request
+// wrapper for an optional id — or into a nested query object — would make every
+// body-carried id a silent authorization surface, decided by a naming coincidence
+// rather than by a reviewed line. Each body id that NAMES A PROJECT gets an explicit
+// arm here instead, and the arm is what a reviewer reads. `ReviewDecisionInput.optionId`
+// needs none: an option is a member of the project the PATH already named.
+//
+// The embedded interface carries every other op through untouched, so a future contract
+// op cannot silently bypass the wrapper by being forgotten here.
+type projectScopedDeliveryManager struct {
+	delivery.DeliveryManager
+	security security.Security
+}
+
+// StartProject denies an adopt whose principal may not act on the named project. A
+// CREATE (projectID absent) is left to the handler's catalog decision — there is no
+// project yet to name. The fail-closed arm mirrors the generated handlers exactly: an
+// UNREACHABLE policy engine denies (security.Authorize's contract), and Unauthorized is
+// the façade kind the client layer renders as 403 — the same status the path route gave.
+func (m projectScopedDeliveryManager) StartProject(rc fwmanager.Context, owner delivery.OwnerScope, name string, projectID *string, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
+	if projectID != nil {
+		decision, err := m.security.Authorize(rc.Context, rc.Principal,
+			security.Action{Verb: "start-project"},
+			security.ResourceRef{Kind: "project", ID: *projectID})
+		if err != nil || !decision.Permit {
+			return delivery.StartProjectResult{}, fwmanager.New(fwmanager.Unauthorized, "not permitted")
+		}
+	}
+	return m.DeliveryManager.StartProject(rc, owner, name, projectID, model, research, start)
+}
+
+// QueryProjectView denies a read whose principal may not act on the project the query
+// NAMES. It is the whole read surface: six of the seven kinds (summary, session, pump,
+// designHealth, episodes, timeline) address ONE project through query.projectId, and
+// each was a `{project, id}`-authorized path route before stage 4a folded them into this
+// op.
+//
+// The `projects` kind is the one that stays CATALOG-scoped, and legitimately so: it
+// carries an `owner` and no projectId, it is the catalog listing itself, and the
+// handler's own `{deliveryCatalog, principal.Subject}` decision is exactly the question
+// it asks. An empty (non-nil) projectId is left to the Manager, which answers the
+// ContractMisuse that names the missing selector — a guard that denied it would turn a
+// malformed query into a permissions error and tell the caller nothing true.
+func (m projectScopedDeliveryManager) QueryProjectView(rc fwmanager.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+	if query.ProjectID != nil && *query.ProjectID != "" {
+		decision, err := m.security.Authorize(rc.Context, rc.Principal,
+			security.Action{Verb: "query-project-view"},
+			security.ResourceRef{Kind: "project", ID: *query.ProjectID})
+		if err != nil || !decision.Permit {
+			return delivery.ProjectView{}, fwmanager.New(fwmanager.Unauthorized, "not permitted")
+		}
+	}
+	return m.DeliveryManager.QueryProjectView(rc, query)
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the
@@ -1041,10 +1134,12 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
-		// construction: the two startup Schedules (Task 7c;
-		// constructionmanager.go's executionKindPumpSweep/executionKindReplanSweep).
-		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: construction.TaskQueue},
-		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: construction.TaskQueue},
+		// delivery: the two startup Schedules (Task 7c; deliverymanager.go's
+		// executionKindPumpSweep/executionKindReplanSweep). The WORKFLOW TYPE names are
+		// unchanged at stage 4a (R2 — nineteen replay fixtures replay against them); only
+		// the task queue and the Schedule ids moved to the delivery namespace.
+		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
+		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: delivery.TaskQueue},
 	}
 }
 
@@ -1080,7 +1175,7 @@ func (h *appHooks) FinalizeMessageBus(cfg *Config, v messagebus.MessageBus) mess
 func (h *appHooks) constructionExecutionKinds(cfg *Config) map[messagebus.ExecutionKind]bool {
 	kinds := make(map[messagebus.ExecutionKind]bool)
 	for kind, binding := range h.MessageBusTemporalArgs(cfg) {
-		if binding.TaskQueue == construction.TaskQueue {
+		if binding.TaskQueue == delivery.TaskQueue {
 			kinds[kind] = true
 		}
 	}
@@ -1136,77 +1231,70 @@ func registerConstruction(cfg *Config) bool {
 	return cfg.ConstructionRepoOwner != "" && cfg.ConstructionRepoName != ""
 }
 
-func (h *appHooks) RegisterConstructionManagerWorker(cfg *Config) bool {
-	return registerConstruction(cfg)
-}
+// RegisterDeliveryManagerWorker registers UNCONDITIONALLY at stage 4a. Before the
+// collapse the construction worker was gated on registerConstruction(cfg) while the two
+// design workers registered unconditionally; one worker now carries all eleven workflow
+// types, so gating it would take the design rails down with construction. The dry-run /
+// no-repo restraint the gate expressed has not been lost — it lives on the SCHEDULES
+// (FinalizeMessageBus's dryRunConstructionScheduleGate), which is where "do not actually
+// drive construction" belongs. registerConstruction stays as that gate's input.
+func (h *appHooks) RegisterDeliveryManagerWorker(_ *Config) bool { return true }
 
-// The design + operations managers register unconditionally: their optional-dormant
-// deps (the PR rail / artifact store) simply go dormant when absent — the CoAuthor
-// spine + the operations workflows run unchanged (hand run() always registered them).
-func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool    { return true }
-func (h *appHooks) RegisterProjectDesignManagerWorker(_ *Config) bool { return true }
-func (h *appHooks) RegisterSystemDesignManagerWorker(_ *Config) bool  { return true }
+// Operations registers unconditionally too: its optional-dormant deps simply go dormant
+// when absent — the operations workflows run unchanged (hand run() always registered them).
+func (h *appHooks) RegisterOperationsManagerWorker(_ *Config) bool { return true }
 
-func (h *appHooks) ConstructionManagerEscalationWaitTimeout() time.Duration {
+func (h *appHooks) DeliveryManagerEscalationWaitTimeout() time.Duration {
 	return h.config.ConstructionEscalationTimeout
 }
 
-func (h *appHooks) ConstructionManagerInterventionMode() string {
+func (h *appHooks) DeliveryManagerInterventionMode() string {
 	return h.config.ConstructionInterventionMode
 }
 
-// ProjectDesignManagerRepo / SystemDesignManagerRepo are the design PR-rail repo
-// resolvers (run()'s buildDesignRepoResolvers): projectID → per-project RepoRef via
-// the sourcecontrol catalog (name-as-identity). nil when repo-less (rail dormant).
-func (h *appHooks) ProjectDesignManagerRepo() func(projectID projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+// DeliveryManagerRepo is the ONE repo resolver the merged Manager threads into all
+// three moved rails: projectID → the project's own RepoRef via the sourcecontrol
+// catalog (name-as-identity). Non-nil retargets every construction dispatch to the
+// project repo (aiarch-construct.yml) AND activates the branch→PR rail; nil (a
+// repo-less server) keeps the central-repo fallback + a dormant rail.
+//
+// PER-RAIL BEHAVIOUR IS PRESERVED THROUGH ONE DEP (stage 4a fix round 1). The three
+// hooks this replaces did NOT agree: the two DESIGN hooks carried a second arm — when
+// no GitHub App catalog is bound AND the profile is "local", resolve every project to
+// the deterministic GitLocal RepoRef, which is what activates the local design rail's
+// branch → PR → merge lifecycle — while the CONSTRUCTION hook returned nil there
+// ("construction keeps its local-merge-job flow this pass"). Collapsing to the
+// construction body would have taken the local design rail down; collapsing to the
+// design body would have switched construction's local PR rail ON. Neither is
+// acceptable, and no contract change is needed to avoid both: this hook returns the
+// DESIGN arm (the superset), and the construction half recognises a GitLocal ref and
+// treats it as "no per-project venue", which is exactly the nil it used to be handed.
+// BOTH of its readers do so (round 1 shipped only the first, which left the rail on):
+// the dispatch venue (constructRepoTarget) and the rail LIFECYCLE
+// (railLifecycleEnabled → wfDeps.RailEnabled, which gates the credential mint and the
+// local merge step) — internal/manager/delivery. The selection moved; no rail's
+// behaviour did.
+func (h *appHooks) DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
 		if h.gitLocalRailBound() {
-			return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+			return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
 			}
 		}
 		return nil
 	}
-	return func(pid projectdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-		return h.repoForProject(projectstate.ProjectID(pid))
-	}
-}
-
-func (h *appHooks) SystemDesignManagerRepo() func(projectID systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-	if h.scCatalog == nil {
-		if h.gitLocalRailBound() {
-			return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
-				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectstate.ProjectID(pid).String())), true
-			}
-		}
-		return nil
-	}
-	return func(pid systemdesign.ProjectID) (sourcecontrol.RepoRef, bool) {
+	return func(pid delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 		return h.repoForProject(projectstate.ProjectID(pid))
 	}
 }
 
 // gitLocalRailBound reports whether the bound sourceControlAccess is the GitLocal PR
 // rail: the local profile's binding arm builds it, and the creds-win Finalize keeps it
-// only when no GitHub App creds exist (scCatalog/scAccess nil). The design managers'
-// repo resolvers must then resolve every project to the deterministic local RepoRef so
-// the rail lifecycle (branch → PR → merge) activates. ConstructionManagerRepo stays on
-// the catalog-only path: construction keeps its local-merge-job flow this pass.
+// only when no GitHub App creds exist (scCatalog/scAccess nil). The design rails' repo
+// resolution must then resolve every project to the deterministic local RepoRef so the
+// rail lifecycle (branch → PR → merge) activates.
 func (h *appHooks) gitLocalRailBound() bool {
 	return resolveProfile(h.config) == "local"
-}
-
-// ConstructionManagerRepo is the construction venue resolver (B5, gh-mode): projectID →
-// the project's own RepoRef via the sourcecontrol catalog. Non-nil retargets every
-// construction dispatch to the project repo (aiarch-construct.yml) AND activates the
-// branch→PR rail; nil (repo-less server) keeps the central-repo fallback + dormant rail.
-func (h *appHooks) ConstructionManagerRepo() func(projectID construction.ProjectID) (sourcecontrol.RepoRef, bool) {
-	if h.scCatalog == nil {
-		return nil
-	}
-	return func(pid construction.ProjectID) (sourcecontrol.RepoRef, bool) {
-		return h.repoForProject(projectstate.ProjectID(pid))
-	}
 }
 
 // repoForProject resolves one project's RepoRef through the sourcecontrol catalog,
@@ -1221,10 +1309,10 @@ func (h *appHooks) repoForProject(projectID projectstate.ProjectID) (sourcecontr
 	return ref, true
 }
 
-// SystemDesignManagerRepoBase is the project-wide construction-repo WEB base the
-// systemDesignManager composes each git row's clickable prUrl from; "" when the
+// DeliveryManagerRepoBase is the project-wide construction-repo WEB base the
+// delivery Manager composes each git row's clickable prUrl from; "" when the
 // construction repo is unconfigured.
-func (h *appHooks) SystemDesignManagerRepoBase() string {
+func (h *appHooks) DeliveryManagerRepoBase() string {
 	c := h.config
 	return constructionRepoBase(c.GithubAppAPIBaseURL, c.ConstructionRepoOwner, c.ConstructionRepoName)
 }

@@ -26,10 +26,13 @@ function live(): ReturnType<typeof planActivitiesFrom> {
     '../../../../uitests/preview-fixtures/web-client/plan/list.json',
     import.meta.url
   );
+  // The head-state read is one kind of the merged project view (stage 4a), so the
+  // fixture keys it by that kind and the body is the view's `summary` member —
+  // exactly what useProject unwraps.
   const doc = JSON.parse(readFileSync(url, 'utf8')) as {
-    ops: { systemDesignGetProject: { result: Record<string, never> } };
+    ops: { deliveryQueryProjectView: { summary: { result: { summary: Record<string, never> } } } };
   };
-  const project = doc.ops.systemDesignGetProject.result as unknown as {
+  const project = doc.ops.deliveryQueryProjectView.summary.result.summary as unknown as {
     activityExecution: Record<string, unknown>;
     Slots: { kind: string; model: unknown }[];
   };

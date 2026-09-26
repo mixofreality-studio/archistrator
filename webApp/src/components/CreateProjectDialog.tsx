@@ -7,7 +7,7 @@
  * Code GitHub App on their repo. The dialog therefore carries a prerequisites panel
  * spelling out the one-time onboarding the user must complete before creating.
  *
- * Wired to the real useCreateProject mutation. Research input is captured later in
+ * Wired to the real StartProject mutation. Research input is captured later in
  * System Design, so this stays a one-field gate (the mock's customer/research
  * fields are dropped against the typed CreateProject contract, which takes only the
  * repo name).
@@ -29,7 +29,8 @@ import Radio from '@mui/material/Radio';
 import AddIcon from '@mui/icons-material/Add';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { useNavigate } from '@tanstack/react-router';
-import { useCreateProject, type OperatingModel } from '../hooks/useCreateProject';
+import { useStartProject, type OperatingModel } from '../hooks/useDeliveryMutations';
+import { useUser } from '../utilities/auth/UserContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { ErrorAlert } from './shared/ErrorAlert';
@@ -43,7 +44,8 @@ export function CreateProjectDialog({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
-  const createProject = useCreateProject();
+  const createProject = useStartProject();
+  const owner = useUser().sub;
   const [name, setName] = useState('');
   const [operatingModel, setOperatingModel] = useState<OperatingModel>('selfOperated');
 
@@ -61,13 +63,19 @@ export function CreateProjectDialog({
   const submit = (): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0 || createProject.isPending) return;
+    // CREATE: no projectId at all, so the Manager mints one. Absence is the whole
+    // signal — an id invented here would ask the server to adopt a project that does
+    // not exist yet.
     createProject.mutate(
-      { name: trimmed, operatingModel },
+      { name: trimmed, owner, operatingModel, start: false },
       {
-        onSuccess: (projectId) => {
+        onSuccess: (result) => {
           reset();
           onClose();
-          void navigate({ to: '/project/$projectId/home', params: { projectId } });
+          void navigate({
+            to: '/project/$projectId/home',
+            params: { projectId: result.projectId },
+          });
         },
       }
     );

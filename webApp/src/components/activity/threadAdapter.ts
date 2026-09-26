@@ -10,8 +10,8 @@
 import type { components } from '../../contracts/schema.ts';
 import type { ReviewCommentView, ReviewCommentReply } from '../../contracts/types.ts';
 
-type ThreadWire = components['schemas']['ConstructionReviewThreadComment'];
-type ReplyWire = components['schemas']['ConstructionReviewThreadReply'];
+type ThreadWire = components['schemas']['DeliveryReviewThreadComment'];
+type ReplyWire = components['schemas']['DeliveryReviewThreadReply'];
 
 function replyOf(r: ReplyWire): ReviewCommentReply {
   return { id: r.id, authorRole: r.authorRole, text: r.text, at: r.at };

@@ -1,7 +1,7 @@
 /**
  * Wire ↔ app mapping at the generated-client boundary.
  *
- * The openapi-fetch client returns the generated (per-manager namespaced,
+ * The openapi-fetch client returns the generated (Manager-namespaced,
  * PascalCase, integer-enum) wire types. Every API hook funnels its decoded `data`
  * through the "wire → app" mappers below to produce the SPA's stable app view
  * types (camelCase, lowerCamel string enums). The `{kind, model}` draft envelope
@@ -160,7 +160,7 @@ function activityRowKindFromOrdinal(ordinal: number): ActivityType {
   return ACTIVITY_TYPE_ORDINAL_TO_APP[ordinal] ?? 'service';
 }
 
-/** SystemDesignFailureReason (0 unknown,1 pipelineFailed,2 pipelineCancelled,
+/** DeliveryFailureReason (0 unknown,1 pipelineFailed,2 pipelineCancelled,
  * 3 pipelineTimedOut,4 varianceExhausted,5 escalationTimedOut,6 componentUnresolved,
  * 7 dependencyUnresolved,8 dependencyCycle). */
 function failureReasonFromOrdinal(ordinal: number): FailureReason {
@@ -178,7 +178,7 @@ export function mapMoney(w: Schemas['OperationsMoney']): Money {
   return { minorUnits: w.MinorUnits, currency: w.Currency };
 }
 
-function mapFinding(w: Schemas['SystemDesignFinding'] | Schemas['ProjectDesignFinding']): Finding {
+function mapFinding(w: Schemas['DeliveryFinding']): Finding {
   return {
     ruleId: w.ruleId,
     severity: w.severity,
@@ -190,7 +190,7 @@ function mapFinding(w: Schemas['SystemDesignFinding'] | Schemas['ProjectDesignFi
 }
 
 /** Wire CheckItem → app CheckItem (identical shape; status is the pass|waived|fail enum). */
-function mapCheckItem(w: Schemas['SystemDesignCheckItem']): CheckItem {
+function mapCheckItem(w: Schemas['DeliveryCheckItem']): CheckItem {
   return {
     section: w.section,
     guideline: w.guideline,
@@ -200,7 +200,7 @@ function mapCheckItem(w: Schemas['SystemDesignCheckItem']): CheckItem {
 }
 
 /** The GetDesignHealth read-model → app DesignHealth (empty arrays serialize as [], never null). */
-export function mapDesignHealth(w: Schemas['SystemDesignDesignHealth']): DesignHealth {
+export function mapDesignHealth(w: Schemas['DeliveryDesignHealth']): DesignHealth {
   return {
     findings: w.findings.map(mapFinding),
     waivers: w.waivers.map(mapCheckItem),
@@ -240,10 +240,8 @@ function reviewAddressee(s: string): ReviewCommentAddressee {
   return s === 'pm' || s === 'architect' ? s : '';
 }
 
-/** One reply utterance on a review thread. The two manager shapes are structurally identical. */
-function mapReviewCommentReply(
-  w: Schemas['SystemDesignReviewCommentReply'] | Schemas['ProjectDesignReviewCommentReply']
-): ReviewCommentReply {
+/** One reply utterance on a review thread (one Manager publishes it once since stage 4a). */
+function mapReviewCommentReply(w: Schemas['DeliveryReviewCommentReply']): ReviewCommentReply {
   return {
     id: w.id,
     authorRole: w.authorRole,
@@ -252,10 +250,8 @@ function mapReviewCommentReply(
   };
 }
 
-/** One durable review-ledger entry. The two manager shapes are structurally identical. */
-function mapReviewComment(
-  w: Schemas['SystemDesignReviewCommentView'] | Schemas['ProjectDesignReviewCommentView']
-): ReviewCommentView {
+/** One durable review-ledger entry (one Manager publishes it once since stage 4a). */
+function mapReviewComment(w: Schemas['DeliveryReviewCommentView']): ReviewCommentView {
   return {
     id: w.id,
     anchor: w.anchor,
@@ -309,7 +305,7 @@ function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifa
 
 // --- project catalog + head-state ------------------------------------------
 
-export function mapProjectSummary(w: Schemas['SystemDesignProjectSummary']): ProjectSummary {
+export function mapProjectSummary(w: Schemas['DeliveryProjectSummary']): ProjectSummary {
   return {
     projectId: w.ProjectID,
     name: w.Name,
@@ -326,11 +322,11 @@ export function mapProjectSummary(w: Schemas['SystemDesignProjectSummary']): Pro
   };
 }
 
-function mapResearchInput(w: Schemas['SystemDesignResearchInput']): ResearchInput {
+function mapResearchInput(w: Schemas['DeliveryResearchInput']): ResearchInput {
   return { sources: (w.sources ?? []).map((s) => ({ title: s.title, content: s.content })) };
 }
 
-function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
+function mapSlot(w: Schemas['DeliveryArtifactSlotView']): ArtifactSlotView {
   // PM-P1-2: the server records why a committed slot went stale as
   // `staleBasisCause: {upstreamKind, upstreamRevision}` (omitempty — absent when
   // not stale or when the slot went stale before cause recording existed).
@@ -386,7 +382,7 @@ function mapSlot(w: Schemas['SystemDesignArtifactSlotView']): ArtifactSlotView {
   };
 }
 
-function mapGitRow(w: Schemas['SystemDesignActivityGitStatus']): GitRow {
+function mapGitRow(w: Schemas['DeliveryActivityGitStatus']): GitRow {
   return {
     branchName: w.BranchName,
     ...(w.PrNumber > 0 ? { prNumber: w.PrNumber } : {}),
@@ -400,7 +396,7 @@ function mapGitRow(w: Schemas['SystemDesignActivityGitStatus']): GitRow {
   };
 }
 
-function mapProducedArtifact(w: Schemas['SystemDesignProducedArtifact']): ProducedArtifactRow {
+function mapProducedArtifact(w: Schemas['DeliveryProducedArtifact']): ProducedArtifactRow {
   return { kind: w.Kind, title: w.Title, source: w.Source, produced: w.Produced, note: w.Note };
 }
 
@@ -435,7 +431,7 @@ function mapEvidenceKind(k: string): EvidenceRefRow['kind'] {
   return k === 'episode' || k === 'artifact' || k === 'contract' || k === 'git' ? k : '';
 }
 
-function mapTaskAttempt(a: Schemas['SystemDesignTaskAttempt']): TaskAttemptRow {
+function mapTaskAttempt(a: Schemas['DeliveryTaskAttempt']): TaskAttemptRow {
   return {
     attemptId: a.attemptId,
     task: a.task,
@@ -464,7 +460,7 @@ function mapTaskAttempt(a: Schemas['SystemDesignTaskAttempt']): TaskAttemptRow {
   };
 }
 
-function mapPhaseCompletion(p: Schemas['SystemDesignPhaseCompletion']): PhaseRow {
+function mapPhaseCompletion(p: Schemas['DeliveryPhaseCompletion']): PhaseRow {
   return {
     phase: p.Phase,
     weight: p.Weight,
@@ -477,7 +473,7 @@ function mapPhaseCompletion(p: Schemas['SystemDesignPhaseCompletion']): PhaseRow
 // Exported for direct unit-testing of the row mapping (mapProjectState remains
 // the seam every hook actually reaches this through).
 export function mapConstructionRow(
-  w: Schemas['SystemDesignActivityConstructionStatus']
+  w: Schemas['DeliveryActivityConstructionStatus']
 ): ConstructionRow {
   // The server refuses to guess a type it cannot classify: Type/Kind/Variant sit
   // at their zero value and Phases is empty. Surfacing a derived 'service' kind
@@ -581,7 +577,7 @@ export function mapConstructionRow(
   };
 }
 
-/** The skip kind (SystemDesignOperatorNoteKind 5): recorded, never delivered. */
+/** The skip kind (DeliveryOperatorNoteKind 5): recorded, never delivered. */
 const OPERATOR_NOTE_KIND_SKIP = 5;
 
 /**
@@ -591,7 +587,7 @@ const OPERATOR_NOTE_KIND_SKIP = 5;
  * (projectstate.PendingOperatorNotes), read off the wire rather than re-invented.
  */
 export function pendingOperatorNoteCount(
-  notes: Schemas['SystemDesignOperatorNote'][] | null | undefined
+  notes: Schemas['DeliveryOperatorNote'][] | null | undefined
 ): number {
   let n = 0;
   for (const note of notes ?? []) {
@@ -613,7 +609,7 @@ const PENDING_REASONS: readonly PendingDependencyReason[] = [
  * as `unresolved` — "we cannot say why" — never as `notBuilt`, which would be a
  * specific claim about the dependency the server did not make.
  */
-function mapPendingResume(w: Schemas['SystemDesignPendingResume']): PendingResumeRow {
+function mapPendingResume(w: Schemas['DeliveryPendingResume']): PendingResumeRow {
   return {
     fromPhase: w.fromPhase,
     // Required and non-null on the wire (the server sends [] when next in line).
@@ -624,7 +620,7 @@ function mapPendingResume(w: Schemas['SystemDesignPendingResume']): PendingResum
   };
 }
 
-function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceContract {
+function mapServiceContract(w: Schemas['DeliveryServiceContract']): ServiceContract {
   return {
     component: w.Component,
     layer: w.Layer,
@@ -687,7 +683,7 @@ function mapServiceContract(w: Schemas['SystemDesignServiceContract']): ServiceC
   };
 }
 
-function mapEvPoint(w: Schemas['SystemDesignEvPoint']): EvPoint {
+function mapEvPoint(w: Schemas['DeliveryEvPoint']): EvPoint {
   return {
     week: w.week,
     earnedPct: w.earnedPct,
@@ -697,9 +693,7 @@ function mapEvPoint(w: Schemas['SystemDesignEvPoint']): EvPoint {
   };
 }
 
-function mapConstructionProgress(
-  w: Schemas['SystemDesignConstructionProgress']
-): ConstructionProgress {
+function mapConstructionProgress(w: Schemas['DeliveryConstructionProgress']): ConstructionProgress {
   // Go nil slices serialize as JSON `null` (not omitted), so guard null too.
   const points = w.points ?? undefined;
   return {
@@ -731,7 +725,7 @@ function mapRecord<W, A>(
   return out;
 }
 
-export function mapProjectState(w: Schemas['SystemDesignProjectState']): ProjectStateWithGit {
+export function mapProjectState(w: Schemas['DeliveryProjectState']): ProjectStateWithGit {
   const base: ProjectState = {
     projectId: w.ProjectID,
     name: w.Name,
@@ -741,10 +735,9 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
     research: mapResearchInput(w.Research),
     slots: (w.Slots ?? []).map(mapSlot),
   };
-  const gitRows = mapRecord<Schemas['SystemDesignActivityGitStatus'], GitRow>(
-    w.GitRows,
-    mapGitRow
-  ) as GitRows | undefined;
+  const gitRows = mapRecord<Schemas['DeliveryActivityGitStatus'], GitRow>(w.GitRows, mapGitRow) as
+    | GitRows
+    | undefined;
   // THE ONE WIRE BREAK OF THE ACTIVITY-EXPERIENCE WAVE (spec §5.3, stage-3 task 4).
   // The server's stored map is `.activityExecution` now — renamed from
   // `.activityConstruction` with the row type itself — and the GetProject view it
@@ -758,10 +751,10 @@ export function mapProjectState(w: Schemas['SystemDesignProjectState']): Project
   // append-only ledgers instead of reading them back out of storage. Nothing on this
   // side had to move for that, which is the point of having kept them view fields.
   const constructionRows = mapRecord<
-    Schemas['SystemDesignActivityConstructionStatus'],
+    Schemas['DeliveryActivityConstructionStatus'],
     ConstructionRow
   >(w.activityExecution, mapConstructionRow) as ConstructionRows | undefined;
-  const serviceContracts = mapRecord<Schemas['SystemDesignServiceContract'], ServiceContract>(
+  const serviceContracts = mapRecord<Schemas['DeliveryServiceContract'], ServiceContract>(
     w.ServiceContracts,
     mapServiceContract
   ) as ServiceContracts | undefined;
@@ -833,14 +826,14 @@ function committedActivityNames(slots: readonly ArtifactSlotView[]): string[] {
  * be dishonest, and absence already means "no PM conclusion to show".
  */
 function mapCritique(
-  w: Schemas['SystemDesignCritiqueView'] | null | undefined
+  w: Schemas['DeliveryCritiqueView'] | null | undefined
 ): PmCritiqueView | undefined {
   if (w === undefined || w === null) return undefined;
   if (w.verdict !== 'approve' && w.verdict !== 'revise') return undefined;
   return { role: w.role, verdict: w.verdict, summary: w.summary, round: w.round };
 }
 
-export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): SessionStateResponse {
+export function mapSessionState(w: Schemas['DeliverySessionStateView']): SessionStateResponse {
   const artifactKind = systemArtifactKindFromOrdinal(w.artifactKind);
   const critique = mapCritique(w.critique);
   return {
@@ -876,7 +869,7 @@ export function mapSessionState(w: Schemas['SystemDesignSessionStateView']): Ses
 // --- project-design session ------------------------------------------------
 
 export function mapProjectSessionState(
-  w: Schemas['ProjectDesignSessionStateView']
+  w: Schemas['DeliveryProjectSessionStateView']
 ): ProjectSessionState {
   const artifactKind = projectArtifactKindFromOrdinal(w.artifactKind);
   return {
@@ -907,7 +900,7 @@ export function mapProjectSessionState(
 // --- construction session --------------------------------------------------
 
 export function mapConstructionSession(
-  w: Schemas['ConstructionConstructionSessionView']
+  w: Schemas['DeliveryConstructionSessionView']
 ): ConstructionSessionState {
   return {
     projectId: w.projectId,
@@ -1015,11 +1008,11 @@ export function mapCostProjection(
 
 // --- episodes (SP1 capture seam) --------------------------------------------
 //
-// ConstructionEpisodeRecordView / ProjectDesignEpisodeRecordView /
-// SystemDesignEpisodeRecordView (and their Usage/Lineage/SubagentSpan/
-// TimelineEvent/Timeline siblings) are byte-identical across the three manager
-// namespaces (verified against the OAS at Task 10 authorship time) — one set of
-// mappers serves all three via a union parameter, same pattern as mapFinding /
+// DeliveryEpisodeRecordView (and its Usage/Lineage/SubagentSpan/TimelineEvent/
+// Timeline siblings) used to be three byte-identical schemas, one per design/
+// construction manager namespace, which these mappers took in through a
+// three-member union. Stage 4a's one Manager publishes each exactly once, so the
+// unions collapsed to a single parameter type — same as mapFinding and
 // mapReviewComment above.
 
 function episodeKindFromOrdinal(ordinal: number): EpisodeKind {
@@ -1030,21 +1023,11 @@ function episodeOutcomeFromOrdinal(ordinal: number): EpisodeOutcome {
   return EPISODE_OUTCOME_ORDINAL_TO_APP[ordinal] ?? 'gap';
 }
 
-function mapEpisodeUsage(
-  w:
-    | Schemas['ConstructionEpisodeUsage']
-    | Schemas['ProjectDesignEpisodeUsage']
-    | Schemas['SystemDesignEpisodeUsage']
-): EpisodeUsage {
+function mapEpisodeUsage(w: Schemas['DeliveryEpisodeUsage']): EpisodeUsage {
   return { in: w.in, out: w.out, cacheRead: w.cacheRead, cacheCreate: w.cacheCreate };
 }
 
-function mapEpisodeLineage(
-  w:
-    | Schemas['ConstructionEpisodeLineage']
-    | Schemas['ProjectDesignEpisodeLineage']
-    | Schemas['SystemDesignEpisodeLineage']
-): EpisodeLineage {
+function mapEpisodeLineage(w: Schemas['DeliveryEpisodeLineage']): EpisodeLineage {
   return {
     workflowId: w.workflowId,
     runId: w.runId,
@@ -1052,12 +1035,7 @@ function mapEpisodeLineage(
   };
 }
 
-function mapSubagentSpan(
-  w:
-    | Schemas['ConstructionSubagentSpan']
-    | Schemas['ProjectDesignSubagentSpan']
-    | Schemas['SystemDesignSubagentSpan']
-): SubagentSpan {
+function mapSubagentSpan(w: Schemas['DeliverySubagentSpan']): SubagentSpan {
   return {
     toolUseId: w.toolUseId,
     ...(w.startedAt !== undefined ? { startedAt: w.startedAt } : {}),
@@ -1065,12 +1043,7 @@ function mapSubagentSpan(
   };
 }
 
-export function mapEpisodeRecordView(
-  w:
-    | Schemas['ConstructionEpisodeRecordView']
-    | Schemas['ProjectDesignEpisodeRecordView']
-    | Schemas['SystemDesignEpisodeRecordView']
-): EpisodeRecordView {
+export function mapEpisodeRecordView(w: Schemas['DeliveryEpisodeRecordView']): EpisodeRecordView {
   return {
     episodeId: w.episodeId,
     kind: episodeKindFromOrdinal(w.kind),
@@ -1115,12 +1088,7 @@ export function mapEpisodeRecordView(
  * contracts/types.ts) rather than encoding a specific runtime type here, since
  * the honest wire type is "whatever JSON value the pointer held", not a string.
  */
-function mapTimelineEvent(
-  w:
-    | Schemas['ConstructionTimelineEvent']
-    | Schemas['ProjectDesignTimelineEvent']
-    | Schemas['SystemDesignTimelineEvent']
-): TimelineEvent {
+function mapTimelineEvent(w: Schemas['DeliveryTimelineEvent']): TimelineEvent {
   // `w.raw`'s STATIC type is `null | undefined` (schema.ts's placeholder for the
   // unrepresentable json.RawMessage — see the doc comment above), but its REAL
   // runtime value is an arbitrary JSON value whenever present. Explicitly
@@ -1134,45 +1102,38 @@ function mapTimelineEvent(
   };
 }
 
-export function mapEpisodeTimeline(
-  w:
-    | Schemas['ConstructionEpisodeTimeline']
-    | Schemas['ProjectDesignEpisodeTimeline']
-    | Schemas['SystemDesignEpisodeTimeline']
-): EpisodeTimeline {
+export function mapEpisodeTimeline(w: Schemas['DeliveryEpisodeTimeline']): EpisodeTimeline {
   return { record: mapEpisodeRecordView(w.record), events: w.events.map(mapTimelineEvent) };
 }
 
 // --- app → wire ------------------------------------------------------------
 
-export function toResearchInputWire(app: ResearchInput): Schemas['SystemDesignResearchInput'] {
+export function toResearchInputWire(app: ResearchInput): Schemas['DeliveryResearchInput'] {
   return { sources: app.sources.map((s) => ({ title: s.title, content: s.content })) };
 }
 
 // --- app → wire: ordinal encoders (mechanical — sourced from enums.gen.ts) --
 
-export function artifactKindToOrdinal(kind: ArtifactKindFull): Schemas['SystemDesignArtifactKind'] {
-  return ARTIFACT_KIND_APP_TO_ORDINAL[kind] as Schemas['SystemDesignArtifactKind'];
+export function artifactKindToOrdinal(kind: ArtifactKindFull): Schemas['DeliveryArtifactKind'] {
+  return ARTIFACT_KIND_APP_TO_ORDINAL[kind] as Schemas['DeliveryArtifactKind'];
 }
 
 export function reviewDecisionToOrdinal(
   decision: ReviewDecision
-): Schemas['SystemDesignReviewDecision'] {
-  return REVIEW_DECISION_APP_TO_ORDINAL[decision] as Schemas['SystemDesignReviewDecision'];
+): Schemas['DeliveryReviewDecision'] {
+  return REVIEW_DECISION_APP_TO_ORDINAL[decision] as Schemas['DeliveryReviewDecision'];
 }
 
-export function sdpDecisionToOrdinal(decision: SDPDecision): Schemas['ProjectDesignSDPDecision'] {
-  return SDP_DECISION_APP_TO_ORDINAL[decision] as Schemas['ProjectDesignSDPDecision'];
+export function sdpDecisionToOrdinal(decision: SDPDecision): Schemas['DeliverySDPDecision'] {
+  return SDP_DECISION_APP_TO_ORDINAL[decision] as Schemas['DeliverySDPDecision'];
 }
 
-export function overrideKindToOrdinal(kind: OverrideKind): Schemas['ConstructionOverrideKind'] {
-  return OVERRIDE_KIND_APP_TO_ORDINAL[kind] as Schemas['ConstructionOverrideKind'];
+export function overrideKindToOrdinal(kind: OverrideKind): Schemas['DeliveryOverrideKind'] {
+  return OVERRIDE_KIND_APP_TO_ORDINAL[kind] as Schemas['DeliveryOverrideKind'];
 }
 
-export function phaseDecisionToOrdinal(
-  decision: PhaseDecision
-): Schemas['ConstructionPhaseDecision'] {
-  return PHASE_DECISION_APP_TO_ORDINAL[decision] as Schemas['ConstructionPhaseDecision'];
+export function phaseDecisionToOrdinal(decision: PhaseDecision): Schemas['DeliveryPhaseDecision'] {
+  return PHASE_DECISION_APP_TO_ORDINAL[decision] as Schemas['DeliveryPhaseDecision'];
 }
 
 /** OperationsDesiredStateReason ordinals. */

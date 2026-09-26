@@ -1,0 +1,2593 @@
+package delivery
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"time"
+
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
+	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
+	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/review"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
+	"go.temporal.io/sdk/temporal"
+	"go.temporal.io/sdk/workflow"
+)
+
+// pdDesignActivityFor maps an artifact kind onto the DESIGN activity the reviewEngine
+// keys its rows on: the activity type and the lifecycle phase within it. It is
+// re-expressed locally rather than shared with systemdesign's twin — the two Manager
+// packages do not (and must not) import each other — and covers only the kinds this
+// rail can co-author, the nine Phase-2 artifacts.
+//
+// Each maps to the projectDesign type at the kind's OWN wire name, and deliberately NOT
+// to the phase id "sdp". "sdp" is the M0 gate of the projectDesign lifecycle, which the
+// engine makes always-human because M0 approves spend; these nine artifact DRAFTS are
+// not that gate, and mapping them there would gate nine drafts that auto-approve under
+// vibes today (spec 2026-09-20 §5.4/§6, stage 2). Pinned by
+// Test_PD_DesignActivityFor_Phase2KindsAreNotTheSdpGate.
+func pdDesignActivityFor(kind projectstate.ArtifactKind) (review.ActivityType, string) {
+	return review.ActivityTypeProjectDesign, kind.WireName()
+}
+
+// readProject runs the generated designSessionAccess.readProjectOnBranch invoker with
+// branch=="" (B9 — the RA's own empty-branch fallback always serves main, pinned by
+// TestDesignSessionAccess_ReadProjectOnBranch_EmptyBranchAlwaysBase) and returns the whole
+// head-state aggregate. A brand-new project surfaces fwra.NotFound (see isReadNotFound).
+// Shared workflow-context helper (used by 3 pdWorkflows); lives in its first caller's file per the file-layout standard.
+func (wf *pdWorkflows) readProject(ctx workflow.Context, projectID ProjectID) (projectstate.Project, error) {
+	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), "")
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	return pe.Decode()
+}
+
+// readVersion runs the cheap ReadProjectVersion Activity and returns only the
+// head-state optimistic-concurrency token — the single value the Conflict re-read
+// loop needs to seed its next attempt. A brand-new project surfaces fwra.NotFound
+// (see isReadNotFound). Replaces the wasteful whole-aggregate read that shipped the
+// entire encoded Project across the Temporal Activity boundary for a uint64.
+// Shared workflow-context helper (used by 3 pdWorkflows); lives in its first caller's file per the file-layout standard.
+func (wf *pdWorkflows) readVersion(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
+}
+
+// readVersionOnBranch returns the optimistic-concurrency token of the substrate the
+// mutation targets (I-DESIGN-DISPATCH §2a). A branch mutation (stage / reject during the
+// AwaitingReview window) advances the SESSION BRANCH, so its Conflict re-read must read
+// THAT branch — not main, whose version trails. branch=="" reads main exactly as before.
+// This is the fix for QA F29: a Conflict on a branch mutation that re-read main could
+// never converge (main's version never catches up to the branch's), wedging the bounded
+// loop into a non-retryable MutateConflictExhausted crash.
+// Shared workflow-context helper (used by 3 pdWorkflows); lives in its first caller's file per the file-layout standard.
+func (wf *pdWorkflows) readVersionOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Version, error) {
+	if branch == "" {
+		return wf.readVersion(ctx, projectID)
+	}
+	p, err := wf.readProjectOnBranch(ctx, projectID, branch)
+	if err != nil {
+		return 0, err
+	}
+	return p.Version, nil
+}
+
+// applyRecovering executes one head-state mutation Activity with a workflow-level
+// Conflict re-read→re-apply loop. branch names the substrate the mutation targets so the
+// Conflict re-read reads the RIGHT version (the session branch for a review-window branch
+// mutation, main for a main mutation) — see readVersionOnBranch (QA F29). branch=="" is
+// the original main-only behavior every existing caller relied on.
+// Shared workflow-context helper (used by 3 pdWorkflows); lives in its first caller's file per the file-layout standard.
+func (wf *pdWorkflows) applyRecovering(
+	ctx workflow.Context,
+	projectID ProjectID,
+	branch string,
+	seed projectstate.Version,
+	apply func(expected projectstate.Version) (projectstate.Version, error),
+) (projectstate.Version, error) {
+	expected := seed
+	for attempt := 0; ; attempt++ {
+		v, err := apply(expected)
+		if err == nil {
+			return v, nil
+		}
+		if !isConflict(err) {
+			return 0, err
+		}
+		if attempt+1 >= maxMutateConflictAttempts {
+			return 0, temporal.NewNonRetryableApplicationError(
+				"head-state conflict did not converge within bounded attempts",
+				"MutateConflictExhausted", err)
+		}
+		v, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
+		if rerr != nil {
+			if isReadNotFound(rerr) {
+				expected = 0
+				continue
+			}
+			return 0, rerr
+		}
+		expected = v
+		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
+			"attempt", attempt+1, "branch", branch, "nextExpectedVersion", expected)
+	}
+}
+
+// ===========================================================================
+// (A) CoAuthorPhase2ArtifactWorkflow — the per-artifact spine (contract §6.3 A /
+// §0.5.2; mirrors systemdesign's CoAuthorArtifactWorkflow agentic pivot). Loop until
+// Approve/Withdraw:
+//
+//  1. readProject              -> head-state (prior committed typed slots + Version)
+//  2. COMPOSE the Phase-2 architect-role prompt IN-MEMORY (prompts.go) — never
+//     persisted; on a redraft the ReviewFeedback.Notes are woven in.
+//  3. DISPATCH -> OBSERVE -> READ-BACK (agentic pivot): dispatch a claude-code-action
+//     DESIGN job via Pipeline.SubmitAgenticJob (FROZEN verb), observe it to a
+//     TYPED terminal phase, and on PhaseSucceeded read back the typed Phase-2 model the
+//     Action committed via ProjectState.ReadProject. On a terminal FAILURE phase the
+//     session lands in ProjectStageDraftFailed and suspends at the human gate (the anti-wedge
+//     rule, §0.5.4) — never a perpetual Drafting. There is NO PM-critique in Phase 2.
+//     (Phase-2 validation is the required CI check inside the Action, surfaced as the
+//     observed terminal phase — artifactValidationEngine + workerAccess DROPPED.)
+//  4. stageArtifactForReview   -> carry the read-back TYPED model into its slot (AwaitingReview)
+//  5. awaitSignal(reviewDecision) -> suspend durably
+//  6. Approve  -> commitArtifact(kind); Reject -> loop to a fresh dispatch with feedback;
+//     Withdraw -> withdrawArtifact
+// ===========================================================================
+
+// pdCoAuthorInput is the start payload for CoAuthorPhase2ArtifactWorkflow.
+type pdCoAuthorInput struct {
+	ProjectID    ProjectID
+	ArtifactKind ArtifactKind
+	// Feedback is the optional re-request feedback for the explicit
+	// re-draft-with-notes path.
+	Feedback *ReviewFeedback
+	// Amendment is the AMENDMENT-session index (F38/F40 founder ruling 2026-07-05).
+	// 0 = the original review session (branch aiarch-design/<project>/<kind>). N>0 = the
+	// Nth reopening of an already-COMMITTED artifact — a fresh session whose v1 branch/PR
+	// already merged, so it drafts on a NEW branch (…-amend-N). Constant for the life of a
+	// workflow run, so the session branch is STABLE across every redraft.
+	//
+	// INVARIANT (set by the manager's amendmentIndexFor): N >= 1 IFF the slot was COMMITTED
+	// at request time — the amendment condition. The manager floors a committed slot to 1
+	// (a slot committed before the Revisions field existed reads Revisions=0 but is still an
+	// amendment). So the spine's "Amendment > 0" checks (branch suffix, amendment prompt
+	// framing, and the maybeSeedAmendment ledger seed) are a faithful proxy for "amendment"
+	// and fire for EVERY committed slot, including pre-field ones.
+	Amendment int
+}
+
+// pdCoAuthorStep is the control-flow verdict a co-author loop helper returns to the
+// CoAuthorPhase2ArtifactWorkflow driver, so the workflow-command sequence stays
+// byte-for-byte identical to the pre-extraction inline body:
+//   - coAuthorProceed  → fall through to the next block this iteration
+//   - coAuthorContinue → restart the loop (redraft)
+//   - coAuthorReturn   → terminate the workflow with the returned outcome
+//   - coAuthorReAwait  → re-suspend at the SAME AwaitingReview gate WITHOUT redrafting
+//     (QA F35): a transient approve/merge-window fault is contained; the staged draft is
+//     intact, so the human re-approves. A redraft would discard an approved-quality draft.
+type pdCoAuthorStep int
+
+const (
+	coAuthorProceed pdCoAuthorStep = iota
+	coAuthorContinue
+	coAuthorReturn
+	coAuthorReAwait
+)
+
+// pdReviewDecisionSignal is the reviewDecision signal payload (contract §6.5).
+type pdReviewDecisionSignal struct {
+	Decision ReviewDecision
+	Feedback *ReviewFeedback
+	// Approver is the human-facing label for the acting identity that submitted this decision
+	// (PM-P2-4), derived from the SubmitReviewDecision caller's security.Principal. Consulted on
+	// Approve → recorded as the commit's approvedBy provenance. Empty when no identity reached
+	// the manager op. Additive — an older buffered signal decodes it as "".
+	Approver string
+}
+
+func (wf *pdWorkflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in pdCoAuthorInput) (coAuthorOutcome, error) {
+	// coAuthorSessionSetup runs the pre-loop setup (SDP-review backstop, sessionState
+	// query handler, the one-time Step-1 head-state read, feedback/seed bookkeeping);
+	// headVersion carries expectedVersion forward in workflow state (read-your-writes).
+	state, proj, headVersion, feedback, err := wf.coAuthorSessionSetup(ctx, in)
+	if err != nil {
+		return coAuthorUnknown, err
+	}
+
+	// redraftCount bounds the attempt label progression and drives the ProjectStageRedrafting
+	// vs ProjectStageDrafting query stage. A pure in-workflow guard.
+	redraftCount := 0
+
+	// reviewRound is the monotonic REJECT-round counter within THIS session (F40). The
+	// session now commits to ONE persistent branch (no branch-per-attempt), so this counter
+	// no longer selects a branch — it survives ONLY to stamp the durable review-ledger
+	// comment ids (r{round}c{n}) so a fresh reject's comments do not collide with a prior
+	// round's on the SAME accumulating thread. Bumped only on an AwaitingReview-gate REJECT.
+	reviewRound := 0
+
+	// amendmentSeeded guards the one-time F38 ledger seed (Phase-2 twin): when this is an
+	// amendment session (in.Amendment > 0) the reopening feedback is recorded as round-0 OPEN
+	// ledger entries right after the first stage.
+	amendmentSeeded := false
+
+	for {
+		// --- DRAFT round-trip: dispatch -> observe -> read-back (agentic pivot) ---
+		// coAuthorDraftRound composes the Phase-2 architect prompt IN-MEMORY, dispatches +
+		// observes the DESIGN job, opens the PR, reads back the typed model, and stages it
+		// for review. On a terminal FAILURE phase it lands the session in ProjectStageDraftFailed
+		// and suspends at the human gate (the anti-wedge rule, §0.5.4) — never a perpetual
+		// Drafting. The begun git session is written through &gf for the approve/merge step.
+		var gf gitSession
+		step, outcome, err := wf.coAuthorDraftRound(ctx, in, proj, &feedback, &headVersion, &redraftCount, &reviewRound, state, &gf)
+		if err != nil {
+			return coAuthorUnknown, err
+		}
+		if step == coAuthorReturn {
+			return outcome, nil
+		}
+		if step == coAuthorContinue {
+			continue
+		}
+
+		// F38 AMENDMENT SEED: on the first stage of an amendment session, record the reopening
+		// feedback as round-0 OPEN ledger entries on the staged session branch. Once only.
+		amendmentSeeded = wf.maybeSeedAmendment(ctx, in, gf, &headVersion, amendmentSeeded, state)
+
+		// ROUND LEDGER (stage 3 task 6): the draft has entered awaitingReview, so the review
+		// occurrence it is about to be judged in exists — open the round with the roster the
+		// engine computed and the subject it judges. A redraft's re-entry opens a NEW round.
+		// It sits HERE rather than inside finishDraftRound because this is the spine's own
+		// AwaitingReview boundary, the same place the systemdesign twin opens its round, and
+		// because a round opened before the amendment seed would predate its own thread.
+		// Inert off the fence.
+		wf.openDesignRound(ctx, in, gf, reviewRound, state)
+
+		// Step 6/7: the review gate. Await a decision and act on it. An approve/merge-window
+		// fault is CONTAINED as coAuthorReAwait (QA F35): the staged draft is intact, so we
+		// re-suspend at THIS gate (carrying a queryable notice) and await the next decision —
+		// the human re-approves — WITHOUT redrafting. Reject/withdraw exit this inner loop
+		// (reject → break to the outer loop which redrafts; withdraw → return).
+		//
+		// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): under a vibes ReviewPolicy a
+		// CLEAN draft (no open change-requests) is auto-approved at gate entry WITHOUT waiting for
+		// a human — honoring ReviewPolicy exactly like construction (a design merge is still the
+		// Method's commit authority; vibes simply removes the human hold). Attempted ONCE, before
+		// the human selector, and only under the "design-vibes-autogate" GetVersion (an in-flight
+		// session stays on the human gate). Open change-requests (amendment seeds, critique
+		// feedback) ⇒ the human gate as today. If the synthesized approve returns coAuthorReAwait
+		// (a merge-window fault was contained — QA F35), FALL THROUGH to the human selector below:
+		// never hot-loop auto-approves against a persistent fault (the queryable failureReason is
+		// the honest surface; a human re-approves).
+		if state.vibesAutogateEnabled && state.policyAutoApprove &&
+			len(projectstate.OpenReviewCommentIDs(state.reviewThread)) == 0 {
+			autoSig := pdReviewDecisionSignal{Decision: ReviewApprove, Approver: autoApproverVibes}
+			autoStep, autoOutcome, autoErr := wf.coAuthorApplyDecision(ctx, in, autoSig, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
+			if autoErr != nil {
+				return coAuthorUnknown, autoErr
+			}
+			switch autoStep {
+			case coAuthorReturn:
+				return autoOutcome, nil
+			case coAuthorContinue, coAuthorProceed:
+				continue // defensive: an approve never rejects; this is the redraft path.
+			case coAuthorReAwait:
+				// merge-window fault contained — fall through to the human gate (no hot-loop).
+			}
+		}
+		step, outcome, err = wf.awaitReviewGate(ctx, in, &gf, &headVersion, &redraftCount, &reviewRound, &feedback, state)
+		if err != nil {
+			return coAuthorUnknown, err
+		}
+		if step == coAuthorReturn {
+			return outcome, nil
+		}
+		// coAuthorContinue (reject) — the outer loop redrafts.
+	}
+}
+
+// awaitReviewGate is the workflow's human review gate: it suspends on the decision
+// selector, applies comment-status signals in place (resolve / reopen re-suspend at
+// THIS gate without redrafting), and returns once a review DECISION resolves the
+// gate — coAuthorReturn to finish the session, coAuthorContinue to redraft.
+//
+// Behavior-preserving extraction (gocyclo gate): the command sequence, the signal
+// channels and their order are identical to the pre-extraction inline loop. The
+// labelled break/continue became the loop's own control flow plus a return.
+func (wf *pdWorkflows) awaitReviewGate(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount, reviewRound *int,
+	feedback *ReviewFeedback,
+	state *pdCoAuthorState,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	for {
+		// REVIEW LEDGER: multiplex the review decision with the SetReviewCommentStatus
+		// signal (resolve / reopen). A status signal mutates the durable ledger on the branch
+		// and re-suspends at THIS gate WITHOUT redrafting; a review decision proceeds as before.
+		var sig pdReviewDecisionSignal
+		var stSig setCommentStatusSignal
+		var gotStatus bool
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(workflow.GetSignalChannel(ctx, pdSignalReviewDecision), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &sig)
+		})
+		sel.AddReceive(workflow.GetSignalChannel(ctx, pdSignalSetCommentStatus), func(c workflow.ReceiveChannel, _ bool) {
+			c.Receive(ctx, &stSig)
+			gotStatus = true
+		})
+		sel.Select(ctx)
+
+		if gotStatus {
+			wf.applyCommentStatus(ctx, in, *gf, headVersion, stSig, state)
+			continue
+		}
+
+		step, outcome, err := wf.coAuthorApplyDecision(ctx, in, sig, gf, headVersion, redraftCount, reviewRound, feedback, state)
+		if err != nil {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		switch step {
+		case coAuthorReturn:
+			return coAuthorReturn, outcome, nil
+		case coAuthorReAwait:
+			continue
+		case coAuthorContinue, coAuthorProceed:
+			// coAuthorContinue (reject) — the caller's outer loop redrafts.
+			// coAuthorProceed cannot arise from the decision phase; grouped defensively.
+			return coAuthorContinue, outcome, nil
+		}
+	}
+}
+
+// coAuthorSessionSetup performs CoAuthorPhase2ArtifactWorkflow's pre-loop setup and
+// returns the live query state, the Step-1 project read, the starting head version, and
+// the initial feedback. Behavior-preserving extraction (gocyclo gate) — the command
+// sequence is identical to the pre-extraction inline body.
+func (wf *pdWorkflows) coAuthorSessionSetup(ctx workflow.Context, in pdCoAuthorInput) (*pdCoAuthorState, projectstate.Project, projectstate.Version, ReviewFeedback, error) {
+	// The SDP review is NOT co-authored here — it is assembled by
+	// AssembleSDPReviewWorkflow (contract §2.1 rejects KindSdpReview at the façade,
+	// belt-and-suspenders here).
+	if in.ArtifactKind == KindSdpReview {
+		return nil, projectstate.Project{}, 0, ReviewFeedback{}, temporal.NewNonRetryableApplicationError(
+			"the SDP review is assembled, not co-authored; use RequestSDPCommit",
+			"WrongArtifactKind", nil)
+	}
+
+	// Live technical state backing the sessionState Query.
+	state := &pdCoAuthorState{
+		projectID:    in.ProjectID,
+		artifactKind: in.ArtifactKind,
+		stage:        ProjectStageDrafting,
+	}
+	if err := workflow.SetQueryHandler(ctx, pdQuerySessionState, state.view); err != nil {
+		return nil, projectstate.Project{}, 0, ReviewFeedback{}, err
+	}
+
+	// Carry expectedVersion forward in workflow state (read-your-writes).
+	var headVersion projectstate.Version
+
+	// Step 1: read the project head-state once (prior typed models + version).
+	var proj projectstate.Project
+	if p, err := wf.readProject(ctx, in.ProjectID); err != nil {
+		if !isReadNotFound(err) {
+			return nil, projectstate.Project{}, 0, ReviewFeedback{}, err
+		}
+		proj = projectstate.Project{ID: projectstate.ProjectID(in.ProjectID)}
+	} else {
+		proj = p
+		headVersion = p.Version
+		// The round ledger is a MAIN-side write, so it starts from main's tip (see
+		// pdCoAuthorState.ledgerVersion). A NotFound leaves it 0, which applyRecovering's
+		// re-read resolves on the first write.
+		state.ledgerVersion = p.Version
+	}
+
+	// REPLAY SAFETY (design-vibes-autogate): resolve the vibes-autogate version gate ONCE, at
+	// session start (mirrors systemdesign). A session in flight at deploy time has no marker
+	// here → replay resolves DefaultVersion → the autogate stays OFF for its whole run (the
+	// human gate), while every post-deploy session records v1 and may auto-approve.
+	state.vibesAutogateEnabled = workflow.GetVersion(ctx, "design-vibes-autogate", workflow.DefaultVersion, 1) >= 1
+
+	// REPLAY SAFETY (design-round-ledger): resolve the round-ledger fence ONCE, here, for
+	// the same reason and with the same discipline. Every write it gates is a Temporal
+	// Activity, so a session suspended at its gate when this deploys has a history with no
+	// marker at this point: it replays DefaultVersion, writes no round for its whole run,
+	// and its recorded command sequence is unchanged.
+	state.roundLedgerEnabled = workflow.GetVersion(ctx, changeDesignRoundLedger, workflow.DefaultVersion, 1) >= 1
+
+	// VIBES AUTOGATE (F-R3 vibes-everywhere, founder-ratified): snapshot the review policy at
+	// session start — a vibes preset auto-approves this session's drafts at the review gate,
+	// honoring ReviewPolicy exactly like construction. Snapshot-at-start: a policy change
+	// applies to the NEXT session, not one already in flight.
+	//
+	// The review engine owns the autogate RULE now (spec 2026-09-20 §5.4): it is asked
+	// once, here, with this artifact's design activity type and lifecycle phase, and its
+	// answer is the same one the inline Preset check gave — vibes auto-approves, every
+	// other preset (including the unset legacy value) holds for the human. A refusal
+	// reads as "a human must decide", the safe arm for a design gate. A pure engine call
+	// emits no commands, so the "design-vibes-autogate" GetVersion fence above still
+	// governs replay and no new fence is needed.
+	designType, lifecyclePhase := pdDesignActivityFor(toPSKind(in.ArtifactKind))
+	gateSet, perr := review.NewReviewEngine().ProposeReviews(fweng.Context{Context: context.Background()},
+		review.ReviewChange{ActivityID: string(in.ProjectID)}, designType, lifecyclePhase, "",
+		engineReviewPolicy(proj.ReviewPolicy), false, nil)
+	if perr != nil {
+		workflow.GetLogger(ctx).Error("review engine refused to decide the design gate; the session holds for a human",
+			"projectId", string(in.ProjectID), "artifactKind", artifactKindString(in.ArtifactKind), "err", perr.Error())
+	}
+	state.policyAutoApprove = perr == nil && !gateSet.RequiresHuman
+	// The SAME engine answer is the round's ROSTER (stage 3 task 6). Snapshot it here rather
+	// than asking again at the gate: a second call would be a second chance to disagree with
+	// the gate decision the session is already running under.
+	if perr == nil {
+		state.roundReviewers = pdDesignRoundReviewers(gateSet)
+	}
+	// And the round NUMBERING is seeded from the durable ledger, here, before any round is
+	// opened: a second session of this kind continues the review history rather than
+	// re-minting the first session's ids (designRoundID's two-sessions hazard).
+	wf.seedRoundBaseFromLedger(ctx, in, state)
+
+	feedback := ReviewFeedback{}
+	if in.Feedback != nil {
+		feedback = *in.Feedback
+	}
+	// An AMENDMENT session's reopening feedback is OWNED by the amendment seed path
+	// (maybeSeedAmendment, in the driver loop) — it lands in the ledger at round 0 right
+	// after the first stage. Mark it seeded up front so the pre-dispatch failed-gate seed
+	// does not race that path and double-seed the same comments on the first draft. A
+	// non-amendment session's initial feedback is NOT ledger-backed, so it stays false and
+	// is seeded before its first dispatch like any other memory-only feedback.
+	if in.Amendment > 0 {
+		state.feedbackSeeded = true
+	}
+	return state, proj, headVersion, feedback, nil
+}
+
+// coAuthorDraftRound runs one DRAFT round-trip of the co-author loop: it composes the
+// architect prompt in-memory, dispatches + observes the design job, opens the PR, reads
+// the committed model back off the session branch, and stages it for review. On a
+// terminal job failure it lands the session in ProjectStageDraftFailed and suspends at the human
+// gate (§0.5.4). The begun git session is written through *gf for the approve/merge step.
+// The returned pdCoAuthorStep tells the driver how to proceed (Proceed → await review;
+// Continue → redraft; Return → terminate with the outcome). The sequence of workflow
+// commands is identical to the pre-extraction inline body.
+// amendmentNoChangeGate is the F40 zero-new-commit defense-in-depth guard, extracted from
+// coAuthorDraftRound to keep it under the gocognit budget. For an amendment (in.Amendment > 0)
+// it compares the branch read-back model against the committed main model: an amendment branch
+// is cut from main (which already carries the committed model), so — unlike a first draft on an
+// empty slot — the read-back succeeds even when the job advanced the branch by nothing, and a
+// PR opened on such a branch 422s ("no commits between base and head"). Byte-identical ⇒ no
+// change ⇒ drive the ProjectStageDraftFailed recovery (Retry redrafts on the same branch, Withdraw/other
+// terminates). Returns coAuthorProceed + nil err when the branch advanced OR this is not an
+// amendment — the caller then opens the PR.
+func (wf *pdWorkflows) amendmentNoChangeGate(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	proj projectstate.Project,
+	branchModel projectstate.ArtifactModel,
+	headVersion projectstate.Version,
+	feedback *ReviewFeedback,
+	redraftCount *int,
+	state *pdCoAuthorState,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	if in.Amendment == 0 {
+		return coAuthorProceed, coAuthorUnknown, nil
+	}
+	unchanged, cmpErr := projectstate.SameArtifactModel(branchModel, pdSlotFor(proj, toPSKind(in.ArtifactKind)).Model)
+	if cmpErr != nil {
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(cmpErr)
+	}
+	if !unchanged {
+		return coAuthorProceed, coAuthorUnknown, nil
+	}
+	workflow.GetLogger(ctx).Warn("amendment draft committed no change to the artifact; entering StageDraftFailed")
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, projectstate.AmendmentNoChangeReason(), state, feedback)
+	if recErr != nil {
+		return coAuthorProceed, coAuthorUnknown, recErr
+	}
+	if !retry {
+		return coAuthorReturn, outcome, nil
+	}
+	// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
+	*redraftCount++
+	return coAuthorContinue, coAuthorUnknown, nil
+}
+
+// containAtFailedGate suspends the session at the human-visible ProjectStageDraftFailed gate with
+// the given reason and maps the human decision back into the draft-round control triple:
+// Withdraw/other outcome → coAuthorReturn; a Retry → coAuthorContinue (redraft on the SAME
+// persistent session branch, counter bumped). Shared by every failure that must be
+// CONTAINED at that gate rather than crash the workflow (job-failed, malformed read-back,
+// the F35-twin OpenBranch/openPR rail faults, a stage-for-review fault, and the not-green
+// approve merge guard). A recovery-await fault propagates as-is.
+func (wf *pdWorkflows) containAtFailedGate(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	headVersion projectstate.Version,
+	reason string,
+	state *pdCoAuthorState,
+	feedback *ReviewFeedback,
+	redraftCount *int,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, headVersion, reason, state, feedback)
+	if recErr != nil {
+		return coAuthorProceed, coAuthorUnknown, recErr
+	}
+	if !retry {
+		return coAuthorReturn, outcome, nil
+	}
+	// F40: a human Retry redrafts on the SAME persistent session branch (no branch bump).
+	*redraftCount++
+	return coAuthorContinue, coAuthorUnknown, nil
+}
+
+// dispatchDraftAndReadBack runs ONE dispatch → observe → read-back on the session branch. On
+// success it returns the read-back model + version and coAuthorProceed with a nil error. On a
+// terminal job failure or malformed read-back it CONTAINS at the failed gate and returns the
+// resulting control triple; on an infra escalation (dispatch/observe retry-budget exhaustion)
+// it returns coAuthorProceed WITH the error so the caller closes the workflow. Extracted from
+// coAuthorDraftRound so the resume path (which SKIPS this block) reads cleanly and the function
+// stays within the gocognit budget.
+func (wf *pdWorkflows) dispatchDraftAndReadBack(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	_ projectstate.Project,
+	gf *gitSession,
+	sessionBranch string,
+	feedback *ReviewFeedback,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	reviewRound *int,
+	state *pdCoAuthorState,
+) (projectstate.ArtifactModel, projectstate.Version, pdCoAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+	// FAILED-GATE FEEDBACK SEED (thin-dispatch). The memory-only failed-gate recovery paths
+	// (a redraft signal, a Retry-via-Reject at a failed gate, a faulted reject) retain the
+	// architect's feedback in the workflow's feedback variable ONLY — unlike the review-gate
+	// reject and the amendment seed, which fold it into the DURABLE review ledger. Under thin
+	// dispatch the drafting agent reads context ONLY via getReviewThread, so that memory-only
+	// feedback would evaporate. Seed it here, right BEFORE the redraft dispatch, reusing the
+	// SAME seeding activity + comment conversion the reject path uses, so the agent reads it off
+	// the branch. state.feedbackSeeded gates it — an already-seeded reject/amendment path is
+	// skipped so its comments are never double-seeded.
+	//
+	// Temporal versioning guard (replay safety; mirrors the managed-scaffold-sync gate in
+	// beginSession): this seed was ADDED to the redraft dispatch path AFTER the CoAuthor workflow
+	// first shipped, so a design session already in flight at deploy time has NO history event
+	// for it — replaying such a history against unguarded new code fails the workflow task with a
+	// non-determinism error. GetVersion pins pre-feature executions (DefaultVersion) to the OLD
+	// command sequence (they skip the seed for their WHOLE run), while every execution STARTED
+	// after this deploy resolves v1 and seeds before each memory-only redraft. The founder's
+	// deploy drains in-flight design pdWorkflows first, so this gate is belt-and-braces.
+	if workflow.GetVersion(ctx, "failed-gate-ledger-seed-p2", workflow.DefaultVersion, 1) >= 1 {
+		if !state.feedbackSeeded && wf.seedFailedGateFeedback(ctx, in, *gf, *headVersion, feedback, reviewRound, state) {
+			state.feedbackSeeded = true
+		}
+	}
+	// REVIEW LEDGER: on a redraft, the durable open comments (state.reviewThread, reloaded after
+	// the reject-append or the failed-gate seed above) and the reopening feedback reach the
+	// drafting agent via the ledger it reads with getReviewThread — no longer woven into a prompt.
+	//
+	// SUB-STEP (Plan-3 C2): the architect is now drafting (round 0) or revising (round N>0) on
+	// this session branch — Phase 2 has NO PM critique, so this is the ONLY role this workflow
+	// ever stamps. Stamp it for the loading pill immediately BEFORE the dispatch; it is cleared
+	// the instant the job is observed done (success below, or a terminal fault routed through
+	// the ProjectStageDraftFailed gate, whose belt-and-braces clear lives in awaitDraftFailedRecovery).
+	if *redraftCount == 0 {
+		state.markActive(ActiveRoleArchitect, ActiveStepDrafting, *redraftCount)
+	} else {
+		state.markActive(ActiveRoleArchitect, ActiveStepRevising, *redraftCount)
+	}
+	draftObs, derr := wf.dispatchAndObserve(ctx, pdDispatchDesignJobArgs{
+		ProjectID:     in.ProjectID,
+		ArtifactKind:  in.ArtifactKind,
+		TargetBranch:  sessionBranch,
+		PriorStateRef: "",
+		// Per-project-design-dispatch: dispatch to the per-project repo + aiarch-design.yml
+		// (the rail's repoRef). "" when the rail is dormant ⇒ RA falls back to construction.
+		TargetRepo: gf.dispatchRepo(),
+		// Capture-seam only: the FIRST dispatch of a session is a fresh draft; anything
+		// after a reject (reviewRound) or a failed-gate retry (redraftCount) is rework.
+		// Both counters are consulted because the two recovery paths bump different ones.
+		Redraft: *redraftCount > 0 || *reviewRound > 0,
+	})
+	if derr != nil {
+		// A TRANSIENT dispatch/observe fault that exhausted its retry budget is an
+		// infrastructure escalation (not a ran-but-failed job): close the workflow.
+		return nil, 0, coAuthorProceed, coAuthorUnknown, derr
+	}
+	if draftObs.Phase != pdPipelineSucceeded {
+		// The job RAN and FAILED (drafting failed or the required CI validation check went red):
+		// land at the human ProjectStageDraftFailed gate (§0.5.4 anti-wedge) — never a crash/wedge.
+		logger.Warn("Phase-2 design draft job reached a terminal failure phase; entering StageDraftFailed", "diagnostic", draftObs.Diagnostic)
+		step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, pdDraftFailedReason(draftObs.Diagnostic), state, feedback, redraftCount)
+		return nil, 0, step, outcome, err
+	}
+	// READ-BACK on the SESSION BRANCH (§2a): the Action committed the typed Phase-2 JSON on the
+	// session branch; read it back as the not-yet-merged draft (dormant rail reads main). The
+	// read-back CONFIRMS a commit landed before openPR opens the PR (F40).
+	model, readBackVersion, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch())
+	if rbErr != nil {
+		if decodeMsg, terminal := isTerminalReadBack(rbErr); terminal {
+			// The committed draft DECODES MALFORMED (QA F36) — a terminal fault retry cannot fix.
+			// Land at the ProjectStageDraftFailed gate carrying the decode diagnostic.
+			logger.Warn("Phase-2 read-back decoded MALFORMED committed state; entering StageDraftFailed", "error", decodeMsg)
+			step, outcome, err := wf.containAtFailedGate(ctx, in, *headVersion, projectstate.ReadBackDecodeFailedReason(decodeMsg), state, feedback, redraftCount)
+			return nil, 0, step, outcome, err
+		}
+		return nil, 0, coAuthorProceed, coAuthorUnknown, rbErr
+	}
+	// SUB-STEP (Plan-3 C2): the draft dispatch is observed complete — clear the in-flight
+	// architect stamp. There is no PM critique to re-stamp next; the caller proceeds straight
+	// to staging, where the AwaitingReview clear (below) is then a no-op.
+	state.clearActive()
+	return model, readBackVersion, coAuthorProceed, coAuthorUnknown, nil
+}
+
+func (wf *pdWorkflows) coAuthorDraftRound(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	proj projectstate.Project,
+	feedback *ReviewFeedback,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	reviewRound *int,
+	state *pdCoAuthorState,
+	gf *gitSession,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+
+	var draft projectstate.ArtifactModel
+	state.stage = pdStageForAttempt(*redraftCount)
+
+	// The ONE persistent SESSION BRANCH the Action drafts + commits + opens its PR on (F40).
+	// STABLE across every redraft/reject round of this session; a fresh amendment session
+	// selects a new branch via in.Amendment. Inert (just a string) when the rail is dormant.
+	sessionBranch := projectstate.DesignBranch(projectstate.ProjectID(in.ProjectID), toPSKind(in.ArtifactKind), in.Amendment)
+
+	// RESUME CHECKPOINT (F35 twin): consume the marker. When set, a PRIOR attempt of THIS
+	// session already committed the draft on the branch and then faulted at a POST-read-back
+	// rail step (openPR) — so this Retry must NOT re-dispatch (Claude onto a branch that
+	// already carries the model would red the no-commit guard). Cleared here; re-armed only if
+	// openPR faults again below.
+	resuming := state.resumeFromReadBack
+	state.resumeFromReadBack = false
+
+	// Rail (dispatch-time half): mint the credential + ensure the session branch
+	// exists BEFORE the Action drafts on it. A dormant rail returns a disabled session
+	// and the spine runs unchanged (read-back/stage on main, no branch/PR ops).
+	begun, gerr := wf.beginSession(ctx, in.ProjectID, sessionBranch)
+	if gerr != nil {
+		if temporal.IsCanceledError(gerr) {
+			return coAuthorProceed, coAuthorUnknown, gerr
+		}
+		// OpenBranch / mintCred faulted BEFORE any draft landed — even after the shared bounded
+		// Auth retry exhausted (a genuine permission denial or a persistent secondary-rate-limit
+		// 403). CONTAIN it (never crash the whole CoAuthor workflow): land at ProjectStageDraftFailed.
+		// Pre-read-back, so a Retry safely re-dispatches (no resume marker is set).
+		logger.Warn("Phase-2 session begin (OpenBranch) faulted after the bounded Auth retry; entering StageDraftFailed", "error", gerr.Error())
+		return wf.containAtFailedGate(ctx, in, *headVersion, railStepFailedReason("preparing the review branch", gerr), state, feedback, redraftCount)
+	}
+	*gf = begun
+
+	var (
+		model           projectstate.ArtifactModel
+		readBackVersion projectstate.Version
+		haveDraft       bool
+	)
+	if resuming {
+		// RESUME PROBE (F35 twin): re-run the read-back FIRST. The draft is already committed on
+		// the branch from the faulted attempt; if it is present + decodes, SKIP the re-dispatch —
+		// a re-dispatch would red the no-commit guard on a branch that already carries the model
+		// and would burn another 20+ minute draft.
+		if m, v, rbErr := wf.readBackCommittedModelOn(ctx, in.ProjectID, in.ArtifactKind, gf.readBackBranch()); rbErr == nil {
+			model, readBackVersion, haveDraft = m, v, true
+			logger.Info("resuming Phase-2 draft round from read-back; skipping re-dispatch (draft already committed on the branch)")
+		} else {
+			logger.Warn("resume read-back found no usable draft; re-dispatching a fresh draft", "error", rbErr.Error())
+		}
+	}
+	if !haveDraft {
+		m, v, step, outcome, err := wf.dispatchDraftAndReadBack(ctx, in, proj, gf, sessionBranch, feedback, headVersion, redraftCount, reviewRound, state)
+		if step != coAuthorProceed || err != nil {
+			return step, outcome, err
+		}
+		model, readBackVersion = m, v
+	}
+	draft = model
+	state.findings = nil
+	return wf.finishDraftRound(ctx, in, proj, draft, readBackVersion, feedback, headVersion, redraftCount, state, gf)
+}
+
+// finishDraftRound completes a draft round once a read-back model is in hand (fresh
+// dispatch or F35-twin resume): the F40 amendment no-change guard, the post-read-back
+// openPR, the QA F29 head-version adoption, the stage-for-review write with its crash
+// containment, and the AwaitingReview transition. Behavior-preserving extraction from
+// coAuthorDraftRound (gocyclo gate) — the workflow-command order is identical to the
+// pre-extraction inline body.
+func (wf *pdWorkflows) finishDraftRound(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	proj projectstate.Project,
+	draft projectstate.ArtifactModel,
+	readBackVersion projectstate.Version,
+	feedback *ReviewFeedback,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	state *pdCoAuthorState,
+	gf *gitSession,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+
+	// AMENDMENT NO-CHANGE GUARD (defense-in-depth for the F40 zero-new-commit 422): an
+	// amendment branch is cut from main, which ALREADY carries the committed model, so — unlike
+	// a first draft on an empty slot — the read-back above still SUCCEEDS even when the job
+	// advanced the branch by nothing. Opening a PR on such an un-advanced branch 422s ("no
+	// commits between base and head"). So for an amendment, verify the branch actually MOVED
+	// the artifact beyond main before opening the PR: compare the branch read-back to the
+	// committed main model (proj was read on main at session start). Byte-identical ⇒ the
+	// amendment produced no change ⇒ land the honest failure at the human gate (Retry/Withdraw)
+	// instead of 422-crashing the rail. The run-scoped idempotency key is the primary fix (a
+	// fresh run now genuinely dispatches + seeds, so this rarely trips); this guard closes the
+	// residual "job ran but changed nothing" case the template's no-commit guard may miss.
+	if step, outcome, err := wf.amendmentNoChangeGate(ctx, in, proj, draft, *headVersion, feedback, redraftCount, state); step != coAuthorProceed || err != nil {
+		return step, outcome, err
+	}
+
+	// Rail: open the PR (head=sessionBranch, base=main) ONLY NOW — AFTER the read-back
+	// CONFIRMED a committed model on the session branch, so the branch has ≥1 commit beyond
+	// main and GitHub will not 422 "no commits between base and head" (F40 fix; observed on
+	// gtdapp). Idempotent on head — reject/redraft rounds reuse the SAME PR; the server's
+	// handle is authoritative for the merge step.
+	if err := wf.openPR(ctx, gf, in.ArtifactKind); err != nil {
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		// POST-read-back rail fault after the shared bounded Auth retry exhausted (QA F35 twin):
+		// a genuine permission denial or a persistent secondary-rate-limit 403. The draft is
+		// ALREADY committed on the session branch, so DO NOT crash and DO NOT let a naive Retry
+		// re-dispatch (that would red the no-commit guard). CONTAIN at the failed gate AND
+		// checkpoint a read-back RESUME, so the Retry re-opens the PR on the preserved draft
+		// without burning another 20+ minute draft.
+		state.resumeFromReadBack = true
+		logger.Warn("Phase-2 openPR faulted after read-back (bounded Auth retry exhausted); entering StageDraftFailed — retry resumes from read-back, no re-dispatch", "error", err.Error())
+		return wf.containAtFailedGate(ctx, in, *headVersion, railStepFailedReason("opening the review pull request", err), state, feedback, redraftCount)
+	}
+
+	// QA F29: adopt the ACTUAL read-back substrate version as the head version before
+	// staging. The read-back read the session branch (rail) or main (dormant); its Version
+	// is the correct optimistic-concurrency token for the stage-on-branch. A fresh workflow
+	// reusing a dirty session branch (prior draft/critique commits left it ahead of main)
+	// would otherwise stage against the stale main-captured version and Conflict
+	// non-recoverably. In the dormant path the read-back version equals the main head, so
+	// this is a no-op there.
+	*headVersion = readBackVersion
+
+	// PLAN MATERIALIZATION (the-method-activity-list). The activity list is DERIVED from
+	// the committed System, not authored: what the agent commits is the human-review
+	// surface, and what gets staged is DerivePlan's baseline with those deltas applied.
+	// Runs on the read-back, AFTER the amendment no-change gate (which measures what the
+	// AGENT moved on the branch, so it must see the agent's own bytes) and BEFORE the
+	// encode, so the staged envelope, the query's state.draft, and the eventual merge to
+	// main all carry the same materialized document. Inert for every kind but the
+	// activity list. Deterministic and in-workflow, exactly like the three estimate
+	// Engines (see workermanifest.go).
+	//
+	// A materialization failure is NOT contained at the human gate: it means the committed
+	// architecture cannot produce a plan at all, which no Retry of THIS session can fix.
+	// Fail the workflow the way the encode below does, with the typed reason attached.
+	materialized, matErr := materializePhase2Draft(proj, toPSKind(in.ArtifactKind), draft)
+	if matErr != nil {
+		logger.Error("Phase-2 plan materialization failed; the staged artifact would have carried no derived plan", "error", matErr.Error())
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(matErr)
+	}
+	draft = materialized
+
+	// Track the staged typed draft for the query.
+	state.draft = draft
+
+	// Step 4: stageArtifactForReview, with the workflow-level Conflict loop. The Conflict
+	// re-read targets the SESSION BRANCH (gf.readBackBranch()) so it converges on a dirty
+	// reused branch (QA F29).
+	draftEnvelope, encErr := encodeModel(draft)
+	if encErr != nil {
+		return coAuthorProceed, coAuthorUnknown, fwmanager.MapError(encErr)
+	}
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionStageArtifactForReviewOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), draftEnvelope)
+	})
+	if err != nil {
+		// CRASH CONTAINMENT (QA F29). A stage-for-review activity fault must NOT kill the
+		// workflow — it had no recoverable gate (only dispatch/reject faults were contained
+		// after F15/F28). Land at the human-visible ProjectStageDraftFailed gate keeping the
+		// feedback, so a Retry redrafts on the SAME persistent session branch (F40 — no
+		// branch bump; the retained feedback rides the redraft unchanged). A
+		// workflow-cancellation still propagates.
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		return wf.containAtFailedGate(ctx, in, *headVersion, stageFailedReason(err), state, feedback, redraftCount)
+	}
+	*headVersion = newVersion
+	state.stage = ProjectStageAwaitingReview
+	// SUB-STEP (Plan-3 C2): staged for the human gate — no role is working. Belt-and-braces
+	// (the draft success path already cleared its stamp before returning, above).
+	state.clearActive()
+	// A fresh AwaitingReview supersedes any prior approve-fault notice (QA F35 —
+	// systemdesign twin parity): without this a send-back after a contained merge-window
+	// fault would carry the stale "approving did not complete" notice into the NEXT
+	// review round's gate.
+	state.failureReason = ""
+	// REVIEW LEDGER: refresh the durable thread from the branch the draft was staged on so the
+	// query surfaces the live comments (with the agent's responses, normalized on stage) and the
+	// approve gate can block while any comment is open. Best-effort — a miss keeps the last thread.
+	if thread, terr := wf.loadReviewThread(ctx, in, *gf); terr == nil {
+		state.reviewThread = thread
+	}
+	return coAuthorProceed, coAuthorUnknown, nil
+}
+
+// coAuthorApplyDecision executes Step 7 — branching on the architect's reviewDecision.
+// It is the pre-extraction switch verbatim (the approve arm delegated to coAuthorApprove);
+// the workflow-command order is unchanged. It returns coAuthorReturn or coAuthorContinue.
+func (wf *pdWorkflows) coAuthorApplyDecision(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	sig pdReviewDecisionSignal,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	reviewRound *int,
+	feedback *ReviewFeedback,
+	state *pdCoAuthorState,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	// F-QA2-41 (systemdesign twin parity): a fresh decision at this gate supersedes any
+	// prior approve/withdraw-fault notice — clear it so the NEXT stage (Committed on a
+	// successful re-approve, Redrafting on a send-back) never carries the stale notice
+	// forward. A decision arm that faults below re-stamps its own notice
+	// (reAwaitAfterApproveFault). Workflow-local view state served by the query; setting
+	// it issues NO history command, so no GetVersion gate is needed.
+	state.failureReason = ""
+	// F-QA2-44 (systemdesign twin parity): one monotonic sequence number per HANDLED
+	// review decision — replay-stable, driven purely by the recorded signal order. It keys
+	// the PER-ATTEMPT version gate (gate-decision-token-remint-p2-<seq>) guarding the
+	// approve arm's credential re-mint; see coAuthorApprove for why the gate must be
+	// per-attempt. Pure workflow-local bookkeeping — no history command. Consumer audit:
+	// only the APPROVE arm consumes the session's cached rail credential (mergeOnApprove);
+	// Reject / Withdraw / resolve-reopen and the failed-gate paths ride designSessionAccess
+	// activities that carry no workflow-cached credential, and a failed-gate Retry's
+	// re-dispatch re-mints in beginSession — so only the approve arm re-mints.
+	state.decisionSeq++
+	switch sig.Decision {
+	case ReviewApprove:
+		// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open.
+		// The manager precondition rejects this synchronously; this is the TOCTOU-safe backstop.
+		// Re-suspend at the gate; the reviewer sees the open comments in the queryable thread.
+		if open := projectstate.OpenReviewCommentIDs(state.reviewThread); len(open) > 0 {
+			return coAuthorReAwait, coAuthorUnknown, nil
+		}
+		return wf.coAuthorApprove(ctx, in, gf, headVersion, redraftCount, feedback, state, sig.Approver)
+
+	case ReviewReject:
+		notes := signalNotes(sig.Feedback)
+		// RETAIN the architect's feedback in workflow state BEFORE the head-state write, so
+		// that if the reject write itself faults (below), the crash-containment recovery
+		// gate still holds the feedback for a Retry instead of silently discarding the
+		// send-back (QA F28). Retain the FULL ReviewFeedback (Notes + anchored Comments) so a
+		// faulted-reject Retry can seed those comments to the ledger before redraft (thin dispatch).
+		*feedback = reviewFeedbackOrZero(sig.Feedback)
+		// Not YET in the ledger — the reject write below seeds it (and flips this true on
+		// success). If that write FAULTS (crash containment, below), the flag stays false so the
+		// failed-gate seed persists these comments before the Retry redraft dispatch.
+		state.feedbackSeeded = false
+		newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			// REVIEW LEDGER (review-ledger §2): fold the reviewer's anchored comments into the
+			// reject as durable, server-minted ledger entries, round-stamped by the per-reject
+			// review-round counter (replay-stable monotonic → deterministic, non-colliding ids on
+			// the ONE accumulating thread — F40). Empty ⇒ plain reject.
+			//
+			// Branch-aware Reject (I-DESIGN-DISPATCH §2a): record the Rejected status on the
+			// SESSION BRANCH the draft was staged on — where the staged model exists and the
+			// session-branch version matches. In the PR rail main is untouched until an
+			// approved draft merges, so a main-path reject would mismatch the version AND find
+			// the slot unpopulated (the QA F28 crash). "" when the rail is dormant ⇒ the reject
+			// lands on main exactly as before.
+			// The trailing nil is the QUEUED-REPLIES half of the batch (design §3.7), which
+			// Phase 2 does not route yet: the margin's reply box reaches Phase 2 only in
+			// Stage 2. No AnchoredComment here CAN carry a replyTo, because
+			// SubmitReviewDecision refuses one outright (pdCheckNoReplyTo, ruling P13) rather
+			// than let pdFeedbackToLedgerComments drop it and re-file the reply as a new
+			// thread. Every submitted comment is therefore a fresh thread, exactly as before.
+			return wf.Acts.DesignSessionRejectArtifactOnBranchWithComments(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), notes, int64(*reviewRound), pdFeedbackToLedgerComments(sig.Feedback), nil)
+		})
+		if err != nil {
+			// CRASH CONTAINMENT (QA F28). An activity fault while recording the Reject must
+			// NOT kill the workflow (that ends the CoAuthor spine FAILED and loses the feedback
+			// that rode the signal). Land at the human-visible ProjectStageDraftFailed gate carrying a
+			// reason, KEEPING the received feedback (*feedback set above) so a Retry redrafts
+			// with the architect's notes woven in. A workflow-cancellation still propagates.
+			if temporal.IsCanceledError(err) {
+				return coAuthorProceed, coAuthorUnknown, err
+			}
+			outcome, retry, recErr := wf.awaitDraftFailedRecovery(ctx, in.ProjectID, in.ArtifactKind, *headVersion, rejectFailedReason(err), state, feedback)
+			if recErr != nil {
+				return coAuthorProceed, coAuthorUnknown, recErr
+			}
+			if !retry {
+				return coAuthorReturn, outcome, nil
+			}
+			// F40: a Retry after a faulted reject redrafts on the SAME persistent session branch
+			// (no branch bump); the retained feedback rides unchanged.
+			*redraftCount++
+			return coAuthorContinue, coAuthorUnknown, nil
+		}
+		*headVersion = newVersion
+		// ROUND LEDGER (stage 3 task 6): the SAME send-back, as a verdict carrying the SAME
+		// comments the slot thread just received, then the round's terminal. Two ledgers, one
+		// content — the property the dual-write exists for.
+		rejectComments := pdFeedbackToLedgerComments(sig.Feedback)
+		wf.appendDesignVerdict(ctx, in, state, projectstate.ReviewVerdict{
+			ReviewerRole: pdDesignRoleHuman,
+			Actor:        pdDesignActorOperator,
+			Verdict:      projectstate.VerdictSendBack,
+			Summary:      notes,
+			AttemptID:    state.round.attemptID,
+			// nil replies: SubmitReviewDecision refuses a replyTo outright on this rail
+			// (pdCheckNoReplyTo, ruling P13), so a Phase-2 batch is fresh threads only and the
+			// reply half of the slot write is nil too. The round's pairing is inert here until
+			// Stage 2 routes the margin's reply box into Phase 2.
+		}, rejectComments, newSlotCommentIDs(*reviewRound, rejectComments), nil)
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundSentBack, pdDesignActorOperator)
+		// The reject folded the architect's anchored comments into the ledger
+		// (pdFeedbackToLedgerComments, above), so this feedback is durably seeded — the pre-dispatch
+		// failed-gate seed skips it (no double-seed).
+		state.feedbackSeeded = true
+		// REVIEW LEDGER: reload the thread from the SAME persistent session branch the reject
+		// just wrote so it carries the freshly-appended OPEN comments — the redraft prompt lists
+		// them for the drafting agent to respond to. Under the F40 single-branch topology the
+		// redraft stays on THIS branch, so the durable thread truly accumulates round-over-round
+		// (closing the review-ledger cross-reject earmark). Best-effort.
+		if thread, terr := wf.loadReviewThread(ctx, in, *gf); terr == nil {
+			state.reviewThread = thread
+		}
+		// F40: the redraft stays on the SAME session branch + PR (no branch bump). Advance only
+		// the review-round counter so the NEXT reject's ledger ids do not collide with this round's.
+		*reviewRound++
+		state.stage = ProjectStageRedrafting
+		// SUB-STEP (Plan-3 C2): the reject is observed done — clear any stale stamp before the
+		// outer loop re-enters coAuthorDraftRound (which does branch-prep work BEFORE its own
+		// markActive call ahead of the next dispatch) — no role is working during that window.
+		state.clearActive()
+		return coAuthorContinue, coAuthorUnknown, nil
+
+	case ReviewWithdraw:
+		notes := signalNotes(sig.Feedback)
+		// Branch-aware Withdraw (I-DESIGN-DISPATCH §2a; QA F30). The draft under review was
+		// staged on the SESSION BRANCH, so the Withdrawn status flip + notes must ride that
+		// SAME branch — where the staged model exists and the session-branch version
+		// (headVersion) matches. In the PR rail main is untouched until an approved draft
+		// merges, so a main-path withdraw would mismatch the version AND find the slot
+		// unpopulated (a crash). "" when the rail is dormant ⇒ the withdraw lands on main
+		// exactly as before, and the Conflict re-read then targets main.
+		if _, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), notes)
+		}); err != nil {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		// ROUND LEDGER (stage 3 task 6): a withdrawn session's open round is CLOSED, not
+		// abandoned. RoundWithdrawn exists for exactly this, and a round left pending forever
+		// is the shape the stage-4 sweep has to clean up.
+		wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundWithdrawn, pdDesignActorOperator)
+		state.stage = ProjectStageWithdrawn
+		state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
+		return coAuthorReturn, coAuthorWithdrawn, nil
+
+	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
+		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
+		// made by the merged contract. They never reach this rail: the deliveryManager
+		// dispatcher answers both itself (the phase seal, and the comment transition),
+		// so they join the ignored arm here rather than changing any rail behaviour.
+		// The zero value: no legitimate signal carries it. Same terminal
+		// rejection as the default case below.
+		return coAuthorProceed, coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+
+	default:
+		return coAuthorProceed, coAuthorUnknown, temporal.NewNonRetryableApplicationError("unknown review decision", "UnknownReviewDecision", nil)
+	}
+}
+
+// coAuthorApprove handles the ReviewApprove arm: the merge GUARD (CI must be green) + the
+// architecture +1 relay + the App-mediated merge of the session branch → main, then
+// commitArtifact on main. On a not-green merge guard it routes to the SAME ProjectStageDraftFailed
+// recovery gate as a draft failure (the anti-wedge rule). Command order is identical to
+// the pre-extraction inline arm.
+func (wf *pdWorkflows) coAuthorApprove(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	gf *gitSession,
+	headVersion *projectstate.Version,
+	redraftCount *int,
+	feedback *ReviewFeedback,
+	state *pdCoAuthorState,
+	approver string,
+) (pdCoAuthorStep, coAuthorOutcome, error) {
+	logger := workflow.GetLogger(ctx)
+
+	// F-QA2-44 (systemdesign twin parity): RE-MINT the installation token at gate-decision
+	// time. The session's cached credential (gf.cred) was minted at DISPATCH time
+	// (beginSession), and GitHub App installation tokens expire after ~1 hour — while this
+	// approve arrives whenever the human returns to the review (observed live on the
+	// systemdesign spine: an approve 8+ hours after the last dispatch 403'd forever on the
+	// expired token; the platform classifier reports that 403 as a NON-RETRYABLE Auth
+	// fault, so neither the Activity RetryPolicy nor railWithAuthRetry could heal it).
+	// Mint a FRESH token for THIS decision's merge window; the dispatch-time mint is
+	// unchanged (it still covers sync / openBranch / openPR in the dispatch scope).
+	//
+	// Temporal versioning guard (replay safety): the mint is a NEW Activity command in the
+	// decision path, so an in-flight session whose history recorded merge-window verbs
+	// WITHOUT a preceding mint would replay non-deterministically against unguarded new
+	// code. The change id is PER DECISION ATTEMPT (gate-decision-token-remint-p2-<seq>) —
+	// deliberately NOT a static id — because GetVersion caches its resolution PER CHANGE ID
+	// for the lifetime of the execution: a static id resolved to DefaultVersion while
+	// replaying an old recorded attempt would pin every FUTURE approve on that execution to
+	// the old no-mint behavior too, and a stuck live session could never heal. With a
+	// per-attempt id, each OLD recorded attempt resolves DefaultVersion (no mint — replay
+	// matches its history) while the NEXT decision on the SAME execution is a first-time
+	// GetVersion in executing mode → v1 → re-mints. Decisions are human-gated (a handful
+	// per session), so marker/search-attribute growth is bounded.
+	if gf.enabled {
+		if workflow.GetVersion(ctx, fmt.Sprintf("gate-decision-token-remint-p2-%d", state.decisionSeq), workflow.DefaultVersion, 1) >= 1 {
+			cred, cerr := wf.mintCred(ctx, gf.repoRef)
+			if cerr != nil {
+				// Contain exactly like a merge-window fault (QA F35): the staged draft is
+				// intact on the session branch and main is untouched — return to
+				// AwaitingReview so the human simply re-approves. Cancellation propagates.
+				if temporal.IsCanceledError(cerr) {
+					return coAuthorProceed, coAuthorUnknown, cerr
+				}
+				logger.Warn("approve-time credential re-mint fault; returning to AwaitingReview for re-approve", "error", cerr.Error())
+				return wf.reAwaitAfterApproveFault(state, approveFailedReason(cerr)), coAuthorUnknown, nil
+			}
+			gf.cred = cred
+		}
+	}
+
+	// Rail (approve-time half, §2b): merge GUARD (CI must be green) + the architecture
+	// +1 relay + the App-mediated merge of sessionBranch → main. A dormant rail returns
+	// merged=true with no rail ops (the non-git spine).
+	merged, mErr := wf.mergeOnApprove(ctx, gf, in.ArtifactKind)
+	if mErr != nil {
+		// QA F35: a merge-window fault (PR-status read / +1 relay / merge) must NOT kill the
+		// workflow. The staged draft is intact on the session branch and main is untouched,
+		// so contain it — return to AwaitingReview with a queryable notice so the human can
+		// simply RE-APPROVE (never a redraft, which would discard an approved-quality draft).
+		// Cancellation still propagates.
+		if temporal.IsCanceledError(mErr) {
+			return coAuthorProceed, coAuthorUnknown, mErr
+		}
+		logger.Warn("approve merge-window fault; returning to AwaitingReview for re-approve", "error", mErr.Error())
+		return wf.reAwaitAfterApproveFault(state, approveFailedReason(mErr)), coAuthorUnknown, nil
+	}
+	if !merged {
+		// The merge guard was NOT green (the required CI check is red on the PR): do
+		// NOT merge/commit. Route to the SAME ProjectStageDraftFailed recovery gate as a draft
+		// failure (the anti-wedge rule) awaiting Retry-via-Reject / Withdraw. F40:
+		// Retry-via-Reject from the not-green gate redrafts on the SAME session branch +
+		// PR (no branch bump — the template's refresh-from-main handles a stale base).
+		logger.Warn("Phase-2 design PR not mergeable at approve (CI not green); entering StageDraftFailed")
+		return wf.containAtFailedGate(ctx, in, *headVersion, pdDraftFailedReason("the design PR is not green — its required CI check has not passed"), state, feedback, redraftCount)
+	}
+	// After merge the draft lives on main; commitArtifact lands on main. Re-seed
+	// headVersion from main so the commit's CAS starts at main's tip. A dormant rail
+	// leaves headVersion as-is (it already tracked main).
+	if gf.enabled {
+		if mp, rerr := wf.readProject(ctx, in.ProjectID); rerr == nil {
+			*headVersion = mp.Version
+		} else if !isReadNotFound(rerr) {
+			// QA F35: a post-merge re-seed read fault is contained too. The merge already
+			// landed on main, so a re-approve re-runs mergeOnApprove idempotently (a merged PR
+			// re-merges to a no-op) and re-reads/commits — no redraft, no crash.
+			if temporal.IsCanceledError(rerr) {
+				return coAuthorProceed, coAuthorUnknown, rerr
+			}
+			logger.Warn("approve post-merge re-seed fault; returning to AwaitingReview for re-approve", "error", rerr.Error())
+			return wf.reAwaitAfterApproveFault(state, approveFailedReason(rerr)), coAuthorUnknown, nil
+		}
+	}
+	// Commit lands on MAIN after the merge (the re-seed above set headVersion to main's
+	// tip), so its Conflict re-read targets main (branch=="").
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, "", *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// PM-P2-4 commit provenance: the approving identity + the drafting rail identity.
+		return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected, toPSKind(in.ArtifactKind), approver, railDraftedBy(in.Amendment))
+	}); err != nil {
+		// QA F35: contain a post-merge commit fault too (same idempotent re-approve recovery).
+		if temporal.IsCanceledError(err) {
+			return coAuthorProceed, coAuthorUnknown, err
+		}
+		logger.Warn("approve post-merge commit fault; returning to AwaitingReview for re-approve", "error", err.Error())
+		return wf.reAwaitAfterApproveFault(state, approveFailedReason(err)), coAuthorUnknown, nil
+	}
+	// ROUND LEDGER (stage 3 task 6): the approve is recorded only once it has actually
+	// HAPPENED — after the merge and the commit. Every earlier exit from this function is a
+	// contained fault that returns the session to the gate, and a round stamped passed for a
+	// decision that did not land is the kind of lie this wave exists to end.
+	actor := pdDesignApproverActor(approver)
+	wf.appendDesignVerdict(ctx, in, state, projectstate.ReviewVerdict{
+		ReviewerRole: pdDesignRoleHuman,
+		Actor:        actor,
+		Verdict:      projectstate.VerdictApprove,
+		AttemptID:    state.round.attemptID,
+	}, nil, nil, nil)
+	wf.decideDesignRound(ctx, in.ProjectID, state, projectstate.RoundPassed, actor)
+	state.stage = ProjectStageCommitted
+	state.clearActive() // SUB-STEP (Plan-3 C2): terminal — no role is working.
+	return coAuthorReturn, coAuthorApproved, nil
+}
+
+// reAwaitAfterApproveFault contains a transient approve/merge-window fault (QA F35): it
+// returns the session to AwaitingReview carrying a queryable notice (surfaced as the
+// sessionState FailureReason — no schema change; the STAGE disambiguates it from a
+// ProjectStageDraftFailed reason) and asks the driver to re-await the gate so the human can simply
+// re-approve. The staged draft is untouched.
+func (wf *pdWorkflows) reAwaitAfterApproveFault(state *pdCoAuthorState, reason string) pdCoAuthorStep {
+	state.stage = ProjectStageAwaitingReview
+	state.failureReason = reason
+	// SUB-STEP (Plan-3 C2): back at the human gate for a re-approve — no role is working.
+	state.clearActive()
+	return coAuthorReAwait
+}
+
+func pdStageForAttempt(attempt int) ProjectSessionStage {
+	if attempt > 0 {
+		return ProjectStageRedrafting
+	}
+	return ProjectStageDrafting
+}
+
+// awaitDraftFailedRecovery lands a failed/non-converging Phase-2 design job in the
+// human-visible ProjectStageDraftFailed and suspends at the EXISTING reviewDecision gate (plus
+// the requestArtifactDraft redraft lever), awaiting a human decision (§0.5.4 — the
+// anti-wedge requirement). The workflow stays OPEN and QUERYABLE as ProjectStageDraftFailed
+// throughout, carrying the neutral job Diagnostic as the FailureReason, so the SPA
+// renders "your design job failed: <diagnostic> — retry or withdraw" and NEVER an
+// infinite Drafting spinner. A ran-but-failed job is terminal-at-the-Manager — it is
+// escalated to the human gate, not absorbed in an auto-retry budget.
+//
+// Recovery levers:
+//   - pdSignalRedraft (requestArtifactDraft's "Retry draft") → re-dispatch in place.
+//   - pdSignalReviewDecision{Reject} → Retry-via-Reject: re-dispatch with the reject
+//     feedback woven in (the contract's "human Retry (via reject)" path).
+//   - pdSignalReviewDecision{Withdraw} → withdraw + end gracefully (coAuthorWithdrawn).
+//
+// Returns (outcome, retry, err): retry==true means re-dispatch the draft (the caller
+// increments redraftCount and loops); retry==false means end with outcome.
+func (wf *pdWorkflows) awaitDraftFailedRecovery(
+	ctx workflow.Context,
+	projectID ProjectID,
+	kind ArtifactKind,
+	headVersion projectstate.Version,
+	reason string,
+	state *pdCoAuthorState,
+	feedback *ReviewFeedback,
+) (coAuthorOutcome, bool, error) {
+	// Surface the human-visible failed stage + the pre-formatted human reason for the
+	// Query. Callers pass the rendered reason (pdDraftFailedReason for a job failure,
+	// rejectFailedReason for a review-write fault) so this gate is reason-agnostic.
+	state.stage = ProjectStageDraftFailed
+	state.failureReason = reason
+	// SUB-STEP (Plan-3 C2): the failed-gate sink for EVERY draft/stage/reject/approve fault —
+	// no role is working while the human decides Retry/Withdraw. This is the SINGLE clear that
+	// covers every ProjectStageDraftFailed entry (the job-failed and terminal-readback-decode branches
+	// route here with no per-site clear of their own — safe, since Temporal never answers a
+	// query mid-workflow-task, only at the next blocking point, which is this function's own
+	// selector wait below).
+	state.clearActive()
+
+	redraftCh := workflow.GetSignalChannel(ctx, pdSignalRedraft)
+	reviewCh := workflow.GetSignalChannel(ctx, pdSignalReviewDecision)
+
+	for {
+		var retry bool
+		var withdraw bool
+		var withdrawNotes string
+
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(redraftCh, func(c workflow.ReceiveChannel, _ bool) {
+			var sig redraftSignal
+			c.Receive(ctx, &sig)
+			if sig.Feedback != nil {
+				// F47: MERGE the request feedback (from RequestArtifactDraft) with any gate-
+				// retained feedback — the request WINS/appends — so the operator's new
+				// instruction reaches the next draft dispatch without discarding retained context.
+				*feedback = mergeRedraftFeedback(*feedback, *sig.Feedback)
+			}
+			// Memory-only until the pre-dispatch failed-gate seed persists it (thin dispatch).
+			state.feedbackSeeded = false
+			retry = true
+		})
+		sel.AddReceive(reviewCh, func(c workflow.ReceiveChannel, _ bool) {
+			var sig pdReviewDecisionSignal
+			c.Receive(ctx, &sig)
+			switch sig.Decision {
+			case ReviewWithdraw:
+				withdraw = true
+				withdrawNotes = signalNotes(sig.Feedback)
+			case ReviewReject:
+				// Retry-via-Reject: re-dispatch with the architect's feedback woven in. This is
+				// the CORE gap thin dispatch exposes — at a FAILED gate (unlike the review gate)
+				// the reject never touches the ledger, so the feedback is memory-only until the
+				// pre-dispatch failed-gate seed persists its anchored comments before the redraft.
+				*feedback = reviewFeedbackOrZero(sig.Feedback)
+				state.feedbackSeeded = false
+				retry = true
+			case ReviewDecisionUnknown, ReviewApprove, ReviewAdvance, ReviewSetCommentStatus:
+				// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
+				// made by the merged contract. They never reach this rail: the deliveryManager
+				// dispatcher answers both itself (the phase seal, and the comment transition),
+				// so they join the ignored arm here rather than changing any rail behaviour.
+				// Approve at a failed gate is meaningless (no staged draft); the zero
+				// value carries no signal either — both ignored, same as default.
+			default:
+				// Approve at a failed gate is meaningless (no staged draft) — ignored.
+			}
+		})
+		sel.Select(ctx)
+
+		if retry {
+			// Clear the failed state before re-entering the draft loop.
+			state.stage = ProjectStageRedrafting
+			state.failureReason = ""
+			return coAuthorUnknown, true, nil
+		}
+		if withdraw {
+			// Withdraw at the failed gate is a MAIN write; its Conflict re-read targets main
+			// (branch=="").
+			if _, err := wf.applyRecovering(ctx, projectID, "", headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+				return wf.Acts.DesignSessionWithdrawArtifactOnBranch(ctx, projectstate.ProjectID(projectID), expected, "", toPSKind(kind), withdrawNotes)
+			}); err != nil {
+				return coAuthorUnknown, false, err
+			}
+			// ROUND LEDGER (stage 3 task 6): this gate IS reachable with a round open — a
+			// draft that staged, opened its round and was then approved onto a NOT-GREEN pull
+			// request lands here. Withdrawing without closing that round left it pending
+			// forever with no run alive to settle it, which is the one shape the stage-4 sweep
+			// exists to clean up and the one this workflow can avoid outright. A no-op when no
+			// round is open, which on this rail is every session today.
+			wf.decideDesignRound(ctx, projectID, state, projectstate.RoundWithdrawn, pdDesignActorOperator)
+			return coAuthorWithdrawn, false, nil
+		}
+		// A non-actionable review decision at the failed gate: stay suspended.
+	}
+}
+
+// pdDraftFailedReason renders the human "why" for the ProjectStageDraftFailed screen from the
+// job's neutral Diagnostic. It is infrastructure-neutral (the Diagnostic is already a
+// summary, not a log firehose — agenticJobAccess.md Non-goal #4).
+func pdDraftFailedReason(diagnostic string) string {
+	if diagnostic == "" {
+		return "the Phase-2 design job failed in CI — retry or withdraw"
+	}
+	return "the Phase-2 design job failed in CI: " + diagnostic + " — retry or withdraw"
+}
+
+// readBackDecodeFailedReason / amendmentNoChangeReason PROMOTED to
+// projectstate.ReadBackDecodeFailedReason / projectstate.AmendmentNoChangeReason
+// (code-health-phase-bd task D3) — byte-identical pure formatters, no longer duplicated
+// with systemdesign's twin.
+
+// dispatch.go is the AGENTIC-PIVOT seam (D-MPD-Δ, projectDesignManager.md §0.5) —
+// the Phase-2 TWIN of systemdesign/dispatch.go. The Phase-2 plan-DRAFTING mechanism
+// flips from a synchronous workerAccess call to an ASYNC dispatch → observe →
+// read-back round-trip:
+//
+//   - DISPATCH  the Manager selects the Method Phase-2 role .claude command slug
+//               (DesignCommandFor) and dispatches a claude-code-action DESIGN job via
+//               the FROZEN agenticJobAccess.SubmitAgenticJob verb,
+//               carrying {artifact_kind, command, target_branch, prior_state_ref,
+//               job_mode} on the additive PipelineSpec.DispatchInputs field
+//               (C-WF-DESIGN input schema). The Method Phase-2 doctrine lives in the
+//               command's method-assets, not a composed in-memory prompt. The RA
+//               reserves + stamps idempotency_token itself; the Manager MUST NOT set it.
+//   - OBSERVE   the Manager polls ObserveAgenticJob(handle) between
+//               durableExecutionAccess timer waits until a TYPED terminal phase.
+//   - READ-BACK on PhaseSucceeded the Manager reads the committed typed Phase-2 Kind
+//               via projectStateAccess.ReadProject (the Action committed the JSON;
+//               aiarch writes nothing on the draft path).
+//
+// The ONE structural difference from the twin (projectDesignManager.md §0.5.5): the
+// three estimation Engines (constructionEstimationEngine / operationEstimationEngine
+// / settlementEngine) STAY server-side in-workflow — they are deterministic, pure,
+// by-value joins, NOT LLM work, and do NOT dispatch. There is also NO PM-critique in
+// Phase 2 (the architect owns the project-design artifacts and recommends to
+// management at the SDP gate), so this file has NO critique round-trip — only the
+// DRAFT round-trip. workerAccess and artifactValidationEngine are DROPPED from the
+// draft path (§0.5.5).
+//
+// THE IDEMPOTENCY KEY IS DERIVED INSIDE THE DISPATCH ACTIVITY (construction note
+// N1). Temporal assigns a distinct ActivityID per ExecuteActivity invocation and
+// reuses it across automatic retries of that one invocation. So a REDRAFT loop
+// (a fresh ExecuteActivity(DispatchDesignJobActivity)) gets a new ActivityID → a
+// distinct key → a fresh, idempotent job (NOT a dedup of the stale prior job); a
+// transient auto-retry of a single dispatch keeps the ActivityID → same key → the
+// FROZEN submit verb collapses it to the same handle.
+
+// ===========================================================================
+// Workflow-side pipeline helpers. The temporalgen migration routes the submit/observe
+// design-job pair through the GENERATED agenticJobAccess invokers (wf.Acts.
+// PipelineSubmit/ObserveAgenticJob); the value mapping that lived on the folded
+// pipelineDispatchAdapter — the RepoRef→RepoTarget decode, the PipelineSpec composition,
+// and the RA-phase→neutral-phase mapping — is now these PURE workflow-side helpers
+// (mirrors construction's dispatch.go). The idempotency key is stamped INSIDE the
+// generated submit Activity (genActivityIdempotencyKey, the same run-scoped 3-part scheme
+// the old hand-derived key used), so the redraft-vs-auto-retry distinction is unchanged.
+// ===========================================================================
+
+// dispatchDesignJob composes the agenticjob.PipelineSpec for one design job and
+// submits it through the generated invoker, returning the opaque handle. The four DESIGN
+// parameters ride on DispatchInputs; a per-project TargetRepo (decoded from the opaque
+// RepoRef) + WorkflowFile target the user's per-project repo + aiarch-design.yml, else an
+// empty target falls back to the RA's configured construction repo.
+func (wf *pdWorkflows) dispatchDesignJob(ctx workflow.Context, a pdDispatchDesignJobArgs) (agenticjob.PipelineHandle, error) {
+	// The .claude command slug the design job runs — the Phase-2 doctrine that used to be
+	// composed into design_prompt now lives in that command's method-assets. Project Design
+	// only ever dispatches a DRAFT (there is no PM-critique; the answer job dispatches manager-
+	// side). An empty slug is contract misuse (an undispatchable kind — e.g. SdpReview, which is
+	// assembled server-side, never dispatched); fail terminally before dispatch.
+	command := projectstate.DesignCommandFor(toPSKind(a.ArtifactKind), projectstate.DesignJobModeDraft, "")
+	if command == "" {
+		return agenticjob.PipelineHandle(""), temporal.NewNonRetryableApplicationError(
+			"no design command slug for this artifactKind — undispatchable design job", "UndispatchableDesignJob", nil)
+	}
+	inputs := map[string]string{
+		dispatchInputArtifactKind:  artifactKindString(a.ArtifactKind),
+		dispatchInputCommand:       command,
+		dispatchInputTargetBranch:  a.TargetBranch,
+		dispatchInputPriorStateRef: a.PriorStateRef,
+		pdDispatchInputJobMode:     pdJobModeDraft,
+	}
+	// Per-project-design-dispatch: decode the opaque per-project RepoRef → owner/repo so
+	// the RA dispatches to the USER'S per-project repo + aiarch-design.yml (NOT the central
+	// construction repo). Empty TargetRepo ⇒ zero RepoTarget ⇒ the RA falls back.
+	target, terr := designRepoTarget(a.TargetRepo)
+	if terr != nil {
+		return agenticjob.PipelineHandle(""), terr
+	}
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(a.ProjectID),
+		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the
+		// design recipe lives in the user's aiarch-design.yml workflow file, so the step is
+		// a logical placeholder. The Phase-2 DESIGN-job parameters ride on DispatchInputs.
+		Steps: []agenticjob.PipelineStep{{
+			Name:      "design",
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: inputs,
+		TargetRepo:     target,
+	}
+	if a.TargetRepo != "" {
+		spec.WorkflowFile = designWorkflowFileName
+	}
+	return wf.Acts.PipelineSubmitAgenticJob(ctx, spec)
+}
+
+// observeDesignJob reads the dispatched job's phase once (pull-shaped, side-effect-free;
+// agenticJobAccess.md §2.2) through the generated invoker and maps the RA phase
+// onto this Manager's neutral phase.
+func (wf *pdWorkflows) observeDesignJob(ctx workflow.Context, handle agenticjob.PipelineHandle) (pdPipelineObservation, error) {
+	obs, err := wf.Acts.PipelineObserveAgenticJob(ctx, handle)
+	if err != nil {
+		return pdPipelineObservation{}, err
+	}
+	return pdPipelineObservation{
+		Phase:      pdDesignPipelinePhase(obs.Phase),
+		Diagnostic: obs.Diagnostic,
+		RunURL:     obs.RunURL,
+		Episode:    obs.Episode,
+	}, nil
+}
+
+// pdDesignPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
+// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
+// terminal as a ProjectStageDraftFailed gate).
+func pdDesignPipelinePhase(p agenticjob.PipelinePhase) pdPipelinePhase {
+	switch p {
+	case agenticjob.PhasePending:
+		return pdPipelinePending
+	case agenticjob.PhaseRunning:
+		return pdPipelineRunning
+	case agenticjob.PhaseSucceeded:
+		return pdPipelineSucceeded
+	case agenticjob.PhaseFailed:
+		return pdPipelineFailed
+	case agenticjob.PhaseCancelled:
+		return pdPipelineCancelled
+	default:
+		return pdPipelinePhaseUnknown
+	}
+}
+
+// pdPipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-neutral
+// lifecycle phase the Manager branches on. The terminal trio drives the observe
+// loop's exit + the failure path.
+type pdPipelinePhase int
+
+const (
+	pdPipelinePhaseUnknown pdPipelinePhase = iota
+	pdPipelinePending
+	pdPipelineRunning
+	pdPipelineSucceeded
+	pdPipelineFailed
+	pdPipelineCancelled
+)
+
+// IsTerminal reports whether the phase is one the job can no longer leave.
+func (p pdPipelinePhase) IsTerminal() bool {
+	switch p {
+	case pdPipelineSucceeded, pdPipelineFailed, pdPipelineCancelled:
+		return true
+	case pdPipelinePhaseUnknown, pdPipelinePending, pdPipelineRunning:
+		return false
+	default:
+		return false
+	}
+}
+
+// pdPipelineObservation mirrors agenticJobAccess.md §3 — a point-in-time,
+// infrastructure-neutral view carrying the phase and (on terminal failure) a neutral
+// Diagnostic summary (NOT a log firehose).
+type pdPipelineObservation struct {
+	Phase      pdPipelinePhase
+	Diagnostic string
+	// RunURL is the dispatched run's URL when the bound agenticJobAccess realisation
+	// resolved one. Phase-2 renders no run link, so it is carried for ONE reason: it is
+	// the only VENUE signal a workflow ever sees — see episodeVenueIsRemote.
+	RunURL string
+	// Episode is the terminal run's captured agentic-episode summary (SP1 capture-seam):
+	// the tokens/turns/tools the design agent actually burned. Nil on every non-terminal
+	// observation, on the GitHub-Actions arm (which mines no episode in v1), and —
+	// legitimately — on a CANCELLED run's FIRST terminal observation, whose summary lands
+	// only once the subprocess has unwound (see awaitLateEpisode).
+	Episode *agenticjob.EpisodeSummary
+}
+
+// pdDispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary. ArtifactKind
+// selects the .claude command slug (DesignCommandFor); Branch + PriorStateRef ride into the
+// DispatchInputs map inside the Activity. The prompt prose is GONE — the Phase-2 doctrine
+// lives in the method-assets .claude command the design job runs; the Manager ships only the
+// command name + the target metadata.
+type pdDispatchDesignJobArgs struct {
+	ProjectID     ProjectID
+	ArtifactKind  ArtifactKind
+	TargetBranch  string
+	PriorStateRef string
+	// TargetRepo is the opaque per-project RepoRef (gitSession.repoRef.String()) the
+	// design job must dispatch to — the user's per-project repo where aiarch-design.yml
+	// was committed at project birth (per-project-design-dispatch). Empty ⇒ the RA falls
+	// back to the configured construction repo (the dormant-rail / non-git path).
+	TargetRepo string
+	// Redraft marks a re-dispatch of the SAME draft after a human send-back. It is a
+	// CAPTURE-SEAM field only — dispatchDesignJob ignores it, and the job the RA receives
+	// is byte-identical either way. It exists so the episode ledger can tell a first draft
+	// (EpisodeKindDesign) from a rework round (EpisodeKindRework), which is exactly the
+	// distinction the self-improvement pipeline is built to measure.
+	Redraft bool
+}
+
+// dispatchAndObserve runs ONE dispatch → observe round-trip: it dispatches the design
+// job (the generated submit invoker via dispatchDesignJob) and then polls the observe
+// invoker (observeDesignJob) between durable startTimer waits until the job reaches a
+// TYPED terminal phase. It returns the terminal observation; the caller decides success
+// (read-back) vs failure (the ProjectStageDraftFailed gate). It NEVER infers failure from a
+// timeout-as-success (§0.5.4): a stuck job that never terminates within the bounded poll
+// budget is surfaced as an explicit pdPipelineFailed with a neutral diagnostic, so the
+// caller still lands the session at the human gate.
+func (wf *pdWorkflows) dispatchAndObserve(ctx workflow.Context, args pdDispatchDesignJobArgs) (pdPipelineObservation, error) {
+	handle, err := wf.dispatchDesignJob(ctx, args)
+	if err != nil {
+		return pdPipelineObservation{}, err
+	}
+	if agenticjob.PipelineHandleIsZero(handle) {
+		return pdPipelineObservation{}, temporal.NewNonRetryableApplicationError(
+			"dispatch returned an empty pipeline handle", "EmptyPipelineHandle", nil)
+	}
+
+	var last pdPipelineObservation
+	for range maxObservePolls {
+		obs, err := wf.observeDesignJob(ctx, handle)
+		if err != nil {
+			return pdPipelineObservation{}, err
+		}
+		if obs.Phase.IsTerminal() {
+			// Episode capture LAST, after this poll's business handling (§capture-seam).
+			wf.captureEpisode(ctx, args, handle, wf.awaitLateEpisode(ctx, handle, obs))
+			return obs, nil
+		}
+		last = obs
+		// Not yet terminal — space the next observe with a durable in-workflow timer.
+		if err := workflow.Sleep(ctx, observePollInterval); err != nil {
+			return pdPipelineObservation{}, err
+		}
+	}
+	// Bounded poll budget exhausted without a terminal phase. Treat as an explicit
+	// terminal failure (NOT a success, NOT a perpetual Drafting) so the caller routes
+	// to the ProjectStageDraftFailed human gate.
+	exhausted := pdPipelineObservation{
+		Phase:      pdPipelineFailed,
+		Diagnostic: "design job did not reach a terminal state within the observation window",
+		RunURL:     last.RunURL,
+		Episode:    last.Episode,
+	}
+	// The stuck job still burned tokens, so it still owes the ledger a record (a gap when
+	// nothing was mined) — never silent.
+	wf.captureEpisode(ctx, args, handle, exhausted)
+	return pdPipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Episode capture (SP1 capture-seam, Task 7)
+// ---------------------------------------------------------------------------
+//
+// EVERY terminal observation of a Phase-2 design dispatch becomes EXACTLY ONE
+// EpisodeRecord in the episode ledger: either the mined summary or an explicit GAP
+// record. Omitting this choke point would silently lose every Phase-2 drafting episode.
+//
+// THREE disciplines hold here, and each has a reason:
+//
+//   - BUSINESS FIRST, EPISODE SECOND. The append is the LAST thing a terminal poll does,
+//     and its own failure is swallowed. A ledger line claiming something happened when it
+//     did not is worse than a missing line.
+//   - THE APPEND NEVER FAILS THE SESSION. appendEpisodeActivityOptions gives it its own
+//     retry envelope, wholly independent of the business retries; still failing at the end
+//     of that envelope means LOG and continue.
+//   - VENUE. The GitHub-Actions arm mines no episode in v1, so a nil summary there is
+//     EXPECTED, not a gap.
+//
+// DETERMINISM: the append is a plain ExecuteActivity — a NEW command in an EXISTING
+// workflow body. In-flight executions must be DRAINED before deploying (no GetVersion
+// guard is carried).
+
+// awaitLateEpisode gives a CANCELLED run's episode summary a bounded chance to arrive
+// (see maxLateEpisodePolls). It returns the observation to RECORD: the caller's original
+// with a late summary folded in when one arrived, else the original unchanged — which
+// becomes a gap. The business phase is never altered.
+func (wf *pdWorkflows) awaitLateEpisode(ctx workflow.Context, handle agenticjob.PipelineHandle, obs pdPipelineObservation) pdPipelineObservation {
+	if obs.Phase != pdPipelineCancelled || obs.Episode != nil {
+		return obs
+	}
+	for range maxLateEpisodePolls {
+		if err := workflow.Sleep(ctx, lateEpisodePollInterval); err != nil {
+			return obs
+		}
+		next, err := wf.observeDesignJob(ctx, handle)
+		if err != nil {
+			return obs
+		}
+		if next.Episode != nil {
+			obs.Episode = next.Episode
+			return obs
+		}
+	}
+	return obs
+}
+
+// captureEpisode appends the ONE ledger record this terminal observation owes.
+func (wf *pdWorkflows) captureEpisode(ctx workflow.Context, args pdDispatchDesignJobArgs, handle agenticjob.PipelineHandle, obs pdPipelineObservation) {
+	if episodeVenueIsRemote(obs.RunURL) {
+		return
+	}
+	targetRef := artifactKindString(args.ArtifactKind)
+	// Phase 2 has NO PM critique — every dispatch through this choke point is the
+	// architect drafting, so the only distinction to draw is first draft vs rework.
+	kind := episode.EpisodeKindDesign
+	if args.Redraft {
+		kind = episode.EpisodeKindRework
+	}
+	lineage := episodeLineage(ctx)
+	var rec episode.EpisodeRecord
+	if obs.Episode == nil {
+		rec = episodeGapRecord(kind, targetRef, lineage,
+			"gap-"+episodeIDSafe(pdEpisodeIDSeed(handle, args)),
+			episodeGapReason(episodeMissingSummaryReason, obs.Diagnostic), workflow.Now(ctx))
+	} else {
+		rec = episodeRecordFromSummary(*obs.Episode, kind, targetRef, lineage, obs.Diagnostic)
+	}
+	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(args.ProjectID), rec); err != nil {
+		// Swallowed BY DESIGN — see the "never fails the session" discipline above.
+		workflow.GetLogger(ctx).Error("episode append failed after its full retry envelope; this episode is NOT in the ledger",
+			"artifactKind", targetRef, "episodeId", rec.EpisodeID, "error", err.Error())
+	}
+}
+
+// pdEpisodeIDSeed is the deterministic, replay-stable seed a GAP record's EpisodeID is
+// built from — the dispatch handle (unique per dispatch, already in workflow history),
+// falling back to the artifact kind for a zero handle.
+func pdEpisodeIDSeed(handle agenticjob.PipelineHandle, args pdDispatchDesignJobArgs) string {
+	if h := agenticjob.PipelineHandleString(handle); h != "" {
+		return h
+	}
+	return artifactKindString(args.ArtifactKind)
+}
+
+// readBackCommittedModelOn is readBackCommittedModel with an OPTIONAL branch override
+// (I-DESIGN-DISPATCH §2a): the draft Action commits the typed JSON on the SESSION
+// BRANCH, so the read-back reads that branch while the human reviews the not-yet-merged
+// draft. branch=="" reads main (the dormant-rail / non-git behavior). It returns the
+// read-back substrate's Version alongside the model so the caller can stage against the
+// ACTUAL branch version — a fresh workflow reusing a dirty session branch (prior
+// draft/critique commits) sees the branch already advanced, and staging against a stale
+// main-captured version would Conflict (QA F29).
+func (wf *pdWorkflows) readBackCommittedModelOn(ctx workflow.Context, projectID ProjectID, kind ArtifactKind, branch string) (projectstate.ArtifactModel, projectstate.Version, error) {
+	proj, err := wf.readProjectOnBranch(ctx, projectID, branch)
+	if err != nil {
+		return nil, 0, err
+	}
+	slot := pdSlotFor(proj, toPSKind(kind))
+	if slot.Model == nil {
+		return nil, 0, temporal.NewNonRetryableApplicationError(
+			fmt.Sprintf("design job reported success but committed no %s model to read back", toPSKind(kind)),
+			"ReadBackEmpty", nil)
+	}
+	return slot.Model, proj.Version, nil
+}
+
+// gitsession.go is the WORKFLOW-LEVEL wiring of the settled branch→PR→read-back→+1→merge
+// design model (I-DESIGN-DISPATCH §2b) into the CoAuthorArtifactWorkflow spine. It
+// MIRRORS the construction Manager's gitforward.go: the rail OWNS the git provider
+// interaction (ensure branch, open PR, read CI rollup, relay +1, perform merge) and
+// RETURNS opaque handles; the Manager threads a once-minted credential into every verb;
+// the branch-aware read-back/stage (§2a) rides over the session branch while the human
+// reviews, then commit/advance land on main AFTER the merge.
+//
+// DORMANT-WHEN-UNWIRED: every helper checks gf.enabled. When the rail/repo is not wired
+// the session is disabled and each helper is a no-op that leaves the spine on the
+// original main-path behavior (the read-back branch is "" ⇒ main).
+
+// gitEnabled reports whether the PR rail is wired AND a repo resolves for this project.
+// When false the spine runs unchanged (read-back/stage on main, no branch/PR ops).
+func (wf *pdWorkflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+	if wf.Rail == nil || wf.Repo == nil {
+		return sourcecontrol.RepoRef(""), false
+	}
+	return wf.Repo(projectID)
+}
+
+// beginSession runs the dispatch-time half of the rail lifecycle for one draft attempt:
+// mint the credential, then OpenBranch(sessionBranch) (ensure the branch exists before
+// the Action drafts on it). A dormant slice returns a disabled session and touches
+// nothing. The session branch is per-attempt (designBranch threads the attempt suffix).
+func (wf *pdWorkflows) beginSession(ctx workflow.Context, projectID ProjectID, sessionBranch string) (gitSession, error) {
+	repoRef, ok := wf.gitEnabled(projectID)
+	if !ok {
+		return gitSession{enabled: false}, nil
+	}
+	gf := gitSession{enabled: true, repoRef: repoRef, branch: sessionBranch}
+
+	cred, err := wf.mintCred(ctx, repoRef)
+	if err != nil {
+		return gitSession{}, err
+	}
+	gf.cred = cred
+
+	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch, 2026-07-06; mirrors systemdesign): before
+	// ANY design job is dispatched, converge the seated aiarch-design.yml onto the CURRENT
+	// template rendering (drift → one refresh commit on the default branch; identical →
+	// no-op). A sync failure BLOCKS the dispatch — never run a design job against a
+	// scaffold we could not prove current — and is CONTAINED by the caller at the failed
+	// gate like every other dispatch-time rail fault.
+	//
+	// Temporal versioning guard (replay safety; mirrors construction-review-policy-
+	// snapshot and the systemdesign twin): this activity was ADDED to beginSession AFTER
+	// the CoAuthor workflow first shipped, so a Phase-2 design session already in flight
+	// at deploy time has NO history event for it — replaying such a history against
+	// unguarded new code fails the workflow task with a non-determinism error. GetVersion
+	// pins pre-feature executions (DefaultVersion) to the OLD command sequence: they skip
+	// the sync for their WHOLE run — including post-recovery redrafts, because the
+	// version resolved at first replay is cached per execution — while every execution
+	// STARTED after this deploy resolves v1 and syncs before each dispatch. A pre-feature
+	// session that keeps failing on a stale scaffold heals via Withdraw + a fresh
+	// session (a new execution → v1 → sync).
+	if workflow.GetVersion(ctx, "managed-scaffold-sync", workflow.DefaultVersion, 1) >= 1 {
+		var scaffoldChanged bool
+		// SyncManagedScaffold rides the GENERATED sourceControlAccess.syncManagedScaffold
+		// invoker (B9) — B5 already promoted the free-function composition helper onto the
+		// frozen rail contract, so this is a clean cut. Still wrapped in the shared bounded
+		// Auth retry (its railActivityOptions preset applies via the invoker's option hook).
+		if serr := wf.railWithAuthRetry(ctx, func() error {
+			changed, e := wf.Acts.RailSyncManagedScaffold(ctx, repoRef, cred.toRail())
+			scaffoldChanged = changed
+			return e
+		}); serr != nil {
+			return gitSession{}, fmt.Errorf("managed-scaffold sync failed — the seated %s could not be refreshed to this server's current template, so the design job was NOT dispatched (a stale scaffold pins an aiarch-state-mcp binary this server's validators reject); Retry re-runs the sync: %w", designWorkflowFileName, serr)
+		}
+		if scaffoldChanged {
+			workflow.GetLogger(ctx).Info("managed scaffold drifted; refreshed the seated design workflow to the current template before dispatch",
+				"file", designWorkflowFileName)
+		}
+	}
+
+	// OpenBranch through the shared bounded Auth retry: a secondary-rate-limit 403 here no
+	// longer kills the session (QA F35 twin). A genuine denial exhausts the budget and the
+	// caller (coAuthorDraftRound) CONTAINS the fault at the failed gate. The opened BranchRef
+	// is not retained (the deterministic session-branch name is the addressing key).
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		_, e := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(sessionBranch), cred.toRail())
+		return e
+	}); err != nil {
+		return gitSession{}, err
+	}
+	return gf, nil
+}
+
+// openPR opens the PR (head=sessionBranch, base=main) AFTER the draft observe succeeds.
+// Idempotent on head — if the Action already opened a PR the rail returns the existing
+// handle (the server's open is the authoritative handle for the merge step). A dormant
+// session is a no-op.
+func (wf *pdWorkflows) openPR(ctx workflow.Context, gf *gitSession, kind ArtifactKind) error {
+	if !gf.enabled {
+		return nil
+	}
+	// OpenPullRequest through the shared bounded Auth retry (QA F35 twin): openPR runs in the
+	// draft round-trip AFTER a 20+ minute draft, so a single secondary-rate-limit 403 must not
+	// discard that work. A genuine permission denial exhausts the budget and the caller CONTAINS
+	// the fault at the failed gate (the committed draft is preserved; Retry resumes).
+	var prRef string
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		pr, e := wf.Acts.RailOpenPullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestSpec{
+			Head:  sourcecontrol.BranchName(gf.branch),
+			Base:  sourcecontrol.BranchName(mainBranch),
+			Title: pdDesignPRTitle(kind),
+			Body:  pdDesignPRBody(kind),
+		}, gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		prRef = sourcecontrol.PullRequestRefString(pr)
+		return nil
+	}); err != nil {
+		return err
+	}
+	gf.prRef = prRef
+	return nil
+}
+
+// mergeOnApprove runs the approve-time half of the rail lifecycle: the merge GUARD
+// (GetPullRequestStatus — CheckRollup must be green), the architecture +1 relay
+// (PostReview Approve), and the App-mediated merge (MergePullRequest sessionBranch →
+// main). It returns ok=true only when the merge landed; ok=false means the merge guard
+// was not green (the caller routes that to the ProjectStageDraftFailed recovery gate — the PR
+// is not green, do NOT merge, never wedge). A dormant session returns ok=true (the
+// non-git spine commits on main with no rail).
+func (wf *pdWorkflows) mergeOnApprove(ctx workflow.Context, gf *gitSession, kind ArtifactKind) (bool, error) {
+	if !gf.enabled {
+		return true, nil
+	}
+
+	// Merge guard: the required CI check must be green before the App merges (the
+	// "blocks merge" trust boundary). A non-green PR is NOT merged — the caller routes
+	// to recovery. execRailActivityWithAuthRetry absorbs a transient (rate-limit) 403 within
+	// a bounded WORKFLOW-SIDE budget (QA F35) so a single secondary-rate-limit blip no longer
+	// kills the approve.
+	var st pullRequestStatusView
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		prStatus, e := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		st = pullRequestStatusView{
+			CheckGreen:    prStatus.CheckRollup == sourcecontrol.CheckSuccess,
+			ApprovalCount: int(prStatus.ApprovalCount),
+			Mergeable:     prStatus.Mergeable,
+		}
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	if !st.CheckGreen {
+		return false, nil
+	}
+
+	// Relay the architecture +1 (the counted approval + audit). The ReviewApprove verdict is
+	// supplied here at the workflow call site (the generated PostReview invoker is verdict-
+	// neutral — design only ever approves).
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		return wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+			sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: designArchApprovalBody(kind)}, gf.cred.toRail())
+	}); err != nil {
+		return false, err
+	}
+
+	// App-mediated merge of sessionBranch → main.
+	var merged bool
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		mr, e := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+		if e != nil {
+			return e
+		}
+		merged = mr.Merged
+		return nil
+	}); err != nil {
+		return false, err
+	}
+	if !merged {
+		// The guard was green but the merge did not complete (a race / not-mergeable):
+		// surface as terminal so the spine does not commit a false merge.
+		return false, temporal.NewNonRetryableApplicationError(
+			"design PR merge did not complete (not mergeable)", "DesignMergeNotCompleted", nil)
+	}
+	return true, nil
+}
+
+// railAuthRetry* bound the workflow-side rail retry on a transient-403-as-Auth fault
+// (QA F35 + its draft-round-trip twin). Shared by BOTH halves of the rail lifecycle:
+// the dispatch-time half (OpenBranch / OpenPullRequest) and the approve-time half
+// (GetPullRequestStatus / PostReview / MergePullRequest).
+const (
+	pdRailAuthRetryMaxAttempts = 3
+	pdRailAuthRetryBaseBackoff = 5 * time.Second
+	pdRailAuthRetryMaxBackoff  = 15 * time.Second
+
+	// F-QA2-49: GitHub SECONDARY rate limits demand a >=60s cool-down before any retry can
+	// succeed, so the original ~30s budget (5s → 10s → 15s) expired ENTIRELY INSIDE the
+	// cool-down window after an API-heavy draft job (observed live on the systemdesign
+	// twin: 3 openPR attempts across 15s → all 403 → ProjectStageDraftFailed; a manual retry
+	// 15 min later succeeded first try). v1 ("rail-403-long-backoff") lengthens the
+	// 403/auth class to 60s → 120s → 240s (~7 min budget, 4 attempts) — long enough to
+	// outlast a secondary-rate-limit window, still bounded so a GENUINE permission
+	// denial reaches the honest containment gates.
+	pdRailAuthRetryLongMaxAttempts = 4
+	pdRailAuthRetryLongBaseBackoff = 60 * time.Second
+	pdRailAuthRetryLongMaxBackoff  = 240 * time.Second
+)
+
+// railWithAuthRetry runs ANY rail call (a closure over a generated invoker or the custom
+// SyncManagedScaffold Activity) with a bounded WORKFLOW-SIDE retry on a transient-403-as-Auth
+// fault (QA F35 + its draft-round-trip twin). The platform github ClassifyStatus conflates
+// GitHub secondary rate-limit 403s with real permission denials — both become a NON-RETRYABLE
+// Auth ApplicationError the Activity RetryPolicy cannot retry — so the workflow retries here:
+// under the "rail-403-long-backoff" version gate, up to pdRailAuthRetryLongMaxAttempts over
+// ~7 min (60s → 120s → 240s, F-QA2-49 — secondary rate limits need a >=60s cool-down);
+// pre-gate executions keep the OLD ~30s budget (5s → 10s → cap 15s). workflow.Sleep gives
+// deterministic backoff. A GENUINE permission denial exhausts the budget and the error
+// propagates to the CALLER, which CONTAINS it (openPR/OpenBranch → the ProjectStageDraftFailed gate;
+// the approve window → back to AwaitingReview for re-approve) — never a crash. Transport blips
+// (Transient) are still retried INSIDE the Activity by railActivityOptions. Cancellation
+// propagates immediately. This is the ONE shared helper — the approve window and the draft
+// round-trip do NOT duplicate the retry loop.
+func (wf *pdWorkflows) railWithAuthRetry(ctx workflow.Context, call func() error) error {
+	maxAttempts, backoff, maxBackoff := pdRailAuthRetryMaxAttempts, pdRailAuthRetryBaseBackoff, pdRailAuthRetryMaxBackoff
+	gated := false
+	for attempt := 1; ; attempt++ {
+		err := call()
+		if err == nil {
+			return nil
+		}
+		if temporal.IsCanceledError(err) || !isRailAuthFault(err) {
+			return err
+		}
+		// F-QA2-49 replay safety: the long-backoff schedule changes the durable timer
+		// sequence, so it is GetVersion-gated (the failed-gate-ledger-seed-p2 pattern).
+		// The gate is resolved LAZILY — only when a 403 fault actually occurs — so
+		// fault-free histories carry no version marker. GetVersion caches per changeID,
+		// so an in-flight execution whose replayed history already resolved
+		// DefaultVersion (an old 5s/10s timer burst) stays pinned to the OLD schedule;
+		// a first-time fault in executing mode resolves v1 → the long schedule.
+		if !gated {
+			gated = true
+			if workflow.GetVersion(ctx, "rail-403-long-backoff", workflow.DefaultVersion, 1) >= 1 {
+				maxAttempts, backoff, maxBackoff = pdRailAuthRetryLongMaxAttempts, pdRailAuthRetryLongBaseBackoff, pdRailAuthRetryLongMaxBackoff
+			}
+		}
+		if attempt >= maxAttempts {
+			return err
+		}
+		workflow.GetLogger(ctx).Warn("rail 403 (auth/rate-limit); bounded workflow-side retry", "attempt", attempt)
+		_ = workflow.Sleep(ctx, backoff)
+		if backoff *= 2; backoff > maxBackoff {
+			backoff = maxBackoff
+		}
+	}
+}
+
+// mintCred runs the generated sourceControlAccess.getInstallationToken invoker → the
+// short-lived credential threaded into every rail verb for this draft attempt's lifecycle.
+func (wf *pdWorkflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
+	cred, err := wf.Acts.RailGetInstallationToken(ctx, repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
+	}
+	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
+}
+
+// readProjectOnBranch reads the head-state on an OPTIONAL branch override (§2a). When
+// branch=="" it delegates to readProject (workflow.go) for a byte-identical call
+// pattern; a non-empty branch goes straight through the generated
+// designSessionAccess.readProjectOnBranch invoker (B9), which runs the SAME
+// branch-aware-extension-or-main fallback internally (projectstate/designsession.go) —
+// so the branch-aware read-back stays purely additive and the default path is unchanged.
+// Shared workflow-context helper (used by 3 pdWorkflows); lives in its first caller's file per the file-layout standard.
+func (wf *pdWorkflows) readProjectOnBranch(ctx workflow.Context, projectID ProjectID, branch string) (projectstate.Project, error) {
+	if branch == "" {
+		return wf.readProject(ctx, projectID)
+	}
+	pe, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	return pe.Decode()
+}
+
+// gitrail.go is the PR-rail consumer port + Temporal Activity wrappers the design
+// Manager uses to wire the agentic DESIGN draft onto the git-forward branch→PR→read-
+// back→+1→merge model (I-DESIGN-DISPATCH §2b). It MIRRORS the construction Manager's
+// gitactivities.go / gitnaming.go pattern EXACTLY (same railCredEnvelope cred carrier,
+// same Activity-per-rail-verb shape, same deterministic-name idempotency): the cred is
+// MINTED by the Manager (MintRepoCredentialActivity → GetInstallationToken, a call
+// DOWN) and threaded INTO every rail verb as a parameter; the RA never reads Temporal
+// context and never fetches the credential itself ([[feedback_temporal_manager_layer_only]]).
+//
+// SUBSET. The design spine needs only the rail verbs the settled flow uses:
+// GetInstallationToken (mint), OpenBranch (ensure the session branch), OpenPullRequest
+// (head=sessionBranch, base=main), GetPullRequestStatus (the merge guard),
+// PostReview (the architecture +1 relay), MergePullRequest (the App-mediated merge).
+// ConfigureBranchProtection is a project-birth concern (FU-DD-3), absent here.
+//
+// DORMANT-WHEN-UNWIRED. The whole rail is OPTIONAL/nil-tolerant exactly like the
+// construction git-forward slice: when wf.Rail == nil or wf.Repo == nil (or no repo
+// resolves for the project) the CoAuthor workflow runs UNCHANGED — read-back/stage on
+// main, no branch/PR ops — so every existing test and the Postgres/non-git composition
+// are unperturbed.
+
+// ===========================================================================
+// Rail migration to the generated invoker surface.
+//
+// The SEVEN PR-rail verbs (GetInstallationToken/mint, OpenBranch, OpenPullRequest,
+// GetPullRequestStatus, PostReview, MergePullRequest, SyncManagedScaffold) are GENERATED
+// (activities.gen.go) and reached through the generated invoker surface (wf.Acts.Rail*)
+// from the workflow-side helpers in gitsession.go. The folded railAdapterImpl + the
+// plain-ctx sourceControlRail seam + the per-verb Activity wrappers are RETIRED; the
+// workflow-side value mapping (opaque-handle *FromString/*String marshalling,
+// PullRequestStatus→pullRequestStatusView, the ReviewApprove verdict now supplied at the
+// call site) lives in gitsession.go. The per-op ActivityOptions presets
+// (mintCredActivityOptions / railActivityOptions, below) feed the manager's option hook
+// (workermanifest.go).
+//
+// B9: SyncManagedScaffold used to STAY a CUSTOM Activity (SyncManagedScaffoldActivity)
+// wrapping the free-function sourcecontrol.SyncManagedScaffold composition helper — the
+// generated layer had no single contract op for it. B5 promoted that helper onto the
+// frozen sourceControlAccess contract as the syncManagedScaffold op (the concrete
+// *access.SyncManagedScaffold impl, internal/resourceaccess/sourcecontrol/github.go, is
+// now literally `return SyncManagedScaffold(rc.Context, a, repo, cred)` — the SAME free
+// function, just reached through the contract instead of directly). B9 migrates the
+// custom Activity wrapper onto the now-generated wf.Acts.RailSyncManagedScaffold invoker
+// — a clean cut (repo/cred are concrete structs; no interface-across-the-wire hazard).
+// ===========================================================================
+
+// ===========================================================================
+// Activity-boundary value carriers (mirrors gitactivities.go).
+// ===========================================================================
+
+// ===========================================================================
+// Provider-neutral naming + Activity option presets (mirrors gitnaming.go).
+// ===========================================================================
+
+// pdDesignPRTitle / pdDesignPRBody are the human-facing PR text the Manager owns.
+func pdDesignPRTitle(kind ArtifactKind) string {
+	return fmt.Sprintf("aiarch: Phase-2 design %s", artifactKindString(kind))
+}
+
+func pdDesignPRBody(kind ArtifactKind) string {
+	return fmt.Sprintf("Automated agentic design draft of %s (aiarch project-design).", artifactKindString(kind))
+}
+
+// ---------------------------------------------------------------------------
+// THE ROUND LEDGER (spec 2026-09-20 §5.3, stage 3 task 6) — the design rail's
+// DUAL-WRITE.
+//
+// Every review decision this rail takes is now recorded TWICE: once where it has always
+// been recorded (the artifact slot's ReviewThread + status, which the SPA still reads
+// through GetSessionState → pdCommittedSessionView → reviewThreadToView) and once as a
+// ReviewRound on the activity execution ledger, through activityExecutionAccess. The slot
+// write is not a legacy path to be cut over here — deleting it would blank the design
+// review UI for the length of the wave, so it stays until stage 6 re-points the SPA.
+//
+// What the round carries that the thread never could: the ROSTER the review engine
+// computed, the VERDICTS (the critic's and the human's, each with its role and its
+// summary), the SUBJECT the round judged, the round NUMBER as a first-class field, and
+// the terminal — passed, sent back or withdrawn — with who decided it. A vibes preset
+// auto-approving with nothing in the data to show for it is the defect this wave exists
+// to end, and on this rail the auto-approver's own name lands in DecidedBy.
+//
+// KEYED LIKE A CONSTRUCTION ROUND, from the same tables. The activity id is the design
+// PREFIX activity the derived plan carries (requirements / architecture / projectDesign)
+// — pdDesignActivityFor(kind) resolves the kind to it — and the task id is that lifecycle
+// phase's gate task, read out of method-assets through the SAME projectstate.GateTaskFor
+// / AgentTaskFor tables the construction child workflow reads. Nothing here names a task
+// id literally: a round that cited a task the pinned lifecycle does not carry would be a
+// round no reader could place in the DAG, which is exactly what the LifecyclePin exists
+// to prevent.
+//
+// AND ON THIS RAIL THAT RESOLUTION FAILS FOR EVERY KIND, SO NOTHING IS WRITTEN YET.
+// method-assets v0.9.0 models the projectDesign lifecycle as ONE phase — "sdp", the M0
+// gate — with one review task, "sdpReview", that judges no dispatch task; and the nine
+// Phase-2 artifact drafts this rail co-authors map to their OWN wire names rather than to
+// "sdp" (pdDesignActivityFor, deliberately: mapping them there would gate nine drafts behind
+// the always-human spend floor). So no Phase-2 kind has a review task to key a round on.
+// That is stated rather than papered over: inventing "planningAssumptionsReview" would put
+// a task id in the ledger that the PINNED lifecycle does not carry, and every reader
+// deriving a phase from it would find a task that is not in the DAG.
+//
+// EARMARKS, both tracked for stage 4 and the platform: (a) extending the projectDesign
+// lifecycle with the nine drafts and their reviews is a method-assets release (a founder
+// STOP), and the moment it lands this code lights up with no edit; (b) a reply to a comment
+// from an EARLIER, already-decided round is dropped from the round ledger — see
+// roundRepliesFor; (c) comments seeded straight onto the slot (an amendment's reopening
+// feedback, a failed-gate feedback seed, an asked question) never reach a round, so a later
+// resolve of one is not mirrored — see mirrorCommentStatus.
+// ---------------------------------------------------------------------------
+
+// The design gate's ledger vocabulary.
+const (
+	// pdReviewerUtteranceRole is the role a REVIEWER's own utterance carries, named here as
+	// it is in the systemdesign twin. It differs from reviewAuthorRole ("architect", the
+	// role stamped on the comments the reviewer OPENS) because the derive rule reads it:
+	// projectstate.isReviewerRole treats "architect" and "pm" as AGENT roles, so a reviewer
+	// utterance stamped "architect" would leave the thread reading as answered by its own
+	// author. Phase 2 routes no reply utterances yet (SubmitReviewDecision refuses a replyTo
+	// outright, ruling P13), so today it is the verdict role alone.
+	pdReviewerUtteranceRole = "architect-user"
+	// pdDesignRoleHuman is the role the human reviewer's verdict carries. It is the SAME wire
+	// label their thread utterances carry, because it is the same person: a round whose
+	// verdict said "architect" and whose comments said "architect-user" would read as two
+	// reviewers.
+	pdDesignRoleHuman = pdReviewerUtteranceRole
+	// pdDesignActorOperator is who the platform can honestly name when a decision signal
+	// carries no identity of its own. An approve DOES carry one (the approver, or the
+	// vibes auto-approver), and that name is used instead wherever it is present.
+	pdDesignActorOperator = "operator"
+)
+
+// pdDesignApproverActor is WHO the platform can honestly say approved a design gate: the
+// identity the approve signal carried — a person, or the vibes auto-approver — falling back
+// to the operator when the signal named nobody. Never fabricated.
+func pdDesignApproverActor(approver string) string {
+	if approver == "" {
+		return pdDesignActorOperator
+	}
+	return approver
+}
+
+// pdDesignRoundKeyFor resolves an artifact kind onto those coordinates, or reports that the
+// pinned lifecycles carry no review task for it (see the section doc). Pure table lookup
+// over pdDesignActivityFor + the method-assets-derived phase→task tables; no literals.
+func pdDesignRoundKeyFor(kind projectstate.ArtifactKind) (designRoundKey, bool) {
+	designType, lifecyclePhase := pdDesignActivityFor(kind)
+	psType, ok := psActivityTypeFor(designType)
+	if !ok {
+		return designRoundKey{}, false
+	}
+	p := projectstate.ActivityMethodPhase(lifecyclePhase)
+	gate, work := projectstate.GateTaskFor(p), projectstate.AgentTaskFor(p)
+	if gate == "" || work == "" {
+		return designRoundKey{}, false
+	}
+	return designRoundKey{activityID: string(designType), typ: psType, gate: gate, work: work}, true
+}
+
+// seedRoundBaseFromLedger starts this session's round numbering above every round the
+// DURABLE ledger already holds for this artifact kind's gate (see designRoundID's
+// two-sessions hazard). Called ONCE, at session start, inside the changeDesignRoundLedger
+// fence — a session that replays DefaultVersion makes no call here, exactly as it makes
+// none of the round writes the seed exists to serve.
+//
+// Best-effort like every other round-ledger touch: a kind with no review task in the
+// pinned lifecycle, an activity with no row yet (the ordinary first session — NotFound),
+// or a read that fails all leave the base at 0, which is the numbering this rail had
+// before the seed existed. On THIS rail no Phase-2 kind resolves to a review task today
+// (Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle), so the seed makes
+// no call at all — it is here, identical to its systemdesign twin, because the two rails
+// are edited together and a fix to one must not be a divergence from the other.
+func (wf *pdWorkflows) seedRoundBaseFromLedger(ctx workflow.Context, in pdCoAuthorInput, state *pdCoAuthorState) {
+	if !state.roundLedgerEnabled {
+		return
+	}
+	kind := toPSKind(in.ArtifactKind)
+	key, ok := pdDesignRoundKeyFor(kind)
+	if !ok {
+		return
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), key.activityID)
+	if err != nil {
+		if !isReadNotFound(err) {
+			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; this session numbers its rounds from zero",
+				"activityId", key.activityID, "artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+		}
+		return
+	}
+	state.roundBase = ledgerRoundBase(row, key, kind)
+	// The per-activity CAS token rides the SAME read — which is why arming the guard cost
+	// no new Temporal command on this rail either.
+	state.activityVersion = row.Version
+}
+
+// pdDesignRoundReviewers is the roster the round persists: the rows the review engine
+// computed for this design gate, plus the human row when the policy holds for a person.
+// The engine's rows are NOT Required — the design rail dispatches no reviewer from them —
+// and a row marked required that nothing waits for would make the round claim a gate it
+// never had. Same rule, same reason, as the construction rail's roundReviewers.
+func pdDesignRoundReviewers(set review.ReviewSet) []projectstate.RoundReviewer {
+	out := make([]projectstate.RoundReviewer, 0, len(set.Reviewers)+1)
+	for _, r := range set.Reviewers {
+		out = append(out, projectstate.RoundReviewer{Role: r.Role, Actor: r.Role, Required: false})
+	}
+	if set.RequiresHuman {
+		out = append(out, projectstate.RoundReviewer{Role: pdDesignRoleHuman, Actor: pdDesignActorOperator, Required: true})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// openDesignRound opens the round for the gate the session has just reached. It is called
+// on EVERY entry to the AwaitingReview gate. Nothing is appended to it here: Phase 2 runs
+// no critique round, so the round's first verdict is the human's own (see the section's
+// note on the missing critic).
+//
+// WHICH RE-ENTRIES ARE A NEW ROUND, AND WHICH ARE THE SAME ONE. The round id is minted
+// from the SLOT's review-round counter, so the counter decides:
+//
+//   - A SEND-BACK redraft is a NEW round. The reject arm bumps reviewRound after deciding
+//     the round sentBack, so the re-stage mints the next id and the ledger shows the
+//     send-back and its retry as two rounds rather than one mutated row.
+//   - A RETRY at the ProjectStageDraftFailed gate re-enters the SAME round. Nothing on that path
+//     bumps reviewRound — an approve onto a not-green pull request, or any post-read-back
+//     fault, lands at that gate with the round still PENDING — so the re-stage remints the
+//     same id and OpenReviewRound resolves it to the round already open. That is the
+//     honest record: one review occurrence that the reviewer has not settled yet. It is
+//     also harmless to re-walk, because every write here converges — OpenReviewRound is
+//     idempotent on the id and, under the single-branch topology, the subject is the same
+//     pull request either way. A Withdraw at that gate now decides that round withdrawn
+//     rather than stranding it (the decideDesignRound call in awaitDraftFailedRecovery).
+//
+// It is also where the activity row is born: OpenActivity is idempotent and write-once on
+// the pin, so a second Phase-2 kind under the projectDesign prefix activity resumes the row
+// the first kind opened rather than re-dating it.
+//
+// THE CRASH WINDOW, STATED, exactly as the construction rail states it: a session that
+// dies between the open and the decision leaves this round PENDING forever. A resume is a
+// fresh workflow that opens the NEXT round (the slot's round counter is durable), so
+// nothing collides and nothing is duplicated — but nobody goes back to close this one.
+// Closing an abandoned round needs to know the session is gone, which a workflow cannot
+// know about itself; the stage-4 sweep owns it, and RoundWithdrawn exists for it.
+func (wf *pdWorkflows) openDesignRound(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	gf gitSession,
+	reviewRound int,
+	state *pdCoAuthorState,
+) {
+	state.round = designRound{}
+	if !state.roundLedgerEnabled {
+		return
+	}
+	kind := toPSKind(in.ArtifactKind)
+	key, ok := pdDesignRoundKeyFor(kind)
+	if !ok {
+		// Not a fault: the pinned lifecycles carry no review task for this kind (see the
+		// section doc). Logged, because a silent absence is what this wave is replacing.
+		workflow.GetLogger(ctx).Info("round ledger: no review task in the pinned lifecycle for this kind; no round is opened",
+			"artifactKind", artifactKindString(in.ArtifactKind))
+		return
+	}
+	if !wf.openDesignActivity(ctx, in, key, state) {
+		return
+	}
+	// The LEDGER's number, not the session's: state.roundBase is what the durable ledger
+	// already holds for this kind's gate (seedRoundBaseFromLedger), so a second session of
+	// the same kind continues the history instead of re-minting the first session's ids.
+	// Zero for a first session, which leaves the numbering exactly as it was.
+	n := state.roundBase + reviewRound + 1
+	round := designRound{
+		key:       key,
+		roundID:   designRoundID(key, kind, n),
+		number:    n,
+		subject:   designSubjectRef(gf, kind),
+		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, key.activityID,
+			projectstate.ReviewRoundInput{
+				RoundID:    round.roundID,
+				TaskID:     key.gate,
+				Reviews:    key.work,
+				Round:      int64(round.number),
+				SubjectRef: round.subject,
+				Reviewers:  state.roundReviewers,
+			}, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		// Best-effort, exactly like the thread reload beside it: the slot write is still the
+		// read path for the length of the wave, so a ledger miss must not cost the reviewer
+		// their gate. The round simply does not exist, and every write point below is a
+		// no-op without it.
+		workflow.GetLogger(ctx).Error("round ledger: could not open the review round; the session continues on the slot ledger alone",
+			"artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.rowAdvanced()
+	state.round = round
+}
+
+// openDesignActivity births the execution row and pins the lifecycle in force, once per
+// session. The pin is what stops a method-assets release landing mid-session from
+// re-shaping the DAG the rounds below were written under.
+func (wf *pdWorkflows) openDesignActivity(ctx workflow.Context, in pdCoAuthorInput, key designRoundKey, state *pdCoAuthorState) bool {
+	if state.activityOpened {
+		return true
+	}
+	pin := projectstate.LifecyclePin{
+		TypeKey:       projectstate.LifecycleKeyFor(key.typ, projectstate.TestVariantPlan),
+		AssetsVersion: methodassets.Version(),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, key.activityID, key.typ, projectstate.TestVariantPlan, pin, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not open the design activity row; no round is written this session",
+			"activityId", key.activityID, "err", err.Error())
+		return false
+	}
+	state.ledgerVersion = v
+	state.rowAdvanced()
+	state.activityOpened = true
+	return true
+}
+
+// NO CRITIC VERDICT ON THIS RAIL. Phase 2 has no critique step at all — the plan is
+// COMPUTED, not drafted, so the review engine's own designReviewersFor returns an empty
+// roster for projectDesign and the only judge is the human at M0. The systemdesign twin's
+// appendCriticVerdict has deliberately no counterpart here rather than a stub that would
+// invite someone to fabricate one.
+
+// appendDesignVerdict lands one reviewer's judgement, the comments it cites and the
+// utterances it answers on the open round, in ONE commit. It also remembers where each
+// comment landed, so a later resolve / reopen of that comment can be mirrored onto the
+// round without reading it back.
+//
+// slotReplies are the reviewer's queued replies as the SLOT ledger received them, keyed on
+// SLOT comment ids; roundRepliesFor re-keys the ones this round can actually take.
+//
+// A no-op when no round is open, and best-effort when one is: the slot ledger is still the
+// read path, so a round write that faults must not take the reviewer's decision with it.
+func (wf *pdWorkflows) appendDesignVerdict(
+	ctx workflow.Context,
+	in pdCoAuthorInput,
+	state *pdCoAuthorState,
+	verdict projectstate.ReviewVerdict,
+	comments []projectstate.ReviewComment,
+	slotIDs []string,
+	slotReplies []projectstate.ReviewReply,
+) {
+	if state.round.roundID == "" {
+		return
+	}
+	replies := state.roundRepliesFor(slotReplies)
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, state.round.key.activityID, state.round.roundID, verdict, comments, replies, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not append the verdict; the slot ledger still carries the decision",
+			"roundId", state.round.roundID, "reviewerRole", verdict.ReviewerRole, "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.rowAdvanced()
+	state.rememberRoundComments(slotIDs, len(comments))
+}
+
+// roundRepliesFor re-keys the reviewer's queued replies from the SLOT ledger's comment ids
+// onto the ROUND ledger's, keeping only the ones whose parent comment lives in the round
+// this append is landing on.
+//
+// THE REST ARE DROPPED FROM THE ROUND LEDGER, DELIBERATELY. AppendReviewVerdict appends a
+// reply to the thread of the round it is given, and a reply naming a comment that is not in
+// that thread makes the whole append fail — so a reply to an EARLIER round's comment cannot
+// be mirrored at all: that round is already decided, and a decided round is terminal, which
+// is the store's own rule and not one this workflow may route around. The slot ledger still
+// carries it, and the slot ledger is still the read path for the length of the wave.
+// EARMARK (stage 4/6): cross-round replies need a verb that appends to a decided round's
+// thread, or the round model needs the conversation to outlive its round.
+//
+// Today the kept set is empty in practice: each design round takes exactly one comment
+// batch (the human's send-back), so a reply — which by construction answers a thread that
+// ALREADY existed when the batch was split — always names an earlier round. The pairing is
+// written and tested anyway, because the moment a round takes a second batch the silent
+// alternative is a reviewer utterance mis-attached to the wrong comment.
+func (s *pdCoAuthorState) roundRepliesFor(slotReplies []projectstate.ReviewReply) []projectstate.ReviewReply {
+	if len(slotReplies) == 0 || s.round.roundID == "" {
+		return nil
+	}
+	out := make([]projectstate.ReviewReply, 0, len(slotReplies))
+	for _, r := range slotReplies {
+		ref, ok := s.roundComments[r.CommentID]
+		if !ok || ref.roundID != s.round.roundID {
+			continue
+		}
+		held := r
+		held.CommentID = ref.commentID
+		out = append(out, held)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// rememberRoundComments records the slot-comment-id → round-comment-id pairing for the
+// batch just appended, so a resolve / reopen filed against the SLOT's id can be mirrored
+// onto the round.
+//
+// The pairing is computed, not read back, because both stores mint deterministically from
+// the batch's own index: the slot stamps r{slotRound}c{i+1} (appendReviewComments) and the
+// round stamps r{roundNumber}c{i+1} (applyRoundReviewBatch, onto a thread this rail only
+// ever appends to once per round). The two differ ONLY in the round number, which is the
+// +1 offset designRound.number documents. A batch whose two halves disagree in length is
+// not paired at all rather than paired wrongly.
+func (s *pdCoAuthorState) rememberRoundComments(slotIDs []string, appended int) {
+	if len(slotIDs) != appended || appended == 0 {
+		return
+	}
+	if s.roundComments == nil {
+		s.roundComments = map[string]roundCommentRef{}
+	}
+	for i, slotID := range slotIDs {
+		s.roundComments[slotID] = roundCommentRef{
+			roundID:   s.round.roundID,
+			commentID: projectstate.ReviewCommentID(int64(s.round.number), i),
+		}
+	}
+}
+
+// rowAdvanced records that ONE transition applied to the design activity's execution row,
+// which is exactly what the store stamped on it — the per-activity counter advances by one
+// per APPLIED transition and by nothing on a refusal. Every round write on this rail calls
+// it; nothing else on this rail writes the row (the slot ledger and the design session's
+// branch verbs write slots and branches, not activity rows), so this is the whole of the
+// rail's bookkeeping.
+func (s *pdCoAuthorState) rowAdvanced() { s.activityVersion++ }
+
+// decideDesignRound stamps the round's terminal — a separate, later fact from the verdicts
+// on it, which is why the store makes it a second verb and not a field of the first.
+// decidedBy is WHO settled it: the approver's own name where the signal carried one (the
+// vibes auto-approver included, which is how an auto-approved design gate stops being
+// invisible), and the operator otherwise.
+func (wf *pdWorkflows) decideDesignRound(
+	ctx workflow.Context,
+	projectID ProjectID,
+	state *pdCoAuthorState,
+	outcome projectstate.ReviewRoundOutcome,
+	decidedBy string,
+) {
+	if state.round.roundID == "" {
+		return
+	}
+	if decidedBy == "" {
+		decidedBy = pdDesignActorOperator
+	}
+	v, err := wf.applyRecovering(ctx, projectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(projectID), expected,
+			state.activityVersion, state.round.key.activityID, state.round.roundID, outcome, decidedBy, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not decide the review round; it stays pending for the stage-4 sweep",
+			"roundId", state.round.roundID, "outcome", string(outcome), "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.rowAdvanced()
+	// The round is settled: the next gate entry opens a fresh one.
+	state.round = designRound{}
+}
+
+// mirrorCommentStatus applies the reviewer's resolve / reopen to the ROUND thread as well
+// as the slot thread. It fires only for comments this session itself appended to a round
+// (rememberRoundComments): a comment seeded straight onto the slot — an amendment's
+// reopening feedback, a failed-gate feedback seed, an asked question — has no round
+// counterpart to move, and naming one would be a NotFound on every retry the Activity is
+// given. EARMARK: those three seed doors join the round ledger in stage 4.
+func (wf *pdWorkflows) mirrorCommentStatus(ctx workflow.Context, in pdCoAuthorInput, state *pdCoAuthorState, sig setCommentStatusSignal) {
+	ref, ok := state.roundComments[sig.CommentID]
+	if !ok {
+		return
+	}
+	key, ok := pdDesignRoundKeyFor(toPSKind(in.ArtifactKind))
+	if !ok {
+		return
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionSetReviewCommentStatus(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, key.activityID, ref.roundID, ref.commentID, sig.Status, projectstate.RepoCredential{})
+	})
+	if err != nil {
+		workflow.GetLogger(ctx).Error("round ledger: could not mirror the comment status; the slot ledger carries it",
+			"commentId", sig.CommentID, "status", sig.Status, "err", err.Error())
+		return
+	}
+	state.ledgerVersion = v
+	state.rowAdvanced()
+}
+
+// pdFeedbackToLedgerComments converts the architect's inbound anchored comments (on a Reject's
+// ReviewFeedback) into the projectstate.ReviewComment shape the append verb stamps into the
+// durable thread. Only Anchor / AnchorText / Text / AuthorRole are filled — id / round / open
+// status are server-minted in appendReviewComments. An anchored comment with empty Text is
+// dropped (defensive); free-text Notes stay the reject notes, not ledger comments.
+func pdFeedbackToLedgerComments(feedback *ReviewFeedback) []projectstate.ReviewComment {
+	if feedback == nil {
+		return nil
+	}
+	out := make([]projectstate.ReviewComment, 0, len(feedback.Comments))
+	for _, c := range feedback.Comments {
+		if c.Text == "" {
+			continue
+		}
+		out = append(out, projectstate.ReviewComment{
+			Anchor:     c.JSONPath,
+			AnchorText: c.AnchorText,
+			Text:       c.Text,
+			AuthorRole: reviewAuthorRole,
+		})
+	}
+	return out
+}
+
+// openReviewCommentIDs PROMOTED to projectstate.OpenReviewCommentIDs
+// (code-health-phase-bd task D3) — byte-identical pure predicate, no longer duplicated
+// with systemdesign's twin.
+
+// seedAmendmentLedger records the reopening feedback as round-0 OPEN ledger entries on the
+// amendment session branch after the first stage, then reloads the in-memory thread. Both the
+// anchored Comments AND the free-text Notes rationale seed (the Notes as one unanchored comment
+// — the amend-seed-notes fix). Best-effort; no-op only when the feedback carries neither.
+// maybeSeedAmendment seeds the amendment ledger exactly once when an amendment session first
+// reaches AwaitingReview, returning the updated seeded flag (keeps the spine flat).
+func (wf *pdWorkflows) maybeSeedAmendment(ctx workflow.Context, in pdCoAuthorInput, gf gitSession, headVersion *projectstate.Version, seeded bool, state *pdCoAuthorState) bool {
+	if in.Amendment > 0 && !seeded {
+		wf.seedAmendmentLedger(ctx, in, gf, headVersion, state)
+		return true
+	}
+	return seeded
+}
+
+func (wf *pdWorkflows) seedAmendmentLedger(ctx workflow.Context, in pdCoAuthorInput, gf gitSession, headVersion *projectstate.Version, state *pdCoAuthorState) {
+	comments := pdFeedbackToLedgerComments(in.Feedback)
+	// See the systemdesign twin: the webApp Amend composer folds the rationale + queued
+	// rail comments into Feedback.Notes (it sends no structured Comments), which
+	// pdFeedbackToLedgerComments drops — leaving a Notes-only amendment to reopen the ledger
+	// EMPTY and reconcile on a stale basis with the user's direction lost. Synthesize an
+	// unanchored round-0 comment carrying the Notes, GetVersion-gated so amendment sessions
+	// in flight at deploy time replay deterministically (mirrors failed-gate-ledger-seed-p2).
+	if workflow.GetVersion(ctx, "amend-seed-notes-p2", workflow.DefaultVersion, 1) >= 1 {
+		if in.Feedback != nil {
+			if notes := strings.TrimSpace(in.Feedback.Notes); notes != "" {
+				comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
+			}
+		}
+	}
+	if len(comments) == 0 {
+		return
+	}
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// nil replies: Phase-2 reply ROUTING is a Stage-2 deliverable, and no replyTo can
+		// reach this seed — the Manager ops refuse one at the door (pdCheckNoReplyTo,
+		// ruling P13) rather than let it be silently re-filed as a fresh thread.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), 0, comments, nil)
+	})
+	if err != nil {
+		return
+	}
+	*headVersion = newVersion
+	// The amendment feedback is now durably in the ledger; keep feedbackSeeded true so the
+	// pre-dispatch failed-gate seed does not re-seed the same round-0 comments.
+	state.feedbackSeeded = true
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+}
+
+// seedFailedGateFeedback durably records the architect feedback that a MEMORY-ONLY failed-gate
+// recovery path (a redraft signal / a Retry-via-Reject AT a failed gate / a faulted reject)
+// retained ONLY in the workflow's feedback variable. Unlike the review-gate reject and the
+// amendment seed, those paths never wrote it to the durable review ledger — so under thin
+// dispatch (the drafting agent reads context ONLY via getReviewThread) it would evaporate. This
+// folds the SAME anchored comments the reject path uses (pdFeedbackToLedgerComments) into the
+// ledger on the SAME session branch — PLUS the free-text Notes rationale as one unanchored
+// comment (the amend-seed-notes fix; a memory-only feedback is often Notes-only) — consuming a
+// review round (reviewRound, like a reject) so the seeded ids do not collide with a later
+// reject's on the one accumulating thread. Best-effort, mirroring seedAmendmentLedger: an empty
+// feedback (neither Notes nor anchored comments), an unpopulated slot, a non-ledger substrate,
+// or a transient fault leaves the feedback un-seeded and RETRIES on the next redraft dispatch.
+// Returns whether the seed durably landed, so the
+// caller marks feedbackSeeded and stops re-seeding. headVersion is a hint only — applyRecovering
+// re-reads on a version conflict.
+func (wf *pdWorkflows) seedFailedGateFeedback(ctx workflow.Context, in pdCoAuthorInput, gf gitSession, headVersion projectstate.Version, feedback *ReviewFeedback, reviewRound *int, state *pdCoAuthorState) bool {
+	comments := pdFeedbackToLedgerComments(feedback)
+	// Fold the free-text rationale (Notes) into an unanchored comment too (see the
+	// systemdesign twin) so a Notes-only memory-only failed-gate feedback is not lost under
+	// thin dispatch. Same change id as the amendment seed above.
+	if workflow.GetVersion(ctx, "amend-seed-notes-p2", workflow.DefaultVersion, 1) >= 1 {
+		if feedback != nil {
+			if notes := strings.TrimSpace(feedback.Notes); notes != "" {
+				comments = append(comments, projectstate.ReviewComment{Text: notes, AuthorRole: reviewAuthorRole})
+			}
+		}
+	}
+	if len(comments) == 0 {
+		return false
+	}
+	branch := gf.readBackBranch()
+	round := int64(*reviewRound)
+	if _, err := wf.applyRecovering(ctx, in.ProjectID, branch, headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		// nil replies: Phase-2 reply ROUTING is a Stage-2 deliverable, and no replyTo can
+		// reach this seed — the Manager ops refuse one at the door (pdCheckNoReplyTo,
+		// ruling P13) rather than let it be silently re-filed as a fresh thread.
+		return wf.Acts.DesignSessionSeedReviewCommentsOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, branch, toPSKind(in.ArtifactKind), round, comments, nil)
+	}); err != nil {
+		return false
+	}
+	// A durable ledger write consumes a review round (exactly like the reject path), so a LATER
+	// reject's r{round}c{n} ids do not collide with these on the accumulating thread.
+	*reviewRound++
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+	return true
+}
+
+// loadReviewThread reads the artifact slot's durable ledger from the session branch ("" ⇒
+// main). Called after every (re)stage and every waive/reopen so the query + approve gate see
+// the live thread. A read fault is returned; the caller keeps the last-known thread.
+func (wf *pdWorkflows) loadReviewThread(ctx workflow.Context, in pdCoAuthorInput, gf gitSession) ([]projectstate.ReviewComment, error) {
+	proj, err := wf.readProjectOnBranch(ctx, in.ProjectID, gf.readBackBranch())
+	if err != nil {
+		return nil, err
+	}
+	return pdSlotFor(proj, toPSKind(in.ArtifactKind)).ReviewThread, nil
+}
+
+// applyCommentStatus applies one human review-ledger transition (waive / reopen) on the
+// session branch during the AwaitingReview window, then refreshes the in-memory thread.
+// Best-effort: an illegal transition / unknown id / transient fault leaves the review session
+// at the gate with the unchanged thread (the manager pre-check already rejected most bad
+// requests synchronously).
+func (wf *pdWorkflows) applyCommentStatus(ctx workflow.Context, in pdCoAuthorInput, gf gitSession, headVersion *projectstate.Version, sig setCommentStatusSignal, state *pdCoAuthorState) {
+	newVersion, err := wf.applyRecovering(ctx, in.ProjectID, gf.readBackBranch(), *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.DesignSessionSetReviewCommentStatusOnBranch(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.readBackBranch(), toPSKind(in.ArtifactKind), sig.CommentID, sig.Status)
+	})
+	if err != nil {
+		return
+	}
+	*headVersion = newVersion
+	// ROUND LEDGER (stage 3 task 6): the same transition on the round's own copy of the
+	// comment. Inert off the fence and for a comment this session did not append to a round.
+	wf.mirrorCommentStatus(ctx, in, state, sig)
+	if thread, terr := wf.loadReviewThread(ctx, in, gf); terr == nil {
+		state.reviewThread = thread
+	}
+}
+
+// sameArtifactModel PROMOTED to projectstate.SameArtifactModel
+// (code-health-phase-bd task D3) — byte-identical pure comparator, no longer duplicated
+// with systemdesign's twin.

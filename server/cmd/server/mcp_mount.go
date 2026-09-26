@@ -1,5 +1,5 @@
 // MCP transport mount. This file is the composition-root glue that exposes the
-// four web-wired managers over the Model Context Protocol, mirroring the REST
+// two web-wired managers over the Model Context Protocol, mirroring the REST
 // wiring in main.go (web.NewServer): it constructs ONE mcp.Server, registers
 // every generated per-manager tool Handler against the SAME manager instances
 // the REST Handlers use, and returns the SDK's streamable-HTTP transport wrapped
@@ -17,35 +17,27 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
-	constructionmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/construction"
+	deliverymcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/delivery"
 	operationsmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/operations"
-	projectdesignmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/projectdesign"
-	systemdesignmcp "github.com/mixofreality-studio/archistrator/server/internal/client/mcp/systemdesign"
 	"github.com/mixofreality-studio/archistrator/server/internal/client/web"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/construction"
+	"github.com/mixofreality-studio/archistrator/server/internal/manager/delivery"
 	"github.com/mixofreality-studio/archistrator/server/internal/manager/operations"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/projectdesign"
-	"github.com/mixofreality-studio/archistrator/server/internal/manager/systemdesign"
 
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 )
 
 // newMCPServer builds the single MCP server carrying every generated tool. Tool
-// names are manager-namespaced (systemDesign*/projectDesign*/construction*/
-// operations*), so registering all four Handlers on one server never collides.
-// webAppOrigin/assetVersion configure the ui://archistrator/shell.html resource
-// (mcp_apps.go) registered alongside the four generated tool Handlers.
+// names are manager-namespaced (delivery*/operations*), so registering both
+// Handlers on one server never collides. webAppOrigin/assetVersion configure the
+// ui://archistrator/shell.html resource (mcp_apps.go) registered alongside the
+// two generated tool Handlers.
 func newMCPServer(
-	sd systemdesign.SystemDesignManager,
-	pd projectdesign.ProjectDesignManager,
-	cons construction.ConstructionManager,
+	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) *mcp.Server {
 	srv := mcp.NewServer(&mcp.Implementation{Name: "archistrator-server", Version: "1.0.0"}, nil)
-	(&systemdesignmcp.Handler{Manager: sd}).Register(srv)
-	(&projectdesignmcp.Handler{Manager: pd}).Register(srv)
-	(&constructionmcp.Handler{Manager: cons}).Register(srv)
+	(&deliverymcp.Handler{Manager: del}).Register(srv)
 	(&operationsmcp.Handler{Manager: ops}).Register(srv)
 	registerShellResource(srv, webAppOrigin, assetVersion)
 	return srv
@@ -83,13 +75,11 @@ func devCORS(enabled bool, next http.Handler) http.Handler {
 func newMCPHandler(
 	dev web.DevConfig,
 	validator security.Validator,
-	sd systemdesign.SystemDesignManager,
-	pd projectdesign.ProjectDesignManager,
-	cons construction.ConstructionManager,
+	del delivery.DeliveryManager,
 	ops operations.OperationsManager,
 	webAppOrigin, assetVersion string,
 ) http.Handler {
-	srv := newMCPServer(sd, pd, cons, ops, webAppOrigin, assetVersion)
+	srv := newMCPServer(del, ops, webAppOrigin, assetVersion)
 	transport := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, nil)
 	return devCORS(dev.Enabled, web.AuthMiddleware(dev, validator)(transport))
 }

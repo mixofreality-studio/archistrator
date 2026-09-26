@@ -102,90 +102,129 @@ func sentinelError(err error) error {
 	return err
 }
 
+// --- STAGE 4a ---------------------------------------------------------------
+//
+// The three Managers this harness used to call are one (deliveryManager, twelve ops),
+// so each Transport method below is re-pointed onto the op that now serves it. The
+// Transport INTERFACE is unchanged — the scenarios still read CreateProject /
+// GetSessionState / SubmitPhaseDecision — and so is everything each one proves; only
+// the entry point moved. The map is Task 6 Step 9's dispatch table read backwards:
+// CreateProject/SetResearchInput/StartDesign -> StartProject, every artifact draft ->
+// DispatchActivityTask, every review verdict and phase seal -> SubmitReviewDecision,
+// every session/catalog read -> QueryProjectView, and SetReviewPolicy ->
+// SetProjectExecutionPolicy.
+//
+// The design ACTIVITY a task belongs to is derived from its artifact kind, exactly as
+// the Manager derives it: the requirements activity owns mission/glossary/
+// scrubbedRequirements/volatilities/coreUseCases, architecture owns system/
+// operationalConcepts/standardCheck, and projectDesign owns every Phase-2 kind.
+
 // --- UC1 (system-design / Phase-1) ------------------------------------------
 
 func (t *httpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	id, err := t.client.SystemDesignCreateProject(ctx, testOwner, name)
-	return string(id), sentinelError(err)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, nil, nil, nil, false)
+	return string(res.ProjectID), sentinelError(err)
 }
 
 func (t *httpTransport) ListProjects(ctx context.Context, owner string) ([]ProjectSummary, error) {
-	rows, err := t.client.SystemDesignListProjects(ctx, sdk.OwnerScope(owner))
+	scope := sdk.OwnerScope(owner)
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewProjects, Owner: &scope,
+	})
 	if err != nil {
 		return nil, sentinelError(err)
 	}
-	return toProjectSummaries(rows), nil
+	return toProjectSummaries(view.Projects), nil
 }
 
 func (t *httpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
-	_, err := t.client.SystemDesignSetResearchInput(ctx, sdk.ProjectID(projectID), toResearchInput(sources))
+	research := toResearchInput(sources)
+	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, &research, false)
 	return sentinelError(err)
 }
 
 func (t *httpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	ref, err := t.client.SystemDesignStartSystemDesign(ctx, sdk.ProjectID(projectID))
-	return string(ref), sentinelError(err)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, nil, true)
+	if res.Session == nil {
+		return "", sentinelError(err)
+	}
+	return string(*res.Session), sentinelError(err)
 }
 
 func (t *httpTransport) RequestArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	ref, err := t.client.SystemDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), draftTaskFor(kind), nil)
 	return string(ref), sentinelError(err)
 }
 
 func (t *httpTransport) GetSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	view, err := t.client.SystemDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
-	if err != nil {
+	view, err := t.querySession(ctx, projectID, kind)
+	if err != nil || view.Session == nil {
 		// Any non-200 (404 not-yet-started, transient 503, ...) means "not
 		// observable yet" to a poller — never fatal here.
 		return SessionState{}, false, sentinelError(err)
 	}
+	s := view.Session
 	return SessionState{
-		ProjectID:     string(view.ProjectID),
-		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
-		Stage:         systemStageName(view.Stage),
-		FailureReason: strPtrVal(view.FailureReason),
+		ProjectID:     string(s.ProjectID),
+		ArtifactKind:  artifactKindNameOf(s.ArtifactKind),
+		Stage:         systemStageName(s.Stage),
+		FailureReason: strPtrVal(s.FailureReason),
 	}, true, nil
 }
 
 func (t *httpTransport) SubmitReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	err := t.client.SystemDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
-		artifactKind(kind), reviewDecision(decision), systemFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), reviewTaskFor(kind),
+		sdk.ReviewDecisionInput{Decision: reviewDecision(decision)}, systemFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *httpTransport) AdvancePhase(ctx context.Context, projectID string) (bool, []string, error) {
-	res, err := t.client.SystemDesignAdvancePhase(ctx, sdk.ProjectID(projectID), false)
-	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+	// The phase seal is the ReviewAdvance decision on the architecture activity's gate;
+	// the outcome is read back through the summary view, not returned by the write.
+	ack := false
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"architecture", "architectureReview",
+		sdk.ReviewDecisionInput{Decision: sdk.ReviewAdvance, AcknowledgeStale: &ack}, nil)
+	if err != nil {
+		return false, nil, sentinelError(err)
+	}
+	return t.phaseAdvanced(ctx, projectID, sdk.PhaseProjectDesign)
 }
 
 // --- UC2 (project-design / Phase-2) -----------------------------------------
 
 func (t *httpTransport) RequestProjectArtifactDraft(ctx context.Context, projectID, kind string) (string, error) {
-	ref, err := t.client.ProjectDesignRequestArtifactDraft(ctx, sdk.ProjectID(projectID), artifactKind(kind), nil)
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), draftTaskFor(kind), nil)
 	return string(ref), sentinelError(err)
 }
 
 func (t *httpTransport) GetProjectSessionState(ctx context.Context, projectID, kind string) (SessionState, bool, error) {
-	view, err := t.client.ProjectDesignGetSessionState(ctx, sdk.ProjectID(projectID), artifactKind(kind))
-	if err != nil {
+	view, err := t.querySession(ctx, projectID, kind)
+	if err != nil || view.ProjectSession == nil {
 		return SessionState{}, false, sentinelError(err)
 	}
+	s := view.ProjectSession
 	return SessionState{
-		ProjectID:     string(view.ProjectID),
-		ArtifactKind:  artifactKindNameOf(view.ArtifactKind),
-		Stage:         projectStageName(view.Stage),
-		FailureReason: strPtrVal(view.FailureReason),
+		ProjectID:     string(s.ProjectID),
+		ArtifactKind:  artifactKindNameOf(s.ArtifactKind),
+		Stage:         projectStageName(s.Stage),
+		FailureReason: strPtrVal(s.FailureReason),
 	}, true, nil
 }
 
 func (t *httpTransport) SubmitProjectReview(ctx context.Context, projectID, kind, decision, feedback string) error {
-	err := t.client.ProjectDesignSubmitReviewDecision(ctx, sdk.ProjectID(projectID),
-		artifactKind(kind), reviewDecision(decision), projectFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		designActivityFor(kind), reviewTaskFor(kind),
+		sdk.ReviewDecisionInput{Decision: reviewDecision(decision)}, projectFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *httpTransport) RequestSDPCommit(ctx context.Context, projectID string) (string, error) {
-	ref, err := t.client.ProjectDesignRequestSDPCommit(ctx, sdk.ProjectID(projectID))
+	ref, err := t.client.DeliveryDispatchActivityTask(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview", nil)
 	return string(ref), sentinelError(err)
 }
 
@@ -193,44 +232,54 @@ func (t *httpTransport) SubmitSDPDecision(ctx context.Context, projectID, decisi
 	// optionID is a PATH segment on this route; the ServeMux pattern requires it
 	// even for rejectAll (which carries no option) — "-" is the harness's
 	// placeholder for "no option". The SDK takes a VALUE sdk.OptionID.
-	seg := optionID
-	if seg == "" {
-		seg = "-"
+	in := sdk.ReviewDecisionInput{Decision: sdpReviewDecision(decision)}
+	if optionID != "" {
+		in.OptionID = &optionID
 	}
-	err := t.client.ProjectDesignSubmitSDPDecision(ctx, sdk.ProjectID(projectID),
-		sdpDecision(decision), sdk.OptionID(seg), projectFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview", in, projectFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *httpTransport) AdvanceToConstruction(ctx context.Context, projectID string) (bool, []string, error) {
-	res, err := t.client.ProjectDesignAdvanceToConstruction(ctx, sdk.ProjectID(projectID), false)
-	return res.Advanced, decodeMissingArtifacts(res.MissingArtifacts), sentinelError(err)
+	ack := false
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID),
+		"projectDesign", "sdpReview",
+		sdk.ReviewDecisionInput{Decision: sdk.ReviewAdvance, AcknowledgeStale: &ack}, nil)
+	if err != nil {
+		return false, nil, sentinelError(err)
+	}
+	return t.phaseAdvanced(ctx, projectID, sdk.PhaseConstruction)
 }
 
 // --- UC3 (construction / Phase-3) -------------------------------------------
 
 func (t *httpTransport) ExecuteNextActivity(ctx context.Context, projectID, tickID string) (bool, string, error) {
-	res, err := t.client.ConstructionExecuteNextActivity(ctx, sdk.ProjectID(projectID), tickID)
+	res, err := t.client.DeliveryExecuteNextActivity(ctx, sdk.ProjectID(projectID), tickID)
 	return res.Dispatched, activityIDPtrVal(res.ActivityID), sentinelError(err)
 }
 
 func (t *httpTransport) GetConstructionSessionState(ctx context.Context, projectID, activityID string) (ConstructionSessionState, error) {
-	view, err := t.client.ConstructionGetSessionState(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID))
-	if err != nil {
+	id := activityID
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSession, ProjectID: &projectID, ActivityID: &id,
+	})
+	if err != nil || view.ConstructionSession == nil {
 		return ConstructionSessionState{}, sentinelError(err)
 	}
-	return toConstructionSessionState(view), nil
+	return toConstructionSessionState(*view.ConstructionSession), nil
 }
 
 func (t *httpTransport) SubmitPhaseDecision(ctx context.Context, projectID, activityID, phase, decision, feedback string) error {
-	err := t.client.ConstructionSubmitPhaseDecision(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
-		phase, phaseDecision(decision), constructionFeedback(feedback))
+	err := t.client.DeliverySubmitReviewDecision(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
+		phase, sdk.ReviewDecisionInput{Decision: phaseReviewDecision(decision)}, constructionFeedback(feedback))
 	return sentinelError(err)
 }
 
 func (t *httpTransport) UpdateReviewPolicy(ctx context.Context, projectID string, gatedPhasesByType map[string][]string) error {
-	err := t.client.ConstructionUpdateReviewPolicy(ctx, sdk.ProjectID(projectID),
-		sdk.ReviewPolicyInput{GatedPhasesByType: gatedPhasesByType})
+	policy := sdk.ReviewPolicyInput{GatedPhasesByType: gatedPhasesByType}
+	err := t.client.DeliverySetProjectExecutionPolicy(ctx, sdk.ProjectID(projectID),
+		sdk.ExecutionPolicyInput{Policy: &policy})
 	return sentinelError(err)
 }
 
@@ -334,23 +383,74 @@ func activityIDPtrVal(id *sdk.ActivityID) string {
 // feedback builders — the Manager requires a non-empty feedback object only on
 // reject/sendBack; the harness passes "" otherwise, which becomes a nil pointer
 // (the omitempty field is dropped from the request body, exactly as before).
-func systemFeedback(notes string) *sdk.SystemDesignReviewFeedback {
+func systemFeedback(notes string) *sdk.ReviewFeedback {
 	if notes == "" {
 		return nil
 	}
-	return &sdk.SystemDesignReviewFeedback{Notes: notes}
+	return &sdk.ReviewFeedback{Notes: notes}
 }
 
-func projectFeedback(notes string) *sdk.ProjectDesignReviewFeedback {
+func projectFeedback(notes string) *sdk.ReviewFeedback {
 	if notes == "" {
 		return nil
 	}
-	return &sdk.ProjectDesignReviewFeedback{Notes: notes}
+	return &sdk.ReviewFeedback{Notes: notes}
 }
 
-func constructionFeedback(notes string) *sdk.ConstructionReviewFeedback {
+func constructionFeedback(notes string) *sdk.ReviewFeedback {
 	if notes == "" {
 		return nil
 	}
-	return &sdk.ConstructionReviewFeedback{Notes: notes}
+	return &sdk.ReviewFeedback{Notes: notes}
+}
+
+// querySession is the one session read the twelve-op surface exposes; which arm of the
+// ProjectView it fills (Session for a Phase-1 kind, ProjectSession for a Phase-2 one) is
+// the Manager's decision, made from the artifact kind, so both callers pass the kind and
+// read their own arm.
+func (t *httpTransport) querySession(ctx context.Context, projectID, kind string) (sdk.ProjectView, error) {
+	ak := artifactKind(kind)
+	return t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSession, ProjectID: &projectID, ArtifactKind: &ak,
+	})
+}
+
+// phaseAdvanced reads the phase seal's OUTCOME back off the summary view. The old
+// AdvancePhase/AdvanceToConstruction ops returned {advanced, missingArtifacts}; the
+// merged SubmitReviewDecision is void, so the harness reads the same two facts from
+// state — the project's phase, and (when it has not moved) the uncommitted slots that
+// are holding it.
+func (t *httpTransport) phaseAdvanced(ctx context.Context, projectID string, want sdk.Phase) (bool, []string, error) {
+	view, err := t.client.DeliveryQueryProjectView(ctx, sdk.ProjectViewQuery{
+		Kind: sdk.ProjectViewSummary, ProjectID: &projectID,
+	})
+	if err != nil || view.Summary == nil {
+		return false, nil, sentinelError(err)
+	}
+	if view.Summary.Phase == want {
+		return true, nil, nil
+	}
+	var missing []string
+	for _, slot := range view.Summary.Slots {
+		if slot.Stage != sdk.ArtifactStageCommitted {
+			missing = append(missing, slot.Kind)
+		}
+	}
+	return false, missing, nil
+}
+
+// QueryActivityView reads one activity's whole lifecycle through the twelve-op surface.
+func (t *httpTransport) QueryActivityView(ctx context.Context, projectID, activityID string) (string, error) {
+	view, err := t.client.DeliveryQueryActivityView(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID))
+	if err != nil {
+		return "", sentinelError(err)
+	}
+	return activityViewStateName(view.State), nil
+}
+
+// OverrideActivity delivers the operator's steer through the twelve-op surface.
+func (t *httpTransport) OverrideActivity(ctx context.Context, projectID, activityID string, kind int, notes string) error {
+	err := t.client.DeliveryOverrideActivity(ctx, sdk.ProjectID(projectID), sdk.ActivityID(activityID),
+		sdk.ActivityOverride{Kind: sdk.OverrideKind(kind), Notes: notes})
+	return sentinelError(err)
 }

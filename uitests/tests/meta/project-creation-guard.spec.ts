@@ -4,12 +4,12 @@
  *
  * A META-check: it drives no page. It pins two things:
  *
- *   (a) the guard's rule (guardLetsThrough): GET and HEAD pass; every other write is
- *       aborted unless the spec named it; and creating a project, or any
- *       construction write, is aborted WHATEVER a spec names;
+ *   (a) the guard's rule (guardLetsThrough): GET, HEAD and the one merged READ pass;
+ *       every other write is aborted unless the spec named it; and creating a
+ *       project, or any pump write, is aborted WHATEVER a spec names;
  *   (b) the suite's SOURCE, statically: openSharedProject never reaches the create
  *       flow; the real create flow runs only in the seed step, or under a stub that
- *       answers create-project in the browser; and every spec that opens a project
+ *       answers start-project in the browser; and every spec that opens a project
  *       runs under the shared dispatch guard.
  */
 import { test, expect } from '../support/dispatchGuard.js';
@@ -33,35 +33,38 @@ const read = (rel: string): string => readFileSync(join(TESTS, rel), 'utf8');
 
 test('the guard: reads pass, unnamed writes do not, and creates never do', () => {
   for (const method of ['GET', 'HEAD']) {
-    expect(guardLetsThrough(method, `${API}/system-design/create-project`, [])).toBe(true);
+    expect(guardLetsThrough(method, `${API}/delivery/start-project`, [])).toBe(true);
   }
-  expect(guardLetsThrough('POST', `${API}/system-design/request-artifact-draft/p1`, [])).toBe(
-    false
-  );
+  expect(guardLetsThrough('POST', `${API}/delivery/dispatch-activity-task/p1/a1`, [])).toBe(false);
+  // The MERGED READ is a POST and always passes (stage 4a): its selector is a
+  // ProjectViewQuery in the body, so it could not be a GET, and aborting it would
+  // abort the project read of every spec in the suite.
+  expect(guardLetsThrough('POST', `${API}/delivery/query-project-view`, [])).toBe(true);
+  // Named exactly, never by shape: the next POST spelled like a read is still a write.
+  expect(guardLetsThrough('POST', `${API}/delivery/query-project-view/extra`, [])).toBe(false);
   // The live-drafting set lets the co-author loop through...
   for (const op of [
-    'start-system-design',
-    'set-research-input',
-    'request-artifact-draft',
+    'dispatch-activity-task',
     'submit-review-decision',
+    'ask-questions',
+    'acknowledge-stale-basis',
   ]) {
-    expect(guardLetsThrough('POST', `${API}/system-design/${op}/p1`, LIVE_DRAFTING_WRITES), op).toBe(
-      true
-    );
+    expect(
+      guardLetsThrough('POST', `${API}/delivery/${op}/p1/a1`, LIVE_DRAFTING_WRITES),
+      op
+    ).toBe(true);
   }
-  // ...but not advance-phase (fix I): no client code sends it, so the live
-  // drafting specs have no need to let it through.
-  expect(
-    guardLetsThrough('POST', `${API}/system-design/advance-phase/p1`, LIVE_DRAFTING_WRITES)
-  ).toBe(false);
-  // ...and never a create, a create's operating model, or any construction write,
-  // even under an allowance that names everything.
+  // ...and never a create (start-project both creates a project and names its
+  // operating model now), nor any write that drives the pump, even under an
+  // allowance that names everything.
   const everything = [/.*/];
   for (const url of [
-    `${API}/system-design/create-project`,
-    `${API}/system-design/set-operating-model/p1`,
-    `${API}/construction/execute-next-activity/p1`,
-    `${API}/construction/submit-phase-decision/p1`,
+    `${API}/delivery/start-project`,
+    `${API}/delivery/execute-next-activity/p1`,
+    `${API}/delivery/override-activity/p1/a1`,
+    `${API}/delivery/replan-project/p1`,
+    `${API}/delivery/set-project-run-state/p1`,
+    `${API}/delivery/set-project-execution-policy/p1`,
   ]) {
     expect(guardLetsThrough('POST', url, LIVE_DRAFTING_WRITES), url).toBe(false);
     expect(guardLetsThrough('POST', url, everything), url).toBe(false);
@@ -74,7 +77,9 @@ test('openSharedProject never reaches the create flow', () => {
   expect(start, 'openSharedProject is defined in support/flows.ts').toBeGreaterThanOrEqual(0);
   const end = flows.indexOf('\nexport ', start + 1);
   const body = flows.slice(start, end === -1 ? undefined : end);
-  expect(body).not.toMatch(/createProjectFromLanding\(|create-project|newProjectButton|newProjectCard/);
+  expect(body).not.toMatch(
+    /createProjectFromLanding\(|start-project|newProjectButton|newProjectCard/,
+  );
 });
 
 test('the real create flow runs only in the seed step, or under a stub that answers it', () => {

@@ -22,7 +22,7 @@
  */
 import { test, expect } from '../support/dispatchGuard.js';
 import { TESTID } from '../support/testids.js';
-import { fixture, incidents, openState } from '../support/previewShell.js';
+import { fixture, incidents, openState, viewResult } from '../support/previewShell.js';
 
 /** The plan's rows, by their own testid prefix — never a hand-typed string. */
 const PLAN_ROW_RE = new RegExp(`^${TESTID.planRow('')}`);
@@ -151,9 +151,10 @@ test.describe('plan · GRAPH', () => {
   test('draws a tile per placed activity, under a gutter that reads in BUILD order', async ({
     page,
   }) => {
-    const project = fixture('plan', 'graph').ops['systemDesignGetProject']?.result as {
-      activityExecution: Record<string, unknown>;
-    };
+    const project = viewResult<{ activityExecution: Record<string, unknown> }>(
+      fixture('plan', 'graph'),
+      'summary',
+    );
     const placed = Object.keys(project.activityExecution).length;
     expect(placed).toBeGreaterThan(0);
 
