@@ -102,7 +102,7 @@ export const OP_BINDINGS = {
   },
   deliveryStartProject: {
     method: 'POST',
-    path: '/api/v1/delivery/start-project/{projectID}',
+    path: '/api/v1/delivery/start-project',
     tool: 'deliveryStartProject',
   },
   deliverySubmitReviewDecision: {

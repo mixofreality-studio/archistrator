@@ -115,10 +115,9 @@ function GhostProjectPanel({
     // Ghost-recovery re-init of an existing project: adoption is idempotent and the
     // operating model is already set, so pass selfOperated (the no-op default that
     // issues no set-operating-model call) rather than re-choosing it here.
-    // This is the GHOST-RECOVERY path, and it names the EXISTING projectId — so it
-    // takes StartProject's adopt branch (`projectID != nil`), which is idempotent and
-    // is the one create-shaped call the REST route can express. See
-    // StartProjectVars.projectId for why a brand-new project cannot.
+    // GHOST RECOVERY names the EXISTING projectId, so it takes StartProject's ADOPT
+    // branch (`projectID != nil`), which is idempotent. A brand-new project omits the
+    // id instead — see StartProjectVars.projectId.
     createProject.mutate(
       { projectId, name: projectId, owner, operatingModel: 'selfOperated', start: false },
       {

@@ -63,14 +63,9 @@ export function CreateProjectDialog({
   const submit = (): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0 || createProject.isPending) return;
-    // CREATE: no projectId, so the Manager mints one (StartProject's
-    // `projectID == nil` branch). BLOCKER, reported with Task 8: the REST route
-    // `POST /api/v1/delivery/start-project/{projectID}` cannot express that — its
-    // handler always passes a non-nil pointer and Go's mux will not match an empty
-    // segment — so over REST this answers 404 until the server grows a create route
-    // (it works over MCP, whose tool marks projectID omitempty). Deliberately NOT
-    // worked around by minting an id here: that would take the adopt branch and then
-    // fail NotFound inside the Manager, which is a worse failure than a visible one.
+    // CREATE: no projectId at all, so the Manager mints one. Absence is the whole
+    // signal — an id invented here would ask the server to adopt a project that does
+    // not exist yet.
     createProject.mutate(
       { name: trimmed, owner, operatingModel, start: false },
       {

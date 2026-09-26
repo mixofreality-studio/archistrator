@@ -96,18 +96,16 @@ export type OperatingModel = 'selfOperated' | 'archistratorOperated';
 
 export interface StartProjectVars {
   /**
-   * Absent CREATES the project (the Manager's `projectID == nil` branch).
+   * ABSENT creates the project — the Manager mints the id (`projectID == nil` →
+   * `sd.CreateProject`). PRESENT adopts or continues that project instead.
    *
-   * BLOCKER, reported with this task: the REST route is
-   * `POST /api/v1/delivery/start-project/{projectID}` and its handler passes
-   * `&projectIDVal` unconditionally, so the create branch is UNREACHABLE over
-   * REST — Go's mux will not match an empty path segment either. Over MCP the
-   * tool's `projectID` is `omitempty`, so create works there. This hook states
-   * the contract truthfully; it does not fake an id, because minting one
-   * client-side would take the `id = *projectID` branch and then fail NotFound
-   * inside SetOperatingModel or GetProject, which is worse than a visible 404.
+   * It is a BODY field, not a path segment. The route was
+   * `start-project/{projectID}` for one commit, which made create unreachable over
+   * REST (a required segment Go's mux will not match empty, and a handler that
+   * always passed a non-nil pointer); the route dropped the segment in f1a07067.
+   * That is why no caller mints an id client-side: absence is how create is said.
    */
-  projectId?: string;
+  projectId?: string | undefined;
   name: string;
   owner: string;
   operatingModel?: OperatingModel;
@@ -130,11 +128,12 @@ export function useStartProject(): UseMutationResult<StartProjectResult, Error, 
   return useMutation<StartProjectResult, Error, StartProjectVars>({
     mutationFn: async (vars) => {
       return ops.callForBody<StartProjectResult>('deliveryStartProject', {
-        path: { projectID: vars.projectId ?? '' },
         body: {
           name: vars.name,
           owner: vars.owner,
           start: vars.start,
+          // OMITTED, not empty-string: absence is what asks the server to mint an id.
+          ...(vars.projectId !== undefined ? { projectID: vars.projectId } : {}),
           ...(vars.operatingModel !== undefined ? { model: vars.operatingModel } : {}),
           ...(vars.research !== undefined ? { research: vars.research } : {}),
         } satisfies OpBody<'deliveryStartProject'>,

@@ -164,7 +164,7 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/delivery/start-project/{projectID}': {
+  '/api/v1/delivery/start-project': {
     parameters: {
       query?: never;
       header?: never;
@@ -2698,9 +2698,7 @@ export interface operations {
     parameters: {
       query?: never;
       header?: never;
-      path: {
-        projectID: components['schemas']['DeliveryProjectID'];
-      };
+      path?: never;
       cookie?: never;
     };
     requestBody: {
@@ -2709,6 +2707,7 @@ export interface operations {
           model?: components['schemas']['DeliveryOperatingModel'];
           name: string;
           owner: components['schemas']['DeliveryOwnerScope'];
+          projectID?: string;
           research?: components['schemas']['DeliveryResearchInput'];
           start: boolean;
         };
