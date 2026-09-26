@@ -14,11 +14,13 @@
     ]
    }
   },
-  "systemDesignListProjects": {
-   "error": {
-    "status": 503,
-    "code": "unavailable",
-    "message": "project-state repository unavailable"
+  "deliveryQueryProjectView": {
+   "projects": {
+    "error": {
+     "status": 503,
+     "code": "unavailable",
+     "message": "project-state repository unavailable"
+    }
    }
   }
  }

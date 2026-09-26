@@ -80,12 +80,51 @@ async function probeGet(
       timeout: PROBE_TIMEOUT_MS,
     });
   } catch (err) {
-    throw new Error(
-      `uitests: ${what} did not answer ${url} within ${String(PROBE_TIMEOUT_MS)}ms (${String(err)}). ` +
-        'This FAILS rather than skips: a skip reads as green. Bring up the dev-mode Go server ' +
-        '(Postgres) behind the SPA proxy; see README.',
-      { cause: err },
-    );
+    throw noAnswer(what, url, err);
+  }
+}
+
+function noAnswer(what: string, url: string, err: unknown): Error {
+  return new Error(
+    `uitests: ${what} did not answer ${url} within ${String(PROBE_TIMEOUT_MS)}ms (${String(err)}). ` +
+      'This FAILS rather than skips: a skip reads as green. Bring up the dev-mode Go server ' +
+      '(Postgres) behind the SPA proxy; see README.',
+    { cause: err },
+  );
+}
+
+/** The one merged project read, whose selector is the request BODY. */
+const QUERY_PROJECT_VIEW = '/api/v1/delivery/query-project-view';
+
+/** The well-known dogfood project every content probe below reads. */
+const DOGFOOD = 'archistrator';
+
+/**
+ * probeProjectView asks the ONE merged read for one `ProjectViewKind` (stage 4a:
+ * get-project, list-episodes-for-artifact and eleven other readers are this single
+ * POST, selected by the query object in its BODY — which is why this is not a
+ * probeGet). Same rule as probeGet: no answer at all FAILS (fix-H ruling); what an
+ * answer MEANS is the caller's.
+ *
+ * The dispatch guard lets it out although it is a POST — see dispatchGuard's READS,
+ * which names this one route because a read that changes nothing is a read whatever
+ * its verb.
+ */
+async function probeProjectView(
+  request: APIRequestContext,
+  baseURL: string,
+  query: Record<string, unknown>,
+  what: string,
+): Promise<APIResponse> {
+  const url = `${baseURL}${QUERY_PROJECT_VIEW}`;
+  try {
+    return await request.post(url, {
+      headers: { Accept: 'application/json' },
+      data: { query },
+      timeout: PROBE_TIMEOUT_MS,
+    });
+  } catch (err) {
+    throw noAnswer(what, `${url} (kind ${String(query['kind'])})`, err);
   }
 }
 
@@ -119,7 +158,8 @@ export function skipUnlessLiveDrafting(): void {
 }
 
 /**
- * constructionArtifactsAvailable probes GetProject for the well-known "archistrator"
+ * constructionArtifactsAvailable probes the merged project view (kind `summary`)
+ * for the well-known "archistrator"
  * dogfood project (the SAME id `system-design` defaults an id-less committed
  * project.json to — see server DecodeProjectJSON) and reports whether it carries a
  * REAL, non-empty testingState.systemTestPlan. This is only true when the server's
@@ -129,7 +169,7 @@ export function skipUnlessLiveDrafting(): void {
  * empty repo CI provisions for the project-CREATION specs (see
  * .github/workflows/uitests.yml's "Project state" note: that empty repo is
  * intentional, so the tests that create projects start from nothing; it has no
- * "archistrator" project at all, and GetProject answers 404 there).
+ * "archistrator" project at all, and the summary view answers 404 there).
  */
 export async function constructionArtifactsAvailable(
   request: APIRequestContext,
@@ -141,19 +181,25 @@ export async function constructionArtifactsAvailable(
   // project-CREATION specs, which has no "archistrator" project at all; and a 200
   // whose project carries no system-test plan. Every other status is an error
   // answer, not a missing fixture.
-  const url = `${baseURL}/api/v1/system-design/get-project/archistrator`;
-  const res = await probeGet(request, url, 'the construction-artifacts probe');
+  const query = { kind: 'summary', projectId: DOGFOOD };
+  const res = await probeProjectView(
+    request,
+    baseURL,
+    query,
+    'the construction-artifacts probe',
+  );
   if (res.status() === 404) return false;
   if (res.status() !== 200) {
     throw new Error(
-      `uitests: ${url} answered ${String(res.status())}. An error answer is not a missing fixture, ` +
-        'so this FAILS rather than skips.',
+      `uitests: ${QUERY_PROJECT_VIEW} (kind summary) answered ${String(res.status())}. An error ` +
+        'answer is not a missing fixture, so this FAILS rather than skips.',
     );
   }
-  const data = (await res.json()) as {
-    testingState?: { systemTestPlan?: { scenarios?: unknown[] } };
+  // The answer is a DeliveryProjectView: the project state is its `summary` member.
+  const view = (await res.json()) as {
+    summary?: { testingState?: { systemTestPlan?: { scenarios?: unknown[] } } };
   };
-  return (data.testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
+  return (view.summary?.testingState?.systemTestPlan?.scenarios?.length ?? 0) > 0;
 }
 
 /**
@@ -237,7 +283,7 @@ interface EpisodeListEntry {
  * gating.ts already reads above (constructionArtifactsAvailable / fetchCoreUseCases).
  *
  * `artifactKind=0` is the wire ORDINAL for `mission` (SystemDesignArtifactKind);
- * this file already hardcodes REST paths for the same project, and the ordinal
+ * this file already names the merged read for the same project, and the ordinal
  * is the same published wire contract the SPA's own artifactKindToOrdinal
  * resolves — the spec itself never touches it, it drives the real UI.
  *
@@ -250,14 +296,18 @@ export async function fetchDesignEpisodes(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<DesignEpisodes | undefined> {
-  // No answer FAILS (probeGet, fix-H ruling); an answer without the episodes skips.
-  const res = await probeGet(
+  // No answer FAILS (fix-H ruling); an answer without the episodes skips.
+  // `artifactKind: 0` is the mission slot, the same published ordinal the old
+  // `?artifactKind=0` query string carried; it selects the Phase-1 design rail.
+  const res = await probeProjectView(
     request,
-    `${baseURL}/api/v1/system-design/list-episodes-for-artifact/archistrator?artifactKind=0`,
+    baseURL,
+    { kind: 'episodes', projectId: DOGFOOD, artifactKind: 0 },
     'the design-episodes probe',
   );
   if (res.status() !== 200) return undefined;
-  const records = (await res.json()) as EpisodeListEntry[];
+  const view = (await res.json()) as { episodes?: EpisodeListEntry[] };
+  const records = view.episodes;
   if (!Array.isArray(records)) return undefined;
 
   // Wire ordinals (episode.EpisodeOutcome): 0 succeeded, 1 failed, 2 cancelled, 3 gap.
@@ -280,8 +330,8 @@ export interface CoreUseCase {
   name: string;
 }
 
-/** The shape of the bits of GetProject's response this file reads off the wire. */
-interface GetProjectResponseShape {
+/** The shape of the bits of the `summary` view this file reads off the wire. */
+interface ProjectSummaryViewShape {
   Slots?: {
     kind?: string;
     model?: {
@@ -296,7 +346,7 @@ interface GetProjectResponseShape {
 
 /**
  * fetchCoreUseCases reads the committed `coreUseCases` slot off the SAME
- * well-known "archistrator" dogfood project GetProject reads above
+ * well-known "archistrator" dogfood project the summary view reads above
  * (constructionArtifactsAvailable) and returns the Method Phase-1 "2-6 core
  * use cases" (classification === 'core'; see the-method-core-use-cases) —
  * the source of truth tests/meta/use-case-coverage.spec.ts checks UI spec
@@ -308,15 +358,16 @@ export async function fetchCoreUseCases(
   request: APIRequestContext,
   baseURL: string,
 ): Promise<CoreUseCase[] | undefined> {
-  // No answer FAILS (probeGet, fix-H ruling); an answer without the slot skips.
-  const res = await probeGet(
+  // No answer FAILS (fix-H ruling); an answer without the slot skips.
+  const res = await probeProjectView(
     request,
-    `${baseURL}/api/v1/system-design/get-project/archistrator`,
+    baseURL,
+    { kind: 'summary', projectId: DOGFOOD },
     'the core-use-cases probe',
   );
   if (res.status() !== 200) return undefined;
-  const data = (await res.json()) as GetProjectResponseShape;
-  const slot = data.Slots?.find((s) => s.kind === 'coreUseCases');
+  const view = (await res.json()) as { summary?: ProjectSummaryViewShape };
+  const slot = view.summary?.Slots?.find((s) => s.kind === 'coreUseCases');
   const decisions = slot?.model?.model?.decisions ?? [];
   const core = decisions
     .map((d) => d.useCase)

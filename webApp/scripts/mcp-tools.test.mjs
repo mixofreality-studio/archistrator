@@ -2,11 +2,19 @@
  * The MCP half of the op table names tools the server REALLY registers (preview P1b).
  *
  * Before P1b the tool was derived from the path, and two ops were bound to tools
- * that never existed: /project-design/request-sdp-commit and
- * /submit-sdp-decision are `projectDesignRequestSDPCommit` and
- * `projectDesignSubmitSDPDecision` on the server (mcpemit names a tool
- * camel(mgr) + operationId). An MCP-hosted app calling either got a tool error,
- * not the op.
+ * that never existed: /project-design/request-sdp-commit and /submit-sdp-decision
+ * were `projectDesignRequestSDPCommit` and `projectDesignSubmitSDPDecision` on the
+ * server (mcpemit names a tool camel(mgr) + operationId), while the path-derived
+ * ids spelled the acronym `Sdp`. An MCP-hosted app calling either got a tool
+ * error, not the op.
+ *
+ * STAGE 4a RETIRED THAT CASE'S SUBJECT: both ops folded into `deliveryDispatchActivityTask`
+ * and `deliverySubmitReviewDecision`, and NO surviving op id contains an acronym at
+ * all (measured against the emitted table), so the `SDP`-vs-`Sdp` assertions were
+ * dropped rather than pointed at an op that cannot exercise them. The GENERAL rule
+ * they were an instance of — every binding names a tool the server registers, and
+ * every registered tool is reachable — is still pinned by the first two tests, which
+ * walk the whole table and are what would catch the next acronym.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,9 +30,25 @@ const doc = loadOas();
 const tools = loadMcpTools();
 
 test('the server registers tools, and every bound tool is one of them', () => {
-  assert.ok(tools.size >= 40, `read ${String(tools.size)} tools`);
+  // Stage 4a: three design/construction managers became one delivery manager, so
+  // the floor moved from 40 to 20 — 12 delivery tools + 8 operations tools, the
+  // EXACT count, because a blind read that returns nothing must fail here (the
+  // last test in this file pins that loadMcpTools throws rather than answering an
+  // empty table).
+  assert.equal(tools.size, 20, `read ${String(tools.size)} tools`);
   for (const [opId, binding] of Object.entries(opBindings(doc))) {
     if (binding.tool !== null) assert.ok(tools.has(binding.tool), `${opId} → ${binding.tool}`);
+  }
+});
+
+test('no op id spells an acronym differently from its server tool', () => {
+  // What the dropped SDP pair guarded, as a rule instead of an instance: the
+  // path-derived opId and the server tool agree wherever the op has one. A future
+  // /request-sdp-commit would fail here, on the whole table, rather than needing a
+  // hand-written pair.
+  for (const [opId, binding] of Object.entries(opBindings(doc))) {
+    if (binding.tool === null) continue;
+    assert.equal(binding.tool.toLowerCase(), opId.toLowerCase(), opId);
   }
 });
 
@@ -36,18 +60,12 @@ test('every server tool is bound to some op (no tool is unreachable)', () => {
   );
 });
 
-test('the SDP ops bind the tools the server names', () => {
-  const b = opBindings(doc);
-  assert.equal(b.projectDesignRequestSdpCommit.tool, 'projectDesignRequestSDPCommit');
-  assert.equal(b.projectDesignSubmitSdpDecision.tool, 'projectDesignSubmitSDPDecision');
-});
-
 test('an OAS op the server registers no tool for is bound tool: null (refused loudly over MCP)', () => {
   const without = new Set(tools);
-  without.delete('constructionExecuteNextActivity');
+  without.delete('deliveryExecuteNextActivity');
   const b = deriveBindings(doc, without);
-  assert.equal(b.constructionExecuteNextActivity.tool, null);
-  assert.equal('composition' in b.constructionExecuteNextActivity, false, 'still an OAS op');
+  assert.equal(b.deliveryExecuteNextActivity.tool, null);
+  assert.equal('composition' in b.deliveryExecuteNextActivity, false, 'still an OAS op');
 });
 
 test('composition routes are tool: null and marked composition', () => {

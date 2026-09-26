@@ -3,7 +3,7 @@
   "title": "Activity Experience — not-started activity (web client)",
   "note": "U-SPA-web-client waits on its three managers. The full lifecycle DAG is served with no revisions: only the root task is pending, everything else is locked. No polling.",
   "ops": {
-    "constructionQueryActivityView": {
+    "deliveryQueryActivityView": {
       "result": {
         "activityId": "U-SPA-web-client",
         "name": "Build Web Client (SPA)",

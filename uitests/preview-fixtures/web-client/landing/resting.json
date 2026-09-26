@@ -14,19 +14,24 @@
     ]
    }
   },
-  "systemDesignListProjects": {
-   "result": [
-    {
-     "ProjectID": "archistrator",
-     "Name": "Archistrator",
-     "Owner": "dev-architect",
-     "Phase": 2,
-     "PhaseName": "construction",
-     "CommittedCount": 16,
-     "TotalCount": 17,
-     "UpdatedAt": "2026-09-13T15:38:00Z"
+  "deliveryQueryProjectView": {
+   "projects": {
+    "result": {
+     "kind": "projects",
+     "projects": [
+      {
+       "ProjectID": "archistrator",
+       "Name": "Archistrator",
+       "Owner": "dev-architect",
+       "Phase": 2,
+       "PhaseName": "construction",
+       "CommittedCount": 16,
+       "TotalCount": 17,
+       "UpdatedAt": "2026-09-13T15:38:00Z"
+      }
+     ]
     }
-   ]
+   }
   }
  }
 }

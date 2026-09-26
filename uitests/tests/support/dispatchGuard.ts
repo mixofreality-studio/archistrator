@@ -14,7 +14,8 @@
  * because neither alone is enough (measured on the tasks-lens branch, round 2: the
  * guard alone let one held POST out; with the teardown abort, none):
  *
- *  1. The CONTEXT route aborts every non-GET/HEAD no page route answers. It is an
+ *  1. The CONTEXT route aborts every non-GET/HEAD no page route answers, bar the
+ *     one merged READ that is a POST (see READS below). It is an
  *     AUTO fixture, so it is in place before the test body runs and before any
  *     navigation, and a page's `unrouteAll` cannot remove it. A spec that fakes a
  *     write's outcome (a 500, a 400, a dropped response) registers its own
@@ -66,22 +67,48 @@ import {
 } from '@playwright/test';
 
 /**
- * The Phase-1 co-author loop's writes: start the phase, answer its research
- * precondition, request a draft, decide the gate, and the review-rail writes around
- * it. Only the live-drafting specs (opt-in, UITESTS_LIVE_DRAFTING) allow these.
+ * The Phase-1 co-author loop's writes: request a draft, decide the gate, ask a
+ * question, acknowledge a stale basis. Only the live-drafting specs (opt-in,
+ * UITESTS_LIVE_DRAFTING) allow these.
  *
- * Not advance-phase (fix I): no client code sends it (useAdvancePhase has no caller;
- * approving a gate advances the spine on the server, through submit-review-decision),
- * so no live-drafting spec needs it. Pinned by meta/project-creation-guard.spec.
+ * Stage 4a folded seven `system-design/*` routes into four `delivery/*` ones, and
+ * the two that were about STARTING the phase went with them: `start-system-design`
+ * and `set-research-input` are steps of `start-project`, which is on
+ * NEVER_LET_THROUGH because it also creates projects. `set-review-comment-status`
+ * and `advance-phase` are members of `submit-review-decision` now, which is
+ * allowed as one route — the decision the body carries is not something a URL
+ * regex can separate, and a live-drafting spec that may send a verdict may send
+ * the comment-status flip beside it.
+ *
+ * Each of the four takes `/{projectID}/{activityID}`: the delivery rail addresses
+ * an ACTIVITY and its task, not an artifact kind. Pinned by
+ * meta/project-creation-guard.spec.
  */
 export const LIVE_DRAFTING_WRITES: readonly RegExp[] = [
-  /^\/api\/v1\/system-design\/(start-system-design|set-research-input|request-artifact-draft|submit-review-decision|ask-questions|acknowledge-stale-basis|set-review-comment-status)\/[^/]+$/,
+  /^\/api\/v1\/delivery\/(dispatch-activity-task|submit-review-decision|ask-questions|acknowledge-stale-basis)\/[^/]+\/[^/]+$/,
 ];
 
-/** Never let through, whatever a spec allows: creating a project (and naming its
- *  operating model, the create dialog's second write), and every construction write. */
+/**
+ * A READ the guard always lets out, whatever its HTTP method.
+ *
+ * Stage 4a merged thirteen per-rail readers into `POST
+ * /api/v1/delivery/query-project-view`: the selector is a `ProjectViewQuery` in the
+ * BODY, so a URL query string could not carry it. "GET and HEAD pass" was always a
+ * proxy for "a read changes nothing", and with this one op it stopped being one —
+ * left alone, the context route would abort the project read of EVERY spec and the
+ * SPA would render its error state everywhere.
+ *
+ * It is named EXACTLY, not by a `query-*` prefix: the guard's whole value is that
+ * nothing writes by accident, and a pattern would admit the next POST that happens
+ * to be spelled like a read. `query-activity-view` is a GET and needs no entry.
+ */
+const READS = /^\/api\/v1\/delivery\/query-project-view$/;
+
+/** Never let through, whatever a spec allows: creating or continuing a project
+ *  (start-project both creates one and names its operating model), and every
+ *  write that drives the construction pump. */
 const NEVER_LET_THROUGH =
-  /^\/api\/v1\/system-design\/(create-project|set-operating-model)(\/|$)|^\/api\/v1\/construction\//;
+  /^\/api\/v1\/delivery\/(start-project|execute-next-activity|override-activity|replan-project|set-project-run-state|set-project-execution-policy)(\/|$)/;
 
 /** Whether the guard lets a request through to the network. Pure (pinned by
  *  meta/project-creation-guard.spec). */
@@ -92,6 +119,7 @@ export function guardLetsThrough(
 ): boolean {
   if (method === 'GET' || method === 'HEAD') return true;
   const path = new URL(url).pathname;
+  if (READS.test(path)) return true;
   if (NEVER_LET_THROUGH.test(path)) return false;
   return allowed.some((re) => re.test(path));
 }

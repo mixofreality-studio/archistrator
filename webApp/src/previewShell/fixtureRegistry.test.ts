@@ -10,7 +10,7 @@ import { resolvePreviewState, statesFromModules } from './fixtureRegistry.ts';
 const resting = { route: '/project/demo/construction', ops: {} };
 const loading = {
   route: '/project/demo/construction',
-  ops: { systemDesignGetProject: { pending: true } },
+  ops: { deliveryQueryProjectView: { summary: { pending: true } } },
 };
 const landing = { route: '/', ops: {} };
 

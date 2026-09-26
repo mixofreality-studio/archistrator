@@ -11,10 +11,12 @@ import { fileURLToPath } from 'node:url';
 import { BUNDLE_MARKERS } from './bundle-markers.mjs';
 import {
   SURFACE,
+  VIEW_OP,
   buildFixtureSchema,
   compileFixtureValidator,
   loadOas,
   validateFixtureTree,
+  viewKinds,
 } from './fixture-schema.mjs';
 import { opBindings } from './op-bindings.mjs';
 
@@ -79,7 +81,11 @@ void test('every construction fixture row is one the server could serve', () => 
   let rowsChecked = 0;
   for (const file of files) {
     const doc_ = JSON.parse(readFileSync(file, 'utf8'));
-    const rows = doc_.ops?.systemDesignGetProject?.result?.activityExecution;
+    // The head-state read is the merged project view's `summary` kind (stage 4a):
+    // ops.deliveryQueryProjectView.summary.result IS a DeliveryProjectView, and the
+    // project state is its `summary` member.
+    const rows =
+      doc_.ops?.deliveryQueryProjectView?.summary?.result?.summary?.activityExecution;
     if (!rows) continue;
     for (const [id, row] of Object.entries(rows)) {
       rowsChecked += 1;
@@ -137,38 +143,95 @@ void test('the schema keys ops by exactly the OpsClient OpIds, composition route
   const schemaOps = Object.keys(buildFixtureSchema(doc).properties.ops.properties).sort();
   assert.deepEqual(schemaOps, Object.keys(opBindings(doc)).sort());
   assert.ok(schemaOps.includes('compositionGetUserinfo'));
+  // The whole roster, MEASURED off the bindings rather than typed here: stage 4a
+  // took it from 51 ops to 23, and a floor written by hand would be the one thing
+  // in this file that does not move when the contract does.
+  assert.equal(schemaOps.filter((o) => o.startsWith('delivery')).length, 12);
+  assert.equal(schemaOps.length, 23);
+});
+
+void test(`${VIEW_OP} is keyed by the OAS view kinds, not by one answer`, () => {
+  // The one selector-keyed op (src/api/fixtureOps.ts): it absorbed thirteen
+  // per-rail readers, so a single answer under its op id could serve only one of
+  // the kinds a screen reads and the rest would silently overwrite each other.
+  const entry = buildFixtureSchema(doc).properties.ops.properties[VIEW_OP];
+  assert.deepEqual(Object.keys(entry.properties), viewKinds(doc));
+  assert.deepEqual(viewKinds(doc), [
+    'summary',
+    'projects',
+    'session',
+    'pump',
+    'designHealth',
+    'episodes',
+    'timeline',
+  ]);
+  assert.equal(entry.additionalProperties, false, 'an unknown kind is refused');
+  assert.equal(entry.oneOf, undefined, 'it is not a bare answer');
 });
 
 const ok = (ops) => validate({ route: '/', ops });
 
 void test('it accepts a result, an error, or pending', () => {
   assert.equal(ok({ compositionGetCapabilities: { result: { operations: false } } }), true);
-  assert.equal(ok({ systemDesignGetProject: { error: { status: 500, message: 'down' } } }), true);
-  assert.equal(ok({ systemDesignGetProject: { pending: true } }), true);
+  assert.equal(
+    ok({ deliveryQueryActivityView: { error: { status: 500, message: 'down' } } }),
+    true
+  );
+  assert.equal(ok({ deliveryQueryActivityView: { pending: true } }), true);
   // A void (204) op's result is never read.
-  assert.equal(ok({ constructionSubmitPhaseDecision: { result: null } }), true);
+  assert.equal(ok({ deliverySubmitReviewDecision: { result: null } }), true);
+});
+
+void test('the view op takes an answer per kind, and each kind may answer differently', () => {
+  assert.equal(
+    ok({
+      deliveryQueryProjectView: {
+        summary: { pending: true },
+        projects: { result: { kind: 'projects', projects: [] } },
+        timeline: { error: { status: 503 } },
+      },
+    }),
+    true
+  );
+  // A bare answer under the op id: the transport would never resolve it, because
+  // it selects by the kind the call carries.
+  assert.equal(ok({ deliveryQueryProjectView: { pending: true } }), false);
+  assert.equal(ok({ deliveryQueryProjectView: { result: { kind: 'summary' } } }), false);
+  assert.equal(ok({ deliveryQueryProjectView: { sumary: { pending: true } } }), false);
+  // `kind` is required of a DeliveryProjectView: the body says which view it is.
+  assert.equal(ok({ deliveryQueryProjectView: { projects: { result: { projects: [] } } } }), false);
 });
 
 void test('it rejects an op the transport does not have', () => {
-  assert.equal(ok({ systemDesignGetProjct: { pending: true } }), false);
+  assert.equal(ok({ deliveryQueryActivityViw: { pending: true } }), false);
 });
 
 void test('it rejects a result that drifted from the contract', () => {
   assert.equal(ok({ compositionGetCapabilities: { result: { operations: 'yes' } } }), false);
-  assert.equal(ok({ systemDesignListProjects: { result: [{ ProjectID: 'x' }] } }), false);
+  assert.equal(
+    ok({ deliveryQueryProjectView: { projects: { result: [{ ProjectID: 'x' }] } } }),
+    false
+  );
   assert.equal(ok({ compositionGetUserinfo: { result: { kind: 'user' } } }), false);
 });
 
 void test('it rejects an ambiguous or malformed answer', () => {
   assert.equal(
-    ok({ systemDesignGetProject: { result: {}, error: { status: 500 } } }),
+    ok({ deliveryQueryActivityView: { result: {}, error: { status: 500 } } }),
     false,
     'a result and an error at once'
   );
-  assert.equal(ok({ systemDesignGetProject: { pending: false } }), false);
-  assert.equal(ok({ systemDesignGetProject: { error: { message: 'no status' } } }), false);
-  assert.equal(ok({ systemDesignGetProject: { error: { status: 200 } } }), false);
-  assert.equal(ok({ systemDesignGetProject: {} }), false);
+  assert.equal(ok({ deliveryQueryActivityView: { pending: false } }), false);
+  assert.equal(ok({ deliveryQueryActivityView: { error: { message: 'no status' } } }), false);
+  assert.equal(ok({ deliveryQueryActivityView: { error: { status: 200 } } }), false);
+  assert.equal(ok({ deliveryQueryActivityView: {} }), false);
+  // The same three refusals, one level deeper, under a kind.
+  assert.equal(
+    ok({ deliveryQueryProjectView: { summary: { result: {}, error: { status: 500 } } } }),
+    false
+  );
+  assert.equal(ok({ deliveryQueryProjectView: { summary: { pending: false } } }), false);
+  assert.equal(ok({ deliveryQueryProjectView: { summary: {} } }), false);
 });
 
 void test('it rejects a fixture without an absolute route', () => {
@@ -188,7 +251,7 @@ const activityViews = (root) => {
   return files
     .filter((p) => p.includes(join(SURFACE, 'activity-experience')))
     .map((p) => [p, JSON.parse(readFileSync(p, 'utf8'))])
-    .map(([p, doc_]) => [p, doc_.ops?.constructionQueryActivityView?.result])
+    .map(([p, doc_]) => [p, doc_.ops?.deliveryQueryActivityView?.result])
     .filter(([, view]) => view !== undefined);
 };
 

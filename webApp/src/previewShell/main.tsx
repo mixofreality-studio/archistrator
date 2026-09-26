@@ -70,8 +70,11 @@ if (resolution.kind !== 'ok') {
   document.title = `Preview · ${screen} · ${state} · fixture data`;
 
   const ops = fixtureOpsClient(fixture.ops, {
-    onMiss: (opId) => {
-      raisePreviewIncident({ kind: 'fixture-miss', detail: opId });
+    // `detail`, not `opId`: a selector-keyed op (deliveryQueryProjectView) names
+    // the view kind that was missing, so an alarm over a fixture that answers
+    // `summary` but not `projects` says which one.
+    onMiss: (miss) => {
+      raisePreviewIncident({ kind: 'fixture-miss', detail: miss.detail });
     },
   });
   const router = createAppRouter(createMemoryHistory({ initialEntries: [fixture.route] }), {

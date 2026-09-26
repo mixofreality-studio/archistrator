@@ -158,8 +158,8 @@ test('the construction-artifacts probe FAILS when nothing answers; it never skip
 
 // (c) Against the same dead port: an UNGUARDED write would reject too, but with the
 // connection error, so each assertion names which of the two happened.
-const WRITE = `${NOWHERE}/api/v1/construction/execute-next-activity/p`;
-const DRAFT = `${NOWHERE}/api/v1/system-design/request-artifact-draft/p`;
+const WRITE = `${NOWHERE}/api/v1/delivery/execute-next-activity/p`;
+const DRAFT = `${NOWHERE}/api/v1/delivery/dispatch-activity-task/p/a`;
 const REFUSED = new RegExp(REQUEST_GUARD_REFUSAL);
 const SENT = /ECONNREFUSED/;
 
@@ -171,7 +171,7 @@ test('the request fixture refuses every write verb before sending it', async ({ 
   await expect(request.fetch(WRITE, { method: 'POST' })).rejects.toThrow(REFUSED);
   await expect(request.fetch(WRITE, { method: 'delete' })).rejects.toThrow(REFUSED);
   // Relative, the way a spec writes it: resolved against baseURL, still refused.
-  await expect(request.post('/api/v1/construction/execute-next-activity/p')).rejects.toThrow(
+  await expect(request.post('/api/v1/delivery/execute-next-activity/p')).rejects.toThrow(
     REFUSED
   );
 });
@@ -191,7 +191,7 @@ test('page.request and context.request are guarded the same way', async ({ page,
 test.describe('with the live-drafting writes allowed', () => {
   test.use({ dispatchGuardAllows: LIVE_DRAFTING_WRITES });
 
-  test('an allowlisted write is sent; a construction write still is not', async ({
+  test('an allowlisted write is sent; a pump write still is not', async ({
     request,
     page,
   }) => {

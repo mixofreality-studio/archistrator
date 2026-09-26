@@ -22,6 +22,17 @@
  * mapping is still covered by unit tests, but no black-box spec exercises it
  * through a real submit any more. Restoring it needs an activity-route wire stub
  * (see the task-13 report's uitests earmarks).
+ *
+ * ── Stage 4a ────────────────────────────────────────────────────────────────
+ * The THIRD remaining case ("set-operating-model: create succeeds, then an
+ * EMPTY-body 500 on the model …") is DELETED, because its subject no longer
+ * exists: create-project and set-operating-model are one write, `POST
+ * /api/v1/delivery/start-project`, whose body carries the model. There is no
+ * second request to fake, and the bug it guarded — a false success interpolating
+ * `set-operating-model/undefined` — needed a URL with the id in it. Its FIRST
+ * half, "a bare 500 is not a success", is what the two cases below assert, and
+ * they now also pin that the create sends `projectID` ABSENT rather than empty,
+ * which is the one signal that asks the server to mint an id.
  */
 import type { Page } from '@playwright/test';
 import { test, expect } from './support/dispatchGuard.js';
@@ -33,20 +44,22 @@ const BASE = process.env.UITESTS_BASE_URL ?? process.env.UITESTS_SPA_URL ?? 'htt
 /** A bare status, the way a proxy's 5xx arrives: Content-Length 0. */
 const EMPTY_500 = { status: 500, headers: { 'content-length': '0' }, body: '' };
 
+/** The ONE write the create dialog sends (stage 4a): create AND operating model. */
+const START_PROJECT = '**/api/v1/delivery/start-project';
+
+/** One start-project body, as the wire carried it. */
+type StartBody = Record<string, unknown>;
+
 interface CreateTrap {
-  creates: number;
-  operatingModelCalls: string[];
+  /** Every start-project body the dialog sent. */
+  starts: StartBody[];
 }
 
 async function trapCreate(page: Page): Promise<CreateTrap> {
-  const trap: CreateTrap = { creates: 0, operatingModelCalls: [] };
-  await page.route('**/api/v1/system-design/create-project', async (route) => {
-    trap.creates += 1;
+  const trap: CreateTrap = { starts: [] };
+  await page.route(START_PROJECT, async (route) => {
+    trap.starts.push(route.request().postDataJSON() as StartBody);
     await route.fulfill(EMPTY_500);
-  });
-  await page.route('**/api/v1/system-design/set-operating-model/**', async (route) => {
-    trap.operatingModelCalls.push(route.request().url());
-    await route.abort();
   });
   return trap;
 }
@@ -62,7 +75,7 @@ async function openCreateDialog(page: Page): Promise<void> {
 }
 
 for (const model of ['selfOperated', 'archistratorOperated'] as const) {
-  test(`create-project: an EMPTY-body 500 is an error, with nothing sent after it (${model})`, async ({
+  test(`start-project: an EMPTY-body 500 is an error, with nothing sent after it (${model})`, async ({
     page,
     request,
   }) => {
@@ -77,45 +90,20 @@ for (const model of ['selfOperated', 'archistratorOperated'] as const) {
     await expect(alert).toBeVisible({ timeout: 10_000 });
     await expect(alert).toContainText('request failed with status 500');
     await expect(alert).toContainText('HTTP 500');
-    // It did not "succeed": the dialog stays, nothing navigated, and no
-    // set-operating-model/undefined followed.
+    // It did not "succeed": the dialog stays and nothing navigated.
     await expect(dialog).toBeVisible();
     await expect(page).toHaveURL(/\/$|\/#?$/);
-    expect(trap.creates).toBe(1);
-    expect(trap.operatingModelCalls).toEqual([]);
+    // ONE write, ONCE. Stage 4a folded create + set-operating-model into
+    // start-project, so the second-write bug this file was written for — a
+    // false success sending `set-operating-model/undefined` after a bare 500 —
+    // cannot be expressed as a route any more: there is no second route, and
+    // the id the dialog would have interpolated is no longer in a URL at all.
+    // What remains testable, and is tested here, is the FIRST half of that bug:
+    // a bare 500 must not read as success. `projectID` is ABSENT, never empty —
+    // absence is what asks the server to create one.
+    expect(trap.starts).toHaveLength(1);
+    const sent = trap.starts[0] ?? {};
+    expect(sent).toMatchObject({ name: 'fix-f-empty-500', model, start: false });
+    expect('projectID' in sent).toBe(false);
   });
 }
-
-test('set-operating-model: create succeeds, then an EMPTY-body 500 on the model is an error, and nothing navigates', async ({
-  page,
-  request,
-}) => {
-  // fix-F review: the second write of the create flow. Create answers with a
-  // canned id (in the browser), then set-operating-model answers a bare 500. That
-  // used to pass as success and navigate to the new project's home.
-  await requireServer(request, BASE);
-  const creates: string[] = [];
-  const models: string[] = [];
-  await page.route('**/api/v1/system-design/create-project', async (route) => {
-    creates.push(route.request().url());
-    await route.fulfill({ status: 200, json: 'fix-g-canned-project' });
-  });
-  await page.route('**/api/v1/system-design/set-operating-model/**', async (route) => {
-    models.push(route.request().url());
-    await route.fulfill(EMPTY_500);
-  });
-  await openCreateDialog(page);
-  await page.getByTestId('operating-model-archistratorOperated').check();
-  await page.getByTestId(TESTID.createProjectSubmit).click();
-
-  const dialog = page.getByTestId(TESTID.createProjectDialog);
-  const alert = dialog.getByTestId(TESTID.errorAlert);
-  await expect(alert).toBeVisible({ timeout: 10_000 });
-  await expect(alert).toContainText('request failed with status 500');
-  await expect(dialog).toBeVisible();
-  await expect(page).toHaveURL(/\/$|\/#?$/);
-  expect(creates).toHaveLength(1);
-  // The model was set against the id create returned, not "undefined".
-  expect(models).toHaveLength(1);
-  expect(models[0]).toContain('/set-operating-model/fix-g-canned-project');
-});

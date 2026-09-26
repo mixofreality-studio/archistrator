@@ -7,7 +7,7 @@
  *
  * Data flow:
  *  - `toolArgs` (from the host's tool-input notification) carries the flattened
- *    path+query for `systemDesignGetSessionState`: `{ projectID, kind }`.
+ *    session selector for `deliveryQueryProjectView`: `{ projectID, kind }`.
  *  - `seededResult` is that tool's first pushed result; we prime the session-state
  *    query cache from it in the first render so the screen paints instantly, then
  *    re-seed on every subsequent `mcp-tool-result` window event (agent re-runs).

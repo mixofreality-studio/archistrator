@@ -7,7 +7,7 @@
  * This is a META-check, not a UI test: it drives no browser page. It:
  *
  *   (a) fetches the CORE-classified use case ids over the wire — the SAME
- *       GetProject("archistrator") read gating.ts's constructionArtifactsAvailable
+ *       summary-view read of "archistrator" in gating.ts's constructionArtifactsAvailable
  *       uses, via the new fetchCoreUseCases — and self-skips (requireServer
  *       pattern) when the server behind the SPA proxy is unreachable;
  *   (b) STATICALLY scans tests/*.spec.ts SOURCE (readdir + regex — it does NOT

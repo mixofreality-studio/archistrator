@@ -76,8 +76,8 @@ function isBlocked(channel: string, target: string): (err: unknown) => boolean {
 void test('fetch rejects and never reaches the network', async () => {
   const { win, blocked, reached } = guarded();
   await assert.rejects(
-    win.fetch('/api/v1/system-design/get-project/x'),
-    isBlocked('fetch', '/api/v1/system-design/get-project/x')
+    win.fetch('/api/v1/delivery/query-project-view'),
+    isBlocked('fetch', '/api/v1/delivery/query-project-view')
   );
   await assert.rejects(
     win.fetch(new URL('https://example.test/a')),
