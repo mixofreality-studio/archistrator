@@ -960,7 +960,7 @@ export interface EpisodeRecordView {
   model?: string;
   workerClass?: string;
   /** Terminal usage — MAIN-LOOP turns only; subagent tokens appear in neither
-   *  this nor streamedUsage (fixture-proven, ledgered — see useEpisodes.ts). */
+   *  this nor streamedUsage (fixture-proven, ledgered — see useDeliveryQueries.ts). */
   usage: EpisodeUsage;
   streamedUsage?: EpisodeUsage;
   /** Per-tool call counts, already excluding subagent-parented calls. The

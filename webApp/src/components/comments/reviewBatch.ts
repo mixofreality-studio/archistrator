@@ -93,6 +93,42 @@ export function freeformNotesFrom(comments: readonly PostedComment[]): string {
  * line per anchored comment in staging order. Empty pieces are dropped, so a batch
  * with only comments produces no leading blank line and an empty batch produces ''.
  */
+/**
+ * The feedback body ONE decision sends, and whether it may carry a `comments` array
+ * at all.
+ *
+ * This is the rule, not a convenience. A decision that names an `optionId` routes to
+ * `SubmitSDPDecision`, whose body is `feedback.notes` and nothing else, and whose
+ * Phase-2 ledger REFUSES any batch carrying a `replyTo` (`pdCheckNoReplyTo`,
+ * CONTROLLER RULING P13 — threaded Phase-2 replies are a Stage-2 deliverable, so a
+ * reply arriving there could only be flattened into a fresh unanchored comment, and
+ * it refuses loudly rather than detach it silently). The M0 gate DOES offer replies,
+ * so sending the array turns "reply in a thread, then Approve" into a 400.
+ *
+ * Every other decision op takes `{ notes, comments }` and keeps the two apart, so
+ * the anchor survives as structure.
+ *
+ * Returned WITHOUT a `comments` key when folded — not with an empty array — because
+ * the wire distinguishes absent from empty and the Manager reads `feedback.Comments`.
+ */
+export function decisionFeedbackFor(input: {
+  /** True for a decision that carries an optionId (the M0 commit). */
+  fold: boolean;
+  notes: string;
+  comments: readonly AnchoredComment[];
+}): { notes: string; comments?: AnchoredComment[] } {
+  if (input.fold) {
+    return { notes: foldCommentsIntoNotes(input.notes, input.comments) };
+  }
+  return {
+    // The Manager requires non-empty reject feedback; when the reviewer only
+    // anchored comments, the notes are synthesized from them so the redraft always
+    // carries actionable guidance.
+    notes: input.notes.length > 0 ? input.notes : input.comments.map((c) => c.text).join('\n'),
+    comments: [...input.comments],
+  };
+}
+
 export function foldCommentsIntoNotes(notes: string, comments: readonly AnchoredComment[]): string {
   const lines: string[] = [];
   if (notes.trim().length > 0) lines.push(notes);

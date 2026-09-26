@@ -3,6 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
   toWireEntries,
+  decisionFeedbackFor,
   foldCommentsIntoNotes,
   freeformNotesFrom,
   isQuestion,
@@ -181,4 +182,71 @@ void test('the fold loses nothing: every staged comment text appears in the resu
   const folded = foldCommentsIntoNotes('notes', comments);
   for (const c of comments) assert.ok(folded.includes(c.text), `${c.text} survived the fold`);
   assert.equal(folded.split('\n').length, 4);
+});
+
+// Fix round 2: the M0 approve used to send `comments: toWire()` like every other
+// decision. `SubmitSDPDecision` has no comments array, and its Phase-2 ledger
+// refuses any batch carrying a replyTo (pdCheckNoReplyTo, RULING P13) — while the M0
+// gate OFFERS replies. So "architect replies in an M0 thread, then presses Approve"
+// was a 400. These pin the shape rule, not just the fold arithmetic.
+
+void test('an optionId decision sends NO comments array, and the key is absent not empty', () => {
+  const body = decisionFeedbackFor({
+    fold: true,
+    notes: 'Committing the compressed option.',
+    comments: [
+      {
+        jsonPath: '$.options[kind=compressedSolution]',
+        anchorText: 'C',
+        text: 'why?',
+        replyTo: '',
+      },
+    ],
+  });
+  // Absent, not []: the wire distinguishes them and the Manager reads feedback.Comments.
+  assert.equal('comments' in body, false);
+  assert.match(body.notes, /Committing the compressed option\./);
+  assert.match(body.notes, /why\?/);
+});
+
+void test('a REPLY in an M0 batch survives in the notes and never reaches the wire array', () => {
+  // The exact 400 scenario: a margin reply carries replyTo and no jsonPath.
+  const body = decisionFeedbackFor({
+    fold: true,
+    notes: '',
+    comments: [
+      { jsonPath: '', anchorText: '', text: 'answering the cost question', replyTo: 'm0r1c1' },
+    ],
+  });
+  assert.equal('comments' in body, false, 'no array means pdCheckNoReplyTo cannot fire');
+  assert.equal(body.notes, 'answering the cost question', 'and the reply is not dropped');
+});
+
+void test('every OTHER decision keeps its comments as structure, replyTo included', () => {
+  const comments = [
+    { jsonPath: '$.mission', anchorText: 'Mission', text: 'tighten this', replyTo: '' },
+    { jsonPath: '', anchorText: '', text: 'as discussed', replyTo: 'c7' },
+  ];
+  const body = decisionFeedbackFor({ fold: false, notes: 'see comments', comments });
+  assert.deepEqual(body.comments, comments);
+  assert.equal(body.notes, 'see comments');
+});
+
+void test('a comments-only non-M0 batch synthesizes notes, so a reject is never empty', () => {
+  const body = decisionFeedbackFor({
+    fold: false,
+    notes: '',
+    comments: [
+      { jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' },
+      { jsonPath: '$.b', anchorText: 'b', text: 'second', replyTo: '' },
+    ],
+  });
+  assert.equal(body.notes, 'first\nsecond');
+});
+
+void test('the returned comments array is a COPY — a later stage edit cannot mutate the sent body', () => {
+  const comments = [{ jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' }];
+  const body = decisionFeedbackFor({ fold: false, notes: 'n', comments });
+  assert.notEqual(body.comments, comments);
+  assert.deepEqual(body.comments, comments);
 });

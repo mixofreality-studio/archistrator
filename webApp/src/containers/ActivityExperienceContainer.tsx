@@ -97,6 +97,7 @@ import {
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
 import { openThreadCount, toReviewThread } from '../components/activity/threadAdapter.ts';
+import { decisionFeedbackFor } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
   taskArtifactFor,
@@ -222,6 +223,10 @@ export function ActivityExperienceContainer({
   // commit-then-advance, and a failed advance has a surface of its own (below) that
   // must not be confused with the commit's outcome.
   const advance = useSubmitReviewDecision(projectId);
+  // And a THIRD, for the comment-status flip. Sharing the decision's observer made
+  // resolving a thread grey out Approve/Send back (and the reverse) — they are
+  // independent actions on the same op, so they need independent pending state.
+  const commentStatus = useSubmitReviewDecision(projectId);
   const askQuestionsMut = useAskQuestions(projectId);
   const dispatchTask = useDispatchActivityTask(projectId);
   const overrideActivity = useOverrideActivity(projectId);
@@ -346,24 +351,20 @@ export function ActivityExperienceContainer({
   const decidedKind =
     artifact.kind === 'slot' ? (artifact.artifactKind as ArtifactKind | undefined) : undefined;
 
-  /** The feedback body a decision or a redraft carries, from the staged comments. */
-  const feedbackNow = (): { notes: string; comments: AnchoredComment[] } => {
-    const notes = freeformNotes();
-    const wireComments = toWire();
-    return {
-      // The Manager requires non-empty reject feedback; when the reviewer only
-      // anchored comments, the notes are synthesized from them so the redraft
-      // always carries actionable guidance.
-      notes: notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n'),
-      comments: wireComments,
-    };
-  };
+  /**
+   * The feedback body a decision carries. `fold` is the M0 rule and it is not
+   * cosmetic — see decisionFeedbackFor, which owns it and is node-tested.
+   */
+  const feedbackNow = (fold: boolean): { notes: string; comments?: AnchoredComment[] } =>
+    decisionFeedbackFor({ fold, notes: freeformNotes(), comments: toWire() });
 
   /** Approve or send back. One op; the target says which members it fills. */
   const decide = (approve: boolean): void => {
     const target = approve ? verbs.approve : verbs.sendBack;
     if (target.kind !== 'decision') return;
-    const feedback = feedbackNow();
+    // `needsOption` marks exactly the decision that routes to SubmitSDPDecision —
+    // the one with no `comments` array to put them in. See feedbackNow.
+    const feedback = feedbackNow(target.needsOption === true);
     submitDecision.mutate(
       {
         ...ref,
@@ -446,7 +447,7 @@ export function ActivityExperienceContainer({
 
   const setCommentStatus = (commentID: string, status: 'open' | 'resolved'): void => {
     if (verbs.commentStatus.kind !== 'commentStatus') return;
-    submitDecision.mutate({
+    commentStatus.mutate({
       ...ref,
       artifactKind: decidedKind,
       decision: {
@@ -457,8 +458,9 @@ export function ActivityExperienceContainer({
     });
   };
 
-  // One op behind every decision, so one pending flag behind all of them.
-  const statusPending = submitDecision.isPending;
+  // One OP behind both, but three observers of it (decision / advance / comment
+  // status), so each surface reports only its own work in flight.
+  const statusPending = commentStatus.isPending;
   const decisionPending = submitDecision.isPending;
 
   // ── The stale basis of the committed slot this gate judges ────────────────

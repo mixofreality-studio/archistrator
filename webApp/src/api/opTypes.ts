@@ -6,9 +6,9 @@
  * moved off apiClient (preview P1b) keeps the compile-time checks apiClient gave
  * it by naming its op here:
  *
- *   ops.callForBody<OpResult<'constructionExecuteNextActivity'>>(
- *     'constructionExecuteNextActivity',
- *     { path: { projectID }, body: { tickID } satisfies OpBody<'constructionExecuteNextActivity'> }
+ *   ops.callForBody<OpResult<'deliveryExecuteNextActivity'>>(
+ *     'deliveryExecuteNextActivity',
+ *     { path: { projectID }, body: { tickID } satisfies OpBody<'deliveryExecuteNextActivity'> }
  *   );
  *
  * A composition route (no OAS path) has neither: both resolve to `never`.

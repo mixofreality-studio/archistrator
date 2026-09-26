@@ -2,7 +2,7 @@
  * Pure, props-only episodes panel — the SP1 capture-seam list view (Task 10).
  * Mounted per design-artifact page (Phase 1 + Phase 2, targetRef = the page's
  * artifact-kind slug) and per construction activity (targetRef = activityId) by
- * EpisodesPanelContainer, which owns the fetch (useEpisodes.ts) and the export
+ * EpisodesPanelContainer, which owns the fetch (useDeliveryQueries.ts) and the export
  * assembly. This component only renders what it is handed: no hooks/api import
  * (components layer, eslint.platform.config.js:53).
  *

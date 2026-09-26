@@ -40,7 +40,7 @@ export function episodeDuration(startedAt: string, endedAt: string): string | un
 
 /**
  * Total MAIN-LOOP tokens. Subagent tokens are in neither `usage` nor
- * `streamedUsage` (fixture-proven — see `useEpisodes.ts`), which is why the
+ * `streamedUsage` (fixture-proven — see `useDeliveryQueries.ts`), which is why the
  * label says so: an unqualified "TOKENS" over a main-loop-only number is the
  * kind of quiet undercount a cost review is built on.
  */

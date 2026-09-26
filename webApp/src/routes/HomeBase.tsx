@@ -112,14 +112,19 @@ function GhostProjectPanel({
 
   const finishSetup = (): void => {
     if (createProject.isPending) return;
-    // Ghost-recovery re-init of an existing project: adoption is idempotent and the
-    // operating model is already set, so pass selfOperated (the no-op default that
-    // issues no set-operating-model call) rather than re-choosing it here.
     // GHOST RECOVERY names the EXISTING projectId, so it takes StartProject's ADOPT
     // branch (`projectID != nil`), which is idempotent. A brand-new project omits the
     // id instead — see StartProjectVars.projectId.
+    //
+    // The operating model is OMITTED, not defaulted. StartProject calls
+    // SetOperatingModel whenever `model` is present, so passing 'selfOperated' here
+    // would silently RE-CHOOSE it — turning an archistratorOperated ghost into a
+    // selfOperated one on a button labelled "Finish setup". (The old useCreateProject
+    // could pass it safely because it issued the follow-up call only for the
+    // non-default value; the one-op StartProject has no such shortcut.) Recovery
+    // re-initialises state; it does not re-decide the operating model.
     createProject.mutate(
-      { projectId, name: projectId, owner, operatingModel: 'selfOperated', start: false },
+      { projectId, name: projectId, owner, start: false },
       {
         onSuccess: () => {
           onFinished();
