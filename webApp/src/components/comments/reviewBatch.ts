@@ -78,22 +78,6 @@ export function freeformNotesFrom(comments: readonly PostedComment[]): string {
 }
 
 /**
- * FOLDS the anchored change-requests into the free-form notes, for the one rail
- * whose op carries no `comments` array of its own: `SubmitSDPDecision`, whose
- * body is `feedback.notes` and nothing else.
- *
- * Every other decision op takes `{ notes, comments }` and keeps the two apart, so
- * the anchor survives as structure. Here it cannot, and the choice is between
- * losing the comments entirely (what the M0 gate did: staged, counted on the bar,
- * then cleared by `reset()` with the approval recording none of them) and carrying
- * them as text. Text wins — the anchor path goes in front of each line so the
- * reader of the ledger can still tell what each note was pinned to.
- *
- * Order: the free-form notes first (they are the reviewer's own summary), then one
- * line per anchored comment in staging order. Empty pieces are dropped, so a batch
- * with only comments produces no leading blank line and an empty batch produces ''.
- */
-/**
  * The feedback body ONE decision sends, and whether it may carry a `comments` array
  * at all.
  *
@@ -129,6 +113,22 @@ export function decisionFeedbackFor(input: {
   };
 }
 
+/**
+ * FOLDS the anchored change-requests into the free-form notes, for the one rail
+ * whose op carries no `comments` array of its own: `SubmitSDPDecision`, whose
+ * body is `feedback.notes` and nothing else.
+ *
+ * Every other decision op takes `{ notes, comments }` and keeps the two apart, so
+ * the anchor survives as structure. Here it cannot, and the choice is between
+ * losing the comments entirely (what the M0 gate did: staged, counted on the bar,
+ * then cleared by `reset()` with the approval recording none of them) and carrying
+ * them as text. Text wins — the anchor path goes in front of each line so the
+ * reader of the ledger can still tell what each note was pinned to.
+ *
+ * Order: the free-form notes first (they are the reviewer's own summary), then one
+ * line per anchored comment in staging order. Empty pieces are dropped, so a batch
+ * with only comments produces no leading blank line and an empty batch produces ''.
+ */
 export function foldCommentsIntoNotes(notes: string, comments: readonly AnchoredComment[]): string {
   const lines: string[] = [];
   if (notes.trim().length > 0) lines.push(notes);
@@ -158,4 +158,52 @@ export function pendingQuestionsFrom(comments: readonly PostedComment[]): Pendin
     anchorText: c.anchor?.anchorText ?? c.anchor?.label ?? '',
     replyTo: c.replyTo ?? '',
   }));
+}
+
+/**
+ * The Ask payload ONE batch of staged questions sends — the question-side twin of
+ * {@link decisionFeedbackFor}, and it exists for the same reason.
+ *
+ * `fold` is the PROJECT-DESIGN (M0) rule. That rail's ledger refuses ANY batch
+ * carrying a `replyTo` — `pdCheckNoReplyTo`, CONTROLLER RULING P13: Phase-2 reply
+ * ROUTING is a later deliverable, so a reply arriving there could only be flattened
+ * into a fresh unanchored comment, and the Manager refuses loudly rather than detach
+ * it silently. `AskQuestions` runs through that same check, so a follow-up staged on
+ * an answered M0 question and then sent was a 400: the composer offers the reply, the
+ * server will not take it.
+ *
+ * RULING (stage-4a pre-final): FOLD, do not refuse at compose time. The two candidate
+ * fixes were to drop the Question toggle on a Phase-2 thread (a dead affordance, and
+ * the reviewer loses the text they already typed) or to send the reply as a NEW
+ * question whose text names the comment it answers. Folding loses no text and no
+ * meaning — the thread link survives as prose in the ledger, which is exactly the
+ * trade `foldCommentsIntoNotes` already makes for the M0 decision's comments — so the
+ * fold wins, and it is the same discipline in the same file rather than a second
+ * mechanism.
+ *
+ * On every other rail (`fold: false`) `replyTo` rides through untouched: the design
+ * rails route it, and a question thread is the conversational case.
+ */
+export function askEntriesFor(input: {
+  /** True for the projectDesign (M0) rail, whose ledger refuses a `replyTo`. */
+  fold: boolean;
+  questions: readonly PendingQuestion[];
+}): AnchoredComment[] {
+  return input.questions.map((q) => ({
+    jsonPath: q.jsonPath,
+    anchorText: q.anchorText,
+    text: input.fold ? foldReplyIntoQuestion(q.text, q.replyTo) : q.text,
+    // Presence-required on the wire; folded ⇒ '' , which is what OPENS a new thread.
+    replyTo: input.fold ? '' : q.replyTo,
+  }));
+}
+
+/**
+ * Names the thread a folded reply answers, in front of the reviewer's own words. A
+ * fresh question (no `replyTo`) is returned unchanged, so the prefix appears only where
+ * something would otherwise be lost.
+ */
+function foldReplyIntoQuestion(text: string, replyTo: string): string {
+  if (replyTo.length === 0) return text;
+  return `follow-up to ${replyTo} — ${text}`;
 }

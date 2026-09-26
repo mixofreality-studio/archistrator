@@ -54,7 +54,8 @@ export const REVIEW_SET_COMMENT_STATUS =
  *
  *  - `decision`        → SubmitReviewDecision, filling `decision` (and `optionId`
  *                        when `needsOption`).
- *  - `ask`             → AskQuestions.
+ *  - `ask`             → AskQuestions (folding a reply into its question text when
+ *                        `foldReplies` — the Phase-2 ledger refuses a `replyTo`).
  *  - `commentStatus`   → SubmitReviewDecision with the comment members, which the
  *                        container fills per comment.
  *  - `dispatch`        → DispatchActivityTask (a design draft or redraft).
@@ -64,7 +65,7 @@ export const REVIEW_SET_COMMENT_STATUS =
  */
 export type VerbTarget =
   | { kind: 'decision'; decision: WireReviewDecision; needsOption?: boolean }
-  | { kind: 'ask' }
+  | { kind: 'ask'; foldReplies?: boolean }
   | { kind: 'commentStatus' }
   | { kind: 'dispatch' }
   | { kind: 'override' }
@@ -136,8 +137,12 @@ export function verbsFor(input: {
     return {
       approve: { kind: 'decision', decision: REVIEW_APPROVE, needsOption: true },
       sendBack: { kind: 'none', reason: NO_SDP_SEND_BACK },
-      // Spec §6: comments AND questions are allowed at M0.
-      ask: { kind: 'ask' },
+      // Spec §6: comments AND questions are allowed at M0. A FOLLOW-UP question folds
+      // its reply into its own text: the Phase-2 ledger refuses a replyTo outright
+      // (pdCheckNoReplyTo, RULING P13), so sending one turns "reply in an M0 question
+      // thread, then Ask" into a 400 — the same asymmetry `needsOption` answers for the
+      // decision, answered the same way (askEntriesFor).
+      ask: { kind: 'ask', foldReplies: true },
       commentStatus: { kind: 'commentStatus' },
       rerun: { kind: 'none', reason: NO_SDP_RERUN },
       acknowledgeStale: { kind: 'acknowledgeStale' },

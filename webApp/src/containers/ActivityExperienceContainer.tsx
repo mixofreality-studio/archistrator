@@ -97,7 +97,7 @@ import {
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
 import { openThreadCount, toReviewThread } from '../components/activity/threadAdapter.ts';
-import { decisionFeedbackFor } from '../components/comments/reviewBatch.ts';
+import { askEntriesFor, decisionFeedbackFor } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
   taskArtifactFor,
@@ -423,6 +423,9 @@ export function ActivityExperienceContainer({
    */
   const askQuestions = (): void => {
     if (verbs.ask.kind !== 'ask') return;
+    // `foldReplies` is the M0 rule and, like `fold` on the decision, it is not
+    // cosmetic — see askEntriesFor, which owns it and is node-tested.
+    const foldReplies = verbs.ask.foldReplies === true;
     const pending = pendingQuestions();
     if (pending.length === 0) return;
     const byAddressee = new Map<'pm' | 'architect', typeof pending>();
@@ -435,12 +438,7 @@ export function ActivityExperienceContainer({
         ...ref,
         artifactKind: decidedKind,
         addressee,
-        questions: group.map((q) => ({
-          jsonPath: q.jsonPath,
-          text: q.text,
-          anchorText: q.anchorText,
-          replyTo: q.replyTo,
-        })),
+        questions: askEntriesFor({ fold: foldReplies, questions: group }),
       });
     }
   };

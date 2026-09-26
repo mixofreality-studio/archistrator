@@ -124,11 +124,23 @@ void test('projectDesign approves an OPTION, advances after, offers no send-back
   assert.match(v.approveCopy?.label ?? '', /Approve plan & cost/);
 });
 
-void test('the M0 gate resolves its own threads and asks — Phase-2 has both verbs', () => {
+void test('the M0 gate resolves its own threads and asks — Phase-2 has both verbs, and a reply folds', () => {
   const v = verbsFor({ type: 'projectDesign', taskId: 'sdpReview', lifecyclePhase: 'sdp' });
   assert.deepEqual(v.commentStatus, { kind: 'commentStatus' });
-  assert.deepEqual(v.ask, { kind: 'ask' });
+  // foldReplies is what keeps "reply to an answered M0 question, then Ask" off
+  // pdCheckNoReplyTo's 400 — the question-side twin of the decision's needsOption.
+  assert.deepEqual(v.ask, { kind: 'ask', foldReplies: true });
   assert.deepEqual(v.acknowledgeStale, { kind: 'acknowledgeStale' });
+});
+
+void test('a DESIGN rail ask does not fold: that rail routes a replyTo', () => {
+  const v = verbsFor({
+    type: 'architecture',
+    taskId: 'architectureReview',
+    lifecyclePhase: 'architecture',
+    artifactKind: 'System',
+  });
+  assert.equal(v.ask.kind === 'ask' && v.ask.foldReplies, undefined);
 });
 
 void test('the M0 gate has no re-run: the plan is re-derived, not re-dispatched', () => {

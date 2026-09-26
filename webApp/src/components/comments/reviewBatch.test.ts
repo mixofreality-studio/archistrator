@@ -2,6 +2,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  askEntriesFor,
   toWireEntries,
   decisionFeedbackFor,
   foldCommentsIntoNotes,
@@ -249,4 +250,99 @@ void test('the returned comments array is a COPY — a later stage edit cannot m
   const body = decisionFeedbackFor({ fold: false, notes: 'n', comments });
   assert.notEqual(body.comments, comments);
   assert.deepEqual(body.comments, comments);
+});
+
+// Fix round 3 (pre-final): the M0 gate offers a QUESTION and a reply to one, and
+// AskQuestions runs through the same pdCheckNoReplyTo the M0 decision does — so
+// "reply to an answered M0 question, then Ask" was the same 400 the decision had.
+// askEntriesFor folds it, and only on that rail.
+
+void test('an M0 follow-up question folds its reply into the text and sends no replyTo', () => {
+  const entries = askEntriesFor({
+    fold: true,
+    questions: [
+      {
+        addressee: 'architect',
+        jsonPath: '',
+        anchorText: '',
+        text: 'That does not answer the cost objective',
+        replyTo: 'm0r1c0',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '',
+      anchorText: '',
+      text: 'follow-up to m0r1c0 — That does not answer the cost objective',
+      // Empty is what OPENS a new thread; a non-empty replyTo is what the ledger refuses.
+      replyTo: '',
+    },
+  ]);
+});
+
+void test('a FRESH M0 question is untouched by the fold — the prefix marks only a reply', () => {
+  const entries = askEntriesFor({
+    fold: true,
+    questions: [
+      {
+        addressee: 'pm',
+        jsonPath: '$.options[kind=compressedSolution]',
+        anchorText: 'Compressed',
+        text: 'Why is this one not recommended?',
+        replyTo: '',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '$.options[kind=compressedSolution]',
+      anchorText: 'Compressed',
+      text: 'Why is this one not recommended?',
+      replyTo: '',
+    },
+  ]);
+});
+
+void test('the M0 fold loses no text: every staged question survives it', () => {
+  const questions = [
+    { addressee: 'pm' as const, jsonPath: '$.a', anchorText: 'a', text: 'first', replyTo: '' },
+    { addressee: 'pm' as const, jsonPath: '', anchorText: '', text: 'second', replyTo: 'q1' },
+  ];
+  const entries = askEntriesFor({ fold: true, questions });
+  assert.equal(entries.length, questions.length);
+  for (const q of questions) {
+    assert.ok(
+      entries.some((e) => e.text.includes(q.text)),
+      `${q.text} survived the fold`
+    );
+  }
+  assert.equal(
+    entries.every((e) => e.replyTo === ''),
+    true,
+    'no entry may carry a replyTo onto the Phase-2 rail'
+  );
+});
+
+void test('on the DESIGN rail nothing folds: replyTo rides the Ask payload as before', () => {
+  const entries = askEntriesFor({
+    fold: false,
+    questions: [
+      {
+        addressee: 'architect',
+        jsonPath: '',
+        anchorText: '',
+        text: 'That does not answer the cost objective',
+        replyTo: 'r1c0',
+      },
+    ],
+  });
+  assert.deepEqual(entries, [
+    {
+      jsonPath: '',
+      anchorText: '',
+      text: 'That does not answer the cost objective',
+      replyTo: 'r1c0',
+    },
+  ]);
 });
