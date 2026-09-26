@@ -10,14 +10,14 @@ import (
 type DeliveryStartProjectInput struct {
 	Owner     OwnerScope      `json:"owner"`
 	Name      string          `json:"name"`
-	ProjectID ProjectID       `json:"projectID"`
+	ProjectID *string         `json:"projectID,omitempty"`
 	Model     *OperatingModel `json:"model,omitempty"`
 	Research  *ResearchInput  `json:"research,omitempty"`
 	Start     bool            `json:"start"`
 }
 
 // DeliveryStartProject calls the deliveryStartProject tool on the Delivery manager over MCP.
-func (c *MCPClient) DeliveryStartProject(ctx context.Context, owner OwnerScope, name string, projectID ProjectID, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
+func (c *MCPClient) DeliveryStartProject(ctx context.Context, owner OwnerScope, name string, projectID *string, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
 	return mcpCallResult[StartProjectResult](c, ctx, "deliveryStartProject", DeliveryStartProjectInput{Owner: owner, Name: name, ProjectID: projectID, Model: model, Research: research, Start: start})
 }
 

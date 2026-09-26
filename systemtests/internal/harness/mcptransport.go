@@ -49,7 +49,7 @@ func (t *mcpTransport) Close() error { return nil }
 // --- UC1 (system-design / Phase-1) ------------------------------------------
 
 func (t *mcpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, "", nil, nil, false)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, nil, nil, nil, false)
 	return string(res.ProjectID), sentinelError(err)
 }
 
@@ -66,12 +66,12 @@ func (t *mcpTransport) ListProjects(ctx context.Context, owner string) ([]Projec
 
 func (t *mcpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
 	research := toResearchInput(sources)
-	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, &research, false)
+	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, &research, false)
 	return sentinelError(err)
 }
 
 func (t *mcpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, nil, true)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, nil, true)
 	if res.Session == nil {
 		return "", sentinelError(err)
 	}

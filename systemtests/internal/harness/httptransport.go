@@ -122,7 +122,7 @@ func sentinelError(err error) error {
 // --- UC1 (system-design / Phase-1) ------------------------------------------
 
 func (t *httpTransport) CreateProject(ctx context.Context, name string) (string, error) {
-	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, "", nil, nil, false)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, name, nil, nil, nil, false)
 	return string(res.ProjectID), sentinelError(err)
 }
 
@@ -139,12 +139,12 @@ func (t *httpTransport) ListProjects(ctx context.Context, owner string) ([]Proje
 
 func (t *httpTransport) SetResearchInput(ctx context.Context, projectID string, sources []ResearchSource) error {
 	research := toResearchInput(sources)
-	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, &research, false)
+	_, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, &research, false)
 	return sentinelError(err)
 }
 
 func (t *httpTransport) StartDesign(ctx context.Context, projectID string) (string, error) {
-	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", sdk.ProjectID(projectID), nil, nil, true)
+	res, err := t.client.DeliveryStartProject(ctx, testOwner, "", &projectID, nil, nil, true)
 	if res.Session == nil {
 		return "", sentinelError(err)
 	}

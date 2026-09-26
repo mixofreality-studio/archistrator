@@ -1029,7 +1029,7 @@ type Version int64
 
 // DeliveryManager is the generated service-contract interface for this component.
 type DeliveryManager interface {
-	StartProject(rc fwm.Context, owner OwnerScope, name string, projectID *ProjectID, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error)
+	StartProject(rc fwm.Context, owner OwnerScope, name string, projectID *string, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error)
 	ExecuteNextActivity(rc fwm.Context, projectID ProjectID, tickID string) (PumpResult, error)
 	DispatchActivityTask(rc fwm.Context, projectID ProjectID, activityID ActivityID, taskID string, feedback *ReviewFeedback) (SessionRef, error)
 	SubmitReviewDecision(rc fwm.Context, projectID ProjectID, activityID ActivityID, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error

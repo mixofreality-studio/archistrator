@@ -8,7 +8,7 @@
         "STP-UC1-N2",
         "STP-UC1-B1"
       ],
-      "sourceHash": "ce50a013c6088985043bcf557bd0a29a9adbe176bc86f27a840edfcb23a406c5"
+      "sourceHash": "c15ec55c7287f13386388df8d33dcf00070051233314cdca8cbfc59870a749f3"
     },
     "STP-UC2": {
       "file": "stp_uc2_table.gen.go",

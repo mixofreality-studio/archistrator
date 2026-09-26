@@ -10,18 +10,19 @@ import (
 
 // DeliveryStartProjectRequest is the JSON request body for DeliveryStartProject.
 type DeliveryStartProjectRequest struct {
-	Owner    OwnerScope      `json:"owner"`
-	Name     string          `json:"name"`
-	Model    *OperatingModel `json:"model,omitempty"`
-	Research *ResearchInput  `json:"research,omitempty"`
-	Start    bool            `json:"start"`
+	Owner     OwnerScope      `json:"owner"`
+	Name      string          `json:"name"`
+	ProjectID *string         `json:"projectID,omitempty"`
+	Model     *OperatingModel `json:"model,omitempty"`
+	Research  *ResearchInput  `json:"research,omitempty"`
+	Start     bool            `json:"start"`
 }
 
 // DeliveryStartProject calls the StartProject operation on the Delivery manager over HTTP.
-func (c *HTTPClient) DeliveryStartProject(ctx context.Context, owner OwnerScope, name string, projectID ProjectID, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
-	path := fmt.Sprintf("/api/v1/delivery/start-project/%s", projectID)
+func (c *HTTPClient) DeliveryStartProject(ctx context.Context, owner OwnerScope, name string, projectID *string, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
+	path := "/api/v1/delivery/start-project"
 	var out StartProjectResult
-	err := c.doRequest(ctx, http.MethodPost, path, DeliveryStartProjectRequest{Owner: owner, Name: name, Model: model, Research: research, Start: start}, &out, http.StatusOK)
+	err := c.doRequest(ctx, http.MethodPost, path, DeliveryStartProjectRequest{Owner: owner, Name: name, ProjectID: projectID, Model: model, Research: research, Start: start}, &out, http.StatusOK)
 	return out, err
 }
 

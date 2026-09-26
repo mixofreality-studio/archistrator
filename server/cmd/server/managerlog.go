@@ -48,12 +48,12 @@ type loggingDeliveryManager struct {
 	log   *slog.Logger
 }
 
-func (m loggingDeliveryManager) StartProject(rc fwmanager.Context, owner delivery.OwnerScope, name string, projectID *delivery.ProjectID, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
-	// name-as-identity: on a create the supplied name IS the project id; on an
-	// update the caller addressed an existing one.
+func (m loggingDeliveryManager) StartProject(rc fwmanager.Context, owner delivery.OwnerScope, name string, projectID *string, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
+	// name-as-identity: on a create (projectID absent) the supplied name IS the project
+	// id; on an update the caller addressed an existing one.
 	scope := name
 	if projectID != nil {
-		scope = string(*projectID)
+		scope = *projectID
 	}
 	v, err := m.inner.StartProject(rc, owner, name, projectID, model, research, start)
 	return v, logInfraError(m.log, "Delivery.StartProject", scope, err)

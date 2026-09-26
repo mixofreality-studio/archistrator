@@ -5158,15 +5158,9 @@ paths:
                     description: infrastructure unavailable
             security:
                 - bearerAuth: []
-    /api/v1/delivery/start-project/{projectID}:
+    /api/v1/delivery/start-project:
         post:
             operationId: StartProject
-            parameters:
-                - in: path
-                  name: projectID
-                  required: true
-                  schema:
-                    $ref: '#/components/schemas/DeliveryProjectID'
             requestBody:
                 content:
                     application/json:
@@ -5178,6 +5172,8 @@ paths:
                                     type: string
                                 owner:
                                     $ref: '#/components/schemas/DeliveryOwnerScope'
+                                projectID:
+                                    type: string
                                 research:
                                     $ref: '#/components/schemas/DeliveryResearchInput'
                                 start:

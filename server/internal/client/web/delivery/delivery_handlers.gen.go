@@ -21,7 +21,7 @@ type Handler struct {
 
 // Register mounts every operation route on mux.
 func (h *Handler) Register(mux *http.ServeMux) {
-	mux.HandleFunc("POST /api/v1/delivery/start-project/{projectID}", h.handleStartProject)
+	mux.HandleFunc("POST /api/v1/delivery/start-project", h.handleStartProject)
 	mux.HandleFunc("POST /api/v1/delivery/execute-next-activity/{projectID}", h.handleExecuteNextActivity)
 	mux.HandleFunc("POST /api/v1/delivery/dispatch-activity-task/{projectID}/{activityID}", h.handleDispatchActivityTask)
 	mux.HandleFunc("POST /api/v1/delivery/submit-review-decision/{projectID}/{activityID}", h.handleSubmitReviewDecision)
@@ -36,11 +36,12 @@ func (h *Handler) Register(mux *http.ServeMux) {
 }
 
 type startProjectRequest struct {
-	Owner    mgr.OwnerScope      `json:"owner"`
-	Name     string              `json:"name"`
-	Model    *mgr.OperatingModel `json:"model"`
-	Research *mgr.ResearchInput  `json:"research"`
-	Start    bool                `json:"start"`
+	Owner     mgr.OwnerScope      `json:"owner"`
+	Name      string              `json:"name"`
+	ProjectID *string             `json:"projectID"`
+	Model     *mgr.OperatingModel `json:"model"`
+	Research  *mgr.ResearchInput  `json:"research"`
+	Start     bool                `json:"start"`
 }
 
 type executeNextActivityRequest struct {
@@ -90,10 +91,8 @@ type queryProjectViewRequest struct {
 	Query mgr.ProjectViewQuery `json:"query"`
 }
 
-// handleStartProject binds POST /api/v1/delivery/start-project/{projectID} -> mgr.StartProject.
+// handleStartProject binds POST /api/v1/delivery/start-project -> mgr.StartProject.
 func (h *Handler) handleStartProject(w http.ResponseWriter, r *http.Request) {
-	projectIDVal := mgr.ProjectID(r.PathValue("projectID"))
-	projectID := &projectIDVal
 	var req startProjectRequest
 	if !decodeJSON(w, r, &req) {
 		return
@@ -105,13 +104,13 @@ func (h *Handler) handleStartProject(w http.ResponseWriter, r *http.Request) {
 	}
 	decision, err := h.Security.Authorize(r.Context(), principal,
 		security.Action{Verb: "start-project"},
-		security.ResourceRef{Kind: "project", ID: string(*projectID)})
+		security.ResourceRef{Kind: "deliveryCatalog", ID: principal.Subject})
 	if err != nil || !decision.Permit {
 		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
 		return
 	}
 	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.StartProject(rc, req.Owner, req.Name, projectID, req.Model, req.Research, req.Start)
+	result, err := h.Manager.StartProject(rc, req.Owner, req.Name, req.ProjectID, req.Model, req.Research, req.Start)
 	if err != nil {
 		writeManagerError(w, err)
 		return

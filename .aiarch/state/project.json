@@ -21461,7 +21461,8 @@
                 "name": "projectID",
                 "pointer": true,
                 "schema": {
-                  "$ref": "#/$defs/ProjectID"
+                  "type": "string",
+                  "x-go-name": "ProjectID"
                 }
               },
               {
@@ -31092,8 +31093,7 @@
                     },
                     {
                       "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
+                      "value": "proj-aiarch-01"
                     },
                     {
                       "name": "research",
@@ -31126,8 +31126,7 @@
                     },
                     {
                       "name": "projectID",
-                      "value": "proj-aiarch-01",
-                      "schemaRef": "#/$defs/ProjectID"
+                      "value": "proj-aiarch-01"
                     },
                     {
                       "name": "start",

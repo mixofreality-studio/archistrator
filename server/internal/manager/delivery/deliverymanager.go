@@ -11736,7 +11736,17 @@ func requireActivity(projectID ProjectID, activityID ActivityID) error {
 // (when no id is given), set the operating model, set the research input, and start the
 // first design activity. Every step is SKIPPED when its argument is absent, so the same
 // op serves "create and start" and "add research to an existing project".
-func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, name string, projectID *ProjectID, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
+//
+// projectID IS THE CREATE SIGNAL, and it is a *string rather than a *ProjectID on
+// purpose. The REST route carries it in the BODY, not the path: the http generator
+// routes any param whose schema $refs a scalar-string $def ending in "ID" into a path
+// segment and ignores `pointer` (framework-go-http-generator httpgen/plan.go
+// isIDPathParam), and net/http's mux cannot match an empty segment — so while it was a
+// $ref the "absent id" that MEANS create was unreachable over REST and only the MCP
+// surface could create a project. A plain string with x-go-name keeps it out of the
+// path, which is the same idiom every other body-carried id in this contract uses
+// (ProjectViewQuery.projectId, ReviewDecisionInput.optionId).
+func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, name string, projectID *string, model *OperatingModel, research *ResearchInput, start bool) (StartProjectResult, error) {
 	var out StartProjectResult
 	id := ProjectID("")
 	if projectID == nil {
@@ -11752,7 +11762,7 @@ func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, n
 		}
 		id = created
 	} else {
-		id = *projectID
+		id = ProjectID(*projectID)
 	}
 	out.ProjectID = id
 	if model != nil {

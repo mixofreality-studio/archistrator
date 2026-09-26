@@ -11,7 +11,7 @@ import (
 // FakeDeliveryManager is a generated test double for delivery.DeliveryManager: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeDeliveryManager struct {
-	StartProjectFn              func(rc fwm.Context, owner delivery.OwnerScope, name string, projectID *delivery.ProjectID, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error)
+	StartProjectFn              func(rc fwm.Context, owner delivery.OwnerScope, name string, projectID *string, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error)
 	ExecuteNextActivityFn       func(rc fwm.Context, projectID delivery.ProjectID, tickID string) (delivery.PumpResult, error)
 	DispatchActivityTaskFn      func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, feedback *delivery.ReviewFeedback) (delivery.SessionRef, error)
 	SubmitReviewDecisionFn      func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID, taskID string, decision delivery.ReviewDecisionInput, feedback *delivery.ReviewFeedback) error
@@ -25,7 +25,7 @@ type FakeDeliveryManager struct {
 	QueryActivityViewFn         func(rc fwm.Context, projectID delivery.ProjectID, activityID delivery.ActivityID) (delivery.ActivityView, error)
 }
 
-func (f *FakeDeliveryManager) StartProject(rc fwm.Context, owner delivery.OwnerScope, name string, projectID *delivery.ProjectID, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
+func (f *FakeDeliveryManager) StartProject(rc fwm.Context, owner delivery.OwnerScope, name string, projectID *string, model *delivery.OperatingModel, research *delivery.ResearchInput, start bool) (delivery.StartProjectResult, error) {
 	if f.StartProjectFn == nil {
 		panic("FakeDeliveryManager.StartProjectFn not set")
 	}
