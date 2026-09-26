@@ -7383,6 +7383,14 @@ type pdCoAuthorState struct {
 	// that already carries the model (which the no-commit guard would red). Workflow-local,
 	// deterministic on replay (set from a recorded Activity error, never wall-clock).
 	resumeFromReadBack bool
+	// stagedVersion is the project-state version the LAST successful stage-for-review
+	// returned — the substrate commit that holds the revision now at the gate. It is what
+	// the review round cites as its subject (designStagedRef), so round n and round n+1 of
+	// one gate name two different drafts instead of both naming the session's pull request.
+	// Zero until this session stages, which is the "nothing staged" the subject ladder falls
+	// through. Workflow-local, set from a recorded Activity result. Systemdesign twin:
+	// coAuthorState.stagedVersion.
+	stagedVersion projectstate.Version
 	// feedbackSeeded reports whether the CURRENT contents of the workflow's feedback variable
 	// are already durably in the review ledger. The review-gate REJECT and the AMENDMENT seed
 	// fold their feedback into the ledger themselves (pdFeedbackToLedgerComments / seedAmendment
@@ -9975,6 +9983,18 @@ type constructState struct {
 	// its subject and what every verdict on that round names — the join that makes a
 	// verdict traceable to the work it judged and to the episode that burned it.
 	workAttemptID string
+
+	// stagedRef is the ref of the OUTPUT the last work task staged — the commit the gate
+	// that follows actually judges, and the one rung of gateSubjectRef's ladder that moves
+	// per revision rather than per activity.
+	//
+	// EMPTY for now, on purpose: nothing on the construction rail calls StageTaskOutput yet
+	// (stage 3 wired the verb and stage 4b1 Task 11 is its first caller), so every gate falls
+	// through to the PR and then to the work attempt exactly as it did. The field and the
+	// parameter exist ahead of the writer so the generic DAG child fills one assignment
+	// instead of re-parameterising the single review-round writer. Workflow-local, to be set
+	// from a recorded Activity result.
+	stagedRef string
 
 	// gate is the execution-ledger identity of the review round the workflow is at right
 	// now. Exactly one gate is live at a time (the phase walk is sequential), so this is

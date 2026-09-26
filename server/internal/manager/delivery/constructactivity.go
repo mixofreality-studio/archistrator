@@ -1997,7 +1997,7 @@ func (wf *csWorkflows) openGateRound(
 		task:    gate,
 		number:  n,
 		roundID: projectstate.AttemptID(string(in.ActivityID), gate, n),
-		subject: gateSubjectRef(gf, state.workAttemptID),
+		subject: gateSubjectRef(gf, state.stagedRef, state.workAttemptID),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
@@ -2022,12 +2022,27 @@ func (wf *csWorkflows) openGateRound(
 	return nil
 }
 
-// gateSubjectRef names WHAT the round judges. On the PR rail that is the pull request the
-// activity's work is on — the thing a reviewer actually opens. With the rail dormant
-// there is no such handle (construction stages no model: its output is a commit the agent
-// pushed to the activity branch), so the round cites the work ATTEMPT it judged, which
-// joins to both the attempt ledger and the episode that burned it.
-func gateSubjectRef(gf *gitForward, workAttemptID string) projectstate.SubjectRef {
+// gateSubjectRef names WHAT this round judges — and it must differ from round to round, or
+// the ledger cannot say which revision each round looked at.
+//
+// THE DEFECT THIS REPLACES: the pull request is per-ACTIVITY, so rounds 1 and 2 of one gate
+// both cited gf.prRef and the ledger claimed one subject for two different drafts. The fix
+// is to name the COMMIT — stagedRef, the ref StageTaskOutput returned for the work task
+// this round judges, which advances with every redraft.
+//
+// The ladder, most specific first — the SAME RULE the design rails' designSubjectRef runs
+// (a shared rule, not a shared signature: the two rails have different fallbacks):
+//   - a staged ref ⇒ SubjectCommit. The honest answer, and the only rung that moves per
+//     revision. EMPTY until the generic child stages construction output; stage 4b1 Task 11
+//     fills it, and this signature is widened now so that task re-parameterises nothing.
+//   - else a live PR ⇒ SubjectPullRequest. Coarse, but it is a handle a reviewer can open,
+//     and it is what the rail had.
+//   - else the work ATTEMPT ⇒ SubjectArtifact. Joins to both ledgers and to the episode
+//     that burned it.
+func gateSubjectRef(gf *gitForward, stagedRef, workAttemptID string) projectstate.SubjectRef {
+	if stagedRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectCommit, Ref: stagedRef}
+	}
 	if gf.enabled && gf.prRef != "" {
 		return projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: gf.prRef}
 	}

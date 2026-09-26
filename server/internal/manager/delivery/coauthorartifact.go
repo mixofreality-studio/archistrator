@@ -363,6 +363,11 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		// Workflow-local state derived from recorded Activity results — replay-deterministic.
 		state.staged = true
 		state.stagedBranch = gf.readBackBranch()
+		// The REVISION this stage landed, for the round about to judge it: the subject of a
+		// review is what the draft round produced, and this version is the substrate commit
+		// that holds it. Captured here rather than read off headVersion at the round, because
+		// the amendment seed below advances head without staging anything new.
+		state.stagedVersion = newVersion
 		state.stage = StageAwaitingReview
 		// SUB-STEP (Plan-3 C1): staged for the human gate — no role is working. Belt-and-braces
 		// (the draft/critique success paths already cleared their stamp before returning).
@@ -1629,6 +1634,13 @@ type coAuthorState struct {
 	// command-sequence change it gates is version-pinned (failed-gate-withdraw-honest).
 	staged       bool
 	stagedBranch string
+	// stagedVersion is the project-state version the LAST successful stage-for-review
+	// returned — the substrate commit that holds the revision now at the gate. It is what
+	// the review round cites as its subject (designStagedRef), so round n and round n+1 of
+	// one gate name two different drafts instead of both naming the session's pull request.
+	// Zero until this session stages, which is the "nothing staged" the subject ladder
+	// falls through. Workflow-local, set from a recorded Activity result.
+	stagedVersion projectstate.Version
 	// feedbackSeeded reports whether the CURRENT contents of the workflow's feedback variable
 	// are already durably in the review ledger. The review-gate REJECT and the AMENDMENT seed
 	// fold their feedback into the ledger themselves (feedbackToLedgerComments / seedAmendment
@@ -3740,12 +3752,26 @@ type roundCommentRef struct {
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// designSubjectRef names WHAT a design round judges. The commit sha of the draft is NOT
-// knowable to this workflow — the design job's agent pushes it and the workflow only ever
-// reads back a typed model and a version — so the honest subject is the pull request the
-// reviewer actually opens when there is one, and the staged artifact on its branch when
-// there is not. Deterministic: both halves come from recorded Activity results.
-func designSubjectRef(gf gitSession, kind projectstate.ArtifactKind) projectstate.SubjectRef {
+// designSubjectRef names WHAT a design round judges — and it must differ from round to
+// round, or the ledger cannot say which revision each round looked at.
+//
+// THE DEFECT THIS REPLACES: the pull request is per-SESSION, so rounds 1 and 2 of one
+// gate both cited gf.prRef and the ledger claimed one subject for two different drafts.
+// The fix is to name the staged REVISION — designStagedRef, the project-state version the
+// stage-for-review commit produced, which advances with every redraft.
+//
+// The ladder, most specific first, and it is the SAME RULE construction's gateSubjectRef
+// runs (a shared rule, not a shared signature — the two rails have different fallbacks):
+//   - a staged ref ⇒ SubjectCommit. The honest answer, and the only rung that moves per
+//     revision. Empty only before this session has staged anything.
+//   - else a live PR ⇒ SubjectPullRequest. Coarse, but it is a handle a reviewer can open.
+//   - else the staged artifact on its branch, or the bare kind ⇒ SubjectArtifact.
+//
+// Deterministic: every half comes from recorded Activity results.
+func designSubjectRef(gf gitSession, stagedRef string, kind projectstate.ArtifactKind) projectstate.SubjectRef {
+	if stagedRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectCommit, Ref: stagedRef}
+	}
 	if gf.enabled && gf.prRef != "" {
 		return projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: gf.prRef}
 	}
@@ -3753,6 +3779,31 @@ func designSubjectRef(gf gitSession, kind projectstate.ArtifactKind) projectstat
 		return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind.WireName() + "@" + branch}
 	}
 	return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: kind.WireName()}
+}
+
+// designStagedRef renders the design rails' staged revision as a subject ref. The commit
+// SHA is not knowable to this workflow — the agent pushes it and the workflow only ever
+// reads back a typed model and a version — but the git-as-DB substrate makes one commit
+// per mutation, so the version the stage-for-review commit RETURNED names that commit as
+// exactly as this layer can, and it is what construction's StagedRef.Version will carry
+// for the same purpose.
+//
+// Two shapes, because the handle has two parts only when the revision lives on a branch:
+// "<branch>@v<n>" on the session branch, "v<n>" on the substrate default (the dormant
+// rail, where the branch this workflow can name is "" — the default branch's real name is
+// the substrate's business and this layer must not guess it). Nothing parses either: a
+// round's ref is read, never split.
+//
+// Version zero is "this session has staged nothing", and the empty ref it yields is what
+// drops designSubjectRef to its next rung.
+func designStagedRef(branch string, staged projectstate.Version) string {
+	if staged == 0 {
+		return ""
+	}
+	if branch == "" {
+		return fmt.Sprintf("v%d", staged)
+	}
+	return fmt.Sprintf("%s@v%d", branch, staged)
 }
 
 // designRoundReviewers is the roster the round persists: the rows the review engine
@@ -3836,7 +3887,7 @@ func (wf *workflows) openDesignRound(
 		key:       key,
 		roundID:   designRoundID(key, kind, n),
 		number:    n,
-		subject:   designSubjectRef(gf, kind),
+		subject:   designSubjectRef(gf, designStagedRef(gf.readBackBranch(), state.stagedVersion), kind),
 		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {

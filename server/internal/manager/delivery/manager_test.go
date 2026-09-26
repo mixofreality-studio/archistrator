@@ -12215,6 +12215,111 @@ func Test_CoAuthor_RejectThenAutoApprove_IsTwoRounds_AndNamesTheApprover(t *test
 	}
 }
 
+// TWO ROUNDS ON ONE GATE JUDGE TWO DIFFERENT REVISIONS, AND SAY SO. The pull request is
+// per-SESSION, so pre-fix designSubjectRef answered "pr/<sessionBranch>" for round 1 and
+// the SAME string for round 2: the ledger held two rounds, two verdicts and one subject,
+// and nothing in it could say which draft the send-back was about. The subject is the
+// staged REVISION now — the version the stage-for-review commit returned — which advances
+// with every redraft.
+//
+// Asserted BY VALUE, not by absence: the pre-fix answer is a known string (the fakeRail
+// mints "pr/"+head), so the test names it and refuses it rather than merely checking the
+// two refs differ.
+func Test_CoAuthor_TwoRoundsOnOneGate_CiteTwoDifferentRevisions(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, _ := newRoundLedgerEnv(t, env, id)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewReject, Feedback: &ReviewFeedback{Notes: "not yet"}})
+	}, 30*time.Second)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalReviewDecision, reviewDecisionSignal{Decision: ReviewApprove, Approver: autoApproverVibes})
+	}, 70*time.Second)
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("reject → approve must not crash the session: %v", err)
+	}
+
+	rounds := base.rounds("architecture")
+	if len(rounds) != 2 {
+		t.Fatalf("a send-back and the review that followed it are two rounds; got %d", len(rounds))
+	}
+	for i, r := range rounds {
+		if r.SubjectRef.Kind != projectstate.SubjectCommit {
+			t.Fatalf("round %d must judge the staged COMMIT, not a coarser handle; got %+v", i+1, r.SubjectRef)
+		}
+		if strings.HasPrefix(r.SubjectRef.Ref, "pr/") {
+			t.Fatalf("round %d still cites the per-session pull request (the defect); got %q", i+1, r.SubjectRef.Ref)
+		}
+	}
+	if rounds[0].SubjectRef.Ref == rounds[1].SubjectRef.Ref {
+		t.Fatalf("the redraft staged a NEW revision, so the second round judges a different subject; both were %q", rounds[0].SubjectRef.Ref)
+	}
+	// The same fact reaches the ATTEMPT ledger through gateEvidence, which maps a commit
+	// subject onto git evidence — so a reader arriving from either ledger lands on the same
+	// revision. (The design rails write no gate attempt, so this pins the mapping itself.)
+	if kind, ref := gateEvidence(rounds[1].SubjectRef); kind != projectstate.EvidenceGit || ref != rounds[1].SubjectRef.Ref {
+		t.Fatalf("a commit subject is git evidence carrying the same ref; got %q/%q", kind, ref)
+	}
+}
+
+// THE SUBJECT LADDER, RUNG BY RUNG, on both rails. One rule, two signatures: the staged
+// revision wins, then a live pull request, then the rail's own last resort — the work
+// ATTEMPT on construction (it joins to both ledgers and to the episode that burned it) and
+// the staged artifact on the design rails. The construction rung that MOVES is empty until
+// the generic child stages its output (Task 11), which is why this pins it directly.
+func Test_SubjectRef_TheStagedRevisionOutranksThePullRequest(t *testing.T) {
+	live := &gitForward{enabled: true, prRef: "pr/aiarch/C-X-1"}
+	dormant := &gitForward{}
+	for _, tt := range []struct {
+		name string
+		got  projectstate.SubjectRef
+		want projectstate.SubjectRef
+	}{
+		{"construction: the staged commit wins over a live PR",
+			gateSubjectRef(live, "C-X:construction@v7", "C-X:construction:1"),
+			projectstate.SubjectRef{Kind: projectstate.SubjectCommit, Ref: "C-X:construction@v7"}},
+		{"construction: no staged ref falls to the PR",
+			gateSubjectRef(live, "", "C-X:construction:1"),
+			projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: "pr/aiarch/C-X-1"}},
+		{"construction: a dormant rail falls to the work attempt",
+			gateSubjectRef(dormant, "", "C-X:construction:1"),
+			projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: "C-X:construction:1"}},
+		{"design: the staged revision wins over a live PR",
+			designSubjectRef(gitSession{enabled: true, branch: "aiarch/system", prRef: "pr/aiarch/system"}, "aiarch/system@v4", projectstate.KindSystem),
+			projectstate.SubjectRef{Kind: projectstate.SubjectCommit, Ref: "aiarch/system@v4"}},
+		{"design: no staged revision falls to the PR",
+			designSubjectRef(gitSession{enabled: true, branch: "aiarch/system", prRef: "pr/aiarch/system"}, "", projectstate.KindSystem),
+			projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: "pr/aiarch/system"}},
+		{"design: a dormant rail falls to the bare artifact kind",
+			designSubjectRef(gitSession{}, "", projectstate.KindSystem),
+			projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: projectstate.KindSystem.WireName()}},
+	} {
+		if tt.got != tt.want {
+			t.Errorf("%s: got %+v, want %+v", tt.name, tt.got, tt.want)
+		}
+	}
+	// The ref itself: the branch is part of the handle only when the revision lives on one,
+	// and version zero is "nothing staged" — the empty string that drops the ladder a rung.
+	for _, tt := range []struct {
+		branch string
+		staged projectstate.Version
+		want   string
+	}{
+		{"aiarch/system", 4, "aiarch/system@v4"},
+		{"", 4, "v4"},
+		{"aiarch/system", 0, ""},
+	} {
+		if got := designStagedRef(tt.branch, tt.staged); got != tt.want {
+			t.Errorf("designStagedRef(%q, %d) = %q, want %q", tt.branch, tt.staged, got, tt.want)
+		}
+	}
+}
+
 // TWO KINDS THAT SHARE ONE LIFECYCLE PHASE MUST NOT SHARE A ROUND ID. system,
 // operationalConcepts and standardCheck all map to the architecture phase, and glossary and
 // scrubbedRequirements both map to the glossary phase — so a three-part

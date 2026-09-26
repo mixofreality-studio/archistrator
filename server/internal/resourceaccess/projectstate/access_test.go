@@ -11120,6 +11120,78 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	}
 }
 
+// TestOpenActivity_TypesTheRowOnce — (typ, variant) is write-once for the same reason the
+// pin is. The row's Type is what ResolveConstructionRow resolves every read-time
+// derivation against — the lifecycle profile, the phase set, earned value — so a re-open
+// that quietly re-typed it would retro-date every attempt and round already recorded to a
+// DAG they were never written under.
+//
+// Pre-fix `cs.Type = typ` and `cs.Variant = variant` were unconditional: the pin above them
+// was write-once and the start stamp below them was write-once, and the pair between the two
+// took whatever the last caller said.
+//
+// The three arms are the three things a caller can mean: the retry (same pair — the
+// idempotent no-op the design rails depend on, re-opening ONE prefix activity once per
+// artifact kind), the contradiction (either field different — refused), and the BIRTH (a
+// row that does not exist yet — always written, whatever the pair).
+func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	pin := LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}
+	born := readConstruction(t, store, id, cred, "C-X")
+
+	// THE RETRY. Re-opening with the same pair succeeds and re-dates nothing: this is the
+	// design rails' per-kind re-open (requirements across mission, glossary, …) and the
+	// construction rail's resume, and a refusal here would break both.
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan, pin, cred, fwra.IdempotencyKey("t1"))
+	if err != nil {
+		t.Fatalf("re-opening with the same (typ, variant) must succeed: %v", err)
+	}
+	if again := readConstruction(t, store, id, cred, "C-X"); again.StartedAt == nil || !again.StartedAt.Equal(*born.StartedAt) {
+		t.Fatalf("a re-open resumes the run rather than re-dating it; StartedAt %v → %v", born.StartedAt, again.StartedAt)
+	}
+
+	// THE CONTRADICTION, either field over. The refusal names BOTH pairs, because the
+	// caller's whole problem is that it does not know which classification the row holds.
+	for _, tt := range []struct {
+		name    string
+		typ     ActivityType
+		variant TestingVariant
+		names   []string
+		key     fwra.IdempotencyKey
+	}{
+		{"a different type", ActivityTypeTesting, TestVariantPlan, []string{"service/plan", "testing/plan"}, "t2"},
+		{"a different variant", ActivityTypeService, TestVariantSystemTest, []string{"service/plan", "service/systemTest"}, "t3"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", tt.typ, tt.variant, pin, cred, tt.key)
+			if err == nil || kindOfErr(err) != fwra.ContractMisuse {
+				t.Fatalf("re-typing a live row must be ContractMisuse; got %v", err)
+			}
+			for _, want := range tt.names {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("the refusal must name %q so the caller can see both classifications; got %v", want, err)
+				}
+			}
+			if after := readConstruction(t, store, id, cred, "C-X"); after.Type != ActivityTypeService || after.Variant != TestVariantPlan {
+				t.Fatalf("a refused re-type must not have written; got %s/%s", after.Type, after.Variant)
+			}
+		})
+	}
+
+	// THE BIRTH. A row that does not exist yet has no classification to contradict, and
+	// StartedAt — nil until this very call — is what tells the two cases apart (Type cannot:
+	// ActivityTypeService is the zero value, so an untyped row and a service row are the
+	// same bytes).
+	if _, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "N-IT", ActivityTypeTesting, TestVariantSystemTest,
+		LifecyclePin{TypeKey: "testing.systemTest", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("t4")); err != nil {
+		t.Fatalf("a BIRTH must be written whatever the pair: %v", err)
+	}
+	if fresh := readConstruction(t, store, id, cred, "N-IT"); fresh.Type != ActivityTypeTesting || fresh.Variant != TestVariantSystemTest {
+		t.Fatalf("the birth stamps the pair the dispatcher classified; got %s/%s", fresh.Type, fresh.Variant)
+	}
+}
+
 // TestOpenActivity_RefusesToResurrectAFinishedActivity — a terminal row's ledgers are the
 // record of a finished activity. Re-opening it in place would leave Running and Done the
 // same row with nothing saying which came first, and the completion stamp would describe

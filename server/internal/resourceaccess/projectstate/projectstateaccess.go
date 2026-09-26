@@ -10084,6 +10084,33 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 					activityID, cs.Pin.TypeKey, cs.Pin.AssetsVersion, pin.TypeKey, pin.AssetsVersion))
 				return
 			}
+			// TYPE AND VARIANT ARE WRITE-ONCE, for the same reason the pin is. The row's
+			// Type is what ResolveConstructionRow resolves every read-time derivation
+			// against — the lifecycle profile, the phase set, earned value — so a re-open
+			// that quietly re-typed it would retro-date every attempt and round already
+			// recorded to a DAG they were never written under. That write-once rule cannot
+			// be honoured here by keeping the old value and reporting success: the caller
+			// would be told it opened the activity it asked for. So this refuses, exactly
+			// as the pin does.
+			//
+			// StartedAt (not the pin, and not a non-zero Type) is the "this row is LIVE
+			// rather than being birthed" test, the same one the stamp below uses: a BIRTH
+			// leaves it nil and writes both fields, and ActivityTypeService is the zero
+			// value, so a row born as a service is indistinguishable from an untyped one by
+			// Type alone. A row the RETIRED rail started (RecordActivityStarted stamps the
+			// same classified pair and the same StartedAt) therefore re-opens as the no-op
+			// it is, and the design rails' per-kind re-open of one prefix activity —
+			// requirements across mission/glossary/…, always the same (typ, variant) — is
+			// untouched.
+			//
+			// A genuine re-classification is an amendment to the committed activity list
+			// followed by a NEW execution, not a re-open of the old one.
+			if cs.StartedAt != nil && (cs.Type != typ || cs.Variant != variant) {
+				refused = execMisuse("OpenActivity", fmt.Sprintf(
+					"activity %s is open as %s/%s and cannot be re-opened as %s/%s; the ledger below it was written under the first",
+					activityID, cs.Type, cs.Variant, typ, variant))
+				return
+			}
 			cs.Type = typ
 			cs.Variant = variant
 			// StartedAt IS "running" now that no roll-up is stored: write-once, so a

@@ -816,6 +816,11 @@ func (wf *pdWorkflows) finishDraftRound(
 		return wf.containAtFailedGate(ctx, in, *headVersion, stageFailedReason(err), state, feedback, redraftCount)
 	}
 	*headVersion = newVersion
+	// The REVISION this stage landed, for the round about to judge it (systemdesign twin
+	// parity): the subject of a review is what the draft round produced, and this version is
+	// the substrate commit that holds it. Captured here rather than read off headVersion at
+	// the round, because the amendment seed between them advances head without staging.
+	state.stagedVersion = newVersion
 	state.stage = ProjectStageAwaitingReview
 	// SUB-STEP (Plan-3 C2): staged for the human gate — no role is working. Belt-and-braces
 	// (the draft success path already cleared its stamp before returning, above).
@@ -2199,7 +2204,7 @@ func (wf *pdWorkflows) openDesignRound(
 		key:       key,
 		roundID:   designRoundID(key, kind, n),
 		number:    n,
-		subject:   designSubjectRef(gf, kind),
+		subject:   designSubjectRef(gf, designStagedRef(gf.readBackBranch(), state.stagedVersion), kind),
 		attemptID: projectstate.AttemptID(key.activityID, key.work, n),
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, "", state.ledgerVersion, func(expected projectstate.Version) (projectstate.Version, error) {
