@@ -4990,6 +4990,80 @@ func isReadNotFound(err error) bool {
 	return false
 }
 
+// ===========================================================================
+// THE ROW RE-READ, and the Conflict that is not a race (stage 4b1, ruling R-A).
+//
+// ONE copy serves the systemDesign + projectDesign + construction rails: all three
+// applyRecovering loops call terminalAfterRowReread, so the discriminator exists once
+// even though the three loops keep their own receivers, branch parameter and logging.
+// ===========================================================================
+
+// changeRowConflictReread fences the row re-read applyRecovering gained in stage 4b1.
+// Pre-change executions keep their recorded sequence — project version only — because the
+// row read is a NEW durable command inside the loop, and a history that conflicted once
+// would otherwise replay into a command it never made.
+const changeRowConflictReread = "row-conflict-reread"
+
+// terminalConflictErrType is the Temporal Type() applyRecovering raises when a Conflict
+// cannot be a version conflict, because RE-READING CHANGED NOTHING.
+//
+// Why the re-read is the discriminator and not an error class: fwra.Kind is
+// platform-fixed (framework-go/resourceaccess/errors.go), every Conflict reaches a
+// workflow as nothing but that Kind's name (fwmanager.RAErrType, see raConflictErrType),
+// and matching a store's message text from a workflow would couple the two across a
+// release. The two terminality Conflicts this catches — OpenActivity on an exited row,
+// and AppendReviewVerdict/DecideReviewRound on a decided round — differ from a genuine
+// version conflict in exactly one OBSERVABLE way: nothing moves when you look again. So
+// we look again, and when neither the project version nor the row version moved we fail
+// with the honest cause instead of burning twenty attempts to report the wrong one.
+const terminalConflictErrType = "MutateTerminalConflict"
+
+// terminalConflictMessage is the one sentence that terminal carries. It names what was
+// asked (both versions) and what the answer means (a refusal, not a race), because the
+// operator reading it cannot re-run the re-read the workflow already did.
+const terminalConflictMessage = "head-state conflict is terminal: neither the project version nor the activity row moved on re-read, so the store is refusing this transition rather than racing it"
+
+// isTerminalConflict reports whether err is that terminal. Callers that legitimately race
+// to a terminal state — the round sweep withdrawing a round someone else just decided —
+// treat it as success rather than as a failure.
+func isTerminalConflict(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == terminalConflictErrType
+	}
+	return false
+}
+
+// rowAccessor is the PER-RUN binding the row re-read needs: WHICH activity row this
+// execution writes, what version it believes that row is at, and how to re-seed that
+// belief once the store has been asked again.
+//
+// It rides the RUN's workflow.Context and NOT the workflows receiver. The receiver
+// (csWorkflows / workflows / pdWorkflows) is built ONCE per worker — WorkerManifest hands
+// its method values to RegisterWorkflow — and is therefore shared by every execution on
+// that worker: accessor FIELDS there would be a data race between concurrent children and
+// would let one activity's row version re-seed another activity's CAS. A context value is
+// per-execution, deterministic, and emits no command, so it also costs no fence of its own
+// and leaves all three applyRecovering signatures and their ~49 call sites untouched.
+type rowAccessor struct {
+	// activityID is the row the run writes. Empty means the run holds no row.
+	activityID string
+	// version reads the run's copy of the row's version (constructState /
+	// coAuthorState / pdCoAuthorState activityVersion — the CAS token it passes).
+	version func() int64
+	// setVersion re-seeds that copy from what the store just reported.
+	setVersion func(int64)
+}
+
+// rowAccessorKey is the private context key. A struct{} type (not a string) so nothing
+// outside this package can collide with it or read the binding out.
+//
+// The four funcs that READ or WRITE this binding take a workflow.Context and so cannot
+// live in the impl file at all (arch.CheckFileLayout's workflow-in-impl-file rule): they
+// sit in their first caller's file, coauthorartifact.go — withRowAccessor,
+// rowAccessorFrom, rereadRowVersion and terminalAfterRowReread.
+type rowAccessorKey struct{}
+
 // systemDesignPhaseWorkflowID derives the parent continuity token:
 // {projectId}:systemDesign (systemDesignManager.md §2.0).
 func systemDesignPhaseWorkflowID(projectID ProjectID) string {
@@ -10228,6 +10302,16 @@ func csActivityOptions() func(activityName string) (workflow.ActivityOptions, bo
 		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
 		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
 		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
+		// The ROW READ the Conflict arm makes (stage 4b1, terminalAfterRowReread) takes NO
+		// entry here, DELIBERATELY: it rides the generated default, exactly as the two
+		// design rails' row read has since stage 3. A preset was considered and rejected —
+		// it would have changed the envelope of an existing call on two rails for no
+		// measured defect, and the reason to add one does not hold: fwra carries Retryable
+		// PER ERROR (framework-go manager.MapError → tagError), so the NotFound this arm maps
+		// to NoActivityVersionExpectation already returns on the first attempt without any
+		// NonRetryableErrorTypes entry. EARMARK: a fwra.Transient row read retries unbounded
+		// under the default, here and on both design rails alike — one envelope question for
+		// all three, not a thing to fix on one rail inside this task.
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]

@@ -842,6 +842,10 @@ func (wf *csWorkflows) ConstructActivityWorkflow(ctx workflow.Context, in constr
 		stage:           StageDispatching,
 		completedPhases: map[projectstate.ActivityMethodPhase]bool{},
 	}
+	// Bind the row BEFORE anything can mutate it: every applyRecovering call below reaches
+	// the Conflict arm through this ctx, and this child is the one caller in the package
+	// that writes exactly ONE activity's row (csBindRowAccessor).
+	ctx = csBindRowAccessor(ctx, in.ActivityID, state)
 	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return err
 	}
@@ -3249,7 +3253,7 @@ func (wf *csWorkflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		v, rerr := wf.readVersionE(ctx, projectID)
+		next, rerr := wf.readVersionE(ctx, projectID)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -3257,8 +3261,34 @@ func (wf *csWorkflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = v
+		// THE ROW RE-READ (stage 4b1, ruling R-A). The project version alone cannot tell an
+		// external row writer apart from a store that is REFUSING this transition; the row
+		// version can, and re-reading it also re-seeds the CAS this run holds by hand
+		// (rowAdvanced). Fenced, guarded for the callers that hold no row, and terminal only
+		// when NEITHER version moved — see terminalAfterRowReread.
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected)
+		if terr != nil {
+			return 0, terr
+		}
+		if terminal {
+			return 0, temporal.NewNonRetryableApplicationError(terminalConflictMessage, terminalConflictErrType, err)
+		}
+		expected = next
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
+}
+
+// csBindRowAccessor binds the ROW this construction run writes onto the run's context, so
+// applyRecovering's Conflict arm can re-read it (rowAccessor: why the context and not the
+// receiver). Called ONCE, by ConstructActivityWorkflow, right after state is built — a
+// pure context derivation that emits no command and so needs no fence of its own. The
+// other two csWorkflows bodies that call applyRecovering — the pump and the supervision
+// workflow's pause record — never call this, and that absence IS their guard.
+func csBindRowAccessor(ctx workflow.Context, activityID ActivityID, state *constructState) workflow.Context {
+	return withRowAccessor(ctx, rowAccessor{
+		activityID: string(activityID),
+		version:    func() int64 { return state.activityVersion },
+		setVersion: func(v int64) { state.activityVersion = v },
+	})
 }

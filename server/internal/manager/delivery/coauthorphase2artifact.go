@@ -103,7 +103,7 @@ func (wf *pdWorkflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		v, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
+		next, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -111,10 +111,39 @@ func (wf *pdWorkflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = v
+		// THE ROW RE-READ (stage 4b1, ruling R-A) — identical to its systemdesign twin,
+		// because the two rails are edited together and a fix to one must not be a
+		// divergence from the other. No Phase-2 kind resolves to a review task today, so on
+		// THIS rail nothing binds a row and the arm is the project-version-only one it was.
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected)
+		if terr != nil {
+			return 0, terr
+		}
+		if terminal {
+			return 0, temporal.NewNonRetryableApplicationError(terminalConflictMessage, terminalConflictErrType, err)
+		}
+		expected = next
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "branch", branch, "nextExpectedVersion", expected)
 	}
+}
+
+// pdBindDesignRowAccessor is bindDesignRowAccessor's Phase-2 twin: the row identity is
+// PURE (pdDesignRoundKeyFor over the artifact kind, no command), so it binds at the top of
+// the session before any fence. No Phase-2 kind resolves today
+// (Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle), so this binds
+// nothing and every Conflict takes the project-version-only arm — which is exactly the
+// guard the pump and the round sweep rely on, exercised here by construction.
+func pdBindDesignRowAccessor(ctx workflow.Context, kind ArtifactKind, state *pdCoAuthorState) workflow.Context {
+	key, ok := pdDesignRoundKeyFor(toPSKind(kind))
+	if !ok {
+		return ctx
+	}
+	return withRowAccessor(ctx, rowAccessor{
+		activityID: key.activityID,
+		version:    func() int64 { return state.activityVersion },
+		setVersion: func(v int64) { state.activityVersion = v },
+	})
 }
 
 // ===========================================================================
@@ -198,6 +227,10 @@ func (wf *pdWorkflows) CoAuthorPhase2ArtifactWorkflow(ctx workflow.Context, in p
 	if err != nil {
 		return coAuthorUnknown, err
 	}
+	// Bind the design activity's row for the whole loop below (pdBindDesignRowAccessor).
+	// Here rather than inside the setup because the setup writes nothing — it reads, fences
+	// and seeds — and this must govern every applyRecovering the driver loop reaches.
+	ctx = pdBindDesignRowAccessor(ctx, in.ArtifactKind, state)
 
 	// redraftCount bounds the attempt label progression and drives the ProjectStageRedrafting
 	// vs ProjectStageDrafting query stage. A pure in-workflow guard.
@@ -432,7 +465,9 @@ func (wf *pdWorkflows) coAuthorSessionSetup(ctx workflow.Context, in pdCoAuthorI
 	// And the round NUMBERING is seeded from the durable ledger, here, before any round is
 	// opened: a second session of this kind continues the review history rather than
 	// re-minting the first session's ids (designRoundID's two-sessions hazard).
-	wf.seedRoundBaseFromLedger(ctx, in, state)
+	if err := wf.seedRoundBaseFromLedger(ctx, in, state); err != nil {
+		return nil, projectstate.Project{}, 0, ReviewFeedback{}, err
+	}
 
 	feedback := ReviewFeedback{}
 	if in.Feedback != nil {
@@ -2099,27 +2134,31 @@ func pdDesignRoundKeyFor(kind projectstate.ArtifactKind) (designRoundKey, bool) 
 // (Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle), so the seed makes
 // no call at all — it is here, identical to its systemdesign twin, because the two rails
 // are edited together and a fix to one must not be a divergence from the other.
-func (wf *pdWorkflows) seedRoundBaseFromLedger(ctx workflow.Context, in pdCoAuthorInput, state *pdCoAuthorState) {
+func (wf *pdWorkflows) seedRoundBaseFromLedger(ctx workflow.Context, in pdCoAuthorInput, state *pdCoAuthorState) error {
 	if !state.roundLedgerEnabled {
-		return
+		return nil
 	}
 	kind := toPSKind(in.ArtifactKind)
 	key, ok := pdDesignRoundKeyFor(kind)
 	if !ok {
-		return
+		return nil
 	}
 	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), key.activityID)
 	if err != nil {
+		// A non-NotFound read failure is NOT "no row": it is "we could not tell" — see the
+		// systemdesign twin for the drift that returning early admitted (stage 4b1).
 		if !isReadNotFound(err) {
-			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; this session numbers its rounds from zero",
+			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; the session cannot write a ledger it could not read",
 				"activityId", key.activityID, "artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+			return err
 		}
-		return
+		return nil
 	}
 	state.roundBase = ledgerRoundBase(row, key, kind)
 	// The per-activity CAS token rides the SAME read — which is why arming the guard cost
 	// no new Temporal command on this rail either.
 	state.activityVersion = row.Version
+	return nil
 }
 
 // pdDesignRoundReviewers is the roster the round persists: the rows the review engine

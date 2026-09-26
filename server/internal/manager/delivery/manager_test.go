@@ -23159,6 +23159,12 @@ type csFakeProjectState struct {
 	// afterConflict, when set, runs each time maybeConflict serves a Conflict — the
 	// concurrent write that caused it (I2: a new pause landing between two tries).
 	afterConflict func(*csFakeProjectState)
+
+	// rowReads counts ReadActivityExecution calls (stage 4b1 Task 7). It is what the
+	// unbound-caller table asserts on: the pump, the supervision pause record and the
+	// round sweep hold NO row, so their Conflict arm must make ZERO of these — and case
+	// (b)/(c) assert exactly ONE, which is the whole claim that twenty attempts became one.
+	rowReads int
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -23542,7 +23548,34 @@ func (f csFakeActivityExecution) applyExecution(expectedActivityVersion int64, a
 	return f.upsertExecution(activityID, mutate), nil
 }
 
+// refuseTerminality mirrors the real facet's TERMINALITY Conflicts — the two refusals that
+// are NOT version conflicts (projectstateaccess.go: OpenActivity on an exited row,
+// Append/Decide on a decided round). What makes them the discriminator's whole subject is
+// that they move NOTHING: no row write, no counter, no project head. The double has to
+// refuse the same way, or the terminal arm would only ever be proved against a
+// hand-injected error rather than the store's own rule. An ABSENT row refuses nothing —
+// a birth is legitimate.
+func (f csFakeActivityExecution) refuseTerminality(activityID string, check func(row projectstate.ActivityExecution) error) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	row, ok := f.project.ActivityExecution[activityID]
+	if !ok {
+		return nil
+	}
+	return check(row)
+}
+
 func (f csFakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, typ projectstate.ActivityType, variant projectstate.TestingVariant, pin projectstate.LifecyclePin, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
+		exited := projectstate.CoarsePhaseFor(row, nil)
+		if exited != projectstate.ActivityConstructionDone && exited != projectstate.ActivityConstructionFailed {
+			return nil
+		}
+		return fwra.New(fwra.Conflict, fmt.Sprintf(
+			"fake projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, exited))
+	}); err != nil {
+		return 0, err
+	}
 	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		row.Type, row.Variant = typ, variant
 		if row.Pin == nil {
@@ -23634,6 +23667,23 @@ func (f csFakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectst
 }
 
 func (f csFakeActivityExecution) DecideReviewRound(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, outcome projectstate.ReviewRoundOutcome, decidedBy string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
+		for _, r := range row.Reviews {
+			if r.RoundID != roundID || r.Outcome == projectstate.RoundPending {
+				continue
+			}
+			// The store's own order: a REPLAY of the decision already recorded is a success,
+			// and only a DIFFERENT decision on a decided round is the refusal.
+			if r.Outcome == outcome && r.DecidedBy == decidedBy {
+				return nil
+			}
+			return fwra.New(fwra.Conflict, fmt.Sprintf(
+				"fake projectstate.DecideReviewRound: round %s is already decided %q by %s", roundID, r.Outcome, r.DecidedBy))
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
 	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
@@ -23712,8 +23762,22 @@ func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectsta
 	})
 }
 
+// ReadActivityExecution is the row read applyRecovering's Conflict arm makes (stage 4b1).
+// It counts, because the count IS the assertion in three of Task 7's cases: exactly one on
+// a terminality Conflict, zero for a caller that holds no row. A row that does not exist
+// answers fwra.NotFound, as the store does — the arm maps that to
+// NoActivityVersionExpectation, and a double that answered a zero row instead would hide
+// whether the mapping is there at all.
 func (f csFakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
-	return f.execution(activityID), nil
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.rowReads++
+	row, ok := f.project.ActivityExecution[activityID]
+	if !ok {
+		return projectstate.ActivityExecution{}, fwra.New(fwra.NotFound, "fake projectstate: no activity row for "+activityID)
+	}
+	row.ActivityID = activityID
+	return row, nil
 }
 
 // fakeFullProjectState widens csFakeProjectState onto the FULL projectstate.ProjectStateAccess
@@ -24040,11 +24104,15 @@ func registerGenConstructionTransition(env *testsuite.TestWorkflowEnvironment, p
 
 // csRegisterGenActivityExecution registers the GENERATED activityExecutionAccess activities
 // the construction child workflow writes through behind changeExecutionLedger (stage 3),
-// backed by the in-memory double over the same ps. The six it calls are registered; the
-// other six are not, so a workflow that starts calling one is a loud ActivityNotRegistered
+// backed by the in-memory double over the same ps. The SEVEN it calls are registered; the
+// other five are not, so a workflow that starts calling one is a loud ActivityNotRegistered
 // rather than a silent no-op.
 func csRegisterGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
 	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	// The READ is the seventh, new in stage 4b1: applyRecovering's Conflict arm re-reads the
+	// row behind changeRowConflictReread. It is the first read this rail makes of the
+	// execution ledger — every other call here is a write.
+	env.RegisterActivityWithOptions(acts.ActivityExecutionReadActivityExecution, activity.RegisterOptions{Name: "activityExecutionAccess.readActivityExecution"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenActivity, activity.RegisterOptions{Name: "activityExecutionAccess.openActivity"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordAttemptOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordAttemptOutcome"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionOpenReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.openReviewRound"})
@@ -24552,6 +24620,244 @@ func Test_Construct_ConflictOnRecord_ReReadReApply_Succeeds(t *testing.T) {
 	}
 	if len(ps.exited) != 1 {
 		t.Fatalf("want one recorded exit after the conflict loop, got %v", ps.exited)
+	}
+}
+
+// ===========================================================================
+// THE ROW RE-READ, and the Conflict that is not a race (stage 4b1 Task 7, ruling R-A).
+//
+// What every case below turns on is that a Conflict carries NOTHING but the Kind's name,
+// so the loop has to ASK what moved. Three answers, three arms: the row moved (re-seed and
+// retry — the case the old loop could not pass), the project version moved (retry, as
+// before), or neither moved (the store is refusing, so fail NOW as MutateTerminalConflict).
+// ===========================================================================
+
+// rowProbeActivity is the one activity the probes below write.
+const rowProbeActivity = "C-ROW"
+
+// appErrType is the Temporal Type() of err, or "" for anything that is not an
+// ApplicationError. The TYPE is the assertion in these cases and the message is not: it is
+// what the sweep (Task 6) and the child (Task 8) branch on through isTerminalConflict.
+func appErrType(err error) string {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type()
+	}
+	return ""
+}
+
+// runRowConflictProbe runs ONE applyRecovering over the construction rail's real invokers
+// and its store double, with the row bound exactly the way ConstructActivityWorkflow binds
+// it, and reports how many times the mutation was ATTEMPTED. The attempt COUNT is half the
+// point of this task — twenty became one — so it is returned rather than inferred.
+//
+// rowSeed is the version the run BELIEVES the row is at: constructState.activityVersion,
+// which production seeds off the start snapshot and then hand-advances (rowAdvanced).
+// bindRow=false is the posture of the three callers that hold no row at all.
+func runRowConflictProbe(
+	t *testing.T,
+	ps *csFakeProjectState,
+	rowSeed int64,
+	bindRow bool,
+	mutate func(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error),
+) (int, error) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	wf := csNewWorkflows(gateDeps(ps))
+	registerConstruct(env, wf, ps, csNewFakePipeline())
+	seed := ps.project.Version
+	attempts := 0
+	env.ExecuteWorkflow(func(ctx workflow.Context) error {
+		st := &constructState{activityVersion: rowSeed}
+		if bindRow {
+			ctx = csBindRowAccessor(ctx, rowProbeActivity, st)
+		}
+		_, aerr := wf.applyRecovering(ctx, ProjectID(ps.project.ID), seed, func(expected projectstate.Version) (projectstate.Version, error) {
+			attempts++
+			return mutate(wf, ctx, st, expected)
+		})
+		return aerr
+	})
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("the probe workflow must complete")
+	}
+	return attempts, env.GetWorkflowError()
+}
+
+// openRowProbe is the OpenActivity mutation, re-reading the run's row expectation on every
+// attempt exactly as csWorkflows.openActivity does.
+func openRowProbe(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error) {
+	return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID("p"), expected,
+		st.activityVersion, rowProbeActivity, projectstate.ActivityTypeService, projectstate.TestVariantPlan,
+		projectstate.LifecyclePin{}, projectstate.RepoCredential{})
+}
+
+// rowProbeState builds a store holding ONE row at rowVersion, with the project head and the
+// double's served version PINNED to the same number so a re-read of the project version
+// moves nothing unless the test makes it move. mutateRow shapes the row.
+func rowProbeState(rowVersion int64, mutateRow func(row *projectstate.ActivityExecution)) *csFakeProjectState {
+	row := projectstate.ActivityExecution{ActivityID: rowProbeActivity, Version: rowVersion}
+	if mutateRow != nil {
+		mutateRow(&row)
+	}
+	return &csFakeProjectState{
+		project: projectstate.Project{
+			ID: projectstate.ProjectID(uuid.NewString()), Version: 7, Phase: 2,
+			ActivityExecution: map[string]projectstate.ActivityExecution{rowProbeActivity: row},
+		},
+		version: 7,
+	}
+}
+
+// Case (a) — THE CASE THE OLD LOOP COULD NOT PASS. An external row writer (the pump's
+// RecordActivityFailed, an operator note filed through the API, a reviewer resolving a
+// comment) has moved the ROW while the project version stands still. The pre-4b1 loop
+// re-read only the project version, re-applied the SAME stale row expectation twenty times,
+// and failed a perfectly healthy activity as MutateConflictExhausted. Now the row re-read
+// re-seeds the CAS by hand and the second attempt lands.
+func Test_RowConflict_RowMovedAndProjectDidNot_ReReadsTheRowAndSucceeds(t *testing.T) {
+	ps := rowProbeState(5, nil)
+	attempts, err := runRowConflictProbe(t, ps, 3, true, openRowProbe)
+	if err != nil {
+		t.Fatalf("a moved ROW is a recoverable conflict, not a failure: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("want one refusal then one landing, got %d attempts", attempts)
+	}
+	if ps.rowReads != 1 {
+		t.Fatalf("want exactly one row re-read, got %d", ps.rowReads)
+	}
+	if got := ps.execution(rowProbeActivity).Version; got != 6 {
+		t.Fatalf("the re-applied write must land on the row the re-read found (5→6), got %d", got)
+	}
+}
+
+// Case (b) — TERMINALITY, and the count is the claim. OpenActivity on a row that has
+// already exited is refused as fwra.Conflict and moves NOTHING
+// (projectstateaccess.go: "a finished activity is not re-opened in place"). One attempt,
+// one re-read, and the honest cause instead of twenty attempts naming the wrong one.
+func Test_RowConflict_OpenActivityOnAnExitedRow_FailsImmediatelyAsTerminal(t *testing.T) {
+	done := testLedgerClock
+	ps := rowProbeState(5, func(row *projectstate.ActivityExecution) { row.CompletedAt = &done })
+	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	if got := appErrType(err); got != terminalConflictErrType {
+		t.Fatalf("want %s, got %q from %v", terminalConflictErrType, got, err)
+	}
+	if !isTerminalConflict(err) {
+		t.Fatalf("isTerminalConflict must recognise its own terminal: %v", err)
+	}
+	if attempts != 1 {
+		t.Fatalf("a refusal is not retried: want 1 attempt, got %d", attempts)
+	}
+	if ps.rowReads != 1 {
+		t.Fatalf("want exactly one row re-read, got %d", ps.rowReads)
+	}
+}
+
+// Case (c) — the SECOND terminality Conflict, the one the round sweep will race for: a
+// decided round is terminal, so deciding it differently is a refusal and not a race.
+func Test_RowConflict_DecideOnADecidedRound_FailsImmediatelyAsTerminal(t *testing.T) {
+	ps := rowProbeState(5, func(row *projectstate.ActivityExecution) {
+		row.Reviews = []projectstate.ReviewRound{{
+			RoundID: "r1", TaskID: "construction-review", Round: 1,
+			Outcome: projectstate.RoundPassed, DecidedBy: "architect",
+		}}
+	})
+	attempts, err := runRowConflictProbe(t, ps, 5, true,
+		func(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID("p"), expected,
+				st.activityVersion, rowProbeActivity, "r1", projectstate.RoundSentBack, "operator",
+				projectstate.RepoCredential{})
+		})
+	if got := appErrType(err); got != terminalConflictErrType {
+		t.Fatalf("want %s, got %q from %v", terminalConflictErrType, got, err)
+	}
+	if attempts != 1 {
+		t.Fatalf("a refusal is not retried: want 1 attempt, got %d", attempts)
+	}
+}
+
+// Case (d) — the PROJECT version moved and the row did not. The RETRY arm, explicitly:
+// terminality needs BOTH to stand still, so one mover is enough to keep the loop going, and
+// the row re-read still runs (it is what re-seeds the CAS).
+func Test_RowConflict_ProjectVersionMovedAndRowDidNot_TakesTheRetryArm(t *testing.T) {
+	ps := rowProbeState(5, nil)
+	ps.conflictFirst = 1 // the served Conflict advances the project head, not the row
+	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	if err != nil {
+		t.Fatalf("a moved PROJECT version is the retry arm, not the terminal one: %v", err)
+	}
+	if attempts != 2 {
+		t.Fatalf("want one refusal then one landing, got %d attempts", attempts)
+	}
+	if ps.rowReads != 1 {
+		t.Fatalf("the retry arm still re-reads the row (it re-seeds the CAS), got %d reads", ps.rowReads)
+	}
+}
+
+// Case (e) — nothing about the EXHAUSTION bound changed. A conflict that keeps moving the
+// project version is a genuine race, and twenty of them still report MutateConflictExhausted.
+func Test_RowConflict_AGenuineRaceStillExhaustsTheBound(t *testing.T) {
+	ps := rowProbeState(5, nil)
+	ps.conflictFirst = maxMutateConflictAttempts
+	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	if got := appErrType(err); got != "MutateConflictExhausted" {
+		t.Fatalf("want MutateConflictExhausted, got %q from %v", got, err)
+	}
+	if attempts != maxMutateConflictAttempts {
+		t.Fatalf("want %d attempts, got %d", maxMutateConflictAttempts, attempts)
+	}
+}
+
+// Case (f) — THE THREE CALLERS THAT HOLD NO ROW, as a table so none can be the one that was
+// forgotten. applyRecovering is shared: the pump, the supervision workflow's pause record,
+// and the round sweep (Task 6, which walks EVERY activity of a project and so holds no
+// single row by construction) all reach the same Conflict arm with NOTHING bound. Each must
+// keep the project-version-only behaviour exactly — guarded, never nil-called — because the
+// pump is the one workflow here that cannot fail quietly and the sweep runs on a Schedule
+// where a crash is silent.
+//
+// The probe is run unbound, which is the fact under test: not one of the three calls
+// csBindRowAccessor. With a row bound this same setup CONVERGES (case (a)); without one it
+// cannot re-seed, so it exhausts the bound exactly as it did before this task — and makes
+// ZERO row reads, which is what proves the guard and not the fence is doing the work.
+func Test_RowConflict_TheCallersThatHoldNoRow_KeepTheProjectVersionOnlyBehaviour(t *testing.T) {
+	for _, caller := range []string{
+		"pump (pumpnextactivity.go)",
+		"supervision pause record (projectsupervision.go)",
+		"round sweep (roundsweep.go, Task 6)",
+	} {
+		t.Run(caller, func(t *testing.T) {
+			ps := rowProbeState(5, nil)
+			attempts, err := runRowConflictProbe(t, ps, 3, false, openRowProbe)
+			if got := appErrType(err); got != "MutateConflictExhausted" {
+				t.Fatalf("an unbound caller keeps the old answer: want MutateConflictExhausted, got %q from %v", got, err)
+			}
+			if attempts != maxMutateConflictAttempts {
+				t.Fatalf("want %d attempts, got %d", maxMutateConflictAttempts, attempts)
+			}
+			if ps.rowReads != 0 {
+				t.Fatalf("a caller that holds no row must read no row, got %d reads", ps.rowReads)
+			}
+		})
+	}
+}
+
+// A BIRTH holds no row expectation (projectstate.NoActivityVersionExpectation), and the
+// terminal arm must not fire for it: both terminality Conflicts are reachable only THROUGH
+// a row the run already read, so a run that has read none cannot be looking at one. Asserted
+// because the asymmetry is deliberate — a false MutateTerminalConflict would fail a healthy
+// activity non-retryably, which is the very defect this arm removes.
+func Test_RowConflict_ABirthHoldsNoRowExpectationAndIsNeverTerminal(t *testing.T) {
+	ps := rowProbeState(5, nil)
+	ps.conflictFirst = maxMutateConflictAttempts
+	attempts, err := runRowConflictProbe(t, ps, projectstate.NoActivityVersionExpectation, true, openRowProbe)
+	if got := appErrType(err); got != "MutateConflictExhausted" {
+		t.Fatalf("a birth's conflict is never terminal: want MutateConflictExhausted, got %q from %v", got, err)
+	}
+	if attempts != maxMutateConflictAttempts {
+		t.Fatalf("want %d attempts, got %d", maxMutateConflictAttempts, attempts)
 	}
 }
 

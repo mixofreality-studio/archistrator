@@ -142,7 +142,7 @@ func (wf *workflows) applyRecovering(
 				"head-state conflict did not converge within bounded attempts",
 				"MutateConflictExhausted", err)
 		}
-		v, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
+		next, rerr := wf.readVersionOnBranch(ctx, projectID, branch)
 		if rerr != nil {
 			if isReadNotFound(rerr) {
 				expected = 0
@@ -150,10 +150,132 @@ func (wf *workflows) applyRecovering(
 			}
 			return 0, rerr
 		}
-		expected = v
+		// THE ROW RE-READ (stage 4b1, ruling R-A) — the same arm the construction rail
+		// gained, for the same reason: this session is ONE of several writers of the design
+		// activity's row (a reviewer resolving a comment on a round this session holds is
+		// the case this wave adds), and a decided round refuses rather than races.
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected)
+		if terr != nil {
+			return 0, terr
+		}
+		if terminal {
+			return 0, temporal.NewNonRetryableApplicationError(terminalConflictMessage, terminalConflictErrType, err)
+		}
+		expected = next
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "branch", branch, "nextExpectedVersion", expected)
 	}
+}
+
+// Stage 4b1: ONE copy serves the systemDesign + projectDesign + construction rails. These
+// four take a workflow.Context, so the file-layout gate forbids them in deliverymanager.go
+// (workflow-in-impl-file); they live in their first caller's file per the standard, beside
+// the applyRecovering loop that is their first caller. Their non-context half — the fence
+// id, terminalConflictErrType, terminalConflictMessage, isTerminalConflict, the rowAccessor
+// struct and its key — is in deliverymanager.go with isConflict.
+
+// withRowAccessor binds acc for the rest of this execution. Called once, by each child's
+// entry func, right after its state is built — a pure context derivation, no command, so it
+// needs no fence of its own.
+func withRowAccessor(ctx workflow.Context, acc rowAccessor) workflow.Context {
+	return workflow.WithValue(ctx, rowAccessorKey{}, acc)
+}
+
+// rowAccessorFrom returns the binding, or ok=false for the callers that hold NO row and
+// must keep the project-version-only behaviour: the pump (pumpnextactivity.go), the
+// supervision workflow's pause record (projectsupervision.go), and the round sweep
+// (roundsweep.go, Task 6), which walks EVERY activity of a project and so holds no single
+// row by construction. Those three are why the fenced arm is GUARDED and never nil-called:
+// the pump is the one workflow in this package that cannot fail quietly, and the sweep runs
+// on a Schedule where a crash is silent.
+func rowAccessorFrom(ctx workflow.Context) (rowAccessor, bool) {
+	acc, ok := ctx.Value(rowAccessorKey{}).(rowAccessor)
+	if !ok || acc.activityID == "" || acc.version == nil || acc.setVersion == nil {
+		return rowAccessor{}, false
+	}
+	return acc, true
+}
+
+// rereadRowVersion asks the store what version the activity's execution row is at now.
+//
+// A NotFound reads as projectstate.NoActivityVersionExpectation rather than as a failure:
+// a row that does not exist cannot have moved, and a birth legitimately holds no number.
+// It reaches here on the FIRST attempt without any option preset, because fwra carries
+// Retryable PER ERROR and NotFound is not (framework-go manager.MapError → tagError).
+func rereadRowVersion(ctx workflow.Context, acts genInvokers, projectID ProjectID, activityID string) (int64, error) {
+	row, err := acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(projectID), activityID)
+	if err != nil {
+		if isReadNotFound(err) {
+			return projectstate.NoActivityVersionExpectation, nil
+		}
+		return 0, err
+	}
+	return row.Version, nil
+}
+
+// terminalAfterRowReread is the Conflict arm's second question, asked after the project
+// version has been re-read: is this Conflict a race at all?
+//
+// Two things the old loop could not tell apart. An EXTERNAL row writer — the pump's
+// RecordActivityFailed, an operator note filed through the API, or (from this wave) a
+// reviewer resolving a comment on a round a live child holds — bumps the ROW version while
+// the PROJECT version the loop re-read may or may not move; and a TERMINAL refusal (an
+// exited row, a decided round) moves neither, because there is nothing to move. Re-reading
+// the row answers both: it re-seeds the CAS the child holds by hand, and its standing still
+// is what proves retrying is pointless.
+//
+// projectVersionMoved is what the caller already learned from its own re-read, passed in
+// because the three loops read the version on three different substrates (main, a session
+// branch, the construction head).
+//
+// GetVersion is called FIRST and before any branch that could skip it, so a new execution
+// records the marker deterministically on its first Conflict; a recorded history takes the
+// DefaultVersion arm and makes no row read, which is what keeps the nineteen replays green.
+func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID ProjectID, projectVersionMoved bool) (bool, error) {
+	if workflow.GetVersion(ctx, changeRowConflictReread, workflow.DefaultVersion, 1) < 1 {
+		return false, nil
+	}
+	acc, bound := rowAccessorFrom(ctx)
+	if !bound {
+		return false, nil
+	}
+	before := acc.version()
+	after, err := rereadRowVersion(ctx, acts, projectID, acc.activityID)
+	if err != nil {
+		return false, err
+	}
+	// Re-seed unconditionally: whatever the store reports IS the row's version, and the
+	// run's hand-advanced copy (rowAdvanced) is the thing that was wrong if they differ.
+	acc.setVersion(after)
+	if before == projectstate.NoActivityVersionExpectation {
+		// A run in the "I have not read this row" posture (a BIRTH) cannot be looking at a
+		// row's refusal: both terminality Conflicts are reachable only THROUGH a row the run
+		// already read — OpenActivity BIRTHS an absent row rather than refusing it, and the
+		// round verbs cannot find a round on a row that is not there (NotFound, not
+		// Conflict). So the terminal arm requires a row expectation, and without one the loop
+		// retries exactly as it did before. Deliberately asymmetric: a FALSE terminal fails a
+		// healthy activity non-retryably, which is the very defect this arm removes.
+		return false, nil
+	}
+	return !projectVersionMoved && after == before, nil
+}
+
+// bindDesignRowAccessor binds the design activity's ROW onto the session's context, so
+// applyRecovering's Conflict arm can re-read it (rowAccessor: why the context and not the
+// receiver). The row identity is PURE — designRoundKeyFor over the artifact kind, no
+// command — so this is called once, at the top of the session, before any fence: a kind
+// with no design activity in the pinned lifecycle binds nothing and keeps the
+// project-version-only behaviour exactly.
+func bindDesignRowAccessor(ctx workflow.Context, kind ArtifactKind, state *coAuthorState) workflow.Context {
+	key, ok := designRoundKeyFor(toPSKind(kind))
+	if !ok {
+		return ctx
+	}
+	return withRowAccessor(ctx, rowAccessor{
+		activityID: key.activityID,
+		version:    func() int64 { return state.activityVersion },
+		setVersion: func(v int64) { state.activityVersion = v },
+	})
 }
 
 // critiqueReadBackEmptyType is the Temporal Type() readBackCritique raises when a
@@ -279,6 +401,9 @@ func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorI
 		artifactKind: in.ArtifactKind,
 		stage:        StageDrafting,
 	}
+	// Bind the design activity's row before anything writes it: every applyRecovering call
+	// in this session reaches the Conflict arm through this ctx (bindDesignRowAccessor).
+	ctx = bindDesignRowAccessor(ctx, in.ArtifactKind, state)
 	if err := workflow.SetQueryHandler(ctx, querySessionState, state.view); err != nil {
 		return coAuthorUnknown, err
 	}
@@ -490,7 +615,9 @@ func (wf *workflows) beginCoAuthorSession(ctx workflow.Context, in coAuthorInput
 	// And the round NUMBERING is seeded from the durable ledger, here, before any round is
 	// opened: a second session of this kind continues the review history rather than
 	// re-minting the first session's ids (designRoundID's two-sessions hazard).
-	wf.seedRoundBaseFromLedger(ctx, in, state)
+	if err := wf.seedRoundBaseFromLedger(ctx, in, state); err != nil {
+		return projectstate.Project{}, headVersion, ReviewFeedback{}, err
+	}
 
 	// feedback carried into the next draft dispatch: seeded from the explicit
 	// re-request feedback (OQ6), then replaced by PM-revise / reject-loop / validation
@@ -3654,27 +3781,35 @@ func designRoundIDPrefix(k designRoundKey, kind projectstate.ArtifactKind) strin
 // pinned lifecycle, an activity with no row yet (the ordinary first session — NotFound),
 // or a read that fails all leave the base at 0, which is the numbering this rail had
 // before the seed existed.
-func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorInput, state *coAuthorState) {
+func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorInput, state *coAuthorState) error {
 	if !state.roundLedgerEnabled {
-		return
+		return nil
 	}
 	kind := toPSKind(in.ArtifactKind)
 	key, ok := designRoundKeyFor(kind)
 	if !ok {
-		return
+		return nil
 	}
 	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), key.activityID)
 	if err != nil {
+		// A non-NotFound read failure is NOT "no row": it is "we could not tell". Returning
+		// early here admitted the session UNREAD (stage 4b1) — activityVersion stayed 0, its
+		// OpenActivity applied and bumped the row N→N+1 while the session's own counter
+		// went 0→1, and the next OpenReviewRound Conflicted, was logged only, and left the
+		// session writing to the slot ledger alone. That was correct degradation for a
+		// best-effort rail and is wrong for the one writer of both ledgers.
 		if !isReadNotFound(err) {
-			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; this session numbers its rounds from zero",
+			workflow.GetLogger(ctx).Error("round ledger: could not read the design activity row; the session cannot write a ledger it could not read",
 				"activityId", key.activityID, "artifactKind", artifactKindString(in.ArtifactKind), "err", err.Error())
+			return err
 		}
-		return
+		return nil
 	}
 	state.roundBase = ledgerRoundBase(row, key, kind)
 	// The per-activity CAS token rides the SAME read — which is why arming the guard cost
 	// no new Temporal command on this rail either.
 	state.activityVersion = row.Version
+	return nil
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
