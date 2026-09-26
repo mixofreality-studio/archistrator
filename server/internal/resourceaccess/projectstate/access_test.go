@@ -10498,6 +10498,91 @@ func TestOpenReviewRound_ADifferentKeyForTheSameRoundStillAppendsOnce(t *testing
 	}
 }
 
+// TestOpenReviewRound_StoresTheArtifactKindAndIsWriteOnceOnIt — a round SAYS which artifact
+// it judges, and says it once.
+//
+// The field is what makes a stored round self-describing: a review task's id does not
+// determine what it judges (`designReview` names a task in eight lifecycles), and several
+// artifact kinds are designed to share one lifecycle phase, so a reader joining on (taskId,
+// round) alone would bind two kinds' round 1 into one review. The kind is ALSO inside the
+// design rails' four-part RoundID, and nothing may parse a RoundID — this field is the
+// honest copy.
+//
+// WRITE-ONCE, because re-opening the same RoundID opens ONE round: a second open naming a
+// different kind is the caller contradicting itself about what this round judges. The
+// one-sided cases are not contradictions — a caller that names none leaves the stored kind
+// alone, and a stored round that has none (a construction round, or one written before the
+// field existed) gains it.
+func TestOpenReviewRound_StoresTheArtifactKindAndIsWriteOnceOnIt(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	system, concepts := KindSystem, KindOperationalConcepts
+	design := ReviewRoundInput{
+		RoundID: "architecture:architectureReview:system:1", TaskID: MethodTask("architectureReview"), Reviews: MethodTask("system"),
+		Round: 1, SubjectRef: SubjectRef{Kind: SubjectArtifact, Ref: "system"}, ArtifactKind: &system,
+	}
+	v, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", design, cred, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound: %v", err)
+	}
+	// A construction round in the same row carries NO kind: its subject is a commit, not a
+	// slot model, and claiming a kind would be a fabrication.
+	v = openRoundFixture(t, a, id, v, cred)
+
+	exec, err := a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if len(exec.Reviews) != 2 {
+		t.Fatalf("two round ids, two rounds; got %d", len(exec.Reviews))
+	}
+	if exec.Reviews[0].ArtifactKind == nil || *exec.Reviews[0].ArtifactKind != KindSystem {
+		t.Fatalf("the design round must store the kind it was opened with; got %v", exec.Reviews[0].ArtifactKind)
+	}
+	if exec.Reviews[1].ArtifactKind != nil {
+		t.Fatalf("a construction round judges no artifact kind; got %v", *exec.Reviews[1].ArtifactKind)
+	}
+	// The contradiction is REFUSED, and the row is left as it stood.
+	contradiction := design
+	contradiction.ArtifactKind = &concepts
+	if _, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", contradiction, cred, fwra.IdempotencyKey("k2")); err == nil {
+		t.Fatal("re-opening a round under a DIFFERENT artifact kind must be refused: the caller is contradicting itself")
+	}
+	// A re-open that names no kind is still the no-op success it always was, and does not
+	// erase what the round judges.
+	silent := design
+	silent.ArtifactKind = nil
+	if v, err = a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", silent, cred, fwra.IdempotencyKey("k3")); err != nil {
+		t.Fatalf("a re-open that names no kind is a no-op success: %v", err)
+	}
+	exec, _ = a.ReadActivityExecution(execRC(), id, "C-X")
+	if exec.Reviews[0].ArtifactKind == nil || *exec.Reviews[0].ArtifactKind != KindSystem {
+		t.Fatalf("absence is not a claim: the stored kind stands; got %v", exec.Reviews[0].ArtifactKind)
+	}
+	// And a LEGACY round — one written before the field existed — gains the kind from a
+	// caller that now names it, rather than being refused. This is the only way a row the
+	// migration backfilled without the field ever becomes self-describing.
+	legacy := ReviewRoundInput{
+		RoundID: "architecture:architectureReview:operationalConcepts:2", TaskID: MethodTask("architectureReview"),
+		Reviews: MethodTask("system"), Round: 2, SubjectRef: SubjectRef{Kind: SubjectArtifact, Ref: "operationalConcepts"},
+	}
+	v, err = a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", legacy, cred, fwra.IdempotencyKey("k4"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound (legacy shape, no kind): %v", err)
+	}
+	healed := legacy
+	healed.ArtifactKind = &concepts
+	if _, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", healed, cred, fwra.IdempotencyKey("k5")); err != nil {
+		t.Fatalf("a round with no kind gains one from a caller that names it: %v", err)
+	}
+	exec, _ = a.ReadActivityExecution(execRC(), id, "C-X")
+	last := exec.Reviews[len(exec.Reviews)-1]
+	if last.ArtifactKind == nil || *last.ArtifactKind != KindOperationalConcepts {
+		t.Fatalf("the legacy round must gain the kind it judges; got %v", last.ArtifactKind)
+	}
+}
+
 // TestAppendReviewVerdict_CarriesItsCommentsInTheSameCommit — a verdict and its comments
 // land in ONE commit (spec §5.3, "AppendReviewVerdict (verdict + its comments in one
 // commit)"). A crash between them would leave a round whose verdict cites comments

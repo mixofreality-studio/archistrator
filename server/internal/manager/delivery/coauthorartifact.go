@@ -3670,15 +3670,31 @@ func (wf *workflows) seedRoundBaseFromLedger(ctx workflow.Context, in coAuthorIn
 // ledgerRoundBase is the highest round number the row's review ledger holds for ONE
 // kind's gate. Pure over a value already in workflow history, so it is replay-safe.
 //
-// A round belongs to this history when it is an occurrence of the same gate task AND
-// carries the id prefix this rail mints for this kind. Both halves are needed: TaskID
-// alone would sweep in the other kinds that share the gate (three share "architecture"),
-// and the prefix alone would trust an id shape the store does not enforce.
+// A round belongs to this history when it is an occurrence of the same gate task AND judges
+// this kind. TaskID alone would sweep in the other kinds that share the gate (three share
+// "architecture"), which is the whole hazard.
+//
+// WHICH KIND A ROUND JUDGES IS A FIELD ON IT, and that field is what this asks. A round
+// written before the field existed carries none, and for those — and only those — the
+// fallback is the id PREFIX this same function's rail mints, which is how the kind was
+// recoverable at all before stage 4b1. Matching a prefix this package mints is not parsing
+// a RoundID into segments; nothing here reads a kind OUT of an id, it only asks whether an
+// id is one of this history's. The fallback is a legacy read, and it shrinks to nothing as
+// those rows age out: every round opened from here carries the field.
 func ledgerRoundBase(row projectstate.ActivityExecution, key designRoundKey, kind projectstate.ArtifactKind) int {
 	prefix := designRoundIDPrefix(key, kind)
 	base := 0
 	for _, r := range row.Reviews {
-		if r.TaskID != key.gate || !strings.HasPrefix(r.RoundID, prefix) {
+		if r.TaskID != key.gate {
+			continue
+		}
+		judges := kind
+		if r.ArtifactKind != nil {
+			judges = *r.ArtifactKind
+		} else if !strings.HasPrefix(r.RoundID, prefix) {
+			continue // legacy: no field, and not one of this kind's minted ids
+		}
+		if judges != kind {
 			continue
 		}
 		if int(r.Round) > base {
@@ -3827,12 +3843,16 @@ func (wf *workflows) openDesignRound(
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			state.activityVersion, key.activityID,
 			projectstate.ReviewRoundInput{
-				RoundID:    round.roundID,
-				TaskID:     key.gate,
-				Reviews:    key.work,
-				Round:      int64(round.number),
-				SubjectRef: round.subject,
-				Reviewers:  state.roundReviewers,
+				RoundID: round.roundID,
+				TaskID:  key.gate,
+				Reviews: key.work,
+				// The kind as a FIELD, not only as the third segment of the round id: nothing may
+				// parse a RoundID, so a reader that has to know which artifact this gate attempt
+				// judged can only learn it here. It is the same kind the id is minted from.
+				ArtifactKind: &kind,
+				Round:        int64(round.number),
+				SubjectRef:   round.subject,
+				Reviewers:    state.roundReviewers,
 			}, projectstate.RepoCredential{})
 	})
 	if err != nil {

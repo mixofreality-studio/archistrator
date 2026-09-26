@@ -10206,22 +10206,50 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 		return 0, execMisuse("OpenReviewRound", "empty subjectRef — a verdict on no subject cites nothing")
 	}
 	now := a.store.now()
+	// Copied, not aliased, for the same reason the roster below is cloned: the caller keeps
+	// its own pointer, and a stored row must not change because the caller's copy did.
+	var kind *ArtifactKind
+	if round.ArtifactKind != nil {
+		k := *round.ArtifactKind
+		kind = &k
+	}
 	return a.onActivity(rc, "OpenReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i := range cs.Reviews {
-			if cs.Reviews[i].RoundID == round.RoundID {
-				return nil // already open: a no-op success, not a second round
+			if cs.Reviews[i].RoundID != round.RoundID {
+				continue
 			}
+			// The kind is WRITE-ONCE with the round, like every other identity fact on it: a
+			// round is opened once per (task, kind, n) and re-opening the same RoundID opens
+			// ONE round, so a second open carrying a different kind is the caller
+			// contradicting itself about what this round judges.
+			//
+			// The one-sided cases are not contradictions. A held round with NO kind is either
+			// a construction round or one written before the field existed, and a caller that
+			// now names the kind heals it in place rather than being refused — the ledger
+			// gains a fact it was missing. A caller that names none leaves the held kind
+			// alone: absence is not a claim.
+			held := cs.Reviews[i].ArtifactKind
+			switch {
+			case kind == nil:
+			case held == nil:
+				cs.Reviews[i].ArtifactKind = kind
+			case *held != *kind:
+				return execMisuse("OpenReviewRound", fmt.Sprintf(
+					"round %s already judges %s and cannot be re-opened judging %s", round.RoundID, *held, *kind))
+			}
+			return nil // already open: a no-op success, not a second round
 		}
 		opened := now
 		cs.Reviews = append(cs.Reviews, ReviewRound{
-			RoundID:    round.RoundID,
-			TaskID:     round.TaskID,
-			Reviews:    round.Reviews,
-			Round:      round.Round,
-			SubjectRef: round.SubjectRef,
-			Reviewers:  slices.Clone(round.Reviewers),
-			Outcome:    RoundPending,
-			OpenedAt:   opened.UTC().Format(time.RFC3339),
+			RoundID:      round.RoundID,
+			TaskID:       round.TaskID,
+			Reviews:      round.Reviews,
+			ArtifactKind: kind,
+			Round:        round.Round,
+			SubjectRef:   round.SubjectRef,
+			Reviewers:    slices.Clone(round.Reviewers),
+			Outcome:      RoundPending,
+			OpenedAt:     opened.UTC().Format(time.RFC3339),
 			// A live write is OBSERVED. The migration tool stamps backfilled (and must name
 			// its basis) so a reconstructed round can never be read as a recorded one.
 			Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &opened},

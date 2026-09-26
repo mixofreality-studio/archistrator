@@ -12378,6 +12378,22 @@ func Test_LedgerRoundBase_CountsOnlyTheKindsOwnRounds(t *testing.T) {
 	if got := ledgerRoundBase(projectstate.ActivityExecution{}, sys, projectstate.KindSystem); got != 0 {
 		t.Fatalf("an empty row is a base of 0; got %d", got)
 	}
+	// THE LEGACY READ, and its successor. Every round above carries NO artifactKind — they
+	// are rows written before stage 4b1 made it a field, and the kind is recoverable from
+	// them only because this rail mints it into the id. That fallback stays, and the four
+	// assertions above are it. A round that CARRIES the field is counted BY the field,
+	// whatever its id looks like: that is what stops an id shape the store never enforced
+	// from deciding this arithmetic.
+	fielded := projectstate.ActivityExecution{Reviews: []projectstate.ReviewRound{
+		{RoundID: "a-shape-this-rail-never-minted", TaskID: sys.gate, Round: 4, ArtifactKind: kindPtr(projectstate.KindSystem)},
+		{RoundID: designRoundID(sys, projectstate.KindSystem, 9), TaskID: sys.gate, Round: 9, ArtifactKind: kindPtr(projectstate.KindOperationalConcepts)},
+	}}
+	if got := ledgerRoundBase(fielded, sys, projectstate.KindSystem); got != 4 {
+		t.Fatalf("the field names the kind whatever the id's shape: System's base is 4; got %d", got)
+	}
+	if got := ledgerRoundBase(fielded, sys, projectstate.KindOperationalConcepts); got != 9 {
+		t.Fatalf("a round whose FIELD says operationalConcepts is that kind's, even under a System-shaped id; got %d", got)
+	}
 }
 
 // Test_WorkerManifest_ThreadsEveryDependency is the gate task 5 had to add on the
@@ -31573,6 +31589,136 @@ func TestRevisionViews_AReconstructedRevisionShipsNoRoundMembers(t *testing.T) {
 	if r := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{below}, nil, "detailed_design", false))[0].Round; r != nil {
 		t.Fatalf("an attempt placed beneath the ledger has no round number to give; got %v", *r)
 	}
+}
+
+// Test_ReviewRounds_TwoKindsOnOneGateDoNotBindOneAttempt is the stage-3 entry criterion
+// made executable. Two rounds numbered 1 on ONE review task, judging DIFFERENT artifact
+// kinds, must read as TWO revisions — and neither may claim the other's gate attempt.
+//
+// The four-part design RoundID keeps them distinct ROWS — nothing collides in storage —
+// but the read path joins a round to the attempt it settled on the ROUND NUMBER alone,
+// because ReviewRoundInput.roundId's own contract says nothing may parse a RoundID. So
+// two kinds' round 1 both bound gate attempt 1, and the reader was shown one kind's
+// revision citing the other's evidence.
+//
+// It is driven at the DERIVATION rather than through a lifecycle, deliberately: v0.9.0
+// carries no lifecycle that puts two kinds on one gate task (measured — 14 lifecycles,
+// and only sdpReview carries an artifactKind of its own), so a lifecycle-driven case
+// would be asserting a shape the data cannot currently produce. What the read path must
+// guarantee is that when it CAN — one method-assets release after GAP-4B-4 gives
+// operationalConcepts a task on `architecture` — the ledger is already honest. A defence
+// written after the data arrives is a migration; written before, it is a contract.
+func Test_ReviewRounds_TwoKindsOnOneGateDoNotBindOneAttempt(t *testing.T) {
+	gate := projectstate.TaskDesignReview
+	system, concepts := avRound(gate, 1, projectstate.RoundSentBack), avRound(gate, 1, projectstate.RoundPassed)
+	system.RoundID, system.ArtifactKind = "C-X:designReview:system:1", kindPtr(projectstate.KindSystem)
+	concepts.RoundID, concepts.ArtifactKind = "C-X:designReview:operationalConcepts:1", kindPtr(projectstate.KindOperationalConcepts)
+	// The ONE gate attempt the construction rail recorded at this gate. It is what the two
+	// design rounds were both claiming.
+	attempt := avObserved(gate, 1, projectstate.OutcomeRejected)
+
+	revs := roundRevisions([]projectstate.ReviewRound{system, concepts}, []projectstate.TaskAttempt{attempt}, false)
+	if len(revs) != 2 {
+		t.Fatalf("two rounds at one gate are two revisions; got %d", len(revs))
+	}
+	// The identity rule, stated as the code states it: the gate is (task, kind) and the
+	// revision is that plus the round number, so two kinds' round 1 are two identities.
+	if roundJoinKey(system) == roundJoinKey(concepts) {
+		t.Fatalf("two kinds' round 1 share one join key %q — the revision identity is still (taskId, round)", roundJoinKey(system))
+	}
+	if roundGateKey(gate, nil) != string(gate) {
+		t.Errorf("a construction round has no kind and keys on the task alone; got %q", roundGateKey(gate, nil))
+	}
+	// THE ENTRY CRITERION. Before the kind was a field both revisions cited
+	// "C-X:designReview:1"; a kinded round cannot claim a kindless attempt, and there is
+	// no honest third answer while the design rails record no attempt ledger of their own.
+	for i, rev := range revs {
+		if len(rev.AttemptIDs) != 0 {
+			t.Errorf("revision %d (round %d, kind %s) binds gate attempt %v; a round that judges an artifact kind may not claim an attempt recorded without one",
+				i+1, rev.Round, []projectstate.ReviewRound{system, concepts}[i].ArtifactKind.WireName(), rev.AttemptIDs)
+		}
+	}
+	// And the kindless round it shares the gate with still binds, exactly as it always
+	// did: this widens the join, it does not move it.
+	plain := avRound(gate, 1, projectstate.RoundSentBack)
+	if got := roundRevisions([]projectstate.ReviewRound{plain}, []projectstate.TaskAttempt{attempt}, false); len(got[0].AttemptIDs) != 1 {
+		t.Fatalf("a construction round still settles the gate attempt of its own number; got %v", got[0].AttemptIDs)
+	}
+}
+
+// kindPtr is the optional field's constructor, used wherever a test opens a round that
+// judges an artifact.
+func kindPtr(k projectstate.ArtifactKind) *projectstate.ArtifactKind { return &k }
+
+// Test_ReviewRounds_KindComesFromTheJudgedTask pins the resolution rule the real data
+// forces (and which Task 8 implements at its writer): NO review task in v0.9.0 carries an
+// artifactKind of its own except `sdpReview`, so a round's kind is
+// lifecycleTaskByID(lc, t.Reviews).ArtifactKind. Measured spread: `designReview` appears
+// in 8 lifecycles, `testing` and `codeReview` in 9, `srsReview` in 5 — so a reader that
+// resolved the kind from the TASK ID would be guessing between up to nine answers, which
+// is the whole reason the kind has to be stored ON the round.
+func Test_ReviewRounds_KindComesFromTheJudgedTask(t *testing.T) {
+	lifecycles := methodassets.Lifecycles()
+	if len(lifecycles) != 14 {
+		t.Fatalf("this case is measured against the 14 lifecycles v0.9.0 ships; got %d — re-measure before trusting the spread below", len(lifecycles))
+	}
+	spread := map[string]map[string]bool{}
+	reviews := 0
+	for _, lc := range lifecycles {
+		for _, task := range lc.Tasks {
+			if task.Kind != methodassets.LifecycleTaskReview {
+				continue
+			}
+			reviews++
+			kind := task.ArtifactKind
+			if task.Reviews == "" {
+				// sdpReview: the ONE review task that judges no dispatch, so it carries its
+				// own kind or it names nothing.
+				if kind == "" {
+					t.Errorf("%s/%s reviews no task and carries no artifactKind — its round could name nothing", lc.Type, task.ID)
+				}
+			} else {
+				if kind != "" {
+					t.Errorf("%s/%s carries its OWN artifactKind %q as well as reviewing %q; the resolution rule would have two answers",
+						lc.Type, task.ID, kind, task.Reviews)
+				}
+				judged, ok := lifecycleTaskByID(lc, task.Reviews)
+				if !ok {
+					t.Fatalf("%s/%s reviews %q, which the lifecycle does not declare", lc.Type, task.ID, task.Reviews)
+				}
+				kind = judged.ArtifactKind
+				if kind == "" {
+					t.Errorf("%s/%s resolves an EMPTY kind through %q; every dispatch must name what it produces", lc.Type, task.ID, task.Reviews)
+				}
+			}
+			if spread[task.ID] == nil {
+				spread[task.ID] = map[string]bool{}
+			}
+			spread[task.ID][kind] = true
+		}
+	}
+	if reviews == 0 {
+		t.Fatal("no review task was examined; the table asserted nothing")
+	}
+	// The measured spread, as the justification cites it. A task id that appears in more
+	// than one lifecycle is exactly the case a (taskId, round) key cannot resolve.
+	for id, want := range map[string]int{"designReview": 8, "codeReview": 9, "testing": 9, "srsReview": 5, "stpReview": 2} {
+		if got := len(spreadCount(lifecycles, id)); got != want {
+			t.Errorf("%s appears in %d lifecycles; the justification is measured at %d", id, got, want)
+		}
+	}
+}
+
+// spreadCount is the lifecycles one review task id appears in — the number that makes a
+// (taskId, round) key a question with several answers.
+func spreadCount(lifecycles []methodassets.Lifecycle, taskID string) []string {
+	var out []string
+	for _, lc := range lifecycles {
+		if _, ok := lifecycleTaskByID(lc, taskID); ok {
+			out = append(out, lc.Type)
+		}
+	}
+	return out
 }
 
 // ===========================================================================

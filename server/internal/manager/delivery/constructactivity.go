@@ -2003,9 +2003,12 @@ func (wf *csWorkflows) openGateRound(
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			state.activityVersion, string(in.ActivityID),
 			projectstate.ReviewRoundInput{
-				RoundID:    state.gate.roundID,
-				TaskID:     gate,
-				Reviews:    work,
+				RoundID: state.gate.roundID,
+				TaskID:  gate,
+				Reviews: work,
+				// NO artifactKind: construction stages no slot model — its subject is the commit
+				// gateSubjectRef names — so this round judges no artifact kind and claiming one
+				// would be a fabrication. The absent field IS the fact.
 				Round:      int64(n),
 				SubjectRef: state.gate.subject,
 				Reviewers:  roundReviewers(set),

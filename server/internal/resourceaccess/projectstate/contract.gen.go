@@ -769,28 +769,30 @@ type ReviewReply struct {
 }
 
 type ReviewRound struct {
-	RoundID    string             `json:"roundId"`
-	TaskID     MethodTask         `json:"taskId"`
-	Reviews    MethodTask         `json:"reviews"`
-	Round      int64              `json:"round"`
-	SubjectRef SubjectRef         `json:"subjectRef"`
-	Reviewers  []RoundReviewer    `json:"reviewers,omitempty"`
-	Verdicts   []ReviewVerdict    `json:"verdicts,omitempty"`
-	Thread     []ReviewComment    `json:"thread,omitempty"`
-	Outcome    ReviewRoundOutcome `json:"outcome"`
-	DecidedBy  string             `json:"decidedBy"`
-	OpenedAt   string             `json:"openedAt"`
-	DecidedAt  string             `json:"decidedAt"`
-	Provenance AttemptProvenance  `json:"provenance"`
+	RoundID      string             `json:"roundId"`
+	TaskID       MethodTask         `json:"taskId"`
+	Reviews      MethodTask         `json:"reviews"`
+	ArtifactKind *ArtifactKind      `json:"artifactKind,omitempty"`
+	Round        int64              `json:"round"`
+	SubjectRef   SubjectRef         `json:"subjectRef"`
+	Reviewers    []RoundReviewer    `json:"reviewers,omitempty"`
+	Verdicts     []ReviewVerdict    `json:"verdicts,omitempty"`
+	Thread       []ReviewComment    `json:"thread,omitempty"`
+	Outcome      ReviewRoundOutcome `json:"outcome"`
+	DecidedBy    string             `json:"decidedBy"`
+	OpenedAt     string             `json:"openedAt"`
+	DecidedAt    string             `json:"decidedAt"`
+	Provenance   AttemptProvenance  `json:"provenance"`
 }
 
 type ReviewRoundInput struct {
-	RoundID    string          `json:"roundId"`
-	TaskID     MethodTask      `json:"taskId"`
-	Reviews    MethodTask      `json:"reviews"`
-	Round      int64           `json:"round"`
-	SubjectRef SubjectRef      `json:"subjectRef"`
-	Reviewers  []RoundReviewer `json:"reviewers,omitempty"`
+	RoundID      string          `json:"roundId"`
+	TaskID       MethodTask      `json:"taskId"`
+	Reviews      MethodTask      `json:"reviews"`
+	ArtifactKind *ArtifactKind   `json:"artifactKind,omitempty"`
+	Round        int64           `json:"round"`
+	SubjectRef   SubjectRef      `json:"subjectRef"`
+	Reviewers    []RoundReviewer `json:"reviewers,omitempty"`
 }
 
 type ReviewRoundOutcome string

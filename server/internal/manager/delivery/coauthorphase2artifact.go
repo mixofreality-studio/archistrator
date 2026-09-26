@@ -2206,12 +2206,16 @@ func (wf *pdWorkflows) openDesignRound(
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
 			state.activityVersion, key.activityID,
 			projectstate.ReviewRoundInput{
-				RoundID:    round.roundID,
-				TaskID:     key.gate,
-				Reviews:    key.work,
-				Round:      int64(round.number),
-				SubjectRef: round.subject,
-				Reviewers:  state.roundReviewers,
+				RoundID: round.roundID,
+				TaskID:  key.gate,
+				Reviews: key.work,
+				// The kind as a FIELD, not only as the third segment of the round id: nothing may
+				// parse a RoundID, so a reader that has to know which artifact this gate attempt
+				// judged can only learn it here. It is the same kind the id is minted from.
+				ArtifactKind: &kind,
+				Round:        int64(round.number),
+				SubjectRef:   round.subject,
+				Reviewers:    state.roundReviewers,
 			}, projectstate.RepoCredential{})
 	})
 	if err != nil {

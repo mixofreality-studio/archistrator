@@ -14373,6 +14373,13 @@
               "x-go-type": "MethodTask",
               "description": "The work task this round judges."
             },
+            "artifactKind": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ArtifactKind",
+              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. The caller supplies it; the store stores it verbatim, and write-once: re-opening a round id under a different kind is the caller contradicting itself about what this round judges."
+            },
             "round": {
               "type": "integer",
               "x-go-type": "int64",
@@ -14418,6 +14425,13 @@
               "type": "string",
               "x-go-type": "MethodTask",
               "description": "The work task this round judges."
+            },
+            "artifactKind": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ArtifactKind",
+              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. It is a FIELD for two reasons. A review task's ID does not determine what it judges: `designReview` names a task in eight lifecycles and `testing` in nine, each carrying no artifactKind of its own and resolving its subject through `reviews`, so a round keyed (taskId, round) alone can only be resolved by re-fetching the activity's lifecycle. And several artifact kinds are designed to share one lifecycle phase — the four-part design RoundID exists for exactly that — so the day one gate task judges two kinds, a reader that joins on (taskId, round) binds both into one revision. The kind is ALSO inside that RoundID, and nothing may parse a RoundID: this is the field that makes the join honest. ABSENT on a round written before this field existed, which the readers treat as the legacy case it is rather than as a construction round."
             },
             "round": {
               "type": "integer",

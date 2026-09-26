@@ -10706,9 +10706,10 @@ func ledgerRejections(out []projectstate.TaskAttempt, gate projectstate.MethodTa
 // numbered 1 at the same gate, and ordering by number would interleave two unrelated
 // review histories into one invented sequence. Ledger order is the only total order the
 // two kinds share, and it is a real one. Nothing here parses a round id into segments
-// either (equality is all any code in this repo asks of one): the join to the attempt
-// ledger is by FIELDS, and a revision's number is its position in this order, never the
-// round number — exactly as it already is for a gate attempt.
+// either (equality is all any code in this repo asks of one): which artifact a round judges
+// is a FIELD on it (roundGateKey), the join to the attempt ledger is by those fields, and a
+// revision's number is its position in this order, never the round number — exactly as it
+// already is for a gate attempt.
 func roundsForTask(rounds []projectstate.ReviewRound, task projectstate.MethodTask) []projectstate.ReviewRound {
 	out := make([]projectstate.ReviewRound, 0, len(rounds))
 	for _, r := range rounds {
@@ -10717,6 +10718,40 @@ func roundsForTask(rounds []projectstate.ReviewRound, task projectstate.MethodTa
 		}
 	}
 	return out
+}
+
+// roundGateKey is the identity of a GATE: which review task, judging which artifact. A
+// review task's id is not enough on its own — `designReview` names a task in eight
+// lifecycles and `testing` in nine, each resolving its subject through `reviews` — and
+// several kinds are designed to share one lifecycle phase, which is why the design rails'
+// RoundID is four-part. A construction round has no kind and keys on the task alone,
+// exactly as it always did.
+//
+// Two arities over one rule, deliberately: the stranded-round sweep needs the gate
+// identity WITHOUT a round number, and asking for it by synthesising a zero-Round
+// ReviewRound would depend on roundJoinKey's suffix being constant — true by accident.
+func roundGateKey(taskID projectstate.MethodTask, kind *projectstate.ArtifactKind) string {
+	if kind == nil {
+		return string(taskID)
+	}
+	return string(taskID) + ":" + kind.WireName()
+}
+
+// roundJoinKey is the identity a REVISION groups rounds by: the gate, plus the round
+// number. This is the fix for the stage-3 entry criterion "two kinds' round 1 would bind
+// one gate attempt"; nothing here parses a RoundID.
+func roundJoinKey(r projectstate.ReviewRound) string {
+	return roundGateKey(r.TaskID, r.ArtifactKind) + ":" + strconv.FormatInt(r.Round, 10)
+}
+
+// attemptGateKey is the SAME identity for a gate ATTEMPT. No attempt carries an artifact
+// kind today — the design rails record no attempt ledger at all (stage 3 gives them one)
+// — so an attempt's key is its task and its number, which is exactly the key a KINDLESS
+// round mints. That is the whole fix: a kinded round's key can never equal a kindless
+// attempt's, so two kinds' round 1 can no longer both claim gate attempt 1, and the
+// construction rail's own join is unchanged to the byte.
+func attemptGateKey(a projectstate.TaskAttempt) string {
+	return roundGateKey(a.Task, nil) + ":" + strconv.Itoa(a.Attempt)
 }
 
 // sendBackNotesFor is the phase's send-back notes in recorded order (append-only slice
@@ -11025,18 +11060,21 @@ func splitAtLowestRound(gate []projectstate.TaskAttempt, rounds []projectstate.R
 // revisions. The round is the record: its verdicts, its thread, its roster, its subject,
 // its number and its decision are carried verbatim, and no ordering heuristic gets a vote.
 //
-// THE JOIN TO THE ATTEMPT LEDGER IS BY FIELDS. The construction rail mints a round's id
-// with projectstate.AttemptID, so its <n> IS the gate attempt's number — but the design
-// rails mint a four-part id for the same gate, and splitting either into segments is a
-// parse nothing else in this repo does (equality is all any code asks of a round id). So
-// the attempt this round settled is found as "the gate attempt whose number is the round's
-// number", which is true on both rails and false for neither.
+// THE JOIN TO THE ATTEMPT LEDGER IS BY FIELDS, through roundJoinKey — never by splitting a
+// round id into segments, which is a parse nothing in this repo does (equality is all any
+// code asks of a round id). The construction rail mints a round's id with
+// projectstate.AttemptID, so its <n> IS the gate attempt's number, and a KINDLESS round's
+// key is exactly the kindless attempt's: that rail's join is unchanged to the byte.
 //
-// EARMARK, stage 4. That join is unique only while the design rails record NO attempts.
-// Two artifact kinds share the architecture gate and each counts its own rounds, so once
-// the design rail writes its attempt ledger, two rounds numbered 1 would both bind the one
-// attempt numbered 1. The fix belongs where the ambiguity is born — a round that names the
-// attempt it judged, as ReviewVerdict.AttemptID already does — not in a wider join here.
+// THE EARMARK THIS CLOSES (stage-3 entry criterion). The old join was the round NUMBER
+// alone, and two artifact kinds share one gate while each counts its own rounds — so two
+// rounds numbered 1 both bound the one attempt numbered 1, and a reader was shown one
+// kind's revision citing the other's evidence. The kind is now a field on the round, so a
+// round that judges an artifact keys on (task, kind, n) and cannot collide with an attempt
+// recorded without one. While the design rails record no attempt ledger (stage 3 gives
+// them one) that means a kinded round cites no attempt — which is the truth: there is none.
+// Its successor question, which attempt of a kind a round settled, is answered by the same
+// key the day attempts carry kinds too.
 //
 // A ROUND WITH NO GATE ATTEMPT IS NORMAL, not a gap. The construction rail opens the round
 // when the gate is reached and writes the gate attempt only when the round is DECIDED, so
@@ -11054,8 +11092,9 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 			Note: sendBackNote(r), Comments: threadAnchors(r.Thread),
 			StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
 		}
+		join := roundJoinKey(r)
 		for _, a := range gate {
-			if int64(a.Attempt) == r.Round {
+			if attemptGateKey(a) == join {
 				rev.AttemptIDs = []string{a.AttemptID}
 				break
 			}
