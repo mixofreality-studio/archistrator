@@ -6043,6 +6043,13 @@ func pdValidateReviewDecisionArgs(projectID ProjectID, kind ArtifactKind, decisi
 // into a fresh unanchored comment — silently detaching the reply from the conversation it
 // answers, which is the exact loss design §3.7 exists to prevent. Until Stage 2 routes it,
 // refuse loudly: an obvious ContractMisuse beats a silent corruption of the ledger.
+//
+// THE REFUSAL STAYS, AND THE CLIENT FOLDS (stage-4a pre-final ruling, mirroring R2's
+// "the asymmetry is honest until 4b"): the M0 gate DOES offer replies, so the SPA folds a
+// Phase-2 reply's text into the comment or question it sends and drops the replyTo it
+// cannot route (webApp reviewBatch.ts decisionFeedbackFor / askEntriesFor). The Manager
+// does NOT fold on the caller's behalf — a server that quietly rewrote a routed reply
+// into a fresh thread would be the silent detachment this check exists to refuse.
 func pdCheckNoReplyTo(incoming []AnchoredComment) error {
 	for _, c := range incoming {
 		if c.ReplyTo != "" {
@@ -10102,14 +10109,31 @@ const (
 // the manager's own name (mirroring operations' "operations:operatedStateReconcile"
 // over billing's bare "shortfallSweep") since Schedule ids are namespace-global —
 // a manager-scoped prefix keeps two managers from ever colliding on one.
+//
+// STAGE 4a RENAMED THE PREFIX construction: → delivery:, because the manager whose
+// name it carries no longer exists: both sweeps now register from, and fire into, the
+// ONE delivery Manager and its `delivery` task queue. The workflow TYPE names keep
+// their construction* spelling (R2 — a rename there would strand in-flight
+// executions); only the two Schedule ids move.
+//
+// AT CUTOVER THE OLD IDS MUST BE DELETED, and by hand. RegisterSchedules creates an
+// absent Schedule and is a harmless no-op on a present one — it cannot MOVE a
+// Schedule's task queue, and it never deletes. So `construction:pumpSweep` and
+// `construction:replanSweep` survive this release as Schedules whose action targets
+// the dead `construction` queue that no worker polls: a silent dead sweep, not an
+// error. Worse, re-registering under the SAME id would ADOPT the old Schedule rather
+// than replace it, which is precisely why the id had to change instead. Run
+// `temporal schedule delete --schedule-id construction:pumpSweep` (and
+// `construction:replanSweep`) BEFORE the release, then confirm with
+// `temporal schedule list` — see docs/bugs/2026-09-24-stage3-rail-earmarks.md.
 const (
 	// scheduleIDPumpSweep is the platform-wide pump-sweep Schedule id.
-	scheduleIDPumpSweep = "construction:pumpSweep"
+	scheduleIDPumpSweep = "delivery:pumpSweep"
 	// pumpSweepIntervalSecs is the pump-sweep cadence — the single tunable knob.
 	pumpSweepIntervalSecs = 30
 
 	// scheduleIDReplanSweep is the platform-wide replan-sweep Schedule id.
-	scheduleIDReplanSweep = "construction:replanSweep"
+	scheduleIDReplanSweep = "delivery:replanSweep"
 	// replanSweepIntervalSecs is the replan-sweep cadence (5m) — the single tunable knob.
 	replanSweepIntervalSecs = 5 * 60
 )
@@ -10291,7 +10315,7 @@ func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSp
 	)
 }
 
-// RegisterSchedules registers (idempotently) the TWO platform-wide construction
+// RegisterSchedules registers (idempotently) the TWO platform-wide delivery
 // Temporal Schedules at startup via the messageBus utility (constructionManager.md
 // §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
 // every construction-phase project's own PumpNextActivityWorkflow; see this file's

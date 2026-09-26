@@ -26441,8 +26441,18 @@ var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
 // RegisterSchedules must register exactly the two platform-wide Schedules — the
 // pump sweep (30s, targeting PumpSweepWorkflow) and the replan sweep (5m, targeting
 // ReplanSweepWorkflow) — with the right ids/workflow-types/intervals.
+//
+// The two ids are asserted as LITERALS as well as through the consts: a Schedule id is
+// live namespace state, not an internal name, so renaming one is a deploy step (delete
+// the old id by hand — it cannot be moved or adopted) and must never pass unnoticed
+// just because the test read the same const the code did.
 func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
 	bus := &fakeScheduleBus{}
+
+	if scheduleIDPumpSweep != "delivery:pumpSweep" || scheduleIDReplanSweep != "delivery:replanSweep" {
+		t.Fatalf("Schedule ids = %q/%q, want delivery:pumpSweep/delivery:replanSweep — a rename is a DEPLOY step (delete the old ids first), not a refactor",
+			scheduleIDPumpSweep, scheduleIDReplanSweep)
+	}
 
 	if err := RegisterSchedules(context.Background(), bus); err != nil {
 		t.Fatalf("RegisterSchedules: %v", err)

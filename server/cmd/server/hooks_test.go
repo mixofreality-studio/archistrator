@@ -350,11 +350,14 @@ func TestFinalizeMessageBus_DryRun_SkipsConstructionSchedules(t *testing.T) {
 
 	wrapped := h.FinalizeMessageBus(cfg, inner)
 
-	// The two construction kinds must be skipped (no delegation to inner).
-	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
+	// The two construction kinds must be skipped (no delegation to inner). The gate
+	// matches the EXECUTION KIND, which keeps its construction* spelling (R2 — a
+	// workflow type rename would strand in-flight executions); the Schedule ids took
+	// the delivery: prefix at stage 4a and are passed here as the live ids.
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
 		t.Fatalf("RegisterSchedule(pumpSweep): %v", err)
 	}
-	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:replanSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionReplanSweep"}); err != nil {
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:replanSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionReplanSweep"}); err != nil {
 		t.Fatalf("RegisterSchedule(replanSweep): %v", err)
 	}
 	if len(inner.scheduleCalls) != 0 {
@@ -390,7 +393,7 @@ func TestFinalizeMessageBus_NotDryRun_RegistersConstructionSchedules(t *testing.
 
 	// Identity: the raw inner value comes back, so construction schedules
 	// register normally.
-	if err := wrapped.RegisterSchedule(fwra.Context{}, "construction:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
 		t.Fatalf("RegisterSchedule(pumpSweep): %v", err)
 	}
 	if len(inner.scheduleCalls) != 1 {

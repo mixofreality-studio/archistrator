@@ -14,6 +14,8 @@ package main
 // itself (that is manager_test.go's job).
 
 import (
+	"context"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -171,5 +173,127 @@ func Test_StartProjectHandler_WithProjectID_Adopts(t *testing.T) {
 	}
 	if gotID == nil || *gotID != "proj-1" {
 		t.Fatalf("projectID = %v, want \"proj-1\" carried through the body", gotID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// STAGE 4a PRE-FINAL — THE ADOPT ARM IS AUTHORIZED AGAINST THE PROJECT IT NAMES.
+//
+// Moving projectID off the path (above) also moved StartProject off the ONE mechanism
+// that binds an authorization decision to a project: the generator turns a leading ID
+// path param into Authorize(verb, {Kind:"project", ID:<id>}) and, with no path param,
+// falls back to the owner-scoped {Kind:"deliveryCatalog", ID:principal.Subject}. So an
+// adopt named a project the catalog decision never sees.
+// projectScopedDeliveryManager (hooks.go) re-asks that same question at the composition
+// root, over BOTH transports. These tests drive it through the generated handler with a
+// PDP that denies ONE project, which is what proves the resource ref is really bound —
+// a guard reading the wrong ref would pass every one of them but the first.
+// ---------------------------------------------------------------------------
+
+// oneProjectDenyingPDP permits everything except the named project resource, and records
+// every ref it was asked about so a test can assert WHICH decisions were made.
+type oneProjectDenyingPDP struct {
+	deniedProject string
+	asked         []security.ResourceRef
+}
+
+func (p *oneProjectDenyingPDP) Decide(_ context.Context, _ security.Principal, _ security.Action, resource security.ResourceRef) (bool, error) {
+	p.asked = append(p.asked, resource)
+	return resource.Kind != "project" || resource.ID != p.deniedProject, nil
+}
+
+// newGuardedStartProjectMux mounts the generated handler over the SAME guarded manager
+// production mounts (the WrapManagers composition, minus the logging seam's logger
+// noise), with one PDP answering both the handler's catalog decision and the guard's
+// project decision.
+func newGuardedStartProjectMux(mgr delivery.DeliveryManager, pdp security.PolicyDecisionPoint) *http.ServeMux {
+	sec := security.New(security.WithPolicyDecisionPoint(pdp))
+	mux := http.NewServeMux()
+	h := &deliveryweb.Handler{
+		Manager:  projectScopedDeliveryManager{DeliveryManager: mgr, security: sec},
+		Security: sec,
+	}
+	h.Register(mux)
+	return mux
+}
+
+func Test_StartProjectAdopt_DeniedProject_403_AndNeverReachesTheManager(t *testing.T) {
+	fake := &deliveryfake.FakeDeliveryManager{
+		StartProjectFn: func(_ fwmanager.Context, _ delivery.OwnerScope, _ string, _ *string, _ *delivery.OperatingModel, _ *delivery.ResearchInput, _ bool) (delivery.StartProjectResult, error) {
+			t.Error("the manager must not be reached for a project the principal may not act on")
+			return delivery.StartProjectResult{}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postStartProject(newGuardedStartProjectMux(fake, pdp), `{"owner":"usr-1","name":"","projectID":"proj-secret","start":true}`)
+
+	// 403 is what the path route gave (fwmanager.Unauthorized → StatusForbidden,
+	// statusForKind in the generated handler).
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for an adopt of a project the principal may not act on (body: %s)", rr.Code, rr.Body.String())
+	}
+	var sawProject bool
+	for _, ref := range pdp.asked {
+		if ref.Kind == "project" && ref.ID == "proj-secret" {
+			sawProject = true
+		}
+	}
+	if !sawProject {
+		t.Fatalf("no {project, proj-secret} decision was ever asked; refs asked = %+v", pdp.asked)
+	}
+}
+
+func Test_StartProjectAdopt_PermittedProject_Adopts(t *testing.T) {
+	var gotID *string
+	fake := &deliveryfake.FakeDeliveryManager{
+		StartProjectFn: func(_ fwmanager.Context, _ delivery.OwnerScope, _ string, projectID *string, _ *delivery.OperatingModel, _ *delivery.ResearchInput, _ bool) (delivery.StartProjectResult, error) {
+			gotID = projectID
+			return delivery.StartProjectResult{ProjectID: "proj-1", Version: 4}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postStartProject(newGuardedStartProjectMux(fake, pdp), `{"owner":"usr-1","name":"","projectID":"proj-1","start":true}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — this principal may adopt proj-1 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if gotID == nil || *gotID != "proj-1" {
+		t.Fatalf("projectID = %v, want \"proj-1\" carried through to the manager", gotID)
+	}
+}
+
+func Test_StartProjectCreate_AsksNoProjectDecision(t *testing.T) {
+	fake := &deliveryfake.FakeDeliveryManager{
+		StartProjectFn: func(_ fwmanager.Context, _ delivery.OwnerScope, name string, _ *string, _ *delivery.OperatingModel, _ *delivery.ResearchInput, _ bool) (delivery.StartProjectResult, error) {
+			return delivery.StartProjectResult{ProjectID: delivery.ProjectID(name), Version: 1}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postStartProject(newGuardedStartProjectMux(fake, pdp), `{"owner":"usr-1","name":"aiarch-demo","start":false}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	// A create names no project, so the catalog decision is the only one there is.
+	for _, ref := range pdp.asked {
+		if ref.Kind == "project" {
+			t.Fatalf("a create asked a project-scoped decision (%+v) — there is no project yet to name", ref)
+		}
+	}
+	if len(pdp.asked) != 1 || pdp.asked[0].Kind != "deliveryCatalog" {
+		t.Fatalf("refs asked = %+v, want exactly the one deliveryCatalog decision", pdp.asked)
+	}
+}
+
+// The guard is only real if the composition root INSTALLS it: WrapManagers is the one
+// place that does, and it is what both the REST handler and the MCP tools are handed.
+func Test_WrapManagers_InstallsTheDeliveryAdoptGuard(t *testing.T) {
+	h := &appHooks{logger: slog.New(slog.DiscardHandler)}
+	wrapped := h.WrapManagers(WebManagers{DeliveryManager: &deliveryfake.FakeDeliveryManager{}})
+	if _, ok := wrapped.DeliveryManager.(projectScopedDeliveryManager); !ok {
+		t.Fatalf("WrapManagers returned %T; the delivery adopt guard is not installed", wrapped.DeliveryManager)
 	}
 }
