@@ -108,7 +108,7 @@ Each was decided before or during planning. An implementer does not re-litigate 
 6. **`designSessionAccess` has four NON-design callers and a plan that "deletes the design verbs" would take the pump's only whole-project read with them.** Measured: `pumpnextactivity.go:374` (`DesignSessionReadProjectOnBranch(projectID, "")`), `replansweep.go:29` and `projectsupervision.go` through the same `wf.readProject`, plus `deliverymanager.go:2069`/`:6875` (the two answer-job reads) and the three SDP-assembly verbs at `assemblesdpreview.go:194`/`:208`/`:226`. **4b1 deletes NO facet** (that is post-drain, 4b2) — Task 9 re-homes the three SDP-assembly verbs onto `activityExecutionAccess.StageTaskOutput`/`CommitActivityArtifacts` and Task 13 deletes the two answer-job call sites with the twins, which is what LEAVES 4b2 a facet it can actually delete.
 7. **`make gen-sdk` deletes the SDK a separate Go module's hand-written harness calls.** `pruneStaleSDK` (`cmd/appgen/main.go:342`) removes every `*.gen.go` under `../systemtests/internal/sdk` not in the fresh output set, and `systemtests.yml` triggers on `server/**` and `.aiarch/**`. 4b1 changes no op signature (R9), so the SDK output set is byte-identical and the harness is untouched — **but Tasks 3, 4 and 13 all run `make gen-sdk` through the self-amendment loop**, so each of their gate blocks ends with `cd ../systemtests && GOWORK=off go build ./...` to prove it.
 8. **The collapse REGRESSES history growth, and the child has no `ContinueAsNew`.** Four per-kind co-author executions become one walk: measured at 187 and 311 events per co-author fixture in a test env whose poll returns instantly, against a production budget of `15 s × 240` polls per dispatch ≈ 960 events, ×11 dispatches on `requirements` ≈ 10,560 — Temporal's 10k warning, from one activity, before any redraft. R-L designs both mitigations into Task 8 Step 6 (a capped-backoff observe loop: 23 polls ≈ 92 events, same 1-hour ceiling) and Step 7 (`ContinueAsNew` on `GetContinueAsNewSuggested()` or a 4,000-event budget, at the one point where `inflight == 0`, carrying the walk snapshot). Task 8 Step 10 has the test-suite case. This is the one risk the pre-flight review found that the first draft had not flagged at all.
-9. **Concurrency makes every SHARED signal channel a theft risk, and the backoff selector would have opened one.** A `workflow.ReceiveChannel` delivers each message to exactly one receiver, so two coroutines selecting on `operatorOverride` — a polling dispatch task and a waiting gate, which is precisely what a fork produces — means an override aimed at the gate is consumed by whichever the SDK schedules first and silently lost. Filtering inside the receiver does not help: the message is already gone. Task 8 Step 3a puts ONE router coroutine in front of all four channels and gives every task its own inbox, so no task coroutine ever touches a shared channel; the `fork-signal-reaches-the-named-task` case asserts the gate got it and the poller did not, through `shapeRecorder.signalDelivered` rather than through the walk's terminal (a lost override and a declined one produce the same terminal). **And the router must never block**, or the fix becomes a worse bug: a `Send` parked on a full inbox outlives the task's `closeInbox`, no receiver can ever exist for that channel again, the router never selects a second time, and one wedged task silently swallows every later signal in the activity — including a sibling gate's decision — while the parked message sits in neither `inbox` nor `pending` and `ContinueAsNew` loses it too. Hence `SendAsync` with a `pending` fallback, a receiver-driven `drainPending`, and a `closeInbox` that drains rather than abandons; `full-inbox-does-not-wedge-the-router` is the case that would have caught it.
+9. **Concurrency makes every SHARED signal channel a theft risk, and the backoff selector would have opened one.** A `workflow.ReceiveChannel` delivers each message to exactly one receiver, so two coroutines selecting on `operatorOverride` — a polling dispatch task and a waiting gate, which is precisely what a fork produces — means an override aimed at the gate is consumed by whichever the SDK schedules first and silently lost. Filtering inside the receiver does not help: the message is already gone. Task 8 Step 3a puts ONE router coroutine in front of all four channels and gives every task its own inbox, so no task coroutine ever touches a shared channel; the `fork-signal-reaches-the-named-task` case asserts the gate got it and the poller did not, through `shapeRecorder.signalDelivered` rather than through the walk's terminal (a lost override and a declined one produce the same terminal). **And the router must never block**, or the fix becomes a worse bug: a `Send` parked on a full inbox outlives the task's `closeInbox`, no receiver can ever exist for that channel again, the router never selects a second time, and one wedged task silently swallows every later signal in the activity — including a sibling gate's decision — while the parked message sits in neither `inbox` nor `pending` and `ContinueAsNew` loses it too. Hence `SendAsync` with a `pending` fallback, a receiver-driven `drainPending`, and a `closeInbox` that drains **both the channel and `pending`** rather than abandoning either; `full-inbox-does-not-wedge-the-router` is the case that would have caught it. Two traps the same design opens and closes at the site: a `pending` entry left behind at retire rides every later `ContinueAsNew` and, after a send-back, is flushed into revision n+1; and a dispatch task that hands an unactionable decision back through `pending` spins, because `drainPending` returns it to a receive arm that is immediately ready while each iteration builds a fresh timer — so that one message goes in a local slice, not the shared queue.
 10. **A failing task leaves its siblings blocked on an unbuffered channel send.** `failWalk` returns while sibling coroutines sit in `results.Send`, which is a leaked-coroutine warning at best and a masked panic at worst. Task 8 Step 3 gives `results` capacity `len(lc.Tasks)`, so every started task can always deliver its result whether or not anyone is still receiving.
 11. **`ClassifyActivity`'s signature change has ten readers and one of them is a backfill tool nobody runs in CI.** Every site of `ErrDesignActivityNotDispatchable` was measured: declaration `projectstateaccess.go:8449`, producer `:8510`, `ClassifyType` tolerance `:8565`, `isDesignActivity` `deliverymanager.go:9490`, the chosen-activity guard `:9530`, `railFor` `:11682`, the `ClassifyType` doc `:8782`, `cmd/backfill-attempts/main.go:322`, the encapsulation allowlist `internal/arch_test.go:680`, and `projectstate/access_test.go:8984-8985`. Task 10 Step 2 changes rule 0 to `(typ, variant, nil)` and walks all ten, including the allowlist entry that must be REMOVED rather than left naming a deleted sentinel.
 
@@ -1373,7 +1373,7 @@ It also lands **R-L's two history mitigations** (Steps 6 and 7), because they ar
 - `type taskDecisionSignal struct { TaskID string; Decision ReviewDecision; OptionID *OptionID; Feedback *ReviewFeedback; DecidedBy string; AcknowledgeStale bool }` — and **every** signal payload carries a `TaskID`, because the router keys on it: `commentStatusSignal`, `operatorOverrideSignal` and `redraftSignal` each gain one if they lack it.
 - `type routedSignal struct { Kind string; TaskID string; Decision *taskDecisionSignal; Status *commentStatusSignal; Override *operatorOverrideSignal; Redraft *redraftSignal }` with `routedKindDecision|Status|Override|Redraft` — exactly one pointer non-nil; exported fields so it survives `ContinueAsNew`.
 - `func (wf *csWorkflows) routeSignals(ctx workflow.Context, ws *walkState, decisions, statuses, overrides, redrafts workflow.ReceiveChannel)` — the ONE coroutine that receives from a shared signal channel, and it **never blocks**. `deliveryTaskInboxCapacity = 64`.
-- Per-task delivery: `walkState.inbox map[string]workflow.Channel` (created at schedule time, `workflow.NewNamedBufferedChannel(ctx, "inbox:"+taskID, deliveryTaskInboxCapacity)`) and `walkState.pending map[string][]routedSignal` (messages with no inbox yet, **and any the inbox was too full to take**). Three methods on `walkState`: `deliver(logger, msg)` — `SendAsync`, falling back to `pending`, no `ctx` because nothing in it can block; `drainPending(taskID, ch)` — pulls `pending` into the inbox in order, called by `openInbox` AND at the top of every receive-loop iteration; `closeInbox(ctx, logger, taskID)` — `ReceiveAsync`-drains the channel into a logged too-late list so a retiring task leaves nothing held.
+- Per-task delivery: `walkState.inbox map[string]workflow.Channel` (created at schedule time, `workflow.NewNamedBufferedChannel(ctx, "inbox:"+taskID, deliveryTaskInboxCapacity)`) and `walkState.pending map[string][]routedSignal` (messages with no inbox yet, **and any the inbox was too full to take**). Three methods on `walkState`: `deliver(logger, msg)` — `SendAsync`, falling back to `pending`, no `ctx` because nothing in it can block; `drainPending(taskID, ch)` — pulls `pending` into the inbox in order, called by `openInbox` AND at the top of every receive-loop iteration; `closeInbox(ctx, logger, taskID)` — logs and clears **`pending[taskID]`** and `ReceiveAsync`-drains the channel, both as too-late, so a retiring task leaves nothing held and nothing queued. A dispatch task additionally holds a **local `deferred []routedSignal`** for messages it cannot act on (a decision or comment status naming a dispatch task is a misroute), flushed back through `deliver` on the way out — never into `pending`, which would spin (Step 6).
 - **No task coroutine ever receives from a shared signal channel** — `runTask`, `runGate`, `awaitTaskDecision` and the observe loop all take ONE `inbox workflow.ReceiveChannel`.
 - `type taskStrategy interface { Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) }` and `type producedSubject struct { StagedRef string; AttemptID string; Outcome projectstate.AttemptOutcome; Detail string }`
 - `type strategyRegistry map[string]func(*csWorkflows) taskStrategy` with the three slot keys `strategySlotDispatch = "dispatch"`, `strategySlotJudged = "judged"`, and `strategySlotCompute(artifactKind) = "compute:" + artifactKind`; `func productionStrategies() strategyRegistry`; `func strategyFor(reg strategyRegistry, wf *csWorkflows, lc methodassets.Lifecycle, t methodassets.LifecycleTask) (taskStrategy, error)`. The registry is a field on `csWorkflows` (`wf.Strategies`), defaulted to `productionStrategies()` by `csNewWorkflows` so an unwired slice cannot nil-map-read, and overridden per test.
@@ -1847,12 +1847,30 @@ for l in d:
   	}
   }
 
-  // closeInbox retires a finished task's inbox — and DRAINS it first, so nothing is left
-  // held by a channel no coroutine will ever read again. The drained messages are logged
-  // as too-late rather than re-queued: the task they name is over, and handing them to the
-  // next revision's coroutine would let an override of revision 1 decide revision 2.
-  // Draining rather than dropping silently is what makes the loss auditable.
+  // closeInbox retires a finished task's undelivered messages — from BOTH places they can
+  // sit, the channel and the pending queue — so nothing is left held by a channel no
+  // coroutine will ever read again and nothing is left queued for a task that is over.
+  // Each is logged as too-late rather than re-queued: the task they name is finished, and
+  // handing them to the next revision's coroutine would let an override of revision 1
+  // decide revision 2. Draining rather than dropping silently is what makes the loss
+  // auditable.
+  //
+  // CLEARING pending IS THE LOAD-BEARING HALF, and it is easy to leave out. A message the
+  // inbox was too full to take lives in ws.pending, which `walkSnapshot` carries — so an
+  // entry left behind here would ride every ContinueAsNew for the rest of the activity,
+  // and on a SEND-BACK `reopenJudgedPair` puts the task back to taskPending, whose next
+  // openInbox would flush that stale message into revision n+1. That is exactly the leak
+  // the paragraph above exists to prevent, arriving through the other door.
   func (ws *walkState) closeInbox(ctx workflow.Context, logger log.Logger, taskID string) {
+  	tooLate := func(msg routedSignal) {
+  		logger.Info("signal was undelivered when its task retired",
+  			"kind", msg.Kind, "taskId", taskID)
+  	}
+  	for _, msg := range ws.pending[taskID] {
+  		tooLate(msg)
+  	}
+  	delete(ws.pending, taskID)
+
   	ch := ws.inbox[taskID]
   	delete(ws.inbox, taskID)
   	if ch == nil {
@@ -1863,8 +1881,7 @@ for l in d:
   		if !ch.ReceiveAsync(&msg) {
   			return
   		}
-  		logger.Info("signal was undelivered when its task retired",
-  			"kind", msg.Kind, "taskId", taskID)
+  		tooLate(msg)
   	}
   }
 
@@ -2077,6 +2094,17 @@ for l in d:
   	// A PUSHED job-completion signal would remove the polling entirely, but nothing
   	// produces one today — that is 4b2's, with the RA change it needs, and this selector
   	// is the seam it will plug into.
+  	// deferred holds the messages this loop received and cannot act on. It is declared
+  	// ONCE, outside the poll loop, and flushed back through ws.deliver just before the
+  	// dispatch returns — so closeInbox logs them too-late rather than the walk silently
+  	// eating them. Local, so nothing re-offers them and nothing can spin.
+  	var deferred []routedSignal
+  	defer func() {
+  		for _, m := range deferred {
+  			ws.deliver(workflow.GetLogger(ctx), m)
+  		}
+  	}()
+
   	// Same rule as the gate's loop (Step 5): pull any overflowed message through before
   	// waiting, because the router never blocks and this is the one moment a slot is known
   	// to have freed.
@@ -2085,12 +2113,20 @@ for l in d:
   	sel.AddFuture(workflow.NewTimer(ctx, observeInterval(poll)), func(workflow.Future) { /* poll again */ })
   	sel.AddReceive(inbox, func(c workflow.ReceiveChannel, _ bool) {
   		c.Receive(ctx, &msg)
-  		// A decision or a comment status is not this loop's business — a dispatch task has
-  		// no gate — so it is handed back to the walk through the pending buffer rather than
-  		// consumed here. An override or a redraft interrupts the poll.
+  		// An override or a redraft interrupts the poll. A DECISION or a COMMENT STATUS is
+  		// a MISROUTE, not a queue: a dispatch task has no gate, so nobody in this task's
+  		// lifetime will ever act on it. It is held in a LOCAL slice for the rest of that
+  		// lifetime and handed back to the router on the way out, where closeInbox logs it
+  		// too-late — which is the honest record of a signal nothing could act on.
+  		//
+  		// DO NOT put it back in ws.pending. drainPending would push it straight into this
+  		// same inbox on the next iteration, whose receive arm is immediately ready, and
+  		// each iteration builds a fresh workflow.NewTimer — a spin that grows durable
+  		// history exactly as fast as the walk can loop, which is the failure R-L's budget
+  		// exists to bound. A local slice cannot spin because the router never re-offers it.
   		interrupted = msg.Kind == routedKindOverride || msg.Kind == routedKindRedraft
   		if !interrupted {
-  			ws.pending[t.ID] = append(ws.pending[t.ID], msg)
+  			deferred = append(deferred, msg)
   		}
   	})
   	sel.Select(ctx)
@@ -2198,7 +2234,10 @@ for l in d:
   			// ever exist for that channel again, the router never selects a second time,
   			// and every later signal in the activity is silently swallowed. It also
   			// asserts the drained messages were LOGGED as too-late rather than vanishing,
-  			// and that nothing is left in `pending` for the retired task.
+  			// and that nothing is left in `pending` for the retired task — which is true
+  			// only because closeInbox clears pending as well as the channel. Leave that
+  			// half out and the 65th signal rides every later ContinueAsNew and, after a
+  			// send-back, gets flushed into revision n+1 by the next openInbox.
   			name: "full-inbox-does-not-wedge-the-router", typeKey: "service",
   			drive: driveInboxOverflow, wantToday: shapePassesToday,
   		},
@@ -2972,7 +3011,7 @@ Six steps deliberately delegate a LITERAL or a body to a mechanical oracle rathe
 - `roundGateKey` (the gate identity) and `roundJoinKey` (the revision identity) — both introduced in Task 3 Step 4 as **two arities over one rule, mandatory not optional**; `roundGateKey` is called by Task 6 Step 2 (`strandedRounds`) and Task 12 Step 2 (`latestRoundFor`). No second key function appears anywhere.
 - `taskStrategy` / `taskContext` / `producedSubject` / `strategyRegistry` / `strategyFor` / `strategySlotDispatch` / `strategySlotJudged` / `strategySlotCompute` — Task 8 Step 2 defines all of them with ONE shape (`map[string]func(*csWorkflows) taskStrategy`, held on `wf.Strategies`); Task 9 adds the `compute:SdpReview` entry; Tasks 10 and 11 complete `agenticDispatchStrategy`. There is no corrected-later signature anywhere in the plan.
 - `walkState`'s six maps (`byTask`, `revision`, `feedback`, `produced`, `inbox`, `pending`) and `walkSnapshot`'s five exported fields (the four walk maps plus `Pending`; `inbox` holds channels and is re-created, never carried) — declared together in Task 8 Step 3, read in Step 4 (`ws.produced[t.Reviews]`, `ws.feedback[t.ID]`), written by the router in Step 3a (`openInbox`/`closeInbox`/`deliver`) and serialised in Step 7. `produced` is what carries the judged task's staged ref to its gate, which is what makes Task 5's fix observable; `pending` is what stops a `ContinueAsNew` dropping a routed-but-undelivered signal.
-- `routedSignal` + `routedKindDecision|Status|Override|Redraft`, `routeSignals`, `openInbox`, `drainPending`, `closeInbox`, `deliver`, `deliveryTaskInboxCapacity` — Task 8 Step 3a defines them; Step 4's `runTask`/`runGate`, Step 5's `awaitTaskDecision` and Step 6's observe selector all take ONE `inbox`, none of them names a shared signal channel, and **both receive loops call `drainPending` at the top of every iteration**; Step 3's receive arm calls `closeInbox(ctx, logger, taskID)`; Task 12 Step 3 sets `TaskID` on the redraft it sends. `deliver` takes no `ctx`, which is the signature saying it cannot block.
+- `routedSignal` + `routedKindDecision|Status|Override|Redraft`, `routeSignals`, `openInbox`, `drainPending`, `closeInbox`, `deliver`, `deliveryTaskInboxCapacity` — Task 8 Step 3a defines them; Step 4's `runTask`/`runGate`, Step 5's `awaitTaskDecision` and Step 6's observe selector all take ONE `inbox`, none of them names a shared signal channel, and **both receive loops call `drainPending` at the top of every iteration**; Step 3's receive arm calls `closeInbox(ctx, logger, taskID)`; Task 12 Step 3 sets `TaskID` on the redraft it sends. `deliver` takes no `ctx`, which is the signature saying it cannot block. `closeInbox` clears **both** `inbox` and `pending` for its task; Step 6's observe loop is the one place that must NOT use `pending` as a hand-back, and it uses a local `deferred` slice instead with the spin argument written at the site.
 - The FOUR shared signal channels (`decisions`, `statuses`, `overrides`, `redrafts`) are opened in one place — Step 3's entry func — and handed to `routeSignals` and to nothing else. `signalRedraft` appears in the Interfaces block, in Step 3's opener, in Step 3a's router and in Task 12 Step 3's sender: four mentions, one channel, and it is no longer named by a step that cannot reach it.
 - `taskState`'s five ordinals are payload-visible through `walkSnapshot.ByTask` and are append-only, stated on the type in Step 3 and pinned by `Test_TaskStateOrdinalsNeverRenumber`, which Step 11's gate block runs.
 - `passRound(ctx, in, lc, t, tc, state, decidedBy, reason)` — **takes `lc`** in Task 8's Interfaces block, in Step 4's call and in Task 9 Step 4's M0 handler. One signature, three mentions.
