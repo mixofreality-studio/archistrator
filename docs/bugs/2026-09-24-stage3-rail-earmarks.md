@@ -3,13 +3,19 @@
 Stage 3 shipped: the `activityExecutionAccess` facet (12 verbs, additive), the `.activityExecution` row with per-activity `Version`, the construction workflow writing attempts + review rounds behind the `execution-ledger-writes` fence (2 new replay fixtures, 13 old ones byte-identical), the design rails dual-writing rounds behind `design-round-ledger`, `QueryActivityView` reading persisted rounds, `ActivityView` carrying verdicts/thread/subject/round, and the migration of this repo's state (26 rows, zero derived deltas). Spec §5.3/§8 amended where planning proved them wrong.
 
 ## DRAIN NOTE — before this stage is deployed (do not deploy from a wave)
-1. Pause every project (`SetProjectRunState`/pause).
-2. Drain `{projectId}:nextActivity` pumps and every `constructActivity` child; drain every design session (`{projectId}:systemDesign`, `{projectId}:<ordinal>` co-authors, `sdpReview`).
-3. The `execution-ledger-writes` and `design-round-ledger` fences make in-flight replays safe, but the registered activity set grew by 36 names (12 construction + 24 design) — a worker built from an older commit cannot serve a workflow started on this one.
-4. Run `cmd/migrate-activity-execution` on any OTHER project state that predates this commit (this repo's state is migrated). `construction-state-reset` is safe only AFTER migration.
-5. Release; unpause.
 
-**Between step 4 and step 5 an old reader pod renders an EMPTY WORLD.** The state now carries `.activityExecution` and the pre-stage-3 reader knows only `.activityConstruction`, so every activity reads as NotStarted until the new image is live. Harmless while every project is paused (nothing dispatches), and expected — do not treat it as a migration failure.
+**One sequence, run once, covering stages 3 + 4a + 4b.** Amended 2026-09-25 (stage 4a); the Schedule step is step 5.
+
+1. Pause every project (`SetProjectRunState`/pause).
+2. Drain `{projectId}:nextActivity` pumps and every `constructActivity` child; drain every design session (`{projectId}:systemDesign`, `{projectId}:<ordinal>` co-authors, `sdpReview`). **Sweep the `delivery:` prefix too** — the memorised `drain *:nextActivity:*` guidance predates the `delivery` namespace, and after 4b re-keys the pump, sweep whatever it re-keys it to. Grepping one prefix is how a live sweep survives a drain. Drain the in-flight `{p}:phaseAdvance` workflows as well (they last seconds; 4a splits the one id into `:systemDesign` / `:projectDesign`).
+3. The `execution-ledger-writes` and `design-round-ledger` fences make in-flight replays safe, but the registered activity set grew by 36 names in stage 3 (12 construction + 24 design) and then SHRANK by 92 in 4a (231 → 139) — a worker built from an older commit cannot serve a workflow started on this one, and a worker built from THIS commit cannot serve a workflow an older one started against a name that no longer exists. Drain in both directions.
+4. Run `cmd/migrate-activity-execution` on any OTHER project state that predates this commit (this repo's state is migrated). `construction-state-reset` is safe only AFTER migration.
+5. **DELETE the two old sweep Schedules, by id, before the release** — `temporal schedule delete --schedule-id construction:pumpSweep`, then `temporal schedule delete --schedule-id construction:replanSweep`. 4a renamed the consts to `delivery:pumpSweep` / `delivery:replanSweep` (`574012f7`; `deliverymanager.go:10107`, `:10112`), so the two `construction:*` Schedules are abandoned with their action still on a task queue no worker polls, and **nothing will ever converge them**. A Schedule left pointing at `construction` is a **silent dead sweep, not an error**: every project simply stops advancing, and `temporal schedule describe` is the only thing that says so. Do not expect the re-register to fix it — `messagebus.RegisterSchedule` (`internal/utility/messagebus/messagebus.go:170-216`) does Create-then-Update-in-place on `ErrScheduleAlreadyRunning`, which ADOPTS a same-id Schedule rather than replacing it; that adoption is exactly why the id had to change.
+6. Release; unpause. **Confirm with `temporal schedule list`** that exactly two sweep Schedules exist, and with `temporal schedule describe` that each one's action is on task queue **`delivery`**. (On a `CONSTRUCTION_DRYRUN=true` server no Schedule is registered at all — live-verified: `"messageBus.RegisterSchedule skipped — CONSTRUCTION_DRYRUN=true"` for both ids, followed by `"deliveryManager Temporal Schedules registered"` — so a local dry-run server proves nothing about steps 5 and 6 in either direction.)
+
+Schedules are the one part of this cutover that is **not** one-way: a rollback re-registers under whatever ids the old image holds, which is why step 5 is cheap in both directions. The STATE rollback is one-way and unchanged — see below.
+
+**Between step 4 and the release in step 6 an old reader pod renders an EMPTY WORLD.** The state now carries `.activityExecution` and the pre-stage-3 reader knows only `.activityConstruction`, so every activity reads as NotStarted until the new image is live. Harmless while every project is paused (nothing dispatches), and expected — do not treat it as a migration failure.
 
 **Rollback: restore `project.json` FIRST, then roll the image.** The state move is ONE-WAY. The base (pre-stage-3) `projectstateaccess.go` has no read tolerance for `.activityExecution` — the tolerance added in stage 3 reads the LEGACY member, not the new one — and the stage-3 encoder never emits `activityConstruction` again. So the moment the migration runs (step 4), or the moment the FIRST write lands on the new image, an older image reads every activity as NotStarted. Roll the image back on that state and the pump re-dispatches the WHOLE project the instant it is unpaused: fresh attempts, fresh branches, fresh spend, against activities that are already Done. The order is therefore: pause → `git revert`/restore `project.json` to its pre-migration commit → roll the image → unpause. Rolling the image alone is not a rollback.
 
@@ -17,7 +23,7 @@ Stage 3 shipped: the `activityExecutionAccess` facet (12 verbs, additive), the `
 
 **AMENDED 2026-09-25 (stage 4a). The drain now covers stages 3 + 4a + 4b, and 4a MUST NOT DEPLOY ALONE.** 4b changes workflow TYPE names and workflow ids again, so a deploy between the two would need its own drain for nothing. Merge both, drain once, release once.
 
-**What 4a adds to the drain, beyond the five steps above.** Every row measured in the worktree at `b4815ec4`:
+**What 4a adds to the drain, now folded into the six steps above.** Every row measured in the worktree at `b4815ec4`:
 
 | Thing | Today | After 4a | Mechanism |
 |---|---|---|---|
@@ -25,24 +31,15 @@ Stage 3 shipped: the `activityExecutionAccess` facet (12 verbs, additive), the `
 | TaskQueue `project-design` | projectdesign worker | **gone** | drain-and-cutover |
 | TaskQueue `construction` | construction worker | **gone** | drain-and-cutover |
 | TaskQueue `delivery` | — | new: ONE worker, eleven workflow types, every name unchanged (`internal/manager/delivery/worker.gen.go:13`) | — |
-| Schedule `construction:pumpSweep` (30 s) | fires into TaskQueue `construction` | **DELETE it, then confirm a `pumpSweep` Schedule exists on `delivery`** — see the correction below, the step is written to hold whichever id the release carries | `RegisterSchedules` creates if absent; `temporal schedule delete` is the only thing that retires an id |
-| Schedule `construction:replanSweep` (300 s) | fires into TaskQueue `construction` | same | same |
+| Schedule `construction:pumpSweep` (30 s) | fires into TaskQueue `construction` | **renamed `delivery:pumpSweep`** on TaskQueue `delivery` (`574012f7`); the old id must be DELETED — **drain step 5** | `RegisterSchedules` creates if absent and ADOPTS a same-id Schedule; `temporal schedule delete` is the only thing that retires an id |
+| Schedule `construction:replanSweep` (300 s) | fires into TaskQueue `construction` | **renamed `delivery:replanSweep`** on TaskQueue `delivery` (`574012f7`); same | same |
 | `{p}:phaseAdvance` | BOTH design Managers, one string | `{p}:phaseAdvance:systemDesign` / `:projectDesign` (`deliverymanager.go:5057`, `:7289`) | new histories only; drain the in-flight ones (they last seconds) |
 
 **Every workflow TYPE name and every other workflow id is UNCHANGED in 4a** — that is deliberate, and it is why the fifteen construction replay fixtures still replay. The drain is required anyway, for one reason: **the registered activity-name set SHRANK by 92 names** (231 → 139, stated and golden-pinned at `internal/registered_names_test.go:68`). A worker built from an older commit can serve a workflow this commit started; a worker built from THIS commit cannot serve a workflow an older one started against a name that no longer exists. Drain before release, in both directions.
 
-**THE SCHEDULE STEP, WRITTEN TO HOLD EITHER WAY.** At `b4815ec4` the code still registers the OLD ids — `deliverymanager.go:10107` `scheduleIDPumpSweep = "construction:pumpSweep"`, `:10112` `scheduleIDReplanSweep = "construction:replanSweep"`; no `delivery:pumpSweep` string exists in any `.go` file, although the plan (`docs/superpowers/plans/2026-09-25-activity-experience-stage4a.md:1359`) and `.aiarch/state/project.json:6758`'s dynamic-view label both say `delivery:*` already. **The rename to `delivery:*` is landing in the final fix wave**, so the release may carry either id set. Do not write a drain step that depends on which:
+**THE SCHEDULE STEP IS DRAIN STEP 5** — one sequence, not a second list. It was written here as a separate four-step procedure while the rename was still in flight; the rename landed (`574012f7`), so the step is now unconditional and lives with the rest of the drain at the top of this file. Do not run two lists.
 
-1. **DELETE the two old ids explicitly, before the release** — `temporal schedule delete --schedule-id construction:pumpSweep`, then `construction:replanSweep`. This is the step that is correct under BOTH outcomes. If the consts were renamed, the old two are abandoned and nothing will ever converge them; if they were not, deleting them costs one startup re-create.
-2. **Then release, and confirm with `temporal schedule list`** that exactly two sweep Schedules exist and that `temporal schedule describe` shows each one's action on task queue **`delivery`**.
-3. If a sweep Schedule survived under an old id, **do not assume a same-id re-register fixed it.** `messagebus.RegisterSchedule` (`internal/utility/messagebus/messagebus.go:170-216`) does Create-then-Update-in-place on `ErrScheduleAlreadyRunning`, overwriting Spec AND Action — and the kind binding at `cmd/server/hooks.go:1044` maps `constructionPumpSweep` → `delivery.TaskQueue` — so an unrenamed id WOULD converge itself. That is exactly why step 1 exists: it removes the need to reason about which of the two mechanisms applied. **A Schedule left pointing at `construction` is a silent dead sweep, not an error**: every project simply stops advancing.
-4. A **rollback** re-registers under whatever ids the old image holds. Schedules are the one part of this cutover that is not one-way — and the reason step 1 is cheap in both directions.
-
-**The memorised drain guidance `drain *:nextActivity:*` is now incomplete.** It was written when the pump's ids and the sweeps both lived under `construction`. Sweep for the `delivery:` prefix too — and after 4b's id changes, for whatever it re-keys the pump to. Grepping one prefix is how a live sweep survives a drain.
-
-**On a `CONSTRUCTION_DRYRUN=true` server no Schedule is registered at all** (live-verified: `"messageBus.RegisterSchedule skipped — CONSTRUCTION_DRYRUN=true"` for both ids, followed by `"deliveryManager Temporal Schedules registered"`). A local dry-run server therefore proves nothing about this step, in either direction.
-
-**A ruling is still owed in 4b** on the model↔code drift the rename leaves behind either way: the label at `project.json:6758` and the two consts must end up saying the same thing. Carried in `docs/bugs/2026-09-25-stage4a-earmarks.md`.
+**The model↔code drift the rename was owed a ruling on is CLOSED**: the label at `project.json:6758` and the two consts both say `delivery:*`. What is NOT closed is that nothing in the gate set compares a Schedule id string to the model — the only guard is that `Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep` now asserts both ids as LITERALS as well as through the consts. Carried in `docs/bugs/2026-09-25-stage4a-earmarks.md`.
 
 **Rollback for the STATE is unchanged and still one-way:** restore `project.json` FIRST, then roll the image.
 
