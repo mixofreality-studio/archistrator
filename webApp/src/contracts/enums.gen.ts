@@ -983,6 +983,7 @@ export const TASK_REVISION_OUTCOME_VALUES = [
   'sentBack',
   'failed',
   'skipped',
+  'withdrawn',
 ] as const;
 
 export type TaskRevisionOutcome = (typeof TASK_REVISION_OUTCOME_VALUES)[number];
@@ -994,6 +995,7 @@ export const TASK_REVISION_OUTCOME_GO_VARNAMES = [
   'TaskRevisionSentBack',
   'TaskRevisionFailed',
   'TaskRevisionSkipped',
+  'TaskRevisionWithdrawn',
 ] as const;
 
 // --- TaskRevisionProvenance ----------------------------------------------

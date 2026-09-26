@@ -10555,6 +10555,7 @@ const (
 	revSentBack      = "sentBack"
 	revFailed        = "failed"
 	revSkipped       = "skipped"
+	revWithdrawn     = "withdrawn"
 
 	taskPending       = "pending"
 	taskLocked        = "locked"
@@ -11107,17 +11108,14 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 // roundOutcome renders a stored round outcome as a revision outcome. Total over the
 // vocabulary with no default arm.
 //
-// EARMARK. RoundWithdrawn — a round pulled back before anyone decided it — has no wire
-// name of its own on TaskRevisionOutcome and reads as failed: the revision did not clear
-// its gate, which is the part a reader must not be lied to about. "Failed" overstates the
-// drama (a withdrawal is deliberate, not a fault); giving it its own wire value belongs
-// with the Activity Experience screen that will render it (stage 5).
+// RoundWithdrawn has its own wire member from stage 4b1: a round pulled back before
+// anyone decided it is deliberate, and `failed` said the revision faulted. The
+// construction rail gains a withdraw verb in the same wave (spec §7.2's fifth refused
+// path), so this stopped being a design-rail-only rendering question.
 //
-// Its neighbour, same earmark: a round STRANDED pending by a run that died renders
-// `running` for as long as it is the gate's last round — and with no session there is no
-// live gate, so it never even reads awaitingHuman. Both rails state that crash window and
-// both leave it to the stage-4 sweep, which is the only thing that can know the run is
-// gone; RoundWithdrawn is the terminal it will stamp.
+// Its neighbour, the STRANDED pending round, is closed by the sweep in the same wave:
+// a pending round with no live session and a later round on the same gate is stamped
+// RoundWithdrawn rather than rendering `running` forever.
 func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 	switch o {
 	case projectstate.RoundPassed:
@@ -11125,7 +11123,7 @@ func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 	case projectstate.RoundSentBack:
 		return revSentBack
 	case projectstate.RoundWithdrawn:
-		return revFailed
+		return revWithdrawn
 	case projectstate.RoundPending:
 		if live {
 			return revAwaitingHuman

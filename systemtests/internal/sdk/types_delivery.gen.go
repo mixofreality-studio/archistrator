@@ -915,6 +915,7 @@ const (
 	TaskRevisionSentBack      TaskRevisionOutcome = "sentBack"
 	TaskRevisionFailed        TaskRevisionOutcome = "failed"
 	TaskRevisionSkipped       TaskRevisionOutcome = "skipped"
+	TaskRevisionWithdrawn     TaskRevisionOutcome = "withdrawn"
 )
 
 type TaskRevisionProvenance string
@@ -1564,6 +1565,8 @@ func TaskRevisionOutcomeName(v TaskRevisionOutcome) string {
 		return "TaskRevisionFailed"
 	case TaskRevisionSkipped:
 		return "TaskRevisionSkipped"
+	case TaskRevisionWithdrawn:
+		return "TaskRevisionWithdrawn"
 	default:
 		return ""
 	}

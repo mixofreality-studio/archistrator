@@ -31454,6 +31454,7 @@ func TestActivityViewWireStringsMatchTheContract(t *testing.T) {
 		"rev:" + revRunning: "rev:" + string(TaskRevisionRunning), "rev:" + revAwaitingHuman: "rev:" + string(TaskRevisionAwaitingHuman),
 		"rev:" + revPassed: "rev:" + string(TaskRevisionPassed), "rev:" + revSentBack: "rev:" + string(TaskRevisionSentBack),
 		"rev:" + revFailed: "rev:" + string(TaskRevisionFailed), "rev:" + revSkipped: "rev:" + string(TaskRevisionSkipped),
+		"rev:" + revWithdrawn:              "rev:" + string(TaskRevisionWithdrawn),
 		methodassets.LifecycleTaskDispatch: string(ActivityTaskDispatch), methodassets.LifecycleTaskReview: string(ActivityTaskReview),
 	}
 	for internal, wire := range pairs {
@@ -31560,6 +31561,21 @@ func TestRevisionViews_ARoundBackedRevisionCarriesTheRoundOnTheWire(t *testing.T
 		if !c.held {
 			t.Errorf("%s does not reach the wire: %+v", c.what, v)
 		}
+	}
+}
+
+// Stage 4b1 entry criterion: a withdrawn round reads as withdrawn, not as failed. Before
+// this, roundOutcome collapsed projectstate.RoundWithdrawn to revFailed for want of a wire
+// member — a withdrawal is deliberate, and `failed` claimed the revision faulted.
+func TestRevisionViews_AWithdrawnRoundReadsAsWithdrawn_NotFailed(t *testing.T) {
+	round := avRound(projectstate.TaskDesignReview, 1, projectstate.RoundWithdrawn)
+	round.DecidedBy = "operator"
+	got := revisionViews(roundRevisions([]projectstate.ReviewRound{round}, nil, false))
+	if len(got) != 1 {
+		t.Fatalf("one round, one revision; got %d", len(got))
+	}
+	if got[0].Outcome != TaskRevisionWithdrawn {
+		t.Fatalf("a withdrawn round must read as withdrawn, not %q", got[0].Outcome)
 	}
 }
 
