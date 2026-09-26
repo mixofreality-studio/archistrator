@@ -85,16 +85,12 @@ func (wf *csWorkflows) constructRepoTarget(projectID ProjectID) (agenticjob.Repo
 	if !ok {
 		return agenticjob.RepoTarget{}, "", nil
 	}
-	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). The merged
-	// Manager threads ONE repo resolver into all three rails, and on the "local"
-	// profile with no GitHub App catalog that resolver answers with the deterministic
-	// GitLocal RepoRef — which is what the two design rails need to run their branch →
-	// PR → merge lifecycle locally, and which construction has never dispatched
-	// against. Before the merge construction was simply handed nil there; recognising
-	// the ref here reproduces that byte-for-byte (zero RepoTarget, empty workflow file
-	// ⇒ the RA falls back to the configured central construction repo and the PR-rail
-	// slice stays dormant) without splitting the dep back into two.
-	if repoRef == sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectID)) {
+	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). Recognising it
+	// here reproduces the pre-collapse nil resolver byte-for-byte (zero RepoTarget, empty
+	// workflow file ⇒ the RA falls back to the configured central construction repo)
+	// without splitting the dep back into two. Round 2 gave railLifecycleEnabled the same
+	// recognition, so on a local boot the dispatch AND the rail lifecycle agree.
+	if isGitLocalVenue(projectID, repoRef) {
 		return agenticjob.RepoTarget{}, "", nil
 	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
@@ -102,6 +98,17 @@ func (wf *csWorkflows) constructRepoTarget(projectID ProjectID) (agenticjob.Repo
 		return agenticjob.RepoTarget{}, "", err
 	}
 	return agenticjob.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
+}
+
+// isGitLocalVenue reports whether a resolved RepoRef is the DESIGN rails' deterministic
+// GitLocal venue for this project — the local profile's filesystem repo, which is not a
+// construction venue and carries no PR-rail lifecycle for construction. It is the ONE
+// place the recognition lives: the dispatch target (constructRepoTarget) and the rail
+// lifecycle (railLifecycleEnabled) must never disagree about it, and the encoding stays
+// owned by sourceControlAccess (the ref is compared against what its own pure resolver
+// mints, never parsed here).
+func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
+	return repoRef == sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectID))
 }
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
@@ -394,7 +401,7 @@ type gitForward struct {
 // this project. When false the spine runs unchanged (the live Postgres-store
 // composition that predates the GitStore).
 func (wf *csWorkflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
-	if !wf.RailEnabled || wf.GitStatus == nil || wf.Repo == nil {
+	if wf.GitStatus == nil || wf.Repo == nil || !wf.RailEnabled(projectID) {
 		return sourcecontrol.RepoRef(""), false
 	}
 	return wf.Repo(projectID)
@@ -2755,7 +2762,7 @@ func (wf *csWorkflows) runLocalMergeStep(
 	// PR rail (startedCred's LOCAL/dry-run arm). When the rail is wired the cloud
 	// git-forward lifecycle (mergeAndRecord) owns the merge; when git is unwired
 	// there is no branch to merge.
-	if !gitOn || wf.RailEnabled || state.mergeCompleted {
+	if !gitOn || wf.RailEnabled(in.ProjectID) || state.mergeCompleted {
 		return false, false, nil
 	}
 

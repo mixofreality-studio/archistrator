@@ -648,10 +648,11 @@ func (f *fakeRegisterOperationsManager) RegisterOperatedApp(_ fwmanager.Context,
 // agree about the repo-less local profile: the two DESIGN hooks resolved every project
 // to the deterministic GitLocal RepoRef (which is what activates their branch → PR →
 // merge lifecycle on local git), while the CONSTRUCTION hook returned nil (dormant).
-// The hook now answers with the design arm and the construction rail recognises a
-// GitLocal ref at its own use site — so these two tests, plus
-// Test_ConstructRepoTarget_GitLocalRefIsNotAConstructionVenue in the delivery package,
-// are the pair that pins both halves.
+// The hook now answers with the design arm and the construction half recognises a
+// GitLocal ref at BOTH of its use sites — the dispatch venue (round 1,
+// Test_ConstructRepoTarget_GitLocalRefIsNotAConstructionVenue) and the rail lifecycle
+// (round 2, Test_DeliveryManager_LocalProfile_ConstructionRailDormant_DesignRailsResolveGitLocal) —
+// so these three tests, in the delivery package, are what pins both halves.
 // ---------------------------------------------------------------------------
 
 // Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef is the DESIGN rails'
@@ -671,6 +672,33 @@ func Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef(t *testing.T) 
 	}
 	if want := sourcecontrol.GitLocalRepoRefForProject("proj-1"); got != want {
 		t.Fatalf("local RepoRef = %q, want the deterministic GitLocal ref %q", got, want)
+	}
+}
+
+// Test_DeliveryManagerRepo_LocalProfile_AnswersTheRefConstructionRefuses is the
+// CONSTRUCTION half's precondition (stage 4a fix round 2). The construction rail reads
+// this hook's answer and recognises the GitLocal ref as "no venue" — that recognition is
+// what keeps the construction PR rail dormant on the local profile, so the hook must
+// answer with THAT ref for EVERY project and never a look-alike: a local ref of any
+// other shape would sail through the recognition and switch construction's PR rail on
+// (minting a rail credential and skipping the local merge). The consequence is pinned in
+// the delivery package by
+// Test_DeliveryManager_LocalProfile_ConstructionRailDormant_DesignRailsResolveGitLocal.
+func Test_DeliveryManagerRepo_LocalProfile_AnswersTheRefConstructionRefuses(t *testing.T) {
+	h := &appHooks{config: &Config{ProjectStateGitLocal: true}}
+
+	resolve := h.DeliveryManagerRepo()
+	if resolve == nil {
+		t.Fatal("the local profile must resolve a repo for every project")
+	}
+	for _, pid := range []delivery.ProjectID{"proj-1", "proj-2", "a-b-c"} {
+		got, ok := resolve(pid)
+		if !ok {
+			t.Fatalf("%s: the local resolver must report ok for every project", pid)
+		}
+		if want := sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)); got != want {
+			t.Fatalf("%s: RepoRef = %q, want the ref construction refuses as a venue, %q", pid, got, want)
+		}
 	}
 }
 

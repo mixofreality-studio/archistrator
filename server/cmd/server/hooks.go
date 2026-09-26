@@ -1267,10 +1267,13 @@ func (h *appHooks) DeliveryManagerInterventionMode() string {
 // construction body would have taken the local design rail down; collapsing to the
 // design body would have switched construction's local PR rail ON. Neither is
 // acceptable, and no contract change is needed to avoid both: this hook returns the
-// DESIGN arm (the superset), and the construction rail recognises a GitLocal ref at its
-// single use site and treats it as "no per-project venue", which is exactly the nil it
-// used to be handed (constructRepoTarget, internal/manager/delivery/constructactivity.go).
-// The selection moved; no rail's behaviour did.
+// DESIGN arm (the superset), and the construction half recognises a GitLocal ref and
+// treats it as "no per-project venue", which is exactly the nil it used to be handed.
+// BOTH of its readers do so (round 1 shipped only the first, which left the rail on):
+// the dispatch venue (constructRepoTarget) and the rail LIFECYCLE
+// (railLifecycleEnabled → wfDeps.RailEnabled, which gates the credential mint and the
+// local merge step) — internal/manager/delivery. The selection moved; no rail's
+// behaviour did.
 func (h *appHooks) DeliveryManagerRepo() func(projectID delivery.ProjectID) (sourcecontrol.RepoRef, bool) {
 	if h.scCatalog == nil {
 		if h.gitLocalRailBound() {

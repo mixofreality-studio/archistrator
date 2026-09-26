@@ -8117,11 +8117,12 @@ type constructionManager struct {
 	interventionMode       string
 
 	// repo (B5) is the per-project Repo resolver the gh-mode venue switch dispatches
-	// through: projectID → the project's own RepoRef. nil ⇒ every construction dispatch
-	// falls back to the configured central construction repo AND the PR-rail slice stays
-	// dormant (gitEnabled). Non-nil retargets the dispatch (aiarch-construct.yml in the
-	// project repo) AND activates the branch→PR rail. Threaded into the csWorkflows via
-	// wfDeps.Repo (WorkerManifest).
+	// through: projectID → the project's own RepoRef. nil, a miss, or the DESIGN rails'
+	// GitLocal ref (isGitLocalVenue) ⇒ that project's construction dispatch falls back to
+	// the configured central construction repo AND the PR-rail slice stays dormant
+	// (constructRepoTarget / railLifecycleEnabled). A project repo retargets the dispatch
+	// (aiarch-construct.yml in the project repo) AND activates the branch→PR rail.
+	// Threaded into the csWorkflows via wfDeps.Repo (WorkerManifest).
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	// messageBus (7b) is the generated messageBus Utility dep — the restricted
@@ -9715,13 +9716,16 @@ type wfDeps struct {
 	Acts genInvokers
 
 	// RailEnabled reports whether the PR-rail LIFECYCLE is available for construction
-	// (impl.rail != nil AND impl.repo != nil): the rail dep alone is not enough — the
-	// local profile now binds the GitLocal sourceControlAccess for the DESIGN managers
-	// while construction keeps its local-merge-job flow (ConstructionManagerRepo stays
-	// nil there), so a rail-without-repo boot must read as rail-dormant here or
-	// runLocalMergeStep would skip and nothing would merge local activity branches.
-	// It gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
-	RailEnabled bool
+	// ON THIS PROJECT — the rail dep alone is not enough, and neither is a resolver:
+	// the local profile binds the GitLocal sourceControlAccess AND (since the three
+	// repo hooks collapsed into one) resolves every project to the deterministic
+	// GitLocal RepoRef, which is a filesystem venue, not a PR-rail one. Construction
+	// keeps its local-merge-job flow there, so such a boot must read as rail-dormant
+	// here or runLocalMergeStep would skip and nothing would merge local activity
+	// branches. It gates the PR-rail lifecycle (gitEnabled) alongside GitStatus +
+	// Repo. Derived ONCE per worker by railLifecycleEnabled; never nil (csNewWorkflows
+	// defaults an unwired slice to railDormant).
+	RailEnabled func(projectID ProjectID) bool
 
 	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the
 	// PR-rail lifecycle is dormant (no repo to open branches/PRs in).
@@ -9756,7 +9760,7 @@ type csWorkflows struct {
 
 	Acts genInvokers
 
-	RailEnabled bool
+	RailEnabled func(projectID ProjectID) bool
 	Repo        func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
 
 	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
@@ -9764,14 +9768,24 @@ type csWorkflows struct {
 	EscalationWaitTimeout time.Duration
 }
 
+// railDormant is the RailEnabled answer of a boot with no construction PR-rail
+// lifecycle at all (no rail dep, no repo resolver, or an unwired git-forward slice):
+// dormant for every project. It is what csNewWorkflows substitutes for a zero
+// wfDeps.RailEnabled, so the field is never nil and gitEnabled can call it blind.
+func railDormant(ProjectID) bool { return false }
+
 // csNewWorkflows builds the csWorkflows receiver from the injected seams.
 func csNewWorkflows(d wfDeps) *csWorkflows {
+	railEnabled := d.RailEnabled
+	if railEnabled == nil {
+		railEnabled = railDormant
+	}
 	return &csWorkflows{
 		Intervention:          d.Intervention,
 		Review:                d.Review,
 		GitStatus:             d.GitStatus,
 		Acts:                  d.Acts,
-		RailEnabled:           d.RailEnabled,
+		RailEnabled:           railEnabled,
 		Repo:                  d.Repo,
 		NextEligibleActivity:  d.NextEligibleActivity,
 		InterventionPolicy:    d.InterventionPolicy,
@@ -10201,19 +10215,47 @@ func csActivityOptions() func(activityName string) (workflow.ActivityOptions, bo
 	}
 }
 
+// railLifecycleEnabled derives wfDeps.RailEnabled: the construction PR-rail LIFECYCLE
+// needs the rail dep, the per-project repo resolver, AND a resolved venue that is a
+// PR-rail venue at all. The first two alone are not enough (stage 4a fix round 2): the
+// ONE repo resolver the merged Manager threads into all three rails answers, on the
+// "local" profile with no GitHub App catalog, with the deterministic GitLocal RepoRef —
+// the DESIGN rails' local branch → PR → merge venue, and a filesystem venue that
+// construction has never dispatched against. Before the three hooks collapsed into one,
+// construction was simply handed nil there and read rail-dormant; a local boot that read
+// RailEnabled=true instead would mint a rail credential in the construction history AND
+// make runLocalMergeStep skip, so nothing would merge local activity branches.
+//
+// The question is therefore PER PROJECT — the resolver is what carries the answer — and
+// the two non-local arms keep their pre-collapse verdicts exactly:
+//
+//   - a GitLocal ref (the local profile): dormant, so the local merge job owns the merge.
+//   - a resolver that MISSES for this project (a cloud catalog with no repo for it):
+//     enabled. The lifecycle is dormant for that project anyway (gitEnabled needs an
+//     actual ref), and the local merge must NOT substitute for it on a PR-rail boot.
+//   - no rail dep or no resolver at all: dormant, as before.
+//
+// The resolver is a pure name-as-identity derivation on both profiles, so calling it
+// inside the workflow is replay-safe (gitEnabled and constructRepoTarget already do).
+func railLifecycleEnabled(rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) func(projectID ProjectID) bool {
+	if rail == nil || repo == nil {
+		return railDormant
+	}
+	return func(projectID ProjectID) bool {
+		ref, ok := repo(projectID)
+		return !ok || !isGitLocalVenue(projectID, ref)
+	}
+}
+
+// railEnabled is the construction half's OWN rail answer, derived from the deps it was
+// handed. It exists so WorkerManifest and the boot-level test read the SAME derivation.
+func (m *constructionManager) railEnabled() func(projectID ProjectID) bool {
+	return railLifecycleEnabled(m.rail, m.repo)
+}
+
 // WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
 // the four workflow bodies under their registered names, the per-activity option-preset
 // hook, and the genActivities threaded from the impl's stored published deps.
-// railLifecycleEnabled derives wfDeps.RailEnabled: the PR-rail LIFECYCLE needs BOTH
-// the rail dep and the per-project repo resolver. The rail dep alone is not enough —
-// the local profile binds the GitLocal sourceControlAccess for the DESIGN managers
-// while construction stays repo-less there (its ConstructionManagerRepo hook returns
-// nil), and a rail-without-repo boot must read as rail-dormant or runLocalMergeStep
-// would skip and nothing would merge local activity branches.
-func railLifecycleEnabled(rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)) bool {
-	return rail != nil && repo != nil
-}
-
 func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	optsHook := csActivityOptions()
 	wf := csNewWorkflows(wfDeps{
@@ -10226,13 +10268,13 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		GitStatus: m.gitActivityStatus,
 		Acts:      genInvokers{Opts: optsHook},
 		// RailEnabled gates the PR-rail lifecycle (gitEnabled) alongside GitStatus + Repo.
-		// Repo (B5) is the per-project venue resolver: non-nil retargets every construction
-		// dispatch to the project's own repo (aiarch-construct.yml) AND activates the
-		// branch→PR rail; nil keeps the central-repo fallback + dormant rail. The repo
-		// resolver is part of the derivation (not just the runWithGitForward composite) so
-		// the local GitLocal rail — bound for the design managers, repo-less for
-		// construction — keeps runLocalMergeStep firing (see the wfDeps.RailEnabled doc).
-		RailEnabled:           railLifecycleEnabled(m.rail, m.repo),
+		// Repo (B5) is the per-project venue resolver: a project repo retargets every
+		// construction dispatch to it (aiarch-construct.yml) AND activates the branch→PR
+		// rail; nothing resolved keeps the central-repo fallback + dormant rail. What the
+		// resolver ANSWERS is part of the derivation (not just the runWithGitForward
+		// composite) so the local GitLocal venue — the design rails' local PR rail, never
+		// a construction venue — keeps runLocalMergeStep firing (wfDeps.RailEnabled doc).
+		RailEnabled:           m.railEnabled(),
 		Repo:                  m.repo,
 		NextEligibleActivity:  nextEligibleActivity,
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),

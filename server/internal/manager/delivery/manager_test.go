@@ -22325,7 +22325,7 @@ func gitWiredWorkflows(_ *csFakeProjectState, rail *stubRail, git *stubGitStatus
 		Review:       &fakeReview{},
 		// git-forward slice wired: the rail is registered as GENERATED Activities and
 		// gated on RailEnabled; the GitStatus mirror + repo resolver light the lifecycle.
-		RailEnabled: true,
+		RailEnabled: railWired,
 		GitStatus:   git,
 		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
@@ -27225,26 +27225,44 @@ func Test_SetReviewPolicy_UnknownProject_NotFound(t *testing.T) {
 	}
 }
 
-// railLifecycleEnabled derives wfDeps.RailEnabled (WorkerManifest). The repo resolver
-// is part of the derivation: the local profile binds the GitLocal sourceControlAccess
-// for the DESIGN managers while construction stays repo-less there, and that
-// rail-without-repo boot MUST read rail-dormant — RailEnabled=true would make
-// runLocalMergeStep skip and nothing would merge local activity branches.
-func Test_RailLifecycleEnabled_RequiresRailAndRepo(t *testing.T) {
-	repo := func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef("acct|acct/p"), true }
+// railLifecycleEnabled derives wfDeps.RailEnabled (WorkerManifest), and the derivation
+// is PER PROJECT because what the ONE repo resolver ANSWERS is what decides it. Every
+// row below is a combination a real boot produces:
+//
+//   - cloud (or a creds-ful local boot): the catalog resolver answers the project's own
+//     repo ⇒ the PR-rail lifecycle owns the branch → PR → merge.
+//   - local with no GitHub App catalog: the rail dep is bound (GitLocal) AND the
+//     resolver answers the deterministic GitLocal ref for every project ⇒ DORMANT. The
+//     old table fed repo=nil for this case, an input the collapsed hook can no longer
+//     produce, and a true here is what would mint a rail credential in the construction
+//     history and make runLocalMergeStep skip, so nothing would merge local branches.
+//   - a PR-rail boot whose catalog MISSES this project: enabled. gitEnabled still needs
+//     a ref, so the lifecycle is dormant for that project anyway — but the local merge
+//     job must not substitute for the rail on a rail boot (the pre-collapse verdict).
+//   - a repo-less cloud boot (the hook returns nil) and a resolver with no rail dep:
+//     dormant, exactly as before.
+func Test_RailLifecycleEnabled_ReadsWhatTheResolverAnswers(t *testing.T) {
+	const projectID = ProjectID("proj-1")
+	catalog := func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef("acct|acct/p"), true }
+	gitLocal := func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+	}
+	miss := func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef(""), false }
 	cases := []struct {
 		name string
 		rail sourcecontrol.SourceControlAccess
 		repo func(ProjectID) (sourcecontrol.RepoRef, bool)
 		want bool
 	}{
-		{"rail+repo (cloud / creds-ful local)", &stubRail{}, repo, true},
-		{"rail without repo (local GitLocal rail; construction repo-less)", &stubRail{}, nil, false},
-		{"repo without rail", nil, repo, false},
+		{"cloud / creds-ful local: the catalog resolves the project's repo", &stubRail{}, catalog, true},
+		{"local profile: GitLocal rail + GitLocal resolver", &stubRail{}, gitLocal, false},
+		{"rail boot whose catalog misses this project", &stubRail{}, miss, true},
+		{"repo-less cloud boot (nil resolver)", &stubRail{}, nil, false},
+		{"resolver without a rail dep", nil, catalog, false},
 		{"neither", nil, nil, false},
 	}
 	for _, tc := range cases {
-		if got := railLifecycleEnabled(tc.rail, tc.repo); got != tc.want {
+		if got := railLifecycleEnabled(tc.rail, tc.repo)(projectID); got != tc.want {
 			t.Fatalf("%s: railLifecycleEnabled = %v, want %v", tc.name, got, tc.want)
 		}
 	}
@@ -29747,7 +29765,7 @@ func replayRailRig() replayRig {
 	d := wfDeps{
 		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
 		GitStatus:    ps,
-		RailEnabled:  true,
+		RailEnabled:  railWired,
 		Repo: func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
 			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
 		},
@@ -32264,5 +32282,103 @@ func Test_ConstructRepoTarget_CatalogRefIsTheVenue(t *testing.T) {
 	}
 	if workflowFile != constructWorkflowFileName {
 		t.Fatalf("workflow file = %q, want %q", workflowFile, constructWorkflowFileName)
+	}
+}
+
+// ===========================================================================
+// STAGE 4a fix round 2 — the CONSTRUCTION RAIL stays dormant on the local profile.
+//
+// Round 1 taught ONE construction reader (constructRepoTarget) that a GitLocal ref is
+// not a venue. The second reader, the rail LIFECYCLE, was left reading the collapsed
+// hook's design arm: rail != nil && repo != nil, both true on local, so RailEnabled
+// flipped false → true and with it (a) startedCred took the CLOUD arm and minted a rail
+// credential — a durable sourceControlAccess.getInstallationToken command the
+// construction history never had — and (b) runLocalMergeStep skipped, so no local
+// activity branch would ever merge. railLifecycleEnabled now reads what the resolver
+// ANSWERS, through the same isGitLocalVenue recognition.
+//
+// The composition-root half of the pair is
+// Test_DeliveryManagerRepo_LocalProfile_ResolvesTheGitLocalRef +
+// Test_DeliveryManagerRepo_LocalProfile_AnswersTheRefConstructionRefuses (cmd/server).
+// ===========================================================================
+
+// railWired is the RailEnabled a test rig hands a WIRED PR-rail slice: enabled for every
+// project, which is what the boot-level derivation answers for a catalog resolver.
+func railWired(ProjectID) bool { return true }
+
+// localProfileDeliveryManager builds the merged Manager the way main.gen.go's "local"
+// profile does: the REAL GitLocal sourceControlAccess, and the ONE repo resolver the
+// collapsed DeliveryManagerRepo hook returns there (every project → the deterministic
+// GitLocal RepoRef).
+func localProfileDeliveryManager() *deliveryManager {
+	ps := &csFakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
+	full := fakeFullProjectState{ps}
+	return newDeliveryManager(
+		&fakeTemporalClient{},
+		full,
+		&artifactfake.FakeArtifactAccess{},
+		&fakeIntervention{},
+		&fakeReview{},
+		estimation.NewEstimationEngine(),
+		operationestimation.NewOperationEstimationEngine(),
+		billing.NewBillingEngine(),
+		csNewFakePipeline(),
+		sourcecontrol.NewGitLocalSourceControlAccess("file:///tmp/archistrator-local.git"),
+		fakeConstructionTransition{ps},
+		ps,
+		projectstate.NewDesignSessionAccess(full),
+		csFakeActivityExecution{ps},
+		&recordingSignalBus{},
+		&fakeEpisodes{},
+		0, "",
+		func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+		},
+		"",
+	)
+}
+
+// One resolver, two rails, two answers: on the local profile the DESIGN halves must
+// still resolve the GitLocal ref (that ref is what runs their branch → PR → merge
+// lifecycle) while the CONSTRUCTION half reads rail-dormant.
+func Test_DeliveryManager_LocalProfile_ConstructionRailDormant_DesignRailsResolveGitLocal(t *testing.T) {
+	const projectID = ProjectID("proj-local-2")
+	m := localProfileDeliveryManager()
+
+	if m.cs.railEnabled()(projectID) {
+		t.Fatal("the construction PR rail must stay DORMANT on the local profile: an enabled rail mints a credential and makes runLocalMergeStep skip")
+	}
+	// The consequence the defect was made of: gitEnabled must take the LOCAL/dry-run arm,
+	// so startedCred threads a zero credential instead of minting one.
+	wf := csNewWorkflows(wfDeps{GitStatus: newStubGitStatus(1), Repo: m.cs.repo, RailEnabled: m.cs.railEnabled()})
+	if _, ok := wf.gitEnabled(projectID); ok {
+		t.Fatal("gitEnabled must be false on the local profile; the cloud arm mints a rail credential the construction history never had")
+	}
+
+	// The design halves are UNCHANGED: both still resolve the local venue.
+	for _, half := range []struct {
+		name string
+		repo func(ProjectID) (sourcecontrol.RepoRef, bool)
+	}{{"systemDesign", m.sd.repo}, {"projectDesign", m.pd.repo}} {
+		got, ok := half.repo(projectID)
+		if !ok {
+			t.Fatalf("%s: the local design rail needs a repo for every project", half.name)
+		}
+		if want := sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectID)); got != want {
+			t.Fatalf("%s: RepoRef = %q, want the deterministic GitLocal ref %q", half.name, got, want)
+		}
+	}
+}
+
+// The cloud arm of the same boot-level question: a catalog-resolved repo still lights
+// the construction PR rail, so the recognition above narrows nothing but the GitLocal
+// case.
+func Test_DeliveryManager_CatalogResolver_ConstructionRailEnabled(t *testing.T) {
+	m := fullyWiredDeliveryManager()
+	m.cs.repo = func(ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.RepoRef("acme|acme/billing-svc"), true
+	}
+	if !m.cs.railEnabled()("proj-1") {
+		t.Fatal("a catalog-resolved project repo must light the construction PR rail")
 	}
 }
