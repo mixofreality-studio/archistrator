@@ -105,7 +105,11 @@ export async function stubCreatedProject(
     return route.fulfill({
       status: 200,
       contentType: 'application/json',
-      body: JSON.stringify(projectId),
+      // StartProjectResult, not a bare id: the hook reads `result.projectId` and
+      // navigates with it, so a bare string sent the app to /project/undefined/home.
+      // The version is the created project's first (DeliveryStartProjectResult,
+      // webApp/src/contracts/schema.ts).
+      body: JSON.stringify({ projectId, version: 1 }),
     });
   });
   const fresh = projectState(projectId, name, FRESH_PHASE1_KINDS.map(emptySlot));
