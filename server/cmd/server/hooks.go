@@ -771,19 +771,30 @@ func (m projectScopedOperationsManager) RegisterOperatedApp(rc fwmanager.Context
 	return m.OperationsManager.RegisterOperatedApp(rc, operatedAppID, customerID, projectRef, deployableBundleRef)
 }
 
-// projectScopedDeliveryManager authorizes StartProject's ADOPT arm against the project
-// it NAMES, which no generated handler can do.
+// projectScopedDeliveryManager authorizes the TWO delivery ops that name a project in
+// their BODY against the project they name, which no generated handler can do:
+// StartProject's ADOPT arm, and every QueryProjectView that carries a projectId.
 //
-// Every other project-addressed delivery op carries its projectID in the PATH, and the
+// The other TEN ops carry their projectID in the PATH, and the
 // http generator's convention turns a leading ID path param into
 // `Authorize(verb, {Kind:"project", ID:<that id>})` — the ONE mechanism binding an
 // authorization decision to a project (framework-go-http-generator httpgen/plan.go
-// planOp/resourceKindFor). StartProject's id rides the BODY (it must: an ABSENT id is
-// what means CREATE, and net/http's mux cannot match an empty path segment — see the
-// op's doc comment), so the same convention gives it the owner-scoped fallback
-// `{Kind:"deliveryCatalog", ID:principal.Subject}`: "may this principal start projects
-// at all", never "may it touch THAT project". Adopting a project id names a resource
-// the catalog decision never sees.
+// planOp/resourceKindFor). These two ids ride the BODY, so the same convention gives
+// each the owner-scoped fallback `{Kind:"deliveryCatalog", ID:principal.Subject}`:
+// "may this principal start projects / read project views at all", never "may it touch
+// THAT project". A body id names a resource the catalog decision never sees.
+//
+// StartProject's id MUST ride the body (an ABSENT id is what means CREATE, and
+// net/http's mux cannot match an empty path segment — see the op's doc comment).
+// QueryProjectView's rides the body because the op folds THIRTEEN former readers into
+// one: `projectId` is a member of the ProjectViewQuery object, not a parameter, and a
+// query object cannot be a path segment. BOTH are stage-4a REGRESSIONS, not inherited
+// gaps — before Task 6 every one of those readers was a path route
+// (`system-design/get-project/{projectID}`, `get-session-state/{projectID}`,
+// `get-design-health/{projectID}`, `list-episodes-for-artifact/{projectID}`,
+// `get-episode-timeline/{projectID}`, `construction/get-pump-status/{projectID}`, …),
+// each authorizing `{project, id}`. Unguarded, any principal who may see the catalog
+// could read summary/session/pump/designHealth/episodes/timeline for ANY project id.
 //
 // So the guard re-asks the SAME question the path form asked, with the SAME verb and
 // the SAME resource ref, at the composition root — the one place holding the wired PDP
@@ -797,11 +808,11 @@ func (m projectScopedOperationsManager) RegisterOperatedApp(rc fwmanager.Context
 //
 // RULING (stage 4a pre-final): the generator is NOT changed to read a body id. A path
 // id is the convention's identity signal, and teaching it to reach into a request
-// wrapper for an OPTIONAL id would make every body-carried id a silent authorization
-// surface. The delivery contract's other body ids (ProjectViewQuery.projectId,
-// ReviewDecisionInput.optionId) stay catalog-authorized as they were; only the arm this
-// wave MOVED off the path is restored here, and the read surface's identical gap is
-// recorded as an earmark rather than fixed by a wave that must not touch it.
+// wrapper for an optional id — or into a nested query object — would make every
+// body-carried id a silent authorization surface, decided by a naming coincidence
+// rather than by a reviewed line. Each body id that NAMES A PROJECT gets an explicit
+// arm here instead, and the arm is what a reviewer reads. `ReviewDecisionInput.optionId`
+// needs none: an option is a member of the project the PATH already named.
 //
 // The embedded interface carries every other op through untouched, so a future contract
 // op cannot silently bypass the wrapper by being forgotten here.
@@ -825,6 +836,30 @@ func (m projectScopedDeliveryManager) StartProject(rc fwmanager.Context, owner d
 		}
 	}
 	return m.DeliveryManager.StartProject(rc, owner, name, projectID, model, research, start)
+}
+
+// QueryProjectView denies a read whose principal may not act on the project the query
+// NAMES. It is the whole read surface: six of the seven kinds (summary, session, pump,
+// designHealth, episodes, timeline) address ONE project through query.projectId, and
+// each was a `{project, id}`-authorized path route before stage 4a folded them into this
+// op.
+//
+// The `projects` kind is the one that stays CATALOG-scoped, and legitimately so: it
+// carries an `owner` and no projectId, it is the catalog listing itself, and the
+// handler's own `{deliveryCatalog, principal.Subject}` decision is exactly the question
+// it asks. An empty (non-nil) projectId is left to the Manager, which answers the
+// ContractMisuse that names the missing selector — a guard that denied it would turn a
+// malformed query into a permissions error and tell the caller nothing true.
+func (m projectScopedDeliveryManager) QueryProjectView(rc fwmanager.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+	if query.ProjectID != nil && *query.ProjectID != "" {
+		decision, err := m.security.Authorize(rc.Context, rc.Principal,
+			security.Action{Verb: "query-project-view"},
+			security.ResourceRef{Kind: "project", ID: *query.ProjectID})
+		if err != nil || !decision.Permit {
+			return delivery.ProjectView{}, fwmanager.New(fwmanager.Unauthorized, "not permitted")
+		}
+	}
+	return m.DeliveryManager.QueryProjectView(rc, query)
 }
 
 // ArtifactAccessGitHubCloudArgs supplies the CLOUD artifactAccess ctor args: the

@@ -297,3 +297,122 @@ func Test_WrapManagers_InstallsTheDeliveryAdoptGuard(t *testing.T) {
 		t.Fatalf("WrapManagers returned %T; the delivery adopt guard is not installed", wrapped.DeliveryManager)
 	}
 }
+
+// ---------------------------------------------------------------------------
+// STAGE 4a PRE-FINAL ROUND 2 — A PROJECT VIEW READ IS AUTHORIZED AGAINST THE PROJECT
+// IT NAMES.
+//
+// The same regression as the adopt arm, over the whole READ surface. Before Task 6 each
+// of these was its own path route authorizing {project, id} —
+// system-design/get-project/{projectID}, get-session-state/{projectID},
+// get-design-health/{projectID}, list-episodes-for-artifact/{projectID},
+// get-episode-timeline/{projectID}, construction/get-pump-status/{projectID}. Folding
+// thirteen readers into QueryProjectView put the id inside a query OBJECT, which can
+// never be a path segment, so all six inherited the catalog fallback: any principal who
+// may see the catalog could read any project's summary/session/pump/designHealth/
+// episodes/timeline by id. These drive the guard through the generated handler.
+// ---------------------------------------------------------------------------
+
+func postQueryProjectView(mux *http.ServeMux, body string) *httptest.ResponseRecorder {
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/delivery/query-project-view", strings.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	req = req.WithContext(security.WithPrincipal(req.Context(), security.Principal{Subject: "tester"}))
+	rr := httptest.NewRecorder()
+	mux.ServeHTTP(rr, req)
+	return rr
+}
+
+func Test_QueryProjectView_DeniedProject_403_AndNeverReachesTheManager(t *testing.T) {
+	fake := &deliveryfake.FakeDeliveryManager{
+		QueryProjectViewFn: func(_ fwmanager.Context, _ delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+			t.Error("the manager must not be reached for a project the principal may not read")
+			return delivery.ProjectView{}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postQueryProjectView(newGuardedStartProjectMux(fake, pdp),
+		`{"query":{"kind":"summary","projectId":"proj-secret"}}`)
+
+	if rr.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want 403 for a read of a project the principal may not act on (body: %s)", rr.Code, rr.Body.String())
+	}
+	var sawProject bool
+	for _, ref := range pdp.asked {
+		if ref.Kind == "project" && ref.ID == "proj-secret" {
+			sawProject = true
+		}
+	}
+	if !sawProject {
+		t.Fatalf("no {project, proj-secret} decision was ever asked; refs asked = %+v", pdp.asked)
+	}
+}
+
+func Test_QueryProjectView_PermittedProject_Reads(t *testing.T) {
+	var got delivery.ProjectViewQuery
+	fake := &deliveryfake.FakeDeliveryManager{
+		QueryProjectViewFn: func(_ fwmanager.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+			got = query
+			return delivery.ProjectView{Kind: query.Kind}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postQueryProjectView(newGuardedStartProjectMux(fake, pdp),
+		`{"query":{"kind":"summary","projectId":"proj-1"}}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 — this principal may read proj-1 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if got.ProjectID == nil || *got.ProjectID != "proj-1" {
+		t.Fatalf("query.projectId = %v, want \"proj-1\" carried through to the manager", got.ProjectID)
+	}
+}
+
+// Every project-addressed KIND goes through the one guard, so none of them can be the
+// one that was forgotten. (`projects` is the exception and has its own test below.)
+func Test_QueryProjectView_EveryProjectAddressedKind_IsGuarded(t *testing.T) {
+	for _, kind := range []string{"summary", "session", "pump", "designHealth", "episodes", "timeline"} {
+		t.Run(kind, func(t *testing.T) {
+			fake := &deliveryfake.FakeDeliveryManager{
+				QueryProjectViewFn: func(_ fwmanager.Context, _ delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+					t.Errorf("the %s kind reached the manager for a denied project", kind)
+					return delivery.ProjectView{}, nil
+				},
+			}
+			pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+			rr := postQueryProjectView(newGuardedStartProjectMux(fake, pdp),
+				`{"query":{"kind":"`+kind+`","projectId":"proj-secret"}}`)
+			if rr.Code != http.StatusForbidden {
+				t.Fatalf("%s: status = %d, want 403 (body: %s)", kind, rr.Code, rr.Body.String())
+			}
+		})
+	}
+}
+
+// The catalog listing names no project, so the catalog decision is the right one and the
+// only one — a guard that invented a project ref here would be asking about a resource
+// the request never named.
+func Test_QueryProjectView_ProjectsKind_AsksOnlyTheCatalogDecision(t *testing.T) {
+	called := false
+	fake := &deliveryfake.FakeDeliveryManager{
+		QueryProjectViewFn: func(_ fwmanager.Context, query delivery.ProjectViewQuery) (delivery.ProjectView, error) {
+			called = true
+			return delivery.ProjectView{Kind: query.Kind}, nil
+		},
+	}
+	pdp := &oneProjectDenyingPDP{deniedProject: "proj-secret"}
+
+	rr := postQueryProjectView(newGuardedStartProjectMux(fake, pdp),
+		`{"query":{"kind":"projects","owner":"usr-1"}}`)
+
+	if rr.Code != http.StatusOK {
+		t.Fatalf("status = %d, want 200 (body: %s)", rr.Code, rr.Body.String())
+	}
+	if !called {
+		t.Fatal("the catalog listing never reached the manager")
+	}
+	if len(pdp.asked) != 1 || pdp.asked[0].Kind != "deliveryCatalog" {
+		t.Fatalf("refs asked = %+v, want exactly the one deliveryCatalog decision", pdp.asked)
+	}
+}
