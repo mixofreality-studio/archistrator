@@ -2,7 +2,7 @@
  * Client-side CSV flattener for the episode Export action. There is no
  * `exportEpisodes` op (cut per the 2026-08-02 facet ruling) — the export button
  * assembles an `EpisodeExport` from the already-fetched episode list + the
- * per-episode timelines (fetched on demand, see hooks/useEpisodes.ts's
+ * per-episode timelines (fetched on demand, see hooks/useDeliveryQueries.ts's
  * `useFetchEpisodeTimelines`), then this pure function flattens it to CSV
  * (RFC-4180 quoting, \n line endings). `traces` rides along for the JSON export
  * (`{records, traces}`, downloaded verbatim) but is not itself flattened — the

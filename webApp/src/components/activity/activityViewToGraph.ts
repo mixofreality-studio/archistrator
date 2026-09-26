@@ -22,11 +22,11 @@ import type {
   LifecycleRevision,
 } from './lifecycleGraphTypes.ts';
 
-export type ActivityViewWire = components['schemas']['ConstructionActivityView'];
-type TaskWire = components['schemas']['ConstructionActivityTaskView'];
-type RevisionWire = components['schemas']['ConstructionTaskRevisionView'];
-type TaskStateWire = components['schemas']['ConstructionActivityTaskState'];
-type OutcomeWire = components['schemas']['ConstructionTaskRevisionOutcome'];
+export type ActivityViewWire = components['schemas']['DeliveryActivityView'];
+type TaskWire = components['schemas']['DeliveryActivityTaskView'];
+type RevisionWire = components['schemas']['DeliveryTaskRevisionView'];
+type TaskStateWire = components['schemas']['DeliveryActivityTaskState'];
+type OutcomeWire = components['schemas']['DeliveryTaskRevisionOutcome'];
 
 /**
  * The wire's task state → the graph's node state. Only `passed`/`done` differ;

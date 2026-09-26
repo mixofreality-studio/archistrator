@@ -97,39 +97,26 @@ import {
 } from '../components/activity/activityViewToGraph.ts';
 import { latestRevision, revisionOnNavigate } from '../components/activity/lifecycleGraphTypes.ts';
 import { openThreadCount, toReviewThread } from '../components/activity/threadAdapter.ts';
-import { foldCommentsIntoNotes } from '../components/comments/reviewBatch.ts';
 import {
   ARCHITECTURE_ACTIVITY_ID,
   taskArtifactFor,
 } from '../components/activity/taskArtifactFor.ts';
-import { verbsFor, type VerbTarget } from './activityVerbs.ts';
+import { REVIEW_ADVANCE, REVIEW_SET_COMMENT_STATUS, verbsFor } from './activityVerbs.ts';
 import { toC4View } from '../contracts/adapters';
 import { narrowProject } from '../contracts/projectAdapters';
 import { contractJoinFor } from '../contracts/serviceContracts';
 import type { ProjectArtifactModelEnvelope } from '../contracts/types';
-import { ApiError } from '../contracts/errors';
-import { SDP_REVIEW_KIND } from '../contracts/types';
+import type { AnchoredComment, ArtifactKind } from '../contracts/types';
 import { ACTIVITY_PATH, PLAN_PATH, activitySearch, planSearch } from '../contracts/routePaths.ts';
-import { useActivityView } from '../hooks/useActivityView';
-import { activityEpisodesManager } from '../hooks/activityEpisodesManager.ts';
-import { useEpisodeTimeline } from '../hooks/useEpisodes';
-import { useProject } from '../hooks/useProject';
+import { useActivityView, useEpisodeTimeline, useProject } from '../hooks/useDeliveryQueries';
 import { isNoSessionError } from '../hooks/sessionPolling';
-import { useOverrideActivity, useSubmitPhaseDecision } from '../hooks/useConstructionMutations';
 import {
   useAcknowledgeStaleBasis,
   useAskQuestions,
-  useRequestArtifactDraft,
-  useSetReviewCommentStatus,
+  useDispatchActivityTask,
+  useOverrideActivity,
   useSubmitReviewDecision,
-} from '../hooks/useDesignMutations';
-import {
-  useAcknowledgeProjectStaleBasis,
-  useAdvanceToConstruction,
-  useProjectAskQuestions,
-  useSetProjectReviewCommentStatus,
-  useSubmitSDPDecision,
-} from '../hooks/useProjectDesignMutations';
+} from '../hooks/useDeliveryMutations';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 
@@ -221,31 +208,24 @@ export function ActivityExperienceContainer({
   // ONE timeline: the episode of the attempt that reached the gate (else the
   // latest) for the revision on screen. A review revision carries no episodeId at
   // all, and the hook stays disabled on `undefined` rather than firing a read for
-  // an empty id. The manager is NOT always `construction`: activities 1–3 are
-  // design activities whose episodes live in the systemDesign / projectDesign
-  // ledgers, and the timeline op differs per manager (activityEpisodesManager.ts).
+  // an empty id. Every activity on this screen is addressed BY ACTIVITY — the
+  // manager pick that used to be needed here (activities 1–3 kept their episodes in
+  // the design ledgers, each with its own timeline op) is the server's now.
   const timeline = useEpisodeTimeline(
-    {
-      projectId,
-      manager: activityEpisodesManager(view?.type ?? ''),
-      targetRef: activityId,
-    },
+    { projectId, byActivity: true, targetRef: activityId },
     revisionWire?.episodeId
   );
 
-  // --- write ops, one per rail (activityVerbs.ts names which) ---------------
-  const submitPhase = useSubmitPhaseDecision(projectId);
-  const submitDesign = useSubmitReviewDecision(projectId);
-  const submitSdp = useSubmitSDPDecision(projectId);
-  const advance = useAdvanceToConstruction(projectId);
-  const setDesignCommentStatus = useSetReviewCommentStatus(projectId);
-  const setProjectCommentStatus = useSetProjectReviewCommentStatus(projectId);
+  // --- write ops: one hook per delivery op (activityVerbs.ts names which) ----
+  const submitDecision = useSubmitReviewDecision(projectId);
+  // The M0 advance gets its OWN observer of the same op: approve is
+  // commit-then-advance, and a failed advance has a surface of its own (below) that
+  // must not be confused with the commit's outcome.
+  const advance = useSubmitReviewDecision(projectId);
   const askQuestionsMut = useAskQuestions(projectId);
-  const askProjectMut = useProjectAskQuestions(projectId);
-  const requestDraft = useRequestArtifactDraft(projectId);
+  const dispatchTask = useDispatchActivityTask(projectId);
   const overrideActivity = useOverrideActivity(projectId);
   const acknowledgeStale = useAcknowledgeStaleBasis(projectId);
-  const acknowledgeProjectStale = useAcknowledgeProjectStaleBasis(projectId);
 
   // The option the M0 bar will commit. `SdpReviewView` reports its standing
   // choice (its own recommendation, until the reader picks another) — an approve
@@ -356,112 +336,92 @@ export function ActivityExperienceContainer({
   // nothing — and the bar can never lose Approve/Send back to an Ask that does.
   const canAsk = verbs.ask.kind !== 'none';
 
-  /** Approve or send back, on whichever rail this activity's type names. */
-  const decide = (approve: boolean): void => {
-    const target: VerbTarget = approve ? verbs.approve : verbs.sendBack;
+  /**
+   * The (activity, task) every write is addressed to. The server resolves the rail
+   * AND the artifact kind from it (`railFor` + `artifactKindForTask`), which is why
+   * no call below names either. The artifact kind rides along ONLY so the
+   * kind-addressed session probe is invalidated too.
+   */
+  const ref = { activityId, taskId: sel?.taskId ?? '' };
+  const decidedKind =
+    artifact.kind === 'slot' ? (artifact.artifactKind as ArtifactKind | undefined) : undefined;
+
+  /** The feedback body a decision or a redraft carries, from the staged comments. */
+  const feedbackNow = (): { notes: string; comments: AnchoredComment[] } => {
     const notes = freeformNotes();
     const wireComments = toWire();
-    switch (target.kind) {
-      case 'constructionPhaseDecision':
-        submitPhase.mutate(
-          {
-            activityId,
-            phase: target.lifecyclePhase,
-            decision: approve ? 'approve' : 'sendBack',
-            feedback: {
-              notes: notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n'),
-              comments: wireComments.map((c) => ({
-                jsonPath: c.jsonPath,
-                replyTo: c.replyTo,
-                text: c.text,
-              })),
-            },
-          },
-          {
-            onSuccess: () => {
-              reset();
-            },
+    return {
+      // The Manager requires non-empty reject feedback; when the reviewer only
+      // anchored comments, the notes are synthesized from them so the redraft
+      // always carries actionable guidance.
+      notes: notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n'),
+      comments: wireComments,
+    };
+  };
+
+  /** Approve or send back. One op; the target says which members it fills. */
+  const decide = (approve: boolean): void => {
+    const target = approve ? verbs.approve : verbs.sendBack;
+    if (target.kind !== 'decision') return;
+    const feedback = feedbackNow();
+    submitDecision.mutate(
+      {
+        ...ref,
+        artifactKind: decidedKind,
+        decision: {
+          decision: target.decision,
+          // The M0 approve is the only intent that commits an OPTION: an approve
+          // that did not name one would be committing a plan nobody chose.
+          ...(target.needsOption === true ? { optionId: sdpOption } : {}),
+        },
+        feedback,
+      },
+      {
+        onSuccess: () => {
+          reset();
+          // Approve at the M0 gate is commit-THEN-advance (spec §6): the option
+          // binds the plan of record, and the advance is what unlocks construction.
+          if (approve && verbs.advanceAfterApprove === true) {
+            advanceGate(false);
           }
-        );
-        return;
-      case 'designReviewDecision':
-        submitDesign.mutate(
-          {
-            kind: target.artifactKind,
-            decision: approve ? 'approve' : 'reject',
-            // The Manager requires non-empty reject feedback; when the reviewer
-            // only anchored comments, the notes are synthesized from them so the
-            // redraft always carries actionable guidance (SystemDesignContainer
-            // keeps the same rule).
-            detail: {
-              feedback: notes.length > 0 ? notes : wireComments.map((c) => c.text).join('\n'),
-              comments: wireComments,
-            },
-          },
-          {
-            onSuccess: () => {
-              reset();
-            },
-          }
-        );
-        return;
-      case 'sdpDecision':
-        // Approve IS commit-then-advance (spec §6): the option binds the plan of
-        // record, and the advance is what unlocks construction.
-        //
-        // `SubmitSDPDecision`'s body carries ONE feedback field (`notes`) and no
-        // `comments` array, so the anchored comments are FOLDED into it. Without
-        // that fold, every comment a reviewer pinned to an option or an activity
-        // row was dropped on the floor by the `reset()` below — staged, counted on
-        // the bar, and then gone, with the approval recording none of it.
-        submitSdp.mutate(
-          {
-            decision: 'commit',
-            detail: {
-              optionId: sdpOption,
-              feedback: foldCommentsIntoNotes(notes, wireComments),
-            },
-          },
-          {
-            onSuccess: () => {
-              reset();
-              advance.mutate(false);
-            },
-          }
-        );
-        return;
-      case 'projectAsk':
-      case 'none':
-        return;
-    }
+        },
+      }
+    );
+  };
+
+  /**
+   * The M0 advance, as its own call. `acknowledgeStale` answers the F55 refusal
+   * ("advance anyway") by acknowledging and sealing over stale committed slots.
+   */
+  const advanceGate = (acknowledgeStale: boolean): void => {
+    advance.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: { decision: REVIEW_ADVANCE, acknowledgeStale },
+    });
   };
 
   /** Re-run the work this gate judges — a redraft, or another construction attempt. */
   const rerun = (): void => {
-    switch (verbs.rerun.kind) {
-      case 'designReviewDecision':
-        requestDraft.mutate({ kind: verbs.rerun.artifactKind });
-        return;
-      case 'constructionPhaseDecision':
-        overrideActivity.mutate({ activityId, kind: 'retry' });
-        return;
-      case 'sdpDecision':
-      case 'projectAsk':
-      case 'none':
-        return;
+    const target = verbs.rerun;
+    if (target.kind === 'dispatch') {
+      dispatchTask.mutate({ ...ref, artifactKind: decidedKind });
+      return;
+    }
+    if (target.kind === 'override') {
+      overrideActivity.mutate({ activityId, kind: 'retry' });
     }
   };
 
   /**
    * Send the staged questions, grouped by addressee — one batch per role, because
-   * the op addresses a whole batch to one role. BOTH design phases have the op
-   * (Phase 1 `systemDesignAskQuestions`, Phase 2 `projectDesignAskQuestions`);
-   * construction has neither, and `verbs.ask` is `none` there, which is also what
-   * takes the Ask verb off its bar and the Question toggle out of its composer.
+   * the op addresses a whole batch to one role. Both design rails have the verb;
+   * the CONSTRUCTION rail does not until stage 4b, and `verbs.ask` is `none` there,
+   * which is also what takes the Ask verb off its bar and the Question toggle out
+   * of its composer.
    */
   const askQuestions = (): void => {
-    const target = verbs.ask;
-    if (target.kind !== 'designReviewDecision' && target.kind !== 'projectAsk') return;
+    if (verbs.ask.kind !== 'ask') return;
     const pending = pendingQuestions();
     if (pending.length === 0) return;
     const byAddressee = new Map<'pm' | 'architect', typeof pending>();
@@ -470,33 +430,36 @@ export function ActivityExperienceContainer({
       byAddressee.set(key, [...(byAddressee.get(key) ?? []), q]);
     }
     for (const [addressee, group] of byAddressee) {
-      const questions = group.map((q) => ({
-        jsonPath: q.jsonPath,
-        text: q.text,
-        anchorText: q.anchorText,
-        replyTo: q.replyTo,
-      }));
-      if (target.kind === 'projectAsk') {
-        askProjectMut.mutate({ kind: target.artifactKind, addressee, questions });
-        continue;
-      }
-      askQuestionsMut.mutate({ kind: target.artifactKind, addressee, questions });
+      askQuestionsMut.mutate({
+        ...ref,
+        artifactKind: decidedKind,
+        addressee,
+        questions: group.map((q) => ({
+          jsonPath: q.jsonPath,
+          text: q.text,
+          anchorText: q.anchorText,
+          replyTo: q.replyTo,
+        })),
+      });
     }
   };
 
   const setCommentStatus = (commentID: string, status: 'open' | 'resolved'): void => {
-    const target = verbs.commentStatus;
-    if (target.kind === 'designReviewDecision') {
-      setDesignCommentStatus.mutate({ kind: target.artifactKind, commentID, status });
-      return;
-    }
-    if (target.kind === 'sdpDecision') {
-      setProjectCommentStatus.mutate({ kind: SDP_REVIEW_KIND, commentID, status });
-    }
+    if (verbs.commentStatus.kind !== 'commentStatus') return;
+    submitDecision.mutate({
+      ...ref,
+      artifactKind: decidedKind,
+      decision: {
+        decision: REVIEW_SET_COMMENT_STATUS,
+        commentId: commentID,
+        commentStatus: status,
+      },
+    });
   };
 
-  const statusPending = setDesignCommentStatus.isPending || setProjectCommentStatus.isPending;
-  const decisionPending = submitPhase.isPending || submitDesign.isPending || submitSdp.isPending;
+  // One op behind every decision, so one pending flag behind all of them.
+  const statusPending = submitDecision.isPending;
+  const decisionPending = submitDecision.isPending;
 
   // ── The stale basis of the committed slot this gate judges ────────────────
   // Only a SLOT can be stale: `staleBasis` is an `ArtifactSlotView` flag, so this
@@ -507,40 +470,26 @@ export function ActivityExperienceContainer({
 
   /** Reconcile by AMENDING: a redraft on the design rails, the Architecture on M0. */
   const reconcileStale = (): void => {
-    switch (verbs.approve.kind) {
-      case 'designReviewDecision':
-        requestDraft.mutate({ kind: verbs.approve.artifactKind, feedback: RECONCILE_RATIONALE });
-        return;
-      case 'sdpDecision':
-        // The M0 plan is DERIVED (spec §6/R7): it is reconciled by amending what
-        // it derives from, which is the same navigation the gate's own link makes.
-        void navigate({
-          to: ACTIVITY_PATH,
-          params: { projectId, activityId: ARCHITECTURE_ACTIVITY_ID },
-          search: () => ({}),
-        });
-        return;
-      case 'constructionPhaseDecision':
-      case 'projectAsk':
-      case 'none':
-        return;
+    if (verbs.reconcileStale.kind === 'dispatch') {
+      dispatchTask.mutate({ ...ref, artifactKind: decidedKind, feedback: RECONCILE_RATIONALE });
+      return;
+    }
+    // The M0 plan is DERIVED (spec §6/R7): it is reconciled by amending what it
+    // derives from, which is the same navigation the gate's own link makes. The
+    // verbs table names ops, not routes, so the M0 case is decided by type here.
+    if (verbs.advanceAfterApprove === true) {
+      void navigate({
+        to: ACTIVITY_PATH,
+        params: { projectId, activityId: ARCHITECTURE_ACTIVITY_ID },
+        search: () => ({}),
+      });
     }
   };
 
   /** The other exit: reviewed — unaffected. Clears StaleBasis with an audit note. */
   const acknowledgeStaleBasis = (staleNote: string): void => {
-    switch (verbs.approve.kind) {
-      case 'designReviewDecision':
-        acknowledgeStale.mutate({ kind: verbs.approve.artifactKind, note: staleNote });
-        return;
-      case 'sdpDecision':
-        acknowledgeProjectStale.mutate({ kind: SDP_REVIEW_KIND, note: staleNote });
-        return;
-      case 'constructionPhaseDecision':
-      case 'projectAsk':
-      case 'none':
-        return;
-    }
+    if (verbs.acknowledgeStale.kind !== 'acknowledgeStale') return;
+    acknowledgeStale.mutate({ ...ref, artifactKind: decidedKind, note: staleNote });
   };
 
   // ── The M0 advance, when it fails on its own ──────────────────────────────
@@ -555,14 +504,15 @@ export function ActivityExperienceContainer({
           error: advanceError.message,
           // The F55 refusal: committed slots drifted since they were sealed. The
           // Project Design experience answers it with "advance anyway", and this
-          // gate offers the identical acknowledge-and-seal.
-          stale: advanceError instanceof ApiError && advanceError.code === 'failed_precondition',
+          // gate offers the identical acknowledge-and-seal. The code travels on
+          // PhaseDecisionFailure, which is what the one decision op rejects with.
+          stale: advanceError.code === 'failed_precondition',
           pending: advance.isPending,
           onRetry: (): void => {
-            advance.mutate(false);
+            advanceGate(false);
           },
           onAdvanceAnyway: (): void => {
-            advance.mutate(true);
+            advanceGate(true);
           },
         };
 
@@ -723,7 +673,7 @@ export function ActivityExperienceContainer({
             allowSendBack={verbs.allowSendBack}
             approveCopy={verbs.approveCopy}
             artifact={artifact}
-            askPending={askQuestionsMut.isPending || askProjectMut.isPending}
+            askPending={askQuestionsMut.isPending}
             contractJoin={contractJoin}
             decisionPending={decisionPending}
             facts={facts}
@@ -762,9 +712,8 @@ export function ActivityExperienceContainer({
               staleSlot?.staleBasis === true && !historical
                 ? {
                     cause: staleSlot.staleCause,
-                    ackPending: acknowledgeStale.isPending || acknowledgeProjectStale.isPending,
-                    ackError:
-                      acknowledgeStale.error?.message ?? acknowledgeProjectStale.error?.message,
+                    ackPending: acknowledgeStale.isPending,
+                    ackError: acknowledgeStale.error?.message,
                     onAcknowledge: acknowledgeStaleBasis,
                     onReconcile: reconcileStale,
                   }

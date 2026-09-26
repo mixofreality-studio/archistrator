@@ -42,9 +42,9 @@ import type { components } from '../../contracts/schema.ts';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 
-type ReviewSet = components['schemas']['ConstructionReviewSet'];
-type RosterSeat = components['schemas']['ConstructionReviewRosterSeat'];
-type Verdict = components['schemas']['ConstructionReviewVerdictView'];
+type ReviewSet = components['schemas']['DeliveryReviewSet'];
+type RosterSeat = components['schemas']['DeliveryReviewRosterSeat'];
+type Verdict = components['schemas']['DeliveryReviewVerdictView'];
 
 function Label({ text }: { text: string }): ReactNode {
   const t = useTokens();

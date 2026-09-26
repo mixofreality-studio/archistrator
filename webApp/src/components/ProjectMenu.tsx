@@ -16,7 +16,7 @@ import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import AddIcon from '@mui/icons-material/Add';
 import CheckIcon from '@mui/icons-material/Check';
 import { useNavigate } from '@tanstack/react-router';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects } from '../hooks/useDeliveryQueries';
 import { CreateProjectDialog } from './CreateProjectDialog';
 import { phaseLabel, formatUpdatedAt } from './projectFormat';
 import { useTokens } from '../utilities/theme/ThemeContext';

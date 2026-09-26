@@ -31,14 +31,14 @@ import { StructureFindingsProvider } from '../components/flow/StructureFindingsC
 import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { StaleBasisMarker } from '../components/design/StaleBasisChip';
 import { ApiError } from '../contracts/errors';
-import { useDesignHealth } from '../hooks/useDesignHealth';
-import { useProject } from '../hooks/useProject';
+import { useDesignHealth } from '../hooks/useDeliveryQueries';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { useCapabilities } from '../hooks/useCapabilities';
 import { useOperatedAppId } from '../hooks/useOperatedAppId';
 import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
 import { operationsEnabled } from '../utilities/capabilities';
-import { useCreateProject } from '../hooks/useCreateProject';
-import { useSetReviewPolicy } from '../hooks/useConstructionMutations';
+import { useSetProjectExecutionPolicy, useStartProject } from '../hooks/useDeliveryMutations';
+import { useUser } from '../utilities/auth/UserContext';
 import { currentPhaseOf, toArtifactTableOfContents } from '../contracts/adapters';
 import type { ProjectStateWithGit } from '../contracts/types';
 import { PHASE1_ORDER } from '../contracts/methodMetadata';
@@ -107,15 +107,20 @@ function GhostProjectPanel({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
-  const createProject = useCreateProject();
+  const createProject = useStartProject();
+  const owner = useUser().sub;
 
   const finishSetup = (): void => {
     if (createProject.isPending) return;
     // Ghost-recovery re-init of an existing project: adoption is idempotent and the
     // operating model is already set, so pass selfOperated (the no-op default that
     // issues no set-operating-model call) rather than re-choosing it here.
+    // This is the GHOST-RECOVERY path, and it names the EXISTING projectId — so it
+    // takes StartProject's adopt branch (`projectID != nil`), which is idempotent and
+    // is the one create-shaped call the REST route can express. See
+    // StartProjectVars.projectId for why a brand-new project cannot.
     createProject.mutate(
-      { name: projectId, operatingModel: 'selfOperated' },
+      { projectId, name: projectId, owner, operatingModel: 'selfOperated', start: false },
       {
         onSuccess: () => {
           onFinished();
@@ -200,7 +205,7 @@ function HomeBaseBody({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
-  const setReviewPolicy = useSetReviewPolicy(projectId);
+  const setReviewPolicy = useSetProjectExecutionPolicy(projectId);
   // Live Design-Health findings for the architecture diagram's structure-finding
   // overlays (StructureFindingsProvider around the ArtifactPane below). Loading /
   // error → undefined → the diagram renders overlay-free.

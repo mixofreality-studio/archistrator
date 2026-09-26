@@ -25,7 +25,7 @@ import CloseIcon from '@mui/icons-material/Close';
 import AddIcon from '@mui/icons-material/Add';
 import SwapCallsOutlinedIcon from '@mui/icons-material/SwapCallsOutlined';
 import { getRouteApi, useNavigate } from '@tanstack/react-router';
-import { useProject } from '../hooks/useProject';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 

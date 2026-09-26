@@ -19,8 +19,7 @@ import {
   useEpisodesList,
   useEpisodeTimeline,
   useFetchEpisodeTimelines,
-  type EpisodesManager,
-} from '../hooks/useEpisodes';
+} from '../hooks/useDeliveryQueries';
 import { EpisodesPanel } from '../components/episodes/EpisodesPanel';
 import { flattenEpisodesToCsv, type EpisodeExport } from '../utilities/episodeCsv';
 import { downloadTextFile } from '../utilities/download';
@@ -28,8 +27,11 @@ import type { EpisodeRecordView } from '../contracts/types';
 
 export interface EpisodesPanelContainerProps {
   projectId: string;
-  manager: EpisodesManager;
-  /** activityId (construction) or the page's ArtifactKindFull slug (design). */
+  /** True for a construction activity, false for a design artifact page. It used to
+   *  be a three-valued `manager`, because each Manager published its own episode
+   *  read; the one read routes on the SELECTOR, and this is that choice. */
+  byActivity: boolean;
+  /** activityId (byActivity) or the page's ArtifactKindFull slug (design). */
   targetRef: string;
   /** Render-prop slot threaded straight to EpisodesPanel (assurance/completeness
    *  badges — audit spine workstream). Renders nothing when omitted. */
@@ -37,16 +39,16 @@ export interface EpisodesPanelContainerProps {
 }
 
 function exportFilenameBase(target: EpisodesPanelContainerProps): string {
-  return `episodes-${target.manager}-${target.targetRef}`;
+  return `episodes-${target.byActivity ? 'activity' : 'artifact'}-${target.targetRef}`;
 }
 
 export function EpisodesPanelContainer({
   projectId,
-  manager,
+  byActivity,
   targetRef,
   badges,
 }: EpisodesPanelContainerProps): ReactNode {
-  const target = { projectId, manager, targetRef };
+  const target = { projectId, byActivity, targetRef };
   const list = useEpisodesList(target);
   const [selectedEpisodeId, setSelectedEpisodeId] = useState<string | null>(null);
   const timeline = useEpisodeTimeline(target, selectedEpisodeId ?? undefined);
@@ -73,7 +75,7 @@ export function EpisodesPanelContainer({
     void buildExport()
       .then((exp) => {
         downloadTextFile(
-          `${exportFilenameBase({ projectId, manager, targetRef })}.json`,
+          `${exportFilenameBase({ projectId, byActivity, targetRef })}.json`,
           JSON.stringify(exp, null, 2),
           'application/json'
         );
@@ -87,7 +89,7 @@ export function EpisodesPanelContainer({
     void buildExport()
       .then((exp) => {
         downloadTextFile(
-          `${exportFilenameBase({ projectId, manager, targetRef })}.csv`,
+          `${exportFilenameBase({ projectId, byActivity, targetRef })}.csv`,
           flattenEpisodesToCsv(exp),
           'text/csv'
         );

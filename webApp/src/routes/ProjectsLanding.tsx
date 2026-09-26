@@ -13,7 +13,7 @@ import Button from '@mui/material/Button';
 import Skeleton from '@mui/material/Skeleton';
 import AddIcon from '@mui/icons-material/Add';
 import { useNavigate } from '@tanstack/react-router';
-import { useProjects } from '../hooks/useProjects';
+import { useProjects } from '../hooks/useDeliveryQueries';
 import { useUser } from '../utilities/auth/UserContext';
 import { userLabel } from '../utilities/auth/userInfo';
 import { ProjectCard } from '../components/ProjectCard';

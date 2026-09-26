@@ -58,17 +58,17 @@ import {
   planSearch,
   type PlanLensId,
 } from '../contracts/routePaths';
-import { useProject } from '../hooks/useProject';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { useReadRequestedAt } from '../hooks/readRequestTimes';
-import { projectKey } from '../hooks/useProject';
+import { projectKey } from '../hooks/useDeliveryQueries';
 import { orderedNow } from '../utilities/orderedNow';
-import { TASKS_FRESHNESS_MS, useConstructionSessions } from '../hooks/useConstructionSessions';
+import { TASKS_FRESHNESS_MS, useConstructionSessions } from '../hooks/useDeliveryQueries';
 import {
   failureStatusOf,
-  useBeginConstruction,
   useBeginConstructionPending,
-  useResumeConstruction,
-} from '../hooks/useConstructionMutations';
+  useExecuteNextActivity,
+  useSetProjectRunState,
+} from '../hooks/useDeliveryMutations';
 import { ApiError } from '../contracts/errors';
 
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
@@ -326,7 +326,7 @@ export function PlanContainer({
 
   // --- Begin / Resume (ported verbatim) -------------------------------------
   const projectRequestedAt = useReadRequestedAt(projectKey(projectId));
-  const begin = useBeginConstruction(projectId, {
+  const begin = useExecuteNextActivity(projectId, {
     onError: (err, atFailure) => {
       writeBeginFailure(projectId, {
         outcome: dispatchOutcomeFor(err instanceof ApiError ? err.status : undefined, err.message),
@@ -468,7 +468,9 @@ export function PlanContainer({
     beginControlRef.current = beginControl;
   }, [beginControl]);
 
-  const resume = useResumeConstruction(projectId);
+  // Resume is now one half of SetProjectRunState — the pause is the other, and its
+  // control is still unbuilt (stage-5 earmark), which this task does not change.
+  const resume = useSetProjectRunState(projectId);
   const pausedControl = pausedControlFor({
     operatorPaused: project?.operatorPaused,
     pauseReason: project?.pauseReason,
@@ -478,14 +480,17 @@ export function PlanContainer({
   const [resumeOutcome, setResumeOutcome] = useState<ResumeOutcome | null>(null);
   const onResume = (): void => {
     setResumeOutcome(null);
-    resume.mutate(undefined, {
-      onSuccess: () => {
-        setResumeOutcome({ kind: 'resumed' });
-      },
-      onError: (err) => {
-        setResumeOutcome(resumeOutcomeFor(failureStatusOf(err), err.message));
-      },
-    });
+    resume.mutate(
+      { runState: 'running', reason: '' },
+      {
+        onSuccess: () => {
+          setResumeOutcome({ kind: 'resumed' });
+        },
+        onError: (err) => {
+          setResumeOutcome(resumeOutcomeFor(failureStatusOf(err), err.message));
+        },
+      }
+    );
   };
   const resumeCopy = resumeOutcome !== null ? resumeOutcomeCopy(resumeOutcome) : undefined;
   const dispatchCandidates = useMemo(

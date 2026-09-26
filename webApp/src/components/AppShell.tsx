@@ -25,7 +25,7 @@ import LogoutIcon from '@mui/icons-material/Logout';
 import { useNavigate } from '@tanstack/react-router';
 import { useUser } from '../utilities/auth/UserContext';
 import { userLabel } from '../utilities/auth/userInfo';
-import { useProject } from '../hooks/useProject';
+import { useProject } from '../hooks/useDeliveryQueries';
 import { config } from '../utilities/config';
 import { phaseLabel } from './projectFormat';
 import { ProjectMenu } from './ProjectMenu';

@@ -7,7 +7,7 @@
  * Code GitHub App on their repo. The dialog therefore carries a prerequisites panel
  * spelling out the one-time onboarding the user must complete before creating.
  *
- * Wired to the real useCreateProject mutation. Research input is captured later in
+ * Wired to the real StartProject mutation. Research input is captured later in
  * System Design, so this stays a one-field gate (the mock's customer/research
  * fields are dropped against the typed CreateProject contract, which takes only the
  * repo name).
@@ -29,7 +29,8 @@ import Radio from '@mui/material/Radio';
 import AddIcon from '@mui/icons-material/Add';
 import GitHubIcon from '@mui/icons-material/GitHub';
 import { useNavigate } from '@tanstack/react-router';
-import { useCreateProject, type OperatingModel } from '../hooks/useCreateProject';
+import { useStartProject, type OperatingModel } from '../hooks/useDeliveryMutations';
+import { useUser } from '../utilities/auth/UserContext';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
 import { ErrorAlert } from './shared/ErrorAlert';
@@ -43,7 +44,8 @@ export function CreateProjectDialog({
 }): ReactNode {
   const t = useTokens();
   const navigate = useNavigate();
-  const createProject = useCreateProject();
+  const createProject = useStartProject();
+  const owner = useUser().sub;
   const [name, setName] = useState('');
   const [operatingModel, setOperatingModel] = useState<OperatingModel>('selfOperated');
 
@@ -61,13 +63,24 @@ export function CreateProjectDialog({
   const submit = (): void => {
     const trimmed = name.trim();
     if (trimmed.length === 0 || createProject.isPending) return;
+    // CREATE: no projectId, so the Manager mints one (StartProject's
+    // `projectID == nil` branch). BLOCKER, reported with Task 8: the REST route
+    // `POST /api/v1/delivery/start-project/{projectID}` cannot express that — its
+    // handler always passes a non-nil pointer and Go's mux will not match an empty
+    // segment — so over REST this answers 404 until the server grows a create route
+    // (it works over MCP, whose tool marks projectID omitempty). Deliberately NOT
+    // worked around by minting an id here: that would take the adopt branch and then
+    // fail NotFound inside the Manager, which is a worse failure than a visible one.
     createProject.mutate(
-      { name: trimmed, operatingModel },
+      { name: trimmed, owner, operatingModel, start: false },
       {
-        onSuccess: (projectId) => {
+        onSuccess: (result) => {
           reset();
           onClose();
-          void navigate({ to: '/project/$projectId/home', params: { projectId } });
+          void navigate({
+            to: '/project/$projectId/home',
+            params: { projectId: result.projectId },
+          });
         },
       }
     );
