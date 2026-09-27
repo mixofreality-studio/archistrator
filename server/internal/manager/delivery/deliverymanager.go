@@ -9436,13 +9436,20 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 		return err
 	}
 	view, err := m.activitySession(ctx, projectID, activityID)
-	if err != nil {
+	switch {
+	case err == nil:
+		if view.Stage != StageAwaitingTakeover {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitTaskDecision",
+				activityID, sessionStageName(view.Stage)))
+		}
+	case isManagerNotFound(err):
+		// NO LIVE CHILD. The activity is not escalated — it is OVER, and this is the one steer
+		// that means something for a finished activity: RE-OPEN it (stage 4b1 Task 12, fix round
+		// 1). Every other override addresses a dispatch in flight and has nothing to reach.
+		return m.reopenActivity(ctx, projectID, activityID, override)
+	default:
 		return err
-	}
-	if view.Stage != StageAwaitingTakeover {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-			"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitTaskDecision",
-			activityID, sessionStageName(view.Stage)))
 	}
 	// THE OVERRIDE MUST NAME THE TASK IT STEERS (stage 4b1 Task 12; the Task-11 round-2
 	// defect D2). The generic child's router forwards by TaskID and DROPS a signal that
@@ -9462,6 +9469,68 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// reopenActivity is the override's REOPEN arm: against a TERMINAL row with NO LIVE CHILD it
+// re-arms the row at its CURRENT revision so the pump selects the activity again on its next
+// tick (stage 4b1 Task 12, fix round 1; controller ruling 3).
+//
+// WHAT IT IS FOR. A failed walk, a spent variance budget and an operator's own Skip all leave a
+// terminal row, and until the requeue note re-armed one, nothing could ever re-run it: the pump
+// refuses any row a pump has written. The activity's ledger is the whole point of re-arming
+// rather than re-planning — the next walk seeds every task that PASSED from it
+// (seedWalkFromLedger) and re-dispatches only what did not, and its per-dispatch counter
+// continues the ledger's numbering (seedTaskAttempts). NOTHING here mints an attempt or a
+// revision: this writes head facts, and the walk owns its own numbering.
+//
+// IT IS ONE WRITE, and that is the fold's own argument: the operator's REASON and the re-arm
+// land in the SAME commit (RecordOperatorNote of kind requeue — see reopenTerminalRow in the
+// store), so no crash can leave a re-armed activity with nobody's name on it, and none can leave
+// a reason filed against an activity that was never re-armed.
+//
+// It is the ONE override kind that is NOT a steer of something in flight, and every kind
+// reaches it: an operator looking at a finished activity is asking for it to run again whatever
+// word the SPA put on the button. The store refuses a row that has NOT exited, so a live
+// activity whose child merely has not started yet cannot be re-armed through this door.
+func (m *constructionManager) reopenActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		_, err := m.activityExecution.RecordOperatorNote(fwra.Context{Context: ctx},
+			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.OperatorNoteInput{
+				NoteID: reopenNoteID(activityID, row),
+				Kind:   projectstate.NoteRequeue,
+				Gate:   reopenGateKey,
+				Text:   override.Notes,
+				// The note carries the operator's own anchored comments, exactly as a takeover's does.
+				Comments: noteComments(override.Comments),
+			}, "", projectstate.RepoCredential{}, rowWriteKey("reopen", projectID, activityID))
+		if err != nil && !csIsRAConflict(err) {
+			return mapRAError(err, "activityExecutionAccess.RecordOperatorNote")
+		}
+		return err
+	})
+}
+
+// reopenGateKey is the gate a requeue note is filed under. It is not a lifecycle task and not
+// the takeover gate: a re-open is a decision about the WHOLE activity, and filing it under the
+// task that happened to fail would read as a steer of that task.
+const reopenGateKey = "reopen"
+
+// reopenNoteID keys the requeue note to the TERMINAL it re-opens — the exit stamp, which is
+// unique per terminal and non-nil on every one of them (stampExit writes it for both arms).
+//
+// It is deliberately NOT a sequence over the note list: the two writes are separate commits, so
+// a re-open whose note landed and whose re-arm lost the CAS is retried — and a count-based id
+// would mint a SECOND id on that retry and file the operator's reason twice. Keyed by the
+// terminal, the retry converges on the same id and the store absorbs it ("one id names one
+// note"), while a genuinely later re-open of a re-failed activity has a new exit stamp and so a
+// new id.
+func reopenNoteID(activityID ActivityID, row projectstate.ActivityExecution) string {
+	at := int64(0)
+	if row.CompletedAt != nil {
+		at = row.CompletedAt.UnixNano()
+	}
+	return fmt.Sprintf("%s:note:%s:%d", activityID, reopenGateKey, at)
 }
 
 // escalatedTask reads the activity's execution row and answers which task the operator's

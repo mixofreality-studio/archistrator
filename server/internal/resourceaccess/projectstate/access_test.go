@@ -11881,3 +11881,100 @@ func TestLegacyIntegratedRow_NeverOverridesARecordedGate(t *testing.T) {
 		t.Fatal("a rejected construction gate must keep the row out of Integrated")
 	}
 }
+
+// A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY (stage 4b1 task 12), and it is the ONE note kind
+// that changes the row. Every claim the Manager's re-open path rests on is here, against the
+// real store: the four sticky head facts are cleared, everything below them survives, a row that
+// has not exited is refused, and a replayed note is the same no-op success every other replay is.
+func TestRecordOperatorNote_RequeueReArmsATerminalActivity(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	// A ledger under the terminal, so the "everything below is kept" claim has something to keep.
+	v, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", TaskAttemptInput{
+		AttemptID: "C-X:srs:1", TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+	}, cred, fwra.IdempotencyKey("wf:attempt-1"))
+	if err != nil {
+		t.Fatalf("RecordAttemptOutcome: %v", err)
+	}
+	requeue := func(v Version, key string) (Version, error) {
+		return a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", OperatorNoteInput{
+			NoteID: "C-X:note:reopen:1", Kind: NoteRequeue, Gate: "reopen", Text: "the vendor unblocked us",
+		}, "", cred, fwra.IdempotencyKey(key))
+	}
+
+	// (1) A ROW THAT HAS NOT EXITED IS REFUSED, and nothing moves.
+	before := verbRowVersion(t, a, id, "C-X")
+	if _, err := requeue(v, "wf:requeue-live"); err == nil {
+		t.Fatal("a requeue against a live activity must be refused — re-arming it would hand a second child the row")
+	} else if got := kindOf(t, err); got != fwra.ContractMisuse {
+		t.Fatalf("kind = %v, want ContractMisuse", got)
+	}
+	if got := verbRowVersion(t, a, id, "C-X"); got != before {
+		t.Fatalf("a refused requeue must leave the row where it found it: version = %d, want %d", got, before)
+	}
+
+	// (2) THE TERMINAL, then the re-open.
+	v, err = a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, VarianceExhausted, "construction supervision exceeded max attempts", cred, fwra.IdempotencyKey("wf:exit"))
+	if err != nil {
+		t.Fatalf("RecordActivityOutcome: %v", err)
+	}
+	row, err := a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if CoarsePhaseFor(row, nil) != ActivityConstructionFailed {
+		t.Fatalf("the fixture must be terminal, got %v", CoarsePhaseFor(row, nil))
+	}
+	if v, err = requeue(v, "wf:requeue-1"); err != nil {
+		t.Fatalf("a requeue against a TERMINAL activity must be accepted: %v", err)
+	}
+	row, err = a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	assertRequeuedRow(t, row)
+
+	// (3) A REPLAY is a no-op success, not a refusal — the row is no longer terminal, and an
+	// idempotent verb must not start failing on retry.
+	if _, err := requeue(v, "wf:requeue-replay"); err != nil {
+		t.Fatalf("a replayed requeue must be the same no-op success every other replay is: %v", err)
+	}
+	row, err = a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if got := len(row.OperatorNotes); got != 1 {
+		t.Fatalf("a replayed note must not be appended twice, got %d notes", got)
+	}
+}
+
+// assertRequeuedRow is the re-armed row's whole shape: the four sticky head facts cleared, and
+// everything a later read has to be able to interpret still there.
+func assertRequeuedRow(t *testing.T, row ActivityExecution) {
+	t.Helper()
+	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != FailureReasonUnknown || row.FailureDetail != "" {
+		t.Fatalf("the requeue must clear exactly the four sticky head facts, got %+v", row)
+	}
+	if PumpWroteRow(row) {
+		t.Fatal("clearing StartedAt is the load-bearing part: PumpWroteRow must answer false or the pump refuses the row for ever")
+	}
+	if len(row.Attempts) != 1 || row.Attempts[0].Outcome != OutcomePassed {
+		t.Fatalf("the attempt ledger is what the re-run seeds from and must survive, got %+v", row.Attempts)
+	}
+	if row.Pin == nil || row.Pin.TypeKey != "service" {
+		t.Fatalf("the lifecycle pin must survive — the ledger below was written under it; got %+v", row.Pin)
+	}
+	if row.Type != ActivityTypeService {
+		t.Fatalf("the classified type must survive, got %v", row.Type)
+	}
+	notes := 0
+	for _, n := range row.OperatorNotes {
+		if n.Kind == NoteRequeue {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Fatalf("the operator's reason is the audit entry and lands in the SAME commit; got %d requeue notes", notes)
+	}
+}

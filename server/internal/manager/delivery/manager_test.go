@@ -23881,6 +23881,13 @@ type csFakeProjectState struct {
 	// concurrent write that caused it (I2: a new pause landing between two tries).
 	afterConflict func(*csFakeProjectState)
 
+	// commitFailKinds makes the SLOT COMMIT refuse for the named kinds (stage 4b1 Task 12, fix
+	// round 1). It is the only way to reach the POST-EXIT COMMIT WINDOW: the walk records the
+	// activity's binary exit and then commits its slots, so a commit that fails is what leaves a
+	// Completed activity with an AwaitingReview slot. The refusal is deliberately NOT a Conflict
+	// — applyRecovering would retry that away and the window would never open.
+	commitFailKinds map[projectstate.ArtifactKind]bool
+
 	// rowReads counts ReadActivityExecution calls (stage 4b1 Task 7). It is what the
 	// unbound-caller table asserts on: the pump, the supervision pause record and the
 	// round sweep hold NO row, so their Conflict arm must make ZERO of these — and case
@@ -24496,6 +24503,17 @@ func (f csFakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectst
 	})
 }
 
+// noteByID finds one operator note on a row. Callers hold no lock when it is reached through
+// refuseTerminality, and hold it inside an applyExecution mutate.
+func noteByID(row projectstate.ActivityExecution, noteID string) (projectstate.OperatorNote, bool) {
+	for _, n := range row.OperatorNotes {
+		if n.NoteID == noteID {
+			return n, true
+		}
+	}
+	return projectstate.OperatorNote{}, false
+}
+
 // rowHoldsRound reports whether the row holds roundID at all — the question roundPtr answers
 // first in every one of the store's round-scoped verbs. Callers must NOT hold the lock
 // (refuseTerminality takes it).
@@ -24694,8 +24712,36 @@ func (csFakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.
 	return 0, nil
 }
 
+// A REQUEUE NOTE RE-ARMS A TERMINAL ROW, and the double mirrors the store's refusal (stage 4b1
+// Task 12, fix round 1): a double that re-armed anything it was handed would make the whole
+// re-open path pass while production refused it, and one that re-armed NOTHING would make the
+// pump's re-selection unfalsifiable. The dedup comes first here too, so a replayed requeue is
+// the same no-op success the store gives it.
 func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, note projectstate.OperatorNoteInput, deliveredToAttemptID string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	if note.Kind == projectstate.NoteRequeue {
+		if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
+			if held, ok := noteByID(row, note.NoteID); ok && held.Kind == projectstate.NoteRequeue {
+				return nil // a replay: the first delivery already re-armed the row
+			}
+			switch phase := projectstate.CoarsePhaseFor(row, nil); phase {
+			case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed:
+				return nil
+			case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning:
+				return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+					"fake projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited", activityID, phase))
+			}
+			return fwra.New(fwra.ContractMisuse, "fake projectstate.RecordOperatorNote: no coarse phase a requeue can reason about")
+		}); err != nil {
+			return 0, err
+		}
+	}
 	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
+		if note.Kind == projectstate.NoteRequeue {
+			if _, replay := noteByID(*row, note.NoteID); !replay {
+				row.StartedAt, row.CompletedAt = nil, nil
+				row.FailureReason, row.FailureDetail = projectstate.FailureReasonUnknown, ""
+			}
+		}
 		row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
 			NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text,
 			Comments: slices.Clone(note.Comments), RecordedAt: testLedgerClock,
@@ -24797,6 +24843,11 @@ func (f fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID,
 func (f fakeFullProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.commitFailKinds[kind] {
+		// NOT a Conflict: see commitFailKinds. This is the fault that opens the post-exit commit
+		// window, and it must not be retried away.
+		return 0, fwra.New(fwra.Infrastructure, "fake projectstate: the commit of "+kind.WireName()+" was refused")
+	}
 	f.committedSlots = append(f.committedSlots, kind)
 	// It MOVES the slot's status too (stage 4b1 Task 10), because the Phase-1 seal re-reads the
 	// project and asks whether every required kind is committed. A double that only recorded the
@@ -35751,13 +35802,18 @@ func (p *designJobPipeline) commitCritique(kind string) {
 func (p *designJobPipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	for kind := range p.failDraft {
-		if strings.Contains(string(handle), "design-"+kind+"-"+jobModeDraft) {
+	// THE MAP'S VALUE DECIDES, not its key's presence (stage 4b1 Task 12, fix round 1). These
+	// loops used to iterate the keys, so `failDraft["glossary"] = false` — the natural way to say
+	// "the venue is healthy again" between two runs over one double — still failed the observe
+	// while the SUBMIT half read the value and committed the draft. The two halves have to agree
+	// about whether a job failed, and a case that clears a fault must be able to clear it.
+	for kind, fail := range p.failDraft {
+		if fail && strings.Contains(string(handle), "design-"+kind+"-"+jobModeDraft) {
 			return agenticjob.PipelineObservation{Phase: agenticjob.PhaseFailed, Diagnostic: "the draft job's CI check went red"}, nil
 		}
 	}
-	for kind := range p.failCritique {
-		if strings.Contains(string(handle), "design-"+kind+"-"+jobModeCritique) {
+	for kind, fail := range p.failCritique {
+		if fail && strings.Contains(string(handle), "design-"+kind+"-"+jobModeCritique) {
 			return agenticjob.PipelineObservation{Phase: agenticjob.PhaseFailed, Diagnostic: "the critique job's run went red"}, nil
 		}
 	}
@@ -37852,5 +37908,255 @@ func Test_ConstructionDispatch_ARefusedSubmitResolvesItsAttemptFailed(t *testing
 	}
 	if attempts != 1 {
 		t.Fatalf("want the one opened attempt on the ledger, got %d", attempts)
+	}
+}
+
+// ===========================================================================
+// STAGE 4b1 TASK 12, FIX ROUND 1 — A TERMINAL ACTIVITY CAN BE RE-OPENED
+//
+// Terminal was terminal and nothing could undo it, so a failed walk, a spent variance budget
+// and an operator's own Skip each left an activity NOTHING could re-run. A REQUEUE note now
+// re-arms the row (reopenTerminalRow), and these cases pin the three things that has to mean:
+// the pump selects the activity again, the walk re-dispatches ONLY what did not pass, and a
+// row that has not exited is refused.
+// ===========================================================================
+
+// reopenOverride is what the operator sends. Every override KIND reaches the re-open arm — an
+// operator looking at a finished activity is asking for it to run again whatever word the SPA
+// put on the button — so the case uses the one that says it most plainly.
+func reopenOverride(notes string) ActivityOverride {
+	return ActivityOverride{Kind: OverrideRetry, Notes: notes}
+}
+
+// designPlanStore merges the derived plan's fixed design prefix into a store the design rig
+// built, so the PUMP's own predicates can be asked about the activity the child just ran.
+func designPlanStore(ps *csFakeProjectState) {
+	plan := planWithDesignPrefix()
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	ps.project.Network, ps.project.ActivityList, ps.project.SystemDesign = plan.Network, plan.ActivityList, plan.SystemDesign
+}
+
+// dispatchableNow asks the PUMP's own eligibility about one activity, off the store's row map.
+func dispatchableNow(t *testing.T, ps *csFakeProjectState, activityID string) bool {
+	t.Helper()
+	ps.mu.Lock()
+	proj := ps.project
+	ps.mu.Unlock()
+	item, ok := committedActivityItem(proj, activityID)
+	if !ok {
+		t.Fatalf("the committed plan must hold %s for the pump to reason about it", activityID)
+	}
+	return isActivityDispatchable(activityID, item, proj.ActivityExecution)
+}
+
+// A FAILED DESIGN WALK IS RE-ARMED AND RE-DISPATCHES ONLY WHAT DID NOT PASS — the whole point of
+// re-arming a row rather than re-planning the activity. `mission` passed and is NOT drafted
+// again; `glossary`, whose draft job died, is.
+func Test_Reopen_AFailedDesignWalkReDispatchesOnlyWhatDidNotPass(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	designPlanStore(rig.cs)
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	pipe.failDraft["glossary"] = true
+	rig.pipe = nil
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	if rig.env.GetWorkflowError() == nil {
+		t.Fatal("a terminal draft failure must fail the walk — this case needs the failure it re-opens")
+	}
+	if row := rig.cs.execution("requirements"); row.FailureReason == projectstate.FailureReasonUnknown {
+		t.Fatalf("the failed walk must leave a terminal on the row, got %+v", row)
+	}
+	// THE STATE THE OPERATOR IS LOOKING AT: a failed activity the pump will never select again.
+	if dispatchableNow(t, rig.cs, "requirements") {
+		t.Fatal("a terminal row must NOT be dispatchable — the case's premise is that nothing re-runs it")
+	}
+
+	m := newFacadeConstructionManager(task12NoSession(), rig.cs)
+	if err := m.OverrideActivity(testCtx(), shapeProjectID, "requirements",
+		reopenOverride("the glossary venue is back; run it again")); err != nil {
+		t.Fatalf("re-opening a terminal activity with no live child must be accepted: %v", err)
+	}
+	assertReArmed(t, rig.cs, "requirements")
+
+	// THE RE-RUN, on a second environment over the SAME ledger.
+	pipe.failDraft["glossary"] = false
+	before := pipe.drafts["mission"]
+	next := rig.reenter(t)
+	next.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, next.cswf, next.cs, pipe) }
+	next.register(next.env)
+	next.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, next.env)
+	if pipe.drafts["mission"] != before {
+		t.Errorf("mission passed before the failure and must NOT be drafted again; drafts %d → %d", before, pipe.drafts["mission"])
+	}
+	if pipe.drafts["glossary"] < 2 {
+		t.Errorf("glossary is what did not pass and must be re-dispatched; drafts = %d", pipe.drafts["glossary"])
+	}
+}
+
+// A CONSTRUCTION GIVE-UP IS RE-ARMED TOO. The operator's own Skip is the terminal here — the
+// hardest case, because nothing failed: they decided to stop, and then changed their mind.
+func Test_Reopen_AConstructionGiveUpIsReArmed(t *testing.T) {
+	rig := varianceRig(t, intervention.VarianceEscalate, 0)
+	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{
+			TaskID:   string(projectstate.TaskDetailedDesign),
+			Override: ActivityOverride{Kind: OverrideSkip, Notes: "blocked on the vendor"},
+		})
+	}, time.Minute)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	item := projectstate.ActivityItem{Name: shapeDeploymentID, WorkerClass: "junior-developer", Coding: true}
+	rows := map[string]projectstate.ActivityExecution{shapeDeploymentID: rig.cs.execution(shapeDeploymentID)}
+	if isActivityDispatchable(shapeDeploymentID, item, rows) {
+		t.Fatal("a skipped activity is an EXIT — the pump must not select it until it is re-opened")
+	}
+	if err := newFacadeConstructionManager(task12NoSession(), rig.cs).
+		OverrideActivity(testCtx(), shapeProjectID, ActivityID(shapeDeploymentID),
+			reopenOverride("the vendor unblocked us")); err != nil {
+		t.Fatalf("re-opening a skipped activity must be accepted: %v", err)
+	}
+	rows[shapeDeploymentID] = rig.cs.execution(shapeDeploymentID)
+	if !isActivityDispatchable(shapeDeploymentID, item, rows) {
+		t.Fatal("after the re-open the pump must select it again")
+	}
+}
+
+// A ROW THAT HAS NOT EXITED IS REFUSED, and the refusal comes from the STORE's rule rather than
+// from a façade guess: re-arming a live row would hand a second child the row this one is writing.
+func Test_Reopen_RefusesAnActivityThatHasNotExited(t *testing.T) {
+	running := &csFakeProjectState{project: projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			"A": {ActivityID: "A", StartedAt: &testLedgerClock},
+		},
+	}}
+	err := newFacadeConstructionManager(task12NoSession(), running).
+		OverrideActivity(testCtx(), "p", "A", reopenOverride("run it again"))
+	if e := asConstructionError(t, err); e.Kind != fwmanager.ContractMisuse || !strings.Contains(e.Detail, "not finished") {
+		t.Fatalf("want the store's ContractMisuse naming the live row, got %s %q", e.Kind, e.Detail)
+	}
+	if row := running.execution("A"); row.StartedAt == nil {
+		t.Fatal("a refused re-open must move NOTHING — the row was re-armed anyway")
+	}
+	// AND AN ACTIVITY WITH NO ROW AT ALL is NotFound, not a silent success.
+	empty := &csFakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
+	if e := asConstructionError(t, newFacadeConstructionManager(task12NoSession(), empty).
+		OverrideActivity(testCtx(), "p", "A", reopenOverride("run it again"))); e.Kind != fwmanager.NotFound {
+		t.Fatalf("want NotFound for an activity with no execution row, got %s %q", e.Kind, e.Detail)
+	}
+}
+
+// THE POST-EXIT COMMIT WINDOW SELF-HEALS THROUGH A RE-OPEN (controller carry 4). The walk
+// records the activity's binary exit and THEN commits its slots, so a failed commit leaves a
+// Completed activity with an AwaitingReview slot. A re-open plus a re-run repairs it — and it
+// only does so because commitDesignArtifacts' no-work arm now asks which slots are still
+// uncommitted instead of skipping (the arm that made this state permanent).
+func Test_Reopen_HealsTheDesignSlotCommitWindow(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	designPlanStore(rig.cs)
+	rig.cs.mu.Lock()
+	rig.cs.commitFailKinds = map[projectstate.ArtifactKind]bool{projectstate.KindCoreUseCases: true}
+	rig.cs.mu.Unlock()
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	rig.pipe = nil
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	if rig.env.GetWorkflowError() == nil {
+		t.Fatal("a failed slot commit must surface as the walk's error; this case needs the window it repairs")
+	}
+	// THE WINDOW ITSELF: the activity EXITED (the binary exit is recorded before the commits)
+	// while one slot it produced is still not committed.
+	row := rig.cs.execution("requirements")
+	if row.CompletedAt == nil {
+		t.Fatalf("the window's premise is a recorded exit, got %+v", row)
+	}
+	if slotStatusOf(rig.cs, projectstate.KindCoreUseCases) == projectstate.ReviewCommitted {
+		t.Fatal("the case needs coreUseCases UNCOMMITTED — the commit double did not refuse")
+	}
+
+	if err := newFacadeConstructionManager(task12NoSession(), rig.cs).
+		OverrideActivity(testCtx(), shapeProjectID, "requirements", reopenOverride("the commit faulted; land the slots")); err != nil {
+		t.Fatalf("re-opening the activity must be accepted: %v", err)
+	}
+	rig.cs.mu.Lock()
+	rig.cs.commitFailKinds = nil
+	advancedBefore := rig.cs.advanced
+	rig.cs.mu.Unlock()
+
+	next := rig.reenter(t)
+	next.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, next.cswf, next.cs, pipe) }
+	next.register(next.env)
+	next.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: "requirements",
+		Activity: designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, next.env)
+	if got := slotStatusOf(rig.cs, projectstate.KindCoreUseCases); got != projectstate.ReviewCommitted {
+		t.Fatalf("the re-run must land the slot the failed commit left behind; status = %v", got)
+	}
+	// AND IT RE-DRAFTED NOTHING: every task seeded passed off the ledger, so the repair is a
+	// commit pass and not four fresh design jobs.
+	for _, kind := range []string{"mission", "glossary", "volatilities", "coreUseCases"} {
+		if pipe.drafts[kind] != 1 {
+			t.Errorf("%s drafted %d times across both runs, want 1 — the repair must not re-draft", kind, pipe.drafts[kind])
+		}
+	}
+	rig.cs.mu.Lock()
+	advancedAfter := rig.cs.advanced
+	rig.cs.mu.Unlock()
+	if advancedAfter > advancedBefore+1 {
+		t.Errorf("the phase advanced %d times across the repair, want at most one more", advancedAfter-advancedBefore)
+	}
+}
+
+// slotStatusOf reads one slot's review status off the store.
+func slotStatusOf(ps *csFakeProjectState, kind projectstate.ArtifactKind) projectstate.ArtifactReviewStatus {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	if slot := designSlotPtr(&ps.project, kind); slot != nil {
+		return slot.Status
+	}
+	return projectstate.ArtifactReviewStatus(0)
+}
+
+// assertReArmed is the re-opened row's whole shape, Manager-side: the head facts cleared, the
+// ledger kept, the pump selecting it again, and exactly ONE requeue note carrying the reason.
+func assertReArmed(t *testing.T, ps *csFakeProjectState, activityID string) {
+	t.Helper()
+	row := ps.execution(activityID)
+	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != projectstate.FailureReasonUnknown {
+		t.Fatalf("the re-open must clear exactly the four head facts, got %+v", row)
+	}
+	if len(row.Attempts) == 0 {
+		t.Fatal("the re-open must PRESERVE the attempt ledger — it is what the re-run seeds from")
+	}
+	if !dispatchableNow(t, ps, activityID) {
+		t.Fatal("after the re-open the pump must select the activity again (its ledger-partial arm)")
+	}
+	notes := 0
+	for _, n := range row.OperatorNotes {
+		if n.Kind == projectstate.NoteRequeue && n.Gate == reopenGateKey {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Fatalf("the re-open must leave exactly ONE requeue note — the operator's own reason; got %d", notes)
 	}
 }

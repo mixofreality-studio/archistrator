@@ -3182,11 +3182,12 @@ func (wf *csWorkflows) finalizeWalk(
 // at all: one activity holds FOUR kinds and one branch, so committing mission when its gate
 // passes would mean four merges of one branch.
 //
-// THE COST, recorded rather than hidden: the activity's binary exit is recorded by
-// finalizeActivity BEFORE these commits, so a commit that fails here leaves an activity
-// reading Completed with its slots still AwaitingReview. It self-heals on a re-run — every
-// task seeds passed, the walk reaches finalizeWalk and the commits are idempotent — but
-// nothing re-runs it automatically, because the pump sees Done. Carried as an earmark.
+// THE COST: the activity's binary exit is recorded by finalizeActivity BEFORE these commits, so
+// a commit that fails here leaves an activity reading Completed with its slots still
+// AwaitingReview. THAT NOW HEALS (stage 4b1 Task 12, fix round 1, controller carry 4): the
+// operator re-opens the activity (a requeue note clears its terminal), the pump re-selects it,
+// and the re-run commits what is still uncommitted — see the no-work arm below, which had to
+// LEARN to do that. It is still not automatic: nothing re-opens an activity on its own.
 func (wf *csWorkflows) commitDesignArtifacts(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
@@ -3195,13 +3196,35 @@ func (wf *csWorkflows) commitDesignArtifacts(
 	if len(kinds) == 0 {
 		return nil
 	}
-	// A walk that produced NOTHING committed nothing: every task was seeded passed off an
-	// already-committed slot (the skip-if-committed guard), so re-committing would be a
-	// no-op write per kind on a project that is already correct.
+	// A WALK THAT RAN NO TASK STILL HAS ONE JOB, and this arm used to skip it (Task 12, fix
+	// round 1). Its old reasoning — "every task was seeded passed off an already-committed slot,
+	// so re-committing would be a no-op write per kind on a project that is already correct" —
+	// is true only while the PREMISE holds, and the post-exit commit window is exactly the state
+	// where it does not: a walk whose tasks all passed and whose slot commit FAILED leaves an
+	// activity Completed with an uncommitted slot. Skipping there made the re-run a no-op and the
+	// broken state permanent — the one repair path an operator has (a re-open) could not repair
+	// it. So the arm now ASKS, once, which of this lifecycle's slots are still uncommitted, and
+	// commits those. All committed ⇒ the old skip, unchanged.
 	if !walkRanAnyTask(ws) {
-		workflow.GetLogger(ctx).Info("delivery.design.nothingToCommit",
-			"activityId", in.ActivityID, "reason", "every task was already committed when the walk started")
-		return nil
+		pending, err := wf.uncommittedSlotsOf(ctx, in, kinds)
+		switch {
+		case err != nil:
+			// The repair pass could not read the project. Skipping is the old behaviour and the
+			// safe one (a re-open can try again); it is logged at Error because a design activity
+			// that cannot read its own project state is not a normal exit.
+			workflow.GetLogger(ctx).Error("delivery.design.commitRepairSkipped",
+				"activityId", in.ActivityID, "err", err.Error(),
+				"consequence", "a slot left AwaitingReview by a failed commit stays that way until the activity is re-opened again")
+			return nil
+		case len(pending) == 0:
+			workflow.GetLogger(ctx).Info("delivery.design.nothingToCommit",
+				"activityId", in.ActivityID, "reason", "every slot this activity produces is already committed")
+			return nil
+		}
+		workflow.GetLogger(ctx).Info("delivery.design.commitRepair",
+			"activityId", in.ActivityID, "kinds", len(pending),
+			"reason", "the walk ran no task and these slots are still uncommitted — the post-exit commit window")
+		kinds = pending
 	}
 	for _, kind := range kinds {
 		v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
@@ -3214,6 +3237,26 @@ func (wf *csWorkflows) commitDesignArtifacts(
 		state.walk.headVersion = v
 	}
 	return wf.sealSystemDesign(ctx, in, state)
+}
+
+// uncommittedSlotsOf answers which of kinds are NOT committed on main right now, off a FRESH
+// read. It is asked only on the no-work path, where the alternative was to guess — the start
+// snapshot is from before the walk, and on a re-opened activity the whole question is what
+// changed since.
+func (wf *csWorkflows) uncommittedSlotsOf(
+	ctx workflow.Context, in deliveryActivityInput, kinds []projectstate.ArtifactKind,
+) ([]projectstate.ArtifactKind, error) {
+	proj, err := wf.readProject(ctx, in.ProjectID)
+	if err != nil {
+		return nil, err
+	}
+	var pending []projectstate.ArtifactKind
+	for _, kind := range kinds {
+		if slotForKind(proj, kind).Status != projectstate.ReviewCommitted {
+			pending = append(pending, kind)
+		}
+	}
+	return pending, nil
 }
 
 // designDraftedBy is the draftedBy provenance on a slot the generic child commits. It names

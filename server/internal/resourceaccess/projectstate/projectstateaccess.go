@@ -10575,6 +10575,9 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 // already addressed to an attempt costs ONE commit, not two. deliveredToAttemptID is
 // optional — the ordinary case is a note recorded at a gate for an attempt that does
 // not exist yet, which stays pending until the dispatch that carries it.
+//
+// A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY, and it is the ONE note kind that changes the row
+// (stage 4b1 task 12; see reopenTerminalRow for the whole rule and why it lives here).
 func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if err := validateOperatorNoteInput(activityID, note); err != nil {
 		return 0, err
@@ -10590,6 +10593,15 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 					"note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
 			}
 			return nil
+		}
+		// THE DEDUP COMES FIRST, deliberately: a REPLAY of a requeue must be the same no-op
+		// success every other replay is. Re-arming below the dedup would make the second delivery
+		// of one note refuse — the row is no longer terminal, because the FIRST delivery cleared
+		// it — turning an idempotent verb into one that fails on retry.
+		if note.Kind == NoteRequeue {
+			if err := reopenTerminalRow(cs, activityID); err != nil {
+				return err
+			}
 		}
 		held := OperatorNote{
 			NoteID:     note.NoteID,
@@ -10607,6 +10619,55 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 		cs.OperatorNotes = append(cs.OperatorNotes, held)
 		return nil
 	})
+}
+
+// reopenTerminalRow re-arms an activity that has EXITED so the pump can select it again. It is
+// the whole of the re-open rule, and it rides a REQUEUE note rather than a verb of its own
+// (stage 4b1 task 12).
+//
+// WHY THE ROW NEEDED THIS AT ALL. Terminal was terminal and nothing could undo it: OpenActivity
+// refuses an exited row in so many words, StartedAt/CompletedAt/FailureReason are write-once,
+// and the pump's eligibility refuses any row a pump has written. So a failed walk, a spent
+// variance budget, or an operator's own Skip left an activity NOTHING could ever re-run — the
+// operator's only recovery was an amendment to the committed activity list minting a NEW activity
+// id, which throws away the ledger that says what already passed.
+//
+// WHY IT IS A NOTE AND NOT A THIRTEENTH VERB, measured rather than asserted: a thirteenth op on
+// this facet puts it past App-C's operation ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX,
+// which the committed state's own advisory pin asserts ABSENT (designhealth's
+// TestGreenFixtureAdvisoriesFire — "the FIRST time the repo has had no Manager contract past
+// App-C's ceiling"). `requeue` was already in the OperatorNoteKind vocabulary WITH NO WRITER,
+// an operator's re-open is precisely the decision RecordOperatorNote records, and the fold makes
+// the audit entry and the re-arm ONE COMMIT — so a crash can no longer leave a re-armed activity
+// with nobody's name on it, which two ops could.
+//
+// WHAT IT CLEARS, AND WHAT IT MUST NOT. Exactly the four STICKY HEAD FACTS — StartedAt,
+// CompletedAt, FailureReason, FailureDetail. Everything below them is the record of work that
+// really happened and is KEPT: both append-only ledgers, the lifecycle pin, the classified
+// (type, variant), the produced artifacts and the notes. That is what makes the next walk
+// re-seed the tasks that PASSED and re-dispatch only what did not, with its per-dispatch counter
+// continuing the ledger's own numbering instead of colliding with it.
+//
+// CLEARING StartedAt IS THE LOAD-BEARING PART, and it looks like the least important: it is what
+// PumpWroteRow reads, so a row that keeps it is refused by the pump for ever however clean its
+// terminal is. With it clear, the effective phase derives from the attempt ledger alone — the
+// LEDGER-PARTIAL case the pump's eligibility already admits — so no selection rule changes, and
+// OpenActivity re-stamps it through its ordinary birth path on the next run.
+//
+// A ROW THAT HAS NOT EXITED IS REFUSED, never quietly accepted: there is nothing to requeue, and
+// re-arming a live row would hand a second child the row this one is writing.
+func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
+	switch phase := CoarsePhaseFor(*cs, nil); phase {
+	case ActivityConstructionDone, ActivityConstructionFailed:
+		cs.StartedAt, cs.CompletedAt = nil, nil
+		cs.FailureReason, cs.FailureDetail = FailureReasonUnknown, ""
+		return nil
+	case ActivityConstructionNotStarted, ActivityConstructionRunning:
+		return execMisuse("RecordOperatorNote", fmt.Sprintf(
+			"activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
+			activityID, phase))
+	}
+	return execMisuse("RecordOperatorNote", fmt.Sprintf("activity %s has no coarse phase a requeue can reason about", activityID))
 }
 
 // AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the
