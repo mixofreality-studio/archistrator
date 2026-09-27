@@ -19285,6 +19285,22 @@ func assertComputedSolutionsMatchCommitted(
 				kind, got.StaffingCap, got.BufferDays, got.CriticalSpeedup,
 				want.StaffingCap, want.BufferDays, want.CriticalSpeedup)
 		}
+		// THE CLASS RATES OFF THE REAL COMPUTE (Task 10 review, minor (b)). The dial-table case
+		// asserts the field survives a hand-supplied map, which pins the field-drop regression
+		// and nothing else: what SolutionView actually renders is what
+		// deriveClassRates(resolvePlanningAssumptions(…), workerClassesOf(activityList))
+		// produces over THIS repo's committed state, and an empty rate card or an empty roster
+		// would leave that map empty while every dial above still matched.
+		if len(got.ClassRates) == 0 {
+			t.Errorf("%s: the COMPUTED Solution carries no class rates — the rate card or the derived roster came back "+
+				"empty, and SolutionView's BUILD-COST RATES block renders \"No class rates specified.\"", kind)
+		}
+		for class, rate := range got.ClassRates {
+			if rate.MinorUnits <= 0 || rate.Currency == "" {
+				t.Errorf("%s: class %q priced at %+v — a zero or currency-less rate is a cost the M0 screen states and nobody set",
+					kind, class, rate)
+			}
+		}
 	}
 }
 
@@ -35399,6 +35415,10 @@ type designJobPipeline struct {
 	critiques      map[string]int
 	// failDraft names the kinds whose draft job reaches a terminal FAILURE phase.
 	failDraft map[string]bool
+	// failCritique names the kinds whose CRITIQUE job reaches a terminal FAILURE phase — the
+	// first of the three critique faults the retired rail routed to the human gate (Task 10
+	// review, F1), and the one whose absence made a red critique run unrecoverable.
+	failCritique map[string]bool
 	// drafts counts the draft dispatches per kind, so a case can assert a redraft happened.
 	drafts map[string]int
 }
@@ -35408,6 +35428,7 @@ func newDesignJobPipeline(ps *csFakeProjectState, rec *shapeRecorder) *designJob
 		ps: ps, rec: rec,
 		reviseFirst: map[string]bool{}, silentCritique: map[string]bool{},
 		critiques: map[string]int{}, failDraft: map[string]bool{}, drafts: map[string]int{},
+		failCritique: map[string]bool{},
 	}
 }
 
@@ -35434,7 +35455,9 @@ func (p *designJobPipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.Pip
 		}
 	case jobModeCritique:
 		p.critiques[kind]++
-		p.commitCritique(kind)
+		if !p.failCritique[kind] {
+			p.commitCritique(kind)
+		}
 	}
 	return agenticjob.PipelineHandle("design-" + kind + "-" + spec.DispatchInputs[dispatchInputJobMode]), nil
 }
@@ -35483,6 +35506,11 @@ func (p *designJobPipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.
 			return agenticjob.PipelineObservation{Phase: agenticjob.PhaseFailed, Diagnostic: "the draft job's CI check went red"}, nil
 		}
 	}
+	for kind := range p.failCritique {
+		if strings.Contains(string(handle), "design-"+kind+"-"+jobModeCritique) {
+			return agenticjob.PipelineObservation{Phase: agenticjob.PhaseFailed, Diagnostic: "the critique job's run went red"}, nil
+		}
+	}
 	return agenticjob.PipelineObservation{Phase: agenticjob.PhaseSucceeded}, nil
 }
 
@@ -35529,6 +35557,18 @@ func designSlotPtr(p *projectstate.Project, kind projectstate.ArtifactKind) *pro
 // needs; a gated preset is what the two-simultaneous-gates case needs.
 func designShapeRig(t *testing.T, preset string) (*shapeRig, *designJobPipeline) {
 	t.Helper()
+	return designShapeRigOn(t, preset, nil)
+}
+
+// designShapeRigOn is designShapeRig with an explicit per-project REPO resolver. nil is the
+// DORMANT venue (no repo resolves, the read-back and the stage ride main), which is what most
+// of these cases want; the local profile's own resolver is what
+// Test_DesignWalk_LocalVenue_DispatchesIntoTheGitLocalRepo passes, and it is the combination a
+// founder boot actually runs (Task 10 review, minor (a)).
+func designShapeRigOn(
+	t *testing.T, preset string, repo func(ProjectID) (sourcecontrol.RepoRef, bool),
+) (*shapeRig, *designJobPipeline) {
+	t.Helper()
 	var ts testsuite.WorkflowTestSuite
 	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
 	policy := projectstate.ReviewPolicy{}
@@ -35547,6 +35587,7 @@ func designShapeRig(t *testing.T, preset string) (*shapeRig, *designJobPipeline)
 	deps := gateDeps(ps)
 	deps.Review = review.NewReviewEngine()
 	deps.SDPEngines = shapeSDPEngines()
+	deps.Repo = repo
 	wf := csNewWorkflows(deps)
 	wf.Deliveries = rig.rec
 	rig.cs, rig.cswf = ps, wf
@@ -35692,9 +35733,12 @@ func Test_DesignWalk_ArchitectureCommitsTheFifthKindAndSealsPhaseOne(t *testing.
 }
 
 // THE SKIP-IF-COMMITTED GUARD, moved from SystemDesignPhaseWorkflow (the 2026-07-16
-// incident: a restart re-drafted a committed mission). Every existing project is in exactly
-// this state — committed Phase-1 slots, NO execution row — so a ledger-only seed would
-// re-draft all four.
+// incident: a restart re-drafted a committed mission). The state it protects is committed
+// Phase-1 slots with an EMPTY LEDGER, which is every project onboarded before the execution
+// ledger existed and any whose stage-3 backfill has not run — a ledger-only seed marks every
+// task pending there and re-drafts all four. (This repo's own three design activities DO hold
+// backfilled attempts, so the earlier claim that no project has a row was wrong; re-measured
+// in Task 10's review, F2.)
 func Test_DesignWalk_AlreadyCommittedSlotsAreNotRedrafted(t *testing.T) {
 	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
 	for _, k := range []projectstate.ArtifactKind{
@@ -36477,6 +36521,144 @@ func Test_AttemptEvidence_PrefersTheEpisodeThenTheStagedModel(t *testing.T) {
 		if kind != c.wantKind || ref != c.wantRef {
 			t.Errorf("%s: got (%v, %q), want (%v, %q)", c.name, kind, ref, c.wantKind, c.wantRef)
 		}
+	}
+}
+
+// A FAILED CRITIQUE JOB HOLDS THE GATE AND NEVER FAILS THE ACTIVITY (Task 10 review, F1).
+//
+// THE DEFECT IT PREVENTS, and it is unrecoverable rather than merely noisy: a red
+// `mission-critique` run failed the child, the pump propagated the error with NO head-state
+// record, the row already carried StartedAt so PumpWroteRow answered true, and
+// isActivityDispatchable then answered false FOREVER — no gate to answer, no re-open path, and
+// nothing in the ledger saying why. The retired rail routed all three critique faults to the
+// human gate; only the missing-verdict one survived the first draft of the design arm.
+//
+// The preset is `vibes`, which is what makes the claim sharp: every OTHER gate in this walk is
+// auto-passed by the policy, so a HUMAN deciding this one is the policy being overridden by the
+// critic's silence rather than by the absence of a signal.
+func Test_DesignWalk_FailedCritiqueJob_HoldsTheGateForAHumanAndFinishes(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe.failCritique["mission"] = true
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "missionReview"), 2*time.Minute)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	// The walk FINISHES. A critique fault that failed the walk would stop here, and the
+	// activity would be the unrecoverable row described above.
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution("requirements")
+	assertHeldForAHuman(t, latestRoundAt(row, "missionReview"))
+	// The three siblings were auto-passed in the SAME walk, so the hold cannot be the preset's
+	// doing.
+	for _, task := range []string{"glossaryReview", "volatilitiesReview", "coreUseCasesReview"} {
+		if r := latestRoundAt(row, task); r.DecidedBy != gateActorSystem {
+			t.Errorf("round at %s was decided by %q; under vibes its siblings auto-pass", task, r.DecidedBy)
+		}
+	}
+	// The activity still exits COMPLETED: the gate was answered, so the walk finished its work.
+	if !shapeExitedCompleted(rig.cs, "requirements") {
+		t.Error("the activity must reach its binary exit once the held gate is answered")
+	}
+}
+
+// latestRoundAt is the highest-numbered round the ledger holds at a task, or the zero round.
+func latestRoundAt(row projectstate.ActivityExecution, taskID string) projectstate.ReviewRound {
+	var best projectstate.ReviewRound
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == taskID && r.Round >= best.Round {
+			best = r
+		}
+	}
+	return best
+}
+
+// assertHeldForAHuman is the failed critique's whole claim: a HUMAN decided the round, and the
+// critic's silence is on the record as an ABSTENTION carrying the venue's diagnostic — not as an
+// approve, and not as a rejection nobody cast.
+func assertHeldForAHuman(t *testing.T, round projectstate.ReviewRound) {
+	t.Helper()
+	if round.RoundID == "" {
+		t.Fatal("the mission gate opened no round at all, so nothing held")
+	}
+	if round.DecidedBy != gateActorOperator {
+		t.Errorf("the mission round was decided by %q; a critic that did not answer must hold the gate for a HUMAN whatever the preset says", round.DecidedBy)
+	}
+	abstained := false
+	for _, v := range round.Verdicts {
+		if v.Verdict == projectstate.VerdictAbstain && strings.Contains(v.Summary, "went red") {
+			abstained = true
+		}
+		if v.Verdict == projectstate.VerdictApprove && v.Actor != gateActorOperator {
+			t.Errorf("a critique that never answered was recorded as an APPROVE by %q", v.Actor)
+		}
+	}
+	if !abstained {
+		t.Errorf("the failed critique must leave an ABSTAIN carrying the venue's diagnostic; verdicts=%+v", round.Verdicts)
+	}
+}
+
+// THE ACTUAL LOCAL COMBINATION, driven through the WALK (Task 10 review, minor (a)): a project
+// whose repo resolves to the deterministic GitLocal ref while the construction PR rail is
+// DORMANT. That pair is what a founder boot runs, and it is the whole reason designVenue is the
+// child's one new wf.Repo reader — csWorkflows.gitEnabled additionally asks RailEnabled, which
+// answers false here, so routing the design dispatch through it would send every local draft to
+// the CENTRAL construction repo.
+//
+// It is asserted at WALK level and not at Manager level because the two are different claims:
+// the Manager-level case pins what the resolver answers, this one pins what the DISPATCH does
+// with the answer — the GitLocal owner/name decode, the design workflow file, and the activity
+// branch the read-back then reads.
+func Test_DesignWalk_LocalVenue_DispatchesIntoTheGitLocalRepo(t *testing.T) {
+	rig, pipe := designShapeRigOn(t, projectstate.ReviewPresetVibes,
+		func(p ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(p)), true
+		})
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	wantOwner, wantName, err := sourcecontrol.RepoRefOwnerRepo(
+		sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(shapeProjectID)))
+	if err != nil {
+		t.Fatalf("the GitLocal ref must decode to an owner/name pair: %v", err)
+	}
+	designs := 0
+	for _, spec := range pipe.submitted {
+		if spec.DispatchInputs[dispatchInputCommand] == "" {
+			continue // the local merge job, which carries no design command
+		}
+		designs++
+		if spec.TargetRepo.Owner != wantOwner || spec.TargetRepo.Name != wantName {
+			t.Errorf("dispatch target = %+v, want the GitLocal pair (%s, %s) — a zero target sends the draft to the CENTRAL construction repo",
+				spec.TargetRepo, wantOwner, wantName)
+		}
+		if spec.WorkflowFile != designWorkflowFileName {
+			t.Errorf("dispatch workflow file = %q, want %q", spec.WorkflowFile, designWorkflowFileName)
+		}
+		if got, want := spec.DispatchInputs[dispatchInputTargetBranch], activityBranchName("requirements"); got != want {
+			t.Errorf("target_branch = %q, want %q — the read-back reads this branch", got, want)
+		}
+	}
+	if designs == 0 {
+		t.Fatal("no design job was dispatched, so this case is vacuous")
+	}
+	// The PR rail stayed dormant and the LOCAL MERGE is what lands the branch, which is the other
+	// half of the asymmetry: gitOn is true (the status records fire) while gf.enabled is false.
+	if n := mergeJobCount(pipe.submitted); n != 1 {
+		t.Errorf("the local profile must dispatch exactly one merge job to land activity/requirements; got %d", n)
+	}
+	// And the four slots still committed, which they cannot be until that merge has landed them
+	// on main.
+	if len(rig.cs.committedSlots) != 4 {
+		t.Errorf("committed %v, want the four Phase-1 kinds this activity produces", rig.cs.committedSlots)
 	}
 }
 

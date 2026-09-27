@@ -39,9 +39,13 @@ import (
 //  2. THE SKIP-IF-COMMITTED GUARD (the 2026-07-16 incident: a restart re-spawned the
 //     mission child over a committed mission). Moved to the child's
 //     seedWalkFromLedger, which seeds a task passed when its artifact kind is already
-//     committed on main — see committedArtifactOfTask. Moving it was not optional:
-//     every existing project has committed Phase-1 slots and NO execution row for its
-//     design activities, so a ledger-only seed would re-draft all five.
+//     committed on main — see committedArtifactOfTask. Moving it was not optional, but the
+//     reason first written here was wrong and is re-measured (Task 10 review, F2): THIS
+//     repo's three design activities DO have execution rows — eight passed attempts,
+//     two, and one — because the stage-3 backfill wrote them. The guard is load-bearing
+//     for a project whose LEDGER is empty and whose SLOTS are committed, which is every
+//     project onboarded before the execution ledger and any whose backfill has not run;
+//     there a ledger-only seed would re-draft all five.
 //  3. THE SEAL. Moved to csWorkflows.sealSystemDesign, which asks runPhaseAdvance's own
 //     question (is every required kind committed) after each design commit.
 //

@@ -350,17 +350,23 @@ func designSlotOfTask(lc methodassets.Lifecycle, t methodassets.LifecycleTask) (
 //   - beginSession / mintCred / RailOpenBranch are GONE from the per-task path: the child
 //     opens its branch and PR ONCE, at openActivityRow, before the first task runs. The
 //     retired session opened a branch per KIND, because a kind was a whole workflow.
-//   - the RESUME PROBE is gone, and its reason is gone with it. readBackCommittedModelOn was
-//     re-run first when state.resumeFromReadBack was set, and the ONE thing that set it was
-//     openPR faulting AFTER the read-back. The child has no post-read-back rail step at all
-//     (the PR is already open before any dispatch), so there is nothing left to fault into
-//     that marker. A crash mid-dispatch is carried as an earmark, not silently.
+//   - the RESUME PROBE is gone. readBackCommittedModelOn was re-run first when
+//     state.resumeFromReadBack was set, and the setter this arm removes is openPR faulting
+//     AFTER the read-back: the child opens its branch and PR ONCE, at openActivityRow, before
+//     any dispatch, so there is no post-read-back rail step left to fault into that marker.
+//     THE FIRST DRAFT OF THIS COMMENT CLAIMED THE MARKER HAD NO OTHER SETTER, AND THAT WAS
+//     FALSE (Task 10 review, D): the marker's own doc names ANY critique-round fault as a
+//     second one. What replaces that half is the arm below — a critique fault holds the gate
+//     for a human instead of arming a probe — and what replaces neither is a crash
+//     mid-dispatch, which is carried as an earmark rather than silently.
 //   - the AMENDMENT no-change guard is gone with the amendment branch scheme it defended
 //     (R12 retires `-amend-N` in 4b2); a send-back's redraft runs on the same activity branch
 //     and re-stages, which the round's own subject ref is what makes visible.
 //   - StageDraftFailed is gone: the child has no per-session human recovery gate, so a
-//     terminal job failure records a FAILED attempt and fails the walk with the diagnostic,
-//     exactly as Task 9's compute failure does. The operator's repair is Task 12's.
+//     terminal DRAFT failure records a FAILED attempt and fails the walk with the diagnostic,
+//     exactly as Task 9's compute failure does. The operator's repair is Task 12's. A terminal
+//     CRITIQUE failure is a different thing and takes the never-crash arm — see
+//     produceDesignArtifact.
 // ---------------------------------------------------------------------------
 
 // produceDesignArtifact is one design task's whole production: submit the job its command
@@ -371,27 +377,66 @@ func designSlotOfTask(lc methodassets.Lifecycle, t methodassets.LifecycleTask) (
 // commit a critique VERDICT and no model — so it stages nothing and reports the verdict
 // through the producedSubject's Outcome, which runAgentReviewers turns into a round verdict.
 // One function, because the two differ in the read-back alone.
+//
+// A FAILED CRITIQUE NEVER FAILS THE WALK (Task 10 review, F1), and this is the retired rail's
+// whole never-crash discipline: coauthorartifact.go routed ALL THREE critique faults — a
+// terminal job failure, a rejected dispatch, a missing verdict — to the human gate, and only
+// the third of them survived the first draft of this arm. The defect that made it is not
+// theoretical and it is unrecoverable: a red `mission-critique` run failed the child, the pump
+// propagated the error with NO head-state record, the row already had StartedAt so
+// PumpWroteRow answered true, and isActivityDispatchable then answered false FOREVER — no gate
+// to answer, no re-open, and nothing in the ledger saying why. So a critique that did not
+// succeed returns a FAILED producedSubject with a NIL error: criticVerdictFor maps it to an
+// abstention with judged=false, and runGate holds the gate for a human whatever the review
+// policy says. The diagnostic rides the attempt and the round's verdict, so what happened is
+// on the record; what does not happen is the activity dying.
 func (wf *csWorkflows) produceDesignArtifact(
 	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
 ) (producedSubject, error) {
 	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
+	critique := tc.Task.Kind == methodassets.LifecycleTaskReview
 	obs, err := wf.runDesignJob(ctx, tc, kind)
 	if err != nil {
-		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+		// A REJECTED DISPATCH is the second of the three faults: an unresolvable repo target, an
+		// empty pipeline handle, a submit the venue refused. For a critique it holds the gate; for
+		// a draft it fails the walk, because there is no artifact and no gate that could stand in
+		// for one.
+		return designFaultSubject(ctx, tc, attemptID, err.Error(), critique), critiqueSafeError(err, critique)
 	}
 	if obs.Phase != PipelineSucceeded {
-		// The job RAN and FAILED (the draft failed, or the required CI check went red). The
-		// attempt records it and the error fails the walk; the diagnostic is what an operator
-		// reads either way, and inferring success from a non-success phase is the one thing
-		// this arm must never do (§0d.4's anti-wedge rule, kept as its loud half).
+		// The job RAN and FAILED (the draft failed, or the required CI check went red). Inferring
+		// success from a non-success phase is the one thing this arm must never do (§0d.4's
+		// anti-wedge rule, kept as its loud half) — but for a critique "loud" means a held gate,
+		// not a dead activity.
 		detail := dispatchJobFailedDetail(jobLabelDesign, tc.Task.ID, obs)
-		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: detail},
-			temporal.NewNonRetryableApplicationError(detail, "DesignJobFailed", nil)
+		return designFaultSubject(ctx, tc, attemptID, detail, critique),
+			critiqueSafeError(temporal.NewNonRetryableApplicationError(detail, "DesignJobFailed", nil), critique)
 	}
-	if tc.Task.Kind == methodassets.LifecycleTaskReview {
+	if critique {
 		return wf.readBackCritique(ctx, tc, kind, attemptID)
 	}
 	return wf.stageDesignDraft(ctx, tc, kind, attemptID)
+}
+
+// designFaultSubject is the FAILED producedSubject a design fault leaves behind, and it logs
+// the critique arm at Warn so a held gate is not a silent one: the operator sees an activity
+// waiting for them, and the log says the critic never answered.
+func designFaultSubject(ctx workflow.Context, tc taskContext, attemptID, detail string, critique bool) producedSubject {
+	if critique {
+		workflow.GetLogger(ctx).Warn("the critique job did not answer; the gate will hold for a human rather than failing the activity",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "detail", detail)
+	}
+	return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: detail}
+}
+
+// critiqueSafeError swallows a design fault's error for a CRITIQUE and returns it for a DRAFT.
+// It is one function rather than two arms at two call sites so the rule cannot be applied at
+// one fault and forgotten at the other, which is exactly how F1's gap was made.
+func critiqueSafeError(err error, critique bool) error {
+	if critique {
+		return nil
+	}
+	return err
 }
 
 // The two job LABELS the shared dispatch machinery names in an operator-facing sentence.
@@ -834,12 +879,28 @@ func (wf *csWorkflows) stageDesignOutput(
 	return stagedRefString(staged, kind), nil
 }
 
-// applyRecoveringOnBranch is applyRecovering for a write that lands on a BRANCH: identical
+// applyRecoveringOnBranch is applyRecovering for a write that lands on a BRANCH: the same
 // Conflict re-read→re-apply discipline, except the re-read asks that branch for its version
 // rather than main for its own. Seeding a branch retry from main's number is how a stage that
 // Conflicts once Conflicts twenty times and dies MutateConflictExhausted.
 //
 // branch == "" delegates, because then the branch IS main and one loop is better than two.
+//
+// IT DOES NOT CARRY TASK 7's TERMINALITY ARM, and the omission is deliberate rather than
+// missed (Task 10 review, D). terminalAfterRowReread asks the ACTIVITY'S EXECUTION ROW whether
+// it moved, and that row — with its per-activity counter — lives on MAIN: a branch write that
+// Conflicts has nothing to do with the row's version, so re-seeding the run's copy of it from
+// here would hand a main-scoped CAS a number a branch write produced, and "the row stood still"
+// would read as terminal for a Conflict the row was never part of. That is the FALSE terminal
+// the arm itself exists to prevent, arriving through the other door. Nor is the arm's other
+// half reachable: both terminality Conflicts (an exited row, a decided round) are raised by
+// row verbs, and the only verb that lands here is StageTaskOutput, which asserts no row
+// version at all.
+//
+// THE CONSEQUENCE, recorded: a branch store that REFUSES this write for a reason that is not a
+// race burns the whole bound and dies MutateConflictExhausted, where a main-scoped write would
+// have been told so on its second attempt. The bound is maxMutateConflictAttempts and the
+// diagnostic names the branch.
 func (wf *csWorkflows) applyRecoveringOnBranch(
 	ctx workflow.Context,
 	projectID ProjectID,
@@ -2482,12 +2543,19 @@ func (wf *csWorkflows) bindRowAccessors(ctx workflow.Context, in deliveryActivit
 // THE SKIP-IF-COMMITTED GUARD LIVES HERE NOW (stage 4b1 Task 10), and it is the second half
 // of the seed rather than a nicety. SystemDesignPhaseWorkflow read the head-state once at
 // start and skipped every already-committed step, because a restart that re-spawned the
-// mission child over a committed mission is a real 2026-07-16 incident. Retiring that
-// parent without moving its guard would re-introduce the incident on EVERY existing project:
-// this repo's own slots 0–6 are committed and its three design activities have NO execution
-// row at all, so a ledger-only seed marks every task pending and the first thing the pump
-// does is re-draft a mission that has been committed for months. A task whose artifact kind
-// is COMMITTED on main is therefore seeded passed, whatever the ledger holds.
+// mission child over a committed mission is a real 2026-07-16 incident. Retiring that parent
+// without moving its guard would re-introduce the incident.
+//
+// WHAT IT ACTUALLY PROTECTS, re-measured (Task 10 review, F2), because the first draft of this
+// paragraph claimed this repo's three design activities have NO execution row and that is
+// FALSE: `requirements` holds eight passed attempts, `architecture` two plus a passed round 2,
+// `projectDesign` one. Those rows exist because the stage-3 backfill wrote them, so on THIS
+// project the two answers agree and the guard is belt-and-braces. It is load-bearing for a
+// project whose LEDGER IS EMPTY and whose SLOTS ARE COMMITTED — every project onboarded before
+// the execution ledger existed, and any whose backfill has not run — where a ledger-only seed
+// marks every task pending and the first thing the pump does is re-draft a mission that was
+// committed months ago. A task whose artifact kind is COMMITTED on main is therefore seeded
+// passed, whatever the ledger holds.
 //
 // Pure over values already in workflow history (the start snapshot's recorded read).
 func (wf *csWorkflows) seedWalkFromLedger(
