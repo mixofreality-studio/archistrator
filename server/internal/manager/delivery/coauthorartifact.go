@@ -167,135 +167,13 @@ func (wf *workflows) applyRecovering(
 	}
 }
 
-// Stage 4b1: ONE copy serves the systemDesign + projectDesign + construction rails. These
-// four take a workflow.Context, so the file-layout gate forbids them in deliverymanager.go
-// (workflow-in-impl-file); they live in their first caller's file per the standard, beside
-// the applyRecovering loop that is their first caller. Their non-context half — the fence
-// id, terminalConflictErrType, terminalConflictMessage, isTerminalConflict, the rowAccessor
-// struct and its key — is in deliverymanager.go with isConflict.
-
-// withRowAccessor binds acc for the rest of this execution. Called once, by each child's
-// entry func, right after its state is built — a pure context derivation, no command, so it
-// needs no fence of its own.
-func withRowAccessor(ctx workflow.Context, acc rowAccessor) workflow.Context {
-	return workflow.WithValue(ctx, rowAccessorKey{}, acc)
-}
-
-// rowAccessorFrom returns the binding, or ok=false for the callers that hold NO row and
-// must keep the project-version-only behaviour: the pump (pumpnextactivity.go) and the
-// supervision workflow's pause record (projectsupervision.go). Both write PROJECT-scoped
-// head state and address no activity at all, which is why the fenced arm is GUARDED and
-// never nil-called — the pump is the one workflow in this package that cannot fail quietly.
-//
-// The round sweep (roundsweep.go, Task 6) was PREDICTED to be a third such caller, and it
-// is not. It walks every activity of a project, so it holds no single row for the whole
-// workflow — but it holds exactly ONE per write, and per-write is the granularity this
-// accessor is about, so it binds one per iteration. It has to: the decided-round refusal is
-// the terminality Conflict this arm exists for and the only one the sweep can provoke, and
-// unbound the sweep would burn twenty attempts on it and fail a whole project's sweep as
-// MutateConflictExhausted — the exact defect Task 7 removed everywhere else.
-func rowAccessorFrom(ctx workflow.Context) (rowAccessor, bool) {
-	acc, ok := ctx.Value(rowAccessorKey{}).(rowAccessor)
-	if !ok || acc.activityID == "" || acc.version == nil || acc.setVersion == nil {
-		return rowAccessor{}, false
-	}
-	return acc, true
-}
-
-// rereadRowVersion asks the store what version the activity's execution row is at now.
-//
-// A NotFound reads as projectstate.NoActivityVersionExpectation rather than as a failure:
-// a row that does not exist cannot have moved, and a birth legitimately holds no number.
-// It reaches here on the FIRST attempt without any option preset, because fwra carries
-// Retryable PER ERROR and NotFound is not (framework-go manager.MapError → tagError).
-func rereadRowVersion(ctx workflow.Context, acts genInvokers, projectID ProjectID, activityID string) (int64, error) {
-	row, err := acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(projectID), activityID)
-	if err != nil {
-		if isReadNotFound(err) {
-			return projectstate.NoActivityVersionExpectation, nil
-		}
-		return 0, err
-	}
-	return row.Version, nil
-}
-
-// terminalAfterRowReread is the Conflict arm's second question, asked after the project
-// version has been re-read: is this Conflict a race at all?
-//
-// Two things the old loop could not tell apart. An EXTERNAL row writer — the pump's
-// RecordActivityFailed, an operator note filed through the API, or (from this wave) a
-// reviewer resolving a comment on a round a live child holds — bumps the ROW version while
-// the PROJECT version the loop re-read may or may not move; and a TERMINAL refusal (an
-// exited row, a decided round) moves neither, because there is nothing to move. Re-reading
-// the row answers both: it re-seeds the CAS the child holds by hand, and its standing still
-// is what proves retrying is pointless.
-//
-// projectVersionMoved is what the caller already learned from its own re-read, passed in
-// because the three loops read the version on three different substrates (main, a session
-// branch, the construction head).
-//
-// GetVersion is called FIRST and before any branch that could skip it, so a new execution
-// records the marker deterministically on its first Conflict; a recorded history takes the
-// DefaultVersion arm and makes no row read, which is what keeps the nineteen replays green.
-func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID ProjectID, projectVersionMoved bool) (bool, error) {
-	if workflow.GetVersion(ctx, changeRowConflictReread, workflow.DefaultVersion, 1) < 1 {
-		return false, nil
-	}
-	acc, bound := rowAccessorFrom(ctx)
-	if !bound {
-		return false, nil
-	}
-	before := acc.version()
-	after, err := rereadRowVersion(ctx, acts, projectID, acc.activityID)
-	if err != nil {
-		return false, err
-	}
-	if after == projectstate.NoActivityVersionExpectation && before != projectstate.NoActivityVersionExpectation {
-		// A NotFound re-read must NEVER DOWNGRADE a held expectation. The mapping above reads
-		// "no row" as NoActivityVersionExpectation, and that value is not just a number:
-		// activityVersionMismatch short-circuits on it, so re-seeding a run that HELD a number
-		// would switch the per-row CAS OFF for the rest of that run and let it write over every
-		// interleaving the guard exists to refuse — silently, and long after the conflict that
-		// caused it. So keep `before`, and let the Conflict stay a Conflict: a row that vanished
-		// under a live run holding a number for it is not a state to be permissive about, and
-		// the loop exhausting its bound is the loud answer. (Rows are never deleted, so this is
-		// a "cannot happen" that must not degrade quietly if it does.) Not terminal either —
-		// `after != before` here by construction.
-		return false, nil
-	}
-	// Re-seed: whatever the store reports IS the row's version, and the run's hand-advanced
-	// copy (rowAdvanced) is the thing that was wrong if they differ.
-	acc.setVersion(after)
-	if before == projectstate.NoActivityVersionExpectation {
-		// A run in the "I have not read this row" posture (a BIRTH) cannot be looking at a
-		// row's refusal: both terminality Conflicts are reachable only THROUGH a row the run
-		// already read — OpenActivity BIRTHS an absent row rather than refusing it, and the
-		// round verbs cannot find a round on a row that is not there (NotFound, not
-		// Conflict). So the terminal arm requires a row expectation, and without one the loop
-		// retries exactly as it did before. Deliberately asymmetric: a FALSE terminal fails a
-		// healthy activity non-retryably, which is the very defect this arm removes.
-		return false, nil
-	}
-	return !projectVersionMoved && after == before, nil
-}
-
-// bindDesignRowAccessor binds the design activity's ROW onto the session's context, so
-// applyRecovering's Conflict arm can re-read it (rowAccessor: why the context and not the
-// receiver). The row identity is PURE — designRoundKeyFor over the artifact kind, no
-// command — so this is called once, at the top of the session, before any fence: a kind
-// with no design activity in the pinned lifecycle binds nothing and keeps the
-// project-version-only behaviour exactly.
-func bindDesignRowAccessor(ctx workflow.Context, kind ArtifactKind, state *coAuthorState) workflow.Context {
-	key, ok := designRoundKeyFor(toPSKind(kind))
-	if !ok {
-		return ctx
-	}
-	return withRowAccessor(ctx, rowAccessor{
-		activityID: key.activityID,
-		version:    func() int64 { return state.activityVersion },
-		setVersion: func(v int64) { state.activityVersion = v },
-	})
-}
+// THE ROW ACCESSOR's workflow.Context helpers — withRowAccessor, rowAccessorFrom,
+// rereadRowVersion, terminalAfterRowReread and bindDesignRowAccessor — moved to
+// deliveryactivity.go (stage 4b1 Task 8). They were here because the file-layout gate
+// forbids a workflow.Context-taking func in the impl file and this was their first
+// caller's file; they are there now because that is the file the wave KEEPS, so the
+// deletion of this one cannot break the build. Their non-context half stays in
+// deliverymanager.go with isConflict.
 
 // critiqueReadBackEmptyType is the Temporal Type() readBackCritique raises when a
 // critique job reached PhaseSucceeded but committed no verdict (the missing-verdict
@@ -411,6 +289,10 @@ const autoApproverVibes = "policy:vibes"
 // woven into the next draft dispatch.
 type redraftSignal struct {
 	Feedback *ReviewFeedback
+	// TaskID names the TASK to re-draft, for the generic child's signal router
+	// (deliveryactivity.go). Empty on both design rails, which hold one session per
+	// artifact kind; Task 12's DispatchActivityTask is the sender that fills it.
+	TaskID string
 }
 
 func (wf *workflows) CoAuthorArtifactWorkflow(ctx workflow.Context, in coAuthorInput) (coAuthorOutcome, error) {
@@ -2455,18 +2337,13 @@ const (
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// observePollInterval spaces the observe-poll loop's durable timer waits. A
-// design job runs minutes in the user's CI; this is the in-workflow timer the
-// contract prescribes (§0d.2 step 4). Kept modest so the test's time-skipping env
-// settles quickly.
-const observePollInterval = 15 * time.Second
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// maxObservePolls bounds the observe loop so a stuck (never-terminal) job cannot
-// spin forever; exceeding it is treated as a terminal infrastructure failure and
-// routed to the human gate (never a perpetual Drafting — the anti-wedge rule).
-const maxObservePolls = 240 // 240 * 15s = 1h ceiling
+// The observe-poll SCHEDULE is the ONE ladder in deliveryactivity.go (observeInterval,
+// maxObserveTotalPolls) — R-L, stage 4b1. It used to be a flat 15s x 240 here and a second
+// flat 15s x 240 on the construction rail; two copies of one cadence are two things to keep
+// in step, and the ladder keeps the SAME one-hour ceiling on a tenth of the history. The
+// ceiling and the escalation this loop performs on exhaustion are both unchanged: a stuck
+// (never-terminal) job is still a terminal infrastructure failure routed to the human gate,
+// never a perpetual Drafting (the anti-wedge rule).
 
 // dispatchDesignJobArgs bundles the dispatch inputs for the Activity boundary.
 // ArtifactKind + Target select the .claude command slug (DesignCommandFor); Branch
@@ -2589,7 +2466,7 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 	}
 
 	var last pipelineObservation
-	for range maxObservePolls {
+	for poll := range maxObserveTotalPolls {
 		obs, err := wf.observeDesignJob(ctx, handle)
 		if err != nil {
 			return pipelineObservation{}, err
@@ -2604,7 +2481,7 @@ func (wf *workflows) dispatchAndObserve(ctx workflow.Context, args dispatchDesig
 		}
 		last = obs
 		// Not yet terminal — space the next observe with a durable in-workflow timer.
-		if err := workflow.Sleep(ctx, observePollInterval); err != nil {
+		if err := workflow.Sleep(ctx, observeInterval(poll)); err != nil {
 			return pipelineObservation{}, err
 		}
 	}
@@ -3303,6 +3180,17 @@ func designArchApprovalBody(kind ArtifactKind) string {
 type setCommentStatusSignal struct {
 	CommentID string
 	Status    string
+	// TaskID names the TASK whose round holds this comment. The generic child's signal
+	// router keys every payload on it (deliveryactivity.go): a walk runs several gates at
+	// once, and a status message with no task cannot be forwarded to one of them.
+	//
+	// The design rails leave it EMPTY and are unaffected — they hold one session per
+	// artifact kind and read the shared channel directly — so this is additive and an
+	// older buffered signal decodes it as "". EARMARK: SetReviewCommentStatus's façade
+	// signature carries no task, so the Manager cannot fill it until Task 12 gives the
+	// twelve ops a task id; until then the child's drop path is reachable from the façade
+	// and is LOGGED loudly rather than refused.
+	TaskID string
 }
 
 // feedbackToLedgerComments converts the architect's inbound anchored comments (the wire

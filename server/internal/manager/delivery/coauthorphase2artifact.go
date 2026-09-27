@@ -1540,7 +1540,7 @@ func (wf *pdWorkflows) dispatchAndObserve(ctx workflow.Context, args pdDispatchD
 	}
 
 	var last pdPipelineObservation
-	for range maxObservePolls {
+	for poll := range maxObserveTotalPolls {
 		obs, err := wf.observeDesignJob(ctx, handle)
 		if err != nil {
 			return pdPipelineObservation{}, err
@@ -1552,7 +1552,7 @@ func (wf *pdWorkflows) dispatchAndObserve(ctx workflow.Context, args pdDispatchD
 		}
 		last = obs
 		// Not yet terminal — space the next observe with a durable in-workflow timer.
-		if err := workflow.Sleep(ctx, observePollInterval); err != nil {
+		if err := workflow.Sleep(ctx, observeInterval(poll)); err != nil {
 			return pdPipelineObservation{}, err
 		}
 	}

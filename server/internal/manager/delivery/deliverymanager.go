@@ -5071,7 +5071,7 @@ type rowAccessor struct {
 //
 // The four funcs that READ or WRITE this binding take a workflow.Context and so cannot
 // live in the impl file at all (arch.CheckFileLayout's workflow-in-impl-file rule): they
-// sit in their first caller's file, coauthorartifact.go — withRowAccessor,
+// sit in deliveryactivity.go, the file the wave keeps — withRowAccessor,
 // rowAccessorFrom, rereadRowVersion and terminalAfterRowReread.
 type rowAccessorKey struct{}
 
@@ -9208,6 +9208,18 @@ func constructActivityWorkflowID(projectID ProjectID, activityID ActivityID) str
 	return fmt.Sprintf("%s:%s", projectID, activityID)
 }
 
+// deliveryActivityWorkflowID derives the GENERIC per-activity child's id
+// {projectId}:activity:{activityId} (stage 4b1 Task 8).
+//
+// The ":activity:" segment is deliberate and is not decoration: the retired child's id is
+// {projectId}:{activityId}, so reusing that shape would make the new child collide with an
+// in-flight old one on the same activity — Temporal answers AlreadyStarted and the pump
+// reads a dispatch that silently did nothing. A distinct segment lets both ids coexist while
+// both types are registered.
+func deliveryActivityWorkflowID(projectID ProjectID, activityID ActivityID) string {
+	return fmt.Sprintf("%s:activity:%s", projectID, activityID)
+}
+
 // pauseTargetWorkflowID derives the project-level pump workflow id pause/sweep
 // signals + the project-level session query address. The pause Signal targets the
 // project's in-flight construction execution; the project-level pump id is the
@@ -9869,6 +9881,20 @@ type csWorkflows struct {
 	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
+
+	// Strategies is the generic child's task-strategy table (deliveryactivity.go). It is a
+	// FIELD rather than a package function so a test can substitute a stub for a slot whose
+	// real implementation arrives in a later task — which is how the DAG's fork/join shape
+	// is proved before either dispatch implementation exists. csNewWorkflows defaults it to
+	// productionStrategies(), so an unwired composition cannot read a nil map.
+	Strategies strategyRegistry
+
+	// Deliveries observes WHICH TASK each routed signal reached (walkState.deliver). Nil in
+	// production, and it is an observation seam rather than behaviour because the walk's
+	// TERMINAL cannot tell a delivered override from a lost one: a gate that never receives
+	// one simply waits for its decision instead, so a case asserting only the terminal would
+	// pass with the message gone — which is the defect the router exists to remove.
+	Deliveries walkDeliveryRecorder
 }
 
 // railDormant is the RailEnabled answer of a boot with no construction PR-rail
@@ -9893,6 +9919,9 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		NextEligibleActivity:  d.NextEligibleActivity,
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
+		// The generic child's strategy table is defaulted HERE, not read lazily, so an
+		// unwired composition cannot nil-map-read its way to a walk with no dispatch.
+		Strategies: productionStrategies(),
 	}
 }
 
@@ -10097,6 +10126,10 @@ type constructState struct {
 	// other workflow-local field.
 	gate gateLedger
 
+	// walk is the GENERIC child's per-run head-state and git lifecycle (walkRun). Zero and
+	// unread on the retired rail, which threads the same facts by parameter.
+	walk walkRun
+
 	// ephemeralNotes are the ids of the workflow-local notes that carry a send-back's
 	// feedback into the redraft WITHOUT being recorded (stage 3): the round IS the record
 	// of the send-back now, so a NoteSendBack beside it would be one fact stored twice.
@@ -10128,6 +10161,12 @@ func (s *constructState) rowAdvanced() { s.activityVersion++ }
 // counters would let the two ledgers disagree about which review a passing gate came
 // from. nextTaskAttempt is the single counter, seeded from whichever of the two ledgers
 // has gone further (seedResumeFromLedger).
+//
+// It is passed to the round writers BY POINTER rather than read off constructState,
+// because the generic child (deliveryactivity.go) runs several gates AT ONCE on a fork and
+// this holds exactly one: two concurrent gates sharing constructState.gate would each
+// overwrite the other's round id and decide the wrong round. The retired rail's walk is
+// sequential and passes &state.gate, so its behaviour is unchanged to the byte.
 type gateLedger struct {
 	task    projectstate.MethodTask
 	number  int
@@ -10136,6 +10175,135 @@ type gateLedger struct {
 	// actor is who passed or rejected the gate — stamped when the round is decided and
 	// read back by the gate attempt the completion writes.
 	actor projectstate.TaskActor
+	// judgedAttemptID is the AttemptID of the work this gate judges — what every verdict on
+	// the round names, which is the join that makes a verdict traceable to the work it
+	// judged and to the episode that burned it. It lives HERE rather than being read off
+	// constructState.workAttemptID for the same reason the rest of this struct does: on a
+	// fork two gates judge two different attempts at the same moment.
+	judgedAttemptID string
+}
+
+// walkRun is the generic child's per-run head-state and git lifecycle. The helpers it
+// shares with the retired rail take a *projectstate.Version and a *gitForward by
+// PARAMETER, and the walk cannot thread them that way — its function signatures are fixed
+// by the tasks that follow it, and its dispatch strategies reach them through
+// taskContext.State — so the run's copy lives here, on the state every strategy already
+// holds. Zero-valued and unread on the retired rail, which threads its own by pointer.
+type walkRun struct {
+	// headVersion is the walk's read-your-writes token for the whole document.
+	headVersion projectstate.Version
+	// gf is the per-activity branch/PR lifecycle, dormant when the git slice is unwired.
+	gf gitForward
+	// gitOn is startedCred's answer: whether the head-state records fire at all.
+	gitOn bool
+	// cred is the credential minted ONCE for this activity's git lifecycle.
+	cred railCredEnvelope
+	// policy is the committed ReviewPolicy this run gates against, snapshotted at start
+	// and NEVER re-read mid-walk — the same discipline the retired rail's parameter has.
+	policy projectstate.ReviewPolicy
+}
+
+// walkTaskState is one task's position in the walk. It is WALK-LOCAL: the durable truth is the
+// attempt and round ledgers, and the map is rebuilt from them on resume.
+//
+// ITS ORDINALS ARE PAYLOAD-VISIBLE across a ContinueAsNew (walkSnapshot.ByTask encodes
+// this iota), which puts them under this repo's never-renumber rule: a new state is
+// APPENDED, and re-ordering the existing five would silently re-interpret every in-flight
+// walk at the moment the new image goes live. Pinned by
+// Test_TaskStateOrdinalsNeverRenumber. (Serialising them as strings was the alternative
+// and was rejected: it trades one pinned table for a second vocabulary to keep in step
+// with the iota, and the pin is three lines.)
+type walkTaskState int
+
+const (
+	walkTaskPending walkTaskState = iota
+	walkTaskRunning
+	walkTaskPassed
+	walkTaskSentBack
+	walkTaskFailed
+)
+
+// producedSubject is what a strategy hands back: the ref a review round will cite, the
+// attempt id the ledger recorded, and the attempt's outcome. StagedRef is empty when the
+// strategy staged nothing (construction's output is a commit the agent pushed, not a model
+// this platform staged) and gateSubjectRef falls through its ladder accordingly.
+type producedSubject struct {
+	StagedRef string
+	AttemptID string
+	Outcome   projectstate.TaskOutcome
+	Detail    string
+}
+
+// deliveryActivityInput is the start payload for the GENERIC per-activity child.
+//
+// constructionActivity is REUSED UNRENAMED. It is the pump's classified activity — the
+// same id, component, layer, type and variant the generic walk needs — and renaming it to
+// something rail-neutral is a class-D rename touching every construction call site, which
+// is not in this wave's scope.
+//
+// Resume is nil on a fresh start and carries the walk across a ContinueAsNew.
+type deliveryActivityInput struct {
+	ProjectID  ProjectID
+	ActivityID ActivityID
+	Activity   constructionActivity
+	Resume     *walkSnapshot
+}
+
+// walkSnapshot is the walk across ContinueAsNew: exported fields, the four walk maps plus
+// the undelivered messages, and nothing else. No channel (re-created), no lifecycle
+// (re-resolved from the activity), no review policy (re-snapshotted), because anything
+// re-derivable must be re-derived rather than carried — a snapshot that carries a
+// derivable fact is a second copy to keep in step.
+type walkSnapshot struct {
+	ByTask   map[string]int             `json:"byTask"`
+	Revision map[string]int64           `json:"revision"`
+	Feedback map[string]string          `json:"feedback"`
+	Produced map[string]producedSubject `json:"produced"`
+	Pending  map[string][]routedSignal  `json:"pending"`
+}
+
+// The four signal kinds the router forwards. They are the message's discriminator, not a
+// wire enum of their own: exactly one of routedSignal's four pointers is non-nil and the
+// kind says which.
+const (
+	routedKindDecision = "decision"
+	routedKindStatus   = "status"
+	routedKindOverride = "override"
+	routedKindRedraft  = "redraft"
+)
+
+// routedSignal is one message the router took off a shared signal channel and forwarded to
+// ONE task's inbox. Its fields are EXPORTED because walkSnapshot carries the undelivered
+// ones across a ContinueAsNew, so they must survive the data converter.
+type routedSignal struct {
+	Kind     string
+	TaskID   string
+	Decision *taskDecisionSignal
+	Status   *setCommentStatusSignal
+	Override *operatorOverrideSignal
+	Redraft  *redraftSignal
+}
+
+// taskDecisionSignal is the taskDecision payload: a decision aimed at ONE TASK's gate
+// inside the generic child. Every field the old phaseDecisionSignal carried is here, keyed
+// by task instead of by lifecycle phase.
+type taskDecisionSignal struct {
+	// TaskID is the lifecycle task whose gate this decides. The router keys on it, so a
+	// decision that names none reaches no gate at all.
+	TaskID string
+	// Decision is the verdict; ReviewApprove and ReviewReject are the two the gate acts on.
+	Decision ReviewDecision
+	// OptionID is the option an M0 approve commits. Read by Task 9's M0 handler; every
+	// other gate leaves it nil.
+	OptionID *OptionID
+	// Feedback is the reviewer's notes and anchored comments.
+	Feedback *ReviewFeedback
+	// DecidedBy is the acting identity the round records. Empty falls back to the operator
+	// the platform can honestly attribute a decision to.
+	DecidedBy string
+	// AcknowledgeStale is the reviewer confirming they judged a basis that has since moved.
+	// Read by Task 12, which owns the acknowledgeStaleBasis verb.
+	AcknowledgeStale bool
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -10209,6 +10377,12 @@ const (
 	// signalPhaseDecision delivers a phase-gated approval/send-back decision to a
 	// per-activity child workflow; backs SubmitPhaseDecision.
 	signalPhaseDecision = "phaseDecision"
+	// signalTaskDecision delivers a decision to ONE TASK's gate inside the generic
+	// per-activity child (stage 4b1 Task 8). It is signalPhaseDecision's successor and not
+	// a rename of it: the old signal keys on a lifecycle PHASE and multiplexes one gate at
+	// a time, and the walk runs several gates at once, so the new one keys on the task —
+	// which is also what lets the router forward it to exactly one coroutine.
+	signalTaskDecision = "taskDecision"
 	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
 	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
 	// background self-cascade drain (constructionManager.md §2.1).
@@ -10239,6 +10413,11 @@ const (
 	// because it is BORN here — unlike the construction* four above, which keep theirs so
 	// a rename cannot strand an in-flight execution.
 	executionKindRoundSweep = "deliveryRoundSweep"
+	// executionKindDeliveryActivity is the GENERIC per-activity child (stage 4b1 Task 8):
+	// ONE workflow type that walks any method-assets lifecycle's task DAG. It carries the
+	// delivery* spelling for the same reason the round sweep does — it is BORN here, so no
+	// in-flight execution can be stranded by the name it was given.
+	executionKindDeliveryActivity = "deliveryActivity"
 )
 
 // Schedule ids + cadences (constructionManager.md §6.1; Task 7c). Namespaced with
@@ -10432,6 +10611,9 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
 			{Name: executionKindPumpSweep, Fn: wf.PumpSweepWorkflow},
 			{Name: executionKindRoundSweep, Fn: wf.RoundSweepWorkflow},
+			// The GENERIC per-activity child (stage 4b1 Task 8). Registered here so a worker
+			// can serve it; nothing STARTS it yet — Task 9 re-points the pump.
+			{Name: executionKindDeliveryActivity, Fn: wf.DeliveryActivityWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{

@@ -816,12 +816,11 @@ const maxVarianceAttempts = 10
 // re-enters the variance loop or fails the activity).
 const maxPhaseRedrafts = 5
 
-// pipelinePollInterval is the durable wait between observeAgenticJob
-// polls (the Manager's own startTimer cadence; §6.3 step 3).
-const pipelinePollInterval = 15 * time.Second
-
-// maxPipelinePolls bounds the observe loop (a stuck pipeline escalates).
-const maxPipelinePolls = 240
+// The observe-poll SCHEDULE is the ONE ladder in deliveryactivity.go (observeInterval,
+// maxObserveTotalPolls) — R-L, stage 4b1. The ceiling is unchanged and so is the escalation:
+// a stuck pipeline still exhausts the budget and routes through handleVariance. Only the
+// cadence moved, from a flat 15s x 240 to 4x15s + 9x60s + 10x300s — the same hour, 23 polls
+// instead of 240, because one child now holds eleven of these loops instead of one.
 
 // ===========================================================================
 // ConstructActivityWorkflow — the per-activity UC3 spine (constructionManager.md
@@ -855,7 +854,7 @@ func (wf *csWorkflows) ConstructActivityWorkflow(ctx workflow.Context, in constr
 
 	// Per-execution start snapshot (B5): capture the committed ReviewPolicy, seed the
 	// completedPhases skip-guard, and capture the contract keys — replay-guarded.
-	reviewPolicy, err := wf.loadReviewSnapshot(ctx, in, state)
+	reviewPolicy, _, err := wf.loadReviewSnapshot(ctx, in, state)
 	if err != nil {
 		return err
 	}
@@ -1041,16 +1040,18 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
-) (projectstate.ReviewPolicy, error) {
+) (projectstate.ReviewPolicy, projectstate.ActivityExecution, error) {
 	var reviewPolicy projectstate.ReviewPolicy
+	var row projectstate.ActivityExecution
 	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
 	if v < 1 {
-		return reviewPolicy, nil
+		return reviewPolicy, row, nil
 	}
 	snap, srErr := wf.readProject(ctx, in.ProjectID)
 	if srErr != nil && !isReadNotFound(srErr) {
-		return reviewPolicy, srErr
+		return reviewPolicy, row, srErr
 	}
+	row = snap.ActivityExecution[string(in.ActivityID)]
 	reviewPolicy = snap.ReviewPolicy
 	// LEDGER-AWARE SEED (architect (D), D.1.3). The pump now dispatches an
 	// integration-pending row — one whose history lives in the attempt ledger alone — so
@@ -1102,7 +1103,7 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	// reviewPolicy itself. A missing contract (nil map lookup) reads as the zero
 	// ServiceContract, which never touches the floor.
 	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
-	return reviewPolicy, nil
+	return reviewPolicy, row, nil
 }
 
 // seedResumeFromLedger seeds a run's start state from its activity's stored row, read the
@@ -1334,7 +1335,7 @@ func (wf *csWorkflows) runPipeline(ctx workflow.Context, in constructActivityInp
 	}
 
 	var last csPipelineObservation
-	for range maxPipelinePolls {
+	for poll := range maxObserveTotalPolls {
 		obs, err := wf.observePipeline(ctx, handle)
 		if err != nil {
 			return csPipelineObservation{}, err
@@ -1357,8 +1358,9 @@ func (wf *csWorkflows) runPipeline(ctx workflow.Context, in constructActivityInp
 			return obs, nil
 		}
 		last = obs
-		// Durable wait between polls (the Manager's own startTimer — category A).
-		_ = workflow.Sleep(ctx, pipelinePollInterval)
+		// Durable wait between polls (the Manager's own startTimer — category A), on the ONE
+		// capped ladder both observe loops share.
+		_ = workflow.Sleep(ctx, observeInterval(poll))
 	}
 	// Poll budget exhausted without Succeeded/Failed (a stuck run, or a CANCELLED one —
 	// this loop deliberately does not treat Cancelled as terminal). The dispatch still
@@ -1428,7 +1430,7 @@ func (wf *csWorkflows) runPhaseGate(
 	// same phase, and leaveHumanStage takes it down with the occurrence it belonged to.
 	// The proposal is pure and deterministic over (type, phase, policy, floor,
 	// snapshot contracts), so a re-entry re-derives the identical answer.
-	set, err := wf.proposeReviewSet(in, phase, policy, state)
+	set, err := wf.proposeReviewSet(in, methodassets.LifecyclePhase{ID: phase.String()}, policy, state)
 	if err != nil {
 		workflow.GetLogger(ctx).Error("review engine refused to propose reviewers; the gate opens without a reviewer set",
 			"activityId", in.ActivityID, "lifecyclePhase", phase.String(), "err", err.Error())
@@ -1471,7 +1473,7 @@ func (wf *csWorkflows) gateWithoutHuman(
 			return err
 		}
 		if refusal != "" {
-			if err := wf.appendVerdict(ctx, in, state, headVersion, cred, projectstate.ReviewVerdict{
+			if err := wf.appendVerdict(ctx, in, state, &state.gate, headVersion, cred, projectstate.ReviewVerdict{
 				ReviewerRole: gateRoleReviewEngine,
 				Actor:        gateRoleReviewEngine,
 				Verdict:      projectstate.VerdictAbstain,
@@ -1481,7 +1483,7 @@ func (wf *csWorkflows) gateWithoutHuman(
 				return err
 			}
 		}
-		if err := wf.decideRound(ctx, in, state, headVersion, cred, projectstate.RoundPassed, decidedByPolicy); err != nil {
+		if err := wf.decideRound(ctx, in, state, &state.gate, headVersion, cred, projectstate.RoundPassed, decidedByPolicy); err != nil {
 			return err
 		}
 	}
@@ -1520,7 +1522,7 @@ func (wf *csWorkflows) awaitPhaseDecision(
 			// zero-value sentinel, not a real decision — ignore and keep awaiting, same as default.
 		case PhaseApprove:
 			state.leaveHumanStage(ctx, activityType, gateOutcomeApproved)
-			if e := wf.closeGateRound(ctx, in, state, headVersion, cred, projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); e != nil {
+			if e := wf.closeGateRound(ctx, in, state, &state.gate, headVersion, cred, projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); e != nil {
 				return false, e
 			}
 			return false, wf.completePhase(ctx, in, phase, state, headVersion, gitOn, cred)
@@ -1583,10 +1585,10 @@ func (wf *csWorkflows) sendBackGate(
 	if !state.executionLedger {
 		return wf.recordOperatorNote(ctx, in, state, headVersion, cred, projectstate.NoteSendBack, phase.String(), feedbackText(fb))
 	}
-	if err := wf.closeGateRound(ctx, in, state, headVersion, cred, projectstate.VerdictSendBack, projectstate.RoundSentBack, fb); err != nil {
+	if err := wf.closeGateRound(ctx, in, state, &state.gate, headVersion, cred, projectstate.VerdictSendBack, projectstate.RoundSentBack, fb); err != nil {
 		return err
 	}
-	if err := wf.rejectGateAttempt(ctx, in, state, headVersion, cred); err != nil {
+	if err := wf.rejectGateAttempt(ctx, in, state, &state.gate, headVersion, cred); err != nil {
 		return err
 	}
 	carrySendBackFeedback(ctx, in, state, phase.String(), fb)
@@ -1720,7 +1722,7 @@ func (wf *csWorkflows) completePhase(
 ) error {
 	state.completedPhases[phase] = true
 	if state.executionLedger {
-		return wf.passGateAttempt(ctx, in, state, headVersion, cred)
+		return wf.passGateAttempt(ctx, in, state, &state.gate, headVersion, cred)
 	}
 	if !gitOn {
 		return nil
@@ -2002,6 +2004,10 @@ func (wf *csWorkflows) openGateRound(
 		number:  n,
 		roundID: projectstate.AttemptID(string(in.ActivityID), gate, n),
 		subject: gateSubjectRef(gf, state.stagedRef, state.workAttemptID),
+		// The attempt this gate judges, carried on the gate rather than read back off
+		// state.workAttemptID: the generic child runs several gates at once and each judges
+		// a different attempt, so the fact belongs to the occurrence.
+		judgedAttemptID: state.workAttemptID,
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionOpenReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
@@ -2081,17 +2087,18 @@ func (wf *csWorkflows) appendVerdict(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
+	gate *gateLedger,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 	verdict projectstate.ReviewVerdict,
 	comments []projectstate.ReviewComment,
 ) error {
-	if state.gate.roundID == "" {
+	if gate.roundID == "" {
 		return nil
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.activityVersion, string(in.ActivityID), state.gate.roundID, verdict, comments, nil, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), gate.roundID, verdict, comments, nil, cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -2108,21 +2115,22 @@ func (wf *csWorkflows) decideRound(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
+	gate *gateLedger,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 	outcome projectstate.ReviewRoundOutcome,
 	decidedBy string,
 ) error {
-	if state.gate.roundID == "" {
+	if gate.roundID == "" {
 		return nil
 	}
-	state.gate.actor = projectstate.ActorSystem
+	gate.actor = projectstate.ActorSystem
 	if decidedBy == decidedByOperator {
-		state.gate.actor = projectstate.ActorHuman
+		gate.actor = projectstate.ActorHuman
 	}
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.activityVersion, string(in.ActivityID), state.gate.roundID, outcome, decidedBy, cred.toProjectState())
+			state.activityVersion, string(in.ActivityID), gate.roundID, outcome, decidedBy, cred.toProjectState())
 	})
 	if err != nil {
 		return err
@@ -2139,26 +2147,27 @@ func (wf *csWorkflows) closeGateRound(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
+	gate *gateLedger,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 	verdict projectstate.VerdictKind,
 	outcome projectstate.ReviewRoundOutcome,
 	fb *ReviewFeedback,
 ) error {
-	if !state.executionLedger || state.gate.roundID == "" {
+	if !state.executionLedger || gate.roundID == "" {
 		return nil
 	}
 	f := feedbackText(fb)
-	if err := wf.appendVerdict(ctx, in, state, headVersion, cred, projectstate.ReviewVerdict{
+	if err := wf.appendVerdict(ctx, in, state, gate, headVersion, cred, projectstate.ReviewVerdict{
 		ReviewerRole: gateRoleHuman,
 		Actor:        gateActorOperator,
 		Verdict:      verdict,
 		Summary:      f.text,
-		AttemptID:    state.workAttemptID,
+		AttemptID:    gate.judgedAttemptID,
 	}, roundComments(f.comments)); err != nil {
 		return err
 	}
-	return wf.decideRound(ctx, in, state, headVersion, cred, outcome, decidedByOperator)
+	return wf.decideRound(ctx, in, state, gate, headVersion, cred, outcome, decidedByOperator)
 }
 
 // roundComments re-types a decision's anchored comments onto the round thread's. The
@@ -2186,18 +2195,19 @@ func (wf *csWorkflows) passGateAttempt(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
+	gate *gateLedger,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 ) error {
-	if state.gate.task == "" {
+	if gate.task == "" {
 		return nil
 	}
-	kind, ref := gateEvidence(state.gate.subject)
+	kind, ref := gateEvidence(gate.subject)
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
-		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
-		TaskID:       state.gate.task,
-		Attempt:      int64(state.gate.number),
-		Actor:        state.gate.actor,
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
+		TaskID:       gate.task,
+		Attempt:      int64(gate.number),
+		Actor:        gate.actor,
 		Outcome:      projectstate.OutcomePassed,
 		EvidenceKind: kind,
 		EvidenceRef:  ref,
@@ -2211,18 +2221,19 @@ func (wf *csWorkflows) rejectGateAttempt(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
+	gate *gateLedger,
 	headVersion *projectstate.Version,
 	cred railCredEnvelope,
 ) error {
-	if !state.executionLedger || state.gate.task == "" {
+	if !state.executionLedger || gate.task == "" {
 		return nil
 	}
-	kind, ref := gateEvidence(state.gate.subject)
+	kind, ref := gateEvidence(gate.subject)
 	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
-		AttemptID:    projectstate.AttemptID(string(in.ActivityID), state.gate.task, state.gate.number),
-		TaskID:       state.gate.task,
-		Attempt:      int64(state.gate.number),
-		Actor:        state.gate.actor,
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
+		TaskID:       gate.task,
+		Attempt:      int64(gate.number),
+		Actor:        gate.actor,
 		Outcome:      projectstate.OutcomeRejected,
 		EvidenceKind: kind,
 		EvidenceRef:  ref,
@@ -2794,7 +2805,7 @@ func (wf *csWorkflows) runLocalMergeStep(
 	// show. A refusal reads as "no hold", matching runPhaseGate's conservative arm: the
 	// merge is what the vibes profile does unattended today, and an engine defect must
 	// not strand the branch. It is logged either way.
-	mergeSet, mErr := wf.proposeReviewSet(in, projectstate.MethodPhaseConstruction, policy, state)
+	mergeSet, mErr := wf.proposeReviewSet(in, methodassets.LifecyclePhase{ID: projectstate.MethodPhaseConstruction.String()}, policy, state)
 	if mErr != nil {
 		workflow.GetLogger(ctx).Error("review engine refused to decide the merge gate; the merge proceeds unheld",
 			"activityId", in.ActivityID, "err", mErr.Error())
@@ -2864,7 +2875,7 @@ func (wf *csWorkflows) runMergePipeline(ctx workflow.Context, in constructActivi
 		return csPipelineObservation{}, err
 	}
 	h := pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}
-	for range maxPipelinePolls {
+	for poll := range maxObserveTotalPolls {
 		obs, oerr := wf.observePipeline(ctx, h)
 		if oerr != nil {
 			return csPipelineObservation{}, oerr
@@ -2889,7 +2900,7 @@ func (wf *csWorkflows) runMergePipeline(ctx workflow.Context, in constructActivi
 			wf.captureEpisode(ctx, in, h, obs, false, mergeTask, state.nextTaskAttempt(mergeTask))
 			return obs, nil
 		}
-		_ = workflow.Sleep(ctx, pipelinePollInterval)
+		_ = workflow.Sleep(ctx, observeInterval(poll))
 	}
 	return csPipelineObservation{Phase: PipelineFailed, Diagnostic: "merge pipeline did not reach a terminal phase within the poll budget"}, nil
 }
@@ -2932,10 +2943,10 @@ func (wf *csWorkflows) recordPhaseStarted(ctx workflow.Context, in constructActi
 // enforcing). reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto
 // this component's generated façade ReviewSet (contract.gen.go) — a real divergence,
 // not an identity mirror.
-func (wf *csWorkflows) proposeReviewSet(in constructActivityInput, phase projectstate.ActivityMethodPhase, policy projectstate.ReviewPolicy, state *constructState) (ReviewSet, error) {
+func (wf *csWorkflows) proposeReviewSet(in constructActivityInput, lifecyclePhase methodassets.LifecyclePhase, policy projectstate.ReviewPolicy, state *constructState) (ReviewSet, error) {
 	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
 	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
-		change, review.ActivityType(in.Activity.activityTypeName()), phase.String(),
+		change, review.ActivityType(in.Activity.activityTypeName()), lifecyclePhase.ID,
 		in.Activity.ComponentID, engineReviewPolicy(policy), state.floorTouched, state.reviewContracts)
 	if err != nil {
 		return ReviewSet{}, err
@@ -3196,6 +3207,17 @@ func (wf *csWorkflows) recordActivityFailed(ctx workflow.Context, in constructAc
 // §2.4). Delivered to the per-activity child {projectId}:{activityId}.
 type operatorOverrideSignal struct {
 	Override ActivityOverride
+	// TaskID names the TASK the override is aimed at, for the generic child's signal
+	// router (deliveryactivity.go). It is the field that fixes a real hole the walk's
+	// concurrency creates: two tasks in flight means two coroutines, and a shared
+	// ReceiveChannel hands each message to exactly ONE of them, so an override meant for a
+	// gate would be eaten by a polling sibling and silently lost. Empty on the retired
+	// rail, whose walk is sequential and reads the channel directly.
+	//
+	// EARMARK: OverrideActivity's façade signature names an ACTIVITY and no task, so the
+	// Manager cannot fill this until Task 12 widens it; until then an override reaching the
+	// child from the façade names no task and is LOGGED loudly rather than broadcast.
+	TaskID string
 }
 
 // phaseDecisionSignal is the phaseDecision payload (constructionManager.md §2.6).
@@ -3277,18 +3299,4 @@ func (wf *csWorkflows) applyRecovering(
 		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
 			"attempt", attempt+1, "nextExpectedVersion", expected)
 	}
-}
-
-// csBindRowAccessor binds the ROW this construction run writes onto the run's context, so
-// applyRecovering's Conflict arm can re-read it (rowAccessor: why the context and not the
-// receiver). Called ONCE, by ConstructActivityWorkflow, right after state is built — a
-// pure context derivation that emits no command and so needs no fence of its own. The
-// other two csWorkflows bodies that call applyRecovering — the pump and the supervision
-// workflow's pause record — never call this, and that absence IS their guard.
-func csBindRowAccessor(ctx workflow.Context, activityID ActivityID, state *constructState) workflow.Context {
-	return withRowAccessor(ctx, rowAccessor{
-		activityID: string(activityID),
-		version:    func() int64 { return state.activityVersion },
-		setVersion: func(v int64) { state.activityVersion = v },
-	})
 }

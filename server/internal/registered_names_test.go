@@ -128,6 +128,7 @@ var registeredTemporalNamesGolden = []string{
 	"constructionTransitionAccess.recordPhaseStarted",
 	"constructionTransitionAccess.recordReviewPolicy",
 	"constructionTransitionAccess.recordServiceContractProduced",
+	"deliveryActivity",
 	"deliveryRoundSweep",
 	"designSessionAccess.commitArtifactWithProvenance",
 	"designSessionAccess.readProjectOnBranch",
@@ -263,7 +264,7 @@ func TestRegisteredTemporalNamesGolden(t *testing.T) {
 	}
 }
 
-// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 21
+// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 22
 // externally-referenced workflow names (Global Constraints) are present
 // verbatim — these are the ones external Temporal starters key off, and must
 // never silently disappear even if the golden above is updated for an
@@ -276,6 +277,15 @@ func TestRegisteredTemporalNamesGolden(t *testing.T) {
 // leave the Schedule firing into a name no worker serves — a dead sweep that reports no
 // error at all, which is the same silent failure the Schedule-id consts in
 // deliverymanager.go warn about.
+//
+// STAGE 4b1 ALSO ADDED deliveryActivity (Task 8), and it belongs here for a third reason
+// again: it is the type a CONTINUE-AS-NEW re-starts by name from inside the workflow, and
+// a live walk's own re-start reads the name out of the running image rather than out of a
+// client. A rename mid-wave would therefore break the continue of every in-flight walk —
+// the run would end with a NewContinueAsNewError naming a type no worker serves — which is
+// the same silent failure a renamed Schedule target causes, arriving from inside instead of
+// outside. Frozen here from its FIRST commit, before the pump starts it (Task 9), because
+// the cheapest moment to freeze a name is before anything depends on it.
 //
 // EARMARK: constructionPumpSweep is a Schedule target too and is NOT in this list, which
 // is an omission by the same argument rather than a decision. Adding it belongs with the
@@ -291,6 +301,7 @@ func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 		"constructionReplanSweep",
 		"constructionProjectSupervision",
 		"deliveryRoundSweep",
+		"deliveryActivity",
 		"projectDesignCoAuthor",
 		"projectDesignSDPReview",
 		"projectDesignPhaseAdvance",

@@ -25,6 +25,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"go/ast"
+	"go/parser"
+	"go/token"
 	"log/slog"
 	"maps"
 	"os"
@@ -33169,6 +33172,14 @@ type shapeOutcome struct {
 	RoundsDecided  map[string]string
 	Reopened       []string
 	PhaseAdvanced  bool
+	// SignalsDelivered is "<taskId>:<kind>" per routed signal that reached an inbox, in
+	// order. Added by Task 8 for the same reason Task 1 added Timeline: the router's claim —
+	// "the override reached the gate and not the polling sibling" — is not an ordering fact
+	// about task starts and cannot be stated on any of the fields above.
+	SignalsDelivered []string
+	// SignalsDropped is the same for the messages the walk refused, so "too late" is a fact
+	// the oracle can assert rather than an absence it has to infer.
+	SignalsDropped []string
 }
 
 // The Timeline event prefixes. Bare literals on purpose: the log is read by an assertion
@@ -33199,6 +33210,15 @@ type shapeRecorder struct {
 	jobs      []string
 	opened    []string
 	decided   map[string]string
+	// delivered is "<taskId>:<kind>" per routed signal an INBOX actually took
+	// (walkState.deliver). It exists because the walk's terminal cannot tell a delivered
+	// override from a lost one: a gate that never receives one just waits for its decision
+	// instead, so a case checking only the terminal would pass with the message gone.
+	delivered []string
+	// dropped is the same for a message the walk refused to deliver — a task that had already
+	// finished. It is recorded because "dropped" and "quietly buffered for the next revision"
+	// look identical from `delivered` alone, and the second is a real leak.
+	dropped []string
 }
 
 func newShapeRecorder() *shapeRecorder {
@@ -33229,6 +33249,20 @@ func (r *shapeRecorder) jobDispatched(command string) {
 	r.jobs = append(r.jobs, command)
 }
 
+// signalDelivered implements walkDeliveryRecorder.
+func (r *shapeRecorder) signalDelivered(taskID, kind string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.delivered = append(r.delivered, taskID+":"+kind)
+}
+
+// signalDropped implements walkDeliveryRecorder.
+func (r *shapeRecorder) signalDropped(taskID, kind string) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.dropped = append(r.dropped, taskID+":"+kind)
+}
+
 func (r *shapeRecorder) roundOpened(roundID string) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
@@ -33255,6 +33289,9 @@ func (r *shapeRecorder) outcome(reopened []string, phaseAdvanced bool) shapeOutc
 		RoundsDecided:  make(map[string]string, len(r.decided)),
 		Reopened:       append([]string(nil), reopened...),
 		PhaseAdvanced:  phaseAdvanced,
+
+		SignalsDelivered: append([]string(nil), r.delivered...),
+		SignalsDropped:   append([]string(nil), r.dropped...),
 	}
 	maps.Copy(out.RoundsDecided, r.decided)
 	return out
@@ -33282,6 +33319,11 @@ type shapeRig struct {
 	cs     *csFakeProjectState
 	design *fakeProjectState
 	pd     *pdFakeProjectState
+	// cswf + pipe are the construction-rail receiver and pipeline double the generic child
+	// runs on. They are here, unlike the design rails', because reenter re-runs the SAME
+	// receiver over the SAME ledger on a second environment to finish a continued walk.
+	cswf *csWorkflows
+	pipe *csFakePipeline
 	// pdwf is the SDP rail's receiver, needed because the case must pre-assemble the
 	// review to learn which option to commit — the same thing the existing SDP tests do.
 	pdwf *pdWorkflows
@@ -33292,6 +33334,25 @@ type shapeRig struct {
 	// phase order), which is exactly why the two fork cases are skipped; Task 8's
 	// dispatch strategy reads it, and the two cases then differ in nothing else.
 	branchCompletesFirst projectstate.MethodTask
+}
+
+// reenter returns a rig for the NEXT run of a walk that continued as new: a fresh test
+// environment over the SAME store, the same pipeline double, the same receiver and the SAME
+// recorder. Sharing the recorder is what makes the continued walk assertable as ONE walk —
+// the point of the case is that run 2 finishes what run 1 started, so the two runs' events
+// belong in one timeline.
+func (r *shapeRig) reenter(t *testing.T) *shapeRig {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	next := &shapeRig{
+		env: ts.NewTestWorkflowEnvironment(), rec: r.rec,
+		cs: r.cs, cswf: r.cswf, pipe: r.pipe,
+		branchCompletesFirst: r.branchCompletesFirst,
+	}
+	next.register = func(env *testsuite.TestWorkflowEnvironment) {
+		registerDeliveryActivity(env, next.cswf, next.cs, next.pipe)
+	}
+	return next
 }
 
 // The ids the shape cases run under. Stable literals, because a shape case's
@@ -33322,8 +33383,13 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		deps := gateDeps(ps)
 		deps.Review = review.NewReviewEngine()
 		wf := csNewWorkflows(deps)
-		rig.cs = ps
-		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerConstruct(env, wf, ps, pipe) }
+		// The generic child, and the STUB dispatch slot the DAG is proved against: Tasks 10
+		// and 11 write the two real dispatch implementations, and the fork/join shape is
+		// provable before either exists precisely because the registry is injectable.
+		wf.Strategies = stubStrategies(rig)
+		wf.Deliveries = rig.rec
+		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
 	case "requirements":
 		vibes := projectstate.ReviewPresetVibes
 		ps := &fakeProjectState{project: projectstate.Project{
@@ -33374,14 +33440,14 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// detailedDesign are BOTH started (in declaration order, which is fixed);
 			// this case lets the STP branch's pipeline reach terminal first.
 			name: "fork-join-service-stp-first", typeKey: "service",
-			drive: driveServiceForkSTPFirst, wantToday: shapeFailsUntilTheDAG,
+			drive: driveServiceForkSTPFirst, wantToday: shapePassesToday,
 		},
 		{
 			// FORK, DESIGN BRANCH COMPLETING FIRST. The same DAG, the other completion
 			// order. Two cases, not one: a walker that serialized the branches would
 			// pass whichever single case matched its accident.
 			name: "fork-join-service-design-first", typeKey: "service",
-			drive: driveServiceForkDesignFirst, wantToday: shapeFailsUntilTheDAG,
+			drive: driveServiceForkDesignFirst, wantToday: shapePassesToday,
 		},
 		{
 			// SEND-BACK RE-OPENS ONLY THE JUDGED PAIR. designReview sends back; the
@@ -33395,13 +33461,46 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// JOIN WAITS FOR ALL. `testing` dependsOn [integration, stpReview]; the
 			// assertion is that its round does NOT open while either is unpassed.
 			name: "join-waits-for-all", typeKey: "service",
-			drive: driveServiceJoinWaits, wantToday: shapeFailsUntilTheDAG,
+			drive: driveServiceJoinWaits, wantToday: shapePassesToday,
 		},
 		{
 			// M0 NO SEND-BACK. The projectDesign lifecycle's one review task: approve
 			// advances the root phase; a send-back is refused, not absorbed.
 			name: "m0-no-sendback", typeKey: "projectDesign",
 			drive: driveM0NoSendBack, wantToday: shapePassesToday,
+		},
+		{
+			// CONTINUE-AS-NEW MID-WALK (R-L). Drives a service walk with the history budget
+			// set to a value the walk crosses, and asserts that the child continues-as-new,
+			// that it continues with NOTHING in flight, and that the resumed run finishes the
+			// SAME walk — same tasks, none re-dispatched. A continue that lost the snapshot
+			// would re-run passed work; one that lost the feedback map would silently redraft
+			// against the prompt that was just rejected.
+			name: "continue-as-new-mid-walk", typeKey: "service",
+			drive: driveContinueAsNewMidWalk, wantToday: shapePassesToday,
+		},
+		{
+			// SIGNAL ROUTING ON A FORK. `stp` is mid-dispatch while `designReview` waits at
+			// its gate, and an operator override is sent naming the GATE. Asserts the gate
+			// received it and the in-flight sibling did NOT — which two receivers on one
+			// shared ReceiveChannel could never guarantee, because the SDK hands each message
+			// to exactly one of them. It also drives a signal for a task that has not started
+			// yet (buffered in ws.pending, flushed in order at openInbox) and one for a task
+			// that has already finished (dropped, and NOT handed to anything).
+			name: "fork-signal-reaches-the-named-task", typeKey: "service",
+			drive: driveForkSignalRouting, wantToday: shapePassesToday,
+		},
+		{
+			// A FULL INBOX MUST NOT WEDGE THE ROUTER. Sends 65 signals — one more than
+			// deliveryTaskInboxCapacity — to a task that then retires WITHOUT draining them,
+			// and asserts that a LATER task's decision is still delivered and the walk still
+			// reaches its terminal. With a blocking Send this deadlocks: the parked send
+			// outlives closeInbox, no receiver can ever exist for that channel again, the
+			// router never selects a second time, and every later signal in the activity is
+			// silently swallowed. The 65th is asserted NOT delivered, which is what proves it
+			// went to `pending` rather than into a channel nothing would read.
+			name: "full-inbox-does-not-wedge-the-router", typeKey: "service",
+			drive: driveInboxOverflow, wantToday: shapePassesToday,
 		},
 		{
 			// HUMAN FLOOR UNDER VIBES. Preset "vibes" auto-approves a design review and
@@ -33431,7 +33530,7 @@ func shapeDeploymentActivity() constructionActivity {
 func driveLinearDeployment(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.register(rig.env)
-	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
@@ -33448,7 +33547,7 @@ func driveServiceWalk(t *testing.T, rig *shapeRig, completesFirst projectstate.M
 	t.Helper()
 	rig.branchCompletesFirst = completesFirst
 	rig.register(rig.env)
-	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
@@ -33483,9 +33582,9 @@ func driveServiceSendBackJudgedPair(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
 	rig.register(rig.env)
-	rig.env.RegisterDelayedCallback(b12SendBack(rig.env, "detailed_design", "name the failure"), 30*time.Second)
-	rig.env.RegisterDelayedCallback(b12Decide(rig.env, "detailed_design", PhaseApprove), 90*time.Second)
-	rig.env.ExecuteWorkflow(executionKindConstructActivity, constructActivityInput{
+	rig.env.RegisterDelayedCallback(shapeReject(rig.env, shapeDesignReviewTask, "name the failure"), 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 90*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
@@ -33656,6 +33755,12 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		assertShapeJoinWaits(t, name, got)
 	case "m0-no-sendback":
 		assertShapeM0NoSendBack(t, name, got)
+	case "continue-as-new-mid-walk":
+		assertShapeContinueAsNew(t, name, got)
+	case "fork-signal-reaches-the-named-task":
+		assertShapeForkSignalRouting(t, name, got)
+	case "full-inbox-does-not-wedge-the-router":
+		assertShapeInboxOverflow(t, name, got)
 	case "human-floor-under-vibes":
 		assertShapeVibesFloor(t, name, got)
 	default:
@@ -33737,6 +33842,21 @@ func assertShapeSendBackJudgedPair(t *testing.T, name string, got shapeOutcome) 
 	if n := shapeCount(got.CompletedOrder, "designReview"); n != 1 {
 		t.Fatalf("%s: a sent-back round does not complete its task, so designReview completes ONCE; got %d in %v",
 			name, n, got.CompletedOrder)
+	}
+	// And EVERY OTHER task ran exactly once. This half is not redundant with Reopened above:
+	// Reopened is read off the attempt ledger, and a sibling re-dispatched at the SAME
+	// revision mints the SAME AttemptID, which the store absorbs as a replay — so a re-open
+	// that reset the whole walk leaves no second attempt to count. Measured: with
+	// reopenJudgedPair resetting every task, Reopened stays ["detailedDesign"] and only this
+	// assertion goes red.
+	for _, task := range shapeServiceTasks {
+		if task == string(projectstate.TaskDetailedDesign) || task == shapeDesignReviewTask {
+			continue
+		}
+		if n := shapeCount(got.TaskOrder, task); n != 1 {
+			t.Fatalf("%s: the send-back judged detailed_design, so %q must run exactly once; it ran %d times. TaskOrder=%v",
+				name, task, n, got.TaskOrder)
+		}
 	}
 	shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:1", string(projectstate.RoundSentBack))
 	shapeWantRound(t, name, got.RoundsDecided, shapeServiceID+":designReview:2", string(projectstate.RoundPassed))
@@ -33879,4 +33999,564 @@ func shapeCount(xs []string, v string) int {
 		}
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// THE GENERIC DAG WALKER (stage 4b1 Task 8) — its two pins and its engine parity.
+// ---------------------------------------------------------------------------
+
+// Test_TaskStateOrdinalsNeverRenumber pins walkTaskState's iota, because
+// walkSnapshot.ByTask encodes the ORDINAL and walkSnapshot rides a ContinueAsNew. A
+// re-order would therefore silently re-interpret every in-flight walk at the moment the
+// new image goes live: a task the previous run recorded as `passed` would resume as
+// `sentBack`, re-open a judged pair nobody rejected and re-dispatch work that was already
+// approved — with nothing in the ledger to show why.
+//
+// A new state is APPENDED with its number written here. The table is the contract; the
+// count is asserted too, so appending one without recording it fails.
+func Test_TaskStateOrdinalsNeverRenumber(t *testing.T) {
+	want := map[walkTaskState]int{
+		walkTaskPending:  0,
+		walkTaskRunning:  1,
+		walkTaskPassed:   2,
+		walkTaskSentBack: 3,
+		walkTaskFailed:   4,
+	}
+	for st, ordinal := range want {
+		if int(st) != ordinal {
+			t.Fatalf("walkTaskState ordinal moved: got %d, want %d — walkSnapshot.ByTask carries this number across a continue-as-new, so it is APPEND-ONLY", int(st), ordinal)
+		}
+	}
+	if len(want) != 5 {
+		t.Fatalf("this table must name EVERY walkTaskState; it names %d", len(want))
+	}
+	if int(walkTaskFailed) != len(want)-1 {
+		t.Fatalf("a walkTaskState was added without an entry here (highest ordinal %d, table size %d); append it with its number", int(walkTaskFailed), len(want))
+	}
+}
+
+// deliveryWalkerFuncs are the walk's own functions — the ones architect Ruling 3(a)
+// forbids to know an activity type. It is FIVE rather than the plan's four because the
+// entry func's loop was split out as walkTasks to stay under the cognitive-complexity
+// budget, and a guard that did not follow the split would have left the loop unguarded.
+var deliveryWalkerFuncs = []string{
+	"DeliveryActivityWorkflow",
+	"walkTasks",
+	"readyTasks",
+	"reopenJudgedPair",
+	"runTask",
+}
+
+// deliveryWalkerBannedIdents are the vocabulary ROOTS a walker may not name. They are
+// matched as SUBSTRINGS, not as whole identifiers, and that is load-bearing: the thing a
+// walker would actually write is `ActivityTypeService`, not the bare type name, so a
+// whole-name check passes the very mutation this guard exists to catch (measured — it did).
+// Case matters, which is what keeps `activityTypeName` (a lower-case method on the
+// activity, used by the GATE and not by the walk) out of the net.
+var deliveryWalkerBannedIdents = []string{
+	"ActivityType",
+	"ArtifactKind",
+	"Kind" + "Mission",
+	"CommandFor",
+	"ProfileFor",
+}
+
+// Test_DeliveryActivityWalker_NamesNoTypeOrCommand is architect Ruling 3(a)'s guard,
+// scoped to the WALKER FUNCTIONS rather than to the file — because arch.CheckFileLayout
+// forbids a workflow.Context-taking func anywhere but a workflow file, so the strategies
+// and the walker must share deliveryactivity.go.
+//
+// The failure it prevents: a walker that grows `if activityType == ActivityTypeService` is
+// a god-workflow worse than the two types it replaced, and §9's smaller-than-sum
+// acceptance is what pays for it. The technique is paramguard_arch_test.go's — key the
+// bodies by name through go/ast — and it fails LOUDLY on a func it cannot find, so a
+// rename cannot make it vacuous.
+func Test_DeliveryActivityWalker_NamesNoTypeOrCommand(t *testing.T) {
+	fset := token.NewFileSet()
+	f, err := parser.ParseFile(fset, "deliveryactivity.go", nil, parser.ParseComments)
+	if err != nil {
+		t.Fatalf("parsing the walker's file: %v", err)
+	}
+	bodies := map[string]*ast.FuncDecl{}
+	for _, decl := range f.Decls {
+		if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body != nil {
+			bodies[fd.Name.Name] = fd
+		}
+	}
+	commands := methodAssetsCommandSet()
+	if len(commands) == 0 {
+		t.Fatal("the command set is empty, so the string-literal half of this guard would be vacuous")
+	}
+	for _, name := range deliveryWalkerFuncs {
+		fd, ok := bodies[name]
+		if !ok {
+			t.Fatalf("walker func %q is not in deliveryactivity.go — it was renamed or moved, and a guard that cannot find its subject proves nothing; re-point deliveryWalkerFuncs", name)
+		}
+		for _, hit := range walkerVocabularyHits(fset, fd, commands) {
+			t.Errorf("%s: %s", name, hit)
+		}
+	}
+}
+
+// walkerVocabularyHits reports every banned identifier and every method-assets command
+// literal one walker's body names.
+func walkerVocabularyHits(fset *token.FileSet, fd *ast.FuncDecl, commands map[string]bool) []string {
+	var hits []string
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.Ident:
+			for _, banned := range deliveryWalkerBannedIdents {
+				if !strings.Contains(v.Name, banned) {
+					continue
+				}
+				hits = append(hits, fmt.Sprintf("%s names %q (%s) — the walker must read lifecycle FIELDS, never an activity type or a command table",
+					fset.Position(v.Pos()), v.Name, banned))
+			}
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				return true
+			}
+			if lit, err := strconv.Unquote(v.Value); err == nil && commands[lit] {
+				hits = append(hits, fmt.Sprintf("%s names the command literal %q — a command belongs to the DATA, not to the walk",
+					fset.Position(v.Pos()), lit))
+			}
+		}
+		return true
+	})
+	return hits
+}
+
+// methodAssetsCommandSet is every slash-command slug the pinned lifecycles carry, on both
+// dispatch and review tasks.
+func methodAssetsCommandSet() map[string]bool {
+	out := map[string]bool{}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			if task.Command != "" {
+				out[task.Command] = true
+			}
+		}
+	}
+	return out
+}
+
+// Test_DeliveryWalker_EveryLifecyclePhaseIsOneTheEngineReasonsAbout is the parity the
+// widened proposeReviewSet rests on. The claim is NOT that a lifecycle phase id
+// round-trips through projectstate.ActivityMethodPhase — that enum has five values and
+// none of mission/glossary/volatilities/coreUseCases/architecture/sdp is one of them. It
+// is narrower and it is about the ENGINE: every phase id in the pinned lifecycles is a
+// string the reviewEngine already reasons about, so no phase silently MISSES its roster.
+//
+// An empty roster with no reason is precisely the live defect stage 0 fixed once already,
+// so an empty set is admitted for exactly TWO phases and is a failure everywhere else.
+// MEASURED, and the plan predicted one: `volatilities` (the architect's own signature
+// skill, which has never had a critique round) AND `sdp` — because a project-design option
+// is COMPUTED, so its only judge is the human at M0. The engine's own narrowing says both
+// in prose (reviewengine.go, the InternalInvariant guard) and the second one is real: the
+// sdp row answers RequiresHuman with the non-overridable spend floor and staffs no agent.
+// An empty roster is admitted here only where the engine also gives a REASON, which is
+// what separates "nobody reviews this by design" from the silent miss.
+func Test_DeliveryWalker_EveryLifecyclePhaseIsOneTheEngineReasonsAbout(t *testing.T) {
+	engine := review.NewReviewEngine()
+	seen := 0
+	for _, lc := range methodassets.Lifecycles() {
+		typ, ok := shapeReviewActivityTypeFor(lc.Type)
+		if !ok {
+			t.Fatalf("lifecycle %q maps to no review.ActivityType; the engine could not be asked about any of its phases", lc.Type)
+		}
+		for _, p := range lc.Phases {
+			seen++
+			set, err := engine.ProposeReviews(fweng.Context{Context: context.Background()},
+				review.ReviewChange{ActivityID: "C-x", ComponentID: "x"}, typ, p.ID, "x",
+				review.ReviewPolicy{Preset: projectstate.ReviewPresetCheckpoints}, false, nil)
+			if err != nil {
+				t.Fatalf("%s/%s: the engine refused a phase the data carries: %v", lc.Type, p.ID, err)
+			}
+			if len(set.Reviewers) == 0 {
+				if p.ID != "volatilities" && p.ID != "sdp" {
+					t.Fatalf("%s/%s: the engine staffed NO reviewer — an empty roster is the defect stage 0 fixed; only `volatilities` and `sdp` are reviewer-less by design",
+						lc.Type, p.ID)
+				}
+				if set.Reason == "" {
+					t.Fatalf("%s/%s: a reviewer-less phase must still carry the engine's REASON; it carried none, which is indistinguishable from a silent miss",
+						lc.Type, p.ID)
+				}
+			}
+		}
+	}
+	if seen != 39 {
+		t.Fatalf("the pinned lifecycles carry %d phases, not the 39 this case was measured against; re-measure before changing the number", seen)
+	}
+}
+
+// shapeReviewActivityTypeFor maps a lifecycle TYPE KEY onto the review engine's activity
+// type. The key is "testing:plan" for a variant, so the prefix before ":" is the type.
+func shapeReviewActivityTypeFor(typeKey string) (review.ActivityType, bool) {
+	base := typeKey
+	if i := strings.Index(base, ":"); i >= 0 {
+		base = base[:i]
+	}
+	typ := review.ActivityType(base)
+	switch typ {
+	case review.ActivityTypeService, review.ActivityTypeFrontend, review.ActivityTypeTesting,
+		review.ActivityTypeDeployment, review.ActivityTypeDocumentation, review.ActivityTypeUIDesign,
+		review.ActivityTypeIntegration, review.ActivityTypeRequirements, review.ActivityTypeArchitecture,
+		review.ActivityTypeProjectDesign:
+		return typ, true
+	}
+	return "", false
+}
+
+// ---------------------------------------------------------------------------
+// THE GENERIC CHILD'S SHAPE PLUMBING (stage 4b1 Task 8).
+// ---------------------------------------------------------------------------
+
+// The lifecycle task ids the construction-rail shape cases signal. Literals, because they
+// are what an OPERATOR would send and the point of keying signals on a task is that the id
+// is the wire value; a derivation here would test the derivation instead of the routing.
+const (
+	shapeDesignReviewTask = "designReview"
+	shapeSTPTask          = "stp"
+	shapeSRSTask          = "srs"
+	shapeConstructionTask = "construction"
+)
+
+// stubStrategy fills the dispatch slot while Tasks 10 and 11 are unwritten, so the DAG can
+// be proved before either real dispatch implementation exists. It is the reason strategyFor
+// reads an INJECTABLE registry instead of hard-coding two arms, and it is deleted in Task 11
+// Step 5 when the real strategies drive the same cases.
+//
+// It holds the RIG rather than the recorder alone, because the fork's knob
+// (branchCompletesFirst) is set by the driver AFTER the receiver is built, so the pace must
+// be read at Produce time. Every read is of a field written before ExecuteWorkflow, so the
+// walk stays deterministic.
+type stubStrategy struct{ rig *shapeRig }
+
+// stubStrategies is productionStrategies with the dispatch slot stubbed.
+func stubStrategies(rig *shapeRig) strategyRegistry {
+	reg := productionStrategies()
+	reg[strategySlotDispatch] = func(*csWorkflows) taskStrategy { return stubStrategy{rig: rig} }
+	return reg
+}
+
+// Produce records the dispatch, burns the task's pace on a durable timer so the walk's
+// coroutines actually INTERLEAVE, and reports a passed attempt.
+//
+// The timer is what makes the fork observable: without a yield the SDK would run each
+// coroutine to completion in schedule order and both branch-order cases would produce the
+// same CompletedOrder — the serialisation assertShapeForkOverlap exists to catch.
+//
+// A REVIEW task reaching here is the critique dispatch (runAgentReviewers), and it records
+// only the command: its start and completion are its ROUND's, recorded at OpenReviewRound
+// and DecideReviewRound, and recording them twice would make TaskOrder claim two
+// occurrences of one gate.
+func (s stubStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
+	s.rig.rec.jobDispatched(tc.Task.Command)
+	work := tc.Task.Kind == methodassets.LifecycleTaskDispatch
+	if work {
+		s.rig.rec.taskStarted(tc.Task.ID)
+	}
+	if err := workflow.Sleep(ctx, s.pace(tc.Task.ID)); err != nil {
+		return producedSubject{}, err
+	}
+	if work {
+		s.rig.rec.taskCompleted(tc.Task.ID)
+	}
+	return producedSubject{
+		AttemptID: projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt),
+		Outcome:   projectstate.OutcomePassed,
+		Detail:    "stubbed dispatch for lifecycle task " + tc.Task.ID,
+	}, nil
+}
+
+// pace is how long this stub's dispatch takes. Every task takes the same short time EXCEPT
+// the losing side of the srsReview fan-out, which takes long enough that the whole winning
+// branch — detailed design, construction, integration and their gates — finishes first.
+// That is what makes `join-waits-for-all` observable: stpReview then passes AFTER
+// integration, so the joining review genuinely waits for a predecessor it did not gate.
+func (s stubStrategy) pace(taskID string) time.Duration {
+	if s.rig.branchCompletesFirst == "" {
+		return shapeStubPace
+	}
+	switch projectstate.MethodTask(taskID) {
+	case projectstate.TaskSTP, projectstate.TaskDetailedDesign:
+		if projectstate.MethodTask(taskID) == s.rig.branchCompletesFirst {
+			return shapeStubPace
+		}
+		return shapeStubLaggingPace
+	}
+	return shapeStubPace
+}
+
+const (
+	// shapeStubPace is one stubbed dispatch's duration.
+	shapeStubPace = time.Second
+	// shapeStubLaggingPace is the losing fork branch's, chosen to exceed the winning
+	// branch's whole remaining chain rather than merely one of its steps.
+	shapeStubLaggingPace = time.Minute
+)
+
+// registerDeliveryActivity registers the GENERIC child plus every Activity it reaches —
+// registerConstruct's set, plus the two execution-ledger verbs only the new child calls
+// (the round comment status its gate applies, and the operator note an override at a gate
+// records).
+func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
+	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, nil)
+	registerGenDesignSessionRead(env, ps)
+	registerGenProjectStateVersion(env, ps)
+	registerGenConstructionTransition(env, ps)
+	csRegisterGenActivityExecution(env, ps)
+	registerGenGitStatus(env, ps)
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
+		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
+		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+}
+
+// shapeApprove / shapeReject are the generic child's gate signals: keyed by TASK, which is
+// what lets the router hand each to exactly one coroutine. They replace b12Decide/b12SendBack
+// for the construction-rail shape cases; the retired rail's own tests keep those.
+func shapeApprove(env *testsuite.TestWorkflowEnvironment, taskID string) func() {
+	return func() {
+		env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{
+			TaskID: taskID, Decision: ReviewApprove, DecidedBy: gateActorOperator,
+		})
+	}
+}
+
+func shapeReject(env *testsuite.TestWorkflowEnvironment, taskID, notes string) func() {
+	return func() {
+		env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{
+			TaskID: taskID, Decision: ReviewReject, DecidedBy: gateActorOperator,
+			Feedback: &ReviewFeedback{Notes: notes},
+		})
+	}
+}
+
+// shapeOverride sends an operator override naming ONE task.
+func shapeOverride(env *testsuite.TestWorkflowEnvironment, taskID string) func() {
+	return func() {
+		env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{
+			TaskID:   taskID,
+			Override: ActivityOverride{Kind: OverrideRetry, Notes: "steering " + taskID},
+		})
+	}
+}
+
+// driveContinueAsNewMidWalk runs a service walk under a history budget of ONE event, so the
+// first moment nothing is in flight crosses it, then finishes the continued walk on a second
+// environment over the SAME ledger and the SAME recorder.
+//
+// The two runs share the recorder deliberately: the claim is that run 2 finishes what run 1
+// started, which is a statement about ONE walk.
+func driveContinueAsNewMidWalk(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	// The SDK's test environment serves this as the workflow's history length, so the walk's
+	// continue-as-new check runs against the PRODUCTION const rather than a smaller budget
+	// substituted for it — which is the difference between testing the rule and testing a seam.
+	rig.env.SetCurrentHistoryLength(deliveryActivityHistoryBudget + 1)
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	resume := shapeRequireContinuedAsNew(t, rig.env)
+
+	// The resumed run's environment reports no history length at all, which is under the
+	// budget, so it finishes the walk instead of continuing again.
+	next := rig.reenter(t)
+	next.register(next.env)
+	next.env.ExecuteWorkflow(executionKindDeliveryActivity, resume)
+	shapeRequireCompleted(t, next.env)
+	return next.csOutcome(shapeServiceID)
+}
+
+// shapeRequireContinuedAsNew asserts the walk continued as new and returns the input it
+// continued WITH, decoded off the error the SDK carries. Asserting the continue without
+// reading its payload would pass a snapshot that carried nothing.
+func shapeRequireContinuedAsNew(t *testing.T, env *testsuite.TestWorkflowEnvironment) deliveryActivityInput {
+	t.Helper()
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not reach a terminal, so it never reached its continue-as-new point")
+	}
+	var canErr *workflow.ContinueAsNewError
+	if err := env.GetWorkflowError(); !errors.As(err, &canErr) {
+		t.Fatalf("the walk must continue as new once its history budget is crossed; got %v", err)
+	}
+	if canErr.WorkflowType == nil || canErr.WorkflowType.Name != executionKindDeliveryActivity {
+		t.Fatalf("the continue must re-start the SAME workflow type; got %+v", canErr.WorkflowType)
+	}
+	var in deliveryActivityInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &in); err != nil {
+		t.Fatalf("decoding the continued input: %v", err)
+	}
+	if in.Resume == nil {
+		t.Fatal("the continue carried NO walkSnapshot; the resumed run would re-dispatch every task from scratch")
+	}
+	passed := 0
+	for _, st := range in.Resume.ByTask {
+		if walkTaskState(st) == walkTaskPassed {
+			passed++
+		}
+		if walkTaskState(st) == walkTaskRunning {
+			t.Fatalf("the snapshot holds a RUNNING task, so the continue was taken mid-dispatch: %v", in.Resume.ByTask)
+		}
+	}
+	if passed == 0 {
+		t.Fatalf("the continue happened before anything passed, so it proves nothing about carrying a walk: %v", in.Resume.ByTask)
+	}
+	return in
+}
+
+// driveForkSignalRouting is the case that would have caught the shared-channel hole: the
+// STP branch is mid-dispatch while designReview waits at its gate, and three overrides are
+// sent — one at the GATE, one at a task that has not STARTED, and one at a task that has
+// already FINISHED.
+func driveForkSignalRouting(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
+	rig.branchCompletesFirst = projectstate.TaskDetailedDesign
+	rig.register(rig.env)
+	// t=30s: srs has PASSED and construction has not been scheduled, while designReview
+	// waits at its gate and stp is still mid-dispatch (it paces at a minute).
+	rig.env.RegisterDelayedCallback(shapeOverride(rig.env, shapeDesignReviewTask), 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeOverride(rig.env, shapeConstructionTask), 31*time.Second)
+	rig.env.RegisterDelayedCallback(shapeOverride(rig.env, shapeSRSTask), 32*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 120*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome(shapeServiceID)
+}
+
+// shapeInboxFloodSize is one more than deliveryTaskInboxCapacity, which is the whole point:
+// the 65th message cannot fit, and where it goes is the difference between a bound and a
+// deadlock.
+const shapeInboxFloodSize = deliveryTaskInboxCapacity + 1
+
+// driveInboxOverflow floods a task that never reads its inbox with one more message than the
+// inbox holds, lets it retire undrained, and then decides a LATER gate. A blocking deliver
+// deadlocks here rather than failing an assertion, which is why the case asserts the walk's
+// terminal as well as the counts.
+func driveInboxOverflow(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
+	rig.branchCompletesFirst = projectstate.TaskDetailedDesign
+	rig.register(rig.env)
+	// stp paces at a minute, so at 30s it is in flight with an inbox nothing reads.
+	rig.env.RegisterDelayedCallback(func() {
+		for range shapeInboxFloodSize {
+			shapeOverride(rig.env, shapeSTPTask)()
+		}
+	}, 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 120*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome(shapeServiceID)
+}
+
+// assertShapeContinueAsNew: the continued walk is ONE walk. Every lifecycle task ran exactly
+// once across the two runs — a continue that lost the snapshot would re-dispatch what run 1
+// already passed — and the activity reached its binary exit.
+func assertShapeContinueAsNew(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	for _, task := range shapeServiceTasks {
+		if n := shapeCount(got.TaskOrder, task); n != 1 {
+			t.Fatalf("%s: task %q started %d times across the continue, want exactly 1 — a continue that lost the snapshot re-dispatches passed work; TaskOrder=%v",
+				name, task, n, got.TaskOrder)
+		}
+	}
+	if len(got.Reopened) != 0 {
+		t.Fatalf("%s: a continue is not a send-back; nothing may be re-opened. Reopened=%v", name, got.Reopened)
+	}
+	shapeWantEveryRound(t, name, got.RoundsDecided, string(projectstate.RoundPassed))
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// shapeServiceTasks is the `service` lifecycle's ten tasks, in declaration order.
+var shapeServiceTasks = []string{
+	"srs", "srsReview", "detailedDesign", "designReview",
+	"construction", "codeReview", "integration", "stp", "stpReview", "testing",
+}
+
+// assertShapeForkSignalRouting is the router's claim, and it is a claim about WHICH TASK
+// received a message — not about the walk's terminal, which a lost override would satisfy
+// just as well (a gate that never receives one simply waits for its decision instead).
+func assertShapeForkSignalRouting(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	gate := shapeDesignReviewTask + ":" + routedKindOverride
+	if !slices.Contains(got.SignalsDelivered, gate) {
+		t.Fatalf("%s: the override named the gate and the gate must have received it; SignalsDelivered=%v", name, got.SignalsDelivered)
+	}
+	// The in-flight SIBLING must not have received it. Two receivers on one shared
+	// ReceiveChannel could never guarantee this: the SDK hands each message to exactly one
+	// of them, so the polling task would eat it and the gate would wait forever.
+	if stolen := shapeSTPTask + ":" + routedKindOverride; slices.Contains(got.SignalsDelivered, stolen) {
+		t.Fatalf("%s: a sibling task in flight received the GATE's override; SignalsDelivered=%v", name, got.SignalsDelivered)
+	}
+	// TOO EARLY buffers: construction had not been scheduled when its override arrived, and
+	// openInbox flushed it when it was.
+	early := shapeConstructionTask + ":" + routedKindOverride
+	if !slices.Contains(got.SignalsDelivered, early) {
+		t.Fatalf("%s: a signal for a task that has not started must be BUFFERED and flushed at openInbox, not dropped; SignalsDelivered=%v", name, got.SignalsDelivered)
+	}
+	// TOO LATE drops, and it is asserted POSITIVELY. srs had already passed, and the
+	// difference that matters is not "nothing received it" — a message quietly buffered for
+	// srs's next revision satisfies that too — it is that the walk REFUSED it, which is what
+	// stops an override of revision 1 deciding revision 2. Measured: with the drop arm
+	// replaced by a buffer, the delivered-side assertion alone stays green.
+	late := shapeSRSTask + ":" + routedKindOverride
+	if !slices.Contains(got.SignalsDropped, late) {
+		t.Fatalf("%s: a signal for a FINISHED task must be DROPPED, not held for its next revision; SignalsDropped=%v SignalsDelivered=%v",
+			name, got.SignalsDropped, got.SignalsDelivered)
+	}
+	if slices.Contains(got.SignalsDelivered, late) {
+		t.Fatalf("%s: a signal for a FINISHED task was delivered. SignalsDelivered=%v", name, got.SignalsDelivered)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// assertShapeInboxOverflow: the inbox took exactly its capacity and no more, the overflow
+// reached nothing (it went to `pending`, which closeInbox then cleared), and the LATER gate's
+// decision was still delivered — which is the half a wedged router makes impossible.
+func assertShapeInboxOverflow(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	flooded := shapeSTPTask + ":" + routedKindOverride
+	if n := shapeCount(got.SignalsDelivered, flooded); n != deliveryTaskInboxCapacity {
+		t.Fatalf("%s: the inbox must take exactly its capacity (%d) of the %d sent and the overflow must reach NOTHING; it took %d",
+			name, deliveryTaskInboxCapacity, shapeInboxFloodSize, n)
+	}
+	decision := shapeDesignReviewTask + ":" + routedKindDecision
+	if !slices.Contains(got.SignalsDelivered, decision) {
+		t.Fatalf("%s: the gate's decision must still be delivered after a sibling's inbox filled — a blocking deliver swallows every later signal in the activity; SignalsDelivered=%v",
+			name, got.SignalsDelivered)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// Test_DeliveryActivityWorkflowID_DoesNotCollideWithTheRetiredChild pins the id the pump
+// will start the generic child under (Task 9) and the reason it is not the retired child's.
+//
+// Both workflow TYPES are registered for the length of this wave, so if the two shared an id
+// the first child to hold {projectId}:{activityId} would make the second's start answer
+// AlreadyStarted — and the pump would read a dispatch that silently did nothing, on exactly
+// the activity that was already running. The distinct segment is what lets them coexist, and
+// this case is what stops a later tidy-up from "simplifying" it back.
+func Test_DeliveryActivityWorkflowID_DoesNotCollideWithTheRetiredChild(t *testing.T) {
+	const (
+		projectID  = ProjectID("p-1")
+		activityID = ActivityID("C-Orders")
+	)
+	got := deliveryActivityWorkflowID(projectID, activityID)
+	if want := "p-1:activity:C-Orders"; got != want {
+		t.Fatalf("deliveryActivityWorkflowID = %q, want %q", got, want)
+	}
+	if retired := constructActivityWorkflowID(projectID, activityID); got == retired {
+		t.Fatalf("the generic child's id must differ from the retired child's while both types are registered; both are %q", got)
+	}
 }
