@@ -1149,6 +1149,17 @@ func (wf *csWorkflows) dispatchConstructionOnce(
 	}
 	dispatch, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
 	if err != nil {
+		// A REFUSED SUBMIT STILL RESOLVES ITS ATTEMPT (Task-11 round-2 defect D1). The attempt
+		// above was opened PENDING so a run that dies mid-dispatch leaves a record saying it
+		// started; returning here left it pending for a dispatch that will never resume, which
+		// is the one state this pair's own comment forbids — and the caller reports
+		// AttemptRecorded, so nothing downstream resolved it either. The failed resolve is
+		// deliberately swallowed: the SUBMIT error is the cause and the one the walk must see.
+		if rerr := wf.resolveWorkAttempt(ctx, in, tc.State, &tc.State.walk.headVersion, tc.State.walk.cred,
+			task, n, attemptID, csPipelineObservation{Phase: PipelineFailed, Diagnostic: err.Error()}); rerr != nil {
+			workflow.GetLogger(ctx).Error("the refused dispatch's attempt could not be resolved; it stays pending on the ledger",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "attemptId", attemptID, "err", rerr.Error())
+		}
 		return attemptID, csPipelineObservation{}, err
 	}
 	obs := dispatch.obs
@@ -2777,6 +2788,27 @@ func (wf *csWorkflows) sendBackRound(
 // applyRoundCommentStatus resolves or re-opens ONE comment on this gate's round. It is
 // best-effort and logged: a status transition is a reviewer's bookkeeping, and failing
 // the activity over it would cost the work.
+//
+// NOTHING IN PRODUCTION SENDS IT A SIGNAL TODAY, and that is recorded here rather than left
+// for the next reader to discover (stage 4b1 Task 12). The stage-4b brief had the Manager
+// mirror every comment-status write here "so the vibes autogate re-reads 'no open comments'
+// before synthesizing an approve". Three measurements killed the mirror and not the arm:
+//
+//	(1) THE RE-READ DOES NOT EXIST in this child. runGate asks the engine for RequiresHuman
+//	    ONCE, when the round opens, and either holds for a human or passes immediately — so a
+//	    status landing later cannot change an autogate decision that has already been made.
+//	(2) THE MANAGER IS THE WRITER (SetTaskCommentStatus), synchronously, so it can tell the
+//	    reviewer that the comment does not exist or that the transition is illegal. A mirror
+//	    would REPEAT that transition here, and applyReviewCommentStatus refuses
+//	    resolved→resolved as a ContractMisuse — every resolve would log an error.
+//	(3) AGENT CRITICS FILE NO COMMENTS. runAgentReviewers appends its verdict with a nil
+//	    comment list, so on the generic child "no open comments" has no input to re-read
+//	    except what a HUMAN filed at a previous round, which the Manager has already landed.
+//
+// What the arm is for, and what Task 10's concern 7 still wants, is a gate that HOLDS when
+// the round it just opened carries an unaddressed critic send-back and then auto-passes once
+// the comments are cleared. That needs a ruling on whether a `vibes` critic revise holds for a
+// human or triggers a redraft, which is why Task 12 did not guess at it.
 func (wf *csWorkflows) applyRoundCommentStatus(
 	ctx workflow.Context, in deliveryActivityInput, state *constructState,
 	gate *gateLedger, sig *setCommentStatusSignal,
