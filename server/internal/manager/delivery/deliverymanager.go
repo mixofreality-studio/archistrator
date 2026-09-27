@@ -8268,18 +8268,30 @@ func derivedSolutionDials(kind projectstate.ArtifactKind, staffingCap int) (solu
 	}
 }
 
-// derivedSolution renders one Solution slot from its dials.
+// derivedSolution renders one Solution slot from its dials and the DERIVED class rates.
 //
-// ClassRates is left EMPTY, deliberately and with a cost this states out loud: the
-// committed slots carry a classRates map (eight classes, where the committed plan uses
-// five), and assembleOption reads NONE of it — the per-day rate of a worker class comes
-// from deriveClassRates over the planning assumptions' rate card. Re-emitting a map no
-// consumer reads would make the derivation's output depend on a stale authored field, so
-// the derived slots drop it. Nothing computes differently; a reader of slot 11 loses a
-// display decoration that was already wrong. Earmarked in the task report.
-func derivedSolution(kind projectstate.ArtifactKind, dials solutionDials) *projectstate.Solution {
+// ClassRates IS EMITTED, and the first draft of this function was wrong to drop it. The
+// argument for dropping it was that assembleOption reads none of it — the per-day rate of a
+// worker class comes from deriveClassRates over the planning assumptions' rate card — so
+// re-emitting the committed slots' authored map would make the derivation depend on a stale
+// field. That half is right. What it missed is a READER outside the compute:
+// webApp/src/components/project/SolutionView.tsx renders a "BUILD-COST RATES" block from it,
+// with an AuthoredBadge and a per-rate comment anchor (solutionAnchor(kind,
+// 'classRates.<class>')), fed by projectAdapters.ts. Dropping the field would have made all
+// four Solution views read "No class rates specified." the moment M0 approved, and taken
+// their comment anchors with them — review aids are first-class, and losing one silently is
+// exactly what that house rule forbids.
+//
+// So the resolution is DERIVE IT IN PLACE rather than choose between a stale map and none:
+// the rates come from the SAME deriveClassRates the option assembly uses, over the resolved
+// planning assumptions and the activity list's own worker classes. The screen keeps
+// rendering, the numbers are derived, and nothing depends on an authored field.
+func derivedSolution(
+	kind projectstate.ArtifactKind, dials solutionDials, classRates map[string]projectstate.Money,
+) *projectstate.Solution {
 	return &projectstate.Solution{
 		SlotKind:    kind,
+		ClassRates:  classRates,
 		StaffingCap: dials.StaffingCap,
 		// Zero, matching every committed slot: the calendar is a SHARED planning assumption
 		// for every option since F5 retired the per-option cheat.
@@ -8450,17 +8462,10 @@ const (
 // above), and a parameter no body reads is exactly the lie proposeReviewSet's doc calls out
 // about its retired architectureGraph argument: one the compiler cannot catch.
 func defaultPlanningAssumptions(al projectstate.ActivityList) (projectstate.PlanningAssumptions, []string) {
-	classes := map[string]struct{}{}
-	for _, a := range al.Activities {
-		if a.WorkerClass != "" {
-			classes[a.WorkerClass] = struct{}{}
-		}
-	}
-	roles := make([]string, 0, len(classes))
-	for c := range classes {
-		roles = append(roles, c)
-	}
-	sort.Strings(roles)
+	// ONE roster derivation, shared with resolveCostFamilies' per-family fills. Two copies of
+	// "which worker classes does this plan use" is two answers to keep in step, and the
+	// whole-slot default and the per-family default must never disagree about the roster.
+	roles := workerClassesOf(al)
 	card := make(map[string]projectstate.WorkerRateSpec, len(roles))
 	for _, c := range roles {
 		card[c] = defaultRateSpec(c)
@@ -8554,13 +8559,85 @@ func resolvePlanningAssumptions(
 		pa.CalendarDaysPerWeek = defaultCalendarDaysPerWeek
 		defaulted = append(defaulted, assumedCalendar)
 	}
-	if pa.DeclaredUsage.ExpectedDailyActiveUsers <= 0 && pa.DeclaredUsage.RequestsPerMinute <= 0 {
-		// A zero-load option has no operating cost to compare, so the operating half of the M0
-		// headline would read $0 — which looks like an answer and is not one.
-		pa.DeclaredUsage = defaultDeclaredUsage()
+	// PER FIELD, not per family, and the `&&` this replaces was a real hole: a committed slot
+	// naming requestsPerMinute: 5 and expectedDailyActiveUsers: 0 kept a ZERO-USER load —
+	// neither defaulted nor recorded — so the operating cost was computed against no users at
+	// all and the M0 screen said nothing had been assumed. Each of the three numbers is its own
+	// answer, so each is filled and recorded on its own.
+	defaults := defaultDeclaredUsage()
+	if pa.DeclaredUsage.ExpectedDailyActiveUsers <= 0 {
+		pa.DeclaredUsage.ExpectedDailyActiveUsers = defaults.ExpectedDailyActiveUsers
 		defaulted = append(defaulted, assumedUsage)
 	}
+	if pa.DeclaredUsage.RequestsPerMinute <= 0 {
+		pa.DeclaredUsage.RequestsPerMinute = defaults.RequestsPerMinute
+		defaulted = appendOnce(defaulted, assumedUsage)
+	}
+	if pa.DeclaredUsage.AvgPayloadBytes <= 0 {
+		pa.DeclaredUsage.AvgPayloadBytes = defaults.AvgPayloadBytes
+		defaulted = appendOnce(defaulted, assumedUsage)
+	}
+	return resolveCostFamilies(pa, al, defaulted)
+}
+
+// resolveCostFamilies is the other three families resolvePlanningAssumptions owes, split out
+// so each function stays one readable list of rules (gocyclo).
+//
+// THE RATE CARD, THE INDIRECT RATE AND THE RESOURCES were missed by the first pass, and each
+// silently priced the plan wrong rather than refusing: an EMPTY rate card makes
+// deriveClassRates fall back to defaultRateSpec per class WITHOUT the fill being recorded, so
+// the M0 screen claims the founder's own rates; a ZERO IndirectDailyRate makes indirectDailyRateOf
+// substitute its own default, again unrecorded; and an empty Resources list is the roster every
+// option's staffing is read against. The rule is the same one the four families above follow —
+// fill what the vocabulary cannot price, record every fill, never replace a named value.
+func resolveCostFamilies(
+	pa projectstate.PlanningAssumptions, al projectstate.ActivityList, defaulted []string,
+) (projectstate.PlanningAssumptions, []string) {
+	roles := workerClassesOf(al)
+	if len(pa.Resources) == 0 {
+		pa.Resources = roles
+		defaulted = append(defaulted, assumedResources)
+	}
+	if len(pa.RateCard) == 0 {
+		card := make(map[string]projectstate.WorkerRateSpec, len(roles))
+		for _, c := range roles {
+			card[c] = defaultRateSpec(c)
+		}
+		pa.RateCard = card
+		defaulted = append(defaulted, assumedRates)
+	}
+	if pa.IndirectDailyRate.MinorUnits <= 0 {
+		pa.IndirectDailyRate = defaultIndirectDailyRate
+		defaulted = append(defaulted, assumedIndirect)
+	}
 	return pa, defaulted
+}
+
+// appendOnce keeps the defaulted list a SET of families: three zero usage numbers are one
+// assumption to a reader, and the M0 copy line would otherwise name it three times.
+func appendOnce(list []string, family string) []string {
+	if slices.Contains(list, family) {
+		return list
+	}
+	return append(list, family)
+}
+
+// workerClassesOf is the activity list's worker classes, unique and SORTED. Sorted because it
+// seeds both the default Resources roster and the default rate card, and a map walk there
+// would put a different order in the committed document on every run.
+func workerClassesOf(al projectstate.ActivityList) []string {
+	seen := map[string]struct{}{}
+	for _, a := range al.Activities {
+		if a.WorkerClass != "" {
+			seen[a.WorkerClass] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // defaultCalendarDaysPerWeek is App. A's nominal working week. It is FIVE and not this
@@ -8661,6 +8738,10 @@ func computeProjectPlanSlots(
 	if !capAuthored {
 		defaulted = append(defaulted, assumedStaffing)
 	}
+	// The per-class $/day rates every derived Solution slot carries, from the SAME derivation
+	// the option assembly uses — one answer, two consumers (the Engine's cost math and the
+	// SPA's BUILD-COST RATES block).
+	classRates := deriveClassRates(pa, workerClassesOf(*list))
 	solutions := make(map[projectstate.ArtifactKind]*projectstate.Solution, len(projectstate.SolutionKinds()))
 	for _, kind := range projectstate.SolutionKinds() {
 		dials, known := derivedSolutionDials(kind, cap0)
@@ -8668,7 +8749,7 @@ func computeProjectPlanSlots(
 			return nil, nil, newError(fwmanager.FailedPrecondition,
 				"no Method dial set is derived for solution kind "+kind.String())
 		}
-		solutions[kind] = derivedSolution(kind, dials)
+		solutions[kind] = derivedSolution(kind, dials, classRates)
 	}
 
 	review, risks, rErr := assembleSdpReviewOver(eng, pa, *list, *net, solutions, "")

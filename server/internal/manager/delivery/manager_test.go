@@ -13669,6 +13669,32 @@ func Test_SubmitReviewDecision_SdpReviewKind_FailedPrecondition(t *testing.T) {
 	}
 }
 
+// M0's SEND-BACK REFUSAL, at the façade — the typed answer the founder actually sees, and the
+// one the SPA's NO_SDP_SEND_BACK copy must agree with. The gate refuses it a second time for a
+// signal that arrived past this guard (decideTaskGate), but that second refusal is invisible to
+// a caller, so THIS is the one a test must pin: the reason string is shared, so a change to
+// either side cannot drift from the other.
+func Test_SubmitProjectDesignDecision_M0Reject_FailedPreconditionNamingTheAmendmentPath(t *testing.T) {
+	m := &deliveryManager{pd: newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)}
+	lc, ok := methodassets.LifecycleFor("projectDesign")
+	if !ok {
+		t.Fatal("the platform carries no projectDesign lifecycle")
+	}
+	err := m.submitProjectDesignDecision(fwmanager.Context{Context: context.Background()},
+		ProjectID(uuid.NewString()), lc, sdpReviewTaskID,
+		ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: "cheaper please"})
+	if err == nil {
+		t.Fatal("a reject at M0 must be REFUSED; absorbing it withdraws the round and strands the activity")
+	}
+	var me *fwmanager.Error
+	if !errors.As(err, &me) || me.Kind != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition, got %v", err)
+	}
+	if !strings.Contains(err.Error(), noSendBackAtM0) {
+		t.Errorf("the refusal must carry the shared reason %q, got %q", noSendBackAtM0, err.Error())
+	}
+}
+
 func Test_PD_SubmitReviewDecision_UnknownDecision(t *testing.T) {
 	m := newProjectDesignManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil)
 	err := m.SubmitReviewDecision(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), KindNetwork, ReviewDecisionUnknown, nil)
@@ -19159,10 +19185,12 @@ func loadProjectDesignFixtures(t *testing.T) (
 // first run against. A difference means the doctrine table is wrong, NOT that the committed
 // state is stale — the committed dials were hand-drafted from the same book.
 //
-// It compares the THREE numbers assembleOption reads and nothing else, deliberately:
-// ClassRates is on the committed slots and is read by no consumer (rates come from
-// deriveClassRates over the rate card), and CalendarDaysPerWeek is zero on every committed
-// slot because F5 retired the per-option calendar.
+// It compares the THREE numbers assembleOption reads, plus the non-emptiness of the DERIVED
+// ClassRates: the committed slots' authored map is not compared (the derived rates come from
+// deriveClassRates over the rate card, which is the point), but the field must be POPULATED,
+// because SolutionView.tsx renders it as the BUILD-COST RATES block with a comment anchor per
+// rate and an empty map reads "No class rates specified." CalendarDaysPerWeek is zero on
+// every committed slot because F5 retired the per-option calendar.
 func Test_DerivedSolutionDials_ReproduceTheCommittedSlots(t *testing.T) {
 	_, _, _, committed := loadProjectDesignFixtures(t)
 	normal := committed[projectstate.KindNormalSolution]
@@ -19172,7 +19200,12 @@ func Test_DerivedSolutionDials_ReproduceTheCommittedSlots(t *testing.T) {
 		if !ok {
 			t.Fatalf("%s: the dial table derives nothing for a committed solution kind", kind)
 		}
-		got := derivedSolution(kind, dials)
+		rates := map[string]projectstate.Money{"senior-developer": {MinorUnits: 4200, Currency: "USD"}}
+		got := derivedSolution(kind, dials, rates)
+		if len(got.ClassRates) == 0 {
+			t.Errorf("%s: the derived Solution carries NO class rates — SolutionView's BUILD-COST RATES "+
+				"block and its per-rate comment anchors would render empty", kind)
+		}
 		switch {
 		case got.StaffingCap != want.StaffingCap:
 			t.Errorf("%s: derived staffingCap %d, committed %d", kind, got.StaffingCap, want.StaffingCap)
@@ -19349,11 +19382,11 @@ func Test_ComputeProjectPlanSlots_AbsentPlanningAssumptions_DefaultsAndProceeds(
 	proj.PlanningAssumptions = projectstate.ArtifactSlot{}
 
 	slots, defaulted, err := computeProjectPlanSlots(proj, shapeSDPEngines())
+	// One assertion, not two: the Fatalf below already covers SDPInputsIncomplete, and the
+	// `strings.Contains(fmt.Sprint(err), …)` check that used to follow it was DEAD — it ran only
+	// when err was nil, where it can never match.
 	if err != nil {
-		t.Fatalf("an absent slot 8 must DEFAULT and proceed, not refuse: %v", err)
-	}
-	if strings.Contains(fmt.Sprint(err), "SDPInputsIncomplete") {
-		t.Fatal("the compute raised SDPInputsIncomplete for an absent slot 8 — R-E removed that refusal")
+		t.Fatalf("an absent slot 8 must DEFAULT and proceed, not refuse (SDPInputsIncomplete included): %v", err)
 	}
 	if len(slots) != len(projectDesignComputedKinds()) {
 		t.Fatalf("the compute must still produce all eight slots; got %d", len(slots))
