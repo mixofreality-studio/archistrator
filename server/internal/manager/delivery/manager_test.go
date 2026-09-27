@@ -13582,7 +13582,8 @@ func replayExportHistory(ctx context.Context, c client.Client, wfID, runID, path
 
 // deliveryReplayDir is the ONE directory these fixtures live in. One directory, not one
 // per shape: they were all captured from the same workflow type at the same commit, and a
-// per-shape directory would make Test_Replay_EveryFixtureDirectoryIsNamed's vacuity guard
+// per-shape directory would make the directory-level vacuity guard (folded into
+// Test_Replay_DeliveryHistories) fire
 // fire on the first shape that is ever retired.
 const deliveryReplayDir = "post-4b1"
 
@@ -13678,8 +13679,8 @@ func deliveryReplayM0Rig(t *testing.T) deliveryReplayRig {
 
 // deliveryReplayCases is every captured generic-child history — ONE per spec §9 shape.
 // Adding a case means capturing its fixture; Test_Replay_DeliveryHistories fails on a
-// missing one rather than skipping, and Test_Replay_EveryFixtureDirectoryIsNamed fails on
-// a fixture no case names.
+// missing one rather than skipping, and its own orphan sweep fails on a fixture no case names AND
+// on a whole DIRECTORY no case list names.
 func deliveryReplayCases() []deliveryReplayCase {
 	return []deliveryReplayCase{
 		{
@@ -13966,6 +13967,30 @@ func Test_Replay_DeliveryHistories(t *testing.T) {
 			t.Errorf("fixture %s has no replay case, so nothing replays it", f)
 		}
 	}
+	// THE DIRECTORY-LEVEL HALF OF THE ORPHAN GUARD, folded in here when stage 4b1 Task 13 deleted
+	// the three per-rail case lists that Test_Replay_EveryFixtureDirectoryIsNamed used to union.
+	// The file-level sweep above cannot state it: a whole directory no case list names is globbed
+	// by nobody, so its fixtures are never even enumerated and nothing replays them.
+	named := map[string]bool{}
+	for _, d := range deliveryReplayDirs() {
+		named[d] = true
+	}
+	entries, err := filepath.Glob(filepath.Join("testdata", "replay", "*"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) == 0 {
+		t.Fatal("no replay fixture directories found under testdata/replay")
+	}
+	for _, e := range entries {
+		info, serr := os.Stat(e)
+		if serr != nil {
+			t.Fatal(serr)
+		}
+		if info.IsDir() && !named[filepath.Base(e)] {
+			t.Errorf("fixture directory %s is named by no replay case list, so nothing replays it", e)
+		}
+	}
 }
 
 // deliveryReplayEventCount counts a fixture's history events off the JSON the CLI format
@@ -13986,9 +14011,8 @@ func deliveryReplayEventCount(t *testing.T, path string) int {
 }
 
 // deliveryReplayDirs is the set of fixture directories the generic child's cases name. It is
-// a LIST of one rather than the constant, so Test_Replay_EveryFixtureDirectoryIsNamed keeps
-// the same shape it had for the three retired rails and a second directory needs no new
-// plumbing.
+// a LIST of one rather than the constant, so the orphan sweep keeps the same shape it had when
+// three per-rail case lists were unioned, and a second directory needs no new plumbing.
 func deliveryReplayDirs() []string { return []string{deliveryReplayDir} }
 
 // ===========================================================================
@@ -23235,7 +23259,7 @@ type fakeRail struct {
 // THE FAÇADE'S M0 APPROVE, END TO END (stage 4b1 Task 13, controller ruling 2).
 //
 // THE DEFECT IT CLOSES, and it was live for four tasks: the projectDesign arm of
-// SubmitReviewDecision called m.pd.SubmitSDPDecision, which signalled the RETIRED SDP
+// SubmitReviewDecision routed M0 onto the retired Project-Design door, which signalled the SDP
 // assembly's workflow id — and Task 9 had already moved that gate into the generic child,
 // while Task 10 stopped the pump from starting the assembly at all. So the founder's M0
 // approve was UNANSWERABLE: the signal went to an id nothing was running and the op returned
@@ -23371,11 +23395,18 @@ func Test_DeliveryProjectRepoBase_ResolvesThePerProjectHostAndFallsBack(t *testi
 			// A GITLOCAL project has NO web host — the deterministic local venue is a filesystem
 			// path, not a forge — so the composed base is empty and every prUrl is omitted rather
 			// than pointing at a URL that 404s.
+			//
+			// THE CONFIGURED BASE IS SET HERE, and that is the whole case (review fix round 1,
+			// finding 2). With base:"" the assertion was VACUOUS: repoWebHost("") answers "" for
+			// any input, so the fallback and the GitLocal arm were indistinguishable. A local boot
+			// generally HAS a configured central repo, and GitLocalRepoRefForProject mints a
+			// well-formed owner|owner/repo ref, so before the fix this composed
+			// "https://github.com/local/gtdapp" — a plausible URL that 404s — onto every prUrl.
 			name: "a GitLocal project",
 			repo: func(p ProjectID) (sourcecontrol.RepoRef, bool) {
 				return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(p)), true
 			},
-			base: "", want: "",
+			base: central, want: "",
 		},
 	}
 	for _, c := range cases {
@@ -23461,4 +23492,812 @@ func passedLedgerFor(activityID string, typ projectstate.ActivityType, at time.T
 		})
 	}
 	return out
+}
+
+// THE ONE ACTIVITY-OPTIONS HOOK ANSWERS FIVE MINUTES FOR THE SCAFFOLD SYNC (stage 4b1 Task 13,
+// Step 5; review fix round 1, finding 1).
+//
+// THE DEFECT IT PREVENTS is a silent one, which is why it is a test and not a comment. Two of
+// the three retired rails answered for this activity name and they DISAGREED — the design hooks
+// said 5 minutes, construction's said the shared 30-second rail deadline — and the divergence was
+// INERT only because mf.ActivityOptions had one reader per worker and each rail's workflows
+// consulted their own hook. Collapsing the three into one hook gives every dispatch whichever
+// answer survives, with nothing failing to say so: a scaffold sync that times out at 30 s does
+// not error at the gate, it progresses only through retry-persisted writes and eventually fails
+// the session (F-QA2-36's addendum). The first draft of the collapse lost the re-tune exactly
+// this way, so the hook's answer is now asserted rather than described.
+func Test_DeliveryActivityOptions_ScaffoldSyncKeepsTheFiveMinuteDeadline(t *testing.T) {
+	hook := deliveryActivityOptions()
+	sync, ok := hook("sourceControlAccess.syncManagedScaffold")
+	if !ok {
+		t.Fatal("the scaffold sync must have its OWN preset; falling through to the generated default is how the long deadline was lost")
+	}
+	if want := 5 * time.Minute; sync.StartToCloseTimeout != want {
+		t.Errorf("syncManagedScaffold StartToClose = %v, want %v — a full converge is ~100 reads plus a whole-tree of writes",
+			sync.StartToCloseTimeout, want)
+	}
+	// AND THE OTHER RAIL VERBS KEEP THE SHORT ONE: the re-tune is scoped to the sync, not a
+	// blanket widening of every source-control deadline.
+	for _, name := range []string{
+		"sourceControlAccess.openBranch", "sourceControlAccess.openPullRequest",
+		"sourceControlAccess.getPullRequestStatus", "sourceControlAccess.postReview",
+		"sourceControlAccess.mergePullRequest",
+	} {
+		opts, ok := hook(name)
+		if !ok {
+			t.Errorf("%s has no preset", name)
+			continue
+		}
+		if want := 30 * time.Second; opts.StartToCloseTimeout != want {
+			t.Errorf("%s StartToClose = %v, want %v", name, opts.StartToCloseTimeout, want)
+		}
+	}
+	// THE TWO NAMES ONLY THE DESIGN HOOKS ANSWERED FOR, and that the surviving child still
+	// reaches. Their absence is not a compile error and not a test failure anywhere else — they
+	// would simply inherit the generated default — so the merge's own arithmetic is pinned here.
+	for _, name := range []string{"projectStateAccess.advancePhase", "designSessionAccess.commitArtifactWithProvenance"} {
+		if _, ok := hook(name); !ok {
+			t.Errorf("%s lost its preset in the hook collapse; the design hooks' answer WAS the merged answer for a name only they carried", name)
+		}
+	}
+}
+
+// APPROVE RESOLVES EVERY ANSWERED THREAD IN ONE GESTURE, on both rails (design §3.4; restored by
+// stage 4b1 Task 13's review fix round 1, finding 3 — the retired design rail did this at
+// applyReviewLedgerGate and the generic child's approve did not, so a redraft that answered eight
+// change requests left eight ANSWERED threads outstanding on the screen and eight Resolve clicks
+// for the reviewer).
+//
+// Retargeted at the CHILD's round ledger rather than resurrected over the retired rail's slot
+// thread: the unit of a review is a ROUND now, the comment lives on it, and the resolve goes
+// through the same SetTaskCommentStatus the reviewer's own click does — which is what makes the
+// mirror signal fire and a held autogate re-evaluate.
+func TestBulkResolveAnsweredOnApprove(t *testing.T) {
+	// A ROUND-SHAPED thread: one answered change request, one answered question, one already
+	// resolved, and one open QUESTION (which does not block an approve).
+	answered := task12Comment("c1", "the failure mode is the vendor timeout")
+	answered.Status = projectstate.ReviewCommentAnswered
+	answeredQ := task12Comment("c2", "why this order?")
+	answeredQ.Status, answeredQ.Type = projectstate.ReviewCommentAnswered, projectstate.ReviewCommentTypeQuestion
+	done := task12Comment("c3", "already handled")
+	done.Status = projectstate.ReviewCommentResolved
+	openQ := task12Comment("c4", "which retry budget?")
+	openQ.Type = projectstate.ReviewCommentTypeQuestion
+
+	// THE PURE RULE FIRST: exactly the two ANSWERED ids, and neither the resolved nor the open one.
+	got := bulkResolveAnswered([]projectstate.ReviewComment{answered, answeredQ, done, openQ})
+	if len(got) != 2 || got[0] != "c1" || got[1] != "c2" {
+		t.Fatalf("bulkResolveAnswered = %v, want [c1 c2] — every ANSWERED thread, answered questions included", got)
+	}
+
+	// AND THROUGH THE REAL OP, which is where the regression was: the approve must land AND leave
+	// no answered thread behind.
+	ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending,
+		[]projectstate.ReviewComment{answered, answeredQ, done, openQ})
+	fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+	if err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+		ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+		t.Fatalf("an approve over answered threads must be accepted: %v", err)
+	}
+	if fc.lastSignalName != signalTaskDecision {
+		t.Fatalf("the approve must still reach the gate, got %q", fc.lastSignalName)
+	}
+	round := task12Round(t, ps)
+	for _, c := range round.Thread {
+		switch c.ID {
+		case "c1", "c2":
+			if c.Status != projectstate.ReviewCommentResolved {
+				t.Errorf("comment %s is %q after the approve, want resolved — an answered thread the reviewer accepted must not cost a second click",
+					c.ID, c.Status)
+			}
+		case "c4":
+			if c.Status != projectstate.ReviewCommentOpen {
+				t.Errorf("the OPEN question %s was resolved by the approve; only ANSWERED threads are swept", c.ID)
+			}
+		}
+	}
+}
+
+// AN OPEN CHANGE REQUEST BLOCKS THE APPROVE AND AN ANSWERED ONE DOES NOT — the asymmetry the bulk
+// resolve rides on. Kept as its own case because the two rules are read from the same thread and a
+// single case over both could pass while one of them was inverted.
+func TestOpenChangeRequestsBlockApproveAnsweredDoesNot(t *testing.T) {
+	openCR := task12Comment("c1", "name the failure")
+	answered := task12Comment("c2", "answered above")
+	answered.Status = projectstate.ReviewCommentAnswered
+	resolved := task12Comment("c3", "done")
+	resolved.Status = projectstate.ReviewCommentResolved
+	openQ := task12Comment("c4", "why?")
+	openQ.Type = projectstate.ReviewCommentTypeQuestion
+
+	got := projectstate.OpenReviewCommentIDs([]projectstate.ReviewComment{openCR, answered, resolved, openQ})
+	if len(got) != 1 || got[0] != "c1" {
+		t.Fatalf("only an open CHANGE REQUEST blocks an approve, got %v", got)
+	}
+	// And the façade's refusal is the one the design rail wrote, unchanged.
+	ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending,
+		[]projectstate.ReviewComment{openCR, answered})
+	err := task12Manager(&fakeTemporalClient{session: awaitingAt("designReview")}, ps).
+		SubmitReviewDecision(testCtx(), "p", "A", "designReview", ReviewDecisionInput{Decision: ReviewApprove}, nil)
+	if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+		!strings.Contains(e.Detail, "cannot approve: 1 review thread(s) still open") {
+		t.Fatalf("want the design rail's own refusal naming ONE open thread, got %v %q", e.Kind, e.Detail)
+	}
+	// AND THE ANSWERED THREAD WAS NOT SWEPT by a refused approve: the bulk resolve runs only when
+	// the approve is going through, or a blocked reviewer would come back to a tidied thread and a
+	// gate that is still closed.
+	for _, c := range task12Round(t, ps).Thread {
+		if c.ID == "c2" && c.Status != projectstate.ReviewCommentAnswered {
+			t.Errorf("a REFUSED approve resolved comment c2 anyway (status %q)", c.Status)
+		}
+	}
+}
+
+// ===========================================================================
+// THE NOTE-DELIVERY SPINE, RETARGETED AT THE GENERIC CHILD (review fix round 1).
+//
+// The twelve pre-4b1 Test_NoteDelivery_* cases drove ConstructActivityWorkflow through
+// phaseDecision signals and the flat phase walk, and both are gone — but their SUBJECT is
+// not: submitCarryingNotes, syncScaffoldBeforeDispatch, stampNoteDelivered and
+// PendingOperatorNotes are the child's own dispatch path (submitConstructionJob), and
+// nothing else in the suite asserts the scaffold sync's ORDER, the stamp's precondition or
+// the carry-once rule. The two DefaultVersion cases are correctly dead: their marker arm
+// belonged to the retired walk.
+//
+// The send-back-rides-the-redraft claim already has a child-side case
+// (Test_ConstructionWalk_SendBackRedraftCarriesTheOperatorSteer), and the retry/skip note
+// RECORDING claims have three (Task 11 fix round 1's variance cases), so those are not
+// duplicated here — what follows is what had no successor.
+// ===========================================================================
+
+// noteChildRun runs ONE git-wired (GitHub venue) activity on the generic child with the
+// scaffold sync and the submits sharing one call log, so their ORDER is observable. It is
+// noteGitRun's shape with the child in place of the retired workflow.
+func noteChildRun(t *testing.T, rail *stubRail) (*testsuite.TestWorkflowEnvironment, *csFakeProjectState, orderedPipeline) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true)
+	pipe := orderedPipeline{csFakePipeline: csNewFakePipeline(), order: rail.order}
+	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
+	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, nil)
+	registerGenDesignSessionRead(env, ps)
+	registerGenProjectStateVersion(env, ps)
+	registerGenConstructionTransition(env, ps)
+	csRegisterGenActivityExecution(env, ps)
+	registerGenGitStatus(env, git)
+	registerGenRail(env, rail)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+	return env, ps, pipe
+}
+
+// noteCarriers counts the dispatches that carried an operator_note input.
+func noteCarriers(specs []agenticjob.PipelineSpec) int {
+	n := 0
+	for _, s := range specs {
+		if _, ok := s.DispatchInputs[dispatchInputOperatorNote]; ok {
+			n++
+		}
+	}
+	return n
+}
+
+// THE MANAGED SCAFFOLD IS SYNCED IMMEDIATELY BEFORE EVERY GITHUB DISPATCH, and the claim is
+// about the ORDER, which is why the sync and the submit share one call log. A sync that runs
+// once at the start, or after the dispatch it was meant to prepare, leaves the agent reading a
+// stale scaffold — and nothing in the run reports it.
+func Test_NoteDelivery_ScaffoldSyncPrecedesEveryChildDispatch(t *testing.T) {
+	rail := &stubRail{prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, order: &callLog{}}
+	env, _, pipe := noteChildRun(t, rail)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	submits := len(submittedSpecs(pipe))
+	if submits == 0 {
+		t.Fatal("the walk dispatched nothing; there is no order to assert")
+	}
+	if want := strings.Repeat("sync→submit→", submits-1) + "sync→submit"; rail.order.String() != want {
+		t.Fatalf("call order = %s\nwant       %s", rail.order.String(), want)
+	}
+	if rail.syncs != submits {
+		t.Errorf("%d syncs for %d dispatches; the scaffold is synced per dispatch, not per run", rail.syncs, submits)
+	}
+}
+
+// NO SYNC ON THE LOCAL VENUE. There is no seated workflow to sync a scaffold for, so issuing
+// one would be a rail call against a filesystem. A rail IS registered, so a stray call is
+// caught rather than silently unregistered.
+func Test_NoteDelivery_NoSyncOnTheLocalVenue(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	rail := &stubRail{}
+	wf := csNewWorkflows(gateDeps(ps))
+	registerDeliveryActivity(env, wf, ps, csNewFakePipeline())
+	registerGenRail(env, rail)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if rail.syncs != 0 {
+		t.Fatalf("the local venue must never sync, got %d", rail.syncs)
+	}
+}
+
+// A FAILED SYNC DISPATCHES NOTHING, and the run takes the variance path rather than
+// dispatching into a scaffold it knows is stale. The bound is the variance budget, so the
+// activity ends with a recorded terminal rather than an error.
+func Test_NoteDelivery_FailedSyncDispatchesNothing(t *testing.T) {
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, order: &callLog{},
+		syncErr: fwra.New(fwra.Auth, "the installation token was refused"),
+	}
+	env, ps, pipe := noteChildRun(t, rail)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a failed sync is a variance, not a workflow error: %v", err)
+	}
+	if n := len(submittedSpecs(pipe)); n != 0 {
+		t.Fatalf("a failed sync must dispatch nothing, got %d submits", n)
+	}
+	if rail.syncs != maxVarianceAttempts {
+		t.Fatalf("one sync per variance attempt, got %d of %d", rail.syncs, maxVarianceAttempts)
+	}
+	row := ps.execution("C-MST")
+	if row.FailureReason != projectstate.VarianceExhausted {
+		t.Fatalf("the variance path must exhaust and record it, got %v", row.FailureReason)
+	}
+}
+
+// A PENDING NOTE FROM THE STORE RIDES THIS RUN'S FIRST DISPATCH AND IS STAMPED TO ITS ATTEMPT;
+// a SKIP note and an already-delivered note never ride. This is PendingOperatorNotes' whole
+// rule, and the re-open path is its first real producer (a requeue's note is exactly a note
+// recorded before any dispatch of the run that must carry it).
+func Test_NoteDelivery_PendingNoteRidesTheFirstDispatchAndIsStampedOnce(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{shapeServiceID: {OperatorNotes: []projectstate.OperatorNote{
+		{NoteID: "n-requeue", Kind: projectstate.NoteRequeue, Text: "the flaky dependency is pinned now", RecordedAt: at},
+		{NoteID: "n-skip", Kind: projectstate.NoteSkip, Text: "skip note", RecordedAt: at},
+		{NoteID: "n-done", Kind: projectstate.NoteRetry, Text: "already delivered", RecordedAt: at,
+			DeliveredToAttemptID: shapeServiceID + ":srs:1", DeliveredAt: &at},
+	}}}
+	pipe := csNewFakePipeline()
+	registerDeliveryActivity(env, csNewWorkflows(gateDeps(ps)), ps, pipe)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	specs := submittedSpecs(pipe)
+	if len(specs) == 0 {
+		t.Fatal("the walk dispatched nothing")
+	}
+	first := specs[0].DispatchInputs[dispatchInputOperatorNote]
+	if !strings.Contains(first, "the flaky dependency is pinned now") {
+		t.Errorf("the first dispatch must carry the pending requeue note:\n%s", first)
+	}
+	for _, never := range []string{"skip note", "already delivered"} {
+		if strings.Contains(first, never) {
+			t.Errorf("a %q note must never ride a dispatch:\n%s", never, first)
+		}
+	}
+	// CARRIED ONCE, which is the rule the stamp exists to enforce: a note the ledger records as
+	// delivered is not offered to the next dispatch of the same run.
+	if got := noteCarriers(specs); got != 1 {
+		t.Errorf("%d dispatches carried a note; only the first owes the store's pending one", got)
+	}
+	if len(ps.delivered) != 1 || ps.delivered[0].noteID != "n-requeue" {
+		t.Fatalf("delivery stamps = %+v, want exactly the requeue note stamped once", ps.delivered)
+	}
+	if ps.delivered[0].attemptID == "" {
+		t.Error("a stamp must name the ATTEMPT it rode; an unattributed stamp cannot be audited")
+	}
+}
+
+// NOTHING IS STAMPED UNLESS THE SUBMIT SUCCEEDED. The stamp is the claim "an agent saw this
+// note", so stamping a refused dispatch would retire a steer nobody ever read — and the
+// operator would have no way to tell.
+func Test_NoteDelivery_NoStampUnlessTheSubmitSucceeded(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	at := time.Date(2026, 9, 13, 12, 0, 0, 0, time.UTC)
+	ps.project.ActivityExecution = map[string]projectstate.ActivityExecution{shapeServiceID: {OperatorNotes: []projectstate.OperatorNote{
+		{NoteID: "n-requeue", Kind: projectstate.NoteRequeue, Text: "pinned now", RecordedAt: at},
+	}}}
+	pipe := &noteRefusingPipeline{csNewFakePipeline()}
+	registerDeliveryActivity(env, csNewWorkflows(gateDeps(ps)), ps, pipe)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	if len(ps.delivered) != 0 {
+		t.Fatalf("a refused dispatch stamps nothing, got %+v", ps.delivered)
+	}
+	// AND THE NOTE IS STILL PENDING, so the next run offers it again — which is the whole
+	// point of not stamping it.
+	row := ps.execution(shapeServiceID)
+	if len(projectstate.PendingOperatorNotes(row)) != 1 {
+		t.Fatalf("the unread note must stay pending, got %+v", row.OperatorNotes)
+	}
+}
+func TestPhasesToContract_CarriesLabel(t *testing.T) {
+	// Labels (and weights) come from the PROFILE, so a Frontend activity renders
+	// "UX Requirements" whatever task vocabulary its ledger happens to be written in.
+	profile := projectstate.ProfileFor(projectstate.ActivityTypeFrontend, 0)
+	got := phasesToContract(resolvedPhaseCompletions(profile, serviceLedger(projectstate.MethodPhaseRequirements)))
+	if len(got) != len(profile.Phases) {
+		t.Fatalf("phasesToContract len = %d, want %d (the profile's row set)", len(got), len(profile.Phases))
+	}
+	if got[0].Label != "UX Requirements" {
+		t.Errorf("Label = %q, want %q — a Frontend activity must not render Service labels", got[0].Label, "UX Requirements")
+	}
+}
+
+// App A's binary exit criterion: a phase is complete iff its GATE task's latest
+// attempt passed. A stored flag nobody can trace to a review does not survive a
+// ledger that contradicts it.
+func TestPhasesToContract_DerivesCompletedFromTheLedger(t *testing.T) {
+	attempts := []projectstate.TaskAttempt{
+		// The design gate PASSED and was then REJECTED: the latest attempt decides.
+		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "C-x:designReview:2", Task: projectstate.TaskDesignReview, Attempt: 2, Outcome: projectstate.OutcomeRejected},
+		// The construction gate PASSED though storage says not done.
+		{AttemptID: "C-x:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+	}
+	// The Service profile's row set is the canonical five: requirements(0),
+	// detailedDesign(1), testPlan(2), construction(3), integration(4).
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeService, 0), attempts))
+	if len(got) != 5 {
+		t.Fatalf("phasesToContract len = %d, want 5", len(got))
+	}
+	if got[1].Completed {
+		t.Errorf("detailedDesign Completed = true, want false — its latest designReview was rejected")
+	}
+	if !got[3].Completed {
+		t.Errorf("construction Completed = false, want true — its codeReview passed")
+	}
+}
+
+// A row with NO ledger asserts nothing: there is no second record for the ledger's
+// silence to contradict any more (stage-3 task 4), so the honest answer is an empty
+// resolution rather than a materialized skeleton of unknowns.
+func TestPhasesToContract_AnEmptyLedgerAssertsNothing(t *testing.T) {
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeService, 0), nil))
+	if len(got) != 0 {
+		t.Fatalf("phasesToContract len = %d, want 0 — a row with no ledger claims nothing", len(got))
+	}
+}
+
+// The rule is decided PER PHASE. A partial ledger says NOTHING about a phase whose gate
+// task it never wrote, and the phase materializes as an honest unknown — rendered as
+// not-yet-complete — rather than borrowing another phase's verdict.
+func TestPhasesToContract_PartialLedgerDoesNotDenySilentPhases(t *testing.T) {
+	// A partial ledger: it has an opinion about detailedDesign and construction only.
+	// testPlan and integration have no gate attempt at all.
+	attempts := []projectstate.TaskAttempt{
+		{AttemptID: "U-SPA-web-client:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+		{AttemptID: "U-SPA-web-client:codeReview:1", Task: projectstate.TaskCodeReview, Attempt: 1, Outcome: projectstate.OutcomePassed},
+	}
+	// The Frontend profile's row set — requirements first, which the stored slice does
+	// not carry and the ledger says nothing about. A NON-MONOTONIC shape: an incomplete
+	// first phase under four complete ones.
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeFrontend, 0), attempts))
+	if len(got) != 5 {
+		t.Fatalf("phasesToContract len = %d, want 5", len(got))
+	}
+	if got[0].Phase != ActivityMethodPhase(string(projectstate.MethodPhaseRequirements)) || got[0].Completed {
+		t.Errorf("requirements = %+v, want an INCOMPLETE first row — neither storage nor the ledger records it", got[0])
+	}
+	for i, want := range []struct {
+		phase     projectstate.ActivityMethodPhase
+		completed bool
+		why       string
+	}{
+		{projectstate.MethodPhaseDetailedDesign, true, "its designReview passed"},
+		{projectstate.MethodPhaseTestPlan, false, "the ledger has no stpReview attempt, and there is no stored flag left to stand in for one"},
+		{projectstate.MethodPhaseConstruction, true, "its codeReview passed"},
+		{projectstate.MethodPhaseIntegration, false, "the ledger has no testing attempt"},
+	} {
+		idx := i + 1
+		if got[idx].Phase != ActivityMethodPhase(string(want.phase)) {
+			t.Fatalf("phase %d = %q, want %q", idx, got[idx].Phase, want.phase)
+		}
+		if got[idx].Completed != want.completed {
+			t.Errorf("%s Completed = %v, want %v — %s", want.phase, got[idx].Completed, want.completed, want.why)
+		}
+	}
+}
+
+// The other half of the per-phase rule: where the ledger DOES have an opinion, a rejected
+// latest gate leaves its phase incomplete.
+func TestPhasesToContract_PartialLedgerStillDeniesARejectedGate(t *testing.T) {
+	attempts := []projectstate.TaskAttempt{
+		{AttemptID: "C-x:designReview:1", Task: projectstate.TaskDesignReview, Attempt: 1, Outcome: projectstate.OutcomeRejected},
+	}
+	// Documentation's profile: detailedDesign(0), construction(1), integration(2).
+	got := phasesToContract(resolvedPhaseCompletions(projectstate.ProfileFor(projectstate.ActivityTypeDocumentation, 0), attempts))
+	if len(got) != 3 {
+		t.Fatalf("phasesToContract len = %d, want 3", len(got))
+	}
+	if got[0].Completed {
+		t.Errorf("detailedDesign Completed = true, want false — its only designReview was rejected")
+	}
+	if got[2].Completed {
+		t.Errorf("integration Completed = true, want false — the ledger says nothing about it, and nothing else speaks for it")
+	}
+}
+
+// recordingMetrics captures what gateMetrics records (the SDK test environment has no
+// metrics hook).
+type recordingMetrics struct {
+	mu     sync.Mutex
+	timers []recordedTimer
+}
+
+type recordedTimer struct {
+	name  string
+	tags  map[string]string
+	value time.Duration
+}
+
+type recordingMetricsHandler struct {
+	rec  *recordingMetrics
+	tags map[string]string
+}
+
+func (h recordingMetricsHandler) WithTags(tags map[string]string) client.MetricsHandler {
+	merged := maps.Clone(h.tags)
+	if merged == nil {
+		merged = map[string]string{}
+	}
+	maps.Copy(merged, tags)
+	return recordingMetricsHandler{rec: h.rec, tags: merged}
+}
+
+func (h recordingMetricsHandler) Counter(name string) client.MetricsCounter {
+	return client.MetricsNopHandler.Counter(name)
+}
+
+func (h recordingMetricsHandler) Gauge(name string) client.MetricsGauge {
+	return client.MetricsNopHandler.Gauge(name)
+}
+
+func (h recordingMetricsHandler) Timer(name string) client.MetricsTimer {
+	return recordingMetricsTimer{h: h, name: name}
+}
+
+type recordingMetricsTimer struct {
+	h    recordingMetricsHandler
+	name string
+}
+
+func (t recordingMetricsTimer) Record(d time.Duration) {
+	t.h.rec.mu.Lock()
+	defer t.h.rec.mu.Unlock()
+	t.h.rec.timers = append(t.h.rec.timers, recordedTimer{name: t.name, tags: t.h.tags, value: d})
+}
+
+// THE GATE-WAIT TIMER IS RECORDED ONCE, WHEN THE HUMAN STAGE ENDS, with exactly the BOUNDED tag
+// set and the time the gate actually waited (review fix round 1). Retargeted at the generic
+// child: leaveHumanStage is the child's own site now, and the cardinality guard is the point —
+// an activity id or a task id in a metric tag is an unbounded label, which is how a metrics
+// backend falls over on a project with a few hundred activities. Nothing else in the suite reads
+// what is recorded, because the SDK's test environment exposes no metrics hook.
+func Test_GateWaitMetric_RecordedOnLeaveWithBoundedTags(t *testing.T) {
+	rec := &recordingMetrics{}
+	orig := gateMetrics
+	gateMetrics = func(workflow.Context) client.MetricsHandler { return recordingMetricsHandler{rec: rec} }
+	t.Cleanup(func() { gateMetrics = orig })
+
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(replayGatedOn(projectstate.MethodPhaseDetailedDesign))
+	wf := csNewWorkflows(gateDeps(ps))
+	registerDeliveryActivity(env, wf, ps, csNewFakePipeline())
+	env.RegisterDelayedCallback(shapeApprove(env, shapeDesignReviewTask), 30*time.Second)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var waits []recordedTimer
+	for _, r := range rec.timers {
+		if r.name == "construction_gate_wait" {
+			waits = append(waits, r)
+		}
+	}
+	if len(waits) != 1 {
+		t.Fatalf("want ONE construction_gate_wait record for one held gate, got %+v", rec.timers)
+	}
+	want := map[string]string{"gate": "phase", "outcome": gateOutcomeApproved, "activity_type": "service"}
+	if !maps.Equal(waits[0].tags, want) {
+		t.Fatalf("tags = %v, want exactly %v — an activity or task id here is an UNBOUNDED label",
+			waits[0].tags, want)
+	}
+	if waits[0].value != 30*time.Second {
+		t.Fatalf("recorded wait = %v, want the 30s the gate actually waited", waits[0].value)
+	}
+}
+
+// AN OPERATOR NOTE IS CAPPED AT 4,000 CHARACTERS, anchored comments and their JSONPaths
+// included, and a refused note signals NOTHING (review fix round 1). Retargeted from the retired
+// SubmitPhaseDecision onto the two doors that carry a note today: the send-back verdict and the
+// override. The cap is not cosmetic — the note is rendered into a dispatch input, and an
+// unbounded one is an unbounded workflow-history payload.
+func TestFacade_OperatorNoteIsCappedAt4000Characters(t *testing.T) {
+	over := strings.Repeat("é", maxOperatorNoteRunes+1)
+	justUnder := strings.Repeat("a", maxOperatorNoteRunes-10)
+	comments := []AnchoredComment{{JSONPath: "$.ops[0]", Text: strings.Repeat("b", 11)}}
+	ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
+	for name, call := range map[string]func(m *deliveryManager) error{
+		"send-back text": func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: over})
+		},
+		"send-back comments": func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: justUnder, Comments: comments})
+		},
+		"override text": func(m *deliveryManager) error {
+			return m.OverrideActivity(testCtx(), "p", "A", ActivityOverride{Kind: OverrideRetry, Notes: over})
+		},
+		"override comments": func(m *deliveryManager) error {
+			return m.OverrideActivity(testCtx(), "p", "A", ActivityOverride{Kind: OverrideRetry, Notes: justUnder, Comments: comments})
+		},
+	} {
+		fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+		err := call(task12Manager(fc, ps))
+		if e := asConstructionError(t, err); e.Kind != fwmanager.ContractMisuse {
+			t.Errorf("%s over the cap: want ContractMisuse, got %v %q", name, e.Kind, e.Detail)
+		}
+		if fc.lastSignalName != "" {
+			t.Errorf("%s: a refused note must not signal, got %q", name, fc.lastSignalName)
+		}
+	}
+	// THE COUNT IS RUNES OF THE TEXT PLUS EACH COMMENT'S TEXT **AND** JSONPATH ("$.ops[0]" is 8).
+	if got := operatorNoteRunes(strings.Repeat("é", maxOperatorNoteRunes-19), comments); got != maxOperatorNoteRunes {
+		t.Fatalf("operatorNoteRunes = %d, want %d — the anchor path counts too", got, maxOperatorNoteRunes)
+	}
+	// A LONG PATH ALONE trips it, which is the half a text-only count would miss.
+	longPath := []AnchoredComment{{JSONPath: "$." + strings.Repeat("p", 3000), Text: "x"}}
+	for name, call := range map[string]func(m *deliveryManager) error{
+		"send-back": func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: strings.Repeat("a", 1500), Comments: longPath})
+		},
+		"override": func(m *deliveryManager) error {
+			return m.OverrideActivity(testCtx(), "p", "A",
+				ActivityOverride{Kind: OverrideRetry, Notes: strings.Repeat("a", 1500), Comments: longPath})
+		},
+	} {
+		fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+		if e := asConstructionError(t, call(task12Manager(fc, ps))); e.Kind != fwmanager.ContractMisuse {
+			t.Errorf("%s with a 3,000-character anchor path: want ContractMisuse, got %v", name, e.Kind)
+		}
+	}
+}
+
+// A REPLY IS ROUTED INTO THE THREAD IT NAMES, not re-filed as a fresh question (review fix
+// round 1). Retargeted from the deleted splitIncomingQuestions onto the router that survives on
+// the ask door: partitionIncomingComments splits the batch and checkReplyTargets validates the
+// targets against the LIVE thread. The claim is the same one and it is the load-bearing half —
+// a reply re-filed as a new comment opens a thread nobody answers.
+func TestAskRoutesReplyIntoTheQuestionThread(t *testing.T) {
+	const at = "2026-09-19T02:00:00Z"
+	incoming := []AnchoredComment{
+		{Text: "That does not answer the cost objective", ReplyTo: "r1c0"},
+		{JSONPath: "$.objectives[3]", AnchorText: "obj 4", Text: "And what about objective 4?"},
+		{Text: "   ", ReplyTo: "r1c0"}, // an empty utterance is not a reply
+	}
+	fresh, replies := partitionIncomingComments(incoming, at)
+	if len(fresh) != 1 || len(replies) != 1 {
+		t.Fatalf("want 1 fresh question + 1 reply (the blank one dropped), got %d/%d", len(fresh), len(replies))
+	}
+	if fresh[0].JSONPath != "$.objectives[3]" {
+		t.Errorf("the fresh half must keep its anchor, got %q", fresh[0].JSONPath)
+	}
+	if replies[0].CommentID != "r1c0" || replies[0].At != at {
+		t.Errorf("the reply must name its target and carry the batch's stamp, got %+v", replies[0])
+	}
+	// THE ROLE MUST BE THE REVIEWER'S, and not an agent's: the derive rule reads an agent
+	// utterance as the thread ANSWERING itself, which would leave a question the reviewer
+	// rejected showing as answered.
+	if replies[0].AuthorRole != reviewerUtteranceRole {
+		t.Fatalf("reply author = %q, want %q", replies[0].AuthorRole, reviewerUtteranceRole)
+	}
+	// AND THE STORE'S OWN APPLY PUTS IT ON THE THREAD rather than beside it, flipping an
+	// answered question back to OPEN because the reviewer got the last word — which is exactly
+	// the predicate the answer job selects on.
+	existing := []projectstate.ReviewComment{{
+		ID: "r1c0", Round: 1, Text: "Why only three objectives?", AuthorRole: reviewAuthorRole,
+		Type: projectstate.ReviewCommentTypeQuestion, Addressee: projectstate.ReviewAddresseeArchitect,
+		Status: projectstate.ReviewCommentAnswered,
+		Replies: []projectstate.ReviewCommentReply{
+			{ID: "r1c0-u1", AuthorRole: "architect", Text: "Three is the abstraction ceiling.", At: "2026-09-19T00:00:00Z"},
+		},
+	}}
+	got, err := projectstate.ApplyReviewBatch(existing, 2, questionsToLedger(projectstate.ReviewAddresseeArchitect, fresh), replies)
+	if err != nil {
+		t.Fatalf("apply: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("a reply must NOT open a thread; want 2 entries, got %d", len(got))
+	}
+	if len(got[0].Replies) != 2 || got[0].Replies[1].Text != "That does not answer the cost objective" {
+		t.Fatalf("the reply must append to r1c0: %+v", got[0].Replies)
+	}
+	if got[0].Status != projectstate.ReviewCommentOpen {
+		t.Fatalf("a reviewer reply must re-open the question thread, got %q", got[0].Status)
+	}
+	if got[0].Type != projectstate.ReviewCommentTypeQuestion || got[0].Addressee != projectstate.ReviewAddresseeArchitect {
+		t.Fatalf("the reopened thread must stay an ADDRESSED question, got %+v", got[0])
+	}
+}
+
+// A replyTo NAMING NO THREAD on this artifact is a hard ContractMisuse on the ask door too —
+// never a silently re-filed new question, which would strand the follow-up on a thread the
+// addressee is not watching.
+func TestAskRefusesAReplyToNamingNoThread(t *testing.T) {
+	err := checkReplyTargets(map[string]bool{"r1c0": true},
+		[]AnchoredComment{{Text: "follow up", ReplyTo: "ghost"}})
+	if err == nil {
+		t.Fatal("expected a refusal for a replyTo naming no thread")
+	}
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse, got %v", got)
+	}
+	if !strings.Contains(err.Error(), "ghost") {
+		t.Fatalf("the refusal must name the offending id, got %q", err.Error())
+	}
+	// A KNOWN target passes, so the guard is not simply refusing every reply.
+	if err := checkReplyTargets(map[string]bool{"r1c0": true},
+		[]AnchoredComment{{Text: "follow up", ReplyTo: "r1c0"}}); err != nil {
+		t.Fatalf("a reply naming a live thread must pass: %v", err)
+	}
+}
+
+// slotPtrForTest routes a Phase-1 kind to its named Project slot (the test-side
+// mirror of the codec's slot routing; the production slotFor reads by value).
+func slotPtrForTest(p *projectstate.Project, k ArtifactKind) (*projectstate.ArtifactSlot, bool) {
+	switch k {
+	case KindMission:
+		return &p.Mission, true
+	case KindGlossary:
+		return &p.Glossary, true
+	case KindScrubbedRequirements:
+		return &p.ScrubbedRequirements, true
+	case KindVolatilities:
+		return &p.Volatilities, true
+	case KindCoreUseCases:
+		return &p.CoreUseCases, true
+	case KindSystem:
+		return &p.SystemDesign, true
+	case KindOperationalConcepts:
+		return &p.OperationalConcepts, true
+	case KindStandardCheck:
+		return &p.StandardCheck, true
+	default:
+		return nil, false
+	}
+}
+
+// committedProject builds a head-state Project whose named slot for each given kind is
+// Committed (Status only — the seal gate reads Status, not the model).
+func committedProject(pid ProjectID, committed ...ArtifactKind) projectstate.Project {
+	p := projectstate.Project{ID: projectstate.ProjectID(pid)}
+	for _, k := range committed {
+		if slot, ok := slotPtrForTest(&p, k); ok {
+			slot.Status = projectstate.ReviewCommitted
+		}
+	}
+	return p
+}
+
+// ===========================================================================
+// THE PHASE-1 SEAL'S TWO PRE-SEAL GATES (review fix round 1).
+//
+// Retargeted from the retired AdvancePhase op onto sealSystemDesignPhase, which is the same
+// gates over the same head state with the Temporal round-trip removed (the retired workflow was
+// started and immediately awaited by its own caller). The DISTINCTION each case draws is
+// unchanged: FailedPrecondition means the gate BLOCKED, anything else means it passed — and now
+// "passed" is a real answer rather than a mocked start error, so the cases read the
+// MissingArtifacts list instead.
+// ===========================================================================
+
+func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
+	m := &deliveryManager{}
+	_, err := m.sealSystemDesignPhase(bgRC(), ProjectID(""), false)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
+		t.Fatalf("want ContractMisuse for an empty projectId, got %v", got)
+	}
+}
+
+// F55: a committed-but-STALE in-scope slot blocks the seal with a FailedPrecondition that NAMES
+// the stale slot — the seal must not silently advance over a shifted basis.
+func Test_AdvancePhase_StaleSlot_FailedPreconditionNamingSlot(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary)
+	proj.Volatilities.Status = projectstate.ReviewCommitted
+	proj.Volatilities.StaleBasis = true
+	m := &deliveryManager{projectState: &renderFakeProjectState{project: proj}}
+
+	_, err := m.sealSystemDesignPhase(bgRC(), pid, false)
+	if got := asConstructionError(t, err).Kind; got != fwmanager.FailedPrecondition {
+		t.Fatalf("want FailedPrecondition for a stale committed slot, got %v", got)
+	}
+	if !strings.Contains(err.Error(), "volatilities") {
+		t.Fatalf("the refusal must NAME the stale slot, got %q", err.Error())
+	}
+}
+
+// The stale gate is scoped to Phase1RequiredKinds(): a RETIRED kind's slot may still be
+// committed-and-stale on an existing project (the slots were retired in place, not deleted) and
+// must NOT block the seal — it is no longer part of the phase.
+func Test_AdvancePhase_StaleRetiredSlot_DoesNotBlockSeal(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary)
+	proj.ScrubbedRequirements.Status = projectstate.ReviewCommitted
+	proj.ScrubbedRequirements.StaleBasis = true
+	m := &deliveryManager{projectState: &renderFakeProjectState{project: proj}}
+
+	res, err := m.sealSystemDesignPhase(bgRC(), pid, false)
+	if err != nil {
+		t.Fatalf("a stale RETIRED slot must not block the seal: %v", err)
+	}
+	if res.Advanced || len(res.MissingArtifacts) == 0 {
+		t.Fatalf("the gate passed, so the seal must answer with what is still MISSING; got %+v", res)
+	}
+}
+
+// F55: acknowledgeStale bypasses the stale gate — the seal proceeds and answers with the
+// uncommitted kinds rather than the FailedPrecondition the gate would have produced.
+func Test_AdvancePhase_StaleSlot_AcknowledgeBypassesGate(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission)
+	proj.Volatilities.Status = projectstate.ReviewCommitted
+	proj.Volatilities.StaleBasis = true
+	m := &deliveryManager{projectState: &renderFakeProjectState{project: proj}}
+
+	res, err := m.sealSystemDesignPhase(bgRC(), pid, true)
+	if err != nil {
+		t.Fatalf("with ack the stale gate must be bypassed: %v", err)
+	}
+	if res.Advanced {
+		t.Error("this project has not committed every Phase-1 kind, so it must not advance")
+	}
+}
+
+// F55: no stale slot → the gate is a no-op and the seal proceeds unchanged.
+func Test_AdvancePhase_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, KindMission, KindGlossary, KindScrubbedRequirements)
+	m := &deliveryManager{projectState: &renderFakeProjectState{project: proj}}
+
+	res, err := m.sealSystemDesignPhase(bgRC(), pid, false)
+	if err != nil {
+		t.Fatalf("with no stale slot the gate must pass: %v", err)
+	}
+	if res.Advanced {
+		t.Error("three committed kinds are not the whole Phase-1 list")
+	}
+	// AND THE MISSING LIST IS SCOPED TO Phase1RequiredKinds(), which is the half a pass/blocked
+	// assertion alone cannot state: the RETIRED ScrubbedRequirements is committed here and must
+	// not appear either way.
+	for _, k := range res.MissingArtifacts {
+		if k == KindScrubbedRequirements {
+			t.Error("a RETIRED kind must not appear in the seal's missing list")
+		}
+	}
 }

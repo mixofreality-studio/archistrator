@@ -74,8 +74,11 @@ child. Two vacuity guards live over `testdata/replay/`:
 
 - `replayFixtureFiles` globs `testdata/replay/<dir>/*.json` and **fails** a directory
   with no fixtures in it, so an emptied directory cannot pass by finding nothing.
-- `Test_Replay_EveryFixtureDirectoryIsNamed` fails on any directory under
-  `testdata/replay/` that no case list names, and on finding zero directories at all.
+- `Test_Replay_DeliveryHistories`' own orphan sweep fails on any directory under
+  `testdata/replay/` that no case list names, and on finding zero directories at all. It was
+  `Test_Replay_EveryFixtureDirectoryIsNamed` until stage 4b1 Task 13 deleted the three per-rail
+  case lists it unioned; the guard was folded into the one surviving replay test rather than
+  dropped with them.
 
 An archived fixture is by definition one no case list names any more. Left in place it
 would trip the orphan guard; deleted, it would take its evidence with it. Moved here it

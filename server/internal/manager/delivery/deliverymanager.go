@@ -1095,7 +1095,8 @@ func (m *deliveryManager) dispatchAnswerJob(ctx context.Context, projectID Proje
 	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
 	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
 	// RepoRef→RepoTarget decode + the placeholder step graph the retired pipelineDispatchAdapter
-	// added are inlined here (the workflow-side twin is dispatchDesignJob in dispatch.go).
+	// added are inlined here (the workflow-side twin is dispatchDesignJob, in this file since
+	// stage 4b1 Task 13 folded the co-author spine's survivors in).
 	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
 	if terr != nil {
 		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
@@ -2419,6 +2420,16 @@ func (m *deliveryManager) deliveryProjectRepoBase(projectID ProjectID) string {
 	if !ok {
 		return m.repoBase
 	}
+	// A GITLOCAL PROJECT HAS NO WEB HOST (review fix round 1, finding 2). The deterministic local
+	// venue is a FILESYSTEM path, not a forge, and it is invisible here by accident rather than by
+	// construction: GitLocalRepoRefForProject mints a WELL-FORMED owner|owner/repo ref, so
+	// RepoRefOwnerRepo decodes it happily and the composed base came out as
+	// "<configured host>/local/<projectId>" — a plausible-looking URL that 404s, stamped onto every
+	// prUrl of every activity of every local boot. R6's single recognition point is what settles it,
+	// and it is the same question railLifecycleEnabled asks two lines from the same resolver.
+	if isGitLocalVenue(projectID, repoRef) {
+		return ""
+	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
 	if err != nil {
 		return m.repoBase
@@ -3351,7 +3362,7 @@ const pipelineDefaultToolchain = "go-1.23"
 // PipelineSubmit/ObserveAgenticJob); the value mapping that lived on the folded
 // pipelineDispatchAdapter — the RepoRef→RepoTarget decode, the PipelineSpec composition,
 // and the RA-phase→neutral-phase mapping — is now these PURE workflow-side helpers
-// (mirrors construction's dispatch.go). The idempotency key is stamped INSIDE the
+// (mirrors the child's own dispatch path). The idempotency key is stamped INSIDE the
 // generated submit Activity (genActivityIdempotencyKey, the same run-scoped 3-part scheme
 // the old hand-derived key used), so the redraft-vs-auto-retry distinction is unchanged.
 // The former EXPORTED consumer-mirror interface + the folded pipelineDispatchAdapter +
@@ -3476,6 +3487,31 @@ func mintCredActivityOptions() workflow.ActivityOptions {
 	return fwmanager.ActivityPreset{
 		Timeout:    15 * time.Second,
 		TerminalRA: []fwra.Kind{fwra.Auth, fwra.ContractMisuse},
+	}.Options()
+}
+
+// scaffoldSyncActivityOptions carries a StartToClose long enough for a FULL scaffold
+// converge — ~100 file reads plus up to a whole-tree of contents-API writes on a torn or
+// version-bumped repo. F-QA2-36's addendum is the incident it exists for: the shared
+// 30-second rail deadline expired mid-loop and the sync only progressed through
+// retry-persisted writes. The sync is resumable and idempotent (the manifest is written
+// LAST), so a long deadline is safe where a short one is not.
+func scaffoldSyncActivityOptions() workflow.ActivityOptions {
+	o := railActivityOptions()
+	o.StartToCloseTimeout = 5 * time.Minute
+	return o
+}
+
+// mutateActivityOptions is the preset for the head-state MUTATION ops the child reaches —
+// designSessionAccess.commitArtifactWithProvenance (the design slot commit) and
+// projectStateAccess.advancePhase (the Phase-1 seal). Retry Transient through the Activity
+// RetryPolicy; Conflict is deliberately NOT terminal, because the workflow-level
+// re-read→re-apply loop is what resolves it (applyRecovering) rather than a Temporal retry
+// re-issuing the same stale expected version forever. Terminal on ContractMisuse.
+func mutateActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
 	}.Options()
 }
 
@@ -4348,7 +4384,7 @@ func mapStaleAckError(err error) error {
 // Dispatch inputs for the design jobs. Project Design has no PM-critique, so its dispatch
 // path historically carried no job_mode; under thin dispatch the MCP scopes its ambient
 // mode on this input, so BOTH the draft and answer jobs now set it — pdJobModeDraft on the
-// workflow-side draft dispatch (dispatch.go), pdJobModeAnswer on this manager-side answer job.
+// workflow-side draft dispatch, pdJobModeAnswer on this manager-side answer job.
 const (
 	pdDispatchInputJobMode = "job_mode"
 	pdJobModeDraft         = "draft"
@@ -6939,7 +6975,40 @@ func (m *constructionManager) refuseApproveOverOpenComments(
 			"cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first",
 			len(open), strings.Join(open, ", ")))
 	}
+	// APPROVE RESOLVES EVERY ANSWERED THREAD IN ONE GESTURE (design §3.4, restored on BOTH rails
+	// by stage 4b1 Task 13's review fix round 1, finding 3). The retired design rail did this at
+	// applyReviewLedgerGate and nothing on the generic child did, so accepting a redraft that
+	// answered eight change requests left eight ANSWERED threads behind — each still shown as
+	// outstanding on the Activity Experience, and each costing the reviewer a Resolve click on a
+	// thread they had just accepted the answer to.
+	//
+	// A thread the reviewer explicitly REOPENED is open, not answered, so it is excluded by
+	// construction and keeps blocking above. Resolving is best-effort in the same sense the
+	// design rail's was: the approve is the decision and the tidy-up rides behind it, so a
+	// failure to resolve one thread is logged and the approve still goes through rather than
+	// being refused for a bookkeeping write.
+	for _, id := range bulkResolveAnswered(round.Thread) {
+		if err := m.SetTaskCommentStatus(fwmanager.Context{Context: ctx}, projectID, activityID, taskID,
+			id, projectstate.ReviewCommentResolved); err != nil {
+			slog.Default().Warn("approve: an ANSWERED thread could not be bulk-resolved; it stays answered and the approve goes on",
+				"op", "delivery.SubmitTaskDecision", "projectID", string(projectID),
+				"activityID", string(activityID), "taskID", taskID, "commentID", id, "err", err.Error())
+		}
+	}
 	return nil
+}
+
+// bulkResolveAnswered returns the ids of every ANSWERED comment on a round. Approve resolves them
+// all in one gesture (design §3.4). A thread the reviewer explicitly REOPENED is OPEN rather than
+// answered, so it is excluded here and keeps blocking the approve.
+func bulkResolveAnswered(thread []projectstate.ReviewComment) []string {
+	var ids []string
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentAnswered {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
 }
 
 // RedraftTask re-dispatches ONE task of a live activity (stage 4a refusal 5 of 5, the
@@ -8411,7 +8480,34 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// already dispatched the job, so it retries rather than fail the run.
 		"constructionTransitionAccess.recordOperatorNoteDelivered": stampNoteDeliveredActivityOptions(),
 		// C.1.4: the managed-scaffold sync before a GitHub-venue dispatch is a rail verb.
-		"sourceControlAccess.syncManagedScaffold":            railActivityOptions(),
+		// THE SCAFFOLD SYNC TAKES FIVE MINUTES, NOT THIRTY SECONDS (stage 4b1 Task 13, Step 5).
+		//
+		// THE MEASUREMENT BEHIND THE RE-TUNE. Two of the three retired rails answered for this
+		// activity name and they DISAGREED: the design hooks said scaffoldSyncActivityOptions()
+		// (5 min) and this one said railActivityOptions() (30 s). The divergence was INERT only
+		// because mf.ActivityOptions had exactly one reader per worker and each rail's workflows
+		// consulted their OWN hook — a design dispatch got 5 minutes, a construction dispatch got
+		// 30 seconds, and neither ever saw the other's answer. Collapsing the three hooks into
+		// this one without re-tuning silently gives EVERY dispatch the 30-second answer, and the
+		// generic child now does the design work that needed the long one. F-QA2-36's addendum is
+		// the incident: the 30-second deadline expired mid-loop on a torn or version-bumped repo
+		// (~100 file reads plus up to a whole-tree of contents-API writes) and the sync only
+		// progressed through retry-persisted writes. That is the difference between a slow
+		// refresh and a failed session.
+		"sourceControlAccess.syncManagedScaffold": scaffoldSyncActivityOptions(),
+		// THE TWO ENTRIES THE DESIGN HOOKS OWNED, carried into the one hook. The merge the retired
+		// WorkerManifest ran resolved each name against three hooks with construction last-wins,
+		// so for a name only the design hooks answered, the DESIGN answer was the merged answer.
+		// These are the two such names the surviving child still reaches — the Phase-1 seal's
+		// advance and the design slot commit — measured by grepping the generated invoker call
+		// sites after the deletion. The design hooks' other seven keys
+		// (stageArtifactForReviewOnBranch, rejectArtifactOnBranchWithComments,
+		// withdrawArtifactOnBranch, reconcileBranchFromMain, setReviewCommentStatusOnBranch,
+		// seedReviewCommentsOnBranch, activityExecutionAccess.setReviewCommentStatus) had their
+		// ONLY workflow-side callers in the retired co-author files, so an entry for them here
+		// would be a preset for a call that cannot happen.
+		"projectStateAccess.advancePhase":                    mutateActivityOptions(),
+		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
@@ -12954,9 +13050,8 @@ const (
 	// signalTaskDecision delivers a decision to ONE TASK's gate inside the generic
 	// per-activity child (stage 4b1 Task 8). It is the retired phase-decision signal's
 	// successor and not a rename of it: the old signal keyed on a lifecycle PHASE and
-	// multiplexed one gate at a time, and the walk runs several gates at once, so the new
-	// one keys on the task —
-	// which is also what lets the router forward it to exactly one coroutine.
+	// multiplexed one gate at a time, and the walk runs several gates at once, so the new one
+	// keys on the TASK — which is also what lets the router forward it to exactly one coroutine.
 	signalTaskDecision = "taskDecision"
 	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
 	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
@@ -12970,7 +13065,6 @@ const (
 	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
 	// 30s pump sweep (not one execution per tick).
 	executionKindPump = "constructionPumpNextActivity"
-	// executionKindConstructActivity is the per-activity child workflow.
 	// executionKindReplanSweep is the per-tick ReplanSweepWorkflow (the 5m sweep).
 	executionKindReplanSweep = "constructionReplanSweep"
 	// executionKindProjectSupervision is the long-lived project-level supervision
@@ -12995,16 +13089,29 @@ const (
 )
 
 // The gate's ledger vocabulary. A construction gate's human row has no named person
-// behind it — the phaseDecision signal carries feedback, not an identity — so the ROLE is
+// behind it — the decision signal carries feedback, not an identity — so the ROLE is
 // what the round records and "operator" is who the platform can honestly say answered it.
 const (
 	gateRoleHuman     = "human"
 	gateActorOperator = "operator"
-	// gateRoleReviewEngine owns the ABSTENTION a refused roster leaves on the round. A
-	// gate the engine could not staff still happened, and the reason belongs where a
-	// reader will meet it — on the round — not only in a log line.
+	// (gateRoleReviewEngine went with the retired rail's refused-roster abstention, stage 4b1
+	// Task 13: the child's runAgentReviewers records a critic's abstention under the reviewer's
+	// OWN workerClass, and a roster the engine cannot staff is logged and the gate held rather
+	// than given a synthetic role.)
 	// The two things that close a construction gate: a person answering it, or the
 	// committed review policy saying no person was needed here.
 	decidedByOperator = "operator"
 	decidedByPolicy   = "reviewPolicy"
 )
+
+// resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,
+// the profile-wins, ledger-per-phase resolution that classifiedRowView's phase set comes
+// from. The rule moved down into projectstate so the construction pump can share it; this
+// name stays because the view-model's tests pin the rule against it directly, with an
+// explicit profile, and must keep passing unmodified across the move.
+func resolvedPhaseCompletions(
+	profile projectstate.Profile,
+	attempts []projectstate.TaskAttempt,
+) []projectstate.PhaseCompletion {
+	return projectstate.ResolvePhaseCompletions(profile, attempts)
+}
