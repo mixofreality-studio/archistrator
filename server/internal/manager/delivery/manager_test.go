@@ -34621,6 +34621,15 @@ var deliveryWalkerFuncs = []string{
 // whole-name check passes the very mutation this guard exists to catch (measured — it did).
 // Case matters, which is what keeps `activityTypeName` (a lower-case method on the
 // activity, used by the GATE and not by the walk) out of the net.
+//
+// THE COST OF SUBSTRING MATCHING, recorded because the next reader will hit it (Task 8
+// review finding 7): `ArtifactKind` also matches the FIELD SELECTOR `t.ArtifactKind`, which
+// is a lifecycle field and exactly what the rule tells the walk to read. So the honest
+// readers of that field — roundArtifactKind and isM0Gate — would be flagged if they were
+// ever added to deliveryWalkerFuncs, and so would runGate, which calls them. That is
+// deliberate: those three are the GATE's, not the walk's, and the walk is what Ruling 3(a)
+// constrains. Adding any of them to the list above means loosening the match, not silencing
+// the finding.
 var deliveryWalkerBannedIdents = []string{
 	"ActivityType",
 	"ArtifactKind",

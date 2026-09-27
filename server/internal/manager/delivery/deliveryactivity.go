@@ -765,6 +765,10 @@ func reopenJudgedPair(lc methodassets.Lifecycle, ws *walkState, reviewTaskID str
 // So: SendAsync, and a failed send falls back to `pending`, which is exactly where an
 // undelivered message already belongs. "A decision is never dropped" lives in `pending`
 // and never in blocking.
+//
+// `pending` IS THE ROUTER'S OVERFLOW AND NOTHING ELSE. A task coroutine that receives a
+// message it cannot handle yet must hold it LOCALLY, never hand it back here — see
+// drainPending for why a re-queue spins a polling loop's history.
 const deliveryTaskInboxCapacity = 64
 
 // routeSignals is the ONE coroutine that receives from a shared signal channel. It
@@ -831,6 +835,16 @@ func (ws *walkState) openInbox(ctx workflow.Context, taskID string) workflow.Cha
 // receive-loop iteration, because that is the only moment the inbox is known to have just
 // freed a slot — the router cannot wait for one, so the RECEIVER is what pulls the
 // overflow through.
+//
+// THE RULE FOR A POLLING LOOP THAT CANNOT HANDLE WHAT IT RECEIVED (Task 8 review finding 1;
+// Tasks 10 and 11 write those loops). A strategy that polls while receiving on its inbox
+// will sometimes take a message it has no answer for — a gate decision arriving mid-dispatch.
+// It must park that message in a LOCAL `deferred` slice and re-offer it when the task
+// retires. It must NEVER put it back in ws.pending: this function runs at the TOP of every
+// loop iteration, so a re-queued message is re-offered immediately, and each iteration of a
+// polling loop builds a fresh workflow.NewTimer — the loop would spin, growing durable
+// history as fast as it can loop, and the history budget would trip on a walk that did
+// nothing.
 func (ws *walkState) drainPending(taskID string) {
 	ch := ws.inbox[taskID]
 	if ch == nil {
@@ -1346,6 +1360,19 @@ func (wf *csWorkflows) awaitTaskDecision(
 		ws.drainPending(t.ID)
 		var msg routedSignal
 		inbox.Receive(ctx, &msg)
+		// EVERY PAYLOAD IS NIL-CHECKED, not just the two whose helpers guard (Task 8 review
+		// finding 4). routedSignal round-trips through walkSnapshot.Pending as JSON, so a
+		// message whose Kind and payload pointer disagree — a hand-crafted signal, a payload
+		// the codec could not decode, a snapshot written by an older image — arrives here with
+		// a nil pointer. Dereferencing it panics the WORKFLOW TASK, which Temporal retries
+		// forever: the activity never moves and the ledger says nothing. So the missing payload
+		// is logged and dropped, the same as the two guarded helpers already do, and the gate
+		// keeps awaiting the decision it is actually there for.
+		if !routedPayloadPresent(msg) {
+			workflow.GetLogger(ctx).Error("a routed signal arrived with no payload for its kind; dropped",
+				"activityId", in.ActivityID, "taskId", t.ID, "kind", msg.Kind)
+			continue
+		}
 		switch msg.Kind {
 		case routedKindStatus:
 			wf.applyRoundCommentStatus(ctx, in, state, gate, msg.Status)
@@ -1380,6 +1407,24 @@ func (wf *csWorkflows) awaitTaskDecision(
 			}
 		}
 	}
+}
+
+// routedPayloadPresent reports whether a routed signal carries the payload its Kind names.
+// The four kinds each have exactly one pointer, and an unknown kind carries none — which is
+// also "not present", because a message this build cannot interpret must be dropped rather
+// than silently taken for one of the four.
+func routedPayloadPresent(msg routedSignal) bool {
+	switch msg.Kind {
+	case routedKindDecision:
+		return msg.Decision != nil
+	case routedKindStatus:
+		return msg.Status != nil
+	case routedKindOverride:
+		return msg.Override != nil
+	case routedKindRedraft:
+		return msg.Redraft != nil
+	}
+	return false
 }
 
 // decideTaskGate acts on ONE decision at a gate. done=false means the gate keeps
@@ -1841,12 +1886,25 @@ func (wf *csWorkflows) holdForMergeApproval(ctx workflow.Context, in deliveryAct
 	state.redraftExhausted = false
 	state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateTaskID, 0)
 	inbox := ws.openInbox(ctx, mergeGateTaskID)
-	defer ws.closeInbox(workflow.GetLogger(ctx), mergeGateTaskID)
+	defer func() {
+		// RETIRE the merge gate, not just its inbox (Task 8 review finding 5). newWalkState
+		// seeds byTask[mergeGateKey] = walkTaskPending so an approve that arrives BEFORE the
+		// hold opens is buffered rather than dropped as too-late; leaving it pending after the
+		// hold returns keeps that arm live, so every later merge-gate signal buffers into
+		// ws.pending for a hold that will never re-open — and walkSnapshot carries them across
+		// every continue-as-new for the rest of the activity. closeInbox clears what is queued
+		// NOW; this is what stops more arriving.
+		ws.byTask[mergeGateTaskID] = walkTaskPassed
+		ws.closeInbox(workflow.GetLogger(ctx), mergeGateTaskID)
+	}()
 	for {
 		ws.drainPending(mergeGateTaskID)
 		var msg routedSignal
 		inbox.Receive(ctx, &msg)
-		if msg.Kind == routedKindDecision && msg.Decision.Decision == ReviewApprove {
+		// Nil-checked for the same reason awaitTaskDecision is (review finding 4): a payload
+		// that did not survive the snapshot's JSON round-trip would panic the workflow task
+		// into infinite retry, with the merge hold looking simply unanswered.
+		if msg.Kind == routedKindDecision && msg.Decision != nil && msg.Decision.Decision == ReviewApprove {
 			state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeApproved)
 			return
 		}
