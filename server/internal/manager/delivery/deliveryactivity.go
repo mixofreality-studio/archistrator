@@ -17,6 +17,7 @@ import (
 
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/episode"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
@@ -150,24 +151,6 @@ func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID Pr
 		return false, nil
 	}
 	return !projectVersionMoved && after == before, nil
-}
-
-// bindDesignRowAccessor binds the design activity's ROW onto the session's context, so
-// applyRecovering's Conflict arm can re-read it (rowAccessor: why the context and not the
-// receiver). The row identity is PURE — designRoundKeyFor over the artifact kind, no
-// command — so this is called once, at the top of the session, before any fence: a kind
-// with no design activity in the pinned lifecycle binds nothing and keeps the
-// project-version-only behaviour exactly.
-func bindDesignRowAccessor(ctx workflow.Context, kind ArtifactKind, state *coAuthorState) workflow.Context {
-	key, ok := designRoundKeyFor(toPSKind(kind))
-	if !ok {
-		return ctx
-	}
-	return withRowAccessor(ctx, rowAccessor{
-		activityID: key.activityID,
-		version:    func() int64 { return state.activityVersion },
-		setVersion: func(v int64) { state.activityVersion = v },
-	})
 }
 
 // csBindRowAccessor binds the construction activity's ROW onto the child's context. A
@@ -3507,8 +3490,7 @@ func (wf *csWorkflows) sealSystemDesign(ctx workflow.Context, in deliveryActivit
 	return nil
 }
 
-// mergeGateTaskID is the inbox key the LOCAL merge hold waits on. It is mergeGateKey — the
-// same gate name SubmitPhaseDecision already admits beside the five phases — used as a
+// mergeGateTaskID is the inbox key the LOCAL merge hold waits on. It is mergeGateKey used as a
 // task id, because the router's addressing unit is a task and the merge is a gate with no
 // lifecycle task of its own. It is seeded walkTaskPending in newWalkState so an approve that
 // arrives before the hold opens is BUFFERED rather than read as too-late.
@@ -3702,4 +3684,1276 @@ func (wf *csWorkflows) failWalk(
 	state.stage = StageExited
 	workflow.GetLogger(ctx).Error("delivery.walk.failed", "activityId", in.ActivityID, "taskId", taskID)
 	return cause
+}
+
+// ===========================================================================
+// THE CONSTRUCTION SPINE'S SURVIVING WORKFLOW HALF — moved here from
+// constructactivity.go when stage 4b1 Task 13 deleted ConstructActivityWorkflow.
+//
+// The file went ENTIRELY, because a handwritten file with context-taking funcs and
+// no registered entry func is what TestFileLayout calls file-not-allowed. What moved
+// is everything the generic child already calls: the execution-ledger block (open /
+// attempt / round / verdict / outcome), the pipeline submit-observe-episode family,
+// the operator-note family, the git-forward edges and the two budgets. What did NOT
+// move is the flat phase walk the child replaced — runAttempt, walkPhases,
+// runPhaseGate, runPipeline, sendBackGate, completePhase, receivePhaseDecision,
+// openGateRound, gateWithoutHuman, awaitPhaseDecision and the variance loop
+// (handleVariance / executeOverride / awaitOverrideBounded / failVarianceExhausted),
+// which Task 12's runTaskVariance re-expressed per TASK — plus runLocalMergeStep,
+// which runWalkMerge superseded (R8-10) and whose runMergePipeline half survives.
+// ===========================================================================
+// submitPipeline composes the contract PipelineSpec (default toolchain / single build step
+// / workspaceRef / dispatch inputs) from the Manager's neutral pipelineSpec and calls the
+// GENERATED submit invoker, mapping the opaque handle back to the neutral pipelineHandle.
+func (wf *csWorkflows) submitPipeline(ctx workflow.Context, spec pipelineSpec) (pipelineHandle, error) {
+	// gh-mode venue switch (B5): retarget the dispatch to the project's OWN repo +
+	// aiarch-construct.yml when the per-project Repo resolves; a zero target leaves the
+	// central-repo fallback (resolveTarget) intact for unresolvable projects.
+	target, workflowFile, terr := wf.constructRepoTarget(spec.ProjectID)
+	if terr != nil {
+		return pipelineHandle{}, terr
+	}
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ProjectID:  agenticjob.ProjectID(spec.ProjectID),
+		ActivityID: agenticjob.ConstructionActivityID(spec.ActivityID),
+		Steps: []agenticjob.PipelineStep{{
+			Name:      "build",
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		WorkspaceRef:   agenticjob.ArtifactRef(spec.RepoURL + "@" + spec.Ref),
+		DispatchInputs: dispatchInputsFor(spec),
+		TargetRepo:     target,
+		WorkflowFile:   workflowFile,
+	})
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	return pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}, nil
+}
+
+// observePipeline calls the GENERATED observe invoker and maps the contract observation
+// back to the Manager-neutral csPipelineObservation.
+func (wf *csWorkflows) observePipeline(ctx workflow.Context, handle pipelineHandle) (csPipelineObservation, error) {
+	obs, err := wf.Acts.PipelineObserveAgenticJob(ctx, agenticjob.ParsePipelineHandle(handle.Name))
+	if err != nil {
+		return csPipelineObservation{}, err
+	}
+	return csPipelineObservation{
+		Phase:      managerPipelinePhase(obs.Phase),
+		Diagnostic: obs.Diagnostic,
+		RunURL:     obs.RunURL,
+		Episode:    obs.Episode,
+	}, nil
+}
+
+// ---------------------------------------------------------------------------
+// Episode capture (SP1 capture-seam, Task 7)
+// ---------------------------------------------------------------------------
+//
+// EVERY terminal observation of an AGENTIC dispatch this Manager takes becomes
+// EXACTLY ONE EpisodeRecord in the episode ledger — either the mined summary or an
+// explicit GAP record. A missing record is never silently missing; the ledger is the
+// only place the platform can later answer "what did this activity actually cost".
+//
+// THREE disciplines hold here, and each has a reason:
+//
+//   - BUSINESS FIRST, EPISODE SECOND. The append is the LAST thing a terminal poll
+//     does: the in-loop business handling (the CI-rollup mirror, the phase stamp) has
+//     already run, and the append's own failure is swallowed. A ledger line claiming
+//     something happened when it did not is worse than a missing line.
+//   - THE APPEND NEVER FAILS THE BUSINESS FLOW. appendEpisodeActivityOptions gives it
+//     its own retry envelope, wholly independent of the business retries; when it is
+//     still failing at the end of that envelope the error is LOGGED and dropped.
+//     Construction must not fail because a bookkeeping write did.
+//   - VENUE. The GitHub-Actions arm mines no episode in v1, so a nil summary there is
+//     EXPECTED, not a gap — writing a gap record per GH run would fill the ledger with
+//     noise that means nothing. The only venue signal a workflow can see is the run URL
+//     (see csPipelineObservation.RunURL), so that is what gates it.
+//
+// DETERMINISM: the append is a plain ExecuteActivity — a NEW command in an EXISTING
+// workflow body. In-flight executions must be DRAINED before deploying (the standing
+// convention; no GetVersion guard is carried — contrast pumpnextactivity.go:44, which
+// documents the pure-addition case that needs none).
+
+// awaitLateEpisode gives a CANCELLED run's episode summary a bounded chance to arrive
+// (see maxLateEpisodePolls). It returns the observation to RECORD: the later one that
+// carried a summary when it arrived, else the caller's original — which becomes a gap.
+// The business phase is taken from the ORIGINAL observation either way; this only ever
+// upgrades the episode payload.
+func (wf *csWorkflows) awaitLateEpisode(ctx workflow.Context, handle pipelineHandle, obs csPipelineObservation) csPipelineObservation {
+	if obs.Phase != PipelineCancelled || obs.Episode != nil {
+		return obs
+	}
+	for range maxLateEpisodePolls {
+		if err := workflow.Sleep(ctx, lateEpisodePollInterval); err != nil {
+			return obs
+		}
+		next, err := wf.observePipeline(ctx, handle)
+		if err != nil {
+			return obs
+		}
+		if next.Episode != nil {
+			obs.Episode = next.Episode
+			return obs
+		}
+	}
+	return obs
+}
+
+// captureEpisode appends the ONE ledger record this terminal observation owes.
+// agentic=false marks a dispatch that spawns no agent at all (the local merge job): such
+// a run has no episode to lose, so a nil summary is recorded as NOTHING rather than as a
+// gap. A REMOTE-venue run is skipped entirely for the same "nothing to lose" reason.
+//
+// task/attempt are the Figure A-1 attribution key the caller already has in hand — the
+// task this dispatch's episode is burned on, and how many times that task has been
+// dispatched for this activity (see episodeRecordFor / constructState.nextTaskAttempt,
+// Task 10).
+func (wf *csWorkflows) captureEpisode(ctx workflow.Context, in constructActivityInput, handle pipelineHandle, obs csPipelineObservation, agentic bool, task projectstate.MethodTask, attempt int) {
+	if episodeVenueIsRemote(obs.RunURL) {
+		return
+	}
+	if obs.Episode == nil && !agentic {
+		return
+	}
+	// The cancel-race grace is worth waiting for ONLY on a dispatch that could have mined
+	// an episode at all: a non-agentic job has nothing in flight to wait for.
+	if agentic {
+		obs = wf.awaitLateEpisode(ctx, handle, obs)
+	}
+	rec := episodeRecordFor(ctx, obs, csEpisodeIDSeed(handle, in), string(in.ActivityID), task, attempt)
+	if err := wf.Acts.EpisodesAppendEpisode(ctx, episode.ProjectID(in.ProjectID), rec); err != nil {
+		// Swallowed BY DESIGN — see the "never fails the business flow" discipline above.
+		workflow.GetLogger(ctx).Error("episode append failed after its full retry envelope; this episode is NOT in the ledger",
+			"activityId", string(in.ActivityID), "episodeId", rec.EpisodeID, "error", err.Error())
+	}
+}
+
+// episodeRecordFor composes the ledger record for ONE terminal observation. With a
+// summary it copies every mined field VERBATIM and stamps only what the Manager alone
+// knows (Kind/TargetRef/Lineage); with no summary it composes an explicit GAP record so
+// the loss is visible. Pure apart from workflow.GetInfo/Now, both replay-deterministic.
+//
+// TargetRef carries the ATTEMPT key (projectstate.AttemptID: "<activityId>:<task>:<n>"),
+// NOT the bare activity id (Task 10). Episode CAPTURE itself stays deferred (SP1), but
+// the KEY cannot wait: the (task, attempt) pair that joins this episode to the Figure A-1
+// unit that burned it exists only HERE, at write time — supplied by the caller from the
+// lifecycle phase and redraft/attempt count it already has in hand — and cannot be
+// reconstructed once it is gone. Lineage.ActivityID is left as the bare Method activity
+// id (a separate concern: joining the episode to the project network), so only TargetRef
+// changes shape.
+func episodeRecordFor(ctx workflow.Context, obs csPipelineObservation, idSeed, activityID string, task projectstate.MethodTask, attempt int) episode.EpisodeRecord {
+	exec := workflow.GetInfo(ctx).WorkflowExecution
+	lineage := &episode.EpisodeLineage{
+		WorkflowID: exec.ID,
+		RunID:      exec.RunID,
+		// The METHOD activity this episode was burned on (there is no way to read the
+		// Temporal activity id from inside a workflow, and the Method id is the one that
+		// makes the lineage joinable to the project network).
+		ActivityID: &activityID,
+	}
+	targetRef := projectstate.AttemptID(activityID, task, attempt)
+	// Construction dispatches are always EpisodeKindConstruction: the phase profile
+	// (requirements/detailed_design/test_plan/construction/integration) draws no
+	// review-vs-rework distinction, so there is nothing here to map onto the other kinds.
+	const kind = episode.EpisodeKindConstruction
+	if obs.Episode == nil {
+		return episodeGapRecord(kind, targetRef, lineage, "gap-"+episodeIDSafe(idSeed),
+			episodeGapReason(episodeMissingSummaryReason, obs.Diagnostic), workflow.Now(ctx))
+	}
+	return episodeRecordFromSummary(*obs.Episode, kind, targetRef, lineage, obs.Diagnostic)
+}
+
+// openActivityBranchAndPR runs the dispatch-time half of the lifecycle: mint the
+// credential, OpenBranch + OpenPullRequest on the rail, then RecordActivityBranchOpened
+// (the PR-tolerant fused upsert — births the row with branch+PR and CICheck=Pending).
+// It returns the populated gitForward and advances *headVersion. A nil/dormant slice
+// returns a disabled gitForward and touches nothing.
+func (wf *csWorkflows) openActivityBranchAndPR(
+	ctx workflow.Context,
+	in constructActivityInput,
+	preMintedCred railCredEnvelope,
+	headVersion *projectstate.Version,
+) (gitForward, error) {
+	repoRef, ok := wf.gitEnabled(in.ProjectID)
+	if !ok {
+		return gitForward{enabled: false}, nil
+	}
+
+	gf := gitForward{
+		enabled:  true,
+		repoRef:  repoRef,
+		branch:   activityBranchName(in.ActivityID),
+		crLabel:  in.Activity.CRLabel,
+		isRevert: in.Activity.IsRevert,
+	}
+
+	// REUSE the credential minted ONCE at the top of the spine for the started
+	// record (Task 3) — one mint per activity git lifecycle, threaded into every
+	// rail + record verb. (Empty when no started cred was minted, which only happens
+	// if the slice is dormant — and then gitEnabled is false above and we never get
+	// here.)
+	gf.cred = preMintedCred
+	cred := preMintedCred
+
+	// Rail: cut the per-activity branch (GENERATED invoker).
+	br, err := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(gf.branch), cred.toRail())
+	if err != nil {
+		return gitForward{}, err
+	}
+	gf.branchRef = sourcecontrol.BranchRefString(br)
+
+	// Rail: open the PR (base = main; cr-NN label rides in Hints) (GENERATED invoker).
+	pr, err := wf.Acts.RailOpenPullRequest(ctx, repoRef, sourcecontrol.PullRequestSpec{
+		Head:  sourcecontrol.BranchName(gf.branch),
+		Base:  sourcecontrol.BranchName(mainBranch),
+		Title: prTitle(in.ActivityID),
+		Body:  prBody(in.Activity),
+		Hints: crLabelHints(gf.crLabel),
+	}, cred.toRail())
+	if err != nil {
+		return gitForward{}, err
+	}
+	gf.prRef = sourcecontrol.PullRequestRefString(pr)
+
+	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, cred.toProjectState())
+	})
+	if err != nil {
+		return gitForward{}, err
+	}
+	*headVersion = v
+	return gf, nil
+}
+
+// observeCIAndRecord reads the PR's CI rollup once and mirrors it onto the head-state
+// (the poll-loop verb — D-PA-GIT §5). Called between the spine's durable waits while
+// the pipeline runs. Returns the observed reflection so the caller can feed it into the
+// variance machinery. A dormant slice is a no-op returning Pending.
+func (wf *csWorkflows) observeCIAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) (csPullRequestStatusView, error) {
+	if !gf.enabled {
+		return csPullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
+	}
+
+	prStatus, err := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
+		return csPullRequestStatusView{}, err
+	}
+	st := csPullRequestStatusView{
+		CheckRollup:   mapCheckState(prStatus.CheckRollup),
+		ApprovalCount: int(prStatus.ApprovalCount),
+		Mergeable:     prStatus.Mergeable,
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			st.CheckRollup, gf.cred.toProjectState())
+	})
+	if err != nil {
+		return csPullRequestStatusView{}, err
+	}
+	*headVersion = v
+	return st, nil
+}
+
+// relayArchApprovalAndRecord relays the architecture +1 (PostReview Approve) to the PR
+// and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
+// activity's review has passed (the architect's in-app sign-off). A dormant slice is a
+// no-op.
+func (wf *csWorkflows) relayArchApprovalAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) error {
+	if !gf.enabled {
+		return nil
+	}
+
+	if err := wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+		sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
+		gf.cred.toRail()); err != nil {
+		return err
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityArchApproved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// mergeAndRecord PERFORMS the gated merge (the interventionEngine gate already
+// cleared in workflow code) and, on a Merged result, records the terminal git fact
+// (D-PA-GIT §5). A dormant slice is a no-op. A non-Merged result (e.g. not yet
+// mergeable) is surfaced as a non-retryable terminal so the spine does NOT record a
+// false merge — the activity's variance machinery handles the not-yet-mergeable case.
+func (wf *csWorkflows) mergeAndRecord(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) error {
+	if !gf.enabled {
+		return nil
+	}
+
+	mr, err := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err != nil {
+		return err
+	}
+	if !mr.Merged {
+		return temporal.NewNonRetryableApplicationError(
+			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
+	}
+
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityMerged(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), gf.cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordActivityStarted marks the activity Running in the per-activity construction
+// head-state at the TOP of the spine (Task 3), BEFORE any dispatch. This is what
+// flips the activity out of NotStarted so the pump's eligibility selection
+// (nextEligibleActivity over proj.ActivityExecution) does not re-dispatch it on a
+// concurrent/redundant tick. Cred-threaded like the four git head-state records; a
+// dormant slice (git unwired) is a no-op (the live Postgres composition has no
+// per-activity construction head-state, so the gate degrades to the child-workflow-id
+// idempotency the pump already relies on). It mints a credential ONCE for the
+// started+completed pair via the supplied gitForward.cred when the branch lifecycle
+// has already minted one, else mints its own.
+//
+// It also stamps the activity's classified (Type, Variant) onto the head-state row —
+// the RA seeds its Phases slice from that pair, so an unstamped row seeded the 5-phase
+// SERVICE set for every activity and made earned value disagree with the profile the
+// workflow walks.
+func (wf *csWorkflows) recordActivityStarted(
+	ctx workflow.Context,
+	in constructActivityInput,
+	cred railCredEnvelope,
+	headVersion *projectstate.Version,
+) error {
+	if wf.GitStatus == nil {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityStarted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			in.Activity.Type, in.Activity.Variant, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// recordActivityCompleted marks the activity Done in the per-activity construction
+// head-state at the END of the spine (Task 3), alongside RecordActivityExited. This
+// is what unblocks dependents in the pump's eligibility selection (projectstate.AllDepsSatisfied). A
+// dormant slice is a no-op.
+func (wf *csWorkflows) recordActivityCompleted(
+	ctx workflow.Context,
+	in constructActivityInput,
+	cred railCredEnvelope,
+	headVersion *projectstate.Version,
+) error {
+	if wf.GitStatus == nil {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCompleted(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID), cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// startedCred resolves the credential the construction started/completed records
+// thread, and reports whether those records fire at all. It deliberately gates on the
+// CONSTRUCTION-STATUS slice (GitStatus), NOT the full PR-rail slice — the per-activity
+// Running/Done head-state is what drives the pump's eligibility cascade and is
+// independent of the branch→PR→merge lifecycle:
+//
+//   - PR-rail wired (gitEnabled — Rail+GitStatus+Repo, the CLOUD GitHub profile): mint
+//     the short-lived installation token via the rail; it is reused by the branch/PR
+//     lifecycle AND the started/completed records.
+//   - GitStatus wired but no PR rail (the LOCAL/dry-run profile — file:// repo, no
+//     GitHub): the status records still fire so the cascade advances, threading a ZERO
+//     credential. The local git store's gitAuth ignores the credential entirely
+//     (GitAuth{Local:true}), so no token is needed; the PR-rail lifecycle stays dormant
+//     (gitEnabled is false, so gf.enabled is false on every branch/PR/CI/merge step).
+//   - GitStatus unwired (the legacy Postgres-store composition): false — the
+//     started/completed records are no-ops and the pump degrades to child-workflow-id
+//     idempotency.
+//
+// Minted/resolved ONCE at the top of the spine and reused for the completed record.
+func (wf *csWorkflows) startedCred(ctx workflow.Context, projectID ProjectID) (railCredEnvelope, bool, error) {
+	if wf.GitStatus == nil {
+		return railCredEnvelope{}, false, nil
+	}
+	// CLOUD profile: a PR rail + repo resolve ⇒ mint the real installation token.
+	if repoRef, ok := wf.gitEnabled(projectID); ok {
+		cred, err := wf.mintCred(ctx, repoRef)
+		if err != nil {
+			return railCredEnvelope{}, false, err
+		}
+		return cred, true, nil
+	}
+	// LOCAL/dry-run profile: status records fire with a zero (ignored) credential.
+	return railCredEnvelope{}, true, nil
+}
+
+// mintCred runs the GENERATED getInstallationToken invoker → the short-lived credential
+// the Manager threads into every rail + record verb for this activity's lifecycle.
+func (wf *csWorkflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.RepoRef) (railCredEnvelope, error) {
+	cred, err := wf.Acts.RailGetInstallationToken(ctx, repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
+	}
+	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
+}
+
+// gitnaming.go holds the Manager's provider-NEUTRAL, DETERMINISTIC naming + the git
+// Activity option presets for the git-forward slice (C-MCN-GIT). The names are
+// Manager-derived (the branch/PR/label vocabulary the rail maps to a git ref INSIDE
+// the seam); determinism is load-bearing for the rail's deterministic-name idempotency
+// (a workflow retry re-opening the same branch/PR is a no-op in the rail).
+
+// loadReviewSnapshot performs the per-execution start snapshot (B5): it reads the project
+// ONCE (an Activity, recorded in history → replay-safe) and captures the committed
+// ReviewPolicy BY VALUE (the gate's ONLY policy source; NEVER re-read mid-loop), seeds the
+// LIVE completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
+// slice, and captures the contract keys for the gate's reviewer set.
+//
+// It returns the WHOLE read (stage 4b1: Task 8's R8-5 returned the activity's execution row;
+// Task 10 widened that to the project it was taken off). Two readers need more than the row
+// and neither may make a SECOND whole-project read — a second durable command, and a second
+// chance for the two reads to disagree: seedWalkFromLedger needs the row AND the committed
+// design SLOTS (a design task whose artifact is already committed on main must not be
+// re-drafted), and the caller needs the ReviewPolicy. One read, three readers.
+//
+// Temporal versioning guard (replay safety): this readProject call was ADDED by the
+// construction-review-policy-snapshot feature AFTER the workflow was first shipped.
+// Workflows already in flight at deploy time have no history event for this call; replaying
+// them against new code would produce a non-determinism error. GetVersion guards the new
+// block so pre-feature in-flight executions (DefaultVersion) skip it entirely — reviewPolicy
+// stays zero (empty → inert → no gate) and completedPhases stays initialized-empty. The gate
+// takes effect only for csWorkflows started after the feature deployed (v >= 1).
+func (wf *csWorkflows) loadReviewSnapshot(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+) (projectstate.ReviewPolicy, projectstate.Project, error) {
+	var reviewPolicy projectstate.ReviewPolicy
+	var snap projectstate.Project
+	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
+	if v < 1 {
+		return reviewPolicy, snap, nil
+	}
+	snap, srErr := wf.readProject(ctx, in.ProjectID)
+	if srErr != nil && !isReadNotFound(srErr) {
+		return reviewPolicy, snap, srErr
+	}
+	reviewPolicy = snap.ReviewPolicy
+	// LEDGER-AWARE SEED (architect (D), D.1.3). The pump now dispatches an
+	// integration-pending row — one whose history lives in the attempt ledger alone — so
+	// the seed must read the row as the view does, or the run would redo phases the
+	// ledger records as passed. GetVersion (always called, same change id as the pump's
+	// selection) pins an execution that seeded from the stored Phases only to that seed.
+	//
+	// The GetVersion call stays unconditional (a recorded history must see the same
+	// marker it recorded), but its DEFAULT arm is now empty: that arm read the row's
+	// stored phase-completion slice, which stage-3 task 4 stopped storing — a lifecycle
+	// phase is complete iff its gate task's latest attempt passed, and the ledger is the
+	// only record of that. No pre-marker history it replays carries stored completions
+	// anyway (the two ledger-seed fixtures hold attempts and no phase set), so the arm
+	// seeds exactly what it seeded before: nothing.
+	ledgerSeed := workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) >= 1
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && ledgerSeed {
+		seedResumeFromLedger(state, in.Activity, acs)
+	}
+	// OPERATOR-NOTE DELIVERY (plan B1.4). GetVersion is always called here, so a new
+	// execution records the marker before its first dispatch and an execution that
+	// recorded none stays wholly old: no note recorded, carried or stamped, and no
+	// scaffold sync. Notes still pending on the row (a re-queue's note, or one an
+	// earlier run recorded but never dispatched) ride this run's first agent dispatch.
+	state.noteDelivery = workflow.GetVersion(ctx, changeOperatorNoteDelivery, workflow.DefaultVersion, 1) >= 1
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.noteDelivery {
+		state.pendingNotes = projectstate.PendingOperatorNotes(acs)
+	}
+	// EXECUTION LEDGER (stage 3). GetVersion is always called here, so a new execution
+	// records the marker before its first dispatch and an execution that recorded none
+	// stays wholly old: no activity opened, no attempt recorded, no round opened, no
+	// verdict appended. Its history has no events for those Activities and never will.
+	state.executionLedger = workflow.GetVersion(ctx, changeExecutionLedger, workflow.DefaultVersion, 1) >= 1
+	// A send-back's feedback is the ROUND's now, not a stored note, so a run that ended
+	// between the rejection and the redraft's dispatch must recover it from there. Without
+	// this the next run re-walks the rejected phase and dispatches the redraft with NO
+	// steer at all — strictly worse than the NoteSendBack this replaced, which survived a
+	// run boundary because it was stored. Reads only; emits no command.
+	if acs, ok := snap.ActivityExecution[string(in.ActivityID)]; ok && state.executionLedger {
+		seedSendBackCarry(ctx, in, state, acs)
+		// And the per-activity CAS token, off the SAME read — which is the whole reason
+		// arming the guard needed no new Temporal command: the child already holds the row.
+		// An activity with no row yet leaves it 0 (NoActivityVersionExpectation), the
+		// posture of the writer that is about to birth it.
+		state.activityVersion = acs.Version
+	}
+	state.reviewContracts = snapshotContractKeys(snap)
+	// Task 7 non-overridable floor: snapshot ONCE whether the activity's committed
+	// contract touches deploy/spend/schema — never re-evaluated mid-loop, mirroring
+	// reviewPolicy itself. A missing contract (nil map lookup) reads as the zero
+	// ServiceContract, which never touches the floor.
+	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
+	return reviewPolicy, snap, nil
+}
+
+// finalizeActivity runs the clean-pass tail of an attempt (constructionManager.md §6.3
+// steps 5a-8a): relay the architecture +1, record the change reviewed, perform the gated
+// merge (interventionEngine is the App-only-merge authority), record the binary activity
+// exit, and record the per-activity construction COMPLETED. The git-forward steps are
+// no-ops when the slice is unwired.
+func (wf *csWorkflows) finalizeActivity(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+	state *constructState,
+	gitOn bool,
+	startedCred railCredEnvelope,
+) error {
+	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
+	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
+		return err
+	}
+
+	// --- Step 6: record the change reviewed (head-state). ---
+	v, e := wf.recordChangeReviewed(ctx, in, state, *headVersion, startedCred)
+	if e != nil {
+		return e
+	}
+	*headVersion = v
+
+	// --- Step 6a: perform the gated merge and record it (git-forward). ---
+	if err := wf.mergeAndRecord(ctx, in, gf, headVersion); err != nil {
+		return err
+	}
+
+	// --- Step 8: record the binary activity exit. Behind the fence RecordActivityOutcome
+	// is the fold of the exited + completed pair below: both stamped the SAME write-once
+	// CompletedAt, which is the whole of an exit now that the coarse roll-up is derived,
+	// so the two calls became one. ---
+	if state.executionLedger {
+		if err := wf.recordExecutionOutcome(ctx, in, state, headVersion, startedCred,
+			projectstate.ActivityOutcomeCompleted, projectstate.FailureReasonUnknown, ""); err != nil {
+			return err
+		}
+	} else {
+		v2, e2 := wf.recordActivityExited(ctx, in, *headVersion, projectstate.ActivityOutcomeCompleted, startedCred)
+		if e2 != nil {
+			return e2
+		}
+		*headVersion = v2
+
+		// --- Step 8a: record the per-activity construction COMPLETED (Task 3). Flip the
+		// activity to Done so the pump's eligibility selection unblocks its dependents on
+		// the next tick. Dormant (no-op) when the git slice is unwired. ---
+		if gitOn {
+			if err := wf.recordActivityCompleted(ctx, in, startedCred, headVersion); err != nil {
+				return err
+			}
+		}
+	}
+
+	state.stage = StageExited
+	workflow.GetLogger(ctx).Info("construction activity exited", "activityId", in.ActivityID)
+	return nil
+}
+
+// enterPhaseGate enters a phase approval gate after redrafts SendBack redrafts: the gate
+// has no budget left once a further SendBack could not redraft it.
+func (s *constructState) enterPhaseGate(ctx workflow.Context, key string, redrafts int) {
+	s.redraftExhausted = redrafts+1 >= maxPhaseRedrafts
+	s.enterHumanStage(ctx, StageAwaitingApproval, key, 0)
+}
+
+// enterHumanStage starts one occurrence of a human stage: the stage, the gate it waits
+// at, the occurrence identity (workflow.Now), and — when wait > 0 — when it gives up.
+func (s *constructState) enterHumanStage(ctx workflow.Context, stage ConstructionStage, gate string, wait time.Duration) {
+	s.stage = stage
+	s.awaitingGate = gate
+	s.awaitingSince = workflow.Now(ctx)
+	s.awaitingUntil = nil
+	if wait > 0 {
+		until := s.awaitingSince.Add(wait)
+		s.awaitingUntil = &until
+	}
+}
+
+// leaveHumanStage ends the current occurrence: it records the construction_gate_wait
+// timer (tags: the gate CLASS, the outcome and the activity type — never the activity
+// id, which would make the series unbounded) and the construction.gate.decided log line
+// (the dependable surface while the prod OTLP export is an open earmark), then clears
+// the awaiting fields AND the reviewer set.
+//
+// I1: the roster (and an engine refusal) describes the OCCURRENCE, not the activity, so
+// it comes down with it. It used to be cleared on gate ENTRY only, which left a decided
+// gate's reviewers on the session view until the next gate opened — and the Activity
+// Experience's takeover card read them as live. surfaceReviewSet puts a fresh roster up
+// on every entry, including a redraft's re-entry, so the pair stays balanced.
+func (s *constructState) leaveHumanStage(ctx workflow.Context, activityType, outcome string) {
+	waited := workflow.Now(ctx).Sub(s.awaitingSince)
+	gateMetrics(ctx).WithTags(map[string]string{
+		"gate":          humanGateClass(s.awaitingGate),
+		"outcome":       outcome,
+		"activity_type": activityType,
+	}).Timer("construction_gate_wait").Record(waited)
+	workflow.GetLogger(ctx).Info("construction.gate.decided",
+		"projectId", string(s.projectID), "activityId", string(s.activityID),
+		"gate", s.awaitingGate, "outcome", outcome,
+		"waitedMs", waited.Milliseconds(), "awaitingSince", s.awaitingSince)
+	s.awaitingGate, s.awaitingSince, s.awaitingUntil = "", time.Time{}, nil
+	s.reviewSet, s.reviewSetError = nil, ""
+}
+
+// openActivity births the activity's execution row and pins the lifecycle in force.
+func (wf *csWorkflows) openActivity(ctx workflow.Context, in constructActivityInput, state *constructState, cred railCredEnvelope, headVersion *projectstate.Version) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionOpenActivity(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), in.Activity.Type, in.Activity.Variant, lifecyclePinFor(in.Activity), cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	state.rowAdvanced()
+	return nil
+}
+
+// recordAttempt appends or resolves ONE attempt on the append-only task ledger. One id
+// names one attempt: the pending record this opens and the terminal that resolves it are
+// the SAME AttemptID, which is also the key the episode ledger carries as TargetRef.
+func (wf *csWorkflows) recordAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	attempt projectstate.TaskAttemptInput,
+) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordAttemptOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), attempt, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	state.rowAdvanced()
+	return nil
+}
+
+// openWorkAttempt records the PENDING agent-work attempt a dispatch is about to burn, so
+// a run that dies mid-dispatch leaves an attempt that says it started and never resolved
+// rather than nothing at all. A no-op off the fence.
+func (wf *csWorkflows) openWorkAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	task projectstate.MethodTask,
+	attempt int,
+	attemptID string,
+) error {
+	if !state.executionLedger || task == "" {
+		return nil
+	}
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID: attemptID,
+		TaskID:    task,
+		Attempt:   int64(attempt),
+		Actor:     projectstate.ActorAgent,
+		Outcome:   projectstate.OutcomePending,
+	})
+}
+
+// resolveWorkAttempt resolves that attempt against the terminal observation, citing the
+// episode the dispatch burned as its evidence. The episode append runs FIRST (the
+// capture-seam's own ordering), so by the time this cites an episode id the ledger holds
+// it; a dispatch that mined no summary cites nothing rather than a ref nobody can follow.
+func (wf *csWorkflows) resolveWorkAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	task projectstate.MethodTask,
+	attempt int,
+	attemptID string,
+	obs csPipelineObservation,
+) error {
+	if !state.executionLedger || task == "" {
+		return nil
+	}
+	rec := projectstate.TaskAttemptInput{
+		AttemptID: attemptID,
+		TaskID:    task,
+		Attempt:   int64(attempt),
+		Actor:     projectstate.ActorAgent,
+		Outcome:   attemptOutcomeFor(obs.Phase),
+	}
+	if obs.Episode != nil {
+		rec.EvidenceKind, rec.EvidenceRef = projectstate.EvidenceEpisode, obs.Episode.EpisodeID
+	}
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, rec)
+}
+
+// appendVerdict lands one reviewer's judgement and the comments it cites in ONE commit.
+// A no-op when this gate opened no round.
+func (wf *csWorkflows) appendVerdict(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	gate *gateLedger,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	verdict projectstate.ReviewVerdict,
+	comments []projectstate.ReviewComment,
+) error {
+	if gate.roundID == "" {
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), gate.roundID, verdict, comments, nil, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	state.rowAdvanced()
+	return nil
+}
+
+// decideRound stamps the round's terminal — a separate, later fact from the verdicts on
+// it, which is why it is a second verb and not a field of the first. It also records who
+// the gate attempt this round settles will name as its actor.
+func (wf *csWorkflows) decideRound(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	gate *gateLedger,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	outcome projectstate.ReviewRoundOutcome,
+	decidedBy string,
+) error {
+	if gate.roundID == "" {
+		return nil
+	}
+	gate.actor = projectstate.ActorSystem
+	if decidedBy == decidedByOperator {
+		gate.actor = projectstate.ActorHuman
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), gate.roundID, outcome, decidedBy, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	state.rowAdvanced()
+	return nil
+}
+
+// closeGateRound appends the human's verdict — with the comments that rode with it — and
+// then decides the round. Two verbs, not one: other reviewers append to the same round
+// before the human's, and the decision is a separate terminal fact about the round.
+func (wf *csWorkflows) closeGateRound(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	gate *gateLedger,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	verdict projectstate.VerdictKind,
+	outcome projectstate.ReviewRoundOutcome,
+	fb *ReviewFeedback,
+) error {
+	if !state.executionLedger || gate.roundID == "" {
+		return nil
+	}
+	f := feedbackText(fb)
+	if err := wf.appendVerdict(ctx, in, state, gate, headVersion, cred, projectstate.ReviewVerdict{
+		ReviewerRole: gateRoleHuman,
+		Actor:        gateActorOperator,
+		Verdict:      verdict,
+		Summary:      f.text,
+		AttemptID:    gate.judgedAttemptID,
+	}, roundComments(f.comments)); err != nil {
+		return err
+	}
+	return wf.decideRound(ctx, in, state, gate, headVersion, cred, outcome, decidedByOperator)
+}
+
+// passGateAttempt records the PASSED attempt at the phase's review task — App A's binary
+// exit criterion, written where every reader derives phase completion from. It is the
+// fact RecordPhaseCompleted used to synthesize on the workflow's behalf; the workflow
+// writes it itself now, which is why that verb is no longer called behind the fence.
+//
+// Evidence is what the round judged, so a completion points at the thing that was
+// reviewed rather than at the empty artifactRef the retired verb always passed.
+func (wf *csWorkflows) passGateAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	gate *gateLedger,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+) error {
+	if gate.task == "" {
+		return nil
+	}
+	kind, ref := gateEvidence(gate.subject)
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
+		TaskID:       gate.task,
+		Attempt:      int64(gate.number),
+		Actor:        gate.actor,
+		Outcome:      projectstate.OutcomePassed,
+		EvidenceKind: kind,
+		EvidenceRef:  ref,
+	})
+}
+
+// rejectGateAttempt is passGateAttempt's send-back twin: a REJECTED attempt at the review
+// task, which is what leaves the phase incomplete and makes the redraft that follows
+// render as Löwy's "a failing review repeats the preceding task".
+func (wf *csWorkflows) rejectGateAttempt(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	gate *gateLedger,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+) error {
+	if !state.executionLedger || gate.task == "" {
+		return nil
+	}
+	kind, ref := gateEvidence(gate.subject)
+	return wf.recordAttempt(ctx, in, state, headVersion, cred, projectstate.TaskAttemptInput{
+		AttemptID:    projectstate.AttemptID(string(in.ActivityID), gate.task, gate.number),
+		TaskID:       gate.task,
+		Attempt:      int64(gate.number),
+		Actor:        gate.actor,
+		Outcome:      projectstate.OutcomeRejected,
+		EvidenceKind: kind,
+		EvidenceRef:  ref,
+	})
+}
+
+// recordExecutionOutcome stamps the activity's terminal on the execution row — the fold
+// of the three retired terminals (exited / failed / completed). A non-zero reason IS the
+// failure arm.
+func (wf *csWorkflows) recordExecutionOutcome(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	outcome projectstate.ActivityOutcome,
+	reason projectstate.FailureReason,
+	detail string,
+) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ActivityExecutionRecordActivityOutcome(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), outcome, reason, detail, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	state.rowAdvanced()
+	return nil
+}
+
+// carrySendBackFeedback puts the send-back's feedback in front of the redraft WITHOUT
+// recording it. Before stage 3 this was a NoteSendBack on the activity, and it was the
+// only trace a send-back left anywhere. The round now holds the verdict, its summary and
+// its comments, so a note beside it would be one fact stored twice; what the redraft
+// still needs is the TEXT, and that rides the next dispatch as a workflow-local note
+// nothing ever stamps delivered. Emits no command.
+// THE ROUND IS THE SOURCE OF TRUTH AND THIS IS A CACHE OF IT. The note lives only in
+// workflow memory, so it does not survive the run that made it — seedSendBackCarry
+// rebuilds it from the durable round at the start of the next one.
+//
+// It is gated on noteDelivery for the same reason the recorded notes are: an execution
+// without THAT marker must not add the operator_note dispatch input, because the seated
+// construct workflow it dispatches into may predate the key.
+func carrySendBackFeedback(ctx workflow.Context, in constructActivityInput, state *constructState, gate string, fb *ReviewFeedback) {
+	f := feedbackText(fb)
+	if !state.noteDelivery || strings.TrimSpace(f.text) == "" {
+		return
+	}
+	state.noteSeq++
+	note := projectstate.OperatorNote{
+		NoteID:     operatorNoteID(in.ActivityID, workflow.GetInfo(ctx).WorkflowExecution.RunID, state.noteSeq),
+		Kind:       projectstate.NoteSendBack,
+		Gate:       gate,
+		Text:       f.text,
+		Comments:   noteComments(f.comments),
+		RecordedAt: workflow.Now(ctx),
+	}
+	if state.ephemeralNotes == nil {
+		state.ephemeralNotes = map[string]bool{}
+	}
+	state.ephemeralNotes[note.NoteID] = true
+	state.pendingNotes = append(state.pendingNotes, note)
+}
+
+// seedSendBackCarry rebuilds the carry note from the DURABLE round, for every lifecycle
+// phase whose latest gate round was sent back and whose redraft never went out. It runs
+// once, at the start of a run, and is what makes the send-back's feedback survive a run
+// boundary now that no note is stored for it.
+func seedSendBackCarry(ctx workflow.Context, in constructActivityInput, state *constructState, acs projectstate.ActivityExecution) {
+	for _, lifecyclePhase := range projectstate.ProfileFor(in.Activity.Type, in.Activity.Variant).PhaseIDs() {
+		r, owed := owedSendBackRound(acs, lifecyclePhase)
+		if !owed {
+			continue
+		}
+		carrySendBackFeedback(ctx, in, state, lifecyclePhase.String(), roundFeedback(r))
+	}
+}
+
+// recordOperatorNote keeps one operator note on the activity and, when its kind is
+// delivered at all, queues it for the next agent dispatch. A no-op on an execution
+// without the operator-note-delivery marker, and for a blank note (only a signal that
+// bypassed the façade's checks can carry one).
+func (wf *csWorkflows) recordOperatorNote(
+	ctx workflow.Context,
+	in constructActivityInput,
+	state *constructState,
+	headVersion *projectstate.Version,
+	cred railCredEnvelope,
+	kind projectstate.OperatorNoteKind,
+	gate string,
+	fb noteFeedback,
+) error {
+	if !state.noteDelivery || strings.TrimSpace(fb.text) == "" {
+		return nil
+	}
+	state.noteSeq++
+	note := projectstate.OperatorNoteInput{
+		NoteID:   operatorNoteID(in.ActivityID, workflow.GetInfo(ctx).WorkflowExecution.RunID, state.noteSeq),
+		Kind:     kind,
+		Gate:     gate,
+		Text:     fb.text,
+		Comments: noteComments(fb.comments),
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordOperatorNote(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), note, cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	// A retired-facet write onto the row, fenced on note delivery rather than on the
+	// execution ledger, so it lands on a ledger-on run too (see rowAdvanced).
+	state.rowAdvanced()
+	recorded := projectstate.OperatorNote{
+		NoteID: note.NoteID, Kind: note.Kind, Gate: note.Gate, Text: note.Text, Comments: note.Comments,
+		RecordedAt: workflow.Now(ctx),
+	}
+	// The RA's own rule decides what is pending (a skip note never is).
+	state.pendingNotes = append(state.pendingNotes,
+		projectstate.PendingOperatorNotes(projectstate.ActivityExecution{OperatorNotes: []projectstate.OperatorNote{recorded}})...)
+	return nil
+}
+
+// submitCarryingNotes dispatches one agent job carrying the pending notes, then — only
+// once the submit has succeeded — stamps delivered to attemptID each note the block
+// carried IN FULL, and drops those from the queue. A note the cap withheld, a note whose
+// stamp failed (at-least-once, see the section comment) and every note of a failed
+// submit stay pending for the next dispatch. A note already carried into attemptID is
+// never carried into it again.
+//
+// It takes the COMPOSED spec (stage 4b1 Task 11) rather than composing one from (in, phase):
+// the two callers describe a dispatch differently — the retired flat walk holds a phase and
+// the activity's classified pair, the generic child holds a lifecycle task with its own
+// command — and the note-carrying rule is identical for both. The one field this function
+// owns is OperatorNote, which is the whole of what it is for.
+func (wf *csWorkflows) submitCarryingNotes(
+	ctx workflow.Context,
+	in constructActivityInput,
+	spec pipelineSpec,
+	state *constructState,
+	attemptID string,
+	gf *gitForward,
+	headVersion *projectstate.Version,
+) (pipelineHandle, error) {
+	var carry []projectstate.OperatorNote
+	for _, n := range state.pendingNotes {
+		if state.carriedTo[n.NoteID] != attemptID {
+			carry = append(carry, n)
+		}
+	}
+	notes := renderOperatorNotes(carry)
+	spec.OperatorNote = notes.block
+	handle, err := wf.submitPipeline(ctx, spec)
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	delivered := map[string]bool{}
+	for _, n := range notes.whole {
+		if state.carriedTo == nil {
+			state.carriedTo = map[string]string{}
+		}
+		state.carriedTo[n.NoteID] = attemptID
+		// A workflow-local send-back note (stage 3) has no stored note to stamp: the review
+		// round is its record, and the block it rode is its delivery. It leaves the queue
+		// having been carried, without a store call that would only fail NotFound.
+		if state.ephemeralNotes[n.NoteID] {
+			delivered[n.NoteID] = true
+			continue
+		}
+		if wf.stampNoteDelivered(ctx, in, state, n.NoteID, attemptID, gf, headVersion) {
+			delivered[n.NoteID] = true
+		}
+	}
+	var still []projectstate.OperatorNote
+	for _, n := range state.pendingNotes {
+		if !delivered[n.NoteID] {
+			still = append(still, n)
+		}
+	}
+	state.pendingNotes = still
+	if len(still) > 0 {
+		workflow.GetLogger(ctx).Info("operator notes stay pending after this dispatch",
+			"activityId", string(in.ActivityID), "attemptId", attemptID, "pending", len(still), "withheldByTheCap", notes.withheld)
+	}
+	return handle, nil
+}
+
+// stampNoteDelivered records noteID delivered to attemptID and reports whether the store
+// now says so. It never fails the run: the job is already dispatched. A stamp that still
+// fails after its retry window leaves the note pending (at-least-once); a stamp the store
+// refuses because the note was already delivered to another attempt means it is no
+// longer pending, so that reads as delivered.
+func (wf *csWorkflows) stampNoteDelivered(ctx workflow.Context, in constructActivityInput, state *constructState, noteID, attemptID string, gf *gitForward, headVersion *projectstate.Version) bool {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordOperatorNoteDelivered(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), noteID, attemptID, gf.cred.toProjectState())
+	})
+	if err == nil {
+		*headVersion = v
+		// The stamp applied, so the row advanced (see rowAdvanced). The two arms below did
+		// NOT apply one — a ContractMisuse refusal writes nothing — so neither advances it.
+		state.rowAdvanced()
+		return true
+	}
+	if isRAContractMisuse(err) {
+		workflow.GetLogger(ctx).Warn("the store already holds this note as delivered to another attempt; it is not pending",
+			"activityId", string(in.ActivityID), "noteId", noteID, "attemptId", attemptID, "error", err.Error())
+		return true
+	}
+	workflow.GetLogger(ctx).Warn("the note rode the dispatch but its delivery stamp failed; it stays pending and the next attempt carries it again",
+		"activityId", string(in.ActivityID), "noteId", noteID, "attemptId", attemptID, "error", err.Error())
+	return false
+}
+
+// syncScaffoldBeforeDispatch converges the repo's seated managed scaffold (the construct
+// workflow among it) onto this server's template before a GitHub-venue dispatch. The
+// local venue has no seated workflow (gf is dormant), so it is a no-op there. ok=false
+// means the sync failed and nothing may be dispatched; obs is the failed run to report.
+func (wf *csWorkflows) syncScaffoldBeforeDispatch(ctx workflow.Context, in constructActivityInput, gf *gitForward) (csPipelineObservation, bool) {
+	if !gf.enabled {
+		return csPipelineObservation{}, true
+	}
+	changed, err := wf.Acts.RailSyncManagedScaffold(ctx, gf.repoRef, gf.cred.toRail())
+	if err != nil {
+		workflow.GetLogger(ctx).Error("managed-scaffold sync failed; nothing was dispatched",
+			"activityId", string(in.ActivityID), "error", err.Error())
+		return csPipelineObservation{
+			Phase: PipelineFailed,
+			Diagnostic: "managed-scaffold sync failed — the seated construct workflow could not be proven current, " +
+				"so nothing was dispatched: " + err.Error(),
+		}, false
+	}
+	if changed {
+		workflow.GetLogger(ctx).Info("managed scaffold drifted; re-seated the construct workflow before dispatch",
+			"activityId", string(in.ActivityID))
+	}
+	return csPipelineObservation{}, true
+}
+
+// runMergePipeline dispatches the merge job through the pipeline seam and polls
+// to a terminal observation (the local arm performs the merge synchronously, so
+// the first observe is normally already terminal; the bounded poll mirrors
+// runPipeline's discipline). The spec deliberately carries NO "command"/"phase"
+// inputs — the job key routes it inside the local arm; it never spawns claude.
+func (wf *csWorkflows) runMergePipeline(ctx workflow.Context, in constructActivityInput, state *constructState) (csPipelineObservation, error) {
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, agenticjob.PipelineSpec{
+		ProjectID:  agenticjob.ProjectID(string(in.ProjectID)),
+		ActivityID: agenticjob.ConstructionActivityID(string(in.ActivityID)),
+		Steps: []agenticjob.PipelineStep{{
+			Name:      "build",
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: map[string]string{
+			agenticjob.DispatchInputJobKey: agenticjob.DispatchJobMerge,
+			"activity_id":                  string(in.ActivityID),
+		},
+	})
+	if err != nil {
+		return csPipelineObservation{}, err
+	}
+	h := pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}
+	for poll := range maxObserveTotalPolls {
+		obs, oerr := wf.observePipeline(ctx, h)
+		if oerr != nil {
+			return csPipelineObservation{}, oerr
+		}
+		ph := obs.Phase
+		state.pipelinePhase = &ph
+		if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed || obs.Phase == PipelineCancelled {
+			// agentic=false: the merge job merges a branch, it never spawns an agent, so a
+			// missing summary here is not a loss and must not be recorded as a gap. The
+			// capture stays wired so a merge job that ever DOES mine one is not dropped.
+			// NOTE the late-episode grace is deliberately NOT taken here — it lives inside
+			// captureEpisode, gated on agentic, so a cancelled merge never spends 20s
+			// waiting for a summary a merge can by construction never produce.
+			//
+			// Task attribution (Task 10): the merge job has no Figure A-1 task of its own —
+			// App A's twelve tasks stop at Code Review, and landing the reviewed branch on
+			// main is this platform's own automation, not a Method task. TaskConstruction is
+			// the best-available attribution (merge only runs after Construction's gate has
+			// passed, as the mechanical tail of landing that task's work), sharing its
+			// attempt counter rather than inventing a task that Figure A-1 does not have.
+			mergeTask := projectstate.TaskConstruction
+			wf.captureEpisode(ctx, in, h, obs, false, mergeTask, state.nextTaskAttempt(mergeTask))
+			return obs, nil
+		}
+		_ = workflow.Sleep(ctx, observeInterval(poll))
+	}
+	return csPipelineObservation{Phase: PipelineFailed, Diagnostic: "merge pipeline did not reach a terminal phase within the poll budget"}, nil
+}
+
+// recordChangeReviewed applies the head-state transition with the Conflict loop. The
+// Manager-minted cred is threaded into the write (empty/zero in dev/dry-run).
+//
+// Another retired-facet verb that writes the row unfenced (see recordPhaseStarted): it
+// lands between the gate's last round write and the outcome the ledger records, so the
+// run's copy of the row version follows its stamp.
+func (wf *csWorkflows) recordChangeReviewed(ctx workflow.Context, in constructActivityInput, state *constructState, seed projectstate.Version, cred railCredEnvelope) (projectstate.Version, error) {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordChangeReviewed(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), cred.toProjectState())
+	})
+	if err != nil {
+		return 0, err
+	}
+	state.rowAdvanced()
+	return v, nil
+}
+
+// recordActivityExited applies the binary-exit head-state transition.
+func (wf *csWorkflows) recordActivityExited(ctx workflow.Context, in constructActivityInput, seed projectstate.Version, outcome projectstate.ActivityOutcome, cred railCredEnvelope) (projectstate.Version, error) {
+	return wf.applyRecovering(ctx, in.ProjectID, seed, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ConstructionTransitionRecordActivityExited(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			string(in.ActivityID), outcome, cred.toProjectState())
+	})
+}
+
+// Shared workflow-context helper (used by 2 csWorkflows); lives in its first caller's file per the file-layout standard.
+// readVersionE runs the cheap ReadProjectVersion GENERATED invoker (B8: migrated off the
+// custom ReadProjectVersionActivity) and returns ONLY the head-state optimistic-
+// concurrency token, surfacing errors (including the brand-new project's fwra.NotFound)
+// to the caller. Replaces the wasteful whole-aggregate read that shipped the entire
+// encoded Project across the Temporal Activity boundary for a uint64 (architect's
+// fast-follow). The invoker's Opts hook applies csReadProjectActivityOptions (identical
+// preset, keyed "projectStateAccess.readProjectVersion" — workermanifest.go).
+func (wf *csWorkflows) readVersionE(ctx workflow.Context, projectID ProjectID) (projectstate.Version, error) {
+	return wf.Acts.ProjectStateReadProjectVersion(ctx, projectstate.ProjectID(projectID))
+}
+
+// Shared workflow-context helper (used by 2 csWorkflows); lives in its first caller's file per the file-layout standard.
+// readVersion reads the current head Version (0 for a brand-new project or on any
+// read error — the read-your-writes seed treats absence as version 0).
+func (wf *csWorkflows) readVersion(ctx workflow.Context, projectID ProjectID) projectstate.Version {
+	v, err := wf.readVersionE(ctx, projectID)
+	if err != nil {
+		return 0
+	}
+	return v
+}
+
+// Shared workflow-context helper (used by 2 csWorkflows); lives in its first caller's file per the file-layout standard.
+// applyRecovering executes one head-state mutation Activity with a workflow-level
+// Conflict re-read→re-apply loop (§6.5; identical discipline to systemdesign).
+func (wf *csWorkflows) applyRecovering(
+	ctx workflow.Context,
+	projectID ProjectID,
+	seed projectstate.Version,
+	apply func(expected projectstate.Version) (projectstate.Version, error),
+) (projectstate.Version, error) {
+	expected := seed
+	for attempt := 0; ; attempt++ {
+		v, err := apply(expected)
+		if err == nil {
+			return v, nil
+		}
+		if !isConflict(err) {
+			return 0, err
+		}
+		if attempt+1 >= maxMutateConflictAttempts {
+			return 0, temporal.NewNonRetryableApplicationError(
+				"head-state conflict did not converge within bounded attempts",
+				"MutateConflictExhausted", err)
+		}
+		next, rerr := wf.readVersionE(ctx, projectID)
+		if rerr != nil {
+			if isReadNotFound(rerr) {
+				expected = 0
+				continue
+			}
+			return 0, rerr
+		}
+		// THE ROW RE-READ (stage 4b1, ruling R-A). The project version alone cannot tell an
+		// external row writer apart from a store that is REFUSING this transition; the row
+		// version can, and re-reading it also re-seeds the CAS this run holds by hand
+		// (rowAdvanced). Fenced, guarded for the callers that hold no row, and terminal only
+		// when NEITHER version moved — see terminalAfterRowReread.
+		terminal, terr := terminalAfterRowReread(ctx, wf.Acts, projectID, next != expected)
+		if terr != nil {
+			return 0, terr
+		}
+		if terminal {
+			return 0, temporal.NewNonRetryableApplicationError(terminalConflictMessage, terminalConflictErrType, err)
+		}
+		expected = next
+		workflow.GetLogger(ctx).Info("head-state conflict; re-read version and retrying",
+			"attempt", attempt+1, "nextExpectedVersion", expected)
+	}
 }
