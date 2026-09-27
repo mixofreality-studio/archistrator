@@ -24810,15 +24810,23 @@ func Test_RowConflict_AGenuineRaceStillExhaustsTheBound(t *testing.T) {
 	}
 }
 
-// Case (f) — THE THREE CALLERS THAT HOLD NO ROW, as a table so none can be the one that was
-// forgotten. applyRecovering is shared: the pump, the supervision workflow's pause record,
-// and the round sweep (Task 6, which walks EVERY activity of a project and so holds no
-// single row by construction) all reach the same Conflict arm with NOTHING bound. Each must
-// keep the project-version-only behaviour exactly — guarded, never nil-called — because the
-// pump is the one workflow here that cannot fail quietly and the sweep runs on a Schedule
-// where a crash is silent.
+// Case (f) — THE CALLERS THAT HOLD NO ROW, as a table so neither can be the one that was
+// forgotten. applyRecovering is shared: the pump and the supervision workflow's pause record
+// both write PROJECT-scoped head state, address no activity at all, and so reach the same
+// Conflict arm with NOTHING bound. Each must keep the project-version-only behaviour exactly
+// — guarded, never nil-called — because the pump is the one workflow here that cannot fail
+// quietly.
 //
-// The probe is run unbound, which is the fact under test: not one of the three calls
+// THE ROUND SWEEP WAS PREDICTED TO BE A THIRD ROW HERE AND IS NOT (Task 6). It walks every
+// activity of a project, so it holds no single row for the whole workflow — but it holds
+// exactly ONE per write, which is the granularity the accessor is about, so it binds one per
+// iteration (roundsweep.go). Leaving it in this table would have asserted the opposite of
+// what ships, and the behaviour the sweep needs is case (c)'s: a decided round is the one
+// terminality Conflict it can provoke, and unbound it would burn twenty attempts on it and
+// fail a whole project's sweep with the wrong cause. Its own terminal-tolerance case is
+// Test_RoundSweep_ARoundDecidedByAnotherWriterIsToleratedAsAlreadyClosed.
+//
+// The probe is run unbound, which is the fact under test: neither caller calls
 // csBindRowAccessor. With a row bound this same setup CONVERGES (case (a)); without one it
 // cannot re-seed, so it exhausts the bound exactly as it did before this task — and makes
 // ZERO row reads, which is what proves the guard and not the fence is doing the work.
@@ -24826,7 +24834,6 @@ func Test_RowConflict_TheCallersThatHoldNoRow_KeepTheProjectVersionOnlyBehaviour
 	for _, caller := range []string{
 		"pump (pumpnextactivity.go)",
 		"supervision pause record (projectsupervision.go)",
-		"round sweep (roundsweep.go, Task 6)",
 	} {
 		t.Run(caller, func(t *testing.T) {
 			ps := rowProbeState(5, nil)
@@ -26318,54 +26325,544 @@ func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus
 
 var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
 
-// RegisterSchedules must register exactly the two platform-wide Schedules — the
-// pump sweep (30s, targeting PumpSweepWorkflow) and the replan sweep (5m, targeting
-// ReplanSweepWorkflow) — with the right ids/workflow-types/intervals.
+// RegisterSchedules must register exactly the three platform-wide Schedules — the
+// pump sweep (30s, targeting PumpSweepWorkflow), the replan sweep (5m, targeting
+// ReplanSweepWorkflow) and, from stage 4b1, the round sweep (5m, targeting
+// RoundSweepWorkflow) — with the right ids/workflow-types/intervals.
 //
-// The two ids are asserted as LITERALS as well as through the consts: a Schedule id is
+// The three ids are asserted as LITERALS as well as through the consts: a Schedule id is
 // live namespace state, not an internal name, so renaming one is a deploy step (delete
 // the old id by hand — it cannot be moved or adopted) and must never pass unnoticed
-// just because the test read the same const the code did.
+// just because the test read the same const the code did. The COUNT is asserted for the
+// same reason in reverse: a Schedule nobody registers is a sweep that silently never
+// fires, and only the count catches a registration dropped in a merge.
 func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
-	bus := &fakeScheduleBus{}
-
-	if scheduleIDPumpSweep != "delivery:pumpSweep" || scheduleIDReplanSweep != "delivery:replanSweep" {
-		t.Fatalf("Schedule ids = %q/%q, want delivery:pumpSweep/delivery:replanSweep — a rename is a DEPLOY step (delete the old ids first), not a refactor",
-			scheduleIDPumpSweep, scheduleIDReplanSweep)
+	// A table over the three, so a fourth Schedule is one row rather than another
+	// straight-line block — which is what took this test past the complexity gate when the
+	// round sweep made it three.
+	want := []struct {
+		name, id, wantLiteral, kind string
+		intervalSecs                int
+	}{
+		{"pump sweep", scheduleIDPumpSweep, "delivery:pumpSweep", executionKindPumpSweep, pumpSweepIntervalSecs},
+		{"replan sweep", scheduleIDReplanSweep, "delivery:replanSweep", executionKindReplanSweep, replanSweepIntervalSecs},
+		{"round sweep", scheduleIDRoundSweep, "delivery:roundSweep", executionKindRoundSweep, roundSweepIntervalSecs},
 	}
 
+	bus := &fakeScheduleBus{}
 	if err := RegisterSchedules(context.Background(), bus); err != nil {
 		t.Fatalf("RegisterSchedules: %v", err)
 	}
-
-	if len(bus.ids) != 2 {
-		t.Fatalf("want 2 Schedules registered, got %d: %v", len(bus.ids), bus.ids)
+	if len(bus.ids) != len(want) {
+		t.Fatalf("want %d Schedules registered, got %d: %v", len(want), len(bus.ids), bus.ids)
 	}
 	byID := make(map[messagebus.ScheduleID]messagebus.ScheduleSpec, len(bus.ids))
 	for i, id := range bus.ids {
 		byID[id] = bus.specs[i]
 	}
 
-	pumpSpec, ok := byID[messagebus.ScheduleID(scheduleIDPumpSweep)]
-	if !ok {
-		t.Fatalf("missing pump-sweep Schedule %q; got ids %v", scheduleIDPumpSweep, bus.ids)
+	for _, w := range want {
+		t.Run(w.name, func(t *testing.T) {
+			if w.id != w.wantLiteral {
+				t.Fatalf("Schedule id = %q, want the literal %q — a rename is a DEPLOY step (delete the old id first), not a refactor",
+					w.id, w.wantLiteral)
+			}
+			spec, ok := byID[messagebus.ScheduleID(w.id)]
+			if !ok {
+				t.Fatalf("missing Schedule %q; got ids %v", w.id, bus.ids)
+			}
+			if string(spec.ExecutionKind) != w.kind {
+				t.Fatalf("ExecutionKind = %q, want %q", spec.ExecutionKind, w.kind)
+			}
+			if spec.Cadence.Every != time.Duration(w.intervalSecs)*time.Second {
+				t.Fatalf("interval = %v, want %ds", spec.Cadence.Every, w.intervalSecs)
+			}
+		})
 	}
-	if string(pumpSpec.ExecutionKind) != executionKindPumpSweep {
-		t.Fatalf("pump-sweep ExecutionKind = %q, want %q", pumpSpec.ExecutionKind, executionKindPumpSweep)
+}
+
+// ---- Tests: stranded-round sweep (RoundSweepWorkflow, stage 4b1 Task 6) -----
+
+// roundSweepRow builds one execution row at version 1 holding the given rounds, in the
+// ledger order they are passed — which IS the order they were opened in, and the order
+// strandedRounds must preserve.
+func roundSweepRow(activityID string, rounds ...projectstate.ReviewRound) projectstate.ActivityExecution {
+	return projectstate.ActivityExecution{ActivityID: activityID, Version: 1, Reviews: rounds}
+}
+
+// pendingRound / decidedRound build one round of a gate. kind nil is a construction round
+// (keyed on the task alone); a non-nil kind is a design round, where several kinds share
+// one gate task and the kind is what keeps them apart.
+func pendingRound(roundID string, task projectstate.MethodTask, kind *projectstate.ArtifactKind, n int64) projectstate.ReviewRound {
+	return projectstate.ReviewRound{
+		RoundID: roundID, TaskID: task, ArtifactKind: kind, Round: n,
+		Outcome: projectstate.RoundPending,
 	}
-	if pumpSpec.Cadence.Every != pumpSweepIntervalSecs*time.Second {
-		t.Fatalf("pump-sweep interval = %v, want %ds", pumpSpec.Cadence.Every, pumpSweepIntervalSecs)
+}
+
+func decidedRound(roundID string, task projectstate.MethodTask, n int64, outcome projectstate.ReviewRoundOutcome) projectstate.ReviewRound {
+	return projectstate.ReviewRound{
+		RoundID: roundID, TaskID: task, Round: n,
+		Outcome: outcome, DecidedBy: "architect",
+	}
+}
+
+// roundSweepState builds a store whose project holds the given rows.
+func roundSweepState(rows ...projectstate.ActivityExecution) *csFakeProjectState {
+	byID := make(map[string]projectstate.ActivityExecution, len(rows))
+	for _, row := range rows {
+		byID[row.ActivityID] = row
+	}
+	return &csFakeProjectState{
+		project: projectstate.Project{
+			ID: projectstate.ProjectID(uuid.NewString()), Version: 7, Phase: 2,
+			ActivityExecution: byID,
+		},
+		version: 7,
+	}
+}
+
+// registerRoundSweep registers RoundSweepWorkflow under its own name — which BOTH arms
+// need, because the fan-out starts children of its own type — plus the project read, the
+// project listing the fan-out enumerates through, and the execution-ledger activities the
+// per-project arm writes and applyRecovering's Conflict arm re-reads.
+func registerRoundSweep(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, summaries []projectstate.ProjectSummary) {
+	env.RegisterWorkflowWithOptions(wf.RoundSweepWorkflow, workflow.RegisterOptions{Name: executionKindRoundSweep})
+	registerGenDesignSessionRead(env, ps)
+	// The PROJECT version read is applyRecovering's own first question on a Conflict, and
+	// the ROW read (csRegisterGenActivityExecution's seventh) is its second. The sweep
+	// reaches both, so the terminal-tolerance case needs both registered — the production
+	// worker registers every one of them for every execution.
+	registerGenProjectStateVersion(env, ps)
+	csRegisterGenActivityExecution(env, ps)
+	lister := fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}, summaries: summaries}
+	acts := &genActivities{ProjectState: lister}
+	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
+}
+
+// runRoundSweep drives the per-project arm over ps and returns its result.
+func runRoundSweep(t *testing.T, ps *csFakeProjectState) roundSweepResult {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerRoundSweep(env, wf, ps, nil)
+
+	env.ExecuteWorkflow(executionKindRoundSweep, roundSweepInput{ProjectID: ProjectID(ps.project.ID), TickID: "t1"})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("round sweep error: %v", err)
+	}
+	var res roundSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode round sweep result: %v", err)
+	}
+	return res
+}
+
+// roundOutcomeByID reads back what the sweep decided for each round of one row.
+func roundOutcomeByID(ps *csFakeProjectState, activityID string) map[string]projectstate.ReviewRoundOutcome {
+	out := map[string]projectstate.ReviewRoundOutcome{}
+	for _, r := range ps.execution(activityID).Reviews {
+		out[r.RoundID] = r.Outcome
+	}
+	return out
+}
+
+// THE WINDOW, END TO END. Round 1 is pending and round 2 of the SAME gate exists, which
+// is proof a run already started over: round 1 is withdrawn, and round 2 — the gate's
+// latest — is left exactly as it was, because it may be a live gate with a human reading
+// it. decidedBy names the sweep, so the ledger never claims a person decided it.
+func Test_RoundSweep_ASupersededPendingRound_IsWithdrawnAndTheLatestIsNot(t *testing.T) {
+	ps := roundSweepState(roundSweepRow("C-ONE",
+		pendingRound("r1", "construction-review", nil, 1),
+		pendingRound("r2", "construction-review", nil, 2),
+	))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 1 {
+		t.Fatalf("want exactly the superseded round stamped, got %d", res.Stamped)
+	}
+	got := roundOutcomeByID(ps, "C-ONE")
+	if got["r1"] != projectstate.RoundWithdrawn {
+		t.Fatalf("round 1 is superseded and must be withdrawn, got %q", got["r1"])
+	}
+	if got["r2"] != projectstate.RoundPending {
+		t.Fatalf("round 2 is the gate's latest and must be untouched, got %q", got["r2"])
+	}
+	for _, r := range ps.execution("C-ONE").Reviews {
+		if r.RoundID == "r1" && r.DecidedBy != roundSweepDecidedBy {
+			t.Fatalf("decidedBy = %q, want %q — the ledger must never claim a person decided it", r.DecidedBy, roundSweepDecidedBy)
+		}
+	}
+}
+
+// THE CASE A CARELESS SWEEP BREAKS, and the one the `<` in strandedRounds is load-bearing
+// for: a row whose ONLY round is pending is a LIVE gate. Nothing is swept. Mutation-check:
+// with `<` loosened to `<=` in strandedRounds this test fails — it withdraws a review
+// someone is reading.
+func Test_RoundSweep_ALonePendingRound_IsALiveGateAndIsNotSwept(t *testing.T) {
+	ps := roundSweepState(roundSweepRow("C-ONE",
+		pendingRound("r1", "construction-review", nil, 1),
+	))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 0 {
+		t.Fatalf("a lone pending round is a live gate: want nothing swept, got %d", res.Stamped)
+	}
+	if got := roundOutcomeByID(ps, "C-ONE")["r1"]; got != projectstate.RoundPending {
+		t.Fatalf("the live gate's round must stay pending, got %q", got)
+	}
+}
+
+// THE CASE THAT PROVES THE SWEEP INHERITED TASK 3's JOIN FIX. Two artifact kinds share ONE
+// gate task — `designReview` names a task in eight lifecycles — and each is a LIVE gate on
+// its own latest round. They are TWO gates, so neither supersedes the other and NOTHING is
+// swept. A sweep that grouped by TaskID alone (roundsForTask's grouping, which the plan's
+// carry-forward warned against by name) would read mission's round 1 as superseded by
+// glossary's round 2 and silently withdraw a live design review.
+//
+// THE ROUND NUMBERS MUST DIFFER, and that is the whole design of this case. The kinds count
+// their rounds INDEPENDENTLY, so in the field they do differ — and with both at round 1 this
+// test passes under the broken grouping too (one gate, latest 1, nothing below it), which
+// makes it mutation-blind. Measured: replacing both roundGateKey calls in strandedRounds
+// with roundGateKey(r.TaskID, nil) leaves the equal-numbered shape GREEN and this one RED.
+func Test_RoundSweep_TwoKindsOnOneGateTask_AreTwoGatesAndNeitherIsSwept(t *testing.T) {
+	mission, glossary := projectstate.KindMission, projectstate.KindGlossary
+	ps := roundSweepState(roundSweepRow("A-01",
+		pendingRound("a:designReview:mission:1", "designReview", &mission, 1),
+		pendingRound("a:designReview:glossary:1", "designReview", &glossary, 1),
+		pendingRound("a:designReview:glossary:2", "designReview", &glossary, 2),
+	))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 1 {
+		t.Fatalf("only glossary's own round 1 is superseded (mission's is a live gate): want 1 stamp, got %d", res.Stamped)
+	}
+	got := roundOutcomeByID(ps, "A-01")
+	if got["a:designReview:mission:1"] != projectstate.RoundPending {
+		t.Fatalf("mission's round 1 is its gate's latest and must stay pending; grouping by TaskID alone withdrew it: %q",
+			got["a:designReview:mission:1"])
+	}
+	if got["a:designReview:glossary:1"] != projectstate.RoundWithdrawn {
+		t.Fatalf("glossary's round 1 IS superseded by its own round 2, got %q", got["a:designReview:glossary:1"])
+	}
+	if got["a:designReview:glossary:2"] != projectstate.RoundPending {
+		t.Fatalf("glossary's latest must be untouched, got %q", got["a:designReview:glossary:2"])
+	}
+}
+
+// A kinded gate strands its OWN earlier round, which is the other half of the same rule:
+// the kind SEPARATES gates, it does not exempt them from the sweep.
+func Test_RoundSweep_AKindedGate_StrandsItsOwnEarlierRound(t *testing.T) {
+	mission := projectstate.KindMission
+	ps := roundSweepState(roundSweepRow("A-01",
+		pendingRound("a:designReview:mission:1", "designReview", &mission, 1),
+		pendingRound("a:designReview:mission:2", "designReview", &mission, 2),
+	))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 1 {
+		t.Fatalf("want the kinded gate's superseded round stamped, got %d", res.Stamped)
+	}
+	got := roundOutcomeByID(ps, "A-01")
+	if got["a:designReview:mission:1"] != projectstate.RoundWithdrawn {
+		t.Fatalf("the kinded gate's round 1 must be withdrawn, got %q", got["a:designReview:mission:1"])
+	}
+	if got["a:designReview:mission:2"] != projectstate.RoundPending {
+		t.Fatalf("the kinded gate's latest must be untouched, got %q", got["a:designReview:mission:2"])
+	}
+}
+
+// A round that is ALREADY decided is not a sweep's business, whatever its position:
+// Stamped counts only what this tick closed, and an already-passed round is neither
+// re-decided nor counted.
+func Test_RoundSweep_AlreadyDecidedRounds_AreNotTouchedOrCounted(t *testing.T) {
+	ps := roundSweepState(roundSweepRow("C-ONE",
+		decidedRound("r1", "construction-review", 1, projectstate.RoundSentBack),
+		decidedRound("r2", "construction-review", 2, projectstate.RoundPassed),
+	))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 0 {
+		t.Fatalf("decided rounds are not the sweep's business, got %d stamped", res.Stamped)
+	}
+	got := roundOutcomeByID(ps, "C-ONE")
+	if got["r1"] != projectstate.RoundSentBack || got["r2"] != projectstate.RoundPassed {
+		t.Fatalf("decided rounds must keep their decisions, got %v", got)
+	}
+}
+
+// Stamped reports across ROWS, and the walk is deterministic: two activities, each with one
+// superseded round, in sortedActivityIDs order. The second row's write is what proves the
+// per-row CAS token advances by hand (rowVersion++) rather than being paid for with a
+// Conflict.
+func Test_RoundSweep_StampsAcrossRows_AndReportsTheCount(t *testing.T) {
+	ps := roundSweepState(
+		roundSweepRow("C-TWO",
+			pendingRound("b1", "construction-review", nil, 1),
+			pendingRound("b2", "construction-review", nil, 2),
+		),
+		roundSweepRow("C-ONE",
+			pendingRound("a1", "construction-review", nil, 1),
+			pendingRound("a2", "construction-review", nil, 2),
+		),
+	)
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 2 {
+		t.Fatalf("want one stamp per row, got %d", res.Stamped)
+	}
+	if res.Bounded {
+		t.Fatal("two rounds is not the per-tick bound")
+	}
+	if got := roundOutcomeByID(ps, "C-ONE")["a1"]; got != projectstate.RoundWithdrawn {
+		t.Fatalf("C-ONE's superseded round = %q, want withdrawn", got)
+	}
+	if got := roundOutcomeByID(ps, "C-TWO")["b1"]; got != projectstate.RoundWithdrawn {
+		t.Fatalf("C-TWO's superseded round = %q, want withdrawn", got)
+	}
+}
+
+// THE PER-TICK BOUND. One row holding more stranded rounds than roundSweepMaxPerTick stops
+// at the bound and says so, rather than making one Temporal task do unbounded work; the
+// rest is swept on the next tick.
+func Test_RoundSweep_MoreStrandedRoundsThanTheBound_StopsAndReportsBounded(t *testing.T) {
+	rounds := make([]projectstate.ReviewRound, 0, roundSweepMaxPerTick+2)
+	for i := 1; i <= roundSweepMaxPerTick+2; i++ {
+		rounds = append(rounds, pendingRound(fmt.Sprintf("r%d", i), "construction-review", nil, int64(i)))
+	}
+	ps := roundSweepState(roundSweepRow("C-ONE", rounds...))
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != roundSweepMaxPerTick {
+		t.Fatalf("want the tick bounded at %d stamps, got %d", roundSweepMaxPerTick, res.Stamped)
+	}
+	if !res.Bounded {
+		t.Fatal("a tick that stopped at its bound must say so, or an operator cannot tell a paced sweep from a finished one")
+	}
+	// The LAST round is the gate's latest, so it was never a candidate either way; the
+	// one left is the last STRANDED round, which the next tick takes.
+	if got := roundOutcomeByID(ps, "C-ONE")[fmt.Sprintf("r%d", roundSweepMaxPerTick+1)]; got != projectstate.RoundPending {
+		t.Fatalf("the round beyond the bound must be left for the next tick, got %q", got)
+	}
+}
+
+// A project with no document yet has no rounds — not an error, and not something to retry
+// every 300s. isReadNotFound is the whole of it.
+func Test_RoundSweep_ProjectWithNoState_IsAQuietNoOp(t *testing.T) {
+	ps := roundSweepState()
+	ps.notFound = true
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 0 || res.Bounded {
+		t.Fatalf("want a quiet no-op for a project with no state, got %+v", res)
+	}
+}
+
+// A project with rows but NO rounds at all sweeps nothing and writes nothing — the common
+// case on every tick, and the one that must cost no head-state write.
+func Test_RoundSweep_RowsWithNoRounds_WriteNothing(t *testing.T) {
+	ps := roundSweepState(roundSweepRow("C-ONE"))
+	before := ps.execution("C-ONE").Version
+
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 0 {
+		t.Fatalf("want nothing swept, got %d", res.Stamped)
+	}
+	if got := ps.execution("C-ONE").Version; got != before {
+		t.Fatalf("a sweep with nothing to do must not stamp the row: version %d → %d", before, got)
+	}
+}
+
+// THE RACE, AND WHY THE SWEEP BINDS A ROW. Another writer decides the round between the
+// sweep's read and its write. The store refuses a DIFFERENT decision on a decided round as
+// fwra.Conflict that moves NOTHING, applyRecovering's row re-read recognises that as
+// terminal (Task 7), and the sweep treats it as SUCCESS — the round is closed, which is the
+// goal — instead of failing the whole project's sweep.
+//
+// This is the case the plan predicted wrong. With no row bound the terminal arm is skipped
+// by its own guard, isTerminalConflict is never true, and this becomes twenty attempts and
+// a MutateConflictExhausted naming the wrong cause; the sweep binds one row per iteration
+// precisely so this branch is reachable.
+func Test_RoundSweep_ARoundDecidedByAnotherWriterIsToleratedAsAlreadyClosed(t *testing.T) {
+	ps := roundSweepState(roundSweepRow("C-ONE",
+		pendingRound("r1", "construction-review", nil, 1),
+		pendingRound("r2", "construction-review", nil, 2),
+	))
+	// One served Conflict, and the concurrent write that caused it: a reviewer decides r1
+	// while the sweep is mid-flight.
+	ps.conflictFirst = 1
+	ps.afterConflict = func(f *csFakeProjectState) {
+		row := f.project.ActivityExecution["C-ONE"]
+		for i := range row.Reviews {
+			if row.Reviews[i].RoundID == "r1" {
+				row.Reviews[i].Outcome = projectstate.RoundSentBack
+				row.Reviews[i].DecidedBy = "architect"
+			}
+		}
+		f.project.ActivityExecution["C-ONE"] = row
 	}
 
-	replanSpec, ok := byID[messagebus.ScheduleID(scheduleIDReplanSweep)]
-	if !ok {
-		t.Fatalf("missing replan-sweep Schedule %q; got ids %v", scheduleIDReplanSweep, bus.ids)
+	res := runRoundSweep(t, ps)
+
+	if res.Stamped != 0 {
+		t.Fatalf("a round someone else closed is not this sweep's stamp, got %d", res.Stamped)
 	}
-	if string(replanSpec.ExecutionKind) != executionKindReplanSweep {
-		t.Fatalf("replan-sweep ExecutionKind = %q, want %q", replanSpec.ExecutionKind, executionKindReplanSweep)
+	got := roundOutcomeByID(ps, "C-ONE")
+	if got["r1"] != projectstate.RoundSentBack {
+		t.Fatalf("the other writer's decision must stand, got %q", got["r1"])
 	}
-	if replanSpec.Cadence.Every != replanSweepIntervalSecs*time.Second {
-		t.Fatalf("replan-sweep interval = %v, want %ds", replanSpec.Cadence.Every, replanSweepIntervalSecs)
+	if ps.rowReads == 0 {
+		t.Fatal("the sweep must bind a row: the terminal arm is what makes the race a no-op, and it cannot fire without a row re-read")
+	}
+}
+
+// THE FAN-OUT ARM, and the test the Step-4 set could not give: an EMPTY ProjectID is the
+// Schedule's own firing, which carries fixed args and so can never name a project. It must
+// enumerate and start ONE child per listed project. Without this the whole sweep is a
+// silent no-op that passes every single-project case above.
+func Test_RoundSweep_EmptyProjectID_FansOutOneChildPerProject(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := roundSweepState(roundSweepRow("C-ONE"))
+	first := projectstate.ProjectID(uuid.NewString())
+	second := projectstate.ProjectID(uuid.NewString())
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerRoundSweep(env, wf, ps, []projectstate.ProjectSummary{
+		{ProjectID: first, Phase: projectstate.PhaseConstruction},
+		// A project the PUMP sweep would skip on both counts — not construction-phase AND
+		// operator-paused. The round sweep takes it anyway: a stranded round is reachable on
+		// every rail, and withdrawing one dispatches nothing an operator paused to stop.
+		{ProjectID: second, Phase: projectstate.PhaseSystemDesign, OperatorPaused: boolPtr(true)},
+	})
+
+	var startedChildIDs []string
+	var startedInputs []roundSweepInput
+	var mu sync.Mutex
+	env.SetOnChildWorkflowStartedListener(func(info *workflow.Info, _ workflow.Context, args converter.EncodedValues) {
+		mu.Lock()
+		defer mu.Unlock()
+		startedChildIDs = append(startedChildIDs, info.WorkflowExecution.ID)
+		var in roundSweepInput
+		if err := args.Get(&in); err != nil {
+			t.Errorf("decode child sweep input: %v", err)
+		}
+		startedInputs = append(startedInputs, in)
+	})
+
+	env.ExecuteWorkflow(executionKindRoundSweep, roundSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("round sweep fan-out error: %v", err)
+	}
+	var res roundSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode round sweep result: %v", err)
+	}
+	if len(res.SweptProjects) != 2 {
+		t.Fatalf("want one child per listed project (no phase filter, no pause filter), got %v", res.SweptProjects)
+	}
+	if res.Stamped != 0 {
+		t.Fatalf("the fan-out arm stamps nothing itself (it does not await its children), got %d", res.Stamped)
+	}
+	if len(startedChildIDs) != 2 {
+		t.Fatalf("want two children started, got %v", startedChildIDs)
+	}
+	// The child id carries the tick and the project — the fan-out mints the tick from its
+	// own RunID, so the id is whatever roundSweepWorkflowID makes of the two.
+	for i, in := range startedInputs {
+		if in.ProjectID == "" {
+			t.Fatalf("child %d got an empty ProjectID — it would fan out again, forever", i)
+		}
+		if in.TickID == "" {
+			t.Fatalf("child %d got no tickId; the fan-out must mint one from its own history", i)
+		}
+		want := roundSweepWorkflowID(in.ProjectID, in.TickID)
+		if startedChildIDs[i] != want {
+			t.Fatalf("child %d id = %q, want %q", i, startedChildIDs[i], want)
+		}
+	}
+}
+
+// Two entries for ONE project in the same tick collide on the tick-bearing child id, and
+// the already-started tolerance collapses the second rather than failing the tick — the
+// same branch, and the same cheap trigger, as the pump sweep's duplicate-id case.
+func Test_RoundSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := roundSweepState(roundSweepRow("C-ONE",
+		pendingRound("r1", "construction-review", nil, 1),
+		pendingRound("r2", "construction-review", nil, 2),
+	))
+	pid := ps.project.ID
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerRoundSweep(env, wf, ps, []projectstate.ProjectSummary{
+		{ProjectID: pid, Phase: projectstate.PhaseConstruction},
+		{ProjectID: pid, Phase: projectstate.PhaseConstruction}, // duplicate — same tick, same child id
+	})
+
+	env.ExecuteWorkflow(executionKindRoundSweep, roundSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("round sweep error: %v — the collapse branch must not propagate the already-started error", err)
+	}
+	var res roundSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode round sweep result: %v", err)
+	}
+	if len(res.SweptProjects) != 1 || res.SweptProjects[0] != ProjectID(pid) {
+		t.Fatalf("want exactly one child for the duplicate id (the second collapses), got %v", res.SweptProjects)
+	}
+}
+
+// strandedRounds is a PURE function, so the rule can be stated without a Temporal
+// environment — and the LEDGER ORDER it preserves is a claim the workflow cases cannot
+// make on their own (they assert outcomes, not sequence).
+func Test_StrandedRounds_PreservesLedgerOrderAndSkipsEachGatesLatest(t *testing.T) {
+	mission := projectstate.KindMission
+	row := roundSweepRow("A-01",
+		pendingRound("m1", "designReview", &mission, 1),
+		decidedRound("c1", "construction-review", 1, projectstate.RoundSentBack),
+		pendingRound("c2", "construction-review", nil, 2),
+		pendingRound("m2", "designReview", &mission, 2),
+		pendingRound("c3", "construction-review", nil, 3),
+	)
+
+	var got []string
+	for _, r := range strandedRounds(row) {
+		got = append(got, r.RoundID)
+	}
+	// m1 is superseded by m2; c2 by c3. m2 and c3 are their gates' latest; c1 is decided.
+	want := []string{"m1", "c2"}
+	if !slices.Equal(got, want) {
+		t.Fatalf("strandedRounds = %v, want %v in ledger order", got, want)
+	}
+}
+
+// sortedActivityIDs is the walk order, and map iteration order in a workflow is
+// non-determinism rather than a style question: two replays of one history would issue the
+// same writes in a different sequence and the second would not match the first.
+func Test_SortedActivityIDs_IsDeterministic(t *testing.T) {
+	rows := map[string]projectstate.ActivityExecution{
+		"C-TWO": {ActivityID: "C-TWO"}, "A-01": {ActivityID: "A-01"}, "C-ONE": {ActivityID: "C-ONE"},
+	}
+	want := []string{"A-01", "C-ONE", "C-TWO"}
+	for range 5 {
+		if got := sortedActivityIDs(rows); !slices.Equal(got, want) {
+			t.Fatalf("sortedActivityIDs = %v, want %v", got, want)
+		}
 	}
 }
 

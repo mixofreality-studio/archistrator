@@ -128,6 +128,7 @@ var registeredTemporalNamesGolden = []string{
 	"constructionTransitionAccess.recordPhaseStarted",
 	"constructionTransitionAccess.recordReviewPolicy",
 	"constructionTransitionAccess.recordServiceContractProduced",
+	"deliveryRoundSweep",
 	"designSessionAccess.commitArtifactWithProvenance",
 	"designSessionAccess.readProjectOnBranch",
 	"designSessionAccess.reconcileBranchFromMain",
@@ -262,11 +263,23 @@ func TestRegisteredTemporalNamesGolden(t *testing.T) {
 	}
 }
 
-// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 20
+// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 21
 // externally-referenced workflow names (Global Constraints) are present
 // verbatim — these are the ones external Temporal starters key off, and must
 // never silently disappear even if the golden above is updated for an
 // activity-only rename.
+//
+// STAGE 4b1 ADDED deliveryRoundSweep (Task 6), and a Schedule target belongs here for
+// the same reason a client-started workflow does: a Temporal Schedule holds the workflow
+// TYPE name as LIVE NAMESPACE STATE, so once delivery:roundSweep exists every firing
+// starts that name from outside this codebase. A rename this test did not catch would
+// leave the Schedule firing into a name no worker serves — a dead sweep that reports no
+// error at all, which is the same silent failure the Schedule-id consts in
+// deliverymanager.go warn about.
+//
+// EARMARK: constructionPumpSweep is a Schedule target too and is NOT in this list, which
+// is an omission by the same argument rather than a decision. Adding it belongs with the
+// frozen-list edit Task 13 already owns, not here.
 func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 	frozen := []string{
 		"billingOnboardPayment",
@@ -277,6 +290,7 @@ func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 		"constructionConstructActivity",
 		"constructionReplanSweep",
 		"constructionProjectSupervision",
+		"deliveryRoundSweep",
 		"projectDesignCoAuthor",
 		"projectDesignSDPReview",
 		"projectDesignPhaseAdvance",

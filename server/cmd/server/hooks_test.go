@@ -401,9 +401,12 @@ func TestFinalizeMessageBus_NotDryRun_RegistersConstructionSchedules(t *testing.
 	}
 }
 
-// constructionExecutionKinds must resolve to exactly the two kinds bound to
+// constructionExecutionKinds must resolve to exactly the three kinds bound to
 // delivery.TaskQueue in MessageBusTemporalArgs's table, staying in sync
-// automatically as that table evolves.
+// automatically as that table evolves. deliveryRoundSweep joined them in stage 4b1,
+// which is what makes the dry-run boot skip its Schedule too — a live 5m sweep writing
+// head state against a dry-run/demo boot is the same pure noise the other two are gated
+// for.
 func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 	h := &appHooks{}
 	kinds := h.constructionExecutionKinds(&Config{})
@@ -411,6 +414,7 @@ func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 	want := map[messagebus.ExecutionKind]bool{
 		"constructionPumpSweep":   true,
 		"constructionReplanSweep": true,
+		"deliveryRoundSweep":      true,
 	}
 	if len(kinds) != len(want) {
 		t.Fatalf("got %d construction kinds, want %d: %v", len(kinds), len(want), kinds)

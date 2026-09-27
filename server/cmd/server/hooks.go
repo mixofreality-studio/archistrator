@@ -1134,12 +1134,21 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
-		// delivery: the two startup Schedules (Task 7c; deliverymanager.go's
-		// executionKindPumpSweep/executionKindReplanSweep). The WORKFLOW TYPE names are
-		// unchanged at stage 4a (R2 — nineteen replay fixtures replay against them); only
-		// the task queue and the Schedule ids moved to the delivery namespace.
+		// delivery: the three startup Schedules (Task 7c + stage 4b1 Task 6;
+		// deliverymanager.go's executionKindPumpSweep / executionKindReplanSweep /
+		// executionKindRoundSweep). The first two WORKFLOW TYPE names are unchanged at stage
+		// 4a (R2 — nineteen replay fixtures replay against them); only the task queue and the
+		// Schedule ids moved to the delivery namespace.
+		//
+		// A KIND MISSING FROM THIS TABLE IS A BOOT FAILURE, not a dormant Schedule:
+		// messagebus.RegisterSchedule rejects an unknown kind as ContractMisuse (U4) and
+		// RegisterSchedules runs at startup, so the server exits with "unknown executionKind".
+		// That is how the round sweep's absence here was found — by the boot test, not by any
+		// unit test, because nothing else compiler-links this hand-maintained table to the
+		// managers' unexported executionKind* constants.
 		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
 		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: delivery.TaskQueue},
+		"deliveryRoundSweep":      {WorkflowType: "deliveryRoundSweep", TaskQueue: delivery.TaskQueue},
 	}
 }
 

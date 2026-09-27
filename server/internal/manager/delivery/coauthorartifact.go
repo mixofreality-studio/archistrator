@@ -182,12 +182,18 @@ func withRowAccessor(ctx workflow.Context, acc rowAccessor) workflow.Context {
 }
 
 // rowAccessorFrom returns the binding, or ok=false for the callers that hold NO row and
-// must keep the project-version-only behaviour: the pump (pumpnextactivity.go), the
-// supervision workflow's pause record (projectsupervision.go), and the round sweep
-// (roundsweep.go, Task 6), which walks EVERY activity of a project and so holds no single
-// row by construction. Those three are why the fenced arm is GUARDED and never nil-called:
-// the pump is the one workflow in this package that cannot fail quietly, and the sweep runs
-// on a Schedule where a crash is silent.
+// must keep the project-version-only behaviour: the pump (pumpnextactivity.go) and the
+// supervision workflow's pause record (projectsupervision.go). Both write PROJECT-scoped
+// head state and address no activity at all, which is why the fenced arm is GUARDED and
+// never nil-called — the pump is the one workflow in this package that cannot fail quietly.
+//
+// The round sweep (roundsweep.go, Task 6) was PREDICTED to be a third such caller, and it
+// is not. It walks every activity of a project, so it holds no single row for the whole
+// workflow — but it holds exactly ONE per write, and per-write is the granularity this
+// accessor is about, so it binds one per iteration. It has to: the decided-round refusal is
+// the terminality Conflict this arm exists for and the only one the sweep can provoke, and
+// unbound the sweep would burn twenty attempts on it and fail a whole project's sweep as
+// MutateConflictExhausted — the exact defect Task 7 removed everywhere else.
 func rowAccessorFrom(ctx workflow.Context) (rowAccessor, bool) {
 	acc, ok := ctx.Value(rowAccessorKey{}).(rowAccessor)
 	if !ok || acc.activityID == "" || acc.version == nil || acc.setVersion == nil {

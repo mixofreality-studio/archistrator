@@ -9182,6 +9182,16 @@ func replanSweepWorkflowID(projectID *ProjectID, tickID string) string {
 	return fmt.Sprintf("%s:replanSweep:%s", *projectID, tickID)
 }
 
+// roundSweepWorkflowID derives the per-project round-sweep child id
+// {projectId}:roundSweep:{tickId}. Deliberately TICK-BEARING, the opposite of
+// pumpWorkflowID's choice and for the opposite reason: two pumps over one frontier would
+// race each other, whereas two sweep ticks are not redundant — the later one reads the
+// later ledger — so each firing gets its own child and the already-started tolerance
+// collapses only a double firing of the SAME tick.
+func roundSweepWorkflowID(projectID ProjectID, tickID string) string {
+	return fmt.Sprintf("%s:roundSweep:%s", projectID, tickID)
+}
+
 // constructActivityWorkflowID derives the per-activity child id {projectId}:{activityId}.
 func constructActivityWorkflowID(projectID ProjectID, activityID ActivityID) string {
 	return fmt.Sprintf("%s:%s", projectID, activityID)
@@ -10211,6 +10221,13 @@ const (
 	// (the 30s pump sweep; pumpsweep.go) — the actual Schedule target, since a
 	// Schedule cannot itself vary executionKindPump's ProjectID per firing.
 	executionKindPumpSweep = "constructionPumpSweep"
+	// executionKindRoundSweep is the stranded-review-round sweep (the 5m round sweep;
+	// roundsweep.go, stage 4b1 Task 6). ONE type for both of its arms: the Schedule
+	// fires it with an empty ProjectID (the fan-out) and it starts children of its own
+	// type per project (the sweep proper). The name carries the delivery* spelling
+	// because it is BORN here — unlike the construction* four above, which keep theirs so
+	// a rename cannot strand an in-flight execution.
+	executionKindRoundSweep = "deliveryRoundSweep"
 )
 
 // Schedule ids + cadences (constructionManager.md §6.1; Task 7c). Namespaced with
@@ -10244,6 +10261,17 @@ const (
 	scheduleIDReplanSweep = "delivery:replanSweep"
 	// replanSweepIntervalSecs is the replan-sweep cadence (5m) — the single tunable knob.
 	replanSweepIntervalSecs = 5 * 60
+
+	// scheduleIDRoundSweep is the platform-wide round-sweep Schedule id (stage 4b1 Task
+	// 6). It carries the delivery: prefix from the start and has no older id of its own to
+	// delete, unlike the two above. The DRAIN note must still list it: it is a third
+	// Schedule an operator has to account for in `temporal schedule list`.
+	scheduleIDRoundSweep = "delivery:roundSweep"
+	// roundSweepIntervalSecs is the round-sweep cadence (5m) — the single tunable knob.
+	// Slower than the pump's 30s on purpose: a stranded round is a record that is already
+	// wrong and stays wrong, so nothing degrades while it waits, and every tick reads
+	// every project.
+	roundSweepIntervalSecs = 5 * 60
 )
 
 // csActivityOptions returns the option-preset hook the generated invokers consult for the
@@ -10392,6 +10420,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
 			{Name: executionKindPumpSweep, Fn: wf.PumpSweepWorkflow},
+			{Name: executionKindRoundSweep, Fn: wf.RoundSweepWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
@@ -10461,14 +10490,15 @@ func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSp
 	)
 }
 
-// RegisterSchedules registers (idempotently) the TWO platform-wide delivery
+// RegisterSchedules registers (idempotently) the THREE platform-wide delivery
 // Temporal Schedules at startup via the messageBus utility (constructionManager.md
 // §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
 // every construction-phase project's own PumpNextActivityWorkflow; see this file's
-// header + pumpsweep.go) and the replan sweep (5m — targets ReplanSweepWorkflow with
-// no ProjectID, its existing "sweep all in-flight projects" scope). Called once at
-// process start; a re-registration with the same id+spec is a harmless no-op
-// (last-writer-wins Update, messagebus.go).
+// header + pumpsweep.go), the replan sweep (5m — targets ReplanSweepWorkflow with
+// no ProjectID, its existing "sweep all in-flight projects" scope) and, from stage 4b1,
+// the round sweep (5m — targets RoundSweepWorkflow with an EMPTY ProjectID, its fan-out
+// arm; roundsweep.go). Called once at process start; a re-registration with the same
+// id+spec is a harmless no-op (last-writer-wins Update, messagebus.go).
 func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
 	adapter := messageBusAdapter{inner: bus}
 	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
@@ -10479,11 +10509,19 @@ func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
 	}); err != nil {
 		return err
 	}
-	return adapter.RegisterSchedule(ctx, scheduleSpec{
+	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
 		ID:           scheduleIDReplanSweep,
 		WorkflowType: executionKindReplanSweep,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: replanSweepIntervalSecs,
+	}); err != nil {
+		return err
+	}
+	return adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDRoundSweep,
+		WorkflowType: executionKindRoundSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: roundSweepIntervalSecs,
 	})
 }
 
@@ -10857,6 +10895,53 @@ func roundJoinKey(r projectstate.ReviewRound) string {
 // construction rail's own join is unchanged to the byte.
 func attemptGateKey(a projectstate.TaskAttempt) string {
 	return roundGateKey(a.Task, nil) + ":" + strconv.Itoa(a.Attempt)
+}
+
+// roundSweepDecidedBy is who the ledger records for a swept round. It is deliberately
+// not an operator and not a role: nobody decided this round, a sweep closed it.
+const roundSweepDecidedBy = "platform-sweep"
+
+// strandedRounds returns the PENDING rounds of one row that a later round on the same
+// GATE has superseded — in ledger order, so a tick's writes are deterministic.
+// A pending round that is its gate's latest is NOT stranded: it may be a live gate
+// awaiting a human.
+//
+// "Same gate" is roundGateKey: the review task AND the artifact kind. Two kinds sharing
+// one gate task are two gates here, so neither can strand the other — which is the
+// artifactKind field doing its job. This is WHY roundGateKey exists at its own arity:
+// asking roundJoinKey for a gate identity would mean synthesising a zero-Round
+// ReviewRound and relying on every call getting the same ":0" suffix, which is true by
+// accident and not by contract.
+//
+// It is a PURE function of one row (no workflow context), so the file-layout standard
+// puts it here beside roundGateKey rather than in roundsweep.go, and the sweep's tests
+// can state the rule without a Temporal environment.
+func strandedRounds(row projectstate.ActivityExecution) []projectstate.ReviewRound {
+	latest := make(map[string]int64, len(row.Reviews))
+	for _, r := range row.Reviews {
+		gate := roundGateKey(r.TaskID, r.ArtifactKind)
+		if r.Round > latest[gate] {
+			latest[gate] = r.Round
+		}
+	}
+	var out []projectstate.ReviewRound
+	for _, r := range row.Reviews {
+		if r.Outcome != projectstate.RoundPending {
+			continue
+		}
+		if r.Round < latest[roundGateKey(r.TaskID, r.ArtifactKind)] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// sortedActivityIDs is the round sweep's walk order over the execution map. Map
+// iteration order in a workflow is non-determinism, not a style question: two replays
+// of the same history would issue the same writes in a different sequence and the
+// second would not match the first's recorded commands.
+func sortedActivityIDs(rows map[string]projectstate.ActivityExecution) []string {
+	return slices.Sorted(maps.Keys(rows))
 }
 
 // sendBackNotesFor is the phase's send-back notes in recorded order (append-only slice
