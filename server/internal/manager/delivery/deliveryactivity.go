@@ -2286,26 +2286,30 @@ func (wf *csWorkflows) runGate(
 	// budget. Here it is a review task that carries a command, dispatched through the SAME
 	// strategy slot a work task's dispatch uses, landing an ordinary ReviewVerdict.
 	//
-	// criticJudged is the ONE thing the gate must know beyond the verdict: a critique that
-	// ran and committed nothing has NOT judged this draft, and the policy's no-human arm
-	// below would then close the gate on an unreviewed artifact. That is exactly the silent
-	// approve readBackCritiqueOn's safe default was built to refuse, and under a `vibes`
-	// preset it is the difference between "nobody had to look" and "nobody did look".
-	criticJudged := true
+	// THE CRITIC'S ANSWER IS TWO FACTS, and criticHoldsTheGate is where they meet the policy:
+	// whether it judged at all, and — since stage 4b1 Task 13 — WHAT it judged. A critique that
+	// ran and committed nothing has NOT judged this draft, and a critique that asked for a
+	// REVISE has judged it badly; the policy's no-human arm below would close the gate on both.
+	// The first is the silent approve readBackCritiqueOn's safe default was built to refuse; the
+	// second is the same silence wearing a verdict. Under a `vibes` preset the pair is the
+	// difference between "nobody had to look" and "nobody did look".
+	criticVerdict, criticJudged := projectstate.VerdictApprove, true
 	if t.Command != "" {
-		judged, err := wf.runAgentReviewers(ctx, in, t, tc, state, &gate)
+		verdict, judged, err := wf.runAgentReviewers(ctx, in, t, tc, state, &gate)
 		if err != nil {
 			return walkTaskFailed, err
 		}
-		criticJudged = judged
+		criticVerdict, criticJudged = verdict, judged
 	}
-	if !criticJudged {
-		workflow.GetLogger(ctx).Warn("the agent critic did not judge this draft; the gate holds for a human whatever the policy says",
-			"activityId", in.ActivityID, "taskId", t.ID)
+	if reason, held := criticHoldsTheGate(criticVerdict, criticJudged); held {
+		workflow.GetLogger(ctx).Warn(reason, "activityId", in.ActivityID, "taskId", t.ID,
+			"roundId", gate.roundID, "criticVerdict", string(criticVerdict))
 		state.reviewSet, state.reviewSetError = &set, ""
 		state.stage = StageAwaitingApproval
-		// A HUMAN gate, not a held autogate: a critic that did not judge is exactly the case a
-		// resolve must NOT release on its own.
+		// A HUMAN gate, not a held autogate: neither of the two holds is released by a resolve.
+		// A critic that did not judge has nothing for a resolve to address, and a critic that
+		// asked for a revise filed no comment to resolve (runAgentReviewers appends its verdict
+		// with a nil comment list).
 		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
@@ -2496,18 +2500,18 @@ func (wf *csWorkflows) openRound(
 func (wf *csWorkflows) runAgentReviewers(
 	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
 	tc taskContext, state *constructState, gate *gateLedger,
-) (judged bool, err error) {
+) (cast projectstate.VerdictKind, judged bool, err error) {
 	ctor, ok := wf.Strategies[strategySlotDispatch]
 	if !ok {
-		return false, newError(fwmanager.FailedPrecondition,
+		return projectstate.VerdictAbstain, false, newError(fwmanager.FailedPrecondition,
 			"review task "+t.ID+" names agent reviewers but nothing has registered strategy slot "+strategySlotDispatch)
 	}
 	produced, perr := ctor(wf).Produce(ctx, tc)
 	if perr != nil {
-		return false, perr
+		return projectstate.VerdictAbstain, false, perr
 	}
 	verdict, judged := criticVerdictFor(produced.Outcome)
-	return judged, wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+	return verdict, judged, wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 		projectstate.ReviewVerdict{
 			ReviewerRole: t.WorkerClass,
 			Actor:        t.WorkerClass,
@@ -2515,6 +2519,37 @@ func (wf *csWorkflows) runAgentReviewers(
 			Summary:      produced.Detail,
 			AttemptID:    gate.judgedAttemptID,
 		}, nil)
+}
+
+// criticHoldsTheGate is the HUMAN FLOOR under an agent critic: given the verdict the critic
+// cast and whether it judged at all, it answers whether the gate must be held for a human
+// whatever the review policy says, and the sentence the log records for it.
+//
+// TWO CASES, and the second is stage 4b1 Task 13's (Task 10's concern 7, Task 12's fix round 2
+// carry):
+//
+//   - NOT JUDGED — a critique that ran and committed nothing. The autogate's premise is that
+//     nobody has to look, so a draft nobody looked at is the one thing it must not ratify.
+//   - SEND-BACK — the critic asked for a revise, with or without comments. Auto-passing here
+//     records a round that PASSED carrying its own reviewer's rejection, which no reader can
+//     explain. The alternative — synthesizing the redraft the critic asked for — is a loop
+//     with no bound under `vibes`: the critic that rejected draft n rejects draft n+1 for the
+//     same reason, `maxPhaseRedrafts` is spent without a human ever being told, and the
+//     activity fails WalkStalled with nothing on the record naming a decision. So a human is
+//     asked, which is the redraft's one legitimate author.
+//
+// An ABSTENTION does NOT hold on its own account: an abstain from a critic that judged is
+// impossible by criticVerdictFor's construction (every non-judging outcome abstains and is
+// caught by the first case), and reading "abstain" as a hold would make a future
+// judged-but-neutral verdict a gate nobody asked for.
+func criticHoldsTheGate(verdict projectstate.VerdictKind, judged bool) (string, bool) {
+	if !judged {
+		return "the agent critic did not judge this draft; the gate holds for a human whatever the policy says", true
+	}
+	if verdict == projectstate.VerdictSendBack {
+		return "the agent critic asked for a revise; the gate holds for a human rather than auto-passing or looping on redrafts", true
+	}
+	return "", false
 }
 
 // criticVerdictFor maps what the critique produced onto the verdict the round records, and

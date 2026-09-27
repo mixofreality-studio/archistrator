@@ -36141,6 +36141,10 @@ func Test_DesignWalk_ArchitectureSendBackReopensOnlyItsPairAndMovesTheSubject(t 
 func Test_DesignWalk_CritiqueRevise_LandsAsTheCriticsSendBackVerdict(t *testing.T) {
 	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
 	pipe.reviseFirst["mission"] = true
+	// A HUMAN has to answer this gate now (Task 13): a critic's send-back holds it whatever the
+	// preset says, so without the callback this walk never finishes. The claim under test is
+	// still what the critique's revise LANDED AS, which the hold does not change.
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "missionReview"), 2*time.Minute)
 	got := driveRequirementsWalk(t, rig)
 
 	row := rig.cs.execution("requirements")
@@ -36167,6 +36171,73 @@ func Test_DesignWalk_CritiqueRevise_LandsAsTheCriticsSendBackVerdict(t *testing.
 	// The walk still finished — the critique is a reviewer, not a gate of its own.
 	if len(got.RoundsOpened) != 4 {
 		t.Errorf("RoundsOpened = %v, want the four phase gates", got.RoundsOpened)
+	}
+}
+
+// A CRITIC'S SEND-BACK HOLDS THE GATE FOR A HUMAN UNDER VIBES, WITH NO COMMENTS TO RESOLVE
+// (stage 4b1 Task 13; Task 10's concern 7, left open by Task 12's fix round 2).
+//
+// THE DEFECT IT CLOSES: `criticVerdictFor` records the revise honestly and then the no-human arm
+// closed the round anyway, because the critic DID judge. Fix round 2 made an open COMMENT hold
+// the autogate — but runAgentReviewers appends its verdict with a NIL comment list, so a critic
+// that asks for a revise files nothing for that check to find. The round passed carrying its own
+// reviewer's rejection, and the only other candidate behaviour — synthesize the redraft — is
+// unbounded under `vibes`: the critic rejects draft n+1 for the same reason it rejected draft n,
+// `maxPhaseRedrafts` is spent, and nobody is ever warned.
+//
+// Asserted through the thread as well as the decider, because "no comment held this" is the half
+// that distinguishes this hold from fix round 2's.
+func Test_DesignWalk_CriticSendBack_HoldsTheGateForAHumanUnderVibes(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe.reviseFirst["mission"] = true
+	rig.register(rig.env)
+	// Late, deliberately: without a human this walk does not finish.
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "missionReview"), 2*time.Minute)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution("requirements")
+	round := latestRoundAt(row, "missionReview")
+	if round.RoundID == "" {
+		t.Fatal("the mission gate opened no round at all, so nothing held")
+	}
+	if round.DecidedBy != gateActorOperator {
+		t.Errorf("missionReview was decided by %q; a critic's send-back must hold the gate for a HUMAN whatever the preset says",
+			round.DecidedBy)
+	}
+	// The hold came from the VERDICT and not from a comment: the thread is empty.
+	if len(round.Thread) != 0 {
+		t.Errorf("the round carries %d comment(s); this hold must be the send-back VERDICT's doing, not fix round 2's open-comment check",
+			len(round.Thread))
+	}
+	sentBack := false
+	for _, v := range round.Verdicts {
+		if v.Verdict == projectstate.VerdictSendBack {
+			sentBack = true
+		}
+		if v.Verdict == projectstate.VerdictApprove && v.Actor == gateActorSystem {
+			t.Error("the policy synthesized an approve over the critic's send-back")
+		}
+	}
+	if !sentBack {
+		t.Errorf("the critic's send-back must be on the round; verdicts=%+v", round.Verdicts)
+	}
+	// Exactly ONE critique ran: the hold is a human gate, not a redraft loop.
+	if pipe.critiques["mission"] != 1 {
+		t.Errorf("mission was critiqued %d times, want 1 — a held gate must not loop on redrafts", pipe.critiques["mission"])
+	}
+	// The three siblings auto-passed in the SAME walk, so the hold is the send-back's doing.
+	for _, task := range []string{"glossaryReview", "volatilitiesReview", "coreUseCasesReview"} {
+		if r := latestRoundAt(row, task); r.DecidedBy != gateActorSystem {
+			t.Errorf("round at %s was decided by %q; under vibes its siblings auto-pass", task, r.DecidedBy)
+		}
+	}
+	if !shapeExitedCompleted(rig.cs, "requirements") {
+		t.Error("the activity must reach its binary exit once the held gate is answered")
 	}
 }
 
