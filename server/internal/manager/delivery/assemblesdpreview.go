@@ -237,50 +237,93 @@ func (wf *pdWorkflows) rejectReview(ctx workflow.Context, projectID ProjectID, n
 // no clock, no RNG, no I/O — unit-testable without Temporal and replay-safe.
 // ===========================================================================
 
-// assembleSdpReview builds the four ProjectOptions from the committed Phase-2 head
-// state, runs the three Engines per option, joins into the SdpReview, and picks the
-// recommendation. Returns a non-retryable terminal on a missing prerequisite or an
-// Engine error. feedback is woven into the Rationale on a re-assembly.
+// assembleSdpReview builds the four ProjectOptions from the COMMITTED Phase-2 head state
+// and hands them to assembleSdpReviewOver. It is the retired SDP rail's reader half:
+// every input must already be committed, and a missing one is SDPInputsIncomplete.
+//
+// The generic child does NOT come through here — deterministic Project Design DERIVES
+// slots 9-14 rather than requiring them, and it defaults slot 8 rather than refusing on it
+// (R-E). Both rails share the ASSEMBLY (assembleSdpReviewOver) and differ only in where
+// the models come from, which is the whole point of splitting the two.
 func (wf *pdWorkflows) assembleSdpReview(proj projectstate.Project, feedback string) (*projectstate.SdpReview, error) {
-	pa, alErr := committedPlanningAssumptions(proj)
+	pa, paErr := committedPlanningAssumptions(proj)
+	if paErr != nil {
+		return nil, sdpIncomplete(paErr)
+	}
+	al, alErr := committedActivityList(proj)
 	if alErr != nil {
 		return nil, sdpIncomplete(alErr)
-	}
-	al, alErr2 := committedActivityList(proj)
-	if alErr2 != nil {
-		return nil, sdpIncomplete(alErr2)
 	}
 	nw, nwErr := committedNetwork(proj)
 	if nwErr != nil {
 		return nil, sdpIncomplete(nwErr)
 	}
-
-	rows := make([]projectstate.SdpOptionRow, 0, len(projectstate.SolutionKinds()))
+	solutions := make(map[projectstate.ArtifactKind]*projectstate.Solution, len(projectstate.SolutionKinds()))
 	for _, kind := range projectstate.SolutionKinds() {
 		sol, sErr := committedSolution(proj, kind)
 		if sErr != nil {
 			return nil, sdpIncomplete(sErr)
 		}
-		opt := assembleOption(kind, pa, al, nw, sol)
+		held := sol
+		solutions[kind] = &held
+	}
+	review, _, err := assembleSdpReviewOver(
+		sdpEngines{Estimation: wf.Estimation, OperationEst: wf.OperationEst, Settlement: wf.Settlement},
+		pa, al, nw, solutions, feedback)
+	return review, err
+}
 
-		ce, eErr := wf.Estimation.EstimateForOption(fweng.Context{Context: context.Background()}, toEstimationOption(opt))
-		if eErr != nil {
-			return nil, escalateEngine("estimationEngine", kind, eErr)
+// assembleSdpReviewOver runs the three Engines per option and joins them into the
+// SdpReview. Pure — no clock, no RNG, no I/O — unit-testable without Temporal and
+// replay-safe, and it takes its four inputs BY VALUE so a caller that derived them (the
+// generic child's compute) and a caller that read them off head-state (the retired rail)
+// run the identical join.
+//
+// It returns the per-option RiskScore ALONGSIDE the review, because slot 15 needs
+// criticality risk and activity risk SEPARATELY while an SdpOptionRow carries only the
+// composite. Keeping the whole score here is what lets riskModelFrom be a join rather than
+// a second run of the estimation Engine over the same four options.
+//
+// Iteration is projectstate.SolutionKinds() — a fixed slice — so the row order and the
+// Engine call order are deterministic; the solutions map is only ever PROBED by that
+// slice's members and never walked.
+func assembleSdpReviewOver(
+	eng sdpEngines,
+	pa projectstate.PlanningAssumptions,
+	al projectstate.ActivityList,
+	nw projectstate.Network,
+	solutions map[projectstate.ArtifactKind]*projectstate.Solution,
+	feedback string,
+) (*projectstate.SdpReview, map[projectstate.ArtifactKind]estimation.RiskScore, error) {
+	rows := make([]projectstate.SdpOptionRow, 0, len(projectstate.SolutionKinds()))
+	risks := make(map[projectstate.ArtifactKind]estimation.RiskScore, len(projectstate.SolutionKinds()))
+	for _, kind := range projectstate.SolutionKinds() {
+		sol := solutions[kind]
+		if sol == nil {
+			return nil, nil, sdpIncomplete(fwmanager.New(fwmanager.FailedPrecondition,
+				"SDP prerequisite "+kind.String()+" is not committed"))
 		}
-		of, oErr := wf.OperationEst.EstimateForOption(
+		opt := assembleOption(kind, pa, al, nw, *sol)
+
+		ce, eErr := eng.Estimation.EstimateForOption(fweng.Context{Context: context.Background()}, toEstimationOption(opt))
+		if eErr != nil {
+			return nil, nil, escalateEngine("estimationEngine", kind, eErr)
+		}
+		of, oErr := eng.OperationEst.EstimateForOption(
 			fweng.Context{Context: context.Background()},
 			toOperationOption(opt),
 			toOperationUsage(opt.DeclaredUsage),
 			operationestimation.InfrastructureKind(opt.InfrastructureKind),
 		)
 		if oErr != nil {
-			return nil, escalateEngine("operationEstimationEngine", kind, oErr)
+			return nil, nil, escalateEngine("operationEstimationEngine", kind, oErr)
 		}
-		proj2, pErr := wf.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
+		proj2, pErr := eng.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
 		if pErr != nil {
-			return nil, escalateEngine("settlementEngine", kind, pErr)
+			return nil, nil, escalateEngine("settlementEngine", kind, pErr)
 		}
 
+		risks[kind] = ce.Risk
 		rows = append(rows, projectstate.SdpOptionRow{
 			OptionID:             opt.OptionID,
 			SolutionKind:         kind,
@@ -297,7 +340,7 @@ func (wf *pdWorkflows) assembleSdpReview(proj projectstate.Project, feedback str
 	if feedback != "" {
 		rationale = rationale + " (re-assembled with architect feedback: " + feedback + ")"
 	}
-	return &projectstate.SdpReview{Options: rows, Recommendation: rec, Rationale: rationale}, nil
+	return &projectstate.SdpReview{Options: rows, Recommendation: rec, Rationale: rationale}, risks, nil
 }
 
 // toSettlementOption converts the canonical projectstate option to the

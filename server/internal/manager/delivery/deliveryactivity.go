@@ -2,6 +2,7 @@ package delivery
 
 import (
 	"maps"
+	"strconv"
 	"time"
 
 	"go.temporal.io/sdk/log"
@@ -239,14 +240,30 @@ const (
 // so a second computation is a registry entry and not a branch.
 func strategySlotCompute(artifactKind string) string { return "compute:" + artifactKind }
 
+// artifactKindSdpReview is the artifactKind the `projectDesign` lifecycle's one review
+// task spells (method-assets v0.9.0: `"artifactKind": "SdpReview"`). It is the DATA's
+// spelling — upper-camel, which lowerFirstRune maps onto the wire kind `sdpReview` — and
+// it is a const here rather than a literal at the registry line so the one place that must
+// agree with lifecycles.json says so. Pinned by
+// Test_DeliveryStrategies_EveryComputeRowIsRegistered, which walks all fourteen
+// lifecycles: a platform release that respells it fails there rather than at a run.
+const artifactKindSdpReview = "SdpReview"
+
 // productionStrategies is the registry the composition path uses. Stage 4b1 fills
-// dispatch in Tasks 10/11 and compute:SdpReview in Task 9; until then the two
-// unfilled slots REFUSE, naming the task that owes them — a strategy that silently
-// succeeded would make an out-of-order execution look like a passing walk.
-func productionStrategies() strategyRegistry {
+// dispatch in Tasks 10/11; compute:SdpReview is filled HERE (Task 9). Until the dispatch
+// slot lands it REFUSES, naming the task that owes it — a strategy that silently succeeded
+// would make an out-of-order execution look like a passing walk.
+//
+// It TAKES the estimate Engines rather than constructing them (architect ruling R9-5: a
+// strategy's engines are threaded through the registry constructor, never reached for as a
+// package var), which is also what lets a test drive the compute against a stub Engine.
+func productionStrategies(eng sdpEngines) strategyRegistry {
 	return strategyRegistry{
 		strategySlotDispatch: func(wf *csWorkflows) taskStrategy { return agenticDispatchStrategy{wf: wf} },
 		strategySlotJudged:   func(*csWorkflows) taskStrategy { return judgedTaskStrategy{} },
+		strategySlotCompute(artifactKindSdpReview): func(wf *csWorkflows) taskStrategy {
+			return sdpComputeStrategy{wf: wf, eng: eng}
+		},
 	}
 }
 
@@ -270,6 +287,121 @@ type judgedTaskStrategy struct{}
 
 func (judgedTaskStrategy) Produce(_ workflow.Context, _ taskContext) (producedSubject, error) {
 	return producedSubject{}, nil
+}
+
+// sdpComputeStrategy is the FIRST computation registered against the strategy table's
+// THIRD row: a review task that names no `reviews` target, whose subject the platform
+// DERIVES rather than dispatches. Spec §6/R7 — Project Design is deterministic, there are
+// no agent-drafted steps, and the reviewer's job is to approve a plan and its cost.
+//
+// WHAT IT WRITES, and what it deliberately does not: see projectDesignComputedKinds and
+// computeProjectPlanSlots (deliverymanager.go), which hold the whole derivation as a pure
+// function. This type is the workflow half — the read, the eight staging writes, and the
+// attempt.
+//
+// Recorded as a TaskAttempt with the ENGINE as actor, so a failed computation is visible
+// and retryable exactly like a failed draft (architect Ruling 3(c)). A silent compute
+// failure at M0 would be a project that never starts with nothing saying why.
+type sdpComputeStrategy struct {
+	wf  *csWorkflows
+	eng sdpEngines
+}
+
+func (s sdpComputeStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
+	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
+	ref, defaulted, err := s.wf.computeProjectPlan(ctx, tc, s.eng)
+	if err != nil {
+		// The FAILED attempt is recorded by runTask from this producedSubject, and the error
+		// is returned too: the attempt is what an operator reads, the error is what fails the
+		// walk. Returning only one of them would either hide the failure or leave the ledger
+		// silent about it.
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	}
+	return producedSubject{
+		StagedRef: ref, AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
+		// The defaulting rides the attempt's Detail because that is what the M0 screen reads
+		// back: an assumed number the founder never saw is the one way a computed cost can
+		// mislead. Task 14 renders the sentence; recording it is this task's.
+		Detail: defaultedDetail(defaulted),
+	}, nil
+}
+
+// computeProjectPlan derives the whole Project-Design plan and STAGES it, returning the
+// ref the M0 round cites and the assumption families it had to default.
+//
+// Each of the eight slots is staged through activityExecutionAccess.StageTaskOutput — the
+// execution ledger's own verb — and NOT through the three designSessionAccess verbs the
+// retired SDP assembly used. That re-homing is what leaves stage 4b2 a facet it can delete
+// rather than a rail with two owners.
+//
+// The subject the round cites is the SDP REVIEW's staged ref, the last of the eight: that
+// is the artifact M0 judges, and it advances with every recompute, which is what lets the
+// ledger say which revision of the plan a round looked at.
+func (wf *csWorkflows) computeProjectPlan(
+	ctx workflow.Context, tc taskContext, eng sdpEngines,
+) (string, []string, error) {
+	in := tc.In
+	proj, err := wf.readProject(ctx, in.ProjectID)
+	if err != nil {
+		if isReadNotFound(err) {
+			return "", nil, newError(fwmanager.FailedPrecondition,
+				"cannot compute the project plan: project "+string(in.ProjectID)+" has no state")
+		}
+		return "", nil, err
+	}
+	slots, defaulted, err := computeProjectPlanSlots(proj, eng)
+	if err != nil {
+		return "", nil, err
+	}
+	ref := ""
+	for _, slot := range slots {
+		staged, sErr := wf.stageComputedSlot(ctx, in, tc.Task.ID, slot, tc.State)
+		if sErr != nil {
+			return "", nil, sErr
+		}
+		ref = staged
+	}
+	workflow.GetLogger(ctx).Info("delivery.projectDesign.computed",
+		"activityId", in.ActivityID, "slots", len(slots), "defaulted", len(defaulted))
+	return ref, defaulted, nil
+}
+
+// stageComputedSlot stages ONE computed slot and returns the ref a round can cite.
+//
+// state.rowAdvanced() is deliberately NOT called: StageTaskOutput is the one verb on the
+// facet that asserts no per-activity version, because the write lands on the session
+// branch while the row and its counter live on main. Bumping the run's row expectation
+// after a write that never touched the row would make the NEXT row write fail its CAS.
+func (wf *csWorkflows) stageComputedSlot(
+	ctx workflow.Context, in deliveryActivityInput, taskID string,
+	slot computedSlot, state *constructState,
+) (string, error) {
+	env, encErr := encodeModel(slot.Model)
+	if encErr != nil {
+		return "", fwmanager.MapError(encErr)
+	}
+	var staged projectstate.StagedRef
+	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		sr, sErr := wf.Acts.ActivityExecutionStageTaskOutput(ctx, projectstate.ProjectID(in.ProjectID), expected,
+			state.activityVersion, string(in.ActivityID), taskID, "", env, state.walk.cred.toProjectState())
+		if sErr != nil {
+			return 0, sErr
+		}
+		staged = sr
+		return sr.Version, nil
+	})
+	if err != nil {
+		return "", err
+	}
+	state.walk.headVersion = v
+	return stagedRefString(staged, slot.Kind), nil
+}
+
+// stagedRefString renders a StagedRef as the string SubjectRef.Ref carries. It names the
+// KIND as well as the task, because Project Design stages EIGHT slots under one task id and
+// a ref that named only the task could not say which of them a round judges.
+func stagedRefString(ref projectstate.StagedRef, kind projectstate.ArtifactKind) string {
+	return ref.ActivityID + ":" + ref.TaskID + ":" + kind.String() + "@v" + strconv.FormatInt(int64(ref.Version), 10)
 }
 
 // strategyFor resolves a task to its strategy SLOT from the lifecycle fields ALONE
@@ -1042,10 +1174,6 @@ func (wf *csWorkflows) passRound(
 	t methodassets.LifecycleTask, tc taskContext, state *constructState, gate *gateLedger,
 	decidedBy, reason string,
 ) (walkTaskState, error) {
-	// lc is Task 9's: the M0 handler asks the lifecycle whether this is the M0 gate, which
-	// is a question about the lifecycle's SHAPE (one review task, no dispatch) and not about
-	// the task in hand. It is in the signature now so that task re-parameterises nothing.
-	_ = lc
 	if reason != "" {
 		workflow.GetLogger(ctx).Info("delivery.gate.passed", "activityId", in.ActivityID,
 			"taskId", t.ID, "decidedBy", decidedBy, "reason", reason)
@@ -1062,7 +1190,101 @@ func (wf *csWorkflows) passRound(
 	// resolved PHASE rather than off the task, because the phase is what a lifecycle's gate
 	// belongs to and tc already holds the resolved struct.
 	state.completedPhases[projectstate.ActivityMethodPhase(tc.Phase.ID)] = true
+	// M0 COMMITS THE DERIVED PLAN AND MOVES THE ROOT PHASE, and the spec's "derived from
+	// milestone position" is amended to say so (stage 4b1, R4; derivation is stage 6).
+	//
+	// MEASURED, and this is the whole reason the write is here: nextEligibleActivity returns
+	// verdictQuiescent unless proj.Phase == PhaseConstruction, and PumpSweepWorkflow filters
+	// on the same, while AdvancePhase is literally p.Phase++. So a gate-passed handler that
+	// did not advance would approve the plan and then leave the pump permanently quiet —
+	// construction would never start, and nothing would say why.
+	if isM0Gate(lc, t) {
+		if err := wf.completeProjectDesign(ctx, in, state); err != nil {
+			return taskFailedFromM0(ctx, in, err)
+		}
+	}
 	return walkTaskPassed, nil
+}
+
+// taskFailedFromM0 names the failure the M0 seal could not complete. Split out so
+// passRound's tail stays one statement per fact.
+func taskFailedFromM0(ctx workflow.Context, in deliveryActivityInput, err error) (walkTaskState, error) {
+	workflow.GetLogger(ctx).Error("delivery.projectDesign.sealFailed",
+		"activityId", in.ActivityID, "err", err.Error())
+	return walkTaskFailed, err
+}
+
+// isM0Gate reads the DATA and nothing else: a REVIEW task that judges no other task and
+// names the SDP review as its own artifact kind. That is the `projectDesign` lifecycle's
+// single row and it is the only shape in method-assets v0.9.0 that matches — every other
+// review task either names a `reviews` target or carries no artifactKind at all (pinned by
+// Test_ReviewRounds_KindComesFromTheJudgedTask).
+//
+// It reads the data so the WALKER still names no activity type: the M0 seal is a property
+// of the lifecycle's shape, not of a type the walk switches on. lc is taken (and not just
+// t) because "this is the whole lifecycle's only task" is the half that makes the shape
+// unambiguous — a future lifecycle that grew a second compute row would stop matching here
+// rather than silently sealing a project mid-walk.
+func isM0Gate(lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
+	return t.Kind == methodassets.LifecycleTaskReview &&
+		t.Reviews == "" &&
+		t.ArtifactKind == artifactKindSdpReview &&
+		len(lc.Tasks) == 1
+}
+
+// completeProjectDesign is M0's approve: the eight computed slots are COMMITTED and the
+// root phase advances.
+//
+// The commit comes first and the advance second, deliberately: a phase advanced over
+// slots still sitting in AwaitingReview would put the pump into construction against a
+// plan nobody committed, and committedPlanInputs would then find nothing to dispatch. The
+// reverse order fails safe — committed slots with the phase unmoved is a project that can
+// be re-approved.
+//
+// It is IDEMPOTENT by the phase's own ordering: the advance is skipped unless the re-read
+// phase is still BELOW construction, so a replay or a re-decided round cannot push the
+// project past it. The slot commits are idempotent in the store (committing a committed
+// slot is a no-op success).
+func (wf *csWorkflows) completeProjectDesign(ctx workflow.Context, in deliveryActivityInput, state *constructState) error {
+	for _, kind := range projectDesignComputedKinds() {
+		v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected,
+				kind, gateActorOperator, projectDesignDraftedBy)
+		})
+		if err != nil {
+			return err
+		}
+		state.walk.headVersion = v
+	}
+	return wf.advanceToConstruction(ctx, in, state)
+}
+
+// projectDesignDraftedBy is the draftedBy provenance on every slot M0 commits. It says
+// PLATFORM rather than an agent charter because nothing drafted these: the plan is derived
+// and the numbers are doctrine, so attributing them to an agent would invent an author.
+const projectDesignDraftedBy = "platform:deterministic-project-design"
+
+// advanceToConstruction seals Phase 2. Guarded on the READ-BACK phase rather than on the
+// run's own belief, because the seal is reachable from a replay and from a re-decided
+// round, and AdvancePhase has no ceiling of its own.
+func (wf *csWorkflows) advanceToConstruction(ctx workflow.Context, in deliveryActivityInput, state *constructState) error {
+	proj, err := wf.readProject(ctx, in.ProjectID)
+	if err != nil && !isReadNotFound(err) {
+		return err
+	}
+	if proj.Phase >= projectstate.PhaseConstruction {
+		workflow.GetLogger(ctx).Info("delivery.projectDesign.alreadySealed",
+			"activityId", in.ActivityID, "phase", int(proj.Phase))
+		return nil
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ProjectStateAdvancePhase(ctx, projectstate.ProjectID(in.ProjectID), expected)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	return nil
 }
 
 // reasonOf is the engine's one-line reason, "" when the set carries none.
@@ -1130,6 +1352,13 @@ func (wf *csWorkflows) awaitTaskDecision(
 		case routedKindOverride:
 			wf.recordGateOverride(ctx, in, state, t, msg.Override)
 		case routedKindRedraft:
+			// A re-draft at M0 is the same refusal a send-back is (noSendBackAtM0): there is no
+			// draft to re-run — the plan is DERIVED — and withdrawing the round would strand the
+			// walk exactly as a send-back would. The gate keeps awaiting its approve.
+			if isM0Gate(lc, t) {
+				logNoSendBackAtM0(ctx, in, t, "redraft")
+				continue
+			}
 			// The operator asked for a re-draft instead of judging what is in front of them,
 			// so the round is WITHDRAWN (nobody judged it) and the judged pair re-opens —
 			// which IS the re-dispatch, expressed in the walker's own vocabulary. Executing
@@ -1171,6 +1400,24 @@ func (wf *csWorkflows) decideTaskGate(
 		st, err := wf.passRound(ctx, in, lc, t, tc, state, gate, gateActorOperator, decidedByOperator)
 		return st, true, err
 	case ReviewReject:
+		// M0 HAS NO SEND-BACK, AND THE GATE IS WHERE THAT IS ENFORCED (Task 8 review finding
+		// 6). Recording the rejection instead would leave the ledger in a state no reader can
+		// explain: sendBackRound writes a sendBack verdict and a REJECTED gate attempt,
+		// reopenJudgedPair then does NOTHING (the row names no `reviews` target, so there is no
+		// pair to re-open), finalizeWalk finds a task that never passed and fails the activity
+		// WalkStalled/VarianceExhausted — a rejection filed against a variance-exhausted
+		// activity, for a decision the product does not offer.
+		//
+		// So the round stays OPEN, awaiting its approve, and nothing is written. The typed
+		// refusal the founder actually sees is at the façade
+		// (deliveryManager.SubmitReviewDecision, which answers FailedPrecondition naming the
+		// amendment path and matches the SPA's own NO_SDP_SEND_BACK copy); reaching here means
+		// a signal arrived past that guard, and the gate's job is then to refuse it rather than
+		// to absorb it.
+		if isM0Gate(lc, t) {
+			logNoSendBackAtM0(ctx, in, t, "sendBack")
+			return walkTaskFailed, false, nil
+		}
 		*redraft++
 		if *redraft >= maxPhaseRedrafts {
 			// Exhausted the human-paced redraft budget. Do NOT fail the activity and do NOT
@@ -1193,6 +1440,20 @@ func (wf *csWorkflows) decideTaskGate(
 		return walkTaskFailed, false, nil
 	}
 	return walkTaskFailed, false, nil
+}
+
+// noSendBackAtM0 is the one sentence both M0 refusal sites give, and it is the SERVER's
+// copy of the SPA's NO_SDP_SEND_BACK: to change a derived plan you amend the Architecture,
+// and re-opening Architecture makes the compute recompute rather than ask for an
+// acknowledgement. Stated once so the two sites cannot drift.
+const noSendBackAtM0 = "M0 has no send-back: the project plan is DERIVED, so changing it means amending the Architecture (slot 5) — re-opening it recomputes the plan and opens a fresh M0 round"
+
+// logNoSendBackAtM0 records the refusal and says the gate is still waiting, so an operator
+// reading the log is not left thinking their decision landed.
+func logNoSendBackAtM0(ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask, kind string) {
+	workflow.GetLogger(ctx).Warn("delivery.gate.refusedSendBack",
+		"activityId", in.ActivityID, "taskId", t.ID, "decision", kind,
+		"reason", noSendBackAtM0, "gate", "still awaiting approve")
 }
 
 // sendBackRound records the rejection: the human's verdict with the comments that rode
@@ -1490,7 +1751,7 @@ func (wf *csWorkflows) finalizeWalk(
 		}
 	}
 	csIn := in.csIn()
-	if err := wf.runWalkMerge(ctx, in, ws, state); err != nil {
+	if err := wf.runWalkMerge(ctx, in, lc, ws, state); err != nil {
 		return err
 	}
 	return wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred)
@@ -1516,8 +1777,23 @@ const mergeGateTaskID = mergeGateKey
 //     loop is a supervision retry over a flat phase list — it re-walks from index 0 — and
 //     re-walking a task DAG is Task 12's override work, not something to fake here. The
 //     failure is recorded and named, which is what an operator needs either way.
-func (wf *csWorkflows) runWalkMerge(ctx workflow.Context, in deliveryActivityInput, ws *walkState, state *constructState) error {
+func (wf *csWorkflows) runWalkMerge(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
+	ws *walkState, state *constructState,
+) error {
 	if !state.walk.gitOn || wf.RailEnabled(in.ProjectID) || state.mergeCompleted {
+		return nil
+	}
+	// A LIFECYCLE THAT DISPATCHES NOTHING HAS NOTHING TO MERGE (stage 4b1 Task 9). The
+	// local merge lands the activity's branch on main; `projectDesign` is ONE computed
+	// review task, so it opens no branch and pushes no commit, and running the merge job
+	// for it would dispatch a pipeline against a branch that does not exist — the
+	// activity's terminal would then hang on a merge nobody could satisfy. Read off the
+	// DATA (does any task dispatch?) rather than off an activity type, so the walker's rule
+	// holds here too.
+	if !lifecycleDispatchesWork(lc) {
+		workflow.GetLogger(ctx).Info("delivery.merge.skipped",
+			"activityId", in.ActivityID, "reason", "the lifecycle dispatches no work, so there is no branch to merge")
 		return nil
 	}
 	csIn := in.csIn()
@@ -1543,6 +1819,18 @@ func (wf *csWorkflows) runWalkMerge(ctx workflow.Context, in deliveryActivityInp
 	}
 	state.mergeCompleted = true
 	return nil
+}
+
+// lifecycleDispatchesWork reports whether any task of this lifecycle DISPATCHES — that is,
+// whether anything in it produces a commit. Every lifecycle in method-assets v0.9.0 does
+// except `projectDesign`, whose one task is a server-side computation.
+func lifecycleDispatchesWork(lc methodassets.Lifecycle) bool {
+	for _, t := range lc.Tasks {
+		if t.Kind == methodassets.LifecycleTaskDispatch {
+			return true
+		}
+	}
+	return false
 }
 
 // holdForMergeApproval suspends until an operator approves the merge. A non-approve

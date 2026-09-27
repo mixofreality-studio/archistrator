@@ -19046,6 +19046,452 @@ func loadCommittedStateForTest(t *testing.T) projectstate.System {
 	return sys
 }
 
+// ---------------------------------------------------------------------------
+// DETERMINISTIC PROJECT DESIGN (stage 4b1 Task 9). The acceptance is stated against
+// THIS REPO'S OWN committed state, not a fixture: the doctrine table must reproduce the
+// plan the repo already holds, or its first output would be indistinguishable from a
+// regression.
+// ---------------------------------------------------------------------------
+
+// projectDesignFixtureProject builds the project the Project-Design compute runs against:
+// the repo's own committed slots 5, 8, 10 and 11-14, at Phase 1 (project design), under a
+// VIBES review policy.
+//
+// Vibes is load-bearing, not incidental: it is the preset that auto-approves a design
+// review, and M0 must STILL hold for a human because of the review engine's non-overridable
+// spend floor. A fixture with a gating policy would satisfy the M0 gate for the wrong reason.
+//
+// Slot 10 is loaded for its MILESTONE DECORATIONS: milestone names have no derivation
+// source, so materializeNetwork carries the authored ones across and refuses loudly for a
+// derived milestone with no authored Name.
+func projectDesignFixtureProject(t *testing.T) projectstate.Project {
+	t.Helper()
+	sys, pa, net, solutions := loadProjectDesignFixtures(t)
+	vibes := projectstate.ReviewPresetVibes
+	p := projectstate.Project{
+		ID:           projectstate.ProjectID(shapeProjectID),
+		Phase:        projectstate.PhaseProjectDesign,
+		Version:      1,
+		ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
+	}
+	p.SystemDesign = pdCommittedSlot(&sys)
+	p.PlanningAssumptions = pdCommittedSlot(&pa)
+	p.Network = pdCommittedSlot(&net)
+	p.NormalSolution = pdCommittedSlot(solutions[projectstate.KindNormalSolution])
+	p.SubcriticalSolution = pdCommittedSlot(solutions[projectstate.KindSubcriticalSolution])
+	p.CompressedSolution = pdCommittedSlot(solutions[projectstate.KindCompressedSolution])
+	p.DecompressedSolution = pdCommittedSlot(solutions[projectstate.KindDecompressedSolution])
+	return p
+}
+
+// loadProjectDesignFixtures decodes the committed slots the Project-Design acceptance reads:
+// 5 (System), 8 (PlanningAssumptions), 10 (Network) and 11-14 (the four Solutions). Each
+// decode is checked for emptiness, because a silently-empty slot would make every assertion
+// below it vacuous.
+func loadProjectDesignFixtures(t *testing.T) (
+	projectstate.System,
+	projectstate.PlanningAssumptions,
+	projectstate.Network,
+	map[projectstate.ArtifactKind]*projectstate.Solution,
+) {
+	t.Helper()
+	raw, err := os.ReadFile(committedStatePath)
+	if err != nil {
+		t.Fatalf("read committed project state at %s: %v", committedStatePath, err)
+	}
+	var doc struct {
+		Slots map[string]struct {
+			Model json.RawMessage `json:"model"`
+		} `json:"slots"`
+	}
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("decode committed project state: %v", err)
+	}
+	decode := func(slot string, into any) {
+		t.Helper()
+		if err := json.Unmarshal(doc.Slots[slot].Model, into); err != nil {
+			t.Fatalf("decode slot %s: %v", slot, err)
+		}
+	}
+	var sys projectstate.System
+	decode("5", &sys)
+	if len(sys.Components) == 0 {
+		t.Fatal("slot 5 decoded to zero components — every Project-Design assertion would be vacuous")
+	}
+	var pa projectstate.PlanningAssumptions
+	decode("8", &pa)
+	if pa.CalendarDaysPerWeek == 0 {
+		t.Fatal("slot 8 decoded with no calendar — the committed-vs-default distinction would be vacuous")
+	}
+	var net projectstate.Network
+	decode("10", &net)
+	if len(net.Milestones) == 0 {
+		t.Fatal("slot 10 decoded to zero milestones — materializeNetwork's decoration carry-across would be untested")
+	}
+	solutions := map[projectstate.ArtifactKind]*projectstate.Solution{}
+	for slot, kind := range map[string]projectstate.ArtifactKind{
+		"11": projectstate.KindNormalSolution,
+		"12": projectstate.KindSubcriticalSolution,
+		"13": projectstate.KindCompressedSolution,
+		"14": projectstate.KindDecompressedSolution,
+	} {
+		var sol projectstate.Solution
+		decode(slot, &sol)
+		if sol.StaffingCap == 0 {
+			t.Fatalf("slot %s decoded with no staffing cap — the dial equality would be vacuous", slot)
+		}
+		held := sol
+		solutions[kind] = &held
+	}
+	return sys, pa, net, solutions
+}
+
+// Test_DerivedSolutionDials_ReproduceTheCommittedSlots is the DIAL TABLE'S ACCEPTANCE: the
+// doctrine must reproduce this repo's committed slots 11-14 exactly, on the state it is
+// first run against. A difference means the doctrine table is wrong, NOT that the committed
+// state is stale — the committed dials were hand-drafted from the same book.
+//
+// It compares the THREE numbers assembleOption reads and nothing else, deliberately:
+// ClassRates is on the committed slots and is read by no consumer (rates come from
+// deriveClassRates over the rate card), and CalendarDaysPerWeek is zero on every committed
+// slot because F5 retired the per-option calendar.
+func Test_DerivedSolutionDials_ReproduceTheCommittedSlots(t *testing.T) {
+	_, _, _, committed := loadProjectDesignFixtures(t)
+	normal := committed[projectstate.KindNormalSolution]
+	for _, kind := range projectstate.SolutionKinds() {
+		want := committed[kind]
+		dials, ok := derivedSolutionDials(kind, normal.StaffingCap)
+		if !ok {
+			t.Fatalf("%s: the dial table derives nothing for a committed solution kind", kind)
+		}
+		got := derivedSolution(kind, dials)
+		switch {
+		case got.StaffingCap != want.StaffingCap:
+			t.Errorf("%s: derived staffingCap %d, committed %d", kind, got.StaffingCap, want.StaffingCap)
+		case got.BufferDays != want.BufferDays:
+			t.Errorf("%s: derived bufferDays %v, committed %v", kind, got.BufferDays, want.BufferDays)
+		case got.CriticalSpeedup != want.CriticalSpeedup:
+			t.Errorf("%s: derived criticalSpeedup %v, committed %v", kind, got.CriticalSpeedup, want.CriticalSpeedup)
+		case got.CalendarDaysPerWeek != want.CalendarDaysPerWeek:
+			t.Errorf("%s: derived calendarDaysPerWeek %v, committed %v — F5 retired the per-option calendar, so both must be 0",
+				kind, got.CalendarDaysPerWeek, want.CalendarDaysPerWeek)
+		}
+		if got.SlotKind != kind {
+			t.Errorf("%s: derived slotKind %s — a solution that names the wrong slot would be committed into the wrong one", kind, got.SlotKind)
+		}
+	}
+	// And the ONE number with a judgement in it is the one the committed pair states:
+	// subcritical is two fewer than normal.
+	if gap := normal.StaffingCap - committed[projectstate.KindSubcriticalSolution].StaffingCap; gap != subcriticalStaffingCut {
+		t.Errorf("the committed normal/subcritical gap is %d, the doctrine constant is %d", gap, subcriticalStaffingCut)
+	}
+}
+
+// Test_ComputeProjectPlanSlots_ReproducesTheCommittedPlan is the WHOLE compute's acceptance
+// over the committed state: the eight slots, in staging order, with slot 9 the derived plan
+// the drift gate already holds, slots 11-14 the committed dials, and slot 15's
+// recommendation the one the committed risk model names.
+func Test_ComputeProjectPlanSlots_ReproducesTheCommittedPlan(t *testing.T) {
+	proj := projectDesignFixtureProject(t)
+	_, _, _, committed := loadProjectDesignFixtures(t)
+
+	slots, defaulted, err := computeProjectPlanSlots(proj, shapeSDPEngines())
+	if err != nil {
+		t.Fatalf("computeProjectPlanSlots over the committed state: %v", err)
+	}
+	// MEASURED, and it is a finding rather than an expectation: this repo's committed slot 8
+	// names NO revenue-share regime (revenueShare: 0 is RevenueShareUnknown), which
+	// billingEngine refuses outright on money-safety grounds — so the compute defaults the
+	// billing TERMS and records it. That single unusable field is why slots 11-16 have carried
+	// staleBasis since the billing reversal: nothing could re-derive them. Everything the
+	// founder actually authored is kept, which the calendar half below asserts.
+	if !slices.Equal(defaulted, []string{assumedTerms}) {
+		t.Fatalf("the committed slot 8 names no revenue-share regime, so the TERMS and nothing else may be defaulted; got %v", defaulted)
+	}
+	var kinds []projectstate.ArtifactKind
+	byKind := map[projectstate.ArtifactKind]projectstate.ArtifactModel{}
+	for _, s := range slots {
+		kinds = append(kinds, s.Kind)
+		byKind[s.Kind] = s.Model
+	}
+	if !slices.Equal(kinds, projectDesignComputedKinds()) {
+		t.Fatalf("the compute staged %v, the declared order is %v", kinds, projectDesignComputedKinds())
+	}
+
+	assertComputedSolutionsMatchCommitted(t, byKind, committed)
+	rm := assertComputedRiskModel(t, byKind)
+	assertComputedSdpReviewAgreesWithRiskModel(t, byKind, rm)
+	assertComputedActivityListIsTheDerivedPlan(t, byKind)
+}
+
+// assertComputedSolutionsMatchCommitted is the dial half of the acceptance, read off the
+// STAGED models rather than off derivedSolutionDials, so the whole path from the doctrine
+// table to the staged document is covered.
+func assertComputedSolutionsMatchCommitted(
+	t *testing.T,
+	byKind map[projectstate.ArtifactKind]projectstate.ArtifactModel,
+	committed map[projectstate.ArtifactKind]*projectstate.Solution,
+) {
+	t.Helper()
+	for _, kind := range projectstate.SolutionKinds() {
+		got, ok := byKind[kind].(*projectstate.Solution)
+		if !ok {
+			t.Fatalf("%s: the compute staged a %T", kind, byKind[kind])
+		}
+		want := committed[kind]
+		if got.StaffingCap != want.StaffingCap || got.BufferDays != want.BufferDays || got.CriticalSpeedup != want.CriticalSpeedup {
+			t.Errorf("%s: the compute derived cap %d/buffer %v/speedup %v, the committed slot holds %d/%v/%v",
+				kind, got.StaffingCap, got.BufferDays, got.CriticalSpeedup,
+				want.StaffingCap, want.BufferDays, want.CriticalSpeedup)
+		}
+	}
+}
+
+// assertComputedRiskModel is slot 15's half: one row per option, the App C thresholds, the
+// committed recommendation, and — the load-bearing one — criticality and activity risk each
+// carrying their OWN number.
+func assertComputedRiskModel(
+	t *testing.T,
+	byKind map[projectstate.ArtifactKind]projectstate.ArtifactModel,
+) *projectstate.RiskModel {
+	t.Helper()
+	rm, ok := byKind[projectstate.KindRiskModel].(*projectstate.RiskModel)
+	if !ok {
+		t.Fatalf("the compute staged a %T for the risk model", byKind[projectstate.KindRiskModel])
+	}
+	if len(rm.Rows) != len(projectstate.SolutionKinds()) {
+		t.Fatalf("the risk model must hold one row per solution kind; got %d", len(rm.Rows))
+	}
+	if rm.Recommendation != projectstate.KindDecompressedSolution {
+		t.Errorf("the risk model recommends %s; the committed slot 15 names decompressedSolution — the doctrine changed the recommendation",
+			rm.Recommendation)
+	}
+	if rm.TooRiskyThreshold != riskTooRisky || rm.OverSafeThreshold != riskOverSafe || rm.MaxCompressionPct != maxCompression {
+		t.Errorf("the risk model's thresholds are %v/%v/%v, the App C bounds are %v/%v/%v",
+			rm.TooRiskyThreshold, rm.OverSafeThreshold, rm.MaxCompressionPct, riskTooRisky, riskOverSafe, maxCompression)
+	}
+	// Reading the composite three times was the shape this join could have been written with,
+	// and it would make the whole risk model unfalsifiable.
+	for _, row := range rm.Rows {
+		if row.CriticalityRisk == row.Composite && row.ActivityRisk == row.Composite {
+			t.Errorf("%s: criticality, activity and composite risk are all %v — the join is carrying the composite three times",
+				row.SolutionKind, row.Composite)
+		}
+		if row.Included == (row.ExclusionReason != "") {
+			t.Errorf("%s: included=%v with exclusionReason %q — an included option carries no reason and an excluded one must give its",
+				row.SolutionKind, row.Included, row.ExclusionReason)
+		}
+	}
+	return rm
+}
+
+// assertComputedSdpReviewAgreesWithRiskModel is the vocabulary crossing: slot 16 names the
+// chosen option by OptionID and slot 15 by ArtifactKind, and the two must name the SAME
+// option. Before the join took the recommendation as a parameter, the two could disagree.
+func assertComputedSdpReviewAgreesWithRiskModel(
+	t *testing.T,
+	byKind map[projectstate.ArtifactKind]projectstate.ArtifactModel,
+	rm *projectstate.RiskModel,
+) {
+	t.Helper()
+	sdp, ok := byKind[projectstate.KindSdpReview].(*projectstate.SdpReview)
+	if !ok {
+		t.Fatalf("the compute staged a %T for the SDP review", byKind[projectstate.KindSdpReview])
+	}
+	if solutionKindOfOption(sdp.Options, sdp.Recommendation) != rm.Recommendation {
+		t.Errorf("the SDP review recommends option %q and the risk model recommends %s — the two slots must name the SAME option in their two vocabularies",
+			sdp.Recommendation, rm.Recommendation)
+	}
+}
+
+// assertComputedActivityListIsTheDerivedPlan: slot 9 is the derivation the drift gate
+// already holds. Asserted here too, because the compute is now a SECOND caller of it and
+// "the child derives a plan the repo does not have" is the failure that would otherwise only
+// show up at a run.
+func assertComputedActivityListIsTheDerivedPlan(
+	t *testing.T,
+	byKind map[projectstate.ArtifactKind]projectstate.ArtifactModel,
+) {
+	t.Helper()
+	list, ok := byKind[projectstate.KindActivityList].(*projectstate.ActivityList)
+	if !ok {
+		t.Fatalf("the compute staged a %T for the activity list", byKind[projectstate.KindActivityList])
+	}
+	sys, _, _, _ := loadProjectDesignFixtures(t)
+	want, _, _, err := MaterializeActivityPlan(sys, estimation.ActivityListDeltas{})
+	if err != nil {
+		t.Fatalf("MaterializeActivityPlan: %v", err)
+	}
+	if !reflect.DeepEqual(list.Activities, want.Activities) {
+		t.Errorf("the compute derived %d activities, MaterializeActivityPlan derives %d — the compute is not running the gated derivation",
+			len(list.Activities), len(want.Activities))
+	}
+}
+
+// Test_ComputeProjectPlanSlots_AbsentPlanningAssumptions_DefaultsAndProceeds is R-E's
+// controller override (2026-09-26), and it is written as an ASSERTION rather than a note
+// because the behaviour it pins is the opposite of the one the code had: an uncommitted slot
+// 8 must DEFAULT and PROCEED, never raise SDPInputsIncomplete.
+//
+// The reason, recorded where it will be read: a project that cannot reach its own
+// cost-approval gate cannot be told what it would cost, and refusing at M0 refuses the one
+// screen that exists to ask the question.
+func Test_ComputeProjectPlanSlots_AbsentPlanningAssumptions_DefaultsAndProceeds(t *testing.T) {
+	proj := projectDesignFixtureProject(t)
+	proj.PlanningAssumptions = projectstate.ArtifactSlot{}
+
+	slots, defaulted, err := computeProjectPlanSlots(proj, shapeSDPEngines())
+	if err != nil {
+		t.Fatalf("an absent slot 8 must DEFAULT and proceed, not refuse: %v", err)
+	}
+	if strings.Contains(fmt.Sprint(err), "SDPInputsIncomplete") {
+		t.Fatal("the compute raised SDPInputsIncomplete for an absent slot 8 — R-E removed that refusal")
+	}
+	if len(slots) != len(projectDesignComputedKinds()) {
+		t.Fatalf("the compute must still produce all eight slots; got %d", len(slots))
+	}
+	for _, family := range []string{assumedResources, assumedCalendar, assumedRates, assumedIndirect, assumedUsage, assumedTerms, assumedInfra} {
+		if !slices.Contains(defaulted, family) {
+			t.Errorf("the compute defaulted %q without recording it; recorded=%v", family, defaulted)
+		}
+	}
+	detail := defaultedDetail(defaulted)
+	for _, family := range defaulted {
+		if !strings.Contains(detail, family) {
+			t.Errorf("the attempt's Detail must NAME every defaulted family; %q is missing from %q", family, detail)
+		}
+	}
+	// And the SDP review still has a cost to show: a defaulted plan whose options all priced
+	// to nothing would satisfy every assertion above and tell the founder nothing.
+	sdp := slots[len(slots)-1].Model.(*projectstate.SdpReview)
+	for _, row := range sdp.Options {
+		if row.BuildCost.MinorUnits <= 0 || row.DurationDays <= 0 {
+			t.Fatalf("%s priced to %v over %v days on the defaults — the M0 headline would read zero",
+				row.SolutionKind, row.BuildCost, row.DurationDays)
+		}
+	}
+}
+
+// Test_DefaultPlanningAssumptions_DoNotOverridePresentData is the OTHER half of R-E, and it
+// is the half a reading of "defaults when absent" tends to lose: the default applies ONLY
+// when the slot is absent. This repo's committed calendar is TWO days a week — a founder fact
+// about a solo founder — and the nominal default is five, so a compute that overrode present
+// data with the default would silently double every option's throughput.
+func Test_DefaultPlanningAssumptions_DoNotOverridePresentData(t *testing.T) {
+	proj := projectDesignFixtureProject(t)
+	committed, err := committedPlanningAssumptions(proj)
+	if err != nil {
+		t.Fatalf("the fixture must carry a committed slot 8: %v", err)
+	}
+	if committed.CalendarDaysPerWeek == defaultCalendarDaysPerWeek {
+		t.Fatalf("this test needs the committed calendar to DIFFER from the default (%v) or it proves nothing",
+			defaultCalendarDaysPerWeek)
+	}
+	slots, defaulted, err := computeProjectPlanSlots(proj, shapeSDPEngines())
+	if err != nil {
+		t.Fatalf("computeProjectPlanSlots: %v", err)
+	}
+	// The CALENDAR is the family under test, and it must NOT be in the defaulted set: the
+	// committed two-day week is a founder fact and the default must not touch it. (The billing
+	// terms ARE defaulted here, for the measured reason in the acceptance test above.)
+	if slices.Contains(defaulted, assumedCalendar) {
+		t.Fatalf("slot 8 committed a calendar of %v d/wk, so the calendar must NOT be defaulted; defaulted=%v",
+			committed.CalendarDaysPerWeek, defaulted)
+	}
+	// Measured through the OUTPUT, not through the assumptions struct: the calendar reaches
+	// the estimate as the option's CalendarDaysPerWeek, so the honest check is that the
+	// duration differs from the duration the default would have produced.
+	onCommitted := slots[len(slots)-1].Model.(*projectstate.SdpReview).Options[0].DurationDays
+
+	proj.PlanningAssumptions = projectstate.ArtifactSlot{}
+	defaultedSlots, _, err := computeProjectPlanSlots(proj, shapeSDPEngines())
+	if err != nil {
+		t.Fatalf("computeProjectPlanSlots on the defaults: %v", err)
+	}
+	onDefaults := defaultedSlots[len(defaultedSlots)-1].Model.(*projectstate.SdpReview).Options[0].DurationDays
+	if onCommitted == onDefaults {
+		t.Fatalf("the committed calendar (%v d/wk) and the default (%v d/wk) produced the SAME duration %v — the default is overriding present data",
+			committed.CalendarDaysPerWeek, defaultCalendarDaysPerWeek, onCommitted)
+	}
+}
+
+// Test_ComputeProjectPlanSlots_UncommittedArchitecture_FailedPrecondition is the ONE
+// precondition R-E does NOT relax: a plan derived from an uncommitted slot 5 would be a plan
+// for nothing, and the refusal must NAME the architecture so an operator knows what to fix.
+func Test_ComputeProjectPlanSlots_UncommittedArchitecture_FailedPrecondition(t *testing.T) {
+	proj := projectDesignFixtureProject(t)
+	proj.SystemDesign = projectstate.ArtifactSlot{}
+
+	if _, _, err := computeProjectPlanSlots(proj, shapeSDPEngines()); err == nil {
+		t.Fatal("a plan cannot be derived from an architecture that does not exist; the compute must refuse")
+	} else if !strings.Contains(err.Error(), "systemDesign") {
+		t.Errorf("the refusal must NAME the architecture slot; got %q", err.Error())
+	}
+}
+
+// Test_ComputeProjectPlanSlots_UnwiredEngines_RefusesByName: a boot that wired no estimate
+// Engine must refuse by name rather than nil-panic inside a workflow task, which Temporal
+// retries forever with nothing in the ledger saying why.
+func Test_ComputeProjectPlanSlots_UnwiredEngines_RefusesByName(t *testing.T) {
+	proj := projectDesignFixtureProject(t)
+	if _, _, err := computeProjectPlanSlots(proj, sdpEngines{}); err == nil {
+		t.Fatal("a compute with no Engines must refuse")
+	} else if !strings.Contains(err.Error(), "Engines") {
+		t.Errorf("the refusal must say what is missing; got %q", err.Error())
+	}
+}
+
+// Test_DeliveryStrategies_EveryComputeRowIsRegistered walks ALL fourteen lifecycles and
+// requires the production registry to resolve a strategy for every task. It is what pins
+// artifactKindSdpReview to the DATA: a method-assets release that respells the artifact kind,
+// or adds a second compute row, fails HERE rather than at a run, where it would surface as a
+// walk that refused a task it should have computed.
+func Test_DeliveryStrategies_EveryComputeRowIsRegistered(t *testing.T) {
+	reg := productionStrategies(shapeSDPEngines())
+	wf := csNewWorkflows(wfDeps{})
+	computes := 0
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			slot, err := strategySlotFor(lc, task)
+			if err != nil {
+				t.Fatalf("%s/%s: the lifecycle data resolves to no strategy slot: %v", lc.Type, task.ID, err)
+			}
+			if !strings.HasPrefix(slot, "compute:") {
+				continue
+			}
+			computes++
+			if _, ok := reg[slot]; !ok {
+				t.Errorf("%s/%s asks for slot %q, which productionStrategies does not register", lc.Type, task.ID, slot)
+			}
+			if _, err := strategyFor(reg, wf, lc, task); err != nil {
+				t.Errorf("%s/%s: strategyFor refused a registered compute row: %v", lc.Type, task.ID, err)
+			}
+		}
+	}
+	if computes != 1 {
+		t.Fatalf("method-assets v0.9.0 has exactly ONE compute row (projectDesign/sdpReview); this release has %d — "+
+			"a new one needs its own registry entry and its own isM0Gate reading", computes)
+	}
+}
+
+// Test_IsM0Gate_MatchesOnlyTheProjectDesignRow pins the predicate the ROOT-PHASE SEAL hangs
+// on. It is read off the data, so the question is whether the data has exactly one row it
+// matches: a predicate that matched a second lifecycle's review task would seal a project
+// into construction in the middle of some other activity's walk.
+func Test_IsM0Gate_MatchesOnlyTheProjectDesignRow(t *testing.T) {
+	var matched []string
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			if isM0Gate(lc, task) {
+				matched = append(matched, lc.Type+"/"+task.ID)
+			}
+		}
+	}
+	if !slices.Equal(matched, []string{"projectDesign/" + sdpReviewTaskID}) {
+		t.Fatalf("isM0Gate matches %v; it must match the projectDesign lifecycle's single review task and nothing else", matched)
+	}
+}
+
 // A delta document that violates the vocabulary must fail the READ, loudly. A silently
 // dropped bad delta is the zombie failure mode returning by another door.
 func TestMaterializeActivityPlanPropagatesDeltaErrors(t *testing.T) {
@@ -20782,7 +21228,7 @@ func newTestConstructionManager(c client.Client) *constructionManager {
 	// A default project in construction and NOT paused: Begin reads it for the paused
 	// precheck (B1.7), and every other façade op ignores it.
 	ps := &csFakeProjectState{project: projectstate.Project{Phase: projectstate.PhaseConstruction}}
-	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 }
 
 // testCtx returns a minimal fwmanager.Context backed by context.Background.
@@ -20807,7 +21253,7 @@ func asConstructionError(t *testing.T, err error) *fwmanager.Error {
 // ---- ExecuteNextActivity (op 2.1) ------------------------------------------
 
 func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -20815,7 +21261,7 @@ func Test_ExecuteNextActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_ExecuteNextActivity_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.ExecuteNextActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -21182,7 +21628,7 @@ func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcom
 // ---- RunReplanSweep (op 2.2) ------------------------------------------------
 
 func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -21190,7 +21636,7 @@ func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
 }
 
 func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	nilID := ProjectID("")
 	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -21201,7 +21647,7 @@ func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(""), "reason")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -21209,7 +21655,7 @@ func Test_PauseProject_EmptyProjectID(t *testing.T) {
 }
 
 func Test_PauseProject_EmptyReason(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.PauseProject(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "")
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty pause reason, got %s", got)
@@ -21219,7 +21665,7 @@ func Test_PauseProject_EmptyReason(t *testing.T) {
 // ---- OverrideActivity (op 2.4) ----------------------------------------------
 
 func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(""), "C-1", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -21227,7 +21673,7 @@ func Test_OverrideActivity_EmptyProjectID(t *testing.T) {
 }
 
 func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "", ActivityOverride{Kind: OverrideRetry})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an empty activityId, got %s", got)
@@ -21235,7 +21681,7 @@ func Test_OverrideActivity_EmptyActivityID(t *testing.T) {
 }
 
 func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	err := m.OverrideActivity(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), "C-1", ActivityOverride{Kind: OverrideUnknown})
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse for an unknown override kind, got %s", got)
@@ -21245,7 +21691,7 @@ func Test_OverrideActivity_UnknownOverrideKind(t *testing.T) {
 // ---- GetSessionState (op 2.5) -----------------------------------------------
 
 func Test_CS_GetSessionState_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(""), nil)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse, got %s", got)
@@ -21253,7 +21699,7 @@ func Test_CS_GetSessionState_EmptyProjectID(t *testing.T) {
 }
 
 func Test_GetSessionState_EmptyActivityID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 	empty := ActivityID("")
 	_, err := m.GetSessionState(fwmanager.Context{Context: context.Background()}, ProjectID(uuid.NewString()), &empty)
 	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
@@ -21638,7 +22084,7 @@ func TestUpdateReviewPolicy(t *testing.T) {
 			return projectstate.Project{Version: 7}, nil
 		},
 	}
-	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, nil, 0, "", nil)
+	m := newConstructionManager(nil, ps, nil, nil, nil, nil, nil, fake, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 
 	err := m.UpdateReviewPolicy(testCtx(), "proj-1", ReviewPolicyInput{
 		GatedPhasesByType: map[string][]string{
@@ -23288,6 +23734,23 @@ type csFakeProjectState struct {
 	// round sweep hold NO row, so their Conflict arm must make ZERO of these — and case
 	// (b)/(c) assert exactly ONE, which is the whole claim that twenty attempts became one.
 	rowReads int
+
+	// The deterministic Project-Design compute's writes (stage 4b1 Task 9). Three lists and
+	// a counter, and each answers a question the others cannot:
+	//
+	//	stagedSlots / stagedModels  WHICH slots the compute staged, in order, and the models
+	//	                            it staged — the dial equality is asserted on the models,
+	//	                            not on a count, because "eight writes happened" would
+	//	                            pass with eight wrong documents.
+	//	committedSlots              which slots M0's approve committed. Order matters: a
+	//	                            phase advanced before the plan was committed would put
+	//	                            the pump into construction against an uncommitted plan.
+	//	advanced                    AdvancePhase calls. The phase itself moves on f.project,
+	//	                            so the seal's idempotence guard re-reads a real number.
+	stagedSlots    []projectstate.ArtifactKind
+	stagedModels   []projectstate.ArtifactModel
+	committedSlots []projectstate.ArtifactKind
+	advanced       int
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -23880,12 +24343,33 @@ func (f csFakeActivityExecution) RecordActivityOutcome(_ fwra.Context, _ project
 	return v, nil
 }
 
-// The five verbs no construction workflow calls yet (the design rails take them in task 6
-// and the migration tool in task 9). Inert stubs, matching the stubRail precedent for
-// satisfying an unused portion of a wide contract.
+// The verbs no construction workflow calls yet (the design rails take them in task 6 and
+// the migration tool in task 9). Inert stubs, matching the stubRail precedent for
+// satisfying an unused portion of a wide contract. StageTaskOutput is NO LONGER one of
+// them — the deterministic Project-Design compute stages its eight slots through it.
 
-func (csFakeActivityExecution) StageTaskOutput(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, string, string, projectstate.ModelEnvelope, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.StagedRef, error) {
-	return projectstate.StagedRef{}, nil
+// StageTaskOutput mirrors the production verb: it DECODES the envelope and runs the same
+// slot staging the store runs (the real one delegates to stageArtifactForReviewOnBranch), so
+// the shape case's assertions are made against what the compute actually staged rather than
+// against the fact that it called something. It asserts NO per-activity version, exactly as
+// production does — the write lands on the branch while the row's counter lives on main —
+// which is why it does not stamp the row.
+func (f csFakeActivityExecution) StageTaskOutput(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ int64, activityID string, taskID string, branch string, model projectstate.ModelEnvelope, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.StagedRef, error) {
+	if len(model.Model) == 0 {
+		return projectstate.StagedRef{}, fwra.New(fwra.ContractMisuse, "empty model envelope — there is nothing to stage")
+	}
+	decoded, err := model.Decode()
+	if err != nil {
+		return projectstate.StagedRef{}, fwra.New(fwra.ContractMisuse, "undecodable model envelope: "+err.Error())
+	}
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if cErr := f.maybeConflict(); cErr != nil {
+		return projectstate.StagedRef{}, cErr
+	}
+	f.stagedSlots = append(f.stagedSlots, decoded.Kind())
+	f.stagedModels = append(f.stagedModels, decoded)
+	return projectstate.StagedRef{ActivityID: activityID, TaskID: taskID, Branch: branch, Version: f.bump()}, nil
 }
 
 func (csFakeActivityExecution) SetReviewCommentStatus(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, string, string, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -23947,8 +24431,15 @@ func (f fakeFullProjectState) ReadProjectOnBranch(rc fwra.Context, projectID pro
 	return f.ReadProject(rc, projectID)
 }
 
-func (fakeFullProjectState) StageArtifactForReviewOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactModel, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
+// StageArtifactForReviewOnBranch RECORDS, because the deterministic Project-Design compute
+// stages eight slots through it and the whole acceptance is WHAT it staged. It also writes
+// the model onto the project, so a re-read inside the same walk sees what the walk staged.
+func (f fakeFullProjectState) StageArtifactForReviewOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, model projectstate.ArtifactModel, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.stagedSlots = append(f.stagedSlots, model.Kind())
+	f.stagedModels = append(f.stagedModels, model)
+	return f.bump(), nil
 }
 
 func (fakeFullProjectState) RejectArtifactOnBranch(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -23979,12 +24470,25 @@ func (fakeFullProjectState) AcknowledgeStaleBasis(fwra.Context, projectstate.Pro
 	return 0, nil
 }
 
-func (fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
-	return 0, nil
+// AdvancePhase MOVES the phase rather than merely counting, because the M0 seal's
+// idempotence guard re-reads it: a fake that counted and left the phase alone would let a
+// double advance pass.
+func (f fakeFullProjectState) AdvancePhase(fwra.Context, projectstate.ProjectID, projectstate.Version) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.advanced++
+	f.project.Phase++
+	return f.bump(), nil
 }
 
-func (fakeFullProjectState) CommitArtifact(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind) (projectstate.Version, error) {
-	return 0, nil
+// CommitArtifact RECORDS: it is what designSessionAccess.CommitArtifactWithProvenance
+// falls back to for a base with no provenance capability, so it is the verb M0's approve
+// reaches and the one the commit-then-advance ORDER is asserted on.
+func (f fakeFullProjectState) CommitArtifact(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.committedSlots = append(f.committedSlots, kind)
+	return f.bump(), nil
 }
 
 func (fakeFullProjectState) CreateProject(fwra.Context, projectstate.ProjectID, projectstate.OwnerScope, string) (projectstate.Version, error) {
@@ -24267,6 +24771,10 @@ func csRegisterGenActivityExecution(env *testsuite.TestWorkflowEnvironment, ps *
 	env.RegisterActivityWithOptions(acts.ActivityExecutionAppendReviewVerdict, activity.RegisterOptions{Name: "activityExecutionAccess.appendReviewVerdict"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionDecideReviewRound, activity.RegisterOptions{Name: "activityExecutionAccess.decideReviewRound"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordActivityOutcome, activity.RegisterOptions{Name: "activityExecutionAccess.recordActivityOutcome"})
+	// The EIGHTH, new in stage 4b1 Task 9: the deterministic Project-Design compute stages
+	// its eight slots through the execution ledger's own verb rather than through the three
+	// designSessionAccess verbs the retired SDP assembly used.
+	env.RegisterActivityWithOptions(acts.ActivityExecutionStageTaskOutput, activity.RegisterOptions{Name: "activityExecutionAccess.stageTaskOutput"})
 }
 
 // registerGenGitStatus registers the GENERATED gitActivityStatusAccess Record* activities
@@ -24294,6 +24802,29 @@ func registerGenGitStatus(env *testsuite.TestWorkflowEnvironment, gs projectstat
 func registerGenDesignSessionRead(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
 	acts := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
 	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+}
+
+// registerGenDesignSessionSlotWrites registers the TWO slot-writing designSessionAccess
+// activities the generic child reaches on the projectDesign lifecycle (stage 4b1 Task 9):
+// the compute stages its eight slots, and M0's approve commits them. The production worker
+// registers both for every construction execution (WorkerManifest threads DesignSession),
+// so the test env must too — otherwise the compute would fail as "activity not registered"
+// rather than exercising the real path.
+func registerGenDesignSessionSlotWrites(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
+	acts := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
+	env.RegisterActivityWithOptions(acts.DesignSessionStageArtifactForReviewOnBranch,
+		activity.RegisterOptions{Name: "designSessionAccess.stageArtifactForReviewOnBranch"})
+	env.RegisterActivityWithOptions(acts.DesignSessionCommitArtifactWithProvenance,
+		activity.RegisterOptions{Name: "designSessionAccess.commitArtifactWithProvenance"})
+}
+
+// registerGenProjectStateAdvancePhase registers the ONE projectStateAccess mutation the
+// generic child makes: M0's root-phase seal (R4). It is separate from
+// registerGenProjectStateVersion because every other shape case reaches only the version
+// read, and a registration nothing calls hides a missing one.
+func registerGenProjectStateAdvancePhase(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
+	acts := &genActivities{ProjectState: fakeFullProjectState{ps}}
+	env.RegisterActivityWithOptions(acts.ProjectStateAdvancePhase, activity.RegisterOptions{Name: "projectStateAccess.advancePhase"})
 }
 
 var _ episode.EpisodeAccess = (*fakeEpisodes)(nil)
@@ -27726,7 +28257,7 @@ func Test_Construct_LocalMerge_ConflictRoutesToIntervention(t *testing.T) {
 // setReviewPolicyManager wires a constructionManager over the generated
 // FakeConstructionTransitionAccess for the preset write-path tests.
 func setReviewPolicyManager(ps projectstate.ProjectStateAccess, ct projectstate.ConstructionTransitionAccess) *constructionManager {
-	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, nil, 0, "", nil)
+	return newConstructionManager(nil, ps, nil, nil, nil, nil, nil, ct, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
 }
 
 func Test_SetReviewPolicy_EmptyProjectID(t *testing.T) {
@@ -28213,7 +28744,7 @@ func Test_Construct_MergeJob_WritesNoGapRecord(t *testing.T) {
 // csEpisodeMgr builds a constructionManager exercising ONLY the episode facet read
 // ops (Task 9): every other dep stays nil since those ops touch only episodes.
 func csEpisodeMgr(eps episode.EpisodeAccess) *constructionManager {
-	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil)
+	return newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
 }
 
 // csSampleEpisodeRecord returns a fully-populated ledger record (every optional
@@ -31273,7 +31804,7 @@ func pausedProject() projectstate.Project {
 // resumeManager wires a façade over mc and a fake store serving proj.
 func resumeManager(mc client.Client, proj projectstate.Project) (*constructionManager, *csFakeProjectState) {
 	ps := &csFakeProjectState{project: proj, version: proj.Version}
-	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil), ps
+	return newConstructionManager(mc, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{}), ps
 }
 
 func constructionErrorKind(err error) fwmanager.Kind {
@@ -32307,7 +32838,7 @@ func TestNormalizeAttempts_AGateWithRoundsGetsNoReconstruction(t *testing.T) {
 // avManager builds a façade over a project, an episode ledger and a strict client.
 func avManager(c client.Client, proj projectstate.Project, eps *fakeEpisodes) *constructionManager {
 	ps := &csFakeProjectState{project: proj}
-	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, eps, 0, "", nil)
+	return newConstructionManager(c, fakeFullProjectState{ps}, nil, nil, nil, nil, nil, fakeConstructionTransition{ps}, nil, nil, nil, nil, eps, 0, "", nil, sdpEngines{})
 }
 
 func TestQueryActivityView_RefusesBlankIDs(t *testing.T) {
@@ -33318,16 +33849,11 @@ type shapeRig struct {
 	// and that is a row, not an event. Everything else arrives through the recorder.
 	cs     *csFakeProjectState
 	design *fakeProjectState
-	pd     *pdFakeProjectState
 	// cswf + pipe are the construction-rail receiver and pipeline double the generic child
 	// runs on. They are here, unlike the design rails', because reenter re-runs the SAME
 	// receiver over the SAME ledger on a second environment to finish a continued walk.
 	cswf *csWorkflows
 	pipe *csFakePipeline
-	// pdwf is the SDP rail's receiver, needed because the case must pre-assemble the
-	// review to learn which option to commit — the same thing the existing SDP tests do.
-	pdwf *pdWorkflows
-
 	// branchCompletesFirst is the fork's only knob: which branch of the
 	// srsReview fan-out the case wants to reach its pipeline terminal FIRST.
 	// Today's flat phase walk cannot honour it (the branches are serialised by the
@@ -33405,13 +33931,27 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		rig.design = ps
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerCoAuthor(env, wf, ps, pipe) }
 	case "projectDesign":
-		ps := &pdFakeProjectState{project: sdpReadyProject(projectstate.ProjectID(uuid.NewString()))}
-		wf := pdNewWorkflows()
-		rig.pd, rig.pdwf = ps, wf
-		rig.register = func(env *testsuite.TestWorkflowEnvironment) {
-			env.RegisterWorkflowWithOptions(wf.AssembleSDPReviewWorkflow, registerName(pdExecutionKindSDPReview))
-			pdRegisterGenActivities(env, ps, nil, nil)
-		}
+		// RE-POINTED AT THE GENERIC CHILD (stage 4b1 Task 9). The rail moved from
+		// AssembleSDPReviewWorkflow to DeliveryActivityWorkflow, so the store moved with it:
+		// the compute stages through the execution ledger's own verb and the M0 seal commits
+		// and advances, all on the construction-rail double.
+		//
+		// The project is THIS REPO'S OWN committed slots 5/8/10/11-14, not a toy: the
+		// acceptance is that the derived dials reproduce the committed ones, and a
+		// two-component fixture could satisfy every assertion while the doctrine table was
+		// wrong. The REAL strategies are wired (no stub): projectDesign has no dispatch task
+		// at all, so a stubbed dispatch slot would be a substitution with nothing to
+		// substitute for, and the compute is the thing under test.
+		ps := &csFakeProjectState{project: projectDesignFixtureProject(t)}
+		ps.rec = rig.rec
+		pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
+		deps := gateDeps(ps)
+		deps.Review = review.NewReviewEngine()
+		deps.SDPEngines = shapeSDPEngines()
+		wf := csNewWorkflows(deps)
+		wf.Deliveries = rig.rec
+		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
 	default:
 		t.Fatalf("newShapeRig: no rail is wired for lifecycle %q — add its arm rather than defaulting it, "+
 			"because a shape case silently driving the wrong child would pass for the wrong reason", typeKey)
@@ -33591,35 +34131,43 @@ func driveServiceSendBackJudgedPair(t *testing.T, rig *shapeRig) shapeOutcome {
 	return rig.csOutcome(shapeServiceID)
 }
 
-// driveM0NoSendBack drives the SDP review — the projectDesign lifecycle's single
-// review task, on the rail that carries it TODAY (AssembleSDPReviewWorkflow; Task 9
-// re-points it at the generic child). It sends a RejectAll first and then commits, so
-// the case's real claim is exercised rather than assumed: whatever today's rail does
-// with a rejection, it must never DECIDE the M0 round as a send-back, because the
-// projectDesign lifecycle has no send-back edge to re-open.
+// shapeSDPActivityRow is the projectDesign activity the M0 case walks: ONE review task, no
+// dispatch, no component. Phases is deliberately left nil — the generic child reads the
+// lifecycle DAG, not the flat profile, and a populated Phases here would let a regression to
+// the flat walk pass.
+func shapeSDPActivityRow() constructionActivity {
+	return constructionActivity{
+		ActivityID: shapeSDPActivity,
+		Kind:       activityKindConstruction,
+		Type:       projectstate.ActivityTypeProjectDesign,
+	}
+}
+
+// driveM0NoSendBack drives the projectDesign lifecycle's single review task through the
+// GENERIC CHILD (stage 4b1 Task 9; it ran on AssembleSDPReviewWorkflow before).
+//
+// It sends a REJECT first and then an approve, so the case's real claim is exercised rather
+// than assumed: the reject must be REFUSED at the gate — no round decided, no attempt
+// rejected, the walk not stalled — because the projectDesign lifecycle has no send-back
+// edge to re-open (Task 8 review finding 6). Then the approve commits the derived plan and
+// seals the root phase.
 func driveM0NoSendBack(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.register(rig.env)
-	pre, err := rig.pdwf.assembleSdpReview(rig.pd.project, "")
-	if err != nil {
-		t.Fatalf("pre-assembling the SDP review: %v", err)
-	}
-	chosen := OptionID(pre.Recommendation)
-	rig.env.RegisterDelayedCallback(func() {
-		rig.env.SignalWorkflow(pdSignalSDPDecision, sdpDecisionSignal{
-			Decision: SDPRejectAll, Feedback: &ReviewFeedback{Notes: "cut the cost"},
-		})
-	}, time.Second)
-	rig.env.RegisterDelayedCallback(func() {
-		rig.env.SignalWorkflow(pdSignalSDPDecision, sdpDecisionSignal{Decision: SDPCommit, OptionID: &chosen})
-	}, 2*time.Second)
-	rig.env.ExecuteWorkflow(pdExecutionKindSDPReview, sdpReviewInput{ProjectID: ProjectID(rig.pd.project.ID)})
+	rig.env.RegisterDelayedCallback(shapeReject(rig.env, sdpReviewTaskID, "cut the cost"), 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, sdpReviewTaskID), 90*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeSDPActivity, Activity: shapeSDPActivityRow(),
+	})
 	shapeRequireCompleted(t, rig.env)
 
-	// The root phase's advance IS the commit of the artifact its one review task
-	// judges. Task 9 re-points this at the child's phase advance; the fact asserted
-	// does not change with the rail.
-	advanced := len(rig.pd.committed) == 1 && rig.pd.committed[0] == projectstate.KindSdpReview
+	// PhaseAdvanced is read off the store, like every other ledger-derived field: M0's
+	// approve commits the eight computed slots and THEN advances the root phase, and both
+	// halves have to have happened for the plan to be materialised.
+	rig.cs.mu.Lock()
+	advanced := rig.cs.advanced == 1 &&
+		slices.Equal(rig.cs.committedSlots, projectDesignComputedKinds())
+	rig.cs.mu.Unlock()
 	return rig.rec.outcome(nil, advanced)
 }
 
@@ -33889,16 +34437,36 @@ func assertShapeJoinWaits(t *testing.T, name string, got shapeOutcome) {
 // send-back edge, so no round of it may ever be DECIDED as a send-back — whatever the
 // rail does with a rejection — and the approve advances the root phase.
 //
-// Today's SDP rail writes no round at all, so the send-back half holds vacuously and
-// the advance half is the load-bearing one. Task 9 re-points the case at the child,
-// where the same two sentences become non-vacuous without being rewritten: that is
-// what makes this a differential oracle rather than a description of today.
+// THE ROUND MUST EXIST BEFORE "NONE WAS SENT BACK" MEANS ANYTHING (Task 1 carry 3, and the
+// ruling that made it explicit). Against the retired SDP rail this case held VACUOUSLY: that
+// rail wrote no round at all, so "no round was decided sentBack" was true of a ledger with
+// nothing in it. Against the child there is exactly ONE M0 round, opened at revision 1 and
+// decided PASSED, and the rejection that arrived first left no trace on it — which is the
+// claim, and it is now falsifiable.
 func assertShapeM0NoSendBack(t *testing.T, name string, got shapeOutcome) {
 	t.Helper()
-	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+	round := shapeSDPActivity + ":" + sdpReviewTaskID + ":1"
+	// EXISTENCE FIRST. A case that asserted only the absence of a send-back would pass on a
+	// walk that opened no round, which is exactly what the previous rail did.
+	shapeWantOrder(t, name, "RoundsOpened", got.RoundsOpened, []string{round})
+	shapeWantRound(t, name, got.RoundsDecided, round, string(projectstate.RoundPassed))
+	// And ONE round, not two: a refused rejection must not withdraw the round and open a
+	// second one, because there is no judged pair to re-open and the walk would stall.
+	if len(got.RoundsDecided) != 1 {
+		t.Fatalf("%s: M0 is ONE round; the refused rejection must not have opened a second. decided=%v", name, got.RoundsDecided)
+	}
 	if sent := shapeRoundsWith(got.RoundsDecided, string(projectstate.RoundSentBack)); len(sent) != 0 {
 		t.Fatalf("%s: M0 has no send-back edge, so no round may be decided sentBack; got %v", name, sent)
 	}
+	if n := shapeCount(got.TaskOrder, sdpReviewTaskID); n > 1 {
+		t.Fatalf("%s: the M0 gate must run ONCE — a refused rejection does not re-open it; TaskOrder=%v", name, got.TaskOrder)
+	}
+	// Nothing was DISPATCHED: Project Design is computed, and an agent job here would mean
+	// the compute had been modelled as a dispatch after all.
+	if len(got.Dispatched) != 0 {
+		t.Fatalf("%s: Project Design is COMPUTED, so nothing may be dispatched; got %v", name, got.Dispatched)
+	}
+	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
 // assertShapeVibesFloor is the design half of the conjunction; the M0 half is asserted
@@ -34234,9 +34802,22 @@ type stubStrategy struct{ rig *shapeRig }
 
 // stubStrategies is productionStrategies with the dispatch slot stubbed.
 func stubStrategies(rig *shapeRig) strategyRegistry {
-	reg := productionStrategies()
+	reg := productionStrategies(shapeSDPEngines())
 	reg[strategySlotDispatch] = func(*csWorkflows) taskStrategy { return stubStrategy{rig: rig} }
 	return reg
+}
+
+// shapeSDPEngines are the REAL three estimate Engines. A shape case runs them rather than a
+// scripted double for the same reason every construction-rail rig wires the real review
+// engine: on the projectDesign shape the Engines' numbers ARE the behaviour under test —
+// the dial table's acceptance is that the derived options reproduce the committed ones, and
+// a scripted estimate would let exactly that regression pass.
+func shapeSDPEngines() sdpEngines {
+	return sdpEngines{
+		Estimation:   estimation.NewEstimationEngine(),
+		OperationEst: operationestimation.NewOperationEstimationEngine(),
+		Settlement:   billing.NewBillingEngine(),
+	}
 }
 
 // Produce records the dispatch, burns the task's pace on a durable timer so the walk's
@@ -34305,7 +34886,13 @@ func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWork
 	registerGenPipeline(env, pipe)
 	registerGenEpisodes(env, nil)
 	registerGenDesignSessionRead(env, ps)
+	// The projectDesign lifecycle's compute stages eight slots and its M0 approve commits
+	// them and seals the root phase (stage 4b1 Task 9). Registered for EVERY delivery-child
+	// case, not only the projectDesign one, because the production worker registers one set
+	// per queue and a per-case registration would let a rail reach an unregistered verb.
+	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
+	registerGenProjectStateAdvancePhase(env, ps)
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)

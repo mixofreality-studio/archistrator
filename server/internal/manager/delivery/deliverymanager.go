@@ -8170,6 +8170,555 @@ func derivedCriticalPath(
 	return cp, nil
 }
 
+// ===========================================================================
+// DETERMINISTIC PROJECT DESIGN (stage 4b1 Task 9, spec §6/R7). Everything below
+// is PURE — no workflow.Context, no clock, no RNG, no map iteration that reaches
+// an output — so the generic child's compute strategy can run it in-workflow and a
+// unit test can run it without Temporal. Its workflow half (sdpComputeStrategy,
+// computeProjectPlan) is in deliveryactivity.go, where the file-layout gate puts
+// anything holding a workflow.Context.
+//
+// WHAT IT REPLACES: four agent-drafted Solution slots, an agent-drafted risk model
+// and an agent-assembled SDP review. Slots 11-16 have carried `revisions: 1` and
+// `staleBasis: true` since the day they were written, because there was never
+// anything for an agent to judge in them — the options are The Method's doctrine
+// and the risk is what the estimation Engine already returns.
+// ===========================================================================
+
+// sdpEngines is the three estimate Engines the Project-Design compute calls, held as
+// ONE value so they travel together through the strategy registry (architect ruling
+// R9-5: a strategy's engines are THREADED, never reached for). They are called
+// DIRECTLY in-workflow — deterministic, by value, no I/O — exactly as
+// AssembleSDPReviewWorkflow has always called them, so they are not Activities.
+type sdpEngines struct {
+	Estimation   estimation.EstimationEngine
+	OperationEst operationestimation.OperationEstimationEngine
+	Settlement   billing.BillingEngine
+}
+
+// wired reports whether all three Engines are present. A compute with a missing Engine
+// must refuse LOUDLY rather than nil-panic inside a workflow task, which retries forever.
+func (e sdpEngines) wired() bool {
+	return e.Estimation != nil && e.OperationEst != nil && e.Settlement != nil
+}
+
+// solutionDials is everything a Solution slot contributes to an assembled option.
+// MEASURED, not assumed: assembleOption reads sol.StaffingCap, sol.BufferDays and
+// sol.CriticalSpeedup and NOTHING ELSE — its ClassRates come from deriveClassRates(pa,
+// classes) and the per-option CalendarDaysPerWeek "cheat" (compressed silently
+// switching 2 -> 5 d/wk) was retired by the Phase-2 rework's F5. So the four
+// agent-drafted solution slots were four sets of three numbers.
+type solutionDials struct {
+	StaffingCap     int
+	BufferDays      float64
+	CriticalSpeedup float64
+}
+
+// subcriticalStaffingCut / compressedCriticalSpeedup / decompressedBufferDays are the
+// three numbers with a judgement in them.
+//
+// subcriticalStaffingCut is two fewer agents than normal, matching this repo's committed
+// 6 -> 4. A cap below 1 is clamped, because a subcritical option with no staff has no
+// duration to be costlier than.
+const (
+	subcriticalStaffingCut    = 2
+	compressedCriticalSpeedup = 1.8
+	decompressedBufferDays    = 20.0
+)
+
+// derivedSolutionDials is The Method's four options as doctrine, not as drafts.
+//
+//	normal        — minimum staffing for unimpeded critical-path progress (ch. 12).
+//	subcritical   — deliberately understaffed: LONGER, COSTLIER and RISKIER than
+//	                normal, whose whole purpose is disproving "fewer people = cheaper".
+//	compressed    — same staffing, critical path sped up; the >30% exclusion guard in
+//	                recommendOption is what keeps it out of the death zone.
+//	decompressed  — normal, deliberately extended, to drop criticality risk toward the
+//	                tipping point without consuming the float by cutting staff.
+//
+// TWO PARAMETERS, because every dial set is relative to the NORMAL option's cap: a
+// subcritical option is not "four agents", it is "two fewer than whatever normal needs".
+//
+// The values reproduce this repo's committed slots 11-14 EXACTLY (cap 6/4/6/6, buffer
+// 0/0/0/20, speedup 1/1/1.8/1), which is the acceptance: the compute must not change the
+// plan on the state it is first run against, or its first output would be
+// indistinguishable from a regression.
+func derivedSolutionDials(kind projectstate.ArtifactKind, staffingCap int) (solutionDials, bool) {
+	switch kind {
+	case projectstate.KindNormalSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: 0, CriticalSpeedup: 1}, true
+	case projectstate.KindSubcriticalSolution:
+		cut := max(staffingCap-subcriticalStaffingCut, 1)
+		return solutionDials{StaffingCap: cut, BufferDays: 0, CriticalSpeedup: 1}, true
+	case projectstate.KindCompressedSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: 0, CriticalSpeedup: compressedCriticalSpeedup}, true
+	case projectstate.KindDecompressedSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: decompressedBufferDays, CriticalSpeedup: 1}, true
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck,
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// Not a solution slot. Named exhaustively rather than defaulted (the designSlotForKind
+		// precedent) so a new ArtifactKind fails the gate here and its author has to decide
+		// whether The Method gives it a dial set.
+		return solutionDials{}, false
+	default:
+		return solutionDials{}, false
+	}
+}
+
+// derivedSolution renders one Solution slot from its dials.
+//
+// ClassRates is left EMPTY, deliberately and with a cost this states out loud: the
+// committed slots carry a classRates map (eight classes, where the committed plan uses
+// five), and assembleOption reads NONE of it — the per-day rate of a worker class comes
+// from deriveClassRates over the planning assumptions' rate card. Re-emitting a map no
+// consumer reads would make the derivation's output depend on a stale authored field, so
+// the derived slots drop it. Nothing computes differently; a reader of slot 11 loses a
+// display decoration that was already wrong. Earmarked in the task report.
+func derivedSolution(kind projectstate.ArtifactKind, dials solutionDials) *projectstate.Solution {
+	return &projectstate.Solution{
+		SlotKind:    kind,
+		StaffingCap: dials.StaffingCap,
+		// Zero, matching every committed slot: the calendar is a SHARED planning assumption
+		// for every option since F5 retired the per-option cheat.
+		CalendarDaysPerWeek: 0,
+		BufferDays:          dials.BufferDays,
+		CriticalSpeedup:     dials.CriticalSpeedup,
+	}
+}
+
+// normalStaffingCap is the cap the whole dial table is relative to: the committed normal
+// solution's, when there is one, else derivedNormalStaffingCap.
+//
+// It READS the committed slot rather than deriving a cap from the network, because "the
+// minimum staffing that keeps the critical path unimpeded" is a founder fact about how
+// many agent streams a human can supervise (this repo's own planning notes cap it at 3
+// in flight), not something the graph answers. A project with no committed normal
+// solution gets the documented default and the caller records that it defaulted.
+func normalStaffingCap(proj projectstate.Project) (int, bool) {
+	sol, err := committedSolution(proj, projectstate.KindNormalSolution)
+	if err != nil || sol.StaffingCap < 1 {
+		return derivedNormalStaffingCap, false
+	}
+	return sol.StaffingCap, true
+}
+
+// derivedNormalStaffingCap is the normal option's cap for a project that has never had
+// one. SIX, which is this repo's own committed value and the number the dial table's
+// acceptance is stated against; it is a starting point the founder edits, not a claim
+// about their team.
+const derivedNormalStaffingCap = 6
+
+// riskModelFrom joins the per-option risk the estimation Engine already computed into the
+// RiskModel slot, with the App-C exclusion zones the SDP review already applies.
+//
+// There was never anything for an agent to judge here: EstimateForOption returns
+// criticality risk, activity risk and their composite per option, and sdpOptionInBand
+// already decides inclusion from the same numbers. This is the join, and it uses the SAME
+// thresholds recommendOption uses, so the committed risk model and the committed
+// recommendation can no longer disagree.
+//
+// THREE PARAMETERS, and the third is an ArtifactKind rather than an OptionID on purpose:
+// RiskModel.Recommendation is an ArtifactKind — the same vocabulary Rows[].SolutionKind
+// uses — while SdpReview.Recommendation is an OptionID. The two slots name the chosen
+// option in two vocabularies and the join must not mix them, so the CALLER maps
+// recommendOption's OptionID onto the winning row's SolutionKind before calling here.
+func riskModelFrom(
+	rows []projectstate.SdpOptionRow,
+	risks map[projectstate.ArtifactKind]estimation.RiskScore,
+	recommendation projectstate.ArtifactKind,
+) projectstate.RiskModel {
+	normalDur := 0.0
+	for _, r := range rows {
+		if r.SolutionKind == projectstate.KindNormalSolution {
+			normalDur = r.DurationDays
+		}
+	}
+	out := projectstate.RiskModel{
+		Rows:              make([]projectstate.RiskRow, 0, len(rows)),
+		TooRiskyThreshold: riskTooRisky,
+		OverSafeThreshold: riskOverSafe,
+		MaxCompressionPct: maxCompression,
+		Recommendation:    recommendation,
+	}
+	for _, r := range rows {
+		score := risks[r.SolutionKind]
+		included := sdpOptionInBand(r, normalDur)
+		out.Rows = append(out.Rows, projectstate.RiskRow{
+			SolutionKind:    r.SolutionKind,
+			CriticalityRisk: score.CriticalityRisk,
+			ActivityRisk:    score.ActivityRisk,
+			Composite:       score.Composite,
+			DurationDays:    r.DurationDays,
+			TotalCost:       r.BuildCost,
+			Included:        included,
+			ExclusionReason: sdpExclusionReason(r, normalDur, included),
+		})
+	}
+	return out
+}
+
+// sdpExclusionReason is the sentence an EXCLUDED row carries, in the same words the
+// committed slot holds. An included row carries none: a reason beside an included option
+// is the reader's first wrong assumption.
+func sdpExclusionReason(r projectstate.SdpOptionRow, normalDur float64, included bool) string {
+	switch {
+	case included:
+		return ""
+	case r.CompositeRisk > riskTooRisky:
+		return fmt.Sprintf("composite risk %.3f exceeds the %g ceiling", r.CompositeRisk, riskTooRisky)
+	case r.CompositeRisk < riskOverSafe:
+		return fmt.Sprintf("composite risk %.3f is below the %g floor — the option is over-safe", r.CompositeRisk, riskOverSafe)
+	case normalDur > 0 && r.DurationDays < normalDur:
+		return fmt.Sprintf("compressed %.0f%% below the normal option, past the %.0f%% death-zone bound",
+			100*(normalDur-r.DurationDays)/normalDur, 100*maxCompression)
+	}
+	return "outside the App C exclusion zones"
+}
+
+// The assumption FAMILIES defaultPlanningAssumptions can fill, named as the M0 screen
+// will read them back. They are the strings the attempt's Detail carries, so they are
+// customer-facing prose and not identifiers.
+const (
+	assumedResources  = "the roster of roles"
+	assumedCalendar   = "the working calendar"
+	assumedRates      = "the agent rate card"
+	assumedIndirect   = "the indirect daily rate"
+	assumedUsage      = "the declared load"
+	assumedTerms      = "the billing terms"
+	assumedInfra      = "the infrastructure kind"
+	assumedStaffing   = "the normal option's staffing cap"
+	assumedEverything = "every planning assumption"
+)
+
+// defaultPlanningAssumptions is what the compute assumes when slot 8 is uncommitted.
+// R-E's controller override, 2026-09-26: an absent slot 8 DEFAULTS and the compute
+// PROCEEDS — it must not raise SDPInputsIncomplete. A project that cannot reach its own
+// cost-approval gate cannot be told what it would cost, and refusing at M0 refuses the
+// one screen that exists to ask the question. (The historical refusal was correct while
+// slot 8 had an agent to draft it; stage 4b1 deletes that rail.)
+//
+// Every number has a source, and none of them is invented here:
+//
+//	Resources            the WORKER CLASSES the derived plan actually uses, read off the
+//	                     activity list — Löwy ch. 7's staffing question answered by the
+//	                     plan rather than guessed ahead of it. Never a head count: the
+//	                     option's StaffingCap is the cap, and this is the roster of ROLES
+//	                     the network needs. Sorted, so the output is replay-stable.
+//	CalendarDaysPerWeek  5 — the book's nominal working week (App. A's day is a working
+//	                     day). This repo's own committed value is 2, which is a FOUNDER
+//	                     fact about a solo founder's availability and precisely the kind
+//	                     of thing a default must not pretend to know. The default applies
+//	                     only when the slot is ABSENT; it never overrides present data.
+//	IndirectDailyRate    defaultIndirectDailyRate ($50/day, assemblesdpreview.go's F6
+//	                     constant) — the overhead that accrues per calendar day
+//	                     regardless of which agents are active, and what makes a
+//	                     subcritical option demonstrably costlier.
+//	RateCard             defaultRateSpec per class — the SAME helper deriveClassRates
+//	                     already falls back to for a class the authored card omitted. So
+//	                     the whole-slot default is the per-class rule applied to every
+//	                     class, not a second rule that can drift from it.
+//	InfrastructureKind   the platform's ONE registered infrastructure. MEASURED, and the
+//	                     brief's "else the zero value" is wrong twice over:
+//	                     DeploymentOperationsModel carries NO InfrastructureKind member to
+//	                     read (it holds a ScenarioKind and infra building blocks), and the
+//	                     zero value is InfrastructureKindUnknown, which
+//	                     operationEstimationEngine.costModelFor REFUSES outright ("the
+//	                     Engine never falls back to a default Strategy"). Defaulting to
+//	                     the zero value would therefore fail the very compute R-E exists
+//	                     to let through. GoTemporalPostgres is not a choice among
+//	                     alternatives — it is the only kind with a cost model — so
+//	                     assuming it assumes nothing a founder could have decided
+//	                     differently today.
+//	DeclaredUsage        one user, one request a minute, a 4 KiB payload: the smallest
+//	                     load that is not zero, because a zero-load option has no
+//	                     operating cost to compare and the operating half of the M0
+//	                     headline would read $0.
+//	Terms                RevenueShare 0 / ComputeCost tieredFloors / Schedule monthly —
+//	                     the platform's shipped billing posture (docs/billing-setup.md;
+//	                     the 2026-06-09 MoR reversal), not a per-project choice.
+//
+// It returns the ASSUMPTIONS and the family names it filled, so the M0 screen can say
+// "cost computed on an assumed calendar and rate card" rather than presenting an
+// assumption as a decision. Rendering that sentence is Task 14's; RECORDING it is this
+// task's, on the attempt.
+//
+// It takes ONLY the activity list. The brief also passes the whole project, for
+// InfrastructureKind — measured, that read does not exist (see the InfrastructureKind note
+// above), and a parameter no body reads is exactly the lie proposeReviewSet's doc calls out
+// about its retired architectureGraph argument: one the compiler cannot catch.
+func defaultPlanningAssumptions(al projectstate.ActivityList) (projectstate.PlanningAssumptions, []string) {
+	classes := map[string]struct{}{}
+	for _, a := range al.Activities {
+		if a.WorkerClass != "" {
+			classes[a.WorkerClass] = struct{}{}
+		}
+	}
+	roles := make([]string, 0, len(classes))
+	for c := range classes {
+		roles = append(roles, c)
+	}
+	sort.Strings(roles)
+	card := make(map[string]projectstate.WorkerRateSpec, len(roles))
+	for _, c := range roles {
+		card[c] = defaultRateSpec(c)
+	}
+	pa := projectstate.PlanningAssumptions{
+		Resources:           roles,
+		CalendarDaysPerWeek: defaultCalendarDaysPerWeek,
+		InfrastructureKind:  defaultInfrastructureKind,
+		DeclaredUsage:       defaultDeclaredUsage(),
+		Terms:               defaultSettlementTerms(),
+		Notes:               defaultPlanningAssumptionsNote,
+		IndirectDailyRate:   defaultIndirectDailyRate,
+		RateCard:            card,
+	}
+	return pa, []string{
+		assumedResources, assumedCalendar, assumedRates, assumedIndirect,
+		assumedUsage, assumedTerms, assumedInfra,
+	}
+}
+
+// defaultDeclaredUsage is one user, one request a minute, a 4 KiB payload.
+func defaultDeclaredUsage() projectstate.UsageAssumption {
+	return projectstate.UsageAssumption{
+		ExpectedDailyActiveUsers: 1,
+		RequestsPerMinute:        1,
+		AvgPayloadBytes:          4096,
+	}
+}
+
+// defaultSettlementTerms is the platform's shipped billing posture: NO revenue share, a
+// tiered-floors compute cost, billed monthly (docs/billing-setup.md; the 2026-06-09
+// merchant-of-record reversal).
+//
+// RevenueShareNegotiatedRate at ZERO PERCENT, and this needs its reason stated because the
+// obvious encoding is wrong: "no revenue share" has NO member of its own in the
+// RevenueShareKind vocabulary — the zero value is RevenueShareUnknown, and billingEngine's
+// money-safety guard REFUSES it outright ("settling real money under an unregistered
+// revenue-share regime is a financial-correctness hazard… the Engine NEVER silently falls
+// back"). That guard is right, and it is why this cannot be the zero value. A negotiated
+// rate of 0% is the vocabulary's only truthful way to say "a share was agreed and it is
+// nothing"; the projection echoes 0% either way.
+//
+// EARMARKED: the vocabulary wants a RevenueShareNone member, which is a project.json edit
+// plus codegen. Until it exists this is the encoding, and it is written down HERE rather
+// than guessed at each call site.
+func defaultSettlementTerms() projectstate.SettlementTerms {
+	return projectstate.SettlementTerms{
+		RevenueShare:        projectstate.RevenueShareNegotiatedRate,
+		RevenueSharePercent: 0,
+		ComputeCost:         projectstate.ComputeCostTieredFloors,
+		Schedule:            projectstate.ScheduleMonthly,
+	}
+}
+
+// resolvePlanningAssumptions is what the compute actually reads: the COMMITTED slot 8 where
+// it holds a usable value, and The Method's default for each family where it does not.
+//
+// PER FAMILY, not all-or-nothing, and that distinction is the whole of R-E read carefully.
+// "Defaults when absent" is not "defaults when the slot is missing": a field whose value is
+// its vocabulary's UNKNOWN member is absent in the only sense that matters, because no
+// Engine can price it. MEASURED on this repo's own state, which is why this function exists
+// at all: slot 8 is committed and its `terms.revenueShare` is 0 — RevenueShareUnknown — so
+// billingEngine refuses every option and the SDP assembly cannot run at all. That is why
+// slots 11-16 have carried staleBasis since the billing reversal: nothing could re-derive
+// them. Refusing at M0 over a field that is zero BY DESIGN is exactly the failure R-E
+// removes.
+//
+// It NEVER replaces a NAMED value. A committed calendar of two days a week stays two days a
+// week; a committed FlatMarkup regime stays FlatMarkup. Only the unknown members and the
+// uncommitted slot are filled, and every fill is recorded.
+func resolvePlanningAssumptions(
+	proj projectstate.Project,
+	al projectstate.ActivityList,
+) (projectstate.PlanningAssumptions, []string) {
+	pa, err := committedPlanningAssumptions(proj)
+	if err != nil {
+		return defaultPlanningAssumptions(al)
+	}
+	var defaulted []string
+	if pa.Terms.RevenueShare == projectstate.RevenueShareUnknown || pa.Terms.ComputeCost == projectstate.ComputeCostUnknown {
+		// The percents ride with the regime: a percent kept from an unregistered regime would
+		// be a number with no rule behind it.
+		pa.Terms = defaultSettlementTerms()
+		defaulted = append(defaulted, assumedTerms)
+	}
+	if pa.InfrastructureKind == projectstate.InfrastructureKindUnknown {
+		pa.InfrastructureKind = defaultInfrastructureKind
+		defaulted = append(defaulted, assumedInfra)
+	}
+	if pa.CalendarDaysPerWeek <= 0 {
+		pa.CalendarDaysPerWeek = defaultCalendarDaysPerWeek
+		defaulted = append(defaulted, assumedCalendar)
+	}
+	if pa.DeclaredUsage.ExpectedDailyActiveUsers <= 0 && pa.DeclaredUsage.RequestsPerMinute <= 0 {
+		// A zero-load option has no operating cost to compare, so the operating half of the M0
+		// headline would read $0 — which looks like an answer and is not one.
+		pa.DeclaredUsage = defaultDeclaredUsage()
+		defaulted = append(defaulted, assumedUsage)
+	}
+	return pa, defaulted
+}
+
+// defaultCalendarDaysPerWeek is App. A's nominal working week. It is FIVE and not this
+// repo's committed two: two is a founder fact, and a default that guessed it would tell
+// every other project's founder their own availability.
+const defaultCalendarDaysPerWeek = 5.0
+
+// defaultPlanningAssumptionsNote is what the slot itself says about where it came from,
+// so a reader of the committed document is never left guessing which numbers a human
+// chose.
+const defaultPlanningAssumptionsNote = "Derived defaults: no planning assumptions were authored, so the platform assumed " +
+	"The Method's nominal 5-day working week, the default agent rate card and indirect daily rate, " +
+	"the smallest non-zero declared load, and the platform's shipped billing posture. " +
+	"Edit this slot to replace any of them with a fact about your own team."
+
+// defaultInfrastructureKind is the platform's ONE registered infrastructure. See
+// defaultPlanningAssumptions' InfrastructureKind note: the zero value is a refusal, not a
+// default, so this is the only value a default can hold.
+const defaultInfrastructureKind = projectstate.InfrastructureKindGoTemporalPostgres
+
+// defaultedDetail is the sentence the attempt records when the compute had to assume
+// something, and the EMPTY STRING when it did not. An empty Detail is the honest answer
+// for a project whose founder authored their assumptions: a note saying "nothing was
+// assumed" is noise on every well-formed project.
+func defaultedDetail(defaulted []string) string {
+	if len(defaulted) == 0 {
+		return ""
+	}
+	return "the plan's cost was computed on ASSUMED values for " + strings.Join(defaulted, ", ") +
+		" — the founder authored none, so these are the platform's documented defaults and not decisions"
+}
+
+// computedSlot is one slot the Project-Design compute produced, in the order it is
+// staged. A SLICE and not a map: staging order is a durable command sequence, and a map
+// walk there would be non-determinism.
+type computedSlot struct {
+	Kind  projectstate.ArtifactKind
+	Model projectstate.ArtifactModel
+}
+
+// projectDesignComputedKinds is the EIGHT slots the compute writes, in staging order. It
+// is the one list the compute stages from and the M0 gate commits, so the two cannot
+// disagree about what Project Design produced.
+//
+// Slot 8 (planningAssumptions) is deliberately NOT here: it is the one authored input the
+// compute READS. It carries the founder's resources, calendar, infrastructure kind,
+// declared usage, settlement terms and rate card — business input no engine can derive.
+func projectDesignComputedKinds() []projectstate.ArtifactKind {
+	out := []projectstate.ArtifactKind{projectstate.KindActivityList, projectstate.KindNetwork}
+	out = append(out, projectstate.SolutionKinds()...)
+	return append(out, projectstate.KindRiskModel, projectstate.KindSdpReview)
+}
+
+// computeProjectPlanSlots is the WHOLE deterministic Project Design, as a pure function
+// of the committed project state.
+//
+//	slots 9,10   activityList + network — MaterializeActivityPlan, the SAME derivation
+//	             `make derived-plan-write` drives and `derived-plan-check` gates, so the
+//	             committed plan and the child's plan cannot diverge.
+//	slots 11-14  the four Solution dial-sets — derivedSolutionDials.
+//	slot 15      riskModel — riskModelFrom, over the risk EstimateForOption already
+//	             returns per option.
+//	slot 16      sdpReview — assembleSdpReviewOver, unchanged and kept whole.
+//
+// The ONE precondition that cannot be defaulted is the ARCHITECTURE: a plan derived from
+// an uncommitted slot 5 would be a plan for nothing, so that stays a FailedPrecondition
+// naming it (materializePhase2Draft raises it).
+//
+// It returns the slots AND the assumption families it had to default, which the attempt's
+// Detail records.
+func computeProjectPlanSlots(
+	proj projectstate.Project,
+	eng sdpEngines,
+) ([]computedSlot, []string, error) {
+	if !eng.wired() {
+		return nil, nil, newError(fwmanager.FailedPrecondition,
+			"the Project-Design compute has no estimate Engines wired; nothing can price the plan")
+	}
+	listModel, lErr := materializePhase2Draft(proj, projectstate.KindActivityList, nil)
+	if lErr != nil {
+		return nil, nil, lErr
+	}
+	list, ok := listModel.(*projectstate.ActivityList)
+	if !ok {
+		return nil, nil, wrongModelType(projectstate.KindActivityList, listModel)
+	}
+	pa, defaulted := resolvePlanningAssumptions(proj, *list)
+	netModel, nErr := materializePhase2Draft(proj, projectstate.KindNetwork, committedNetworkDecorations(proj))
+	if nErr != nil {
+		return nil, nil, nErr
+	}
+	net, ok := netModel.(*projectstate.Network)
+	if !ok {
+		return nil, nil, wrongModelType(projectstate.KindNetwork, netModel)
+	}
+
+	cap0, capAuthored := normalStaffingCap(proj)
+	if !capAuthored {
+		defaulted = append(defaulted, assumedStaffing)
+	}
+	solutions := make(map[projectstate.ArtifactKind]*projectstate.Solution, len(projectstate.SolutionKinds()))
+	for _, kind := range projectstate.SolutionKinds() {
+		dials, known := derivedSolutionDials(kind, cap0)
+		if !known {
+			return nil, nil, newError(fwmanager.FailedPrecondition,
+				"no Method dial set is derived for solution kind "+kind.String())
+		}
+		solutions[kind] = derivedSolution(kind, dials)
+	}
+
+	review, risks, rErr := assembleSdpReviewOver(eng, pa, *list, *net, solutions, "")
+	if rErr != nil {
+		return nil, nil, rErr
+	}
+	riskModel := riskModelFrom(review.Options, risks, solutionKindOfOption(review.Options, review.Recommendation))
+
+	out := make([]computedSlot, 0, len(projectDesignComputedKinds()))
+	out = append(out,
+		computedSlot{Kind: projectstate.KindActivityList, Model: list},
+		computedSlot{Kind: projectstate.KindNetwork, Model: net},
+	)
+	for _, kind := range projectstate.SolutionKinds() {
+		out = append(out, computedSlot{Kind: kind, Model: solutions[kind]})
+	}
+	return append(out,
+		computedSlot{Kind: projectstate.KindRiskModel, Model: &riskModel},
+		computedSlot{Kind: projectstate.KindSdpReview, Model: review},
+	), defaulted, nil
+}
+
+// committedNetworkDecorations hands materializePhase2Draft the AUTHORED network whose
+// milestone Name/Public decorations it carries across. The committed slot 10 is that
+// authored document: milestone names have no derivation source, so the re-derivation
+// preserves the ones already committed rather than refusing every milestone as anonymous.
+// A project with no committed slot 10 passes an empty network, and materializeNetwork's
+// own loud refusal names the first anonymous milestone.
+func committedNetworkDecorations(proj projectstate.Project) projectstate.ArtifactModel {
+	net, err := committedNetwork(proj)
+	if err != nil {
+		return &projectstate.Network{}
+	}
+	return &net
+}
+
+// solutionKindOfOption maps the SdpReview's chosen OptionID onto the solution KIND the
+// RiskModel names it by. The two slots speak two vocabularies (OptionID vs ArtifactKind)
+// and this is the one place that crosses between them; an unknown id answers with the
+// zero kind rather than guessing, so a mismatch shows up as an empty recommendation
+// instead of the wrong option.
+func solutionKindOfOption(rows []projectstate.SdpOptionRow, id projectstate.OptionID) projectstate.ArtifactKind {
+	for _, r := range rows {
+		if r.OptionID == id {
+			return r.SolutionKind
+		}
+	}
+	return projectstate.ArtifactKind(0)
+}
+
 // ---------------------------------------------------------------------------
 // CONSTRUCTION RAIL — moved verbatim from internal/manager/construction/
 // constructionmanager.go at stage 4a. Bodies are unchanged; only package-private
@@ -8208,6 +8757,13 @@ type constructionManager struct {
 	gitActivityStatus      projectstate.GitActivityStatusAccess
 	escalationWaitTimeout  time.Duration
 	interventionMode       string
+
+	// sdpEngines are the three estimate Engines deterministic Project Design calls (stage
+	// 4b1 Task 9). The construction half holds them because the GENERIC child runs on this
+	// half's worker, and the child now walks the `projectDesign` lifecycle too — the
+	// projectDesignManager's own copies stay where they are for as long as the retired SDP
+	// assembly does. Threaded into the csWorkflows via wfDeps.SDPEngines (WorkerManifest).
+	sdpEngines sdpEngines
 
 	// repo (B5) is the per-project Repo resolver the gh-mode venue switch dispatches
 	// through: projectID → the project's own RepoRef. nil, a miss, or the DESIGN rails'
@@ -8275,6 +8831,11 @@ func newConstructionManager(
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
+	// eng are the three estimate Engines deterministic Project Design calls. ONE trailing
+	// struct parameter rather than three positional interfaces, because this constructor
+	// already takes sixteen and three more nils at seventeen call sites is a miscount
+	// waiting to happen.
+	eng sdpEngines,
 ) *constructionManager {
 	return &constructionManager{
 		client:                 c,
@@ -8293,6 +8854,7 @@ func newConstructionManager(
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 		repo:                   repo,
+		sdpEngines:             eng,
 	}
 }
 
@@ -9859,6 +10421,13 @@ type wfDeps struct {
 	// conversion).
 	InterventionPolicy intervention.InterventionPolicy
 
+	// SDPEngines are the three estimate Engines deterministic Project Design calls (stage
+	// 4b1 Task 9). They reach the compute strategy through productionStrategies, not
+	// through a package var: a strategy's engines are THREADED (architect ruling R9-5), so
+	// a boot that wires none gets a compute that refuses by name rather than one that
+	// nil-panics inside a workflow task and retries forever.
+	SDPEngines sdpEngines
+
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
@@ -9920,8 +10489,10 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
 		// The generic child's strategy table is defaulted HERE, not read lazily, so an
-		// unwired composition cannot nil-map-read its way to a walk with no dispatch.
-		Strategies: productionStrategies(),
+		// unwired composition cannot nil-map-read its way to a walk with no dispatch. The
+		// estimate Engines ride the registry constructor, which is what makes the
+		// Project-Design compute testable against a substituted Engine.
+		Strategies: productionStrategies(d.SDPEngines),
 	}
 }
 
@@ -10601,6 +11172,7 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		NextEligibleActivity:  nextEligibleActivity,
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
+		SDPEngines:            m.sdpEngines,
 	})
 
 	return genWorkerManifest{
@@ -12054,7 +12626,11 @@ func newDeliveryManager(
 			operationEstimator, billingEstimator, designSession, activityExecution, episodes, repo),
 		cs: newConstructionManager(c, projectState, art, interventionEng, reviewEng, pipeline,
 			rail, constructionTransition, gitStatus, designSession, activityExecution, bus,
-			episodes, escalationWaitTimeout, interventionMode, repo),
+			episodes, escalationWaitTimeout, interventionMode, repo,
+			// The three estimate Engines the projectDesignManager already takes, handed to the
+			// construction half TOO: the generic child runs on its worker and now walks the
+			// projectDesign lifecycle, whose one task is a server-side computation over them.
+			sdpEngines{Estimation: estimator, OperationEst: operationEstimator, Settlement: billingEstimator}),
 		projectState: projectState,
 	}
 }
@@ -12381,17 +12957,27 @@ func (m *deliveryManager) submitProjectDesignDecision(rc fwmanager.Context, proj
 		_, err := m.pd.AdvanceToConstruction(rc, projectID, deliveryDerefBool(decision.AcknowledgeStale))
 		return err
 	}
-	if taskID == sdpReviewTaskID && (decision.Decision == ReviewApprove || decision.Decision == ReviewReject) {
-		sdp := SDPCommit
-		if decision.Decision == ReviewReject {
-			sdp = SDPRejectAll
-		}
+	// M0 HAS NO SEND-BACK (spec §6; stage 4b1 Task 9). The typed refusal lives HERE, at the
+	// façade, because this is the one place the founder's decision arrives and therefore the
+	// only place a refusal can be shown to them: the SPA has refused it since stage 5
+	// (NO_SDP_SEND_BACK) and the server now gives the SAME reason, so the screen and the API
+	// cannot disagree about why. The generic child's gate refuses it a second time, for a
+	// signal that arrives past this guard.
+	//
+	// Why a refusal and not an absorbed rejection: the plan is DERIVED. There is no draft to
+	// re-run and no judged task to re-open, so a send-back has nothing to act on — it would
+	// withdraw the round and strand the activity. Changing the plan means amending the
+	// Architecture, which recomputes it.
+	if taskID == sdpReviewTaskID && decision.Decision == ReviewReject {
+		return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: "+noSendBackAtM0)
+	}
+	if taskID == sdpReviewTaskID && decision.Decision == ReviewApprove {
 		var opt *OptionID
 		if decision.OptionID != nil {
 			o := OptionID(*decision.OptionID)
 			opt = &o
 		}
-		return m.pd.SubmitSDPDecision(rc, projectID, sdp, opt, feedback)
+		return m.pd.SubmitSDPDecision(rc, projectID, SDPCommit, opt, feedback)
 	}
 	kind, err := designKindFor(lc, taskID, "SubmitReviewDecision")
 	if err != nil {
