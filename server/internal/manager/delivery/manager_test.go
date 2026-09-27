@@ -11093,10 +11093,13 @@ func (f csFakeActivityExecution) RecordOperatorNote(_ fwra.Context, _ projectsta
 			case projectstate.ActivityConstructionDone, projectstate.ActivityConstructionFailed:
 				return nil
 			case projectstate.ActivityConstructionNotStarted, projectstate.ActivityConstructionRunning:
-				return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				// CONFLICT, mirroring the store since Task 12 round 3 (minor (e)): the refusal is
+				// state-dependent, not a malformed request, and the double must not disagree with
+				// the store about which kind the façade maps.
+				return fwra.New(fwra.Conflict, fmt.Sprintf(
 					"fake projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited", activityID, phase))
 			}
-			return fwra.New(fwra.ContractMisuse, "fake projectstate.RecordOperatorNote: no coarse phase a requeue can reason about")
+			return fwra.New(fwra.Conflict, "fake projectstate.RecordOperatorNote: no coarse phase a requeue can reason about")
 		}); err != nil {
 			return 0, err
 		}
@@ -20156,8 +20159,12 @@ func Test_Reopen_RefusesAnActivityThatHasNotExited(t *testing.T) {
 	}}
 	err := newFacadeConstructionManager(task12NoSession(), running).
 		OverrideActivity(testCtx(), "p", "A", reopenOverride("run it again"))
-	if e := asConstructionError(t, err); e.Kind != fwmanager.ContractMisuse || !strings.Contains(e.Detail, "not finished") {
-		t.Fatalf("want the store's ContractMisuse naming the live row, got %s %q", e.Kind, e.Detail)
+	// FAILED PRECONDITION, because the store answers Conflict (Task 12 round 3, minor (e)): the
+	// refusal is state-dependent — the same requeue is legal the moment the activity exits — and
+	// the façade maps a store Conflict to the operator's FailedPrecondition exactly as it does for
+	// this facet's other two terminality refusals.
+	if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, "not finished") {
+		t.Fatalf("want FailedPrecondition naming the live row, got %s %q", e.Kind, e.Detail)
 	}
 	if row := running.execution("A"); row.StartedAt == nil {
 		t.Fatal("a refused re-open must move NOTHING — the row was re-armed anyway")
@@ -20210,6 +20217,16 @@ func Test_Reopen_HealsTheDesignSlotCommitWindow(t *testing.T) {
 	rig.cs.commitFailKinds = nil
 	advancedBefore := rig.cs.advanced
 	rig.cs.mu.Unlock()
+
+	// THE PUMP MUST NOW SELECT IT, and this assertion is the one the window needed: the
+	// re-open clears the head facts and KEEPS the ledger, so isActivityDispatchable's ledger
+	// derivation resolves Done for a walk whose every gate passed. Before Task 12 round 3 this
+	// test passed only because it calls ExecuteWorkflow directly — in production the pump
+	// refused the row and the repair never ran, however many times the operator pressed the
+	// button. Asserted through the real predicate, over the real row.
+	if !dispatchableNow(t, rig.cs, "requirements") {
+		t.Fatal("a re-opened activity must be dispatchable; the repair below only runs because the PUMP selects it")
+	}
 
 	next := rig.reenter(t)
 	next.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, next.cswf, next.cs, pipe) }
@@ -20401,34 +20418,69 @@ func Test_Approve_IsRefusedWhileAChangeRequestIsOpen(t *testing.T) {
 	}
 }
 
-// THE CHILD'S OWN RE-CHECK: a decision signal that arrives past the façade's guard — the TOCTOU
-// window, or any sender that is not the façade — must not decide the round either.
+// THE CHILD'S OWN RE-CHECK, DRIVEN AT A LIVE GATE (Task 12 round 3, F2). A decision signal that
+// arrives past the façade's guard — the TOCTOU window, or any sender that is not the façade —
+// must not decide a round with an open CHANGE REQUEST either.
+//
+// THE PREVIOUS SHAPE OF THIS CASE WAS VACUOUS and is worth saying so: it registered its
+// callbacks at t=3s and t=90s on a walk that completed at workflow time ZERO, so neither ever
+// fired, every round's thread was empty, and the assertion ("no passed round holds a blocking
+// comment") was true of a walk in which nothing had been asked. Mutating the child's re-check to
+// `len(open) > 99` left it green.
+//
+// What makes it real: the gate is genuinely LIVE when the approve arrives, because a change
+// request is seeded on the round the instant it opens (seedCommentOnRound, the stand-in for the
+// window a critic occupies for minutes in production) and an open comment HOLDS the autogate. The
+// raw approve then arrives at a suspended gate, and the round must still be pending afterwards.
 func Test_Approve_TheChildRefusesAnApproveOverAnOpenChangeRequest(t *testing.T) {
 	rig, m := openCommentRig(t)
+	// A CHANGE REQUEST — the kind that blocks an approve, human or not.
+	rig.cs.mu.Lock()
+	rig.cs.seedCommentOnRound = map[string]projectstate.ReviewComment{
+		"srsReview": task12Comment("r1c1", "name the failure mode this covers"),
+	}
+	rig.cs.mu.Unlock()
+	// STRAIGHT PAST THE FAÇADE, as a stale or hand-crafted signal arrives. The façade would
+	// refuse this itself (Test_Approve_IsRefusedWhileAChangeRequestIsOpen); this is the child's
+	// own re-check, which is what closes the window between the façade's read and its write.
 	rig.env.RegisterDelayedCallback(func() {
-		// A CHANGE REQUEST, not a question: this is the kind that blocks.
-		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), "srsReview",
-			ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: "tighten it",
-				Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}); err != nil {
-			t.Errorf("the send-back must land: %v", err)
+		if !roundIsPending(rig.cs, shapeServiceID, "srsReview") {
+			t.Error("the open change request must HOLD the gate; there is no live gate for the approve to be refused at")
 		}
-	}, 3*time.Second)
-	// Straight past the façade, as a stale or hand-crafted signal would arrive.
+		rig.env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{
+			TaskID: "srsReview", Decision: ReviewApprove, DecidedBy: gateActorOperator,
+		})
+	}, 30*time.Second)
+	// The approve was refused, so the gate is STILL held — and resolving the comment is what
+	// releases it. Both halves in one walk, because "refused" and "wedged" look identical from
+	// a round that never passes.
 	rig.env.RegisterDelayedCallback(func() {
-		rig.env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{TaskID: "srsReview", Decision: ReviewApprove})
+		if !roundIsPending(rig.cs, shapeServiceID, "srsReview") {
+			t.Error("the child applied an approve over an open CHANGE REQUEST; its re-check did not fire")
+		}
+		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), "srsReview",
+			ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo("r1c1"),
+				CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
+			t.Errorf("the resolve must land: %v", err)
+		}
 	}, 90*time.Second)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
 	})
-	// The walk does NOT finish: the re-opened pair re-drafts, its new round holds the comment the
-	// send-back filed, and the approve that arrived over it was refused rather than applied.
+	shapeRequireCompleted(t, rig.env)
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("the walk must finish once the change request is resolved: %v", err)
+	}
+	// AND NO PASSED ROUND CARRIES A BLOCKING COMMENT — the original claim, now made about a walk
+	// in which one was genuinely open at a live gate.
 	row := rig.cs.execution(shapeServiceID)
 	for _, r := range row.Reviews {
-		if string(r.TaskID) == "srsReview" && r.Outcome == projectstate.RoundPassed {
-			for _, c := range r.Thread {
-				if projectstate.ReviewCommentBlocksApprove(c) {
-					t.Fatalf("round %d passed with comment %s still open — the child's re-check did not fire", r.Round, c.ID)
-				}
+		if r.Outcome != projectstate.RoundPassed {
+			continue
+		}
+		for _, c := range r.Thread {
+			if projectstate.ReviewCommentBlocksApprove(c) {
+				t.Fatalf("round %d at %s passed with comment %s still open", r.Round, r.TaskID, c.ID)
 			}
 		}
 	}
@@ -20439,6 +20491,12 @@ func Test_Approve_TheChildRefusesAnApproveOverAnOpenChangeRequest(t *testing.T) 
 // a design task's is its slot, and passing nil for one of the three kinds that SHARE
 // `architectureReview` would resolve to whichever was written last.
 func Test_RoundKindOfTask_AgreesWithWhatTheChildStamps(t *testing.T) {
+	// THE COUNT IS PINNED, because "all fourteen lifecycles" is the claim and a loop over a
+	// shorter list would make it vacuously true: a method-assets release that DROPPED a lifecycle
+	// would leave this green while an entire activity type's rounds went unchecked.
+	if got := len(methodassets.Lifecycles()); got != 14 {
+		t.Fatalf("method-assets carries %d lifecycles, want 14 — this case's claim is about all of them", got)
+	}
 	for _, lc := range methodassets.Lifecycles() {
 		for _, task := range lc.Tasks {
 			if task.Kind != methodassets.LifecycleTaskReview {
@@ -23328,4 +23386,79 @@ func Test_DeliveryProjectRepoBase_ResolvesThePerProjectHostAndFallsBack(t *testi
 			}
 		})
 	}
+}
+
+// A RE-OPENED ACTIVITY IS RE-SELECTED BY THE PUMP (Task 12 round 3, F1). The predicate case
+// above proves the rule; this one proves the PUMP reads it, through nextEligibleActivity over a
+// committed plan — because a rule the selector does not consult is a rule with no effect.
+func Test_NextEligible_ARequeuedActivityIsSelectedAgain(t *testing.T) {
+	proj := planWithDesignPrefix()
+	// requirements FINISHED: every gate passed and the exit is recorded — the shape the
+	// post-exit slot-commit window leaves behind.
+	done := time.Now().UTC().Add(-time.Hour)
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"requirements": {
+			StartedAt: &done, CompletedAt: &done,
+			// EVERY task passed, built off the lifecycle DATA rather than a token attempt: the
+			// whole point of F1 is that a FULL ledger resolves Done once the head facts are
+			// cleared, so a thin ledger would make this case pass with the rule removed.
+			Attempts: passedLedgerFor("requirements", projectstate.ActivityTypeRequirements, done),
+		},
+	}
+	// BEFORE the requeue the pump walks PAST it — the plan's next design activity is what it
+	// selects — which is what made the repair unreachable however many times the operator
+	// pressed the button.
+	if got := nextEligibleActivity(proj, eligibleWithDesign); got.Activity.ActivityID == "requirements" {
+		t.Fatalf("a finished activity must not be re-selected before it is re-opened; selection = %+v", got)
+	}
+	// THE REQUEUE, in the shape RecordOperatorNote leaves behind: the four head facts cleared,
+	// both ledgers kept, one requeue note newer than the last resolved attempt.
+	row := proj.ActivityExecution["requirements"]
+	row.StartedAt, row.CompletedAt = nil, nil
+	row.FailureReason, row.FailureDetail = projectstate.FailureReasonUnknown, ""
+	row.OperatorNotes = append(row.OperatorNotes, projectstate.OperatorNote{
+		NoteID: "n1", Kind: projectstate.NoteRequeue, Gate: "reopen",
+		Text: "the commit faulted; land the slots", RecordedAt: time.Now().UTC(),
+	})
+	proj.ActivityExecution["requirements"] = row
+
+	got := nextEligibleActivity(proj, eligibleWithDesign)
+	if got.Verdict != verdictDispatch {
+		t.Fatalf("the pump must select a re-opened activity; selection = %+v", got)
+	}
+	if got.Activity.ActivityID != "requirements" {
+		t.Errorf("the pump selected %q, want the re-opened activity", got.Activity.ActivityID)
+	}
+	// AND A STALE REQUEUE DOES NOT RE-ARM IT TWICE: the activity ran again and finished, so the
+	// note now predates its last work and the row is finished for good.
+	row = proj.ActivityExecution["requirements"]
+	ended := time.Now().UTC().Add(time.Hour)
+	row.StartedAt, row.CompletedAt = &ended, &ended
+	row.Attempts = append(row.Attempts, projectstate.TaskAttempt{
+		AttemptID: "requirements:missionDraft:2", Task: projectstate.MethodTask("missionDraft"),
+		Attempt: 2, Outcome: projectstate.OutcomePassed, EndedAt: &ended,
+	})
+	proj.ActivityExecution["requirements"] = row
+	if projectstate.RequeuedAfterExit(proj.ActivityExecution["requirements"]) {
+		t.Error("a requeue note OLDER than the activity's last work must not re-arm it a second time")
+	}
+}
+
+// passedLedgerFor builds one PASSED attempt per task of an activity type's lifecycle — the
+// ledger a completed walk leaves behind, which is what makes EffectiveConstructionPhase resolve
+// Done off the ledger alone once the requeue clears the head facts.
+func passedLedgerFor(activityID string, typ projectstate.ActivityType, at time.Time) []projectstate.TaskAttempt {
+	lc, ok := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(typ, 0))
+	if !ok {
+		return nil
+	}
+	ended := at
+	var out []projectstate.TaskAttempt
+	for _, t := range lc.Tasks {
+		out = append(out, projectstate.TaskAttempt{
+			AttemptID: activityID + ":" + t.ID + ":1", Task: projectstate.MethodTask(t.ID),
+			Attempt: 1, Outcome: projectstate.OutcomePassed, StartedAt: &ended, EndedAt: &ended,
+		})
+	}
+	return out
 }

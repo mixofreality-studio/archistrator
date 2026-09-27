@@ -8731,6 +8731,52 @@ func PumpWroteRow(r ActivityExecution) bool {
 	return r.StartedAt != nil
 }
 
+// RequeuedAfterExit reports whether this row was RE-ARMED by an operator requeue after it
+// exited, and is therefore dispatchable again whatever its attempt ledger resolves to.
+//
+// THE DEFECT IT CLOSES, and it made the re-open half-real. RecordOperatorNote{NoteRequeue}
+// clears the four head facts — StartedAt, CompletedAt, FailureReason, FailureDetail — and KEEPS
+// both ledgers, which is what lets the re-run seed its passed tasks instead of re-doing them.
+// But with StartedAt cleared, CoarsePhaseFor falls through to the LEDGER, and a ledger whose
+// every gate passed resolves Done. So the pump asked "is this dispatchable?", got Done, and
+// never re-selected the activity: the re-open cleared the facts the pump reads and then handed
+// it a derivation that put the terminal straight back. The post-exit design-slot-commit window
+// — a Completed activity whose slots are still AwaitingReview — therefore did NOT heal in
+// production, however many times an operator pressed the button.
+//
+// THE EVIDENCE IS THE NOTE, not a flag. The row already records the operator's requeue with a
+// server clock, and the attempt ledger already records when the activity last finished work, so
+// "re-armed since it exited" is a comparison between two facts the store holds rather than a
+// fifth head field that would then need its own write-once rule. Concretely: the head must read
+// NOT-STARTED (all four facts cleared, which only reopenTerminalRow does), and the newest
+// requeue note must be NEWER than the newest RESOLVED attempt. The second half is what keeps
+// this from admitting a row whose requeue predates its last run — an activity re-opened, re-run
+// and finished again is finished, and its stale requeue note must not re-arm it a second time.
+func RequeuedAfterExit(r ActivityExecution) bool {
+	if r.StartedAt != nil || r.CompletedAt != nil || r.FailureReason != FailureReasonUnknown {
+		return false
+	}
+	var requeued time.Time
+	for _, n := range r.OperatorNotes {
+		if n.Kind == NoteRequeue && n.RecordedAt.After(requeued) {
+			requeued = n.RecordedAt
+		}
+	}
+	if requeued.IsZero() {
+		return false
+	}
+	var lastWork time.Time
+	for _, a := range r.Attempts {
+		if a.Outcome == OutcomePending || a.EndedAt == nil {
+			continue
+		}
+		if a.EndedAt.After(lastWork) {
+			lastWork = *a.EndedAt
+		}
+	}
+	return requeued.After(lastWork)
+}
+
 // DependencyResolution is the outcome of resolving one dependency id. ProblemReason is
 // set (non-empty) the instant resolution meets a genuine plan-authoring defect — an id
 // naming neither an activity nor a milestone, or a milestone dependency cycle — and is
@@ -10068,8 +10114,17 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 			// by never overwriting CompletedAt; that write-once rule cannot be honoured here
 			// by keeping the old value and reporting success, because the caller would be
 			// told it re-opened an activity it did not. So this refuses, matching the
-			// facet's own explicit terminality precedent (DecideReviewRound). A genuine
-			// requeue mints a new execution rather than resurrecting a closed one.
+			// facet's own explicit terminality precedent (DecideReviewRound).
+			//
+			// A REQUEUE IS THE ONE THING THAT RE-ARMS THE ROW, and it is NOT this verb:
+			// RecordOperatorNote{Kind: NoteRequeue} clears the four head facts first
+			// (reopenTerminalRow), after which this refusal no longer applies because the row
+			// is no longer terminal. That ordering is the whole design — the operator's reason
+			// and the re-arm land in ONE transition, so there is no window in which a re-armed
+			// activity has nobody's name on it — and it is why this comment must not say a
+			// requeue mints a new execution: it does not, and it has not since the re-open
+			// landed. The ledgers below are KEPT across a requeue, which is what lets the
+			// re-run seed its passed tasks instead of re-doing them.
 			if exited := CoarsePhaseFor(*cs, nil); exited == ActivityConstructionDone || exited == ActivityConstructionFailed {
 				refused = fwra.New(fwra.Conflict, fmt.Sprintf(
 					"projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, exited))
@@ -10663,11 +10718,19 @@ func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
 		cs.FailureReason, cs.FailureDetail = FailureReasonUnknown, ""
 		return nil
 	case ActivityConstructionNotStarted, ActivityConstructionRunning:
-		return execMisuse("RecordOperatorNote", fmt.Sprintf(
-			"activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
+		// A CONFLICT, NOT A CONTRACT MISUSE. The caller's ARGUMENTS are impeccable — the same
+		// note against the same activity is legal the moment it exits — so what is wrong is the
+		// STATE, and that is the distinction fwra's two kinds carry: ContractMisuse says "this
+		// request is malformed, retrying it will never work", Conflict says "not in this state".
+		// It matches the facet's own two explicit terminality refusals (OpenActivity on an
+		// exited row, DecideReviewRound on a decided round), and the façade maps it to
+		// FailedPrecondition for the operator exactly as it already maps those.
+		return fwra.New(fwra.Conflict, fmt.Sprintf(
+			"projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
 			activityID, phase))
 	}
-	return execMisuse("RecordOperatorNote", fmt.Sprintf("activity %s has no coarse phase a requeue can reason about", activityID))
+	return fwra.New(fwra.Conflict, fmt.Sprintf(
+		"projectstate.RecordOperatorNote: activity %s has no coarse phase a requeue can reason about", activityID))
 }
 
 // AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the

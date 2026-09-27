@@ -11906,8 +11906,13 @@ func TestRecordOperatorNote_RequeueReArmsATerminalActivity(t *testing.T) {
 	before := verbRowVersion(t, a, id, "C-X")
 	if _, err := requeue(v, "wf:requeue-live"); err == nil {
 		t.Fatal("a requeue against a live activity must be refused — re-arming it would hand a second child the row")
-	} else if got := kindOf(t, err); got != fwra.ContractMisuse {
-		t.Fatalf("kind = %v, want ContractMisuse", got)
+	} else if got := kindOf(t, err); got != fwra.Conflict {
+		// A CONFLICT, NOT A CONTRACT MISUSE (Task 12 round 3, minor (e)). The arguments are
+		// impeccable — the same note is legal the moment the activity exits — so what is wrong is
+		// the STATE, which is the distinction the two kinds carry and the one this facet's other
+		// two terminality refusals already make (OpenActivity on an exited row, DecideReviewRound
+		// on a decided round). The façade maps it to FailedPrecondition for the operator either way.
+		t.Fatalf("kind = %v, want Conflict", got)
 	}
 	if got := verbRowVersion(t, a, id, "C-X"); got != before {
 		t.Fatalf("a refused requeue must leave the row where it found it: version = %d, want %d", got, before)

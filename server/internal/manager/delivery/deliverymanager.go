@@ -6320,6 +6320,21 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 // activity whose child merely has not started yet cannot be re-armed through this door.
 func (m *constructionManager) reopenActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		// TERMINALITY IS PRE-CHECKED HERE, on the row this attempt just read, and the reason is the
+		// error KIND the store answers with (Task 12 round 3, minor (e)): a requeue against a live
+		// row is refused `fwra.Conflict`, because the arguments are impeccable and only the STATE is
+		// wrong. But onActivityRow reads a Conflict as a RACE and retries it, so without this check
+		// the operator's refusal arrives as "activity A changed concurrently … re-read it and try
+		// again" after three wasted attempts — a sentence about a race that never happened, for a
+		// row that is simply still running. The store's Conflict stays the backstop for the genuine
+		// race (an activity that exits between this read and the write); this is the honest answer
+		// for the case the operator is actually in.
+		if phase := projectstate.CoarsePhaseFor(row, nil); phase != projectstate.ActivityConstructionDone &&
+			phase != projectstate.ActivityConstructionFailed {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"constructionManager.OverrideActivity: activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
+				activityID, phase))
+		}
 		_, err := m.activityExecution.RecordOperatorNote(fwra.Context{Context: ctx},
 			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
 			projectstate.OperatorNoteInput{
@@ -6711,10 +6726,13 @@ func isManagerFailedPrecondition(err error) bool {
 // THE CHECK-THEN-ACT WINDOW, and its REAL consequence (fix round 2, review minor M2). Between
 // the session read above and the write below, a pump tick can start a child that opens a gate on
 // this very round. The write then lands, and the child's own decision hits DecideReviewRound's
-// terminality Conflict — which applyRecovering retries until its bound is spent and the walk
-// FAILS the activity. That is no longer unrecoverable: a failed activity is re-opened with a
-// requeue note (reopenTerminalRow) and the re-run seeds every task that passed. The window is
-// milliseconds wide and the outcome is now a recoverable failure rather than a stranded one.
+// terminality Conflict — at which point the recovery loop does NOT burn its bound: the row's own
+// version has not moved, so terminalAfterRowReread recognises the Conflict as TERMINAL rather
+// than as a race and short-circuits to a NonRetryable error after one or two attempts. The walk
+// FAILS the activity, promptly and legibly. That is no longer unrecoverable: a failed activity is
+// re-opened with a requeue note (reopenTerminalRow), the re-run seeds every task that passed, and
+// the pump re-selects it (RequeuedAfterExit). The window is milliseconds wide and the outcome is
+// a recoverable failure rather than a stranded one.
 //
 // ROUTING THE WITHDRAW THROUGH THE CHILD'S INBOX would serialize it against the child's own gate
 // and is the obvious narrowing — but it does not narrow THIS window, because the window's premise
@@ -7755,6 +7773,17 @@ func isActivityDispatchable(activityID string, item projectstate.ActivityItem, s
 	}
 	if projectstate.PumpWroteRow(s) {
 		return false
+	}
+	// A REQUEUE RE-ARMS THE ROW WHATEVER ITS LEDGER RESOLVES TO (stage 4b1, Task 12 round 3).
+	// This is asked BEFORE the ledger derivation on purpose: an operator's re-open clears the
+	// four head facts and KEEPS both ledgers — which is what lets the re-run seed its passed
+	// tasks — so a walk whose every gate had passed resolves Done off the ledger and the pump
+	// would refuse the very activity the operator just re-opened. The post-exit slot-commit
+	// window (Completed, slots still AwaitingReview) did not heal in production for exactly
+	// that reason. The evidence is the requeue NOTE against the last resolved attempt, so the
+	// rule reads two facts the store already holds rather than a fifth head field.
+	if projectstate.RequeuedAfterExit(s) {
+		return true
 	}
 	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
 	return effective == projectstate.ActivityConstructionNotStarted || effective == projectstate.ActivityConstructionRunning

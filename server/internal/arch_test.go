@@ -784,6 +784,19 @@ var encapsulationAllowlistData = map[string][]string{
 		"MilestonesByID",
 		"PumpWroteRow",
 		"ResolveDependencySatisfied",
+		// THE REQUEUE'S EVIDENCE (stage 4b1, Task 12 round 3). RequeuedAfterExit is the same
+		// category as PumpWroteRow beside it: a total, side-effect-free predicate over
+		// projectstate's OWN row type, so there is no resource to reach and no contract op to
+		// generate. It lives here rather than in the Manager for the reason PumpWroteRow does —
+		// the rule is about what THIS store's write path left behind (reopenTerminalRow clears
+		// four head facts and keeps both ledgers), and a Manager-side copy would be a second
+		// reader of an invariant only the store enforces. Caller outside this package,
+		// verifiable by grep:
+		//
+		//	RequeuedAfterExit → the delivery Manager (isActivityDispatchable): a row re-armed by
+		//	                    an operator requeue is dispatchable again whatever its attempt
+		//	                    ledger resolves to, because the ledger is deliberately KEPT.
+		"RequeuedAfterExit",
 		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
 		// ActivityExecution.OperatorNotes, hand-written beside that row type like
 		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,
