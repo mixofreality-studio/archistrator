@@ -670,14 +670,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// total (modulo its unclassifiable error), side-effect-free, over already-public
 		// projectstate enum values.
 		//
-		// ErrDesignActivityNotDispatchable is ClassifyActivity's typed sentinel for the
-		// three reserved design ids: it comes back WITH the resolved design type, so a
-		// caller must be able to tell "not dispatchable" from "not classifiable". It is
-		// read from internal/manager/construction (dispatchSelectionFor), a different
-		// package, which selects on errors.Is to go quiet instead of blocking.
+		// (ErrDesignActivityNotDispatchable was allowlisted here beside them until stage 4b1
+		// Task 10 deleted it. An allowlist entry naming a symbol that no longer exists is a
+		// waiver nobody can ever retire, so the entry went with the sentinel.)
 		"ClassifyActivity",
 		"ClassifyType",
-		"ErrDesignActivityNotDispatchable",
 		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
 		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —

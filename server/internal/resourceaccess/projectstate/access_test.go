@@ -8964,10 +8964,12 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 	}
 }
 
-// The three reserved design ids classify to their own types and carry the
-// not-dispatchable sentinel with them. The workerClass/coding pair they are authored
-// with (system-architect, coding=false) would otherwise type them as Documentation.
-func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
+// The three reserved design ids classify to their own types, CLEANLY — stage 4b1 Task 10
+// retired ErrDesignActivityNotDispatchable, because the generic DeliveryActivityWorkflow
+// now walks their lifecycles and "classifiable but not dispatchable" is no longer a state
+// this platform has. The workerClass/coding pair they are authored with
+// (system-architect, coding=false) would otherwise type them as Documentation.
+func TestClassifyActivity_DesignPrefixIsTypedAndDispatchable(t *testing.T) {
 	cases := []struct {
 		id   string
 		want ActivityType
@@ -8981,8 +8983,8 @@ func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
 		if typ != c.want || variant != TestVariantPlan {
 			t.Errorf("%s -> (%s, %s), want (%s, plan)", c.id, typ, variant, c.want)
 		}
-		if !errors.Is(err, ErrDesignActivityNotDispatchable) {
-			t.Errorf("%s: err = %v, want ErrDesignActivityNotDispatchable", c.id, err)
+		if err != nil {
+			t.Errorf("%s: err = %v, want nil — a design activity classifies cleanly since the sentinel died", c.id, err)
 		}
 		// The VIEW lens must still type it: a design row renders with its lifecycle.
 		if got, ok := ClassifyType(c.id, "system-architect", false, false); !ok || got != c.want {

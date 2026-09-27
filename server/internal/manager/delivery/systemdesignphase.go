@@ -18,6 +18,39 @@ import (
 // truth shared with the seal gate. scrubbed-requirements, operational-concepts and
 // standard-check were retired from that sequence on 2026-08-30; in-flight executions
 // still drive the pre-retirement eight — see phase1KindsForRun below.)
+//
+// ---------------------------------------------------------------------------
+// ORPHANED BY stage 4b1 Task 10. NOTHING STARTS THIS ANY MORE. Task 13 deletes the
+// file; it is kept compiled for one commit-range so the three design replay fixtures
+// keep replaying until the commit that archives them.
+//
+// IT WAS THE PUMP FOR PHASE 1, IN MINIATURE, and every one of its three jobs has a
+// home:
+//
+//  1. THE SEQUENCE. Its fixed kind order is now the pump's eligibility over slot 10's
+//     committed `requirements → architecture` edge, plus each child's own dependsOn
+//     walk over its lifecycle's tasks. THE MAPPING IS EXACT, and that is what makes
+//     the deletion safe rather than approximate: Phase1RequiredKinds() is FIVE kinds —
+//     mission, glossary, volatilities, coreUseCases, system. The `requirements`
+//     lifecycle is FOUR phases whose four dispatch tasks name the first four kinds; the
+//     `architecture` lifecycle is ONE phase whose one dispatch task names the fifth.
+//     Four-then-one, ten tasks, five kinds, NO RESIDUE — no sixth kind in the required
+//     list, and no kind in either lifecycle that the list does not name.
+//  2. THE SKIP-IF-COMMITTED GUARD (the 2026-07-16 incident: a restart re-spawned the
+//     mission child over a committed mission). Moved to the child's
+//     seedWalkFromLedger, which seeds a task passed when its artifact kind is already
+//     committed on main — see committedArtifactOfTask. Moving it was not optional:
+//     every existing project has committed Phase-1 slots and NO execution row for its
+//     design activities, so a ledger-only seed would re-draft all five.
+//  3. THE SEAL. Moved to csWorkflows.sealSystemDesign, which asks runPhaseAdvance's own
+//     question (is every required kind committed) after each design commit.
+//
+// WHAT IS NOT HERE, and is a founder question rather than a guess — GAP-4B-4:
+// operationalConcepts (slot 6) and standardCheck (slot 7) left Phase1RequiredKinds()
+// on 2026-08-30 and appear in NO lifecycle and NO required list, yet both still carry
+// live DesignCommandFor slugs. Nothing in this wave drafts them and nothing deletes
+// them; Task 15 asks.
+// ---------------------------------------------------------------------------
 // ===========================================================================
 
 // phaseInput is the start payload for SystemDesignPhaseWorkflow.

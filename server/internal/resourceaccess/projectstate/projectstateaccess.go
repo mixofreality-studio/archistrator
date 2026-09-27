@@ -8440,15 +8440,16 @@ func deriveVariant(activityID string) TestingVariant {
 	}
 }
 
-// ErrDesignActivityNotDispatchable is returned by ClassifyActivity, WITH the resolved
-// design ActivityType, for the three reserved design-prefix ids. The pair is the point:
-// a design activity IS classifiable — the console, QueryActivityView and the backfill
-// all need its type and its lifecycle — but it is not DISPATCHABLE by the construction
-// pump, which would run its design command as a construction pipeline (08-30 S2 ruling).
-// Stage 4's DeliveryManager dispatches it; until then callers select on errors.Is.
-var ErrDesignActivityNotDispatchable = errors.New(
-	"projectstate: design activities are not dispatched by the construction pump")
-
+// THE RETIRED SENTINEL (stage 4b1 Task 10). ErrDesignActivityNotDispatchable used to
+// come back from ClassifyActivity — WITH the resolved design ActivityType — for the three
+// reserved design-prefix ids, because the construction pump would otherwise have run a
+// design slash-command as a construction pipeline (08-30 S2 ruling). It is GONE: the
+// generic DeliveryActivityWorkflow walks the three design lifecycles' task DAGs through
+// the same strategy table it walks every other lifecycle with, so "classifiable but not
+// dispatchable" is no longer a state this platform has. The TABLE below survives — every
+// reader still needs the id → type mapping — and eleven call sites that selected on the
+// sentinel now read the type they were always given.
+//
 // designActivityTypes is the exact-id table for the three reserved design activities
 // DerivePlan emits as the plan's fixed prefix. An EXACT id match is the whole rule: the
 // derivation is the only writer of these ids (validateAdditive refuses an additive that
@@ -8484,10 +8485,10 @@ func designActivityType(id string) (ActivityType, bool) {
 //
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
-//  0. one of the three reserved design ids (designActivityType) → its design type,
-//     WITH ErrDesignActivityNotDispatchable. It must be checked FIRST: all three are
-//     authored system-architect/coding=false, so rule 6 would type them Documentation
-//     and the pump would run a design slash-command as a construction pipeline.
+//  0. one of the three reserved design ids (designActivityType) → its design type. It
+//     must be checked FIRST: all three are authored system-architect/coding=false, so
+//     rule 6 would type them Documentation and the pump would resolve a construction
+//     phase profile for a design lifecycle.
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
 //     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
@@ -8499,15 +8500,17 @@ func designActivityType(id string) (ActivityType, bool) {
 //  8. otherwise                       → error (the activity is unclassifiable; repair
 //     is to amend workerClass or coding in the committed activity list)
 //
-// Rule 0's error is the ONLY one that comes back with a meaningful type: every other
-// error arm means "no type could be resolved". Callers therefore select on errors.Is —
-// a caller that only asks `err != nil` refuses a row it could have rendered.
+// EVERY error arm now means the SAME thing — "no type could be resolved" — which is what
+// retiring ErrDesignActivityNotDispatchable bought (stage 4b1 Task 10). Rule 0 used to be
+// the one arm that returned a meaningful type ALONGSIDE an error, so every caller had to
+// select on errors.Is and a caller that merely asked `err != nil` refused a row it could
+// have rendered. `err != nil` is now the whole question.
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (TestVariantPlan) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
-		return typ, TestVariantPlan, ErrDesignActivityNotDispatchable
+		return typ, TestVariantPlan, nil
 	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
@@ -8558,11 +8561,12 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, true
 	}
 	typ, _, err := ClassifyActivity(id, workerClass, coding)
-	// The view lens asks "can this row be rendered honestly", and a design activity can:
-	// it has a type, a lifecycle and committed artifacts behind it. Only the PUMP cares
-	// that it is not dispatchable, so only the pump selects on the sentinel. Anything
-	// else ClassifyActivity refuses is genuinely untypeable and stays refused.
-	if err != nil && !errors.Is(err, ErrDesignActivityNotDispatchable) {
+	// A design activity needed a tolerance here until stage 4b1 Task 10: rule 0 handed back
+	// its type WITH ErrDesignActivityNotDispatchable, so this lens had to let that one error
+	// through or it would have refused to render a row that has a type, a lifecycle and
+	// committed artifacts behind it. The sentinel is gone, so the tolerance is gone with it:
+	// whatever ClassifyActivity refuses now is genuinely untypeable.
+	if err != nil {
 		return ActivityTypeService, false
 	}
 	return typ, true

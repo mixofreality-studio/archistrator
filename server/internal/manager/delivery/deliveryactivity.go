@@ -12,7 +12,9 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
+	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
 )
 
 // ===========================================================================
@@ -199,13 +201,27 @@ func csBindRowAccessor(ctx workflow.Context, activityID ActivityID, state *const
 // attempt by the walker, so a strategy cannot reach back into the walk and cannot
 // decide what runs next.
 type taskContext struct {
-	In       deliveryActivityInput
-	Task     methodassets.LifecycleTask
-	Phase    methodassets.LifecyclePhase
-	Revision int64
-	Attempt  int
-	State    *constructState
-	Feedback string
+	In    deliveryActivityInput
+	Task  methodassets.LifecycleTask
+	Phase methodassets.LifecyclePhase
+	// Lifecycle is the whole pinned lifecycle, and it is here for ONE reason that the Task
+	// and Phase fields cannot serve: a REVIEW task's agent critics judge the artifact of the
+	// task its `reviews` field names, and only the lifecycle can answer which that is. A
+	// critique dispatch reading tc.Task.ArtifactKind would read "" for every review row in
+	// method-assets v0.9.0 except sdpReview.
+	//
+	// It is NOT a way back into the walk: it is the same immutable platform DATA the walker
+	// read to schedule this task, carried by value.
+	Lifecycle methodassets.Lifecycle
+	Revision  int64
+	Attempt   int
+	State     *constructState
+	Feedback  string
+	// Inbox is THIS task's channel, handed to the strategy so a long dispatch can act on an
+	// operator's steer while the job runs rather than leaving it to be logged as too-late
+	// when the task retires. A strategy that does not poll ignores it (it is nil-safe at
+	// every read below).
+	Inbox workflow.ReceiveChannel
 }
 
 // csIn adapts the walk's input onto the construction-shaped input every ledger, git and
@@ -267,16 +283,555 @@ func productionStrategies(eng sdpEngines) strategyRegistry {
 	}
 }
 
-// agenticDispatchStrategy is the DISPATCH slot's production implementation: an agent job
-// submitted and polled to its terminal. It REFUSES until the tasks that own it land — the
-// design half in Task 10, construction in Task 11 — because a strategy that silently
-// succeeded would make an out-of-order execution look like a passing walk.
+// agenticDispatchStrategy runs ONE dispatch task: submit the agentic job the task's
+// `command` names, observe it to a terminal phase, read back what it produced, and stage
+// that as the task's output on the activity branch.
+//
+// It is ONE implementation for both rails, because the rails were already venue-blind: the
+// design session dispatched through the SAME agenticJobAccess the construction rail does,
+// and the composition root is what chooses GH Actions or local. The command is DATA
+// (task.Command), the worker class is DATA (task.WorkerClass), and the artifact kind is DATA
+// (task.ArtifactKind).
+//
+// THE PER-RAIL SURFACE, and it is two things rather than the plan's one. The plan predicted
+// only the staging CODEC would differ — a design task's output is a slot MODEL read back off
+// the branch, a construction task's is a commit the agent already pushed. Measured, the
+// WORKFLOW FILE differs too: a design job runs aiarch-design.yml in the project repo and a
+// construction job aiarch-construct.yml, and the Manager is what names both
+// (designWorkflowFileName / constructWorkflowFileName). The plan's comment says "there is no
+// aiarch-*.yml name anywhere in the design path"; there is one, at coauthorartifact.go:2418.
+// So the strategy chooses TWO things on the artifact kind, not one — and the artifact kind is
+// still data, so nothing here reads an activity type.
+//
+// Task 11 fills the construction arm. Until it does, this refuses by name: a strategy that
+// silently succeeded would make an out-of-order execution look like a passing walk.
 type agenticDispatchStrategy struct{ wf *csWorkflows }
 
-func (agenticDispatchStrategy) Produce(_ workflow.Context, tc taskContext) (producedSubject, error) {
-	return producedSubject{}, newError(fwmanager.FailedPrecondition,
-		"no agentic dispatch is wired for task "+tc.Task.ID+
-			": stage 4b1 Task 10 fills the design half and Task 11 the construction half of the dispatch strategy slot")
+func (s agenticDispatchStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
+	kind, ok := designSlotOfTask(tc.Lifecycle, tc.Task)
+	if !ok {
+		return producedSubject{}, newError(fwmanager.FailedPrecondition,
+			"no agentic dispatch is wired for task "+tc.Task.ID+
+				": its artifact kind "+tc.Task.ArtifactKind+" names no design slot, and stage 4b1 Task 11 fills the construction half of the dispatch strategy slot")
+	}
+	return s.wf.produceDesignArtifact(ctx, tc, kind)
+}
+
+// designSlotOfTask answers the ONE question that splits the two rails, off the DATA: does
+// this task's artifact kind name a design SLOT — a model this platform's own store holds —
+// or a build output that lives as a commit?
+//
+// The test is total and needs no table: projectstate.AllArtifactKinds is exactly the
+// seventeen design slots, so `Mission`/`Glossary`/`Volatilities`/`CoreUseCases`/`System`
+// resolve and `SRS`/`DetailedDesign`/`STP`/`Construction`/`Integration` — every construction
+// lifecycle's kinds — do not. A platform release that added a design lifecycle would be
+// carried automatically; one that respelled a construction kind into a slot name would fail
+// Test_DesignSlotOfTask_SplitsTheRailsOnTheData rather than misroute a build.
+//
+// A REVIEW task is resolved through its `reviews` target, which is why the lifecycle is
+// taken: the critique of a mission draft stages nothing, but it IS a mission-kind job, and
+// its command slug and job mode both hang off that kind.
+func designSlotOfTask(lc methodassets.Lifecycle, t methodassets.LifecycleTask) (projectstate.ArtifactKind, bool) {
+	k := roundArtifactKind(lc, t)
+	if k == nil {
+		return 0, false
+	}
+	return *k, true
+}
+
+// ---------------------------------------------------------------------------
+// THE DESIGN ARM (stage 4b1 Task 10)
+//
+// This is the co-author session's command sequence, reproduced inside the generic child
+// against the same agenticJobAccess the construction rail uses. What it deliberately does
+// NOT reproduce, and why, is written at each site:
+//
+//   - beginSession / mintCred / RailOpenBranch are GONE from the per-task path: the child
+//     opens its branch and PR ONCE, at openActivityRow, before the first task runs. The
+//     retired session opened a branch per KIND, because a kind was a whole workflow.
+//   - the RESUME PROBE is gone, and its reason is gone with it. readBackCommittedModelOn was
+//     re-run first when state.resumeFromReadBack was set, and the ONE thing that set it was
+//     openPR faulting AFTER the read-back. The child has no post-read-back rail step at all
+//     (the PR is already open before any dispatch), so there is nothing left to fault into
+//     that marker. A crash mid-dispatch is carried as an earmark, not silently.
+//   - the AMENDMENT no-change guard is gone with the amendment branch scheme it defended
+//     (R12 retires `-amend-N` in 4b2); a send-back's redraft runs on the same activity branch
+//     and re-stages, which the round's own subject ref is what makes visible.
+//   - StageDraftFailed is gone: the child has no per-session human recovery gate, so a
+//     terminal job failure records a FAILED attempt and fails the walk with the diagnostic,
+//     exactly as Task 9's compute failure does. The operator's repair is Task 12's.
+// ---------------------------------------------------------------------------
+
+// produceDesignArtifact is one design task's whole production: submit the job its command
+// names, observe it on the shared ladder, read back what it committed on the activity
+// branch, and stage that as this task's output.
+//
+// A DISPATCH task drafts and stages a MODEL. A REVIEW task's job is its agent critics, which
+// commit a critique VERDICT and no model — so it stages nothing and reports the verdict
+// through the producedSubject's Outcome, which runAgentReviewers turns into a round verdict.
+// One function, because the two differ in the read-back alone.
+func (wf *csWorkflows) produceDesignArtifact(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
+) (producedSubject, error) {
+	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
+	obs, err := wf.runDesignJob(ctx, tc, kind)
+	if err != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	}
+	if obs.Phase != PipelineSucceeded {
+		// The job RAN and FAILED (the draft failed, or the required CI check went red). The
+		// attempt records it and the error fails the walk; the diagnostic is what an operator
+		// reads either way, and inferring success from a non-success phase is the one thing
+		// this arm must never do (§0d.4's anti-wedge rule, kept as its loud half).
+		detail := designJobFailedDetail(tc.Task.ID, obs)
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: detail},
+			temporal.NewNonRetryableApplicationError(detail, "DesignJobFailed", nil)
+	}
+	if tc.Task.Kind == methodassets.LifecycleTaskReview {
+		return wf.readBackCritique(ctx, tc, kind, attemptID)
+	}
+	return wf.stageDesignDraft(ctx, tc, kind, attemptID)
+}
+
+// designJobFailedDetail is the one sentence a failed design job leaves behind, naming the
+// task, the phase it reached and whatever the venue said.
+func designJobFailedDetail(taskID string, obs csPipelineObservation) string {
+	detail := "the design job for task " + taskID + " reached terminal phase " + pipelinePhaseLabel(obs.Phase)
+	if obs.Diagnostic != "" {
+		detail += ": " + obs.Diagnostic
+	}
+	if obs.RunURL != "" {
+		detail += " (" + obs.RunURL + ")"
+	}
+	return detail
+}
+
+// pipelinePhaseLabel names a pipeline phase for a HUMAN — the attempt's Detail, a log line —
+// because a bare ordinal in an operator-facing sentence is a fact nobody can act on. The
+// generated PipelinePhase carries no Stringer (contract.gen.go), and the schema-first rule
+// keeps enum types method-free, so the naming lives beside its one caller. Exhaustive, so a
+// new phase must be named rather than printed as a number.
+func pipelinePhaseLabel(p PipelinePhase) string {
+	switch p {
+	case PipelinePending:
+		return "pending"
+	case PipelineRunning:
+		return "running"
+	case PipelineSucceeded:
+		return "succeeded"
+	case PipelineFailed:
+		return "failed"
+	case PipelineCancelled:
+		return "cancelled"
+	case PipelinePhaseUnknown:
+		return "unknown"
+	}
+	return "unknown"
+}
+
+// stageDesignDraft is a DISPATCH task's read-back and staging: the typed model the job
+// committed on the activity branch, staged into its slot so the reviewer reads the
+// not-yet-merged draft.
+func (wf *csWorkflows) stageDesignDraft(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind, attemptID string,
+) (producedSubject, error) {
+	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	model, branchVersion, err := wf.readBackDesignModelOn(ctx, tc.In.ProjectID, kind, branch)
+	if err != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	}
+	ref, err := wf.stageDesignOutput(ctx, tc, kind, model, branchVersion)
+	if err != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	}
+	return producedSubject{
+		StagedRef: ref, AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
+		Detail: "drafted " + kind.WireName() + " on " + designBranchLabel(branch),
+	}, nil
+}
+
+// designBranchLabel names where a draft landed, for the attempt's Detail. A dormant venue
+// reads "main" rather than an empty string, because "" in a human-facing detail is a fact
+// nobody can act on.
+func designBranchLabel(branch string) string {
+	if branch == "" {
+		return mainBranch
+	}
+	return branch
+}
+
+// readBackCritique is a REVIEW task's read-back: the critique verdict its critics committed
+// on the activity branch, mapped onto the producedSubject Outcome runAgentReviewers reads.
+//
+// THE SAFE DEFAULT IS KEPT, and it is the whole reason this is not three lines: a critique job
+// that reported SUCCESS and committed NO verdict is a ran-but-incomplete job, and reading its
+// silence as an approve would let an unreviewed draft sail to the human gate as if the critic
+// had ratified it (coauthorartifact.go's readBackCritiqueOn argues this at length). So the
+// empty carrier is OutcomeFailed carrying the diagnostic, which runAgentReviewers records as
+// an abstention AND — because the critic did not judge — holds the gate for a human whatever
+// the review policy says. NEVER an approve.
+func (wf *csWorkflows) readBackCritique(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind, attemptID string,
+) (producedSubject, error) {
+	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	proj, err := wf.readProjectOnBranch(ctx, tc.In.ProjectID, branch)
+	if err != nil {
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	}
+	slot := slotForKind(proj, kind)
+	switch slot.CritiqueVerdict {
+	case projectstate.CritiqueVerdictApprove:
+		// The notes ride an APPROVE too: the critique prompt's verdict discipline records
+		// taste-level reservations as comments ON an approve, and dropping them would show the
+		// founder a bare verdict with the rationale erased.
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomePassed, Detail: slot.CritiqueNotes}, nil
+	case projectstate.CritiqueVerdictRevise:
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeRejected, Detail: slot.CritiqueNotes}, nil
+	}
+	return producedSubject{
+		AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+		Detail: "the critique job for task " + tc.Task.ID + " reported success but committed no critique verdict for " +
+			kind.WireName() + " — the read-back carrier is empty, so nothing judged this draft",
+	}, nil
+}
+
+// designVenue resolves WHERE a design job runs and WHERE its output lands: the opaque
+// per-project RepoRef the job dispatches into, and the branch it commits on.
+//
+// IT IS THE CHILD'S ONE NEW wf.Repo READER, and that is a deliberate exception to R6/R8-22
+// ("the child adds no new wf.Repo reader"), because the two rails give the resolver two
+// answers and a design job cannot take construction's. csWorkflows.gitEnabled — which every
+// other reader in the child routes through — additionally asks wf.RailEnabled, and
+// railLifecycleEnabled answers FALSE for the deterministic GitLocal ref: correct for
+// construction (its PR rail has never run against a filesystem venue, and the local merge job
+// owns that merge) and wrong for design, whose branch → PR → merge lifecycle is exactly what
+// that ref runs. Routing the design dispatch through gitEnabled would send it to the CENTRAL
+// construction repo on every local boot — the wrong repo AND the wrong workflow file.
+//
+// The BRANCH is activityBranchName for BOTH rails (R12): spec §5.3 unifies on
+// activity/{activityId}, which is the branch openActivityRow already opened when the PR rail
+// is live, and which the design job creates on a local venue exactly as a construction job
+// does. projectstate.DesignBranch survives unused for one release.
+//
+// An unresolvable project answers ("", "") — the dormant path: the RA falls back to its
+// configured repo and the read-back/stage ride main, which is byte-for-byte the retired
+// rail's dormant behaviour.
+func (wf *csWorkflows) designVenue(projectID ProjectID, activityID ActivityID) (repo string, branch string) {
+	if wf.Repo == nil {
+		return "", ""
+	}
+	ref, ok := wf.Repo(projectID)
+	if !ok {
+		return "", ""
+	}
+	return sourcecontrol.RepoRefString(ref), activityBranchName(activityID)
+}
+
+// designJobMode is the job_mode discriminator, read off the TASK KIND: a dispatch task drafts,
+// a review task's own command critiques. That is the whole of what dispatchTarget carried on
+// the retired rail, and it is now one field of the lifecycle data rather than an enum the
+// Manager chose.
+func designJobMode(t methodassets.LifecycleTask) string {
+	if t.Kind == methodassets.LifecycleTaskReview {
+		return jobModeCritique
+	}
+	return jobModeDraft
+}
+
+// runDesignJob submits the design job and observes it to a terminal phase.
+//
+// THE COMMAND IS THE LIFECYCLE'S (tc.Task.Command), not DesignCommandFor's. Both agree today
+// — Test_DesignCommands_MatchTheLifecycleData pins that — but the data is the source of
+// truth for what a task runs, and re-deriving it here would give the platform two answers to
+// keep in step.
+func (wf *csWorkflows) runDesignJob(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
+) (csPipelineObservation, error) {
+	handle, err := wf.submitDesignJob(ctx, tc, kind)
+	if err != nil {
+		return csPipelineObservation{}, err
+	}
+	task := projectstate.MethodTask(tc.Task.ID)
+	return wf.observeDesignPipeline(ctx, tc, handle, task), nil
+}
+
+// submitDesignJob composes and submits ONE design job: the five dispatch inputs the seated
+// aiarch-design.yml declares, the per-project repo target, and that workflow file.
+func (wf *csWorkflows) submitDesignJob(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
+) (pipelineHandle, error) {
+	repo, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	target, terr := designRepoTarget(repo)
+	if terr != nil {
+		return pipelineHandle{}, terr
+	}
+	spec := agenticjob.PipelineSpec{
+		ProjectID: agenticjob.ProjectID(tc.In.ProjectID),
+		// A non-empty, well-formed step graph satisfies the RA's §2.1 pre-condition; the design
+		// recipe lives in the project's own workflow file, so the step is a placeholder and the
+		// DESIGN parameters ride on DispatchInputs.
+		Steps: []agenticjob.PipelineStep{{
+			Name:      "design",
+			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
+			Command:   []string{"sh", "-c", "true"},
+		}},
+		DispatchInputs: map[string]string{
+			dispatchInputArtifactKind:  kind.WireName(),
+			dispatchInputCommand:       tc.Task.Command,
+			dispatchInputTargetBranch:  branch,
+			dispatchInputPriorStateRef: "",
+			dispatchInputJobMode:       designJobMode(tc.Task),
+		},
+		TargetRepo: target,
+	}
+	if repo != "" {
+		spec.WorkflowFile = designWorkflowFileName
+	}
+	handle, err := wf.Acts.PipelineSubmitAgenticJob(ctx, spec)
+	if err != nil {
+		return pipelineHandle{}, err
+	}
+	if agenticjob.PipelineHandleIsZero(handle) {
+		return pipelineHandle{}, temporal.NewNonRetryableApplicationError(
+			"the design dispatch for task "+tc.Task.ID+" returned an empty pipeline handle", "EmptyPipelineHandle", nil)
+	}
+	return pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}, nil
+}
+
+// observeDesignPipeline polls the job to a terminal phase on the ONE ladder both rails share,
+// draining this task's inbox between polls, and NEVER infers success from exhaustion: a stuck
+// job comes back as an explicit PipelineFailed with a neutral diagnostic.
+//
+// THE MISROUTE RULE (Task 8 review finding 1, written at drainPending). This loop receives on
+// the task's own inbox while it waits, because a twenty-minute dispatch is exactly when an
+// operator steers. What it can act on it acts on; what it cannot it parks in a LOCAL
+// `deferred` slice and re-offers to the inbox when the loop ends — NEVER back into ws.pending,
+// because drainPending runs at the top of every receive loop and would re-offer it
+// immediately, and each iteration here builds a fresh workflow.NewTimer: the loop would spin,
+// growing durable history as fast as it can loop, and the history budget would trip on an
+// activity that did nothing. Re-offering at the end is what makes closeInbox report them as
+// undelivered rather than losing them silently.
+func (wf *csWorkflows) observeDesignPipeline(
+	ctx workflow.Context, tc taskContext, handle pipelineHandle, task projectstate.MethodTask,
+) csPipelineObservation {
+	var (
+		last     csPipelineObservation
+		deferred []routedSignal
+	)
+	for poll := range maxObserveTotalPolls {
+		obs, err := wf.observePipeline(ctx, handle)
+		if err != nil {
+			// A read of the venue is not the job's verdict. Treat a failed observe as
+			// non-terminal and let the ladder's bound decide, rather than failing an activity
+			// over one poll.
+			workflow.GetLogger(ctx).Warn("observing the design job failed; the ladder keeps polling",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+		} else {
+			ph := obs.Phase
+			tc.State.pipelinePhase = &ph
+			if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
+				wf.captureEpisode(ctx, tc.In.csIn(), handle, obs, true, task, tc.Attempt)
+				wf.reofferDeferred(ctx, tc, deferred)
+				return obs
+			}
+			last = obs
+		}
+		deferred = wf.drainInboxWhileDispatching(ctx, tc, deferred)
+		_ = workflow.Sleep(ctx, observeInterval(poll))
+	}
+	exhausted := csPipelineObservation{
+		Phase:      PipelineFailed,
+		Diagnostic: "the design job did not reach a terminal phase within the observation window",
+		RunURL:     last.RunURL,
+		Episode:    last.Episode,
+	}
+	// The stuck job still burned tokens, so it still owes the ledger a record (a gap when
+	// nothing was mined) — never silent.
+	wf.captureEpisode(ctx, tc.In.csIn(), handle, exhausted, true, task, tc.Attempt)
+	wf.reofferDeferred(ctx, tc, deferred)
+	return csPipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}
+}
+
+// drainInboxWhileDispatching takes whatever is waiting on this task's inbox, NON-BLOCKING,
+// and returns the messages this loop could not handle appended to deferred.
+//
+// It handles exactly ONE kind: an operator OVERRIDE, which is recorded as the operator note
+// the construction rail already records for one, so a steer sent during a twenty-minute draft
+// lands in the ledger instead of being logged as too-late twenty minutes later. A decision or
+// a redraft belongs to the gate that has not opened yet; it is deferred, not answered.
+func (wf *csWorkflows) drainInboxWhileDispatching(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal,
+) []routedSignal {
+	if tc.Inbox == nil {
+		return deferred
+	}
+	for {
+		var msg routedSignal
+		if !tc.Inbox.ReceiveAsync(&msg) {
+			return deferred
+		}
+		if !routedPayloadPresent(msg) {
+			workflow.GetLogger(ctx).Error("a routed signal reached a dispatch with no payload for its kind; dropped",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "kind", msg.Kind)
+			continue
+		}
+		if msg.Kind == routedKindOverride {
+			wf.recordGateOverride(ctx, tc.In, tc.State, tc.Task, msg.Override)
+			continue
+		}
+		deferred = append(deferred, msg)
+	}
+}
+
+// reofferDeferred puts the messages the dispatch could not answer back on the task's inbox,
+// once, as the loop ends. SendAsync and no retry: the inbox has just been drained by this very
+// loop so there is room, and a message that still does not fit is one closeInbox would have
+// reported anyway. It is the ONLY correct destination — see drainInboxWhileDispatching for why
+// ws.pending would spin the loop it came from.
+func (wf *csWorkflows) reofferDeferred(ctx workflow.Context, tc taskContext, deferred []routedSignal) {
+	if len(deferred) == 0 {
+		return
+	}
+	ch, ok := tc.Inbox.(workflow.Channel)
+	if !ok {
+		return
+	}
+	for _, msg := range deferred {
+		if !ch.SendAsync(msg) {
+			workflow.GetLogger(ctx).Info("a signal deferred during dispatch did not fit back on the inbox; dropped",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "kind", msg.Kind)
+		}
+	}
+}
+
+// readBackDesignModelOn reads the typed model the job committed, on the activity branch when
+// there is one and on main when the venue is dormant. An EMPTY slot after a job that reported
+// success is a contract violation between the job and the read-back, and it is terminal: a
+// retry cannot conjure a model the job never wrote.
+//
+// It returns the read-back substrate's own Version alongside the model, and that second
+// return is load-bearing (QA F29): the branch's version and main's are two different
+// documents, so the stage that follows must expect the BRANCH's — a fresh walk re-using a
+// branch that already carries commits sees it advanced, and staging against a main-captured
+// number would Conflict on its first attempt every time.
+func (wf *csWorkflows) readBackDesignModelOn(
+	ctx workflow.Context, projectID ProjectID, kind projectstate.ArtifactKind, branch string,
+) (projectstate.ArtifactModel, projectstate.Version, error) {
+	proj, err := wf.readProjectOnBranch(ctx, projectID, branch)
+	if err != nil {
+		return nil, 0, err
+	}
+	slot := slotForKind(proj, kind)
+	if slot.Model == nil {
+		return nil, 0, temporal.NewNonRetryableApplicationError(
+			"the design job reported success but committed no "+kind.WireName()+" model to read back on "+
+				designBranchLabel(branch), "ReadBackEmpty", nil)
+	}
+	return slot.Model, proj.Version, nil
+}
+
+// readProjectOnBranch is the child's branch-aware whole-aggregate read. wf.readProject is the
+// same call pinned to main; a design read-back must reach the branch the job committed on.
+func (wf *csWorkflows) readProjectOnBranch(
+	ctx workflow.Context, projectID ProjectID, branch string,
+) (projectstate.Project, error) {
+	env, err := wf.Acts.DesignSessionReadProjectOnBranch(ctx, projectstate.ProjectID(projectID), branch)
+	if err != nil {
+		return projectstate.Project{}, err
+	}
+	return env.Decode()
+}
+
+// stageDesignOutput stages one design task's read-back model as the task's output and returns
+// the ref its review round cites.
+//
+// It goes through activityExecutionAccess.StageTaskOutput — the execution ledger's own verb,
+// the same one Task 9's compute stages through — and NOT through the three designSessionAccess
+// verbs the retired session used. That re-homing is what leaves stage 4b2 a facet it can
+// delete rather than a rail with two owners.
+//
+// state.rowAdvanced() is deliberately NOT called, for the reason StageTaskOutput's own doc
+// gives: it is the one verb on the facet that asserts no per-activity version, because the
+// write lands on the branch while the row and its counter live on main.
+//
+// AND NEITHER IS state.walk.headVersion ADVANCED, unless the venue is dormant. headVersion is
+// the run's belief about MAIN; a branch write returns the BRANCH's next number, and storing
+// that as main's would make the next main write (the round open, the verdict, the commit) CAS
+// against a number from another document. When the branch is "" the two are the same document,
+// and then the advance is exactly the read-your-writes seed every other write here keeps.
+func (wf *csWorkflows) stageDesignOutput(
+	ctx workflow.Context, tc taskContext, kind projectstate.ArtifactKind,
+	model projectstate.ArtifactModel, branchVersion projectstate.Version,
+) (string, error) {
+	env, encErr := encodeModel(model)
+	if encErr != nil {
+		return "", fwmanager.MapError(encErr)
+	}
+	_, branch := wf.designVenue(tc.In.ProjectID, tc.In.ActivityID)
+	in := tc.In
+	state := tc.State
+	var staged projectstate.StagedRef
+	v, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, branch, branchVersion,
+		func(expected projectstate.Version) (projectstate.Version, error) {
+			sr, sErr := wf.Acts.ActivityExecutionStageTaskOutput(ctx, projectstate.ProjectID(in.ProjectID), expected,
+				state.activityVersion, string(in.ActivityID), tc.Task.ID, branch, env, state.walk.cred.toProjectState())
+			if sErr != nil {
+				return 0, sErr
+			}
+			staged = sr
+			return sr.Version, nil
+		})
+	if err != nil {
+		return "", err
+	}
+	if branch == "" {
+		state.walk.headVersion = v
+	}
+	return stagedRefString(staged, kind), nil
+}
+
+// applyRecoveringOnBranch is applyRecovering for a write that lands on a BRANCH: identical
+// Conflict re-read→re-apply discipline, except the re-read asks that branch for its version
+// rather than main for its own. Seeding a branch retry from main's number is how a stage that
+// Conflicts once Conflicts twenty times and dies MutateConflictExhausted.
+//
+// branch == "" delegates, because then the branch IS main and one loop is better than two.
+func (wf *csWorkflows) applyRecoveringOnBranch(
+	ctx workflow.Context,
+	projectID ProjectID,
+	branch string,
+	seed projectstate.Version,
+	apply func(expected projectstate.Version) (projectstate.Version, error),
+) (projectstate.Version, error) {
+	if branch == "" {
+		return wf.applyRecovering(ctx, projectID, seed, apply)
+	}
+	expected := seed
+	for attempt := 0; ; attempt++ {
+		v, err := apply(expected)
+		if err == nil {
+			return v, nil
+		}
+		if !isConflict(err) {
+			return 0, err
+		}
+		if attempt+1 >= maxMutateConflictAttempts {
+			return 0, temporal.NewNonRetryableApplicationError(
+				"branch head-state conflict did not converge within bounded attempts",
+				"MutateConflictExhausted", err)
+		}
+		proj, rerr := wf.readProjectOnBranch(ctx, projectID, branch)
+		if rerr != nil {
+			if isReadNotFound(rerr) {
+				expected = 0
+				continue
+			}
+			return 0, rerr
+		}
+		expected = proj.Version
+		workflow.GetLogger(ctx).Info("branch head-state conflict; re-read the branch version and retrying",
+			"branch", branch, "attempt", attempt+1, "nextExpectedVersion", expected)
+	}
 }
 
 // judgedTaskStrategy is the JUDGED slot, and it produces NOTHING — deliberately, and from
@@ -640,7 +1195,7 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	overrides := workflow.GetSignalChannel(ctx, signalOperatorOverride)
 	redrafts := workflow.GetSignalChannel(ctx, lSignalRedraft)
 
-	reviewPolicy, row, err := wf.loadReviewSnapshot(ctx, in.csIn(), state)
+	reviewPolicy, snap, err := wf.loadReviewSnapshot(ctx, in.csIn(), state)
 	if err != nil {
 		return err
 	}
@@ -648,7 +1203,7 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	if err := wf.openActivityRow(ctx, in, state); err != nil {
 		return err
 	}
-	ws := wf.seedWalkFromLedger(ctx, in, lc, row)
+	ws := wf.seedWalkFromLedger(ctx, in, lc, snap)
 	// The router starts BEFORE the first task is scheduled, so a signal that arrives
 	// during the very first dispatch is buffered against its task rather than lost.
 	workflow.Go(ctx, func(gctx workflow.Context) {
@@ -975,17 +1530,27 @@ func (wf *csWorkflows) runTask(
 	}
 	phase, _ := lifecyclePhaseByID(lc, t.Phase)
 	tc := taskContext{
-		In: in, Task: t, Phase: phase,
+		In: in, Task: t, Phase: phase, Lifecycle: lc,
 		Revision: ws.revision[t.ID], Attempt: int(ws.revision[t.ID]) + 1,
-		State: state, Feedback: ws.feedback[t.ID],
+		State: state, Feedback: ws.feedback[t.ID], Inbox: inbox,
 	}
 
 	produced, perr := strat.Produce(ctx, tc)
+	// THE ATTEMPT IS RECORDED EVEN WHEN THE PRODUCTION FAILED, and that is a fix rather than a
+	// nicety (stage 4b1 Task 10). Both failing strategies return a FAILED producedSubject
+	// ALONGSIDE their error, precisely so the ledger says what happened while the error fails the
+	// walk — and Task 8's ordering returned before recording anything, so the two claims
+	// sdpComputeStrategy and the design arm make in their own doc comments were both false: an
+	// operator saw a failed activity with an EMPTY attempt ledger and no diagnostic anywhere but
+	// the workflow error. Recorded first, then returned. A recording failure on top of a
+	// production failure keeps the PRODUCTION error, because that is the cause.
+	if produced.AttemptID != "" {
+		if err := wf.recordTaskAttempt(ctx, in, t, tc, produced, state); err != nil && perr == nil {
+			return walkTaskFailed, err
+		}
+	}
 	if perr != nil {
 		return walkTaskFailed, perr
-	}
-	if err := wf.recordTaskAttempt(ctx, in, t, tc, produced, state); err != nil {
-		return walkTaskFailed, err
 	}
 	// The output is what a REVIEW task will cite, keyed by the task that produced it, so
 	// runGate can reach it through t.Reviews — a review task with a `reviews` target
@@ -1062,10 +1627,31 @@ func (wf *csWorkflows) runGate(
 	if err := wf.openRound(ctx, in, t, tc, judgedSubject(ws, t), roundArtifactKind(lc, t), set, state, &gate); err != nil {
 		return walkTaskFailed, err
 	}
+	// THE CRITIQUE ROUND, now an ordinary reviewer (stage 4b1 Task 10). The retired rail ran
+	// it as a phase of the co-author spine — ~300 lines of bespoke machinery around one
+	// dispatch, with its own critic table, its own verdict vocabulary and its own retry
+	// budget. Here it is a review task that carries a command, dispatched through the SAME
+	// strategy slot a work task's dispatch uses, landing an ordinary ReviewVerdict.
+	//
+	// criticJudged is the ONE thing the gate must know beyond the verdict: a critique that
+	// ran and committed nothing has NOT judged this draft, and the policy's no-human arm
+	// below would then close the gate on an unreviewed artifact. That is exactly the silent
+	// approve readBackCritiqueOn's safe default was built to refuse, and under a `vibes`
+	// preset it is the difference between "nobody had to look" and "nobody did look".
+	criticJudged := true
 	if t.Command != "" {
-		if err := wf.runAgentReviewers(ctx, in, t, tc, state, &gate); err != nil {
+		judged, err := wf.runAgentReviewers(ctx, in, t, tc, state, &gate)
+		if err != nil {
 			return walkTaskFailed, err
 		}
+		criticJudged = judged
+	}
+	if !criticJudged {
+		workflow.GetLogger(ctx).Warn("the agent critic did not judge this draft; the gate holds for a human whatever the policy says",
+			"activityId", in.ActivityID, "taskId", t.ID)
+		state.reviewSet, state.reviewSetError = &set, ""
+		state.stage = StageAwaitingApproval
+		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox)
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
 		// No roster goes up for a gate nobody is asked to answer, mirroring the retired rail's
@@ -1147,28 +1733,36 @@ func (wf *csWorkflows) openRound(
 // SAME strategy slot a work task's dispatch uses, so nothing here knows which command it
 // is running.
 //
-// The verdict is the critic's, not the human's: a passed critique is an approve, anything
-// else is an ABSTENTION carrying the diagnostic, because a critic that did not finish has
-// not judged and recording its silence as a rejection would put a verdict in the ledger
-// that nobody cast.
+// THE THREE ARMS, and each says something different about the draft:
+//
+//	passed   -> APPROVE.  The critic read it and had no blocking objection.
+//	rejected -> SEND BACK. The critic asked for a revise, which is a verdict somebody DID
+//	            cast. Recording it as an abstention would erase the one thing the critique
+//	            produced, and the round's verdict list is what the human reads.
+//	anything -> ABSTAIN carrying the diagnostic, and judged=false. A critic that did not
+//	            finish has not judged; recording its silence as a rejection would put a
+//	            verdict in the ledger nobody cast, and recording it as an approve is the
+//	            silent ratification the safe default exists to refuse.
+//
+// judged is what the caller uses to hold the gate for a human when the critic did not answer.
+// It does NOT fail the task: the retired rail's whole anti-wedge discipline was that a
+// ran-but-incomplete critique lands at a human gate rather than crashing the session, and the
+// child's equivalent of that gate is this one, held open.
 func (wf *csWorkflows) runAgentReviewers(
 	ctx workflow.Context, in deliveryActivityInput, t methodassets.LifecycleTask,
 	tc taskContext, state *constructState, gate *gateLedger,
-) error {
+) (judged bool, err error) {
 	ctor, ok := wf.Strategies[strategySlotDispatch]
 	if !ok {
-		return newError(fwmanager.FailedPrecondition,
+		return false, newError(fwmanager.FailedPrecondition,
 			"review task "+t.ID+" names agent reviewers but nothing has registered strategy slot "+strategySlotDispatch)
 	}
-	produced, err := ctor(wf).Produce(ctx, tc)
-	if err != nil {
-		return err
+	produced, perr := ctor(wf).Produce(ctx, tc)
+	if perr != nil {
+		return false, perr
 	}
-	verdict := projectstate.VerdictAbstain
-	if produced.Outcome == projectstate.OutcomePassed {
-		verdict = projectstate.VerdictApprove
-	}
-	return wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
+	verdict, judged := criticVerdictFor(produced.Outcome)
+	return judged, wf.appendVerdict(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 		projectstate.ReviewVerdict{
 			ReviewerRole: t.WorkerClass,
 			Actor:        t.WorkerClass,
@@ -1176,6 +1770,21 @@ func (wf *csWorkflows) runAgentReviewers(
 			Summary:      produced.Detail,
 			AttemptID:    gate.judgedAttemptID,
 		}, nil)
+}
+
+// criticVerdictFor maps what the critique produced onto the verdict the round records, and
+// says whether the critic JUDGED at all. Exhaustive over TaskOutcome so a new outcome must
+// decide what it means for a critic rather than inheriting "abstain".
+func criticVerdictFor(outcome projectstate.TaskOutcome) (projectstate.VerdictKind, bool) {
+	switch outcome {
+	case projectstate.OutcomePassed:
+		return projectstate.VerdictApprove, true
+	case projectstate.OutcomeRejected:
+		return projectstate.VerdictSendBack, true
+	case projectstate.OutcomeFailed, projectstate.OutcomePending, projectstate.OutcomeSkipped:
+		return projectstate.VerdictAbstain, false
+	}
+	return projectstate.VerdictAbstain, false
 }
 
 // passRound is the gate's PASS: the round decided passed and the gate attempt recorded,
@@ -1663,9 +2272,19 @@ func (wf *csWorkflows) bindRowAccessors(ctx workflow.Context, in deliveryActivit
 // is the highest number the attempt and round ledgers hold for it — so the next round id
 // continues the ledger's numbering instead of colliding with it.
 //
+// THE SKIP-IF-COMMITTED GUARD LIVES HERE NOW (stage 4b1 Task 10), and it is the second half
+// of the seed rather than a nicety. SystemDesignPhaseWorkflow read the head-state once at
+// start and skipped every already-committed step, because a restart that re-spawned the
+// mission child over a committed mission is a real 2026-07-16 incident. Retiring that
+// parent without moving its guard would re-introduce the incident on EVERY existing project:
+// this repo's own slots 0–6 are committed and its three design activities have NO execution
+// row at all, so a ledger-only seed marks every task pending and the first thing the pump
+// does is re-draft a mission that has been committed for months. A task whose artifact kind
+// is COMMITTED on main is therefore seeded passed, whatever the ledger holds.
+//
 // Pure over values already in workflow history (the start snapshot's recorded read).
 func (wf *csWorkflows) seedWalkFromLedger(
-	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, row projectstate.ActivityExecution,
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle, proj projectstate.Project,
 ) *walkState {
 	if in.Resume != nil {
 		resumed := walkStateFrom(lc, in.Resume)
@@ -1674,11 +2293,12 @@ func (wf *csWorkflows) seedWalkFromLedger(
 			"tasks", len(in.Resume.ByTask), "pending", len(in.Resume.Pending))
 		return resumed
 	}
+	row := proj.ActivityExecution[string(in.ActivityID)]
 	ws := newWalkState(lc)
 	ws.rec = wf.Deliveries
 	for _, t := range lc.Tasks {
 		latest, n := latestTaskOutcome(row, projectstate.MethodTask(t.ID))
-		if latest == projectstate.OutcomePassed {
+		if latest == projectstate.OutcomePassed || committedArtifactOfTask(proj, lc, t) {
 			ws.byTask[t.ID] = walkTaskPassed
 		}
 		if int64(n) > ws.revision[t.ID] {
@@ -1691,6 +2311,25 @@ func (wf *csWorkflows) seedWalkFromLedger(
 		}
 	}
 	return ws
+}
+
+// committedArtifactOfTask reports whether the artifact THIS task is about is already
+// committed on main — the skip-if-committed guard's one question.
+//
+// It answers false for every construction task by construction, and that is not an accident
+// worth relying on quietly: designSlotOfTask resolves only the seventeen artifact SLOTS, and a
+// construction task's output is a commit this store does not hold, so there is no slot whose
+// status could say the work is done. Only a design task can be skipped this way, which is
+// exactly the guard SystemDesignPhaseWorkflow had.
+//
+// The M0 review task is deliberately included: its `artifactKind` is sdpReview, so a
+// projectDesign activity whose SDP review is already committed does not recompute the plan.
+func committedArtifactOfTask(proj projectstate.Project, lc methodassets.Lifecycle, t methodassets.LifecycleTask) bool {
+	kind, ok := designSlotOfTask(lc, t)
+	if !ok {
+		return false
+	}
+	return slotForKind(proj, kind).Status == projectstate.ReviewCommitted
 }
 
 // latestTaskOutcome is the outcome and number of the highest-numbered attempt the ledger
@@ -1799,7 +2438,152 @@ func (wf *csWorkflows) finalizeWalk(
 	if err := wf.runWalkMerge(ctx, in, lc, ws, state); err != nil {
 		return err
 	}
-	return wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred)
+	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred); err != nil {
+		return err
+	}
+	return wf.commitDesignArtifacts(ctx, in, lc, ws, state)
+}
+
+// commitDesignArtifacts lands every design slot this walk produced on MAIN, and seals Phase 1
+// when that was the last required kind. It is a no-op for a lifecycle that produces no slot
+// model, which is every construction lifecycle.
+//
+// WHY IT RUNS AFTER BOTH MERGES, and not per gate. DesignSessionCommitArtifactWithProvenance
+// commits on main and takes no branch, so the model has to BE on main first — and the model is
+// staged on the activity branch. The retired session merged its branch and then committed, in
+// that order, for exactly this reason. The child's merges are both inside finalizeWalk
+// (runWalkMerge for the rail-dormant profile, finalizeActivity's mergeAndRecord for the PR
+// rail), so the earliest honest commit point is after them. A per-gate commit is not available
+// at all: one activity holds FOUR kinds and one branch, so committing mission when its gate
+// passes would mean four merges of one branch.
+//
+// THE COST, recorded rather than hidden: the activity's binary exit is recorded by
+// finalizeActivity BEFORE these commits, so a commit that fails here leaves an activity
+// reading Completed with its slots still AwaitingReview. It self-heals on a re-run — every
+// task seeds passed, the walk reaches finalizeWalk and the commits are idempotent — but
+// nothing re-runs it automatically, because the pump sees Done. Carried as an earmark.
+func (wf *csWorkflows) commitDesignArtifacts(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
+	ws *walkState, state *constructState,
+) error {
+	kinds := designSlotsOfLifecycle(lc)
+	if len(kinds) == 0 {
+		return nil
+	}
+	// A walk that produced NOTHING committed nothing: every task was seeded passed off an
+	// already-committed slot (the skip-if-committed guard), so re-committing would be a
+	// no-op write per kind on a project that is already correct.
+	if !walkRanAnyTask(ws) {
+		workflow.GetLogger(ctx).Info("delivery.design.nothingToCommit",
+			"activityId", in.ActivityID, "reason", "every task was already committed when the walk started")
+		return nil
+	}
+	for _, kind := range kinds {
+		v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.DesignSessionCommitArtifactWithProvenance(ctx, projectstate.ProjectID(in.ProjectID), expected,
+				kind, gateActorOperator, designDraftedBy)
+		})
+		if err != nil {
+			return err
+		}
+		state.walk.headVersion = v
+	}
+	return wf.sealSystemDesign(ctx, in, state)
+}
+
+// designDraftedBy is the draftedBy provenance on a slot the generic child commits. It names
+// the RAIL rather than an agent charter, exactly as railDraftedBy did on the retired session:
+// the drafting identity that matters to a reader is "an agentic design job on the delivery
+// child", and the agent's own charter is on the attempt.
+const designDraftedBy = "delivery:agentic-design"
+
+// designSlotsOfLifecycle is every artifact SLOT this lifecycle's tasks produce, in declaration
+// order and without duplicates — so `requirements` answers mission, glossary, volatilities,
+// coreUseCases and `architecture` answers system. A DISPATCH task's kind only: a review task
+// resolves to the kind it JUDGES, which is already in the list, and the M0 compute row's eight
+// slots are committed by completeProjectDesign at its gate rather than here.
+func designSlotsOfLifecycle(lc methodassets.Lifecycle) []projectstate.ArtifactKind {
+	var out []projectstate.ArtifactKind
+	seen := map[projectstate.ArtifactKind]bool{}
+	for _, t := range lc.Tasks {
+		if t.Kind != methodassets.LifecycleTaskDispatch {
+			continue
+		}
+		kind, ok := designSlotOfTask(lc, t)
+		if !ok || seen[kind] {
+			continue
+		}
+		seen[kind] = true
+		out = append(out, kind)
+	}
+	return out
+}
+
+// walkRanAnyTask reports whether any task of this walk actually PRODUCED something in this
+// execution — that is, whether any strategy recorded an attempt.
+//
+// The attempt id is the right signal and the staged ref is not: a construction task's output
+// is a commit the agent pushed and it stages no model at all, so a staged-ref test would
+// answer "nothing ran" for every construction walk and skip the local merge that lands its
+// branch. An attempt id is what every producing strategy returns and what only a judged review
+// (whose subject is another task's output) leaves empty.
+//
+// A walk with no attempts at all is one whose every task was seeded passed by the
+// skip-if-committed guard: it opened no round, ran no job and advanced no branch.
+func walkRanAnyTask(ws *walkState) bool {
+	for _, p := range ws.produced {
+		if p.AttemptID != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// sealSystemDesign is the PHASE-1 SEAL, and it is the one piece of SystemDesignPhaseWorkflow
+// that had to MOVE rather than simply go away.
+//
+// THE MAPPING, exactly, because the plan requires it stated and it is what makes the deletion
+// safe: projectstate.Phase1RequiredKinds() is FIVE kinds — mission, glossary, volatilities,
+// coreUseCases, system. The `requirements` lifecycle is FOUR phases (mission, glossary,
+// volatilities, coreUseCases), each one draft task plus its review, and its four dispatch
+// tasks name the first four kinds. The `architecture` lifecycle is ONE phase whose one
+// dispatch task names the fifth. Four-then-one, ten tasks, five kinds, NO RESIDUE — no sixth
+// kind, and no kind produced by neither activity. The parent's fixed
+// `mission → glossary → volatilities → coreUseCases → system → SEAL` sequence is therefore
+// the pump's eligibility over slot 10's `requirements → architecture` edge plus each child's
+// own dependsOn walk, and this function is its final step.
+//
+// It is asked after EVERY design commit rather than of one nominated activity, because the
+// condition is a property of the SLOTS and not of a lifecycle: `runPhaseAdvance` asked the
+// same question ("is every required kind committed"), it is idempotent, and it costs one read
+// on a path that has just written up to four times. A walk that commits the fifth kind seals;
+// one that commits the second does not.
+func (wf *csWorkflows) sealSystemDesign(ctx workflow.Context, in deliveryActivityInput, state *constructState) error {
+	proj, err := wf.readProject(ctx, in.ProjectID)
+	if err != nil {
+		if isReadNotFound(err) {
+			return nil
+		}
+		return err
+	}
+	if proj.Phase != projectstate.PhaseSystemDesign {
+		return nil
+	}
+	for _, kind := range projectstate.Phase1RequiredKinds() {
+		if slotForKind(proj, kind).Status != projectstate.ReviewCommitted {
+			return nil
+		}
+	}
+	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.ProjectStateAdvancePhase(ctx, projectstate.ProjectID(in.ProjectID), expected)
+	})
+	if err != nil {
+		return err
+	}
+	state.walk.headVersion = v
+	workflow.GetLogger(ctx).Info("delivery.systemDesign.sealed",
+		"activityId", in.ActivityID, "requiredKinds", len(projectstate.Phase1RequiredKinds()))
+	return nil
 }
 
 // mergeGateTaskID is the inbox key the LOCAL merge hold waits on. It is mergeGateKey — the
@@ -1839,6 +2623,18 @@ func (wf *csWorkflows) runWalkMerge(
 	if !lifecycleDispatchesWork(lc) {
 		workflow.GetLogger(ctx).Info("delivery.merge.skipped",
 			"activityId", in.ActivityID, "reason", "the lifecycle dispatches no work, so there is no branch to merge")
+		return nil
+	}
+	// AND A WALK THAT DISPATCHED NOTHING HAS NOTHING TO MERGE EITHER (stage 4b1 Task 10). The
+	// guard above asks the LIFECYCLE; this one asks this RUN. The skip-if-committed seed marks
+	// every task of an already-committed design activity passed, so the walk reaches its
+	// terminal having opened no round, run no job and — decisively — pushed no commit to
+	// activity/<id>. Dispatching the merge job then merges a branch that does not exist, whose
+	// failure fails a walk that did nothing wrong. Read off ws.produced, which is the run's own
+	// record of what it staged, rather than off a type.
+	if !walkRanAnyTask(ws) {
+		workflow.GetLogger(ctx).Info("delivery.merge.skipped",
+			"activityId", in.ActivityID, "reason", "this run staged nothing, so no branch was advanced to merge")
 		return nil
 	}
 	csIn := in.csIn()

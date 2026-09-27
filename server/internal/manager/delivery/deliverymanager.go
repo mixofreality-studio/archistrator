@@ -9434,8 +9434,9 @@ func (m *constructionManager) GetSessionState(rc fwmanager.Context, projectID Pr
 // An id the committed activity list does not
 // hold is NotFound. Since stage 2 that list HOLDS requirements, architecture and
 // projectDesign (slot 9 opens with all three), so a design activity reads like any
-// other — ClassifyType tolerates ErrDesignActivityNotDispatchable for exactly this
-// reason, and LifecycleKeyFor resolves all three against method-assets.
+// other — ClassifyType types all three cleanly (stage 4b1 Task 10 retired the
+// not-dispatchable sentinel this lens used to have to tolerate), and LifecycleKeyFor
+// resolves all three against method-assets.
 //
 // The live session is read ONCE and both the attempt list and the gate come out of that
 // one read: state rule 1 answers awaitingHuman for the gate task matching the live gate
@@ -10014,17 +10015,17 @@ const (
 // id vs. dependency cycle); BlockedReason is the human-readable detail WITHIN that
 // class — the governing rule is one variant per repair class, detail discriminates
 // instances, never classes.
+// (SkippedDesign is GONE, with stage 4b1 Task 10. It named every design activity the scan
+// walked past on a tick — eligible work the pump could classify and would not dispatch —
+// and it existed only so a project whose remaining work was all design did not read as an
+// unexplained quiet tick. The pump dispatches those three now, so there is nothing left
+// for it to report having declined.)
 type pumpSelection struct {
 	Activity             constructionActivity
 	Verdict              pumpVerdict
 	BlockedActivityID    string
 	BlockedReason        string
 	BlockedFailureReason projectstate.FailureReason
-	// SkippedDesign names every design activity the scan walked past this tick. A design
-	// activity is eligible work the CONSTRUCTION pump does not do (stage 4's
-	// DeliveryManager does), so it is reported, never blocked — it rides every verdict,
-	// including a dispatch of some later activity.
-	SkippedDesign []string
 }
 
 // eligibilityRule is which activities the pump's selection may pick. It is chosen by the
@@ -10040,7 +10041,52 @@ const (
 	// eligibleDispatchable is architect (D), D.1.2: also an integration-pending row, one no
 	// pump wrote whose ledger holds some phases complete (isActivityDispatchable).
 	eligibleDispatchable
+	// eligibleWithDesign additionally admits the THREE DESIGN ACTIVITIES (stage 4b1 Task
+	// 10). It is its own rung, behind its own change id, because the rule genuinely changes
+	// which activity a tick picks on state that already exists: this repo's own committed
+	// slot 9 opens with requirements/architecture/projectDesign and none of the three has an
+	// execution row, so a recorded pump history that walked past them and dispatched a
+	// construction activity would, under the new rule, select `requirements` (declaration
+	// index 0) instead — a DIFFERENT child id, which is a non-determinism error on replay.
+	// The same reason changeLedgerPartialResume is version-gated.
+	eligibleWithDesign
 )
+
+// admitsDesignActivities reports whether this rule lets the pump pick one of the three
+// design activities. Read in TWO places — the phase gate and the scan — because the design
+// activities' phase floor is their OWN (a `requirements` activity runs while the project is
+// still in Phase 1), so the blanket PhaseConstruction gate cannot stand for them.
+func (r eligibilityRule) admitsDesignActivities() bool { return r == eligibleWithDesign }
+
+// runsOnTheDeliveryChild reports whether this activity type's lifecycle is walked by
+// DeliveryActivityWorkflow rather than by the retired ConstructActivityWorkflow.
+//
+// It is TEMPORARY and it says so: stage 4b1 Task 10 filled the DESIGN half of the dispatch
+// strategy and Task 11 fills the construction half, so for exactly this one commit-range the
+// generic child can walk the three design lifecycles and not the other eleven. Task 11 Step 4
+// re-points the pump wholesale and DELETES this function — a predicate that outlives its
+// reason is how a pump ends up with two children forever.
+//
+// It asks the TYPE rather than the id, because the id table lives in projectstate and the
+// three types are what railFor already reads; and it is exhaustive over ActivityType, so a
+// new type must decide which child runs it rather than inheriting an answer.
+func runsOnTheDeliveryChild(typ projectstate.ActivityType) bool {
+	switch typ {
+	case projectstate.ActivityTypeRequirements,
+		projectstate.ActivityTypeArchitecture,
+		projectstate.ActivityTypeProjectDesign:
+		return true
+	case projectstate.ActivityTypeService,
+		projectstate.ActivityTypeFrontend,
+		projectstate.ActivityTypeTesting,
+		projectstate.ActivityTypeDeployment,
+		projectstate.ActivityTypeDocumentation,
+		projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration:
+		return false
+	}
+	return false
+}
 
 // changeLedgerPartialResume is the ONE change id guarding D1 in both csWorkflows: the pump's
 // widened selection and the construct workflow's ledger-aware start seed. A v1 pump only
@@ -10059,11 +10105,20 @@ const changeLedgerPartialResume = "ledger-partial-resume"
 // is chosen (the candidate-list name tie-break below is currently unreachable, since
 // declIdx is already unique per activity).
 func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpSelection {
-	// Committed Network+ActivityList alone are not authorization to build: the
-	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
-	// an option) is what moves the project into PhaseConstruction. Selecting work
-	// before that would start construction on an unvalidated project design.
-	if proj.Phase != projectstate.PhaseConstruction {
+	// Committed Network+ActivityList alone are not authorization to BUILD: the Phase-2 seal
+	// (M0's approve — every plan slot committed, the SDP review approved) is what moves the
+	// project into PhaseConstruction. Selecting construction work before that would start
+	// building on an unvalidated project design.
+	//
+	// THE GATE IS NOW PER ACTIVITY (stage 4b1 Task 10), and that is the whole of what the
+	// rule change buys: the three DESIGN activities are precisely the work that runs BEFORE
+	// the seal — `requirements` and `architecture` in Phase 1, `projectDesign` in Phase 2 —
+	// so a blanket construction-only gate made them permanently unselectable and left Task
+	// 9's deterministic Project Design inert. A design activity is admitted in any phase; a
+	// construction activity still waits for the seal. The chain's ORDER is not this gate's
+	// business and never was: slot 10 carries requirements → architecture → projectDesign
+	// → M0 → everything else, and AllDepsSatisfied is what reads it.
+	if proj.Phase != projectstate.PhaseConstruction && !rule.admitsDesignActivities() {
 		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	network, activityList, ok := committedPlanInputs(proj)
@@ -10103,18 +10158,12 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	// exactly the failure mode this change closes for milestone dependencies.
 	var problemActivityID, problemReason string
 	var problemKind projectstate.FailureReason
-	// skippedDesign collects the design activities walked past below. The skip is
-	// deliberately ahead of the dependency check: a design activity is not this pump's
-	// work whatever its dependencies say, so the report names every unfinished one, not
-	// only the one whose turn it happened to be.
-	var skippedDesign []string
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !eligibleUnder(rule, name, item, proj.ActivityExecution) {
 			continue
 		}
-		if isDesignActivity(name, item) {
-			skippedDesign = append(skippedDesign, name)
+		if !admissibleInPhase(proj.Phase, rule, name, item) {
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityExecution, milestones)
@@ -10138,10 +10187,9 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 				BlockedReason: fmt.Sprintf(
 					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
 					problemActivityID, problemReason),
-				SkippedDesign: skippedDesign,
 			}
 		}
-		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: skippedDesign}
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -10151,20 +10199,36 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	})
 
 	chosen := candidates[0].activity
-	sel := dispatchSelectionFor(proj, chosen, itemByName[chosen])
-	// The scan's skips ride whatever verdict the chosen activity produced: a tick that
-	// dispatched something else still reports the design work it walked past.
-	sel.SkippedDesign = append(skippedDesign, sel.SkippedDesign...)
-	return sel
+	return dispatchSelectionFor(proj, chosen, itemByName[chosen])
 }
 
-// isDesignActivity reports whether the construction pump must walk past this activity:
-// ClassifyActivity types it but refuses it for dispatch, because running a design
-// lifecycle's slash-command as a construction pipeline is the N-ENV defect in a new
-// costume (08-30 S2 ruling). Stage 4's DeliveryManager is what dispatches these.
-func isDesignActivity(name string, item projectstate.ActivityItem) bool {
-	_, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
-	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
+// admissibleInPhase is the PER-ACTIVITY phase floor the blanket construction-only gate
+// became (stage 4b1 Task 10).
+//
+// Under the two pre-4b1 rules it is the old behaviour exactly: the caller already refused
+// every non-construction phase, and a design activity is walked past silently — the pump has
+// no child for it under those rules, and a recorded history that skipped it must keep
+// skipping it. (That skip used to be REPORTED, in pumpSelection.SkippedDesign; the report is
+// gone with the skip's reason, and the version gate is what keeps the skip itself alive for
+// the histories that recorded it.)
+//
+// Under eligibleWithDesign: a DESIGN activity is admitted in any phase, because its phase
+// floor is the phase it produces — `requirements` and `architecture` write Phase-1 slots and
+// `projectDesign` writes the Phase-2 plan, so requiring PhaseConstruction of them is
+// requiring the output before the work. A CONSTRUCTION activity still requires the seal.
+//
+// An UNCLASSIFIABLE activity is admitted rather than skipped, deliberately: dispatchSelectionFor
+// is where a plan defect becomes verdictBlocked with its repair named, and swallowing it here
+// would turn a reportable defect back into a silent quiet tick.
+func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name string, item projectstate.ActivityItem) bool {
+	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
+	if err != nil {
+		return true
+	}
+	if !runsOnTheDeliveryChild(typ) {
+		return phase == projectstate.PhaseConstruction
+	}
+	return rule.admitsDesignActivities()
 }
 
 // dispatchSelectionFor resolves the CHOSEN activity into its dispatchable selection:
@@ -10199,14 +10263,12 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
 	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
-	// A design activity is CLASSIFIED and still refused: the scan above already walks
-	// past it, so reaching here means some other path chose it, and going quiet is the
-	// only safe answer. NEVER verdictBlocked — that writes RecordActivityFailed, which
-	// is sticky and has no reopen path, so blocking here would terminally fail the very
-	// activity stage 4 exists to run.
-	if errors.Is(cerr, projectstate.ErrDesignActivityNotDispatchable) {
-		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: []string{chosen}}
-	}
+	// (A design activity used to take its own quiescent arm HERE, because rule 0 classified
+	// it and then refused it: reaching this line meant some path had chosen an activity the
+	// scan walks past, and going quiet was the only safe answer — verdictBlocked writes the
+	// sticky RecordActivityFailed and would have terminally failed the very activity stage 4
+	// exists to run. Stage 4b1 Task 10 gave the three a child, so they classify cleanly and
+	// dispatch through the same arm as everything else.)
 	if cerr != nil {
 		return pumpSelection{
 			Verdict:              verdictBlocked,
@@ -10262,8 +10324,14 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 }
 
 // eligibleUnder applies the pump's eligibility rule to one activity.
+//
+// THE RULES ARE CUMULATIVE, and the test must say so rather than name one rung: eligibleWithDesign
+// (stage 4b1 Task 10) adds the design admission ON TOP of D1's widened row rule, so a
+// `rule == eligibleDispatchable` equality test silently demoted the newest rule to the PRE-D1
+// selection — measured, as Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration picking
+// the not-started activity over the integration-pending one.
 func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
-	if rule == eligibleDispatchable {
+	if rule >= eligibleDispatchable {
 		return isActivityDispatchable(activityID, item, status)
 	}
 	return isActivityNotStarted(activityID, item, status)
@@ -12652,10 +12720,11 @@ const (
 // railFor reads the project once, classifies the activity, and returns both the rail
 // that owns it and the lifecycle its task ids come from.
 //
-// projectstate.ErrDesignActivityNotDispatchable is TOLERATED here: it is rule 0 of
-// ClassifyActivity and says only that the PUMP does not dispatch the activity, not that
-// it is unclassifiable — and the three activities it names are exactly the two design
-// rails' own.
+// It used to TOLERATE projectstate.ErrDesignActivityNotDispatchable — rule 0's sentinel said
+// only that the PUMP did not dispatch the activity, not that it was unclassifiable, and the
+// three activities it named were exactly the two design rails' own. Stage 4b1 Task 10 retired
+// the sentinel (the pump dispatches all three now), so `err != nil` is the whole question
+// here as it is everywhere else.
 func (m *deliveryManager) railFor(rc fwmanager.Context, projectID ProjectID, activityID ActivityID) (rail, methodassets.Lifecycle, error) {
 	if projectID == "" {
 		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -12674,7 +12743,7 @@ func (m *deliveryManager) railFor(rc fwmanager.Context, projectID ProjectID, act
 			"no activity "+id+" in the committed activity list")
 	}
 	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding)
-	if err != nil && !errors.Is(err, projectstate.ErrDesignActivityNotDispatchable) {
+	if err != nil {
 		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
 	}
 	lc, ok := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(typ, variant))

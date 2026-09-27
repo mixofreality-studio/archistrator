@@ -1955,15 +1955,19 @@ func (f fakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.Pr
 			f.rec.roundOpened(round.RoundID)
 		}
 		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
-			RoundID:    round.RoundID,
-			TaskID:     round.TaskID,
-			Reviews:    round.Reviews,
-			Round:      round.Round,
-			SubjectRef: round.SubjectRef,
-			Reviewers:  append([]projectstate.RoundReviewer(nil), round.Reviewers...),
-			Outcome:    projectstate.RoundPending,
-			OpenedAt:   testLedgerClock.Format(time.RFC3339),
-			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
+			RoundID: round.RoundID,
+			TaskID:  round.TaskID,
+			Reviews: round.Reviews,
+			// The KIND rides the round (stage 4b1 Task 10). The double used to drop it, which made
+			// every kinded-round assertion vacuous: a design round's whole identity is the artifact
+			// it judges, and roundGateKey reads it to tell two kinds' gates apart.
+			ArtifactKind: round.ArtifactKind,
+			Round:        round.Round,
+			SubjectRef:   round.SubjectRef,
+			Reviewers:    append([]projectstate.RoundReviewer(nil), round.Reviewers...),
+			Outcome:      projectstate.RoundPending,
+			OpenedAt:     testLedgerClock.Format(time.RFC3339),
+			Provenance:   projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
 		})
 	})
 }
@@ -14425,15 +14429,19 @@ func (f pdFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 			}
 		}
 		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
-			RoundID:    round.RoundID,
-			TaskID:     round.TaskID,
-			Reviews:    round.Reviews,
-			Round:      round.Round,
-			SubjectRef: round.SubjectRef,
-			Reviewers:  append([]projectstate.RoundReviewer(nil), round.Reviewers...),
-			Outcome:    projectstate.RoundPending,
-			OpenedAt:   testLedgerClock.Format(time.RFC3339),
-			Provenance: projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
+			RoundID: round.RoundID,
+			TaskID:  round.TaskID,
+			Reviews: round.Reviews,
+			// The KIND rides the round (stage 4b1 Task 10). The double used to drop it, which made
+			// every kinded-round assertion vacuous: a design round's whole identity is the artifact
+			// it judges, and roundGateKey reads it to tell two kinds' gates apart.
+			ArtifactKind: round.ArtifactKind,
+			Round:        round.Round,
+			SubjectRef:   round.SubjectRef,
+			Reviewers:    append([]projectstate.RoundReviewer(nil), round.Reviewers...),
+			Outcome:      projectstate.RoundPending,
+			OpenedAt:     testLedgerClock.Format(time.RFC3339),
+			Provenance:   projectstate.AttemptProvenance{Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock},
 		})
 	})
 }
@@ -22740,30 +22748,82 @@ func planWithDesignPrefix() projectstate.Project {
 	)
 }
 
-// The pump walks past a design activity and says so. It must NOT block it: blocking
-// records a sticky RecordActivityFailed with no reopen path, which would poison the
-// activity stage 4 is built to run.
-func Test_NextEligible_SkipsDesignActivitiesWithoutBlockingThem(t *testing.T) {
+// THE RULE BOTH WAYS (stage 4b1 Task 10). A pump on the two pre-4b1 eligibility rules still
+// walks past a design activity — it has no child for it, and a recorded history that skipped
+// it must keep skipping it — while eligibleWithDesign SELECTS it. Neither rule ever BLOCKS
+// one: blocking records a sticky RecordActivityFailed with no reopen path, which would poison
+// the very activity this wave is built to run.
+func Test_NextEligible_DesignActivitiesAreAdmittedOnlyOnTheFencedRule(t *testing.T) {
 	proj := planWithDesignPrefix() // requirements/architecture/projectDesign not started
-	sel := nextEligibleActivity(proj, eligibleNotStarted)
-	if sel.Verdict == verdictBlocked {
-		t.Fatalf("a design activity must never be blocked: %+v", sel)
+	for _, rule := range []eligibilityRule{eligibleNotStarted, eligibleDispatchable} {
+		sel := nextEligibleActivity(proj, rule)
+		if sel.Verdict != verdictQuiescent {
+			t.Errorf("rule %d: with only design work eligible a pre-4b1 pump is quiescent, got %+v", rule, sel)
+		}
 	}
-	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture", "projectDesign"}) {
-		t.Errorf("skipped = %v, want every design activity named", sel.SkippedDesign)
+	sel := nextEligibleActivity(proj, eligibleWithDesign)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "requirements" {
+		t.Fatalf("want requirements dispatched under eligibleWithDesign, got %+v", sel)
 	}
-	if sel.Verdict != verdictQuiescent {
-		t.Errorf("with only design work eligible the pump is quiescent, got %+v", sel)
+	if sel.Activity.Type != projectstate.ActivityTypeRequirements {
+		t.Errorf("the dispatched activity carries type %s, want requirements", sel.Activity.Type)
+	}
+	if !runsOnTheDeliveryChild(sel.Activity.Type) {
+		t.Error("a dispatched design activity must run on the generic child")
 	}
 }
 
-// Defense in depth: if a design activity somehow reaches the dispatch resolver, it goes
-// quiet rather than blocking or dispatching.
-func Test_DispatchSelectionFor_DesignActivityGoesQuiet(t *testing.T) {
+// THE PHASE GATE IS PER ACTIVITY (Task 10; Task 9's carry 1). projectDesign's own phase is
+// PhaseProjectDesign — M0's approve is what moves the project INTO construction — so a
+// blanket PhaseConstruction gate made the deterministic Project Design permanently
+// unselectable and left Task 9's compute inert. Driven at the phase a real project is in
+// when M0 is owed, with the two upstream design activities Done.
+func Test_NextEligible_SelectsProjectDesignBeforeTheProjectReachesConstruction(t *testing.T) {
+	proj := planWithDesignPrefix()
+	proj.Phase = projectstate.PhaseProjectDesign
+	// Both upstream design activities read DONE, which for a design activity means every
+	// phase's gate attempt passed — four for `requirements`, one for `architecture`.
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		"requirements": {ActivityID: "requirements", Attempts: passedLedger("requirements",
+			"mission", "glossary", "volatilities", "coreUseCases")},
+		"architecture": {ActivityID: "architecture", Attempts: passedLedger("architecture", "architecture")},
+	}
+	sel := nextEligibleActivity(proj, eligibleWithDesign)
+	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "projectDesign" {
+		t.Fatalf("want projectDesign dispatched at PhaseProjectDesign, got %+v", sel)
+	}
+	// And the pre-4b1 rules are unmoved: the blanket gate still refuses every phase below
+	// construction, which is what keeps a recorded history replaying what it recorded.
+	if sel := nextEligibleActivity(proj, eligibleDispatchable); sel.Verdict != verdictQuiescent {
+		t.Fatalf("a pre-4b1 pump must stay quiescent below PhaseConstruction, got %+v", sel)
+	}
+}
+
+// A design activity reaching the dispatch resolver now RESOLVES, where it used to take its
+// own quiescent arm off the retired sentinel.
+func Test_DispatchSelectionFor_DesignActivityDispatches(t *testing.T) {
 	sel := dispatchSelectionFor(planWithDesignPrefix(), "architecture",
 		projectstate.ActivityItem{Name: "architecture", WorkerClass: "system-architect"})
-	if sel.Verdict != verdictQuiescent {
-		t.Fatalf("got %+v, want quiescent", sel)
+	if sel.Verdict != verdictDispatch {
+		t.Fatalf("got %+v, want dispatch", sel)
+	}
+	if sel.Activity.Type != projectstate.ActivityTypeArchitecture {
+		t.Errorf("type = %s, want architecture", sel.Activity.Type)
+	}
+}
+
+// The two children are addressed by DIFFERENT ids, and the split is driven by the TYPE. A
+// pump that handed a design activity the retired child's id would collapse onto a running
+// construction child (USE_EXISTING) and silently run the wrong body.
+func Test_PumpChildID_SplitsOnTheTypeAndNeverCollides(t *testing.T) {
+	design := constructionActivity{ActivityID: "requirements", Type: projectstate.ActivityTypeRequirements}
+	build := constructionActivity{ActivityID: "requirements", Type: projectstate.ActivityTypeService}
+	got, want := pumpChildID("p1", design), deliveryActivityWorkflowID("p1", "requirements")
+	if got != want {
+		t.Errorf("design child id = %q, want %q", got, want)
+	}
+	if other := pumpChildID("p1", build); other == got {
+		t.Errorf("the two children share the id %q; one would collapse onto the other", other)
 	}
 }
 
@@ -22812,9 +22872,13 @@ func Test_NextEligible_M0IsSatisfiedByTheBackfilledProjectDesignRow(t *testing.T
 	if sel.Verdict != verdictDispatch || sel.Activity.ActivityID != "C-TLM" {
 		t.Fatalf("want C-TLM dispatched behind a satisfied M0, got %+v", sel)
 	}
-	// The design activities were walked past on the same tick, not blocked, not dispatched.
-	if !slices.Equal(sel.SkippedDesign, []string{"requirements", "architecture"}) {
-		t.Errorf("skipped = %v, want the two design activities still not started", sel.SkippedDesign)
+	// On eligibleWithDesign the SAME state picks `requirements` instead — it is declaration
+	// index 0 and it has no row — which is precisely the selection change
+	// changeDesignActivitiesDispatchable fences: a recorded history that dispatched C-TLM
+	// must not replay into a different child.
+	if fenced := nextEligibleActivity(done, eligibleWithDesign); fenced.Activity.ActivityID != "requirements" {
+		t.Errorf("under eligibleWithDesign the same state selects %q, want requirements — "+
+			"if this stops being true the version fence's reason has moved", fenced.Activity.ActivityID)
 	}
 
 	// Without that one attempt M0 is unsatisfied and the pump has nothing to do — which is
@@ -23751,6 +23815,10 @@ type csFakeProjectState struct {
 	stagedModels   []projectstate.ArtifactModel
 	committedSlots []projectstate.ArtifactKind
 	advanced       int
+
+	// commentStatuses is every comment id SetReviewCommentStatus was called with, in order
+	// (stage 4b1 Task 10). It is the drain-past-capacity case's whole assertion.
+	commentStatuses []string
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -24223,14 +24291,18 @@ func (f csFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 			f.rec.roundOpened(round.RoundID)
 		}
 		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
-			RoundID:    round.RoundID,
-			TaskID:     round.TaskID,
-			Reviews:    round.Reviews,
-			Round:      round.Round,
-			SubjectRef: round.SubjectRef,
-			Reviewers:  slices.Clone(round.Reviewers),
-			Outcome:    projectstate.RoundPending,
-			OpenedAt:   testLedgerClock.Format(time.RFC3339),
+			RoundID: round.RoundID,
+			TaskID:  round.TaskID,
+			Reviews: round.Reviews,
+			// The KIND rides the round (stage 4b1 Task 10). The double used to drop it, which made
+			// every kinded-round assertion vacuous: a design round's whole identity is the artifact
+			// it judges, and roundGateKey reads it to tell two kinds' gates apart.
+			ArtifactKind: round.ArtifactKind,
+			Round:        round.Round,
+			SubjectRef:   round.SubjectRef,
+			Reviewers:    slices.Clone(round.Reviewers),
+			Outcome:      projectstate.RoundPending,
+			OpenedAt:     testLedgerClock.Format(time.RFC3339),
 			Provenance: projectstate.AttemptProvenance{
 				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
 			},
@@ -24372,8 +24444,15 @@ func (f csFakeActivityExecution) StageTaskOutput(_ fwra.Context, _ projectstate.
 	return projectstate.StagedRef{ActivityID: activityID, TaskID: taskID, Branch: branch, Version: f.bump()}, nil
 }
 
-func (csFakeActivityExecution) SetReviewCommentStatus(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, string, string, string, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
+// SetReviewCommentStatus COUNTS, because the gate's own drain-past-capacity claim is stated
+// on it: the router never blocks, so a 65th message overflows to ws.pending and only the
+// RECEIVER's drainPending pulls it through. A double that returned a bare nil made "every
+// status was applied" unfalsifiable — the assertion would pass with the overflow lost.
+func (f csFakeActivityExecution) SetReviewCommentStatus(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ int64, _ string, _ string, commentID string, _ string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.commentStatuses = append(f.commentStatuses, commentID)
+	return f.bump(), nil
 }
 
 func (csFakeActivityExecution) CommitActivityArtifacts(fwra.Context, projectstate.ProjectID, projectstate.Version, int64, string, projectstate.CommitArtifactsInput, projectstate.RepoCredential, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -24488,6 +24567,12 @@ func (f fakeFullProjectState) CommitArtifact(_ fwra.Context, _ projectstate.Proj
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.committedSlots = append(f.committedSlots, kind)
+	// It MOVES the slot's status too (stage 4b1 Task 10), because the Phase-1 seal re-reads the
+	// project and asks whether every required kind is committed. A double that only recorded the
+	// call would answer "not yet" forever and the seal could never be tested at all.
+	if slot := designSlotPtr(&f.project, kind); slot != nil {
+		slot.Status = projectstate.ReviewCommitted
+	}
 	return f.bump(), nil
 }
 
@@ -33847,8 +33932,10 @@ type shapeRig struct {
 	// shapeOutcome (Reopened, PhaseAdvanced) are read out of the store rather than
 	// observed at a hook, because a re-dispatch is a second attempt on a work task
 	// and that is a row, not an event. Everything else arrives through the recorder.
-	cs     *csFakeProjectState
-	design *fakeProjectState
+	cs *csFakeProjectState
+	// (shapeRig.design — the CO-AUTHOR rail's store — went with the `requirements` arm when
+	// stage 4b1 Task 10 re-pointed it at the generic child. Every shape case now reads the one
+	// construction-rail double, which is what "one set of store semantics" was always for.)
 	// cswf + pipe are the construction-rail receiver and pipeline double the generic child
 	// runs on. They are here, unlike the design rails', because reenter re-runs the SAME
 	// receiver over the SAME ledger on a second environment to finish a continued walk.
@@ -33917,19 +34004,14 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
 	case "requirements":
-		vibes := projectstate.ReviewPresetVibes
-		ps := &fakeProjectState{project: projectstate.Project{
-			ID:           projectstate.ProjectID(uuid.NewString()),
-			Version:      1,
-			Mission:      awaitingSlot(mustMission(t), projectstate.CritiqueVerdictApprove, ""),
-			ReviewPolicy: projectstate.ReviewPolicy{Preset: &vibes},
-		}}
-		ps.rec = rig.rec
-		pipe := newFakePipeline()
-		pipe.rec = rig.rec
-		wf := newWorkflows()
-		rig.design = ps
-		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerCoAuthor(env, wf, ps, pipe) }
+		// RE-POINTED AT THE GENERIC CHILD (stage 4b1 Task 10). The rail moved from
+		// CoAuthorArtifactWorkflow-per-kind to ONE DeliveryActivityWorkflow walking the whole
+		// four-phase `requirements` lifecycle, so the case's subject widened with it: it used to
+		// drive the mission kind alone and now drives the activity that owns all four. The design
+		// job double FULFILS each job the way the seated aiarch-design.yml does, so the read-back
+		// has something to read and the auto-approve is an approve OF something.
+		designRig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+		return designRig
 	case "projectDesign":
 		// RE-POINTED AT THE GENERIC CHILD (stage 4b1 Task 9). The rail moved from
 		// AssembleSDPReviewWorkflow to DeliveryActivityWorkflow, so the store moved with it:
@@ -34182,20 +34264,14 @@ func driveM0NoSendBack(t *testing.T, rig *shapeRig) shapeOutcome {
 // prove only that a workflow with no autogate waits.
 func driveVibesFloor(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
-	rig.register(rig.env)
-	rig.env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{
-		ProjectID: ProjectID(rig.design.project.ID), ArtifactKind: KindMission,
-	})
-	shapeRequireCompleted(t, rig.env)
+	// HALF ONE: the whole four-phase design activity runs to its terminal with NO human signal
+	// at all. Under `vibes` every design gate auto-passes — which is the two-month defect this
+	// project measured, now visible in the ledger instead of invisible.
+	got := driveRequirementsWalk(t, rig)
 
-	var outcome coAuthorOutcome
-	if err := rig.env.GetWorkflowResult(&outcome); err != nil {
-		t.Fatalf("decode co-author outcome: %v", err)
-	}
-	if outcome != coAuthorApproved {
-		t.Fatalf("a vibes policy must auto-approve the design review with NO human signal; got outcome %d", outcome)
-	}
-
+	// HALF TWO: the SAME preset does not release M0. The non-overridable spend floor is asked
+	// directly, because the two halves belong to two different activities and driving the second
+	// here would make this case a duplicate of m0-no-sendback.
 	set, err := review.NewReviewEngine().ProposeReviews(
 		fweng.Context{Context: context.Background()},
 		review.ReviewChange{ActivityID: shapeSDPActivity},
@@ -34207,9 +34283,14 @@ func driveVibesFloor(t *testing.T, rig *shapeRig) shapeOutcome {
 	if !set.RequiresHuman {
 		t.Fatalf("the non-overridable spend floor must hold M0 for a human even under vibes; the engine said no, reason %q", set.Reason)
 	}
-
-	advanced := len(rig.design.committed) == 1 && rig.design.committed[0] == projectstate.KindMission
-	return rig.rec.outcome(nil, advanced)
+	// And every design gate was closed by the POLICY, not by a person — the half that makes
+	// "auto-approved" a fact about the data rather than about the absence of a signal.
+	for _, r := range rig.cs.execution("requirements").Reviews {
+		if r.DecidedBy != gateActorSystem {
+			t.Errorf("round %s was decided by %q; under vibes the committed policy closes it", r.RoundID, r.DecidedBy)
+		}
+	}
+	return got
 }
 
 // ---- shared driver plumbing ------------------------------------------------
@@ -34474,8 +34555,20 @@ func assertShapeM0NoSendBack(t *testing.T, name string, got shapeOutcome) {
 // fact and forcing it into shapeOutcome would make it less legible, not more.
 func assertShapeVibesFloor(t *testing.T, name string, got shapeOutcome) {
 	t.Helper()
-	shapeWantOrder(t, name, "Dispatched", got.Dispatched, []string{"mission-draft", "mission-critique"})
-	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, []string{"missionReview"})
+	// The whole activity: four drafts, and a critique after each draft whose review task carries
+	// one — volatilities does not, which is why there are SEVEN dispatches and not eight.
+	shapeWantOrder(t, name, "Dispatched", got.Dispatched, []string{
+		"mission-draft", "mission-critique",
+		"glossary-draft", "glossary-critique",
+		"volatilities-draft",
+		"core-use-cases-draft", "core-use-cases-critique",
+		// The local merge lands activity/requirements on main, which is what makes the four slot
+		// commits legal: DesignSessionCommitArtifactWithProvenance takes no branch.
+		"job:merge",
+	})
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, []string{
+		"missionReview", "glossaryReview", "volatilitiesReview", "coreUseCasesReview",
+	})
 	if len(got.RoundsDecided) == 0 {
 		t.Fatalf("%s: an auto-approved gate is still a gate that HAPPENED — it must leave its round; got none", name)
 	}
@@ -35155,4 +35248,851 @@ func Test_DeliveryActivityWorkflowID_DoesNotCollideWithTheRetiredChild(t *testin
 	if retired := constructActivityWorkflowID(projectID, activityID); got == retired {
 		t.Fatalf("the generic child's id must differ from the retired child's while both types are registered; both are %q", got)
 	}
+}
+
+// ===========================================================================
+// THE DESIGN ARM (stage 4b1 Task 10). The generic child walking the `requirements`
+// and `architecture` lifecycles: the agentic design job, the read-back off the
+// activity branch, the staging, the critique-as-ordinary-reviewer, the slot commits
+// and the Phase-1 seal.
+//
+// The rig's ONE invention is a job double that FULFILS a design job the way the
+// seated aiarch-design.yml does — a draft commits a typed model on the target
+// branch, a critique commits a verdict carrier — because without that the read-back
+// has nothing to read and every case would pass or fail on the same empty slot. It
+// writes through the SAME fake store every other delivery-child case uses, so the
+// two exercise one set of store semantics.
+// ===========================================================================
+
+// designJobPipeline is the design venue's agentic-job double. It reads the FIVE dispatch
+// inputs the Manager sends and does what the seated workflow file would do with them, which
+// is what makes the case assert the Manager's own contract with that file: a wrong
+// artifact_kind, a missing target_branch or a job_mode the Manager never set would leave the
+// slot untouched and the read-back would fail by name.
+type designJobPipeline struct {
+	mu        sync.Mutex
+	ps        *csFakeProjectState
+	rec       *shapeRecorder
+	submitted []agenticjob.PipelineSpec
+
+	// reviseFirst names the kinds whose FIRST critique asks for a revise and whose second
+	// approves — the critic-as-reviewer path, driven rather than asserted on a stub.
+	reviseFirst map[string]bool
+	// silentCritique names the kinds whose critique job SUCCEEDS and commits no verdict: the
+	// ran-but-incomplete job the safe default exists for.
+	silentCritique map[string]bool
+	critiques      map[string]int
+	// failDraft names the kinds whose draft job reaches a terminal FAILURE phase.
+	failDraft map[string]bool
+	// drafts counts the draft dispatches per kind, so a case can assert a redraft happened.
+	drafts map[string]int
+}
+
+func newDesignJobPipeline(ps *csFakeProjectState, rec *shapeRecorder) *designJobPipeline {
+	return &designJobPipeline{
+		ps: ps, rec: rec,
+		reviseFirst: map[string]bool{}, silentCritique: map[string]bool{},
+		critiques: map[string]int{}, failDraft: map[string]bool{}, drafts: map[string]int{},
+	}
+}
+
+func (p *designJobPipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.submitted = append(p.submitted, spec)
+	kind := spec.DispatchInputs[dispatchInputArtifactKind]
+	if p.rec != nil {
+		// A job with no design COMMAND is the local merge — the one dispatch that is not a
+		// lifecycle task — and it is recorded under the same job key csFakePipeline uses, so a
+		// merge that appeared or disappeared is visible rather than an empty string in the record.
+		if cmd := spec.DispatchInputs[dispatchInputCommand]; cmd != "" {
+			p.rec.jobDispatched(cmd)
+		} else {
+			p.rec.jobDispatched("job:" + spec.DispatchInputs[agenticjob.DispatchInputJobKey])
+		}
+	}
+	switch spec.DispatchInputs[dispatchInputJobMode] {
+	case jobModeDraft:
+		p.drafts[kind]++
+		if !p.failDraft[kind] {
+			p.commitDraft(kind)
+		}
+	case jobModeCritique:
+		p.critiques[kind]++
+		p.commitCritique(kind)
+	}
+	return agenticjob.PipelineHandle("design-" + kind + "-" + spec.DispatchInputs[dispatchInputJobMode]), nil
+}
+
+// commitDraft is the draft job's own commit: a typed zero-value model for the kind, on the
+// slot the read-back reads. A FRESH model per dispatch, so a redraft's staged ref moves.
+// Callers hold the lock.
+func (p *designJobPipeline) commitDraft(kind string) {
+	k, ok := projectstate.ArtifactKindFromWireName(kind)
+	if !ok {
+		return
+	}
+	model, ok := projectstate.NewModelForKind(k)
+	if !ok {
+		return
+	}
+	p.ps.mu.Lock()
+	defer p.ps.mu.Unlock()
+	setDesignSlotModel(&p.ps.project, k, model)
+}
+
+// commitCritique is the critique job's own commit: the verdict carrier on the same slot.
+// Callers hold the lock.
+func (p *designJobPipeline) commitCritique(kind string) {
+	k, ok := projectstate.ArtifactKindFromWireName(kind)
+	if !ok {
+		return
+	}
+	verdict, notes := projectstate.CritiqueVerdictApprove, "the critic had no blocking objection"
+	switch {
+	case p.silentCritique[kind]:
+		verdict, notes = "", ""
+	case p.reviseFirst[kind] && p.critiques[kind] == 1:
+		verdict, notes = projectstate.CritiqueVerdictRevise, "tighten the second objective"
+	}
+	p.ps.mu.Lock()
+	defer p.ps.mu.Unlock()
+	setDesignSlotCritique(&p.ps.project, k, verdict, notes)
+}
+
+func (p *designJobPipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for kind := range p.failDraft {
+		if strings.Contains(string(handle), "design-"+kind+"-"+jobModeDraft) {
+			return agenticjob.PipelineObservation{Phase: agenticjob.PhaseFailed, Diagnostic: "the draft job's CI check went red"}, nil
+		}
+	}
+	return agenticjob.PipelineObservation{Phase: agenticjob.PhaseSucceeded}, nil
+}
+
+func (*designJobPipeline) CancelAgenticJob(fwra.Context, agenticjob.PipelineHandle) error { return nil }
+
+// setDesignSlotModel / setDesignSlotCritique are the WRITE side of designSlotForKind, which
+// this package has only ever needed to read. They cover the five kinds the two design
+// lifecycles produce and Fatalf-free-ignore the rest, because a case naming a sixth would
+// otherwise pass while writing nothing — which is why every case asserts what it read back.
+func setDesignSlotModel(p *projectstate.Project, kind projectstate.ArtifactKind, model projectstate.ArtifactModel) {
+	if slot := designSlotPtr(p, kind); slot != nil {
+		slot.Model = model
+	}
+}
+
+func setDesignSlotCritique(p *projectstate.Project, kind projectstate.ArtifactKind, verdict, notes string) {
+	if slot := designSlotPtr(p, kind); slot != nil {
+		slot.CritiqueVerdict, slot.CritiqueNotes = verdict, notes
+	}
+}
+
+func designSlotPtr(p *projectstate.Project, kind projectstate.ArtifactKind) *projectstate.ArtifactSlot {
+	switch kind {
+	case projectstate.KindMission:
+		return &p.Mission
+	case projectstate.KindGlossary:
+		return &p.Glossary
+	case projectstate.KindVolatilities:
+		return &p.Volatilities
+	case projectstate.KindCoreUseCases:
+		return &p.CoreUseCases
+	case projectstate.KindSystem:
+		return &p.SystemDesign
+	}
+	return nil
+}
+
+// designShapeRig builds a rig for one DESIGN lifecycle on the generic child: the REAL
+// review engine (the gate verdict is the behaviour under test in three of these cases), the
+// design job double, and a project at PhaseSystemDesign with NOTHING committed — so the
+// walk genuinely drafts rather than being skipped by the skip-if-committed guard.
+//
+// preset is the project's committed ReviewPolicy preset. "vibes" is what the human-floor case
+// needs; a gated preset is what the two-simultaneous-gates case needs.
+func designShapeRig(t *testing.T, preset string) (*shapeRig, *designJobPipeline) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	policy := projectstate.ReviewPolicy{}
+	if preset != "" {
+		p := preset
+		policy.Preset = &p
+	}
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID:           projectstate.ProjectID("shape-design"),
+		Version:      1,
+		Phase:        projectstate.PhaseSystemDesign,
+		ReviewPolicy: policy,
+	}}
+	ps.rec = rig.rec
+	pipe := newDesignJobPipeline(ps, rig.rec)
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	wf := csNewWorkflows(deps)
+	wf.Deliveries = rig.rec
+	rig.cs, rig.cswf = ps, wf
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	return rig, pipe
+}
+
+// designActivity is one of the three reserved design activities as the derived plan authors
+// it and the pump hydrates it: componentless, system-architect, its classified type carried.
+func designActivity(id string, typ projectstate.ActivityType) constructionActivity {
+	return constructionActivity{ActivityID: id, Kind: activityKindConstruction, Type: typ}
+}
+
+// driveRequirementsWalk runs the four-phase `requirements` activity to its terminal.
+func driveRequirementsWalk(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+	return rig.csOutcome("requirements")
+}
+
+// THE FOUR PHASES IN ORDER, one gate each, one round each, each round KINDED (Task 3's
+// artifactKind field carrying its first real load). This is the whole of what
+// SystemDesignPhaseWorkflow's fixed sequence became: four dependsOn edges in the lifecycle
+// data and a walk that reads them.
+func Test_DesignWalk_RequirementsWalksItsFourPhasesInOrder(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	got := driveRequirementsWalk(t, rig)
+
+	assertDesignDraftOrder(t, got)
+	assertDesignRoundsAreKindedAndPassed(t, rig, got)
+	assertDesignCommitsWithoutSealing(t, rig)
+	// And each draft was dispatched exactly once: nothing re-drafted.
+	for _, kind := range []string{"mission", "glossary", "volatilities", "coreUseCases"} {
+		if pipe.drafts[kind] != 1 {
+			t.Errorf("%s drafted %d times, want 1", kind, pipe.drafts[kind])
+		}
+	}
+}
+
+// assertDesignDraftOrder pins the four phases' Method order, off the dispatched commands and
+// off the gate order. TaskOrder holds the GATES, not the drafts: a review task's start IS its
+// round opening (the store double's hook), and a design job's own start has no ledger event.
+func assertDesignDraftOrder(t *testing.T, got shapeOutcome) {
+	t.Helper()
+	var drafts []string
+	for _, cmd := range got.Dispatched {
+		if strings.HasSuffix(cmd, "-draft") {
+			drafts = append(drafts, cmd)
+		}
+	}
+	want := []string{"mission-draft", "glossary-draft", "volatilities-draft", "core-use-cases-draft"}
+	if !slices.Equal(drafts, want) {
+		t.Fatalf("draft commands = %v, want %v — the four phases in Method order", drafts, want)
+	}
+	if !slices.Equal(got.TaskOrder, []string{"missionReview", "glossaryReview", "volatilitiesReview", "coreUseCasesReview"}) {
+		t.Errorf("TaskOrder = %v, want the four gates in phase order", got.TaskOrder)
+	}
+}
+
+// assertDesignRoundsAreKindedAndPassed: four rounds, one per phase gate, each numbered 1, each
+// passed, and each carrying the JUDGED task's artifact kind — Task 3's field carrying its first
+// real load.
+func assertDesignRoundsAreKindedAndPassed(t *testing.T, rig *shapeRig, got shapeOutcome) {
+	t.Helper()
+	wantRounds := []string{
+		"requirements:missionReview:1", "requirements:glossaryReview:1",
+		"requirements:volatilitiesReview:1", "requirements:coreUseCasesReview:1",
+	}
+	if !slices.Equal(got.RoundsOpened, wantRounds) {
+		t.Fatalf("RoundsOpened = %v, want %v", got.RoundsOpened, wantRounds)
+	}
+	for _, id := range wantRounds {
+		if got.RoundsDecided[id] != string(projectstate.RoundPassed) {
+			t.Errorf("round %s decided %q, want passed", id, got.RoundsDecided[id])
+		}
+	}
+	byTask := map[string]*projectstate.ArtifactKind{}
+	for _, r := range rig.cs.execution("requirements").Reviews {
+		byTask[string(r.TaskID)] = r.ArtifactKind
+	}
+	for task, want := range map[string]projectstate.ArtifactKind{
+		"missionReview": projectstate.KindMission, "glossaryReview": projectstate.KindGlossary,
+		"volatilitiesReview": projectstate.KindVolatilities, "coreUseCasesReview": projectstate.KindCoreUseCases,
+	} {
+		if byTask[task] == nil || *byTask[task] != want {
+			t.Errorf("round at %s carries kind %v, want %s", task, byTask[task], want.WireName())
+		}
+	}
+}
+
+// assertDesignCommitsWithoutSealing: the four slots land on main — after the merge, which is
+// what makes the model BE on main to commit — and the Phase-1 seal does NOT fire, because
+// `system` is the fifth required kind and this activity does not produce it.
+func assertDesignCommitsWithoutSealing(t *testing.T, rig *shapeRig) {
+	t.Helper()
+	if !slices.Equal(rig.cs.committedSlots, []projectstate.ArtifactKind{
+		projectstate.KindMission, projectstate.KindGlossary, projectstate.KindVolatilities, projectstate.KindCoreUseCases,
+	}) {
+		t.Errorf("committed = %v, want the four Phase-1 kinds this activity produces", rig.cs.committedSlots)
+	}
+	if rig.cs.advanced != 0 {
+		t.Errorf("Phase 1 sealed with `system` still uncommitted (%d advances) — the seal must want all FIVE required kinds", rig.cs.advanced)
+	}
+}
+
+// THE PHASE-1 SEAL, and the MAPPING that makes deleting SystemDesignPhaseWorkflow safe:
+// the `architecture` activity commits the FIFTH required kind, and only then does the root
+// phase move. Driven with the other four already committed, which is the state a real
+// project is in when architecture runs.
+func Test_DesignWalk_ArchitectureCommitsTheFifthKindAndSealsPhaseOne(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	for _, k := range []projectstate.ArtifactKind{
+		projectstate.KindMission, projectstate.KindGlossary,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases,
+	} {
+		slot := designSlotPtr(&rig.cs.project, k)
+		slot.Status = projectstate.ReviewCommitted
+	}
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "architecture",
+		Activity:   designActivity("architecture", projectstate.ActivityTypeArchitecture),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	if !slices.Equal(rig.cs.committedSlots, []projectstate.ArtifactKind{projectstate.KindSystem}) {
+		t.Fatalf("committed = %v, want just the system kind", rig.cs.committedSlots)
+	}
+	if rig.cs.advanced != 1 {
+		t.Fatalf("AdvancePhase called %d times, want exactly 1 — the fifth required kind seals Phase 1", rig.cs.advanced)
+	}
+	if rig.cs.project.Phase != projectstate.PhaseProjectDesign {
+		t.Errorf("phase = %d, want PhaseProjectDesign — the seal moves Phase 1 to Phase 2, not straight to construction",
+			rig.cs.project.Phase)
+	}
+}
+
+// THE SKIP-IF-COMMITTED GUARD, moved from SystemDesignPhaseWorkflow (the 2026-07-16
+// incident: a restart re-drafted a committed mission). Every existing project is in exactly
+// this state — committed Phase-1 slots, NO execution row — so a ledger-only seed would
+// re-draft all four.
+func Test_DesignWalk_AlreadyCommittedSlotsAreNotRedrafted(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	for _, k := range []projectstate.ArtifactKind{
+		projectstate.KindMission, projectstate.KindGlossary,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases,
+	} {
+		designSlotPtr(&rig.cs.project, k).Status = projectstate.ReviewCommitted
+	}
+	got := driveRequirementsWalk(t, rig)
+
+	if len(pipe.submitted) != 0 {
+		t.Fatalf("a walk over four committed slots dispatched %d jobs; want none", len(pipe.submitted))
+	}
+	if len(got.RoundsOpened) != 0 {
+		t.Errorf("RoundsOpened = %v, want none — every task was already committed", got.RoundsOpened)
+	}
+	if len(rig.cs.committedSlots) != 0 {
+		t.Errorf("re-committed %v; a walk that produced nothing must write nothing", rig.cs.committedSlots)
+	}
+	if !got.PhaseAdvanced {
+		t.Error("the activity must still reach its binary exit: its work IS done")
+	}
+}
+
+// A DESIGN SEND-BACK RE-OPENS ONLY THE JUDGED PAIR, and the round-2 subject DIFFERS from
+// round 1's (Task 5's fix, now on the generic writer). Two claims in one drive because they
+// are the same send-back: a re-draft that staged the same ref would make round 2 judge the
+// artifact round 1 rejected.
+func Test_DesignWalk_ArchitectureSendBackReopensOnlyItsPairAndMovesTheSubject(t *testing.T) {
+	rig, pipe := designShapeRig(t, "") // legacy policy: the gate holds for a human
+	// The PR rail is READ AS LIVE so the LOCAL merge step is skipped. Under the legacy policy
+	// the review engine holds the merge gate for a human too, and this case has no merge
+	// approver — so without this the walk would end waiting on a merge nobody was asked for,
+	// and the send-back claim would never be reached.
+	rig.cswf.RailEnabled = railWired
+	rig.register(rig.env)
+	// The two decisions are separated deliberately: a reject and an approve that both arrive
+	// before round 1 opens are BOTH buffered, the gate takes the reject, and closeInbox then
+	// drains the approve as too-late — so round 2 would await a decision that was already spent.
+	rig.env.RegisterDelayedCallback(shapeReject(rig.env, "architectureReview", "draw the call chains"), time.Millisecond)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "architectureReview"), 200*time.Millisecond)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "architecture",
+		Activity:   designActivity("architecture", projectstate.ActivityTypeArchitecture),
+	})
+	shapeRequireCompleted(t, rig.env)
+	got := rig.csOutcome("architecture")
+
+	if !slices.Equal(got.Reopened, []string{"architectureDraft"}) {
+		t.Fatalf("Reopened = %v, want exactly [architectureDraft] — nothing else may re-run", got.Reopened)
+	}
+	if pipe.drafts["system"] != 2 {
+		t.Fatalf("system drafted %d times, want 2 (the original and its redraft)", pipe.drafts["system"])
+	}
+	row := rig.cs.execution("architecture")
+	subjects := map[int64]string{}
+	for _, r := range row.Reviews {
+		if r.TaskID == "architectureReview" {
+			subjects[r.Round] = r.SubjectRef.Ref
+		}
+	}
+	if len(subjects) != 2 {
+		t.Fatalf("want two architectureReview rounds, got %d: %v", len(subjects), subjects)
+	}
+	if subjects[1] == "" || subjects[2] == "" {
+		t.Fatalf("both rounds must cite a staged subject: %v", subjects)
+	}
+	if subjects[1] == subjects[2] {
+		t.Errorf("round 2 cites the SAME subject as round 1 (%q) — the redraft's staging did not move, "+
+			"so round 2 judges the artifact round 1 rejected", subjects[1])
+	}
+}
+
+// THE CRITIQUE IS AN ORDINARY REVIEWER. A revise verdict is recorded as a SEND-BACK verdict
+// by the critic's own role — not as an abstention, which would erase the one thing the
+// critique produced — and the round still reaches the human gate carrying it.
+func Test_DesignWalk_CritiqueRevise_LandsAsTheCriticsSendBackVerdict(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe.reviseFirst["mission"] = true
+	got := driveRequirementsWalk(t, rig)
+
+	row := rig.cs.execution("requirements")
+	var missionVerdicts []projectstate.ReviewVerdict
+	for _, r := range row.Reviews {
+		if r.TaskID == "missionReview" && r.Round == 1 {
+			missionVerdicts = r.Verdicts
+		}
+	}
+	if len(missionVerdicts) == 0 {
+		t.Fatal("missionReview round 1 carries no verdict; the critique landed nowhere")
+	}
+	first := missionVerdicts[0]
+	if first.Verdict != projectstate.VerdictSendBack {
+		t.Errorf("the critic's revise landed as %q, want sendBack", first.Verdict)
+	}
+	if first.ReviewerRole != "product-manager" || first.Actor != "product-manager" {
+		t.Errorf("verdict role/actor = %q/%q, want product-manager — the lifecycle's own workerClass",
+			first.ReviewerRole, first.Actor)
+	}
+	if first.Summary == "" {
+		t.Error("the critic's notes must ride the verdict; an empty summary erases the critique")
+	}
+	// The walk still finished — the critique is a reviewer, not a gate of its own.
+	if len(got.RoundsOpened) != 4 {
+		t.Errorf("RoundsOpened = %v, want the four phase gates", got.RoundsOpened)
+	}
+}
+
+// A CRITIQUE THAT COMMITTED NO VERDICT HOLDS THE GATE FOR A HUMAN, EVEN UNDER VIBES. This is
+// readBackCritiqueOn's safe default, carried into the child: the job reported success and
+// judged nothing, so closing the gate on the policy's no-human arm would auto-approve an
+// artifact nobody looked at. The case drives `vibes`, which auto-approves every OTHER gate in
+// the same walk — so it is the critique's silence doing the work and not the policy.
+func Test_DesignWalk_SilentCritique_HoldsTheGateForAHumanUnderVibes(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	pipe.silentCritique["mission"] = true
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	// The human answers, late — which is the point: without a human this walk never finishes.
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "missionReview"), 2*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution("requirements")
+	for _, r := range row.Reviews {
+		if r.TaskID != "missionReview" {
+			continue
+		}
+		if len(r.Verdicts) == 0 {
+			t.Fatal("the silent critique must still leave a verdict on the round")
+		}
+		if r.Verdicts[0].Verdict != projectstate.VerdictAbstain {
+			t.Errorf("a critique that judged nothing landed as %q, want abstain", r.Verdicts[0].Verdict)
+		}
+		if r.DecidedBy != gateActorOperator {
+			t.Errorf("missionReview was decided by %q; a gate whose critic did not judge must be answered by a HUMAN, "+
+				"whatever the policy says", r.DecidedBy)
+		}
+	}
+	// Its three siblings, whose critics DID judge, were auto-passed by the vibes policy — which
+	// is what proves the hold above came from the critique and not from the preset.
+	for _, r := range row.Reviews {
+		if r.TaskID == "glossaryReview" && r.DecidedBy != gateActorSystem {
+			t.Errorf("glossaryReview decided by %q, want the policy's system actor", r.DecidedBy)
+		}
+	}
+}
+
+// volatilitiesReview STAFFS NO AGENT CRITIC while its three siblings do — the one
+// reviewer-less row in the `requirements` lifecycle, and the fact the engine's own
+// phaseVolatilities constant already names. Asserted off the DISPATCHED commands, because the
+// claim is that no critique job was submitted for it.
+func Test_DesignWalk_VolatilitiesReviewDispatchesNoAgentCritic(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	got := driveRequirementsWalk(t, rig)
+
+	var critiques []string
+	for _, cmd := range got.Dispatched {
+		if strings.HasSuffix(cmd, "-critique") {
+			critiques = append(critiques, cmd)
+		}
+	}
+	want := []string{"mission-critique", "glossary-critique", "core-use-cases-critique"}
+	if !slices.Equal(critiques, want) {
+		t.Fatalf("critique commands = %v, want %v — volatilities has no critic and must dispatch none", critiques, want)
+	}
+	// And its gate still ran and still passed: no critic is not no review.
+	if got.RoundsDecided["requirements:volatilitiesReview:1"] != string(projectstate.RoundPassed) {
+		t.Errorf("volatilitiesReview round = %q, want passed", got.RoundsDecided["requirements:volatilitiesReview:1"])
+	}
+}
+
+// A TERMINAL DRAFT FAILURE records a FAILED attempt and fails the walk with the diagnostic —
+// the child's rule since Task 9's compute, replacing the retired session's StageDraftFailed
+// human gate. The claim is that the failure is VISIBLE in the ledger, not that it is silent.
+func Test_DesignWalk_DraftJobFailure_RecordsTheAttemptAndFailsTheWalk(t *testing.T) {
+	rig, _ := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe := newDesignJobPipeline(rig.cs, rig.rec)
+	pipe.failDraft["mission"] = true
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, rig.cswf, rig.cs, pipe) }
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatal("the walk did not reach a terminal")
+	}
+	err := rig.env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("a terminal draft failure must fail the walk; a nil error is the silent success this arm exists to refuse")
+	}
+	if !strings.Contains(err.Error(), "CI check went red") {
+		t.Errorf("the failure must carry the venue's diagnostic, got %v", err)
+	}
+	row := rig.cs.execution("requirements")
+	var failed bool
+	for _, a := range row.Attempts {
+		if a.Task == "missionDraft" && a.Outcome == projectstate.OutcomeFailed {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Errorf("no FAILED attempt at missionDraft; the ledger must say what happened: %+v", row.Attempts)
+	}
+	if len(rig.cs.committedSlots) != 0 {
+		t.Errorf("a failed walk committed %v; nothing may be committed", rig.cs.committedSlots)
+	}
+}
+
+// THE DISPATCH'S OWN CONTRACT WITH aiarch-design.yml: the five inputs, the per-project repo
+// target and THAT workflow file. A design job sent to the construction venue runs the wrong
+// file, which is exactly what routing it through csWorkflows.gitEnabled would have done on
+// every local boot.
+func Test_DesignWalk_DispatchCarriesTheDesignVenueAndItsFiveInputs(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	rig.cswf.Repo = func(ProjectID) (sourcecontrol.RepoRef, bool) { return sourcecontrol.RepoRef("acme|acme/app"), true }
+	// The construction rail stays DORMANT, as it does on the local profile — and the design
+	// dispatch must still resolve its venue.
+	rig.cswf.RailEnabled = railDormant
+	driveRequirementsWalk(t, rig)
+
+	if len(pipe.submitted) == 0 {
+		t.Fatal("nothing was dispatched")
+	}
+	first := pipe.submitted[0]
+	if first.WorkflowFile != designWorkflowFileName {
+		t.Errorf("workflow file = %q, want %q", first.WorkflowFile, designWorkflowFileName)
+	}
+	if first.TargetRepo.Owner != "acme" || first.TargetRepo.Name != "app" {
+		t.Errorf("target repo = %+v, want the per-project design venue", first.TargetRepo)
+	}
+	want := map[string]string{
+		dispatchInputArtifactKind:  "mission",
+		dispatchInputCommand:       "mission-draft",
+		dispatchInputTargetBranch:  activityBranchName("requirements"),
+		dispatchInputPriorStateRef: "",
+		dispatchInputJobMode:       jobModeDraft,
+	}
+	if !maps.Equal(first.DispatchInputs, want) {
+		t.Errorf("dispatch inputs = %v, want %v", first.DispatchInputs, want)
+	}
+	// The critique rides the SAME branch under the critique mode.
+	for _, spec := range pipe.submitted {
+		if spec.DispatchInputs[dispatchInputJobMode] != jobModeCritique {
+			continue
+		}
+		if spec.DispatchInputs[dispatchInputTargetBranch] != activityBranchName("requirements") {
+			t.Errorf("a critique dispatched at branch %q, want the activity branch",
+				spec.DispatchInputs[dispatchInputTargetBranch])
+		}
+	}
+}
+
+// A DORMANT VENUE reads back and stages on MAIN and dispatches with no workflow file —
+// byte-for-byte the retired rail's dormant behaviour, and the posture every non-git
+// composition runs in.
+func Test_DesignWalk_DormantVenue_StagesOnMainAndFallsBackToTheConfiguredRepo(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	rig.cswf.Repo = nil
+	driveRequirementsWalk(t, rig)
+
+	if len(pipe.submitted) == 0 {
+		t.Fatal("nothing was dispatched")
+	}
+	for _, spec := range pipe.submitted {
+		if spec.WorkflowFile != "" {
+			t.Errorf("a dormant venue must leave the workflow file empty so the RA falls back, got %q", spec.WorkflowFile)
+		}
+		if spec.DispatchInputs[dispatchInputTargetBranch] != "" {
+			t.Errorf("a dormant venue names no branch, got %q", spec.DispatchInputs[dispatchInputTargetBranch])
+		}
+	}
+}
+
+// ---- the design arm's pure rules ------------------------------------------
+
+// designSlotOfTask is what splits the two rails, and the split must come off the DATA rather
+// than a table: every design lifecycle's dispatch task resolves a slot and every construction
+// lifecycle's does not. Walked over all fourteen lifecycles, so a platform release that
+// respelled a construction kind into a slot name fails HERE rather than misrouting a build.
+func Test_DesignSlotOfTask_SplitsTheRailsOnTheData(t *testing.T) {
+	designLifecycles := map[string]bool{"requirements": true, "architecture": true, "projectDesign": true}
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			_, ok := designSlotOfTask(lc, task)
+			want := designLifecycles[lc.Type]
+			if ok != want {
+				t.Errorf("%s/%s: designSlotOfTask = %v, want %v", lc.Type, task.ID, ok, want)
+			}
+		}
+	}
+}
+
+// THE MAPPING, pinned. Phase1RequiredKinds() must be exactly the kinds the `requirements` and
+// `architecture` lifecycles produce, four-then-one, with NO residue in either direction. This
+// is the measurement that makes deleting SystemDesignPhaseWorkflow's sequence safe, and it is
+// a test rather than a comment because a method-assets release could move it silently.
+func Test_Phase1RequiredKinds_AreExactlyTheTwoDesignLifecyclesOutput(t *testing.T) {
+	byLifecycle := map[string][]projectstate.ArtifactKind{}
+	for _, key := range []string{"requirements", "architecture"} {
+		lc, ok := methodassets.LifecycleFor(key)
+		if !ok {
+			t.Fatalf("the platform carries no %s lifecycle", key)
+		}
+		byLifecycle[key] = designSlotsOfLifecycle(lc)
+	}
+	if len(byLifecycle["requirements"]) != 4 {
+		t.Errorf("requirements produces %v, want FOUR kinds", byLifecycle["requirements"])
+	}
+	if len(byLifecycle["architecture"]) != 1 {
+		t.Errorf("architecture produces %v, want ONE kind", byLifecycle["architecture"])
+	}
+	produced := append(append([]projectstate.ArtifactKind{}, byLifecycle["requirements"]...), byLifecycle["architecture"]...)
+	required := projectstate.Phase1RequiredKinds()
+	if !slices.Equal(produced, required) {
+		t.Fatalf("the two design lifecycles produce %v but Phase1RequiredKinds() is %v — "+
+			"the four-then-one mapping has residue, and the Phase-1 seal would then wait on a kind nothing drafts "+
+			"or seal without one it does", produced, required)
+	}
+}
+
+// The command each design task runs is the LIFECYCLE'S, and DesignCommandFor must still agree
+// with it — two answers to one question is how a platform release silently re-points a job.
+func Test_DesignCommands_MatchTheLifecycleData(t *testing.T) {
+	for _, key := range []string{"requirements", "architecture"} {
+		lc, _ := methodassets.LifecycleFor(key)
+		for _, task := range lc.Tasks {
+			if task.Command == "" {
+				continue
+			}
+			kind, ok := designSlotOfTask(lc, task)
+			if !ok {
+				t.Fatalf("%s/%s carries a command but resolves no design slot", key, task.ID)
+			}
+			mode := projectstate.DesignJobModeDraft
+			if task.Kind == methodassets.LifecycleTaskReview {
+				mode = projectstate.DesignJobModeCritique
+			}
+			if got := projectstate.DesignCommandFor(kind, mode, ""); got != task.Command {
+				t.Errorf("%s/%s: lifecycle says %q, DesignCommandFor says %q", key, task.ID, task.Command, got)
+			}
+		}
+	}
+}
+
+// criticVerdictFor is a three-way map and the third arm is the load-bearing one: an outcome
+// that is neither a pass nor a rejection means the critic did NOT judge, and `judged=false` is
+// what holds the gate for a human.
+func Test_CriticVerdictFor_NeverApprovesWhatWasNotJudged(t *testing.T) {
+	cases := map[projectstate.TaskOutcome]struct {
+		verdict projectstate.VerdictKind
+		judged  bool
+	}{
+		projectstate.OutcomePassed:   {projectstate.VerdictApprove, true},
+		projectstate.OutcomeRejected: {projectstate.VerdictSendBack, true},
+		projectstate.OutcomeFailed:   {projectstate.VerdictAbstain, false},
+		projectstate.OutcomePending:  {projectstate.VerdictAbstain, false},
+		projectstate.OutcomeSkipped:  {projectstate.VerdictAbstain, false},
+	}
+	for outcome, want := range cases {
+		verdict, judged := criticVerdictFor(outcome)
+		if verdict != want.verdict || judged != want.judged {
+			t.Errorf("%s -> (%s, %v), want (%s, %v)", outcome, verdict, judged, want.verdict, want.judged)
+		}
+	}
+}
+
+// ===========================================================================
+// TASK 8 REVIEW CARRIES (stage 4b1 Task 10). Two cases the router's own three cases
+// could not state: the RECEIVER's side of the overflow rule, and two human gates
+// suspended at once on a fork.
+// ===========================================================================
+
+// THE RECEIVER DRAINS PAST THE INBOX'S CAPACITY. deliveryTaskInboxCapacity is 64 and the
+// router never blocks, so message 65 and beyond land in ws.pending — and the ONLY thing that
+// ever pulls them out is drainPending at the top of the receiver's loop. This sends
+// comfortably more than capacity to a live gate and asserts every one was APPLIED.
+//
+// THE MUTATION IT EXISTS FOR: make drainPending return immediately and this goes RED at
+// exactly (capacity) applied statuses, because the overflow is stranded in a map nobody reads
+// until closeInbox logs it as too-late. The complementary case,
+// full-inbox-does-not-wedge-the-router, asserts the OTHER arm — a task that retires WITHOUT
+// draining — so between them the overflow is pinned from both sides.
+func Test_DeliveryGate_ReceiverDrainsPastTheInboxCapacity(t *testing.T) {
+	const statuses = deliveryTaskInboxCapacity + 12
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{
+		GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+			"service": {projectstate.MethodPhaseDetailedDesign},
+		},
+	})
+	pipe := &csFakePipeline{phase: PipelineSucceeded}
+	rig := &shapeRig{rec: newShapeRecorder()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	wf.Strategies = stubStrategies(rig)
+	registerDeliveryActivity(env, wf, ps, pipe)
+
+	// Every status rides in one delayed callback, so all of them are delivered to the router
+	// before the gate has read any of them: the inbox takes 64, the rest queue in ws.pending, and
+	// the receiver has to pull them through.
+	env.RegisterDelayedCallback(func() {
+		for i := range statuses {
+			env.SignalWorkflow(signalSetCommentStatus, setCommentStatusSignal{
+				TaskID:    shapeDesignReviewTask,
+				CommentID: "c-" + strconv.Itoa(i),
+				Status:    projectstate.ReviewCommentResolved,
+			})
+		}
+	}, 5*time.Second)
+	env.RegisterDelayedCallback(shapeApprove(env, shapeDesignReviewTask), 5*time.Minute)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, env)
+
+	ps.mu.Lock()
+	applied := len(ps.commentStatuses)
+	ps.mu.Unlock()
+	if applied != statuses {
+		t.Fatalf("applied %d comment statuses of %d sent; the %d beyond the inbox's capacity of %d were "+
+			"stranded in ws.pending, which means the receiver stopped draining",
+			applied, statuses, statuses-applied, deliveryTaskInboxCapacity)
+	}
+}
+
+// TWO HUMAN GATES SUSPENDED AT ONCE ON A FORK, each its OWN round and its OWN judged attempt.
+// `service` forks at srsReview into detailedDesign→designReview and stp→stpReview, and a
+// policy that gates BOTH phases puts two coroutines at two gates simultaneously — which the
+// flat phase walk could not express at all, and which is the state the signal router exists
+// for.
+//
+// THE CLAIM, and it is the one a single-gate case cannot make: deciding ONE leaves the OTHER
+// awaiting. The walk must not finish on the first approve, the second gate's round must still
+// be pending at that moment, and each round must carry its own id and its own subject.
+func Test_DeliveryGate_TwoSimultaneousHumanGatesAreDecidedIndependently(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{
+		GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+			"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan},
+		},
+	})
+	pipe := &csFakePipeline{phase: PipelineSucceeded}
+	rig := &shapeRig{rec: newShapeRecorder()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	wf.Strategies = stubStrategies(rig)
+	wf.Deliveries = rig.rec
+	registerDeliveryActivity(env, wf, ps, pipe)
+
+	// BOTH gates are open before either is answered, which is what makes this a fork case and
+	// not two sequential gates. Measured at the moment designReview is approved.
+	var stpPendingWhenDesignDecided bool
+	env.RegisterDelayedCallback(func() {
+		stpPendingWhenDesignDecided = roundIsPending(ps, shapeServiceID, shapeSTPTask+"Review")
+		shapeApprove(env, shapeDesignReviewTask)()
+	}, 2*time.Minute)
+	env.RegisterDelayedCallback(shapeApprove(env, shapeSTPTask+"Review"), 4*time.Minute)
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, env)
+
+	if !stpPendingWhenDesignDecided {
+		t.Fatal("stpReview's round was not PENDING when designReview was approved — the two gates were not " +
+			"suspended at the same time, so this case is asserting two sequential gates instead of a fork")
+	}
+	row := ps.execution(shapeServiceID)
+	decided := map[string]string{}
+	for _, r := range row.Reviews {
+		decided[string(r.TaskID)] = string(r.Outcome)
+	}
+	for _, task := range []string{shapeDesignReviewTask, shapeSTPTask + "Review"} {
+		if decided[task] != string(projectstate.RoundPassed) {
+			t.Errorf("round at %s is %q, want passed — each gate is answered on its own", task, decided[task])
+		}
+	}
+	// Each round is its OWN id and its own judged attempt: a shared gateLedger would have made
+	// one gate decide the other's round (Task 8's R8-7).
+	ids := map[string]bool{}
+	for _, r := range row.Reviews {
+		if ids[r.RoundID] {
+			t.Errorf("two rounds share the id %q", r.RoundID)
+		}
+		ids[r.RoundID] = true
+	}
+	if len(row.Reviews) < 2 {
+		t.Fatalf("want at least the two forked gates' rounds, got %d", len(row.Reviews))
+	}
+}
+
+// roundIsPending reports whether the named task's latest round is still awaiting a decision.
+func roundIsPending(ps *csFakeProjectState, activityID, taskID string) bool {
+	row := ps.execution(activityID)
+	pending := false
+	best := int64(-1)
+	for _, r := range row.Reviews {
+		if string(r.TaskID) != taskID || r.Round <= best {
+			continue
+		}
+		best, pending = r.Round, r.Outcome == projectstate.RoundPending
+	}
+	return best >= 0 && pending
 }

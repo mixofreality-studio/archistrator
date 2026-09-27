@@ -1713,7 +1713,7 @@ func TestDesignSlotEvidence_ACommittedButEmptySlotDoesNotQualify(t *testing.T) {
 // three activities: a fourth in either place, unpaired, is a silent gap.
 func TestDesignSlotEvidence_CoversExactlyTheClassifiersDesignActivities(t *testing.T) {
 	for id := range designActivitySlots {
-		if !isDesignActivity(projectstate.ActivityItem{Name: id, WorkerClass: "system-architect"}) {
+		if !producesArtifactSlots(projectstate.ActivityItem{Name: id, WorkerClass: "system-architect"}) {
 			t.Errorf("%s has a design slot set but the classifier does not call it a design activity", id)
 		}
 	}

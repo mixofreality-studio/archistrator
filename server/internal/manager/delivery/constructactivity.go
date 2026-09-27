@@ -1029,6 +1029,13 @@ func (wf *csWorkflows) runAttempt(
 // LIVE completedPhases skip-guard (B2 resumability) from the activity's PhaseCompletion
 // slice, and captures the contract keys for the gate's reviewer set.
 //
+// It returns the WHOLE read (stage 4b1: Task 8's R8-5 returned the activity's execution row;
+// Task 10 widened that to the project it was taken off). Two readers need more than the row
+// and neither may make a SECOND whole-project read — a second durable command, and a second
+// chance for the two reads to disagree: seedWalkFromLedger needs the row AND the committed
+// design SLOTS (a design task whose artifact is already committed on main must not be
+// re-drafted), and the caller needs the ReviewPolicy. One read, three readers.
+//
 // Temporal versioning guard (replay safety): this readProject call was ADDED by the
 // construction-review-policy-snapshot feature AFTER the workflow was first shipped.
 // Workflows already in flight at deploy time have no history event for this call; replaying
@@ -1040,18 +1047,17 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	ctx workflow.Context,
 	in constructActivityInput,
 	state *constructState,
-) (projectstate.ReviewPolicy, projectstate.ActivityExecution, error) {
+) (projectstate.ReviewPolicy, projectstate.Project, error) {
 	var reviewPolicy projectstate.ReviewPolicy
-	var row projectstate.ActivityExecution
+	var snap projectstate.Project
 	v := workflow.GetVersion(ctx, "construction-review-policy-snapshot", workflow.DefaultVersion, 1)
 	if v < 1 {
-		return reviewPolicy, row, nil
+		return reviewPolicy, snap, nil
 	}
 	snap, srErr := wf.readProject(ctx, in.ProjectID)
 	if srErr != nil && !isReadNotFound(srErr) {
-		return reviewPolicy, row, srErr
+		return reviewPolicy, snap, srErr
 	}
-	row = snap.ActivityExecution[string(in.ActivityID)]
 	reviewPolicy = snap.ReviewPolicy
 	// LEDGER-AWARE SEED (architect (D), D.1.3). The pump now dispatches an
 	// integration-pending row — one whose history lives in the attempt ledger alone — so
@@ -1103,7 +1109,7 @@ func (wf *csWorkflows) loadReviewSnapshot(
 	// reviewPolicy itself. A missing contract (nil map lookup) reads as the zero
 	// ServiceContract, which never touches the floor.
 	state.floorTouched = projectstate.ContractTouchesReviewFloor(snap.ServiceContracts[in.Activity.ComponentID])
-	return reviewPolicy, row, nil
+	return reviewPolicy, snap, nil
 }
 
 // seedResumeFromLedger seeds a run's start state from its activity's stored row, read the
