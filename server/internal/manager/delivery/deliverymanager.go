@@ -9893,7 +9893,8 @@ func (m *constructionManager) SetTaskCommentStatus(
 	if strings.TrimSpace(status) == "" {
 		return newError(fwmanager.ContractMisuse, "a comment-status decision needs the status to set")
 	}
-	return m.onActivityRow(rc.Context, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+	var mirror string
+	if err := m.onActivityRow(rc.Context, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
 		r, ok := roundOfComment(row, commentID)
 		if !ok {
 			// The caller's own address is in the sentence, because "no such comment" is most often
@@ -9901,6 +9902,7 @@ func (m *constructionManager) SetTaskCommentStatus(
 			return newError(fwmanager.NotFound, fmt.Sprintf(
 				"no review comment %s on any round of activity %s (addressed at task %s)", commentID, activityID, taskID))
 		}
+		mirror = taskOfRound(r)
 		_, err := m.activityExecution.SetReviewCommentStatus(fwra.Context{Context: rc.Context},
 			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
 			r.RoundID, commentID, status, projectstate.RepoCredential{},
@@ -9909,7 +9911,52 @@ func (m *constructionManager) SetTaskCommentStatus(
 			return mapRAError(err, "activityExecutionAccess.SetReviewCommentStatus")
 		}
 		return err
-	})
+	}); err != nil {
+		return err
+	}
+	// THE MIRROR SIGNAL, and it is load-bearing since fix round 2: a gate held ONLY because its
+	// round carried an open comment auto-passes the moment the last one is resolved, and the CHILD
+	// is the only thing that can decide that. Nothing is written by it (the ledger write above is
+	// the whole of the write), and a dormant activity is not an error: the status is already
+	// recorded, and there is no gate left to release.
+	//
+	// It is addressed by the ROUND's own task (taskOfRound), not by the task the caller named:
+	// the router forwards by TaskID, and the round that holds the comment is the gate whose hold
+	// this could release.
+	if err := m.signalActivity(rc.Context, projectID, activityID, signalSetCommentStatus,
+		setCommentStatusSignal{TaskID: mirror, CommentID: commentID, Status: status}); err != nil {
+		if isManagerFailedPrecondition(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// roundKindOfTask resolves the ARTIFACT KIND a task's round judges, off the lifecycle — the
+// same answer the child's openRound stamps on the round (roundArtifactKind), so a Manager write
+// and a child write agree about which round they mean (fix round 2, review minor M1).
+//
+// It answers nil for every CONSTRUCTION task, and that is not because construction tasks name no
+// artifactKind — v0.9.0's srs/detailedDesign/construction/integration/stp all do ("SRS",
+// "DetailedDesign", …). It is because none of those names is a projectstate.ArtifactKind: they
+// name the task's own work product, not one of the seventeen design SLOTS, so ArtifactKindFromWireName
+// does not resolve them and the round is kindless — which is exactly what
+// ReviewRound.ArtifactKind's optionality means. A DESIGN task's round IS kinded, and passing nil
+// for one would resolve `architectureReview` to whichever of its three kinds was written last.
+func roundKindOfTask(lc methodassets.Lifecycle, taskID string) *projectstate.ArtifactKind {
+	t, ok := lifecycleTaskByID(lc, taskID)
+	if !ok {
+		return nil
+	}
+	return roundArtifactKind(lc, t)
+}
+
+// isManagerFailedPrecondition reports whether err is (or wraps) this Manager's own
+// FailedPrecondition — which signalActivity answers for an activity with no live execution.
+func isManagerFailedPrecondition(err error) bool {
+	var me *fwmanager.Error
+	return errors.As(err, &me) && me.Kind == fwmanager.FailedPrecondition
 }
 
 // WithdrawReviewRound pulls a round BACK — decided RoundWithdrawn, judged by nobody (stage
@@ -9924,8 +9971,22 @@ func (m *constructionManager) SetTaskCommentStatus(
 // deploy, a give-up) and its last round is still pending. The stranded-round sweep closes
 // those on its own schedule; this is the operator's way to do it now, with their own name on
 // it rather than the sweep's.
+//
+// THE CHECK-THEN-ACT WINDOW, and its REAL consequence (fix round 2, review minor M2). Between
+// the session read above and the write below, a pump tick can start a child that opens a gate on
+// this very round. The write then lands, and the child's own decision hits DecideReviewRound's
+// terminality Conflict — which applyRecovering retries until its bound is spent and the walk
+// FAILS the activity. That is no longer unrecoverable: a failed activity is re-opened with a
+// requeue note (reopenTerminalRow) and the re-run seeds every task that passed. The window is
+// milliseconds wide and the outcome is now a recoverable failure rather than a stranded one.
+//
+// ROUTING THE WITHDRAW THROUGH THE CHILD'S INBOX would serialize it against the child's own gate
+// and is the obvious narrowing — but it does not narrow THIS window, because the window's premise
+// is that there IS no child to route through: the only writes this op makes are the ones it makes
+// after finding none. A child that starts LATER is unaffected, since it seeds its revision off the
+// ledger and opens round n+1 over the withdrawn round rather than colliding with it.
 func (m *constructionManager) WithdrawReviewRound(
-	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string,
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
 ) error {
 	ctx := rc.Context
 	view, err := m.activitySession(ctx, projectID, activityID)
@@ -9943,7 +10004,7 @@ func (m *constructionManager) WithdrawReviewRound(
 		return err
 	}
 	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
-		r, rerr := latestRoundFor(row, taskID, nil)
+		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
 		}
@@ -9981,7 +10042,8 @@ func (m *constructionManager) WithdrawReviewRound(
 // session that finds nothing to do. The questions are recorded, the SPA shows them, and a
 // human answers them; a construction answer command is earmarked.
 func (m *constructionManager) AskTaskQuestions(
-	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID, addressee string, questions []AnchoredComment,
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID, addressee string,
+	kind *projectstate.ArtifactKind, questions []AnchoredComment,
 ) error {
 	ctx := rc.Context
 	// `at` is stamped ONCE, outside the loop, so a re-applied write carries the identical
@@ -9994,7 +10056,7 @@ func (m *constructionManager) AskTaskQuestions(
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
-		r, rerr := latestRoundFor(row, taskID, nil)
+		r, rerr := latestRoundFor(row, taskID, kind)
 		if rerr != nil {
 			return rerr
 		}
@@ -10058,7 +10120,7 @@ func askSummary(questions, replies int, addressee string) string {
 // refusal is transient and fails safe.
 func (m *constructionManager) SubmitTaskDecision(
 	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string,
-	decision ReviewDecision, feedback *ReviewFeedback,
+	kind *projectstate.ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback,
 ) error {
 	ctx := rc.Context
 	if err := validateTaskDecision(taskID, decision); err != nil {
@@ -10080,8 +10142,46 @@ func (m *constructionManager) SubmitTaskDecision(
 	if err := precheckTaskDecision(view, activityID, taskID, decision); err != nil {
 		return err
 	}
+	// AN OPEN CHANGE REQUEST REFUSES AN APPROVE (fix round 2, review finding F1), in the same
+	// words the design rail uses, because it is the same rule: the reviewer asked for something
+	// and approving over it would bury the ask. An open QUESTION does NOT block — doctrine says it
+	// is a soft warning at the approve gate (ReviewCommentBlocksApprove) — and the AUTOGATE is
+	// stricter than this on purpose, because there nobody is there to be warned (runGate).
+	//
+	// The child re-checks before it decides the round: this is a fire-and-forget signal, so the
+	// window between the two is closed there (decideTaskGate) and not here.
+	if decision == ReviewApprove {
+		if err := m.refuseApproveOverOpenComments(ctx, projectID, activityID, taskID, kind); err != nil {
+			return err
+		}
+	}
 	sig := taskDecisionSignal{TaskID: taskID, Decision: decision, Feedback: feedback, DecidedBy: decidedByOperator}
 	return m.signalActivity(ctx, projectID, activityID, signalTaskDecision, sig)
+}
+
+// refuseApproveOverOpenComments is the approve's ledger precondition: the task's latest round
+// carries no OPEN CHANGE REQUEST. A task with no round at all passes — there is nothing to have
+// left open, and refusing would block the first approve of every gate.
+func (m *constructionManager) refuseApproveOverOpenComments(
+	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
+) error {
+	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
+	if err != nil {
+		if isRANotFound(err) {
+			return nil // no row, no round, nothing open
+		}
+		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
+	}
+	round, rerr := latestRoundFor(row, taskID, kind)
+	if rerr != nil {
+		return nil // no round yet: the first approve of this gate has nothing to be blocked by
+	}
+	if open := projectstate.OpenReviewCommentIDs(round.Thread); len(open) > 0 {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first",
+			len(open), strings.Join(open, ", ")))
+	}
+	return nil
 }
 
 // RedraftTask re-dispatches ONE task of a live activity (stage 4a refusal 5 of 5, the
@@ -12425,13 +12525,16 @@ func latestRoundFor(row projectstate.ActivityExecution, taskID string, kind *pro
 	return best, nil
 }
 
-// (THE ROUND → TASK MAPPING IS A FIELD, not a function. Controller ruling 2 asked for a
-// `taskOfRound(lc, round)` resolver so a mirror signal could be TaskID-routed; OpenReviewRound
-// already stamps the review task on every round, so the mapping is `ReviewRound.TaskID` and a
-// wrapper around one field read would be a function with no caller. The two paths that DO need
-// a task get it from the caller — SubmitTaskDecision and RedraftTask are addressed by task —
-// or from the attempt ledger, which is escalatedTaskOf below. See the task-12 report for why
-// no comment-status mirror signal is sent.)
+// taskOfRound is the task a round belongs to, and it is a FIELD read rather than a derivation:
+// OpenReviewRound stamps the review task on every round it opens, so the round → task mapping the
+// signal router needs is already data (controller ruling 2).
+//
+// Its ONE caller is the comment-status mirror signal (SetTaskCommentStatus), and it earns its
+// name there: the signal must be addressed by the round that HOLDS the comment, not by the task
+// the caller named, because a reviewer resolves at the current gate a comment filed at a previous
+// one and the router forwards by TaskID. (Fix round 1 deleted this function when the mirror was
+// measured out of existence; fix round 2's held autogate put the mirror — and it — back.)
+func taskOfRound(r projectstate.ReviewRound) string { return string(r.TaskID) }
 
 // roundOfComment finds the round whose thread holds commentID. THE COMMENT DECIDES ITS
 // ROUND, not the task the caller addressed: a reviewer resolves at the CURRENT gate a
@@ -13760,7 +13863,7 @@ func (m *deliveryManager) SubmitReviewDecision(rc fwmanager.Context, projectID P
 	case railProjectDesign:
 		return m.submitProjectDesignDecision(rc, projectID, lc, taskID, decision, feedback)
 	case railConstruction:
-		return m.submitConstructionDecision(rc, projectID, activityID, taskID, decision, feedback)
+		return m.submitConstructionDecision(rc, projectID, activityID, lc, taskID, decision, feedback)
 	case railUnknown:
 		return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: the activity has no rail")
 	}
@@ -13831,17 +13934,18 @@ func (m *deliveryManager) submitProjectDesignDecision(rc fwmanager.Context, proj
 // `advance` is the one member that stays a refusal, and it is not an IOU: advancing a PHASE
 // is a project-level transition the design rails own (AdvancePhase / AdvanceToConstruction).
 // A construction activity has no phase to advance — its gates advance its own task DAG.
-func (m *deliveryManager) submitConstructionDecision(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
+func (m *deliveryManager) submitConstructionDecision(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, lc methodassets.Lifecycle, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
+	kind := roundKindOfTask(lc, taskID)
 	switch decision.Decision {
 	case ReviewApprove:
-		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, ReviewApprove, feedback)
+		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, kind, ReviewApprove, feedback)
 	case ReviewReject:
-		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, ReviewReject, feedback)
+		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, kind, ReviewReject, feedback)
 	case ReviewSetCommentStatus:
 		return m.cs.SetTaskCommentStatus(rc, projectID, activityID, taskID,
 			deliveryDerefString(decision.CommentID), deliveryDerefString(decision.CommentStatus))
 	case ReviewWithdraw:
-		return m.cs.WithdrawReviewRound(rc, projectID, activityID, taskID)
+		return m.cs.WithdrawReviewRound(rc, projectID, activityID, taskID, kind)
 	case ReviewDecisionUnknown, ReviewAdvance:
 		return newError(fwmanager.ContractMisuse,
 			"deliveryManager.SubmitReviewDecision: a construction activity has no phase to advance — its gates advance its own task DAG")
@@ -13869,7 +13973,7 @@ func (m *deliveryManager) AskQuestions(rc fwmanager.Context, projectID ProjectID
 		// A construction question lands on the ROUND's thread (spec §5.3: an Ask is a
 		// ReviewComment.type = question), which is why it needs no artifact kind and does not
 		// pass through designKindFor at all.
-		return m.cs.AskTaskQuestions(rc, projectID, activityID, taskID, addressee, questions)
+		return m.cs.AskTaskQuestions(rc, projectID, activityID, taskID, addressee, roundKindOfTask(lc, taskID), questions)
 	}
 	kind, err := designKindFor(lc, taskID, "AskQuestions")
 	if err != nil {

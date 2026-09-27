@@ -23881,6 +23881,15 @@ type csFakeProjectState struct {
 	// concurrent write that caused it (I2: a new pause landing between two tries).
 	afterConflict func(*csFakeProjectState)
 
+	// seedCommentOnRound files ONE open comment on a round the instant it is opened, keyed by the
+	// review task (stage 4b1 Task 12, fix round 2). It stands in for a race that is REAL in
+	// production and unreachable in a test environment: a round is opened, its agent critic runs
+	// for minutes, and a human files a comment in that window — after which the autogate must hold
+	// rather than synthesize an approve. The test env has no such window (with no job reporting
+	// RUNNING the whole walk executes at workflow time zero), so the double puts the comment where
+	// the race would have.
+	seedCommentOnRound map[string]projectstate.ReviewComment
+
 	// commitFailKinds makes the SLOT COMMIT refuse for the named kinds (stage 4b1 Task 12, fix
 	// round 1). It is the only way to reach the POST-EXIT COMMIT WINDOW: the walk records the
 	// activity's binary exit and then commits its slots, so a commit that fails is what leaves a
@@ -24415,7 +24424,7 @@ func (f csFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 			f.rec.taskStarted(string(round.TaskID))
 			f.rec.roundOpened(round.RoundID)
 		}
-		row.Reviews = append(row.Reviews, projectstate.ReviewRound{
+		opened := projectstate.ReviewRound{
 			RoundID: round.RoundID,
 			TaskID:  round.TaskID,
 			Reviews: round.Reviews,
@@ -24431,7 +24440,14 @@ func (f csFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 			Provenance: projectstate.AttemptProvenance{
 				Origin: projectstate.OriginObserved, GeneratedAt: &testLedgerClock,
 			},
-		})
+		}
+		// The stand-in for the critic window's race (see seedCommentOnRound).
+		if seed, ok := f.seedCommentOnRound[string(round.TaskID)]; ok {
+			held := seed
+			held.Round = round.Round
+			opened.Thread = append(opened.Thread, held)
+		}
+		row.Reviews = append(row.Reviews, opened)
 	})
 }
 
@@ -38158,5 +38174,204 @@ func assertReArmed(t *testing.T, ps *csFakeProjectState, activityID string) {
 	}
 	if notes != 1 {
 		t.Fatalf("the re-open must leave exactly ONE requeue note — the operator's own reason; got %d", notes)
+	}
+}
+
+// ===========================================================================
+// STAGE 4b1 TASK 12, FIX ROUND 2 — AN OPEN REVIEW COMMENT GATES THE GENERIC CHILD
+//
+// The retired rail guarded twice: the vibes autogate made "no open comments" a precondition of
+// the synthesized approve, and a human approve was refused Manager-side over open threads and
+// re-checked in the child. The generic child guarded NOWHERE — OpenReviewCommentIDs had zero
+// callers in deliveryactivity.go — so a comment filed on a round while its critic was still
+// running was buried by the pass that followed.
+// ===========================================================================
+
+// openCommentRig is a vibes-gated service walk whose `designReview` round gets a comment filed on
+// it while the gate is being decided. `vibes` means the engine asks for NO human, so every case
+// here is about what the AUTOGATE does with a comment it did not expect.
+func openCommentRig(t *testing.T) (*shapeRig, *deliveryManager) {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	preset := projectstate.ReviewPresetVibes
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{Preset: &preset})
+	ps.rec = rig.rec
+	plan := projWithActivities(
+		[]projectstate.ActivityItem{{Name: shapeServiceID, Title: shapeServiceID, WorkerClass: "junior-developer", Coding: true, ComponentID: "todo-list-manager"}},
+		[]projectstate.NetworkDependency{{Activity: shapeServiceID, DependsOn: []string{}}})
+	ps.project.Network, ps.project.ActivityList, ps.project.SystemDesign = plan.Network, plan.ActivityList, plan.SystemDesign
+	pipe := &csFakePipeline{phase: PipelineSucceeded, rec: rig.rec, failTask: map[projectstate.MethodTask]bool{}, failTaskFirst: map[projectstate.MethodTask]int{}}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	wf := csNewWorkflows(deps)
+	wf.Deliveries = rig.rec
+	rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	rig.register(rig.env)
+	rig.env.SetStartWorkflowOptions(client.StartWorkflowOptions{ID: deliveryActivityWorkflowID("p", shapeServiceID)})
+	return rig, task12Manager(&envSignalClient{env: rig.env}, ps)
+}
+
+// UNDER VIBES, AN OPEN COMMENT HOLDS THE GATE FOR A HUMAN — and resolving it releases the gate
+// WITHOUT one, because the policy never wanted a human in the first place. That second half is
+// what makes the Manager's comment-status MIRROR signal load-bearing: the write is the Manager's,
+// and only the child can re-evaluate the hold.
+func Test_AutoGate_AnOpenCommentHoldsTheGateAndAResolveReleasesIt(t *testing.T) {
+	rig, m := openCommentRig(t)
+	// A QUESTION lands on srsReview's round in the window the critic occupies in production — the
+	// double puts it there (seedCommentOnRound), because a test environment has no such window.
+	// A question is the strictest case on purpose: it does NOT block a human approve
+	// (ReviewCommentBlocksApprove), and it MUST still hold an autogate, because an autogate has no
+	// human to surface it to.
+	question := task12Comment("r1c1", "which failure mode does this cover?")
+	question.Type = projectstate.ReviewCommentTypeQuestion
+	question.Addressee = projectstate.ReviewAddresseeArchitect
+	rig.cs.mu.Lock()
+	rig.cs.seedCommentOnRound = map[string]projectstate.ReviewComment{"srsReview": question}
+	rig.cs.mu.Unlock()
+	rig.env.RegisterDelayedCallback(func() {
+		// The gate is HELD: under vibes it would otherwise have passed itself already.
+		if !roundIsPending(rig.cs, shapeServiceID, "srsReview") {
+			t.Error("an open comment must HOLD the autogate — the round was decided with it open")
+		}
+		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), "srsReview",
+			ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo("r1c1"),
+				CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
+			t.Errorf("the resolve must land: %v", err)
+		}
+	}, 30*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("the walk must finish once the comment is resolved: %v", err)
+	}
+	// THE MIRROR REACHED THE ROUND'S OWN TASK — not the task the caller happened to name.
+	want := "srsReview:" + routedKindStatus
+	if got := rig.rec.outcome(nil, false); !slices.Contains(got.SignalsDelivered, want) {
+		t.Fatalf("the comment-status mirror must reach the round's task (%s); SignalsDelivered=%v", want, got.SignalsDelivered)
+	}
+	// And the released gate is the AUTOGATE's own pass: decided by the system, not by an operator.
+	row := rig.cs.execution(shapeServiceID)
+	for _, r := range row.Reviews {
+		if string(r.TaskID) != "srsReview" {
+			continue
+		}
+		if r.Outcome != projectstate.RoundPassed || r.DecidedBy != gateActorSystem {
+			t.Fatalf("the released autogate must pass as the SYSTEM (the policy asked for no human); round = %+v", r)
+		}
+	}
+}
+
+// A HUMAN APPROVE IS REFUSED OVER AN OPEN CHANGE REQUEST, in the design rail's own words — and
+// the child re-checks, because the decision reaches it as a fire-and-forget signal.
+func Test_Approve_IsRefusedWhileAChangeRequestIsOpen(t *testing.T) {
+	ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending,
+		[]projectstate.ReviewComment{task12Comment("r1c1", "name the failure")})
+	fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+	m := task12Manager(fc, ps)
+	err := m.SubmitReviewDecision(testCtx(), "p", "A", "designReview", ReviewDecisionInput{Decision: ReviewApprove}, nil)
+	if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+		!strings.Contains(e.Detail, "cannot approve: 1 review thread(s) still open") {
+		t.Fatalf("want the design rail's own refusal, got %s %q", e.Kind, e.Detail)
+	}
+	if fc.lastSignalName != "" {
+		t.Fatalf("a refused approve must not signal, got %q", fc.lastSignalName)
+	}
+	// RESOLVED, and the approve goes through.
+	if err := m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+		ReviewDecisionInput{Decision: ReviewSetCommentStatus, CommentID: ptrTo("r1c1"),
+			CommentStatus: ptrTo(projectstate.ReviewCommentResolved)}, nil); err != nil {
+		t.Fatalf("the resolve must land: %v", err)
+	}
+	if err := m.SubmitReviewDecision(testCtx(), "p", "A", "designReview", ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+		t.Fatalf("an approve over a resolved thread must be accepted: %v", err)
+	}
+	if fc.lastSignalName != signalTaskDecision {
+		t.Fatalf("the accepted approve must signal the gate, got %q", fc.lastSignalName)
+	}
+	// AN OPEN QUESTION DOES NOT BLOCK a human: doctrine makes it a soft warning, and the human is
+	// the one being warned (ReviewCommentBlocksApprove). The AUTOGATE is stricter — see the case
+	// above — because there is nobody there to warn.
+	q := task12Comment("r1c2", "why this order?")
+	q.Type = projectstate.ReviewCommentTypeQuestion
+	withQuestion := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending,
+		[]projectstate.ReviewComment{q})
+	if err := task12Manager(&fakeTemporalClient{session: awaitingAt("designReview")}, withQuestion).
+		SubmitReviewDecision(testCtx(), "p", "A", "designReview", ReviewDecisionInput{Decision: ReviewApprove}, nil); err != nil {
+		t.Fatalf("an open QUESTION must not block a human approve: %v", err)
+	}
+}
+
+// THE CHILD'S OWN RE-CHECK: a decision signal that arrives past the façade's guard — the TOCTOU
+// window, or any sender that is not the façade — must not decide the round either.
+func Test_Approve_TheChildRefusesAnApproveOverAnOpenChangeRequest(t *testing.T) {
+	rig, m := openCommentRig(t)
+	rig.env.RegisterDelayedCallback(func() {
+		// A CHANGE REQUEST, not a question: this is the kind that blocks.
+		if err := m.SubmitReviewDecision(testCtx(), "p", ActivityID(shapeServiceID), "srsReview",
+			ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: "tighten it",
+				Comments: []AnchoredComment{{JSONPath: "$.ops[0]", Text: "name the failure"}}}); err != nil {
+			t.Errorf("the send-back must land: %v", err)
+		}
+	}, 3*time.Second)
+	// Straight past the façade, as a stale or hand-crafted signal would arrive.
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalTaskDecision, taskDecisionSignal{TaskID: "srsReview", Decision: ReviewApprove})
+	}, 90*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p", ActivityID: ActivityID(shapeServiceID), Activity: sampleActivity(),
+	})
+	// The walk does NOT finish: the re-opened pair re-drafts, its new round holds the comment the
+	// send-back filed, and the approve that arrived over it was refused rather than applied.
+	row := rig.cs.execution(shapeServiceID)
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == "srsReview" && r.Outcome == projectstate.RoundPassed {
+			for _, c := range r.Thread {
+				if projectstate.ReviewCommentBlocksApprove(c) {
+					t.Fatalf("round %d passed with comment %s still open — the child's re-check did not fire", r.Round, c.ID)
+				}
+			}
+		}
+	}
+}
+
+// M1's GUARD: the kind a Manager write resolves a round by is the SAME one the child stamps on it.
+// A construction task is kindless (its artifactKind names its work product, not a design slot);
+// a design task's is its slot, and passing nil for one of the three kinds that SHARE
+// `architectureReview` would resolve to whichever was written last.
+func Test_RoundKindOfTask_AgreesWithWhatTheChildStamps(t *testing.T) {
+	for _, lc := range methodassets.Lifecycles() {
+		for _, task := range lc.Tasks {
+			if task.Kind != methodassets.LifecycleTaskReview {
+				continue
+			}
+			want := roundArtifactKind(lc, task)
+			got := roundKindOfTask(lc, task.ID)
+			switch {
+			case want == nil && got != nil:
+				t.Errorf("%s/%s: the Manager resolved kind %v where the child stamps none", lc.Type, task.ID, *got)
+			case want != nil && (got == nil || *got != *want):
+				t.Errorf("%s/%s: the Manager resolved %v where the child stamps %v", lc.Type, task.ID, got, *want)
+			}
+		}
+	}
+	// And the one that matters: `architectureReview` is kinded, `codeReview` is not.
+	arch, ok := methodassets.LifecycleFor("architecture")
+	if !ok {
+		t.Fatal("method-assets must carry the architecture lifecycle")
+	}
+	if got := roundKindOfTask(arch, "architectureReview"); got == nil {
+		t.Error("a DESIGN review task's round is kinded — resolving it kindless would cross three kinds' rounds")
+	}
+	svc, ok := methodassets.LifecycleFor("service")
+	if !ok {
+		t.Fatal("method-assets must carry the service lifecycle")
+	}
+	if got := roundKindOfTask(svc, "codeReview"); got != nil {
+		t.Errorf("a construction review task's round is KINDLESS; got %v", *got)
 	}
 }

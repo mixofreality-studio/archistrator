@@ -2304,18 +2304,110 @@ func (wf *csWorkflows) runGate(
 			"activityId", in.ActivityID, "taskId", t.ID)
 		state.reviewSet, state.reviewSetError = &set, ""
 		state.stage = StageAwaitingApproval
-		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox)
+		// A HUMAN gate, not a held autogate: a critic that did not judge is exactly the case a
+		// resolve must NOT release on its own.
+		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
 	}
 	if set.RequiresHuman == nil || !*set.RequiresHuman {
-		// No roster goes up for a gate nobody is asked to answer, mirroring the retired rail's
-		// no-human arm: a reviewer set left on the session view outlives the occurrence it
-		// described, and the Activity Experience reads one as a LIVE gate.
-		state.reviewSet, state.reviewSetError = nil, ""
-		return wf.passRound(ctx, in, lc, t, tc, state, &gate, gateActorSystem, reasonOf(set))
+		// AN OPEN COMMENT HOLDS THE AUTOGATE (stage 4b1 Task 12, fix round 2, review finding F1).
+		// The retired rail made "no open comments" a PRECONDITION of the synthesized approve
+		// (coauthorartifact.go's autogate) and this child had no such check at all: a change
+		// request — or a question the founder filed while the critic was still running — landed on
+		// the round and the gate passed anyway, with nobody ever seeing it.
+		//
+		// ANY open comment holds here, QUESTIONS INCLUDED, and that is deliberately STRICTER than
+		// the human approve below. An open question is doctrine-bound to be "a soft warning at the
+		// approve gate, never a hard block" (ReviewCommentBlocksApprove) — but a warning needs
+		// somebody to warn. The autogate's whole premise is that nobody has to look, so a comment
+		// nobody will ever read is the one thing it must not synthesize an approve over. A human
+		// gate keeps the ratified rule: change requests block, questions warn.
+		held, err := wf.roundHoldsOpenComments(ctx, in, state, gate.roundID)
+		switch {
+		case err != nil:
+			// A read that failed is NOT an empty thread. Holding for a human is the safe default —
+			// the alternative is the silent ratification this whole arm exists to refuse.
+			workflow.GetLogger(ctx).Error("the round's thread could not be read; the gate holds for a human rather than auto-passing",
+				"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
+		case !held:
+			// No roster goes up for a gate nobody is asked to answer, mirroring the retired rail's
+			// no-human arm: a reviewer set left on the session view outlives the occurrence it
+			// described, and the Activity Experience reads one as a LIVE gate.
+			state.reviewSet, state.reviewSetError = nil, ""
+			return wf.passRound(ctx, in, lc, t, tc, state, &gate, gateActorSystem, reasonOf(set))
+		default:
+			workflow.GetLogger(ctx).Warn("delivery.gate.heldOnOpenComments",
+				"activityId", in.ActivityID, "taskId", t.ID, "roundId", gate.roundID,
+				"reason", "the review policy asked for no human, but this round carries an open comment")
+		}
+		// HELD, NOT DECIDED: the roster goes up so the screen shows a live gate, and the gate
+		// auto-passes the moment the last open comment is resolved (awaitTaskDecision's autogate
+		// arm) — which is what makes the Manager's comment-status mirror signal load-bearing.
+		state.reviewSet, state.reviewSetError = &set, ""
+		state.stage = StageAwaitingApproval
+		return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, autogateOn(set))
 	}
 	state.reviewSet, state.reviewSetError = &set, ""
 	state.stage = StageAwaitingApproval
-	return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox)
+	return wf.awaitTaskDecision(ctx, in, lc, t, tc, ws, state, &gate, inbox, nil)
+}
+
+// autogateOn is the reason a HELD autogate will pass with, once its round has no open comment
+// left. Carrying the ReviewSet's own reason rather than a literal keeps the ledger's account of
+// WHY a round passed identical whether the comments were clear at the start or cleared later.
+func autogateOn(set ReviewSet) *string {
+	reason := reasonOf(set)
+	return &reason
+}
+
+// roundHoldsOpenComments reports whether the round carries ANY open comment — change request or
+// question. It is a fresh READ, because the comments it is about are written by a human through
+// the Manager while this gate is open, and the child holds no copy of the thread.
+func (wf *csWorkflows) roundHoldsOpenComments(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState, roundID string,
+) (bool, error) {
+	round, err := wf.readRound(ctx, in, state, roundID)
+	if err != nil {
+		return false, err
+	}
+	for _, c := range round.Thread {
+		if c.Status == projectstate.ReviewCommentOpen {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// roundBlockingComments is the HUMAN approve's own question: the open CHANGE REQUESTS on this
+// round (projectstate.OpenReviewCommentIDs — open questions are a soft warning, never a block).
+func (wf *csWorkflows) roundBlockingComments(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState, roundID string,
+) ([]string, error) {
+	round, err := wf.readRound(ctx, in, state, roundID)
+	if err != nil {
+		return nil, err
+	}
+	return projectstate.OpenReviewCommentIDs(round.Thread), nil
+}
+
+// readRound reads ONE round off the activity's row through the narrow execution read. A round the
+// row does not hold is an empty round rather than an error: the only caller that can see that is
+// a gate whose own round vanished, which no verb can do.
+func (wf *csWorkflows) readRound(
+	ctx workflow.Context, in deliveryActivityInput, state *constructState, roundID string,
+) (projectstate.ReviewRound, error) {
+	if roundID == "" || !state.executionLedger {
+		return projectstate.ReviewRound{}, nil
+	}
+	row, err := wf.Acts.ActivityExecutionReadActivityExecution(ctx, projectstate.ProjectID(in.ProjectID), string(in.ActivityID))
+	if err != nil {
+		return projectstate.ReviewRound{}, err
+	}
+	for _, r := range row.Reviews {
+		if r.RoundID == roundID {
+			return r, nil
+		}
+	}
+	return projectstate.ReviewRound{}, nil
 }
 
 // roundArtifactKind resolves what a review round judges: the review task's own
@@ -2610,10 +2702,13 @@ func lifecyclePhaseByID(lc methodassets.Lifecycle, phaseID string) (methodassets
 //
 // A SEND-BACK PAST THE BUDGET KEEPS AWAITING rather than failing, exactly as sendBackGate
 // does today. Changing that is not in this wave.
+// autogateReason, when non-nil, says this gate is held ONLY because its round carries an open
+// comment: the review policy asked for no human. The moment the last one is resolved the gate
+// passes itself, with that reason.
 func (wf *csWorkflows) awaitTaskDecision(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	t methodassets.LifecycleTask, tc taskContext, ws *walkState, state *constructState,
-	gate *gateLedger, inbox workflow.ReceiveChannel,
+	gate *gateLedger, inbox workflow.ReceiveChannel, autogateReason *string,
 ) (walkTaskState, error) {
 	redraft := 0
 	activityType := in.Activity.activityTypeName()
@@ -2637,7 +2732,17 @@ func (wf *csWorkflows) awaitTaskDecision(
 		}
 		switch msg.Kind {
 		case routedKindStatus:
-			wf.applyRoundCommentStatus(ctx, in, state, gate, msg.Status)
+			// THE MIRROR SIGNAL'S ONE JOB (fix round 2): the Manager already wrote the status, and
+			// this is the child re-asking whether a HELD AUTOGATE can now pass. Without it the
+			// operator would resolve the last comment and the gate would sit there for ever with
+			// nobody left who has to decide it.
+			st, done, err := wf.reconsiderAutogate(ctx, in, lc, t, tc, state, gate, autogateReason, msg.Status)
+			if err != nil {
+				return walkTaskFailed, err
+			}
+			if done {
+				return st, nil
+			}
 		case routedKindOverride:
 			wf.recordGateOverride(ctx, in, state, t, msg.Override)
 		case routedKindRedraft:
@@ -2689,6 +2794,42 @@ func routedPayloadPresent(msg routedSignal) bool {
 	return false
 }
 
+// reconsiderAutogate is what a comment-status signal does at a gate (stage 4b1 Task 12, fix
+// round 2). The Manager owns the WRITE — it landed the transition synchronously, so it could tell
+// the reviewer that the comment does not exist or that the transition is illegal — and this is
+// the half only the child can do: re-evaluate a gate that is held ONLY because the round carried
+// an open comment, and pass it when the last one is gone.
+//
+// done=false keeps the gate awaiting, which is every case but the autogate's own release: a gate
+// that a HUMAN has to answer is not affected by a resolve, and a nil autogateReason says so.
+func (wf *csWorkflows) reconsiderAutogate(
+	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
+	t methodassets.LifecycleTask, tc taskContext, state *constructState,
+	gate *gateLedger, autogateReason *string, sig *setCommentStatusSignal,
+) (walkTaskState, bool, error) {
+	logger := workflow.GetLogger(ctx)
+	if autogateReason == nil {
+		logger.Info("a comment status was mirrored to a gate a human must answer; nothing to reconsider",
+			"activityId", in.ActivityID, "taskId", t.ID, "commentId", sig.CommentID)
+		return walkTaskFailed, false, nil
+	}
+	held, err := wf.roundHoldsOpenComments(ctx, in, state, gate.roundID)
+	if err != nil {
+		logger.Error("the round's thread could not be re-read; the gate keeps awaiting",
+			"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
+		return walkTaskFailed, false, nil
+	}
+	if held {
+		logger.Info("delivery.gate.stillHeldOnOpenComments",
+			"activityId", in.ActivityID, "taskId", t.ID, "commentId", sig.CommentID)
+		return walkTaskFailed, false, nil
+	}
+	state.leaveHumanStage(ctx, in.Activity.activityTypeName(), gateOutcomeApproved)
+	state.reviewSet, state.reviewSetError = nil, ""
+	st, err := wf.passRound(ctx, in, lc, t, tc, state, gate, gateActorSystem, *autogateReason)
+	return st, true, err
+}
+
 // decideTaskGate acts on ONE decision at a gate. done=false means the gate keeps
 // awaiting: an unknown decision, or a send-back whose human-paced budget is spent.
 func (wf *csWorkflows) decideTaskGate(
@@ -2699,6 +2840,20 @@ func (wf *csWorkflows) decideTaskGate(
 	activityType := in.Activity.activityTypeName()
 	switch sig.Decision {
 	case ReviewApprove:
+		// THE TOCTOU RE-CHECK (fix round 2, review finding F1). The façade refuses an approve while
+		// a change request is open, but a signal is fire-and-forget: a comment filed in the
+		// millisecond after that check would otherwise be approved over. The retired rail re-checked
+		// in the same place and for the same reason. Open QUESTIONS deliberately do NOT block — a
+		// human is looking at them (ReviewCommentBlocksApprove).
+		if open, err := wf.roundBlockingComments(ctx, in, state, gate.roundID); err != nil {
+			workflow.GetLogger(ctx).Error("the round's thread could not be read; the approve is not applied and the gate keeps awaiting",
+				"activityId", in.ActivityID, "taskId", t.ID, "err", err.Error())
+			return walkTaskFailed, false, nil
+		} else if len(open) > 0 {
+			workflow.GetLogger(ctx).Warn("delivery.gate.approveRefusedOnOpenComments",
+				"activityId", in.ActivityID, "taskId", t.ID, "open", len(open))
+			return walkTaskFailed, false, nil
+		}
 		state.leaveHumanStage(ctx, activityType, gateOutcomeApproved)
 		if err := wf.closeGateRound(ctx, in.csIn(), state, gate, &state.walk.headVersion, state.walk.cred,
 			projectstate.VerdictApprove, projectstate.RoundPassed, sig.Feedback); err != nil {
@@ -2785,50 +2940,13 @@ func (wf *csWorkflows) sendBackRound(
 	return nil
 }
 
-// applyRoundCommentStatus resolves or re-opens ONE comment on this gate's round. It is
-// best-effort and logged: a status transition is a reviewer's bookkeeping, and failing
-// the activity over it would cost the work.
-//
-// NOTHING IN PRODUCTION SENDS IT A SIGNAL TODAY, and that is recorded here rather than left
-// for the next reader to discover (stage 4b1 Task 12). The stage-4b brief had the Manager
-// mirror every comment-status write here "so the vibes autogate re-reads 'no open comments'
-// before synthesizing an approve". Three measurements killed the mirror and not the arm:
-//
-//	(1) THE RE-READ DOES NOT EXIST in this child. runGate asks the engine for RequiresHuman
-//	    ONCE, when the round opens, and either holds for a human or passes immediately — so a
-//	    status landing later cannot change an autogate decision that has already been made.
-//	(2) THE MANAGER IS THE WRITER (SetTaskCommentStatus), synchronously, so it can tell the
-//	    reviewer that the comment does not exist or that the transition is illegal. A mirror
-//	    would REPEAT that transition here, and applyReviewCommentStatus refuses
-//	    resolved→resolved as a ContractMisuse — every resolve would log an error.
-//	(3) AGENT CRITICS FILE NO COMMENTS. runAgentReviewers appends its verdict with a nil
-//	    comment list, so on the generic child "no open comments" has no input to re-read
-//	    except what a HUMAN filed at a previous round, which the Manager has already landed.
-//
-// What the arm is for, and what Task 10's concern 7 still wants, is a gate that HOLDS when
-// the round it just opened carries an unaddressed critic send-back and then auto-passes once
-// the comments are cleared. That needs a ruling on whether a `vibes` critic revise holds for a
-// human or triggers a redraft, which is why Task 12 did not guess at it.
-func (wf *csWorkflows) applyRoundCommentStatus(
-	ctx workflow.Context, in deliveryActivityInput, state *constructState,
-	gate *gateLedger, sig *setCommentStatusSignal,
-) {
-	if gate.roundID == "" || sig == nil {
-		return
-	}
-	v, err := wf.applyRecovering(ctx, in.ProjectID, state.walk.headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
-		return wf.Acts.ActivityExecutionSetReviewCommentStatus(ctx, projectstate.ProjectID(in.ProjectID), expected,
-			state.activityVersion, string(in.ActivityID), gate.roundID, sig.CommentID, sig.Status,
-			state.walk.cred.toProjectState())
-	})
-	if err != nil {
-		workflow.GetLogger(ctx).Error("the comment status could not be applied; the gate keeps awaiting",
-			"activityId", in.ActivityID, "roundId", gate.roundID, "commentId", sig.CommentID, "err", err.Error())
-		return
-	}
-	state.walk.headVersion = v
-	state.rowAdvanced()
-}
+// (applyRoundCommentStatus IS GONE, and its absence is the point — stage 4b1 Task 12, fix round
+// 2. The child used to be the WRITER of a comment status, through a signal nothing ever sent.
+// The Manager writes it now, synchronously, so it can tell the reviewer that the comment does not
+// exist or that the transition is illegal; the mirror signal that follows carries no write at all,
+// and what the child does with it is reconsiderAutogate — re-ask whether a gate held on an open
+// comment may now pass. Two writers of one transition would have meant one of them erroring:
+// applyReviewCommentStatus refuses resolved->resolved as a ContractMisuse.)
 
 // recordGateOverride records an operator override that arrived at a gate. The operator
 // steered the ACTIVITY rather than answering the gate, so the override is recorded as the
