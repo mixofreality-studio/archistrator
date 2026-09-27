@@ -250,8 +250,21 @@ func terminalAfterRowReread(ctx workflow.Context, acts genInvokers, projectID Pr
 	if err != nil {
 		return false, err
 	}
-	// Re-seed unconditionally: whatever the store reports IS the row's version, and the
-	// run's hand-advanced copy (rowAdvanced) is the thing that was wrong if they differ.
+	if after == projectstate.NoActivityVersionExpectation && before != projectstate.NoActivityVersionExpectation {
+		// A NotFound re-read must NEVER DOWNGRADE a held expectation. The mapping above reads
+		// "no row" as NoActivityVersionExpectation, and that value is not just a number:
+		// activityVersionMismatch short-circuits on it, so re-seeding a run that HELD a number
+		// would switch the per-row CAS OFF for the rest of that run and let it write over every
+		// interleaving the guard exists to refuse — silently, and long after the conflict that
+		// caused it. So keep `before`, and let the Conflict stay a Conflict: a row that vanished
+		// under a live run holding a number for it is not a state to be permissive about, and
+		// the loop exhausting its bound is the loud answer. (Rows are never deleted, so this is
+		// a "cannot happen" that must not degrade quietly if it does.) Not terminal either —
+		// `after != before` here by construction.
+		return false, nil
+	}
+	// Re-seed: whatever the store reports IS the row's version, and the run's hand-advanced
+	// copy (rowAdvanced) is the thing that was wrong if they differ.
 	acc.setVersion(after)
 	if before == projectstate.NoActivityVersionExpectation {
 		// A run in the "I have not read this row" posture (a BIRTH) cannot be looking at a

@@ -5011,11 +5011,22 @@ const changeRowConflictReread = "row-conflict-reread"
 // platform-fixed (framework-go/resourceaccess/errors.go), every Conflict reaches a
 // workflow as nothing but that Kind's name (fwmanager.RAErrType, see raConflictErrType),
 // and matching a store's message text from a workflow would couple the two across a
-// release. The two terminality Conflicts this catches — OpenActivity on an exited row,
-// and AppendReviewVerdict/DecideReviewRound on a decided round — differ from a genuine
+// release. The three terminality Conflicts this catches — OpenActivity on an exited row,
+// and AppendReviewVerdict / DecideReviewRound on a decided round — differ from a genuine
 // version conflict in exactly one OBSERVABLE way: nothing moves when you look again. So
 // we look again, and when neither the project version nor the row version moved we fail
 // with the honest cause instead of burning twenty attempts to report the wrong one.
+//
+// WHERE THE SENTENCE CAN BE WRONG, and it is the message and not the verdict: on a design
+// rail a mutation targeting MAIN can carry an `expected` read from the SESSION BRANCH (QA
+// F29), so the number it holds may exceed main's and re-reading main moves nothing —
+// forever. That is a MIS-ADDRESSED CAS, not a store refusing a transition, yet it reaches
+// here looking identical and is reported as "the store is refusing". The non-retryable
+// OUTCOME is right either way (no number of retries fixes a token read off the wrong
+// substrate) and it now arrives in one attempt rather than twenty, but an operator reading
+// the sentence on a branch-targeted design mutation should suspect the branch before the
+// store. Telling the two apart would mean re-reading on the branch the mutation targets,
+// which is the F29 question itself and not this fence's.
 const terminalConflictErrType = "MutateTerminalConflict"
 
 // terminalConflictMessage is the one sentence that terminal carries. It names what was

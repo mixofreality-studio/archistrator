@@ -1294,6 +1294,12 @@ type fakeProjectState struct {
 	// nil for every other test, and every call site is guarded, so a shape case and an
 	// ordinary design-rail test run against the SAME double rather than two that drift.
 	rec *shapeRecorder
+
+	// rowReadErr, when set, is what ReadActivityExecution answers instead of the row (stage
+	// 4b1 Task 7 fix round 1). It exists to reach the ONE arm nothing else can: a
+	// non-NotFound row-read failure at session start, which seedRoundBaseFromLedger must
+	// PROPAGATE rather than swallow.
+	rowReadErr error
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
@@ -2086,6 +2092,12 @@ func (fakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.Pr
 }
 
 func (f fakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	f.mu.Lock()
+	rowErr := f.rowReadErr
+	f.mu.Unlock()
+	if rowErr != nil {
+		return projectstate.ActivityExecution{}, rowErr
+	}
 	return f.execution(activityID), nil
 }
 
@@ -12387,6 +12399,44 @@ func Test_CoAuthor_RoundLedger_AFirstSessionWithNoRowMintsRoundOne(t *testing.T)
 	}
 }
 
+// A NON-NotFound ROW-READ FAILURE AT SESSION START FAILS THE SESSION (stage 4b1 Task 7).
+// "No row" and "we could not tell" are different answers and the seed used to give them the
+// same one: it logged and returned, leaving activityVersion at 0 and admitting the session
+// UNREAD. Its OpenActivity then applied and bumped the row N→N+1 while the session's own
+// counter went 0→1, the next OpenReviewRound Conflicted, was logged only, and the session
+// went on writing to the slot ledger alone. Correct degradation for a best-effort rail;
+// wrong for the one writer of BOTH ledgers.
+//
+// ContractMisuse is the injected kind on purpose: non-retryable (so the Activity does not
+// spin) and exactly the classification a decode failure of committed state carries — the
+// realest form of "we could not tell".
+func Test_CoAuthor_RoundLedger_AnUnreadableRowFailsTheSessionRatherThanSeedingFromZero(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	base, pipe := newRoundLedgerEnv(t, env, id)
+	base.rowReadErr = fwra.New(fwra.ContractMisuse, "could not decode the activity row")
+
+	env.ExecuteWorkflow(executionKindCoAuthor, coAuthorInput{ProjectID: id, ArtifactKind: KindSystem})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("workflow did not complete")
+	}
+	if env.GetWorkflowError() == nil {
+		t.Fatal("a row the session could not READ must fail it, not seed it from zero")
+	}
+	// And it failed BEFORE the session did anything: nothing dispatched, nothing staged,
+	// nothing on either ledger. That is the difference from the old degradation, which went
+	// on to draft against a counter it had no right to.
+	if len(pipe.submits) != 0 {
+		t.Fatalf("the session must not dispatch on a ledger it could not read; got %d submits", len(pipe.submits))
+	}
+	if len(base.staged) != 0 || len(base.rounds("architecture")) != 0 {
+		t.Fatalf("nothing may be staged or recorded; staged=%d rounds=%d", len(base.staged), len(base.rounds("architecture")))
+	}
+}
+
 // A SECOND SESSION OF THE SAME KIND CONTINUES THE LEDGER'S NUMBERING. reviewRound is a
 // per-SESSION counter starting at zero, so before the seed an amendment session re-minted
 // round 1 — the id the first session's decided round already holds. OpenReviewRound is
@@ -13859,6 +13909,10 @@ type pdFakeProjectState struct {
 	advanced  int
 
 	version projectstate.Version
+
+	// rowReadErr mirrors its systemdesign twin: the injected non-NotFound row-read failure
+	// seedRoundBaseFromLedger must propagate (stage 4b1 Task 7 fix round 1).
+	rowReadErr error
 }
 
 func (f *pdFakeProjectState) ReadProject(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
@@ -14499,6 +14553,12 @@ func (pdFakeActivityExecution) AcknowledgeStaleBasis(fwra.Context, projectstate.
 }
 
 func (f pdFakeActivityExecution) ReadActivityExecution(_ fwra.Context, _ projectstate.ProjectID, activityID string) (projectstate.ActivityExecution, error) {
+	f.mu.Lock()
+	rowErr := f.rowReadErr
+	f.mu.Unlock()
+	if rowErr != nil {
+		return projectstate.ActivityExecution{}, rowErr
+	}
 	return f.execution(activityID), nil
 }
 
@@ -20193,6 +20253,66 @@ func Test_DesignRoundKey_Phase2KindsHaveNoReviewTaskInThePinnedLifecycle(t *test
 	}
 }
 
+// THE PHASE-2 SEED'S FAILURE ARM, and why it takes a hand-built probe (stage 4b1 Task 7).
+// The systemdesign twin's arm is reachable end-to-end
+// (Test_CoAuthor_RoundLedger_AnUnreadableRowFailsTheSessionRatherThanSeedingFromZero); this
+// rail's is NOT, because no Phase-2 kind resolves to a review task at all (the test above),
+// so a real session returns at the !ok guard and never reads a row. Rather than leave the arm
+// untested on the rail that will grow into it, the probe hands pdDesignRoundKeyFor a kind
+// whose wire name the pinned lifecycles DO carry as a phase — pdDesignActivityFor is total,
+// so the key resolves — and asserts the propagation itself.
+func Test_PdRoundLedger_AnUnreadableRowIsPropagatedByTheSeed(t *testing.T) {
+	if _, ok := pdDesignRoundKeyFor(projectstate.KindMission); !ok {
+		t.Skip("the probe's premise is gone: pdDesignRoundKeyFor no longer resolves a Phase-1 phase")
+	}
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &pdFakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps.rowReadErr = fwra.New(fwra.ContractMisuse, "could not decode the activity row")
+	wf := pdNewWorkflows()
+	pdRegisterCoAuthor(env, wf, ps, pdNewFakePipeline())
+
+	env.ExecuteWorkflow(func(ctx workflow.Context) error {
+		state := &pdCoAuthorState{projectID: id, roundLedgerEnabled: true}
+		return wf.seedRoundBaseFromLedger(ctx, pdCoAuthorInput{ProjectID: id, ArtifactKind: KindMission}, state)
+	})
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("the probe workflow must complete")
+	}
+	if env.GetWorkflowError() == nil {
+		t.Fatal("a row the seed could not READ must be propagated, not swallowed into a base of zero")
+	}
+}
+
+// And the pinning half: with the SAME failure injected, a real Phase-2 session is UNAFFECTED,
+// because it makes no row read at all. This is what makes the probe above honest rather than
+// a tautology — the day a Phase-2 kind grows a review task, this test goes red and points at
+// the coverage that has to become end-to-end.
+func Test_PdRoundLedger_ARealSessionMakesNoRowReadToFail(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	id := ProjectID(uuid.NewString())
+	ps := &pdFakeProjectState{project: planningAssumptionsReadBack(projectstate.ProjectID(id))}
+	ps.rowReadErr = fwra.New(fwra.ContractMisuse, "could not decode the activity row")
+	wf := pdNewWorkflows()
+	pdRegisterCoAuthor(env, wf, ps, pdNewFakePipeline())
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(pdSignalReviewDecision, pdReviewDecisionSignal{Decision: ReviewWithdraw})
+	}, 30*time.Second)
+
+	env.ExecuteWorkflow(pdExecutionKindCoAuthor, pdCoAuthorInput{ProjectID: id, ArtifactKind: KindPlanningAssumptions})
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("this rail reads no row, so an unreadable row cannot fail it: %v", err)
+	}
+	if len(ps.staged) != 1 {
+		t.Fatalf("the session runs exactly as it did; want 1 staged model, got %d", len(ps.staged))
+	}
+}
+
 // THE ROUND NUMBERING IS SEEDED FROM THE DURABLE LEDGER, NOT FROM THE SESSION. reviewRound
 // is a per-SESSION counter starting at zero, so a second co-author session of the same kind
 // would re-mint the first session's round ids; OpenReviewRound is idempotent on an id, so
@@ -23548,13 +23668,20 @@ func (f csFakeActivityExecution) applyExecution(expectedActivityVersion int64, a
 	return f.upsertExecution(activityID, mutate), nil
 }
 
-// refuseTerminality mirrors the real facet's TERMINALITY Conflicts — the two refusals that
+// refuseTerminality mirrors the real facet's THREE TERMINALITY Conflicts — the refusals that
 // are NOT version conflicts (projectstateaccess.go: OpenActivity on an exited row,
-// Append/Decide on a decided round). What makes them the discriminator's whole subject is
-// that they move NOTHING: no row write, no counter, no project head. The double has to
-// refuse the same way, or the terminal arm would only ever be proved against a
-// hand-injected error rather than the store's own rule. An ABSENT row refuses nothing —
-// a birth is legitimate.
+// AppendReviewVerdict on a decided round, DecideReviewRound on a decided round). What makes
+// them the discriminator's whole subject is that they move NOTHING: no row write, no
+// counter, no project head. The double has to refuse the same way, or the terminal arm would
+// only ever be proved against a hand-injected error rather than the store's own rule. An
+// ABSENT row refuses nothing — a birth is legitimate.
+//
+// KNOWN ORDERING DIFFERENCE from the store, recorded rather than papered over: the store
+// runs the per-activity version guard FIRST (onActivity → withActivityVersion) and reaches
+// the terminality check inside the mutate func, so a caller holding a STALE expectation for
+// a decided round is told "stale version"; this double checks terminality first and tells it
+// "already decided". Both are fwra.Conflict, so every arm under test behaves identically —
+// the two answers differ only in their sentence, and no assertion in this package reads it.
 func (f csFakeActivityExecution) refuseTerminality(activityID string, check func(row projectstate.ActivityExecution) error) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -23646,6 +23773,24 @@ func (f csFakeActivityExecution) OpenReviewRound(_ fwra.Context, _ projectstate.
 }
 
 func (f csFakeActivityExecution) AppendReviewVerdict(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, roundID string, verdict projectstate.ReviewVerdict, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
+		for _, r := range row.Reviews {
+			if r.RoundID != roundID || r.Outcome == projectstate.RoundPending {
+				continue
+			}
+			// The THIRD terminality refusal, and the one the store states most plainly
+			// (projectstateaccess.go AppendReviewVerdict). UNCONDITIONAL, unlike
+			// DecideReviewRound's: the store's outcome guard runs BEFORE reviewVerdictPresent,
+			// so a decided round refuses a verdict even if that exact verdict is already on it.
+			// The double skipped this round silently and reported success, which would have let
+			// the arm pass while the rail it models refuses.
+			return fwra.New(fwra.Conflict, fmt.Sprintf(
+				"fake projectstate.AppendReviewVerdict: round %s is already decided %q; a decided round is terminal", roundID, r.Outcome))
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
 	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		for i := range row.Reviews {
 			r := &row.Reviews[i]
@@ -24660,7 +24805,7 @@ func runRowConflictProbe(
 	rowSeed int64,
 	bindRow bool,
 	mutate func(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error),
-) (int, error) {
+) (int, int64, error) {
 	t.Helper()
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
@@ -24668,6 +24813,11 @@ func runRowConflictProbe(
 	registerConstruct(env, wf, ps, csNewFakePipeline())
 	seed := ps.project.Version
 	attempts := 0
+	// held is the run's row expectation AFTER the loop — what the re-read left in the state
+	// the run carries. It is returned because a re-read that DOWNGRADES it to
+	// NoActivityVersionExpectation switches the per-row CAS off for the rest of that run, and
+	// nothing else observable would say so.
+	var held int64
 	env.ExecuteWorkflow(func(ctx workflow.Context) error {
 		st := &constructState{activityVersion: rowSeed}
 		if bindRow {
@@ -24677,12 +24827,13 @@ func runRowConflictProbe(
 			attempts++
 			return mutate(wf, ctx, st, expected)
 		})
+		held = st.activityVersion
 		return aerr
 	})
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("the probe workflow must complete")
 	}
-	return attempts, env.GetWorkflowError()
+	return attempts, held, env.GetWorkflowError()
 }
 
 // openRowProbe is the OpenActivity mutation, re-reading the run's row expectation on every
@@ -24718,7 +24869,7 @@ func rowProbeState(rowVersion int64, mutateRow func(row *projectstate.ActivityEx
 // re-seeds the CAS by hand and the second attempt lands.
 func Test_RowConflict_RowMovedAndProjectDidNot_ReReadsTheRowAndSucceeds(t *testing.T) {
 	ps := rowProbeState(5, nil)
-	attempts, err := runRowConflictProbe(t, ps, 3, true, openRowProbe)
+	attempts, _, err := runRowConflictProbe(t, ps, 3, true, openRowProbe)
 	if err != nil {
 		t.Fatalf("a moved ROW is a recoverable conflict, not a failure: %v", err)
 	}
@@ -24740,7 +24891,7 @@ func Test_RowConflict_RowMovedAndProjectDidNot_ReReadsTheRowAndSucceeds(t *testi
 func Test_RowConflict_OpenActivityOnAnExitedRow_FailsImmediatelyAsTerminal(t *testing.T) {
 	done := testLedgerClock
 	ps := rowProbeState(5, func(row *projectstate.ActivityExecution) { row.CompletedAt = &done })
-	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	attempts, _, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
 	if got := appErrType(err); got != terminalConflictErrType {
 		t.Fatalf("want %s, got %q from %v", terminalConflictErrType, got, err)
 	}
@@ -24764,7 +24915,7 @@ func Test_RowConflict_DecideOnADecidedRound_FailsImmediatelyAsTerminal(t *testin
 			Outcome: projectstate.RoundPassed, DecidedBy: "architect",
 		}}
 	})
-	attempts, err := runRowConflictProbe(t, ps, 5, true,
+	attempts, _, err := runRowConflictProbe(t, ps, 5, true,
 		func(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error) {
 			return wf.Acts.ActivityExecutionDecideReviewRound(ctx, projectstate.ProjectID("p"), expected,
 				st.activityVersion, rowProbeActivity, "r1", projectstate.RoundSentBack, "operator",
@@ -24778,13 +24929,68 @@ func Test_RowConflict_DecideOnADecidedRound_FailsImmediatelyAsTerminal(t *testin
 	}
 }
 
+// Case (c2) — the THIRD terminality refusal, the one the store states unconditionally:
+// AppendReviewVerdict on a decided round. Same arm, same one attempt.
+func Test_RowConflict_AppendVerdictOnADecidedRound_FailsImmediatelyAsTerminal(t *testing.T) {
+	ps := rowProbeState(5, func(row *projectstate.ActivityExecution) {
+		row.Reviews = []projectstate.ReviewRound{{
+			RoundID: "r1", TaskID: "construction-review", Round: 1,
+			Outcome: projectstate.RoundPassed, DecidedBy: "architect",
+		}}
+	})
+	attempts, _, err := runRowConflictProbe(t, ps, 5, true,
+		func(wf *csWorkflows, ctx workflow.Context, st *constructState, expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.ActivityExecutionAppendReviewVerdict(ctx, projectstate.ProjectID("p"), expected,
+				st.activityVersion, rowProbeActivity, "r1",
+				projectstate.ReviewVerdict{ReviewerRole: "architect", Actor: "architect", Verdict: projectstate.VerdictApprove},
+				nil, nil, projectstate.RepoCredential{})
+		})
+	if got := appErrType(err); got != terminalConflictErrType {
+		t.Fatalf("want %s, got %q from %v", terminalConflictErrType, got, err)
+	}
+	if attempts != 1 {
+		t.Fatalf("a refusal is not retried: want 1 attempt, got %d", attempts)
+	}
+}
+
+// A NotFound RE-READ MUST NOT DOWNGRADE A HELD EXPECTATION. The run holds 5 for a row that
+// is not there; the re-read answers NotFound, which maps to NoActivityVersionExpectation —
+// and writing THAT back would switch the per-row CAS off for the rest of the run
+// (activityVersionMismatch short-circuits on it), so the next attempt would simply write
+// over whatever is there. Instead the expectation is KEPT, the Conflict stays a Conflict, and
+// the loop exhausts its bound loudly.
+//
+// Disarm the keep-arm and this test does not merely change its error — it goes GREEN with the
+// workflow SUCCEEDING, which is the whole hazard: a silent permission, not a visible failure.
+func Test_RowConflict_ANotFoundReReadKeepsAHeldRowExpectation(t *testing.T) {
+	ps := rowProbeState(5, nil)
+	delete(ps.project.ActivityExecution, rowProbeActivity) // the row the run holds 5 for is gone
+	attempts, held, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	if got := appErrType(err); got != "MutateConflictExhausted" {
+		t.Fatalf("a vanished row under a live run is loud, not permissive: want MutateConflictExhausted, got %q from %v", got, err)
+	}
+	if held != 5 {
+		t.Fatalf("the held row expectation must survive a NotFound re-read, got %d", held)
+	}
+	if attempts != maxMutateConflictAttempts {
+		t.Fatalf("want %d attempts, got %d", maxMutateConflictAttempts, attempts)
+	}
+	// One re-read per conflict except the last, which hits the bound before re-reading.
+	if ps.rowReads != maxMutateConflictAttempts-1 {
+		t.Fatalf("want %d row re-reads, got %d", maxMutateConflictAttempts-1, ps.rowReads)
+	}
+	if _, born := ps.project.ActivityExecution[rowProbeActivity]; born {
+		t.Fatal("the run must not have written the row it holds a stale number for")
+	}
+}
+
 // Case (d) — the PROJECT version moved and the row did not. The RETRY arm, explicitly:
 // terminality needs BOTH to stand still, so one mover is enough to keep the loop going, and
 // the row re-read still runs (it is what re-seeds the CAS).
 func Test_RowConflict_ProjectVersionMovedAndRowDidNot_TakesTheRetryArm(t *testing.T) {
 	ps := rowProbeState(5, nil)
 	ps.conflictFirst = 1 // the served Conflict advances the project head, not the row
-	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	attempts, _, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
 	if err != nil {
 		t.Fatalf("a moved PROJECT version is the retry arm, not the terminal one: %v", err)
 	}
@@ -24801,7 +25007,7 @@ func Test_RowConflict_ProjectVersionMovedAndRowDidNot_TakesTheRetryArm(t *testin
 func Test_RowConflict_AGenuineRaceStillExhaustsTheBound(t *testing.T) {
 	ps := rowProbeState(5, nil)
 	ps.conflictFirst = maxMutateConflictAttempts
-	attempts, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
+	attempts, _, err := runRowConflictProbe(t, ps, 5, true, openRowProbe)
 	if got := appErrType(err); got != "MutateConflictExhausted" {
 		t.Fatalf("want MutateConflictExhausted, got %q from %v", got, err)
 	}
@@ -24837,7 +25043,7 @@ func Test_RowConflict_TheCallersThatHoldNoRow_KeepTheProjectVersionOnlyBehaviour
 	} {
 		t.Run(caller, func(t *testing.T) {
 			ps := rowProbeState(5, nil)
-			attempts, err := runRowConflictProbe(t, ps, 3, false, openRowProbe)
+			attempts, _, err := runRowConflictProbe(t, ps, 3, false, openRowProbe)
 			if got := appErrType(err); got != "MutateConflictExhausted" {
 				t.Fatalf("an unbound caller keeps the old answer: want MutateConflictExhausted, got %q from %v", got, err)
 			}
@@ -24859,7 +25065,7 @@ func Test_RowConflict_TheCallersThatHoldNoRow_KeepTheProjectVersionOnlyBehaviour
 func Test_RowConflict_ABirthHoldsNoRowExpectationAndIsNeverTerminal(t *testing.T) {
 	ps := rowProbeState(5, nil)
 	ps.conflictFirst = maxMutateConflictAttempts
-	attempts, err := runRowConflictProbe(t, ps, projectstate.NoActivityVersionExpectation, true, openRowProbe)
+	attempts, _, err := runRowConflictProbe(t, ps, projectstate.NoActivityVersionExpectation, true, openRowProbe)
 	if got := appErrType(err); got != "MutateConflictExhausted" {
 		t.Fatalf("a birth's conflict is never terminal: want MutateConflictExhausted, got %q from %v", got, err)
 	}
