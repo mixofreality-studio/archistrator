@@ -196,17 +196,20 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	// the activity is its own durable execution, independent of this pump tick's
 	// continue-as-new chain.
 	//
-	// WHICH CHILD, and why there are two for one commit-range (stage 4b1 Task 10): the
-	// generic DeliveryActivityWorkflow walks the three DESIGN lifecycles from this commit —
-	// their dispatch strategy's staging half is written — while the other eleven keep the
-	// retired ConstructActivityWorkflow until Task 11 fills the construction half and
-	// re-points this call wholesale. Pointing every activity at the generic child now would
-	// dispatch construction work at a strategy that refuses by name.
-	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        pumpChildID(in.ProjectID, activity),
-		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
-	})
-	child := wf.startActivityChild(cctx, ctx, in.ProjectID, activity)
+	// ONE CHILD FOR EVERY ACTIVITY (stage 4b1 Task 11). Task 10 pointed the three DESIGN
+	// lifecycles at the generic DeliveryActivityWorkflow and left the other eleven on the
+	// retired ConstructActivityWorkflow for exactly one commit-range, because the construction
+	// half of the dispatch strategy refused by name until this commit. It no longer does, so the
+	// ROSTER split (runsOnTheDeliveryChild, its two-armed id and its two-armed start) is gone.
+	//
+	// WHAT REPLACES IT IS A VERSION FENCE AND NOT A ROSTER, and the difference matters: the two
+	// arms below are the SAME question every other change in this file asks — did this execution
+	// record the marker? A pump parked in child.Get across the deploy replays its recorded
+	// ChildWorkflow command, and that command names a workflow TYPE and an ID; taking the new
+	// arm on replay is a non-determinism panic that wedges the project's one pump (measured —
+	// two pre-b1/pre-d pump fixtures went red before this fence existed). A new pump records
+	// v1 and starts the generic child for everything.
+	child := wf.startActivityChild(ctx, in.ProjectID, activity)
 	// Record the dispatch decision NOW — after the child-start command is queued but
 	// BEFORE the blocking child.Get — so the façade's synchronous ExecuteNextActivity
 	// returns {Dispatched:true, ActivityID} for THIS tick while the cascade drains on in
@@ -219,6 +222,11 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	// activity's RecordActivityCompleted has landed in head-state before we pick the
 	// next eligible activity — otherwise nextEligible would re-select the same
 	// still-Running activity. child.Get blocks on the child's terminal result.
+	//
+	// THIS BLOCKING Get IS DELIBERATELY UNCHANGED BY STAGE 4b1 (architect Ruling 3(b)): the
+	// react-by-signal pump — one that starts a child and returns, and is re-woken by the
+	// child's terminal — is stage 4b2's, and moving the pump's shape in the same wave as the
+	// child's would make a cascade failure unattributable to either. It is not an oversight.
 	if err := child.Get(ctx, nil); err != nil {
 		return PumpResult{}, err
 	}
@@ -361,35 +369,54 @@ func pumpEligibilityRule(ctx workflow.Context) eligibilityRule {
 	return eligibleWithDesign
 }
 
-// pumpChildID is the workflow id of the child that runs one activity — the generic child's
-// id for a design activity, the retired child's for every other. Both are deterministic in
-// (projectID, activityID) and neither collides with the other
-// (Test_DeliveryActivityWorkflowID_DoesNotCollideWithTheRetiredChild).
-func pumpChildID(projectID ProjectID, activity constructionActivity) string {
-	id := ActivityID(activity.ActivityID)
-	if runsOnTheDeliveryChild(activity.Type) {
-		return deliveryActivityWorkflowID(projectID, id)
-	}
-	return constructActivityWorkflowID(projectID, id)
+// changeGenericActivityChild versions WHICH CHILD the pump starts (stage 4b1 Task 11).
+//
+// It is its own change id and not a bump of changeDesignActivitiesDispatchable, because the two
+// answer different questions — that one is WHICH ACTIVITY is eligible, this one is WHICH
+// WORKFLOW runs it — and a shared id would pin them together for as long as either marker
+// survives in a history.
+const changeGenericActivityChild = "generic-activity-child"
+
+// pumpStartsTheGenericChild reports whether this pump run starts DeliveryActivityWorkflow.
+// GetVersion is always called, so a new run records v1 and every activity walks its lifecycle's
+// task DAG; an execution that recorded no marker keeps starting the retired child, because its
+// history holds that ChildWorkflow command by TYPE and by ID and replaying the other arm is a
+// non-determinism panic on the project's one pump.
+func pumpStartsTheGenericChild(ctx workflow.Context) bool {
+	return workflow.GetVersion(ctx, changeGenericActivityChild, workflow.DefaultVersion, 1) >= 1
 }
 
-// startActivityChild starts the child pumpChildID named, with the input that child takes.
-// cctx carries the child options; ctx is the one the returned future is waited on with.
+// startActivityChild starts the child that runs ONE activity and returns its future.
 //
-// The TWO arms are one commit-range's cost, not a design (see the call site): Task 11 Step 4
-// deletes the retired arm and this function collapses into its own body.
+// THE TWO ARMS ARE THE VERSION FENCE, not a roster (see the call site): (pumpChildID,
+// startActivityChild and runsOnTheDeliveryChild were a ROSTER split until stage 4b1 Task 11 —
+// design activities on the generic child, the other eleven on the retired one — and that split
+// is gone; a predicate whose reason has expired is worse than no predicate). Both ids are
+// deterministic in (projectID, activityID) and they deliberately differ, so the two types can
+// coexist for this commit-range without one collapsing onto the other
+// (Test_DeliveryActivityWorkflowID_DoesNotCollideWithTheRetiredChild). Task 13 deletes the
+// retired arm with the workflow.
 func (wf *csWorkflows) startActivityChild(
-	cctx, ctx workflow.Context, projectID ProjectID, activity constructionActivity,
+	ctx workflow.Context, projectID ProjectID, activity constructionActivity,
 ) workflow.ChildWorkflowFuture {
 	id := ActivityID(activity.ActivityID)
-	if runsOnTheDeliveryChild(activity.Type) {
-		workflow.GetLogger(ctx).Info("delivery pump: starting the generic DAG child",
-			"projectId", string(projectID), "activityId", activity.ActivityID, "activityType", activity.Type.String())
-		return workflow.ExecuteChildWorkflow(cctx, executionKindDeliveryActivity, deliveryActivityInput{
+	generic := pumpStartsTheGenericChild(ctx)
+	childID := constructActivityWorkflowID(projectID, id)
+	if generic {
+		childID = deliveryActivityWorkflowID(projectID, id)
+	}
+	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        childID,
+		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+	})
+	if !generic {
+		return workflow.ExecuteChildWorkflow(cctx, executionKindConstructActivity, constructActivityInput{
 			ProjectID: projectID, ActivityID: id, Activity: activity,
 		})
 	}
-	return workflow.ExecuteChildWorkflow(cctx, executionKindConstructActivity, constructActivityInput{
+	workflow.GetLogger(ctx).Info("delivery pump: starting the generic DAG child",
+		"projectId", string(projectID), "activityId", activity.ActivityID, "activityType", activity.Type.String())
+	return workflow.ExecuteChildWorkflow(cctx, executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: projectID, ActivityID: id, Activity: activity,
 	})
 }

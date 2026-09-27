@@ -303,18 +303,19 @@ func productionStrategies(eng sdpEngines) strategyRegistry {
 // So the strategy chooses TWO things on the artifact kind, not one — and the artifact kind is
 // still data, so nothing here reads an activity type.
 //
-// Task 11 fills the construction arm. Until it does, this refuses by name: a strategy that
-// silently succeeded would make an out-of-order execution look like a passing walk.
+// BOTH ARMS ARE NOW HERE (stage 4b1 Task 11 filled the construction half). The split is ONE
+// question asked of the DATA — does this task's artifact kind name a design slot? — and
+// designSlotOfTask is the whole of it. A task that names no slot is a construction task: its
+// output is a commit the agent pushed, so it stages NOTHING and its empty StagedRef lets
+// gateSubjectRef fall to its second rung (the PR) or its third (the attempt), exactly as the
+// retired rail's rounds did.
 type agenticDispatchStrategy struct{ wf *csWorkflows }
 
 func (s agenticDispatchStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
-	kind, ok := designSlotOfTask(tc.Lifecycle, tc.Task)
-	if !ok {
-		return producedSubject{}, newError(fwmanager.FailedPrecondition,
-			"no agentic dispatch is wired for task "+tc.Task.ID+
-				": its artifact kind "+tc.Task.ArtifactKind+" names no design slot, and stage 4b1 Task 11 fills the construction half of the dispatch strategy slot")
+	if kind, ok := designSlotOfTask(tc.Lifecycle, tc.Task); ok {
+		return s.wf.produceDesignArtifact(ctx, tc, kind)
 	}
-	return s.wf.produceDesignArtifact(ctx, tc, kind)
+	return s.wf.produceConstructionChange(ctx, tc)
 }
 
 // designSlotOfTask answers the ONE question that splits the two rails, off the DATA: does
@@ -383,7 +384,7 @@ func (wf *csWorkflows) produceDesignArtifact(
 		// attempt records it and the error fails the walk; the diagnostic is what an operator
 		// reads either way, and inferring success from a non-success phase is the one thing
 		// this arm must never do (§0d.4's anti-wedge rule, kept as its loud half).
-		detail := designJobFailedDetail(tc.Task.ID, obs)
+		detail := dispatchJobFailedDetail(jobLabelDesign, tc.Task.ID, obs)
 		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: detail},
 			temporal.NewNonRetryableApplicationError(detail, "DesignJobFailed", nil)
 	}
@@ -393,10 +394,18 @@ func (wf *csWorkflows) produceDesignArtifact(
 	return wf.stageDesignDraft(ctx, tc, kind, attemptID)
 }
 
-// designJobFailedDetail is the one sentence a failed design job leaves behind, naming the
+// The two job LABELS the shared dispatch machinery names in an operator-facing sentence.
+// They are the only thing that differs between the two arms' diagnostics, which is why they
+// are two strings rather than two copies of the loop.
+const (
+	jobLabelDesign       = "design"
+	jobLabelConstruction = "construction"
+)
+
+// dispatchJobFailedDetail is the one sentence a failed agentic job leaves behind, naming the
 // task, the phase it reached and whatever the venue said.
-func designJobFailedDetail(taskID string, obs csPipelineObservation) string {
-	detail := "the design job for task " + taskID + " reached terminal phase " + pipelinePhaseLabel(obs.Phase)
+func dispatchJobFailedDetail(label, taskID string, obs csPipelineObservation) string {
+	detail := "the " + label + " job for task " + taskID + " reached terminal phase " + pipelinePhaseLabel(obs.Phase)
 	if obs.Diagnostic != "" {
 		detail += ": " + obs.Diagnostic
 	}
@@ -552,7 +561,7 @@ func (wf *csWorkflows) runDesignJob(
 		return csPipelineObservation{}, err
 	}
 	task := projectstate.MethodTask(tc.Task.ID)
-	return wf.observeDesignPipeline(ctx, tc, handle, task), nil
+	return wf.observeDispatchedJob(ctx, tc, handle, task, jobLabelDesign, nil), nil
 }
 
 // submitDesignJob composes and submits ONE design job: the five dispatch inputs the seated
@@ -598,9 +607,17 @@ func (wf *csWorkflows) submitDesignJob(
 	return pipelineHandle{Name: agenticjob.PipelineHandleString(handle)}, nil
 }
 
-// observeDesignPipeline polls the job to a terminal phase on the ONE ladder both rails share,
+// observeDispatchedJob polls the job to a terminal phase on the ONE ladder both rails share,
 // draining this task's inbox between polls, and NEVER infers success from exhaustion: a stuck
 // job comes back as an explicit PipelineFailed with a neutral diagnostic.
+//
+// ONE LOOP FOR BOTH ARMS (stage 4b1 Task 11). The design and construction observe loops
+// differed in exactly two things, and both are parameters here: the LABEL an operator-facing
+// sentence names, and whether the PR's CI rollup is mirrored onto the head-state on the same
+// cadence (gf — the construction rail's poll-loop verb, D-PA-GIT §5; nil, or a dormant
+// forward, for the design arm and for the local profile). Everything else — the ladder, the
+// episode capture, the exhaustion synthetic, the inbox rule — was already identical prose in
+// two places.
 //
 // THE MISROUTE RULE (Task 8 review finding 1, written at drainPending). This loop receives on
 // the task's own inbox while it waits, because a twenty-minute dispatch is exactly when an
@@ -611,8 +628,16 @@ func (wf *csWorkflows) submitDesignJob(
 // growing durable history as fast as it can loop, and the history budget would trip on an
 // activity that did nothing. Re-offering at the end is what makes closeInbox report them as
 // undelivered rather than losing them silently.
-func (wf *csWorkflows) observeDesignPipeline(
-	ctx workflow.Context, tc taskContext, handle pipelineHandle, task projectstate.MethodTask,
+//
+// A FAILED OBSERVE — of the job OR of the PR's CI rollup — is a warning and not a terminal.
+// The design arm already read it that way; the retired construction loop RETURNED the error,
+// which failed the whole activity over a single transient read of a venue it had already
+// dispatched into — and (because runAttempt propagated it) left the activity stuck Running
+// with no terminal record at all. One rule for both arms, and it is the safer one: a read of
+// the venue is not the job's verdict, and the ladder's bound is what decides.
+func (wf *csWorkflows) observeDispatchedJob(
+	ctx workflow.Context, tc taskContext, handle pipelineHandle,
+	task projectstate.MethodTask, label string, gf *gitForward,
 ) csPipelineObservation {
 	var (
 		last     csPipelineObservation
@@ -624,11 +649,12 @@ func (wf *csWorkflows) observeDesignPipeline(
 			// A read of the venue is not the job's verdict. Treat a failed observe as
 			// non-terminal and let the ladder's bound decide, rather than failing an activity
 			// over one poll.
-			workflow.GetLogger(ctx).Warn("observing the design job failed; the ladder keeps polling",
+			workflow.GetLogger(ctx).Warn("observing the "+label+" job failed; the ladder keeps polling",
 				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
 		} else {
 			ph := obs.Phase
 			tc.State.pipelinePhase = &ph
+			wf.mirrorCIRollup(ctx, tc, gf)
 			if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
 				wf.captureEpisode(ctx, tc.In.csIn(), handle, obs, true, task, tc.Attempt)
 				wf.reofferDeferred(ctx, tc, deferred)
@@ -641,7 +667,7 @@ func (wf *csWorkflows) observeDesignPipeline(
 	}
 	exhausted := csPipelineObservation{
 		Phase:      PipelineFailed,
-		Diagnostic: "the design job did not reach a terminal phase within the observation window",
+		Diagnostic: "the " + label + " job did not reach a terminal phase within the observation window",
 		RunURL:     last.RunURL,
 		Episode:    last.Episode,
 	}
@@ -650,6 +676,24 @@ func (wf *csWorkflows) observeDesignPipeline(
 	wf.captureEpisode(ctx, tc.In.csIn(), handle, exhausted, true, task, tc.Attempt)
 	wf.reofferDeferred(ctx, tc, deferred)
 	return csPipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}
+}
+
+// mirrorCIRollup reads the PR's CI rollup once and mirrors it onto the head-state, on the
+// observe cadence — the construction rail's own poll-loop verb, reached through the SAME
+// helper it always used. A nil or dormant forward is a no-op, which is the design arm and
+// every local profile.
+//
+// A failure is logged and swallowed for the reason observeDispatchedJob's doc gives: the
+// mirror is a decoration on a head-state row, and the retired loop's returned error failed the
+// activity over it.
+func (wf *csWorkflows) mirrorCIRollup(ctx workflow.Context, tc taskContext, gf *gitForward) {
+	if gf == nil || !gf.enabled {
+		return
+	}
+	if _, err := wf.observeCIAndRecord(ctx, tc.In.csIn(), gf, &tc.State.walk.headVersion); err != nil {
+		workflow.GetLogger(ctx).Warn("mirroring the PR's CI rollup failed; the ladder keeps polling",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+	}
 }
 
 // drainInboxWhileDispatching takes whatever is waiting on this task's inbox, NON-BLOCKING,
@@ -832,6 +876,169 @@ func (wf *csWorkflows) applyRecoveringOnBranch(
 		workflow.GetLogger(ctx).Info("branch head-state conflict; re-read the branch version and retrying",
 			"branch", branch, "attempt", attempt+1, "nextExpectedVersion", expected)
 	}
+}
+
+// ---------------------------------------------------------------------------
+// THE CONSTRUCTION ARM (stage 4b1 Task 11)
+//
+// This is walkPhases' per-phase dispatch, reproduced for ONE lifecycle task instead of one
+// flat phase, through the SAME helpers: submitCarryingNotes (the operator's steer rides the
+// dispatch), submitPipeline → constructRepoTarget (the venue, where isGitLocalVenue
+// recognition already lives — R6/R-D: no new wf.Repo reader), the shared observe ladder with
+// the PR's CI mirror on it, and the pending→resolved attempt pair on the execution ledger.
+//
+// WHAT IT DELIBERATELY DOES NOT REPRODUCE, and where each went:
+//
+//   - the FLAT WALK. walkPhases iterated in.Activity.Phases from index 0 and the run's
+//     completedPhases skip-guard is what stopped a variance retry re-dispatching a finished
+//     phase. The DAG replaces both: a task runs when its dependsOn have passed, and a passed
+//     task is never ready again. in.Activity.Phases is not read at all (Step 1's finding: the
+//     field's only readers were walkPhases and its own ProfileFor fallback).
+//   - ProfileFor. The phase a dispatch names is tc.Phase.ID — the lifecycle's own phase id,
+//     which is the SAME wire string ActivityMethodPhase carries — so nothing re-derives a
+//     profile the walk did not schedule from.
+//   - CommandFor. The command is tc.Task.Command, the lifecycle DATA. The two agree today
+//     (CommandFor is itself a lookup into this data) and Test_ConstructionCommands_MatchTheLifecycleData
+//     pins that; carrying the task's own field is what stops the platform holding two answers.
+//   - the VARIANCE LOOP (handleVariance: retry / takeover / escalate-and-await-an-override,
+//     bounded by maxVarianceAttempts). A failed job FLAGS the variance on the session view and
+//     FAILS the walk with the diagnostic on the attempt — which is Task 9's compute failure and
+//     Task 10's design failure rule, one rule for all three arms. Re-expressing retry over a
+//     task DAG needs a per-task budget, somewhere honest for the Engine's DECIDE to live and a
+//     new attempt number per re-dispatch, which the walk owns and a strategy cannot mint; it is
+//     Task 12's override work (Task 8 earmark 5 assigns it there) and it is a stated parity gap.
+// ---------------------------------------------------------------------------
+
+// produceConstructionChange runs ONE construction task: open the attempt the dispatch is
+// about to burn, carry the operator's steer, submit the agentic job the task's command names,
+// observe it to a terminal phase, and report what it did.
+//
+// IT STAGES NOTHING, and that is the whole difference from the design arm. A construction
+// task's output is a COMMIT the agent pushed to activity/<id>; this store holds no model for
+// it, so the producedSubject's StagedRef stays empty and gateSubjectRef falls to the PR (rung
+// two) or the attempt (rung three) — byte-for-byte what openGateRound did on the retired rail.
+func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskContext) (producedSubject, error) {
+	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
+	// The PENDING attempt, opened BEFORE the dispatch it describes, so a run that dies
+	// mid-dispatch leaves an attempt that says it started and never resolved rather than
+	// nothing at all (openWorkAttempt's own reason, and what redraftDispatched reads). runTask
+	// RESOLVES this same id from the producedSubject below — one id, one attempt.
+	if err := wf.openWorkAttempt(ctx, tc.In.csIn(), tc.State, &tc.State.walk.headVersion, tc.State.walk.cred,
+		projectstate.MethodTask(tc.Task.ID), tc.Attempt, attemptID); err != nil {
+		return producedSubject{}, err
+	}
+	// THE SEND-BACK'S STEER (walk-local, carried in walkState.feedback across a continue).
+	// Without this a redraft runs against the prompt that was just rejected, which is the
+	// send-back doing nothing — the retired rail carried it as an ephemeral operator note and
+	// so does this, through the same renderer and the same dispatch input.
+	carryWalkFeedback(ctx, tc)
+	handle, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
+	switch {
+	case err != nil:
+		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
+	case !ok:
+		// The managed-scaffold sync refused: nothing was dispatched, and the refusal reads as a
+		// failed run exactly as it did on the retired rail.
+		return wf.constructionFailed(ctx, tc, attemptID, handle.obs)
+	}
+	obs := wf.observeDispatchedJob(ctx, tc, handle.handle, projectstate.MethodTask(tc.Task.ID),
+		jobLabelConstruction, &tc.State.walk.gf)
+	if obs.Phase != PipelineSucceeded {
+		return wf.constructionFailed(ctx, tc, attemptID, obs)
+	}
+	return producedSubject{
+		AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
+		EpisodeID: episodeIDOf(obs),
+		Detail:    "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
+	}, nil
+}
+
+// constructionFailed is the one place a construction dispatch's failure is turned into a
+// FAILED attempt and a walk-failing error. It FLAGS the variance on the session view first,
+// because that is the field the Activity Experience renders and the retired rail's
+// handleVariance set it before deciding anything.
+func (wf *csWorkflows) constructionFailed(
+	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation,
+) (producedSubject, error) {
+	detail := dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)
+	tc.State.variance = &FlaggedVariance{
+		ProjectID: tc.In.ProjectID, ActivityID: tc.In.ActivityID, Summary: detail,
+	}
+	workflow.GetLogger(ctx).Error("delivery.construction.jobFailed",
+		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID,
+		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)))
+	return producedSubject{
+			AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+			EpisodeID: episodeIDOf(obs), Detail: detail,
+		},
+		temporal.NewNonRetryableApplicationError(detail, "ConstructionJobFailed", nil)
+}
+
+// constructionDispatch is what submitConstructionJob hands back: the handle when something
+// was dispatched, or the refusal's own observation when nothing was.
+type constructionDispatch struct {
+	handle pipelineHandle
+	obs    csPipelineObservation
+}
+
+// submitConstructionJob composes and submits ONE construction job. ok=false means the
+// managed-scaffold sync refused and NOTHING was dispatched (§C.1.4: a note must never ride
+// into a YAML that would reject it), with the refusal's observation in obs.
+//
+// The spec carries the lifecycle's own COMMAND and leaves Type/Variant zero, deliberately:
+// dispatchInputsFor re-derives the command from that pair only for the caller that has no
+// command to give, which is the retired rail. Passing both would be two answers to keep in
+// step — the exact defect the "classify once, carry the result" comment on
+// constructionActivity.Type describes, arriving one level down.
+func (wf *csWorkflows) submitConstructionJob(
+	ctx workflow.Context, tc taskContext, attemptID string,
+) (constructionDispatch, bool, error) {
+	in := tc.In.csIn()
+	if tc.State.noteDelivery {
+		if obs, ok := wf.syncScaffoldBeforeDispatch(ctx, in, &tc.State.walk.gf); !ok {
+			return constructionDispatch{obs: obs}, false, nil
+		}
+	}
+	handle, err := wf.submitCarryingNotes(ctx, in, pipelineSpec{
+		ProjectID:   tc.In.ProjectID,
+		ActivityID:  string(tc.In.ActivityID),
+		ComponentID: tc.In.Activity.ComponentID,
+		Phase:       tc.Phase.ID,
+		Command:     tc.Task.Command,
+	}, tc.State, attemptID, &tc.State.walk.gf, &tc.State.walk.headVersion)
+	if err != nil {
+		return constructionDispatch{}, false, err
+	}
+	return constructionDispatch{handle: handle}, true, nil
+}
+
+// carryWalkFeedback turns the walk's own send-back notes into the ephemeral operator note the
+// next dispatch carries. The walk keeps the steer in walkState.feedback (a string, keyed by
+// the JUDGED task) and hands it to the strategy as taskContext.Feedback, so this is the point
+// where a walk-local fact becomes a dispatch input.
+//
+// THE GATE IT NAMES is the task's own lifecycle PHASE, which is what the retired rail recorded
+// (carrySendBackFeedback took lifecyclePhase.String()) — so a note rendered by either rail
+// reads the same. A no-op when nothing was sent back, and a no-op off the note-delivery fence.
+//
+// The COMMENTS do not survive: walkState.feedback is signalNotes(fb), a string, so a
+// send-back's anchored comments are already dropped by the walk itself (Task 8). Earmarked
+// rather than papered over here — the renderer takes them and there is nothing to give it.
+func carryWalkFeedback(ctx workflow.Context, tc taskContext) {
+	if tc.Feedback == "" {
+		return
+	}
+	carrySendBackFeedback(ctx, tc.In.csIn(), tc.State, tc.Phase.ID, &ReviewFeedback{Notes: tc.Feedback})
+}
+
+// episodeIDOf is the agentic episode a terminal observation carried, or "" when the venue
+// mined none (the GitHub-Actions arm mines no episode in v1, and a lost run carries nothing).
+// A ref nobody can follow is worse than an absent one.
+func episodeIDOf(obs csPipelineObservation) string {
+	if obs.Episode == nil {
+		return ""
+	}
+	return obs.Episode.EpisodeID
 }
 
 // judgedTaskStrategy is the JUDGED slot, and it produces NOTHING — deliberately, and from
@@ -2393,6 +2600,7 @@ func (wf *csWorkflows) recordTaskAttempt(
 	if !state.executionLedger || produced.AttemptID == "" {
 		return nil
 	}
+	kind, ref := attemptEvidence(produced)
 	return wf.recordAttempt(ctx, in.csIn(), state, &state.walk.headVersion, state.walk.cred,
 		projectstate.TaskAttemptInput{
 			AttemptID:    produced.AttemptID,
@@ -2400,18 +2608,27 @@ func (wf *csWorkflows) recordTaskAttempt(
 			Attempt:      int64(tc.Attempt),
 			Actor:        projectstate.ActorAgent,
 			Outcome:      produced.Outcome,
-			EvidenceKind: attemptEvidenceKind(produced),
-			EvidenceRef:  produced.StagedRef,
+			EvidenceKind: kind,
+			EvidenceRef:  ref,
 		})
 }
 
-// attemptEvidenceKind cites the staged output when the strategy staged one, and nothing
-// when it did not — a ref nobody can follow is worse than an absent one.
-func attemptEvidenceKind(produced producedSubject) projectstate.EvidenceKind {
-	if produced.StagedRef == "" {
-		return projectstate.EvidenceNone
+// attemptEvidence is what an attempt cites, and the ORDER is the point: the EPISODE first,
+// because a construction task's whole output is a dispatch whose tokens the episode ledger
+// holds and whose commit this store does not (resolveWorkAttempt cited exactly this on the
+// retired rail); then the STAGED model, which is a design or compute task's output; then
+// nothing, because a ref nobody can follow is worse than an absent one. No strategy returns
+// both today — a design job's episode is captured under the same task but its attempt's
+// evidence is the model a reviewer opens — and if one ever does, the episode is the one that
+// says what was spent.
+func attemptEvidence(produced producedSubject) (projectstate.EvidenceKind, string) {
+	switch {
+	case produced.EpisodeID != "":
+		return projectstate.EvidenceEpisode, produced.EpisodeID
+	case produced.StagedRef != "":
+		return projectstate.EvidenceGit, produced.StagedRef
 	}
-	return projectstate.EvidenceGit
+	return projectstate.EvidenceNone, ""
 }
 
 // finalizeWalk closes a walk whose every task passed: the policy-gated LOCAL merge, then
@@ -2424,6 +2641,16 @@ func attemptEvidenceKind(produced producedSubject) projectstate.EvidenceKind {
 // STOPPED, and saying otherwise would record a completed activity whose work never
 // happened. The one way to get there is a send-back on a review task that names no
 // judged pair to re-open, so the stuck task is named in the failure.
+//
+// THIS IS THE LAST GATE'S SITE, and it is identified from the DATA rather than asserted
+// (stage 4b1 Task 11). The plan asks for the merge to hang off "the gate task of the LAST
+// phase in lc.Phases"; measured across all fourteen lifecycles, that task is the last task in
+// declaration order and nothing depends on it — so "every task passed", which is the condition
+// this function is entered under, IS "the last phase's gate passed", and there is exactly one
+// of them. Pinned by Test_LastPhaseGateIsTheWalksFinalTask, so a platform release that grew a
+// task after the final gate fails there instead of merging a branch mid-walk. Writing the
+// question out as a second branch inside passRound would have been a THIRD place that has to
+// agree about when an activity is over, for no behaviour.
 func (wf *csWorkflows) finalizeWalk(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,

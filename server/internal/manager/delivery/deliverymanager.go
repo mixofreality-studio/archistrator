@@ -10139,19 +10139,20 @@ const (
 // still in Phase 1), so the blanket PhaseConstruction gate cannot stand for them.
 func (r eligibilityRule) admitsDesignActivities() bool { return r == eligibleWithDesign }
 
-// runsOnTheDeliveryChild reports whether this activity type's lifecycle is walked by
-// DeliveryActivityWorkflow rather than by the retired ConstructActivityWorkflow.
+// isDesignLifecycle reports whether this activity type is one of the THREE whose lifecycle
+// produces a design artifact — a Phase-1 slot or the Phase-2 plan — rather than a commit.
 //
-// It is TEMPORARY and it says so: stage 4b1 Task 10 filled the DESIGN half of the dispatch
-// strategy and Task 11 fills the construction half, so for exactly this one commit-range the
-// generic child can walk the three design lifecycles and not the other eleven. Task 11 Step 4
-// re-points the pump wholesale and DELETES this function — a predicate that outlives its
-// reason is how a pump ends up with two children forever.
+// It answered a second question until stage 4b1 Task 11 ("which child walks this?", as
+// runsOnTheDeliveryChild) and no longer does: ONE child walks every lifecycle now, so the only
+// live question is the PHASE FLOOR, which is admissibleInPhase's and is genuinely a property of
+// what the activity produces — `requirements` and `architecture` write Phase-1 slots and
+// `projectDesign` writes the Phase-2 plan, so requiring PhaseConstruction of them would require
+// the output before the work.
 //
 // It asks the TYPE rather than the id, because the id table lives in projectstate and the
 // three types are what railFor already reads; and it is exhaustive over ActivityType, so a
-// new type must decide which child runs it rather than inheriting an answer.
-func runsOnTheDeliveryChild(typ projectstate.ActivityType) bool {
+// new type must decide where its floor is rather than inheriting an answer.
+func isDesignLifecycle(typ projectstate.ActivityType) bool {
 	switch typ {
 	case projectstate.ActivityTypeRequirements,
 		projectstate.ActivityTypeArchitecture,
@@ -10306,7 +10307,7 @@ func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name stri
 	if err != nil {
 		return true
 	}
-	if !runsOnTheDeliveryChild(typ) {
+	if !isDesignLifecycle(typ) {
 		return phase == projectstate.PhaseConstruction
 	}
 	return rule.admitsDesignActivities()
@@ -10462,8 +10463,17 @@ func isActivityNotStarted(activityID string, item projectstate.ActivityItem, sta
 // as an empty string into every PR body.
 //
 // typ/variant are the caller's ALREADY-RESOLVED classification (nextEligibleActivity's
-// single ClassifyActivity call): this function stamps them and derives Phases from
-// them, so the phase walk and the stamped pair can never name different profiles.
+// single ClassifyActivity call), stamped here and carried by every downstream consumer.
+//
+// IT NO LONGER STAMPS Phases (stage 4b1 Task 11). The field's only readers were the retired
+// flat walk (walkPhases, and runAttempt's ProfileFor fallback for a payload that predated the
+// stamp); the generic child reads the lifecycle's task DAG and never looks at it. Measured
+// before removing it, because a write nobody reads and a read nobody writes are one grep apart:
+// the ONLY `Phases:` producers were this line and that fallback, and `ActivityConstructionStatus.Phases`
+// — the field a reader might mistake for this one — is a VIEW derivation off
+// phasesToContract(resolved), which reads the profile and the attempt ledger and never the
+// dispatch payload. So QueryActivityView does NOT read it, the field goes with
+// ConstructActivityWorkflow in Task 13, and nothing in a view changes here.
 func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component, typ projectstate.ActivityType, variant projectstate.TestingVariant) constructionActivity {
 	kind := activityKindNoncoding
 	if item.Coding {
@@ -10475,7 +10485,6 @@ func hydrateConstructionActivity(activityID string, item projectstate.ActivityIt
 		EstimateDays: item.EffortDays,
 		Type:         typ,
 		Variant:      variant,
-		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
 	if comp != nil {
 		act.ComponentID = comp.ID
@@ -10952,6 +10961,13 @@ type producedSubject struct {
 	AttemptID string
 	Outcome   projectstate.TaskOutcome
 	Detail    string
+	// EpisodeID is the agentic episode the dispatch burned, and it is the CONSTRUCTION arm's
+	// evidence (stage 4b1 Task 11). The retired rail's resolveWorkAttempt cited
+	// EvidenceEpisode + this id, and dropping it would leave every construction attempt in
+	// the new child citing EvidenceNone — the tokens spent would be in the episode ledger
+	// with nothing in the task ledger pointing at them, which is the one link the cost views
+	// follow. Empty for a design task (its evidence is the STAGED model) and for a compute.
+	EpisodeID string
 }
 
 // deliveryActivityInput is the start payload for the GENERIC per-activity child.

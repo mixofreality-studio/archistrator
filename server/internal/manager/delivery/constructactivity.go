@@ -29,8 +29,15 @@ type pipelineSpec struct {
 	ComponentID string
 	RepoURL     string
 	Ref         string
-	// Phase is the ActivityMethodPhase.String() for the current activity phase.
+	// Phase is the ActivityMethodPhase.String() for the current activity phase — which is the
+	// SAME wire string a lifecycle phase's id carries, so the generic child passes its
+	// tc.Phase.ID here unconverted.
 	Phase string
+	// Command is the slash command this dispatch runs, when the CALLER already holds it. The
+	// generic child does: it is the lifecycle task's own `command` field (stage 4b1 Task 11).
+	// Empty means "re-derive it from Type/Variant/Phase", which is the retired flat walk, and
+	// dispatchInputsFor is where that fallback lives.
+	Command string
 	// Type/Variant are the activity's classification, COPIED from the dispatched
 	// constructionActivity (classified once by the pump) rather than re-derived from
 	// the id here. dispatchInputsFor resolves the slash command from this pair, so the
@@ -112,12 +119,19 @@ func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
 }
 
 // dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
-// The `command` input is the thin slash-command the workflow runs; it is computed here
-// from the activity's CARRIED type/variant (classified once by the pump, copied onto the
-// spec) and the current phase, so the workflow itself holds no routing logic and no
-// second derivation can disagree with the phase profile being walked. component_id is a
-// Manager-resolved passthrough. (Moved workflow-side from the retired pipelineAdapter —
-// it only reads workflow state + projectstate.CommandFor.)
+// The `command` input is the thin slash-command the workflow runs, so the workflow itself
+// holds no routing logic. component_id is a Manager-resolved passthrough. (Moved
+// workflow-side from the retired pipelineAdapter — it only reads workflow state +
+// projectstate.CommandFor.)
+//
+// WHERE THE COMMAND COMES FROM, and why there are two answers for one commit-range (stage
+// 4b1 Task 11). The generic child reads the LIFECYCLE TASK's own `command` field and passes
+// it on the spec — the platform's data is the source of truth for what a task runs. The
+// retired flat walk has no task, only a phase, so it still re-derives from the activity's
+// CARRIED type/variant (classified once by the pump). The two agree by construction —
+// CommandFor is itself a lookup into the same lifecycle data, pinned by
+// Test_ConstructionCommands_MatchTheLifecycleData — and the fallback dies with the flat walk
+// in Task 13.
 func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	m := map[string]string{
 		"activity_id":  spec.ActivityID,
@@ -125,7 +139,10 @@ func dispatchInputsFor(spec pipelineSpec) map[string]string {
 	}
 	if spec.Phase != "" {
 		m["phase"] = spec.Phase
-		m["command"] = projectstate.CommandFor(spec.Type, spec.Variant, projectstate.ActivityMethodPhase(spec.Phase))
+		m["command"] = spec.Command
+		if m["command"] == "" {
+			m["command"] = projectstate.CommandFor(spec.Type, spec.Variant, projectstate.ActivityMethodPhase(spec.Phase))
+		}
 	}
 	// The operator's steer rides ONLY when a note is pending (B1.4): every no-note
 	// dispatch's inputs stay byte-identical to before, so a seated workflow that predates
@@ -1187,6 +1204,15 @@ func (wf *csWorkflows) failVarianceExhausted(
 // phase. It returns (phaseFailed, done, err): done=true means a phase gate terminally
 // recorded the activity (the workflow returns); phaseFailed=true means the caller should
 // retry the activity.
+//
+// THE FLAT WALK IS OFF THE CHILD'S PATH (stage 4b1 Task 11), and this is the last thing that
+// reads constructionActivity.Phases. DeliveryActivityWorkflow walks the lifecycle's task DAG
+// instead — a flat []ActivityMethodPhase cannot express the srsReview fan-out, cannot re-open
+// only a judged pair, and is the reason the two fork shape cases were unsatisfiable. The pump
+// no longer starts ConstructActivityWorkflow at all, so nothing reaches this function in
+// production; it stays compiled and reachable from that entry func for ONE more commit-range
+// because the fifteen construction replay fixtures are the only evidence Tasks 11 and 12 moved
+// no durable command on the rail they are rewriting. Task 13 deletes the file.
 func (wf *csWorkflows) walkPhases(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -1335,7 +1361,14 @@ func (wf *csWorkflows) runPipeline(ctx workflow.Context, in constructActivityInp
 		return csPipelineObservation{}, err
 	}
 
-	handle, err := wf.submitCarryingNotes(ctx, in, phase, state, attemptID, gf, headVersion)
+	handle, err := wf.submitCarryingNotes(ctx, in, pipelineSpec{
+		ProjectID:   in.ProjectID,
+		ActivityID:  string(in.ActivityID),
+		ComponentID: in.Activity.ComponentID,
+		Phase:       phase.String(),
+		Type:        in.Activity.Type,
+		Variant:     in.Activity.Variant,
+	}, state, attemptID, gf, headVersion)
 	if err != nil {
 		return csPipelineObservation{}, err
 	}
@@ -2538,10 +2571,16 @@ func noteComments(in []AnchoredComment) []projectstate.NoteComment {
 // stamp failed (at-least-once, see the section comment) and every note of a failed
 // submit stay pending for the next dispatch. A note already carried into attemptID is
 // never carried into it again.
+//
+// It takes the COMPOSED spec (stage 4b1 Task 11) rather than composing one from (in, phase):
+// the two callers describe a dispatch differently — the retired flat walk holds a phase and
+// the activity's classified pair, the generic child holds a lifecycle task with its own
+// command — and the note-carrying rule is identical for both. The one field this function
+// owns is OperatorNote, which is the whole of what it is for.
 func (wf *csWorkflows) submitCarryingNotes(
 	ctx workflow.Context,
 	in constructActivityInput,
-	phase projectstate.ActivityMethodPhase,
+	spec pipelineSpec,
 	state *constructState,
 	attemptID string,
 	gf *gitForward,
@@ -2554,15 +2593,8 @@ func (wf *csWorkflows) submitCarryingNotes(
 		}
 	}
 	notes := renderOperatorNotes(carry)
-	handle, err := wf.submitPipeline(ctx, pipelineSpec{
-		ProjectID:    in.ProjectID,
-		ActivityID:   string(in.ActivityID),
-		ComponentID:  in.Activity.ComponentID,
-		Phase:        phase.String(),
-		Type:         in.Activity.Type,
-		Variant:      in.Activity.Variant,
-		OperatorNote: notes.block,
-	})
+	spec.OperatorNote = notes.block
+	handle, err := wf.submitPipeline(ctx, spec)
 	if err != nil {
 		return pipelineHandle{}, err
 	}

@@ -21848,6 +21848,12 @@ func classifyForTest(t *testing.T, id string, item projectstate.ActivityItem) (p
 	return typ, variant
 }
 
+// THE STAMPED PAIR RESOLVES THE PHASES; THE PAYLOAD NO LONGER CARRIES THEM (stage 4b1 Task
+// 11). hydrateConstructionActivity stamped constructionActivity.Phases until the flat walk came
+// off the child's path, and the claim these two cases have always made is the one below: the
+// classified (type, variant) pair names the right lifecycle. Asserting it through the pair and
+// the DATA, rather than through a field the child never reads, is what keeps the case alive
+// after Task 13 deletes the field.
 func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 	item := projectstate.ActivityItem{WorkerClass: "junior-developer", Coding: true, EffortDays: 5}
 	typ, variant := classifyForTest(t, "C-Orders", item)
@@ -21855,18 +21861,30 @@ func TestHydrateConstructionActivity_ServicePhases(t *testing.T) {
 	if got.Type != projectstate.ActivityTypeService {
 		t.Fatalf("Type = %v, want Service", got.Type)
 	}
-	want := []projectstate.ActivityMethodPhase{
+	if len(got.Phases) != 0 {
+		t.Fatalf("the dispatch payload must carry NO phases; the child reads the lifecycle DAG. got %v", got.Phases)
+	}
+	assertLifecyclePhases(t, got, []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
 		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
 		projectstate.MethodPhaseIntegration,
+	})
+}
+
+// assertLifecyclePhases resolves the lifecycle the hydrated pair names and compares its phase
+// ids, in order, against what the activity's profile is expected to be.
+func assertLifecyclePhases(t *testing.T, act constructionActivity, want []projectstate.ActivityMethodPhase) {
+	t.Helper()
+	lc, ok := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(act.Type, act.Variant))
+	if !ok {
+		t.Fatalf("no lifecycle for the stamped pair (%v, %v)", act.Type, act.Variant)
 	}
-	if len(got.Phases) != len(want) {
-		t.Fatalf("phases len = %d, want %d", len(got.Phases), len(want))
+	got := make([]projectstate.ActivityMethodPhase, 0, len(lc.Phases))
+	for _, ph := range lc.Phases {
+		got = append(got, projectstate.ActivityMethodPhase(ph.ID))
 	}
-	for i := range want {
-		if got.Phases[i] != want[i] {
-			t.Errorf("phase[%d] = %q, want %q", i, got.Phases[i], want[i])
-		}
+	if !slices.Equal(got, want) {
+		t.Errorf("lifecycle phases = %v, want %v", got, want)
 	}
 }
 
@@ -21904,18 +21922,10 @@ func TestHydrateConstructionActivity_TestingPlanIsThreePhases(t *testing.T) {
 	if got.Type != projectstate.ActivityTypeTesting || got.Variant != projectstate.TestVariantPlan {
 		t.Fatalf("(Type, Variant) = (%v, %v), want (Testing, Plan)", got.Type, got.Variant)
 	}
-	want := []projectstate.ActivityMethodPhase{
+	assertLifecyclePhases(t, got, []projectstate.ActivityMethodPhase{
 		projectstate.MethodPhaseRequirements, projectstate.MethodPhaseConstruction,
 		projectstate.MethodPhaseIntegration,
-	}
-	if len(got.Phases) != len(want) {
-		t.Fatalf("N-STP phases len = %d, want %d", len(got.Phases), len(want))
-	}
-	for i := range want {
-		if got.Phases[i] != want[i] {
-			t.Errorf("phase[%d] = %q, want %q", i, got.Phases[i], want[i])
-		}
-	}
+	})
 }
 
 func TestDispatchInputsForIncludesCommand(t *testing.T) {
@@ -22801,8 +22811,8 @@ func Test_NextEligible_DesignActivitiesAreAdmittedOnlyOnTheFencedRule(t *testing
 	if sel.Activity.Type != projectstate.ActivityTypeRequirements {
 		t.Errorf("the dispatched activity carries type %s, want requirements", sel.Activity.Type)
 	}
-	if !runsOnTheDeliveryChild(sel.Activity.Type) {
-		t.Error("a dispatched design activity must run on the generic child")
+	if !isDesignLifecycle(sel.Activity.Type) {
+		t.Error("a dispatched design activity must be recognised as one, or its phase floor is the construction seal")
 	}
 }
 
@@ -22845,18 +22855,32 @@ func Test_DispatchSelectionFor_DesignActivityDispatches(t *testing.T) {
 	}
 }
 
-// The two children are addressed by DIFFERENT ids, and the split is driven by the TYPE. A
-// pump that handed a design activity the retired child's id would collapse onto a running
-// construction child (USE_EXISTING) and silently run the wrong body.
-func Test_PumpChildID_SplitsOnTheTypeAndNeverCollides(t *testing.T) {
-	design := constructionActivity{ActivityID: "requirements", Type: projectstate.ActivityTypeRequirements}
-	build := constructionActivity{ActivityID: "requirements", Type: projectstate.ActivityTypeService}
-	got, want := pumpChildID("p1", design), deliveryActivityWorkflowID("p1", "requirements")
-	if got != want {
-		t.Errorf("design child id = %q, want %q", got, want)
+// THE ROSTER SPLIT IS GONE AND WHAT REMAINS IS A VERSION FENCE (stage 4b1 Task 11).
+// runsOnTheDeliveryChild answered "which child runs this TYPE?" for one commit-range;
+// startActivityChild now answers "did this EXECUTION record the marker?", which is a question
+// about a history and not about a roster. The distinction is the thing this case pins, because
+// the two look identical in a diff: a source that branched on the activity again would pass a
+// behavioural test on a fresh execution just as well.
+//
+// The DefaultVersion arm's own proof is the replay suite — two pump fixtures (pre-b1 and pre-d)
+// carry a recorded ChildWorkflow command for the retired child and went red before the fence
+// existed — and the v1 arm's proof is every pump test above, which now runs the generic child
+// end to end.
+func Test_Pump_StartsTheGenericChildBehindItsVersionFence(t *testing.T) {
+	src, err := os.ReadFile("pumpnextactivity.go")
+	if err != nil {
+		t.Fatalf("reading the pump: %v", err)
 	}
-	if other := pumpChildID("p1", build); other == got {
-		t.Errorf("the two children share the id %q; one would collapse onto the other", other)
+	body := string(src)
+	if !strings.Contains(body, "workflow.GetVersion(ctx, changeGenericActivityChild") {
+		t.Fatal("the child choice must sit behind its OWN GetVersion change id; without it a pump parked in child.Get " +
+			"replays the other arm and panics non-deterministic, which wedges the project's one pump")
+	}
+	if strings.Contains(body, "isDesignLifecycle") {
+		t.Error("the pump must not choose a child by ACTIVITY TYPE any more; the only remaining question is the version fence")
+	}
+	if !strings.Contains(body, "deliveryActivityWorkflowID(projectID, id)") {
+		t.Error("the pump must address the generic child by deliveryActivityWorkflowID; a hand-built id is how the pump and the façade disagree about which execution to signal")
 	}
 }
 
@@ -24684,58 +24708,93 @@ type csFakePipeline struct {
 	// GitHub-Actions arm stamps the run's html URL; the local executor never does).
 	runURL string
 
-	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1);
-	// recTask carries the work task of the LAST submit so the observe that reaches a
-	// terminal phase can name what finished. Correlating through the last submit is the
-	// same technique failOncePipeline already uses, and it is exact here for the same
-	// reason: runPipeline submits then immediately observes, sequentially.
-	rec     *shapeRecorder
-	recTask string
+	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1).
+	//
+	// taskByHandle correlates a submit with the observes that follow it. It was a SINGLE
+	// `recTask` field until stage 4b1 Task 11, and a single field could not survive the fork:
+	// the generic child dispatches detailedDesign and stp CONCURRENTLY, so the second submit
+	// overwrote the first and the first branch's completion was attributed to the second
+	// branch's task. Every handle is therefore unique (the submit ORDINAL is in it) and the
+	// task rides the map. The retired flat walk submits then observes sequentially, so it is
+	// unaffected either way.
+	rec          *shapeRecorder
+	taskByHandle map[agenticjob.PipelineHandle]string
+	// laggingTask is the fork's knob, moved here from the deleted stub strategy (Task 11): the
+	// work task whose job stays RUNNING for laggingPolls observes, so the OTHER branch of the
+	// srsReview fan-out finishes its whole remaining chain first. The waiting happens on the
+	// PRODUCTION observe ladder's own durable timers, which is what makes the fork observable
+	// through the real dispatch instead of through a stub's sleep.
+	laggingTask  projectstate.MethodTask
+	laggingPolls int
+	// runningPolls is how many observes EVERY other job reports RUNNING for before it
+	// succeeds, and it is what makes the fork observable at all (measured: without it the
+	// design-first case reported "done:detailedDesign" BEFORE "start:stp"). A job that is
+	// already terminal on its first observe burns NO durable timer, so the winning branch's
+	// coroutine runs to completion before the losing one is ever resumed and the two were never
+	// in flight at once. One Running poll is also the honest shape of a real CI run.
+	runningPolls int
+	pollsByTask  map[string]int
+	// failTask names the work tasks whose job reaches a terminal FAILURE, and failOnce limits
+	// that to the first dispatch of each.
+	failTask map[projectstate.MethodTask]bool
 }
+
+// shapeDefaultLaggingPolls keeps the losing fork branch running long enough that the winning
+// branch's whole remaining chain — its dispatch, its gate, the next phase's dispatch and gate,
+// the integration dispatch — finishes first. Six polls on the ladder is ~3 simulated minutes
+// against a winner that burns no timer at all, which is the same relationship
+// shapeStubLaggingPace had to shapeStubPace.
+const shapeDefaultLaggingPolls = 6
 
 func (p *csFakePipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.PipelineSpec) (agenticjob.PipelineHandle, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
-	p.recordShapeSubmit(spec)
-	return agenticjob.PipelineHandle("wf-" + string(spec.ActivityID)), nil
+	handle := agenticjob.PipelineHandle("wf-" + string(spec.ActivityID) + "-" + strconv.Itoa(len(p.submitted)))
+	p.recordShapeSubmit(handle, spec)
+	return handle, nil
 }
 
 // recordShapeSubmit is the shape oracle's dispatch hook (stage 4b1 Task 1): the command
 // this dispatch runs, and the START of the phase's AI-WORK task — AgentTaskFor, the same
-// derivation runPipeline itself uses, so the recorder never invents a task the ledger does
+// derivation the dispatch itself uses, so the recorder never invents a task the ledger does
 // not hold. A merge job carries no phase and no command; it is recorded under the job key
 // so the dispatch is not silently missing from the record. Callers hold the lock.
-func (p *csFakePipeline) recordShapeSubmit(spec agenticjob.PipelineSpec) {
-	if p.rec == nil {
-		return
-	}
+//
+// The task is remembered against THIS handle, not against "the last submit" — see
+// taskByHandle for the fork this fixes.
+func (p *csFakePipeline) recordShapeSubmit(handle agenticjob.PipelineHandle, spec agenticjob.PipelineSpec) {
 	phase := spec.DispatchInputs["phase"]
 	if phase == "" {
-		p.recTask = ""
-		p.rec.jobDispatched("job:" + spec.DispatchInputs[agenticjob.DispatchInputJobKey])
+		if p.rec != nil {
+			p.rec.jobDispatched("job:" + spec.DispatchInputs[agenticjob.DispatchInputJobKey])
+		}
 		return
 	}
-	p.recTask = string(projectstate.AgentTaskFor(projectstate.ActivityMethodPhase(phase)))
-	p.rec.jobDispatched(spec.DispatchInputs["command"])
-	p.rec.taskStarted(p.recTask)
+	task := string(projectstate.AgentTaskFor(projectstate.ActivityMethodPhase(phase)))
+	if p.taskByHandle == nil {
+		p.taskByHandle = map[agenticjob.PipelineHandle]string{}
+	}
+	p.taskByHandle[handle] = task
+	if p.rec != nil {
+		p.rec.jobDispatched(spec.DispatchInputs["command"])
+		p.rec.taskStarted(task)
+	}
 }
 
-func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
+func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) (agenticjob.PipelineObservation, error) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	p.polls++
-	ph := p.phase
-	if ph == PipelinePhaseUnknown {
-		ph = PipelineSucceeded
-	}
+	task := p.taskByHandle[handle]
+	ph := p.observedPhase(handle, task)
 	// The shape oracle's COMPLETION hook (stage 4b1 Task 1), and the fork's discriminator:
 	// a work task completes where its PIPELINE reaches a terminal, not where the walker
 	// marks the task passed — a gated branch's task passes only after its human decision,
 	// and the fork's claim is about the work overlapping, not the gates.
-	if p.rec != nil && p.recTask != "" && (ph == PipelineSucceeded || ph == PipelineFailed || ph == PipelineCancelled) {
-		p.rec.taskCompleted(p.recTask)
-		p.recTask = ""
+	if p.rec != nil && task != "" && (ph == PipelineSucceeded || ph == PipelineFailed || ph == PipelineCancelled) {
+		p.rec.taskCompleted(task)
+		delete(p.taskByHandle, handle)
 	}
 	return agenticjob.PipelineObservation{
 		Phase:      contractPipelinePhase(ph),
@@ -24743,6 +24802,45 @@ func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, _ agenticjob.Pipeline
 		RunURL:     p.runURL,
 		Episode:    p.episode,
 	}, nil
+}
+
+// observedPhase is what this handle's job reports on THIS poll: Running while a lagging
+// branch is still burning its polls, the configured failure for a task the case wants to
+// fail, and otherwise the configured terminal. Callers hold the lock.
+func (p *csFakePipeline) observedPhase(handle agenticjob.PipelineHandle, task string) PipelinePhase {
+	if p.failTask[projectstate.MethodTask(task)] {
+		return PipelineFailed
+	}
+	if budget := p.runningBudget(task); budget > 0 {
+		if p.pollsByTask == nil {
+			p.pollsByTask = map[string]int{}
+		}
+		key := string(handle)
+		p.pollsByTask[key]++
+		if p.pollsByTask[key] <= budget {
+			return PipelineRunning
+		}
+	}
+	if p.phase == PipelinePhaseUnknown {
+		return PipelineSucceeded
+	}
+	return p.phase
+}
+
+// runningBudget is how many observes this task's job stays RUNNING for: the lagging branch's
+// budget, every other task's, and zero for a job with no task at all (the merge), which stays
+// terminal on its first observe so nothing about it depends on the clock. Callers hold the lock.
+func (p *csFakePipeline) runningBudget(task string) int {
+	if task == "" {
+		return 0
+	}
+	if projectstate.MethodTask(task) == p.laggingTask {
+		if p.laggingPolls == 0 {
+			return shapeDefaultLaggingPolls
+		}
+		return p.laggingPolls
+	}
+	return p.runningPolls
 }
 
 func (p *csFakePipeline) CancelAgenticJob(_ fwra.Context, handle agenticjob.PipelineHandle) error {
@@ -24980,15 +25078,27 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, 
 
 func registerPump(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
 	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
+	// BOTH CHILDREN, for one more commit-range. The pump starts the GENERIC child for every
+	// activity since stage 4b1 Task 11; the retired type stays registered because its own
+	// tests and the fifteen replay fixtures still drive it directly (Task 13 deletes it).
 	env.RegisterWorkflowWithOptions(wf.ConstructActivityWorkflow, workflow.RegisterOptions{Name: executionKindConstructActivity})
+	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
 	registerGenEpisodes(env, eps)
 	// The pump now waits for child COMPLETION (self-cascade), so the per-activity
 	// child runs end-to-end and ALL its activities must be registered.
 	registerGenPipeline(env, pipe)
 	registerGenDesignSessionRead(env, ps)
+	registerGenDesignSessionSlotWrites(env, ps)
 	registerGenProjectStateVersion(env, ps)
+	registerGenProjectStateAdvancePhase(env, ps)
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
+	registerGenGitStatus(env, ps)
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
+		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
+		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
 }
 
 func registerSupervision(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
@@ -26169,7 +26279,7 @@ func Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity(t *testing.T
 	// Hold the per-activity child open for 10 minutes of workflow time, so the pump is
 	// parked in child.Get when the pause lands at minute 1.
 	var childStarts int
-	env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
 		After(10 * time.Minute).
 		Run(func(mock.Arguments) { childStarts++ }).
 		Return(nil)
@@ -26245,7 +26355,7 @@ func newPumpRig(sel pumpSelection, childRun, readDelay time.Duration, opts ...fu
 	})
 	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
 	starts := new(int)
-	env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
 		After(childRun).
 		Run(func(mock.Arguments) { *starts++ }).
 		Return(nil)
@@ -26456,7 +26566,7 @@ func runPumpsInWindow(ps *csFakeProjectState, pid ProjectID) windowPumps {
 		})
 	}
 	countChildren := func(env *testsuite.TestWorkflowEnvironment) {
-		env.OnWorkflow(executionKindConstructActivity, mock.Anything, mock.Anything).
+		env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
 			After(time.Minute).
 			Run(func(mock.Arguments) { out.childStarts++ }).
 			Return(nil)
@@ -31746,10 +31856,13 @@ func Test_NoteDelivery_NeverCarriedTwiceIntoTheSameAttempt(t *testing.T) {
 		st := &constructState{pendingNotes: []projectstate.OperatorNote{note}, carriedTo: map[string]string{note.NoteID: "C-Orders:construction:1"}}
 		hv := ps.project.Version
 		gf := &gitForward{}
-		if _, err := wf.submitCarryingNotes(ctx, in, projectstate.MethodPhaseConstruction, st, "C-Orders:construction:1", gf, &hv); err != nil {
+		spec := pipelineSpec{ProjectID: in.ProjectID, ActivityID: string(in.ActivityID),
+			ComponentID: in.Activity.ComponentID, Phase: projectstate.MethodPhaseConstruction.String(),
+			Type: in.Activity.Type, Variant: in.Activity.Variant}
+		if _, err := wf.submitCarryingNotes(ctx, in, spec, st, "C-Orders:construction:1", gf, &hv); err != nil {
 			return err
 		}
-		if _, err := wf.submitCarryingNotes(ctx, in, projectstate.MethodPhaseConstruction, st, "C-Orders:construction:2", gf, &hv); err != nil {
+		if _, err := wf.submitCarryingNotes(ctx, in, spec, st, "C-Orders:construction:2", gf, &hv); err != nil {
 			return err
 		}
 		return nil
@@ -33975,11 +34088,32 @@ type shapeRig struct {
 	cswf *csWorkflows
 	pipe *csFakePipeline
 	// branchCompletesFirst is the fork's only knob: which branch of the
-	// srsReview fan-out the case wants to reach its pipeline terminal FIRST.
-	// Today's flat phase walk cannot honour it (the branches are serialised by the
-	// phase order), which is exactly why the two fork cases are skipped; Task 8's
-	// dispatch strategy reads it, and the two cases then differ in nothing else.
+	// srsReview fan-out the case wants to reach its pipeline terminal FIRST. It is applied
+	// through forkWinner, which makes the OTHER branch's JOB lag on the production observe
+	// ladder — since stage 4b1 Task 11 the real dispatch strategy runs these cases, so the
+	// pacing belongs to the venue double and not to a substituted strategy.
 	branchCompletesFirst projectstate.MethodTask
+}
+
+// forkWinner tells the venue double which branch of the srsReview fan-out finishes first: the
+// other one reports RUNNING for laggingPolls observes, so the winner's whole remaining chain —
+// its gate, the next phase's dispatch and gate, the integration dispatch — happens first.
+// laggingPolls of 0 takes shapeDefaultLaggingPolls.
+//
+// The WAITING IS THE PRODUCTION LADDER'S (observeInterval's durable timers), which is what
+// makes the fork a fact about the child rather than about a stub's sleep — and it is also the
+// yield the SDK needs: without one it would run each coroutine to completion in schedule order
+// and both branch-order cases would produce the same CompletedOrder, the serialisation
+// assertShapeForkOverlap exists to catch.
+func (r *shapeRig) forkWinner(winner projectstate.MethodTask, laggingPolls int) {
+	r.branchCompletesFirst = winner
+	lagging := projectstate.TaskSTP
+	if winner == projectstate.TaskSTP {
+		lagging = projectstate.TaskDetailedDesign
+	}
+	r.pipe.laggingTask, r.pipe.laggingPolls = lagging, laggingPolls
+	// EVERY job now takes at least one poll, which is the yield described above.
+	r.pipe.runningPolls = 1
 }
 
 // reenter returns a rig for the NEXT run of a walk that continued as new: a fresh test
@@ -34028,11 +34162,14 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
 		deps := gateDeps(ps)
 		deps.Review = review.NewReviewEngine()
+		deps.SDPEngines = shapeSDPEngines()
 		wf := csNewWorkflows(deps)
-		// The generic child, and the STUB dispatch slot the DAG is proved against: Tasks 10
-		// and 11 write the two real dispatch implementations, and the fork/join shape is
-		// provable before either exists precisely because the registry is injectable.
-		wf.Strategies = stubStrategies(rig)
+		// THE REAL STRATEGIES (stage 4b1 Task 11). These two lifecycles ran against a STUB
+		// dispatch slot while the construction arm was unwritten; they now run the production
+		// registry, so the fork, the join and the send-back are proved through the same
+		// submit → observe → attempt sequence a real construction job takes. The registry seam
+		// STAYS — it is what let the DAG be proved two tasks before this one, and it is what a
+		// future venue substitutes at.
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
@@ -34200,7 +34337,7 @@ func driveLinearDeployment(t *testing.T, rig *shapeRig) shapeOutcome {
 // the walker's.
 func driveServiceWalk(t *testing.T, rig *shapeRig, completesFirst projectstate.MethodTask) shapeOutcome {
 	t.Helper()
-	rig.branchCompletesFirst = completesFirst
+	rig.forkWinner(completesFirst, 0)
 	rig.register(rig.env)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
@@ -34924,23 +35061,13 @@ const (
 	shapeConstructionTask = "construction"
 )
 
-// stubStrategy fills the dispatch slot while Tasks 10 and 11 are unwritten, so the DAG can
-// be proved before either real dispatch implementation exists. It is the reason strategyFor
-// reads an INJECTABLE registry instead of hard-coding two arms, and it is deleted in Task 11
-// Step 5 when the real strategies drive the same cases.
-//
-// It holds the RIG rather than the recorder alone, because the fork's knob
-// (branchCompletesFirst) is set by the driver AFTER the receiver is built, so the pace must
-// be read at Produce time. Every read is of a field written before ExecuteWorkflow, so the
-// walk stays deterministic.
-type stubStrategy struct{ rig *shapeRig }
-
-// stubStrategies is productionStrategies with the dispatch slot stubbed.
-func stubStrategies(rig *shapeRig) strategyRegistry {
-	reg := productionStrategies(shapeSDPEngines())
-	reg[strategySlotDispatch] = func(*csWorkflows) taskStrategy { return stubStrategy{rig: rig} }
-	return reg
-}
+// (stubStrategy and stubStrategies stood here until stage 4b1 Task 11. They filled the
+// dispatch slot while Tasks 10 and 11 were unwritten, which is what let the fork/join DAG be
+// proved two tasks before either real dispatch existed — and they are the reason strategyFor
+// reads an INJECTABLE registry rather than hard-coding its arms. Every case that drove them now
+// drives the production registry, and the losing fork branch's pace moved onto
+// csFakePipeline.laggingTask, where the waiting happens on the real observe ladder's own
+// durable timers. The SEAM stays; only the substitute is gone.)
 
 // shapeSDPEngines are the REAL three estimate Engines. A shape case runs them rather than a
 // scripted double for the same reason every construction-rail rig wires the real review
@@ -34954,63 +35081,6 @@ func shapeSDPEngines() sdpEngines {
 		Settlement:   billing.NewBillingEngine(),
 	}
 }
-
-// Produce records the dispatch, burns the task's pace on a durable timer so the walk's
-// coroutines actually INTERLEAVE, and reports a passed attempt.
-//
-// The timer is what makes the fork observable: without a yield the SDK would run each
-// coroutine to completion in schedule order and both branch-order cases would produce the
-// same CompletedOrder — the serialisation assertShapeForkOverlap exists to catch.
-//
-// A REVIEW task reaching here is the critique dispatch (runAgentReviewers), and it records
-// only the command: its start and completion are its ROUND's, recorded at OpenReviewRound
-// and DecideReviewRound, and recording them twice would make TaskOrder claim two
-// occurrences of one gate.
-func (s stubStrategy) Produce(ctx workflow.Context, tc taskContext) (producedSubject, error) {
-	s.rig.rec.jobDispatched(tc.Task.Command)
-	work := tc.Task.Kind == methodassets.LifecycleTaskDispatch
-	if work {
-		s.rig.rec.taskStarted(tc.Task.ID)
-	}
-	if err := workflow.Sleep(ctx, s.pace(tc.Task.ID)); err != nil {
-		return producedSubject{}, err
-	}
-	if work {
-		s.rig.rec.taskCompleted(tc.Task.ID)
-	}
-	return producedSubject{
-		AttemptID: projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt),
-		Outcome:   projectstate.OutcomePassed,
-		Detail:    "stubbed dispatch for lifecycle task " + tc.Task.ID,
-	}, nil
-}
-
-// pace is how long this stub's dispatch takes. Every task takes the same short time EXCEPT
-// the losing side of the srsReview fan-out, which takes long enough that the whole winning
-// branch — detailed design, construction, integration and their gates — finishes first.
-// That is what makes `join-waits-for-all` observable: stpReview then passes AFTER
-// integration, so the joining review genuinely waits for a predecessor it did not gate.
-func (s stubStrategy) pace(taskID string) time.Duration {
-	if s.rig.branchCompletesFirst == "" {
-		return shapeStubPace
-	}
-	switch projectstate.MethodTask(taskID) {
-	case projectstate.TaskSTP, projectstate.TaskDetailedDesign:
-		if projectstate.MethodTask(taskID) == s.rig.branchCompletesFirst {
-			return shapeStubPace
-		}
-		return shapeStubLaggingPace
-	}
-	return shapeStubPace
-}
-
-const (
-	// shapeStubPace is one stubbed dispatch's duration.
-	shapeStubPace = time.Second
-	// shapeStubLaggingPace is the losing fork branch's, chosen to exceed the winning
-	// branch's whole remaining chain rather than merely one of its steps.
-	shapeStubLaggingPace = time.Minute
-)
 
 // registerDeliveryActivity registers the GENERIC child plus every Activity it reaches —
 // registerConstruct's set, plus the two execution-ledger verbs only the new child calls
@@ -35139,7 +35209,7 @@ func shapeRequireContinuedAsNew(t *testing.T, env *testsuite.TestWorkflowEnviron
 func driveForkSignalRouting(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
-	rig.branchCompletesFirst = projectstate.TaskDetailedDesign
+	rig.forkWinner(projectstate.TaskDetailedDesign, 0)
 	rig.register(rig.env)
 	// t=30s: srs has PASSED and construction has not been scheduled, while designReview
 	// waits at its gate and stp is still mid-dispatch (it paces at a minute).
@@ -35166,14 +35236,26 @@ const shapeInboxFloodSize = deliveryTaskInboxCapacity + 1
 func driveInboxOverflow(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
-	rig.branchCompletesFirst = projectstate.TaskDetailedDesign
+	// THE FLOOD'S TIMING IS THE CASE (stage 4b1 Task 11), and it has to be arranged rather than
+	// assumed, because the REAL dispatch strategy reads its inbox between polls (Task 10's
+	// misroute rule) where the retired stub read nothing. Measured against the ladder: srs
+	// succeeds at t=15 and the fork opens; stp reports RUNNING at t=15 and t=30, DRAINING after
+	// each — both times finding nothing — and succeeds at t=45, where the observe loop returns
+	// on a terminal BEFORE draining. So a flood at t=35 is still sitting in stp's inbox when
+	// the task retires, which is the undrained-inbox state this case is about.
+	//
+	// It matters that it is undrained and not merely delivered: a drained flood is 65 operator
+	// notes written from one coroutine while the sibling branch writes its own attempts, and
+	// the per-activity CAS then genuinely exhausts (measured — MutateConflictExhausted). That
+	// is a real finding about override-storm handling, earmarked rather than hidden by this
+	// case's timing.
+	rig.forkWinner(projectstate.TaskDetailedDesign, 2)
 	rig.register(rig.env)
-	// stp paces at a minute, so at 30s it is in flight with an inbox nothing reads.
 	rig.env.RegisterDelayedCallback(func() {
 		for range shapeInboxFloodSize {
 			shapeOverride(rig.env, shapeSTPTask)()
 		}
-	}, 30*time.Second)
+	}, 35*time.Second)
 	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 120*time.Second)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
@@ -35989,6 +36071,416 @@ func Test_CriticVerdictFor_NeverApprovesWhatWasNotJudged(t *testing.T) {
 }
 
 // ===========================================================================
+// THE CONSTRUCTION ARM (stage 4b1 Task 11). The generic child walking a BUILD
+// lifecycle: the agentic construction job, the per-project venue, the pending→resolved
+// attempt pair with its episode, the send-back's steer riding the redraft, the failed
+// job, and the local merge's two profiles.
+//
+// These run on the SAME construction-rail doubles every other delivery-child case uses;
+// the only addition is a rail-wired variant, because the PR rail is the one thing a local
+// profile cannot exercise and the merge's two answers are the point of asserting it.
+// ===========================================================================
+
+// constructionShapeRig builds a rig for one BUILD lifecycle on the generic child with the
+// PR rail DORMANT — the local profile, which is what a founder boot runs and what the local
+// merge job belongs to.
+func constructionShapeRig(t *testing.T, policy projectstate.ReviewPolicy) *shapeRig {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	ps := newFakeProjectStateWithPolicy(policy)
+	ps.rec = rig.rec
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	wf := csNewWorkflows(deps)
+	wf.Deliveries = rig.rec
+	rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	return rig
+}
+
+// THE DISPATCH IS THE LIFECYCLE'S, AND SO IS ITS COMMAND (stage 4b1 Task 11). `deployment` is
+// the linear three-phase build, so the three dispatch inputs can be read one per phase without
+// a fork in the way.
+//
+// The claim is the contract with the SEATED aiarch-construct.yml: activity_id, component_id,
+// phase and command are what that workflow file reads, and the command comes off the LIFECYCLE
+// TASK rather than from CommandFor — which is the thing this task changed and the thing a
+// regression would silently revert (the two agree today, so nothing else would notice).
+func Test_ConstructionWalk_DispatchCarriesTheLifecycleCommandAndItsPhase(t *testing.T) {
+	rig := constructionShapeRig(t, projectstate.ReviewPolicy{})
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	lc, ok := methodassets.LifecycleFor("deployment")
+	if !ok {
+		t.Fatal("the pinned method assets carry no `deployment` lifecycle")
+	}
+	var want []map[string]string
+	for _, task := range lc.Tasks {
+		if task.Kind != methodassets.LifecycleTaskDispatch {
+			continue
+		}
+		want = append(want, map[string]string{"phase": task.Phase, "command": task.Command})
+	}
+	var got []map[string]string
+	for _, spec := range submittedSpecs(rig.pipe) {
+		phase := spec.DispatchInputs["phase"]
+		if phase == "" {
+			continue // the merge job, asserted by its own case
+		}
+		if spec.DispatchInputs["activity_id"] != shapeDeploymentID {
+			t.Errorf("dispatch at %s names activity %q, want %q", phase, spec.DispatchInputs["activity_id"], shapeDeploymentID)
+		}
+		if spec.DispatchInputs["component_id"] != "comp-deploy" {
+			t.Errorf("dispatch at %s names component %q, want comp-deploy", phase, spec.DispatchInputs["component_id"])
+		}
+		got = append(got, map[string]string{"phase": phase, "command": spec.DispatchInputs["command"]})
+	}
+	if len(got) != len(want) {
+		t.Fatalf("dispatched %d jobs, want one per dispatch task (%d): %v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i]["phase"] != want[i]["phase"] || got[i]["command"] != want[i]["command"] {
+			t.Errorf("dispatch %d = %v, want %v — the command and the phase are the lifecycle task's own fields", i, got[i], want[i])
+		}
+	}
+}
+
+// THE ATTEMPT PAIR AND ITS EVIDENCE. A construction task stages no model, so the retired rail
+// cited the EPISODE the dispatch burned and the generic child has to as well — otherwise every
+// construction attempt cites EvidenceNone and the tokens spent sit in the episode ledger with
+// nothing in the task ledger pointing at them, which is the link the cost views follow.
+//
+// It also asserts the attempt is opened PENDING before the dispatch and resolved in place under
+// the SAME id: one id, one attempt, which is what makes a run that died mid-dispatch legible.
+func Test_ConstructionWalk_AttemptsAreOpenedPendingAndResolvedWithTheEpisode(t *testing.T) {
+	rig := constructionShapeRig(t, projectstate.ReviewPolicy{})
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution(shapeDeploymentID)
+	seen := map[projectstate.MethodTask]projectstate.TaskAttempt{}
+	for _, a := range row.Attempts {
+		if a.Actor != projectstate.ActorAgent {
+			continue
+		}
+		if prev, dup := seen[a.Task]; dup && prev.AttemptID != a.AttemptID {
+			t.Errorf("task %s holds two attempt ids (%q and %q) for one dispatch", a.Task, prev.AttemptID, a.AttemptID)
+		}
+		seen[a.Task] = a
+	}
+	for _, task := range []projectstate.MethodTask{
+		projectstate.TaskDetailedDesign, projectstate.TaskConstruction, projectstate.TaskIntegration,
+	} {
+		a, ok := seen[task]
+		if !ok {
+			t.Fatalf("no agent attempt recorded at %s; the ledger must hold one per dispatch", task)
+		}
+		if a.Outcome != projectstate.OutcomePassed {
+			t.Errorf("attempt at %s resolved %q, want passed", task, a.Outcome)
+		}
+		if a.Evidence.Kind != projectstate.EvidenceEpisode || a.Evidence.Ref == "" {
+			t.Errorf("attempt at %s cites %v/%q, want the EPISODE the dispatch burned", task, a.Evidence.Kind, a.Evidence.Ref)
+		}
+	}
+}
+
+// A FAILED CONSTRUCTION JOB FLAGS THE VARIANCE, RECORDS THE FAILED ATTEMPT AND FAILS THE WALK
+// — one rule for all three strategy arms (Task 9's compute failure, Task 10's design job, this).
+//
+// WHAT IT DELIBERATELY DOES NOT DO, stated here because the absence is the parity gap: it does
+// not enter handleVariance's retry/takeover/escalate loop. The activity is left with a TERMINAL
+// record rather than stuck Running, which is the half that matters for the pump; re-expressing
+// the retry over a task DAG is Task 12's override work.
+func Test_ConstructionWalk_JobFailure_FlagsTheVarianceAndRecordsATerminal(t *testing.T) {
+	rig := constructionShapeRig(t, projectstate.ReviewPolicy{})
+	rig.pipe.failTask = map[projectstate.MethodTask]bool{projectstate.TaskDetailedDesign: true}
+	rig.pipe.diag = "the construct job's CI check went red"
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatal("the walk must reach a terminal")
+	}
+	err := rig.env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("a construction job that reached a terminal FAILURE must fail the walk; success was inferred from a non-success phase")
+	}
+	if !strings.Contains(err.Error(), "ConstructionJobFailed") || !strings.Contains(err.Error(), rig.pipe.diag) {
+		t.Errorf("the walk's error must name the failure and carry the venue's diagnostic; got %v", err)
+	}
+	row := rig.cs.execution(shapeDeploymentID)
+	failed := false
+	for _, a := range row.Attempts {
+		if a.Task == projectstate.TaskDetailedDesign && a.Outcome == projectstate.OutcomeFailed {
+			failed = true
+		}
+	}
+	if !failed {
+		t.Errorf("the FAILED attempt must be on the ledger — an operator reads the attempt, not the workflow error. attempts=%+v", row.Attempts)
+	}
+	if rig.cs.execution(shapeDeploymentID).FailureReason != projectstate.VarianceExhausted {
+		t.Errorf("the activity must carry a terminal failure reason so the pump stops seeing it Running; got %v",
+			rig.cs.execution(shapeDeploymentID).FailureReason)
+	}
+	// And NOTHING was dispatched after the failure: the DAG's successor tasks never became
+	// ready, which is what a re-walk of a flat phase list would have got wrong.
+	for _, spec := range submittedSpecs(rig.pipe) {
+		if cmd := spec.DispatchInputs["command"]; cmd == "deployment-construction" {
+			t.Errorf("the phase after the failed one was dispatched anyway (%q)", cmd)
+		}
+	}
+}
+
+// THE SEND-BACK'S STEER RIDES THE REDRAFT. Without it the redraft runs against the prompt that
+// was just rejected, which is the send-back doing nothing — and the walk keeps the notes
+// walk-locally (walkState.feedback), so this is the point where a walk-local fact becomes a
+// dispatch input the seated workflow reads.
+func Test_ConstructionWalk_SendBackRedraftCarriesTheOperatorSteer(t *testing.T) {
+	const notes = "name the failure mode the retry policy assumes"
+	rig := constructionShapeRig(t, projectstate.ReviewPolicy{
+		GatedPhasesByType: map[string][]projectstate.ActivityMethodPhase{
+			"deployment": {projectstate.MethodPhaseDetailedDesign},
+		},
+	})
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(shapeReject(rig.env, shapeDesignReviewTask, notes), 30*time.Second)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 90*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	var designDispatches []string
+	for _, spec := range submittedSpecs(rig.pipe) {
+		if spec.DispatchInputs["command"] == "deployment-detailed-design" {
+			designDispatches = append(designDispatches, spec.DispatchInputs[dispatchInputOperatorNote])
+		}
+	}
+	if len(designDispatches) != 2 {
+		t.Fatalf("the judged dispatch must run twice (draft, then redraft); got %d", len(designDispatches))
+	}
+	if designDispatches[0] != "" {
+		t.Errorf("the FIRST dispatch carried an operator note (%q); nothing had been sent back yet", designDispatches[0])
+	}
+	if !strings.Contains(designDispatches[1], notes) {
+		t.Errorf("the redraft's operator note = %q, want it to carry the send-back's own notes", designDispatches[1])
+	}
+}
+
+// THE LOCAL MERGE'S TWO PROFILES (R6). On the rail-dormant local profile nothing else lands
+// activity/<id> on main, so the child dispatches the merge job; when the PR rail is live the
+// cloud git-forward lifecycle owns the merge and the job must NOT fire, or the branch is merged
+// twice by two mechanisms.
+func Test_ConstructionWalk_LocalMergeRunsOnTheLocalProfileOnly(t *testing.T) {
+	local := constructionShapeRig(t, projectstate.ReviewPolicy{})
+	local.register(local.env)
+	local.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, local.env)
+	if n := mergeJobCount(submittedSpecs(local.pipe)); n != 1 {
+		t.Fatalf("the local profile must dispatch exactly one merge job; got %d", n)
+	}
+
+	// The rail-wired half: the PR rail performs the merge and the job never fires.
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	git := newStubGitStatus(0)
+	rail := &stubRail{ciRollup: sourcecontrol.CheckSuccess}
+	wf := gitWiredWorkflows(ps, rail, git, true)
+	wf.Review = review.NewReviewEngine()
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
+	registerGenPipeline(env, pipe)
+	registerGenEpisodes(env, nil)
+	registerGenDesignSessionRead(env, ps)
+	registerGenDesignSessionSlotWrites(env, ps)
+	registerGenProjectStateVersion(env, ps)
+	registerGenProjectStateAdvancePhase(env, ps)
+	registerGenConstructionTransition(env, ps)
+	csRegisterGenActivityExecution(env, ps)
+	registerGenGitStatus(env, git)
+	registerGenRail(env, rail)
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
+		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
+	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
+		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "p-rail", ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, env)
+	if n := mergeJobCount(submittedSpecs(pipe)); n != 0 {
+		t.Errorf("the PR rail owns the merge, so the local merge job must NOT be dispatched; got %d", n)
+	}
+	rail.mu.Lock()
+	merges := rail.merges
+	rail.mu.Unlock()
+	if merges != 1 {
+		t.Errorf("the rail performed %d merges, want exactly 1 — the branch has to land somewhere", merges)
+	}
+	// And the per-project venue rode the dispatch: the project's OWN repo and the seated
+	// construct workflow file, which is what the gh-mode venue switch is for.
+	for _, spec := range submittedSpecs(pipe) {
+		if spec.DispatchInputs["phase"] == "" {
+			continue
+		}
+		if spec.TargetRepo.Owner != "owner" || spec.TargetRepo.Name != "repo-1" {
+			t.Errorf("dispatch target = %+v, want the project's own repo", spec.TargetRepo)
+		}
+		if spec.WorkflowFile != constructWorkflowFileName {
+			t.Errorf("dispatch workflow file = %q, want %q", spec.WorkflowFile, constructWorkflowFileName)
+		}
+	}
+}
+
+// mergeJobCount counts the dispatches that are the LOCAL MERGE job rather than a lifecycle
+// task's: the merge carries the job key and no phase.
+func mergeJobCount(specs []agenticjob.PipelineSpec) int {
+	n := 0
+	for _, spec := range specs {
+		if spec.DispatchInputs[agenticjob.DispatchInputJobKey] == agenticjob.DispatchJobMerge {
+			n++
+		}
+	}
+	return n
+}
+
+// THE COMMAND FALLBACK AGREES WITH THE DATA, for every dispatch task of every lifecycle. The
+// generic child passes the lifecycle task's own `command`; the retired flat walk re-derives it
+// from the activity's classified pair. Two answers for one question is exactly the drift this
+// repo has paid for before, so the equality is pinned rather than assumed — and when Task 13
+// deletes the fallback this case is what proves nothing changed.
+func Test_DispatchInputs_CommandFallbackAgreesWithTheLifecycleData(t *testing.T) {
+	checked := 0
+	for _, lc := range methodassets.Lifecycles() {
+		typ, variant, ok := lifecyclePairForKey(lc.Type)
+		if !ok {
+			continue // the three design lifecycles carry no ActivityMethodPhase profile of their own
+		}
+		for _, task := range lc.Tasks {
+			if task.Kind != methodassets.LifecycleTaskDispatch {
+				continue
+			}
+			carried := dispatchInputsFor(pipelineSpec{Phase: task.Phase, Command: task.Command})
+			derived := dispatchInputsFor(pipelineSpec{Phase: task.Phase, Type: typ, Variant: variant})
+			if carried["command"] != task.Command {
+				t.Errorf("%s/%s: the carried command is %q, want the task's own %q", lc.Type, task.ID, carried["command"], task.Command)
+			}
+			if derived["command"] != carried["command"] {
+				t.Errorf("%s/%s: CommandFor answers %q where the lifecycle task says %q — the flat walk and the child would dispatch different commands",
+					lc.Type, task.ID, derived["command"], carried["command"])
+			}
+			checked++
+		}
+	}
+	if checked == 0 {
+		t.Fatal("no dispatch task was checked, so this case is vacuous")
+	}
+}
+
+// lifecyclePairForKey maps a lifecycle TYPE KEY back onto the (ActivityType, TestingVariant)
+// pair CommandFor takes, for the eleven BUILD lifecycles. The three design keys are excluded by
+// returning false: they are dispatched through the design arm, whose command parity Task 10
+// pins separately.
+//
+// The pairs are enumerated rather than reflected, because LifecycleKeyFor is the production
+// statement of the rule and this is its inverse — deriving one from the other would make the
+// case agree with itself.
+func lifecyclePairForKey(key string) (projectstate.ActivityType, projectstate.TestingVariant, bool) {
+	types := []projectstate.ActivityType{
+		projectstate.ActivityTypeService, projectstate.ActivityTypeFrontend, projectstate.ActivityTypeTesting,
+		projectstate.ActivityTypeDeployment, projectstate.ActivityTypeDocumentation, projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration, projectstate.ActivityTypeRequirements,
+		projectstate.ActivityTypeArchitecture, projectstate.ActivityTypeProjectDesign,
+	}
+	variants := []projectstate.TestingVariant{
+		projectstate.TestVariantPlan, projectstate.TestVariantHarness, projectstate.TestVariantPerf,
+		projectstate.TestVariantSystemTest, projectstate.TestVariantQAProcess,
+	}
+	for _, typ := range types {
+		for _, variant := range variants {
+			if projectstate.LifecycleKeyFor(typ, variant) != key {
+				continue
+			}
+			if isDesignLifecycle(typ) {
+				return 0, 0, false
+			}
+			return typ, variant, true
+		}
+	}
+	return 0, 0, false
+}
+
+// THE LAST PHASE'S GATE IS THE WALK'S FINAL TASK, for every lifecycle — which is what makes
+// finalizeWalk the "last gate passed" site the plan asks the merge to hang off, without a second
+// place that has to agree about when an activity is over (stage 4b1 Task 11).
+//
+// A platform release that added a task AFTER the final gate — a publish step, a notification —
+// would break that identity, and the merge would then run while a task was still to come. It
+// fails HERE rather than by merging a branch mid-walk.
+func Test_LastPhaseGateIsTheWalksFinalTask(t *testing.T) {
+	seen := 0
+	for _, lc := range methodassets.Lifecycles() {
+		if len(lc.Phases) == 0 || len(lc.Tasks) == 0 {
+			t.Fatalf("lifecycle %q carries no phases or no tasks", lc.Type)
+		}
+		gate := lc.Phases[len(lc.Phases)-1].Gate
+		if gate == "" {
+			t.Fatalf("lifecycle %q: its last phase names no gate, so the walk has no final gate at all", lc.Type)
+		}
+		if last := lc.Tasks[len(lc.Tasks)-1].ID; last != gate {
+			t.Errorf("lifecycle %q: the last phase's gate is %q but the last declared task is %q — finalizeWalk would run the merge before that task",
+				lc.Type, gate, last)
+		}
+		for _, task := range lc.Tasks {
+			if slices.Contains(task.DependsOn, gate) {
+				t.Errorf("lifecycle %q: task %q depends on the final gate %q, so the walk continues past it", lc.Type, task.ID, gate)
+			}
+		}
+		seen++
+	}
+	if seen != 14 {
+		t.Fatalf("the pinned lifecycles are %d, not the 14 this case was measured against; re-measure before changing the number", seen)
+	}
+}
+
+// THE EVIDENCE LADDER's three arms, and its ORDER. A construction attempt's evidence is the
+// EPISODE (its output is a commit this store does not hold); a design or compute attempt's is
+// the STAGED model; nothing cites nothing, because a ref nobody can follow is worse than an
+// absent one.
+func Test_AttemptEvidence_PrefersTheEpisodeThenTheStagedModel(t *testing.T) {
+	for _, c := range []struct {
+		name     string
+		produced producedSubject
+		wantKind projectstate.EvidenceKind
+		wantRef  string
+	}{
+		{"construction cites its episode", producedSubject{EpisodeID: "ep-1"}, projectstate.EvidenceEpisode, "ep-1"},
+		{"a design task cites its staged model", producedSubject{StagedRef: "C-x:missionDraft:Mission@v3"}, projectstate.EvidenceGit, "C-x:missionDraft:Mission@v3"},
+		{"the episode outranks a staged ref", producedSubject{EpisodeID: "ep-2", StagedRef: "s"}, projectstate.EvidenceEpisode, "ep-2"},
+		{"a judged review cites nothing", producedSubject{}, projectstate.EvidenceNone, ""},
+	} {
+		kind, ref := attemptEvidence(c.produced)
+		if kind != c.wantKind || ref != c.wantRef {
+			t.Errorf("%s: got (%v, %q), want (%v, %q)", c.name, kind, ref, c.wantKind, c.wantRef)
+		}
+	}
+}
+
+// ===========================================================================
 // TASK 8 REVIEW CARRIES (stage 4b1 Task 10). Two cases the router's own three cases
 // could not state: the RECEIVER's side of the overflow rule, and two human gates
 // suspended at once on a fork.
@@ -36014,11 +36506,10 @@ func Test_DeliveryGate_ReceiverDrainsPastTheInboxCapacity(t *testing.T) {
 		},
 	})
 	pipe := &csFakePipeline{phase: PipelineSucceeded}
-	rig := &shapeRig{rec: newShapeRecorder()}
 	deps := gateDeps(ps)
 	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
 	wf := csNewWorkflows(deps)
-	wf.Strategies = stubStrategies(rig)
 	registerDeliveryActivity(env, wf, ps, pipe)
 
 	// Every status rides in one delayed callback, so all of them are delivered to the router
@@ -36066,13 +36557,13 @@ func Test_DeliveryGate_TwoSimultaneousHumanGatesAreDecidedIndependently(t *testi
 			"service": {projectstate.MethodPhaseDetailedDesign, projectstate.MethodPhaseTestPlan},
 		},
 	})
+	rec := newShapeRecorder()
 	pipe := &csFakePipeline{phase: PipelineSucceeded}
-	rig := &shapeRig{rec: newShapeRecorder()}
 	deps := gateDeps(ps)
 	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
 	wf := csNewWorkflows(deps)
-	wf.Strategies = stubStrategies(rig)
-	wf.Deliveries = rig.rec
+	wf.Deliveries = rec
 	registerDeliveryActivity(env, wf, ps, pipe)
 
 	// BOTH gates are open before either is answered, which is what makes this a fork case and
