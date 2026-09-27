@@ -1,17 +1,21 @@
 package delivery
 
 import (
+	"context"
 	"maps"
 	"strconv"
+	"strings"
 	"time"
 
 	"go.temporal.io/sdk/log"
 	"go.temporal.io/sdk/temporal"
 	"go.temporal.io/sdk/workflow"
 
+	fweng "github.com/mixofreality-studio/archistrator-platform/framework-go/engine"
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 
+	"github.com/mixofreality-studio/archistrator/server/internal/engine/intervention"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/agenticjob"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/projectstate"
 	"github.com/mixofreality-studio/archistrator/server/internal/resourceaccess/sourcecontrol"
@@ -222,6 +226,14 @@ type taskContext struct {
 	// when the task retires. A strategy that does not poll ignores it (it is nil-safe at
 	// every read below).
 	Inbox workflow.ReceiveChannel
+	// Drain pulls whatever the router overflowed for this task out of ws.pending and into the
+	// inbox. It is a CLOSURE rather than the walkState itself, deliberately: a strategy that
+	// held ws could schedule, re-open or re-state tasks, and the one thing it legitimately needs
+	// is drainPending's guarantee — the router never blocks, so a message beyond the inbox's
+	// capacity waits in ws.pending until a RECEIVE LOOP asks for it. A blocking receive that
+	// skips this never sees a 65th override. Nil-safe, and nil for a strategy that never blocks
+	// on its inbox.
+	Drain func()
 }
 
 // csIn adapts the walk's input onto the construction-shaped input every ledger, git and
@@ -606,7 +618,7 @@ func (wf *csWorkflows) runDesignJob(
 		return csPipelineObservation{}, err
 	}
 	task := projectstate.MethodTask(tc.Task.ID)
-	return wf.observeDispatchedJob(ctx, tc, handle, task, jobLabelDesign, nil), nil
+	return wf.observeDispatchedJob(ctx, tc, handle, task, tc.Attempt, jobLabelDesign, nil), nil
 }
 
 // submitDesignJob composes and submits ONE design job: the five dispatch inputs the seated
@@ -682,11 +694,14 @@ func (wf *csWorkflows) submitDesignJob(
 // the venue is not the job's verdict, and the ladder's bound is what decides.
 func (wf *csWorkflows) observeDispatchedJob(
 	ctx workflow.Context, tc taskContext, handle pipelineHandle,
-	task projectstate.MethodTask, label string, gf *gitForward,
+	task projectstate.MethodTask, attempt int, label string, gf *gitForward,
 ) csPipelineObservation {
 	var (
 		last     csPipelineObservation
 		deferred []routedSignal
+		// steered is the override COALESCING flag, and it is per DISPATCH (fix round 1). See
+		// drainInboxWhileDispatching for the storm it bounds.
+		steered bool
 	)
 	for poll := range maxObserveTotalPolls {
 		obs, err := wf.observePipeline(ctx, handle)
@@ -701,13 +716,13 @@ func (wf *csWorkflows) observeDispatchedJob(
 			tc.State.pipelinePhase = &ph
 			wf.mirrorCIRollup(ctx, tc, gf)
 			if obs.Phase == PipelineSucceeded || obs.Phase == PipelineFailed {
-				wf.captureEpisode(ctx, tc.In.csIn(), handle, obs, true, task, tc.Attempt)
+				wf.captureEpisode(ctx, tc.In.csIn(), handle, obs, true, task, attempt)
 				wf.reofferDeferred(ctx, tc, deferred)
 				return obs
 			}
 			last = obs
 		}
-		deferred = wf.drainInboxWhileDispatching(ctx, tc, deferred)
+		deferred, steered = wf.drainInboxWhileDispatching(ctx, tc, deferred, steered)
 		_ = workflow.Sleep(ctx, observeInterval(poll))
 	}
 	exhausted := csPipelineObservation{
@@ -718,7 +733,7 @@ func (wf *csWorkflows) observeDispatchedJob(
 	}
 	// The stuck job still burned tokens, so it still owes the ledger a record (a gap when
 	// nothing was mined) — never silent.
-	wf.captureEpisode(ctx, tc.In.csIn(), handle, exhausted, true, task, tc.Attempt)
+	wf.captureEpisode(ctx, tc.In.csIn(), handle, exhausted, true, task, attempt)
 	wf.reofferDeferred(ctx, tc, deferred)
 	return csPipelineObservation{Phase: exhausted.Phase, Diagnostic: exhausted.Diagnostic}
 }
@@ -742,22 +757,36 @@ func (wf *csWorkflows) mirrorCIRollup(ctx workflow.Context, tc taskContext, gf *
 }
 
 // drainInboxWhileDispatching takes whatever is waiting on this task's inbox, NON-BLOCKING,
-// and returns the messages this loop could not handle appended to deferred.
+// and returns the messages this loop could not handle appended to deferred, plus whether an
+// override has now been recorded for this dispatch.
 //
 // It handles exactly ONE kind: an operator OVERRIDE, which is recorded as the operator note
 // the construction rail already records for one, so a steer sent during a twenty-minute draft
 // lands in the ledger instead of being logged as too-late twenty minutes later. A decision or
 // a redraft belongs to the gate that has not opened yet; it is deferred, not answered.
+//
+// ONE OVERRIDE PER DISPATCH, and the rest are logged too-late (fix round 1). MEASURED before the
+// bound existed: 65 overrides delivered to a live dispatch became 65 SEQUENTIAL
+// recordOperatorNote writes from one coroutine while a sibling fork branch wrote its own
+// attempts, and the per-activity CAS genuinely exhausted — MutateConflictExhausted, an activity
+// killed by an operator pressing a button repeatedly. The bound is the honest reading as well as
+// the safe one: an override is a DECISION about the dispatch in flight, a second one says nothing
+// new about it, and the operator's next decision belongs to the next attempt. The façade caps one
+// note's SIZE (maxOperatorNoteBodyBytes) and nothing capped the RATE.
 func (wf *csWorkflows) drainInboxWhileDispatching(
-	ctx workflow.Context, tc taskContext, deferred []routedSignal,
-) []routedSignal {
+	ctx workflow.Context, tc taskContext, deferred []routedSignal, steered bool,
+) ([]routedSignal, bool) {
 	if tc.Inbox == nil {
-		return deferred
+		return deferred, steered
 	}
+	// The overrides of THIS pass, collected before ANY of them is written — see
+	// recordGateOverrides. Collecting first is the whole fix: writing inside the receive loop is
+	// what made a storm one CAS write per signal.
+	var storm []*operatorOverrideSignal
 	for {
 		var msg routedSignal
 		if !tc.Inbox.ReceiveAsync(&msg) {
-			return deferred
+			break
 		}
 		if !routedPayloadPresent(msg) {
 			workflow.GetLogger(ctx).Error("a routed signal reached a dispatch with no payload for its kind; dropped",
@@ -765,10 +794,70 @@ func (wf *csWorkflows) drainInboxWhileDispatching(
 			continue
 		}
 		if msg.Kind == routedKindOverride {
-			wf.recordGateOverride(ctx, tc.In, tc.State, tc.Task, msg.Override)
+			storm = append(storm, msg.Override)
 			continue
 		}
 		deferred = append(deferred, msg)
+	}
+	switch {
+	case len(storm) == 0:
+		return deferred, steered
+	case steered:
+		// A LATER pass's overrides are too late for a dispatch that already carries one: the job
+		// has been steered, and the operator's next decision belongs to the next attempt.
+		workflow.GetLogger(ctx).Info("this dispatch already carries an operator override; the later ones are too late for it",
+			"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "dropped", len(storm))
+		return deferred, steered
+	}
+	wf.recordGateOverrides(ctx, tc, storm)
+	return deferred, true
+}
+
+// recordGateOverrides writes the overrides one drain pass collected as ONE note PER NOTE KIND,
+// with their texts in one body.
+//
+// THE DEFECT IT FIXES, reproduced twice (Task 11 review, finding 3 — first measured as a test
+// artifact and then reproduced as a real one): a flood of overrides landing inside a drain window
+// became one recordOperatorNote per signal, each a per-activity CAS write from this task's
+// coroutine, while a sibling fork branch wrote its own attempts — and the CAS genuinely exhausted
+// (MutateConflictExhausted), an activity killed by an operator pressing a button repeatedly. The
+// façade caps one note's SIZE and nothing capped the RATE.
+//
+// GROUPING BY KIND rather than writing one note for all of them keeps the record readable: the
+// note's Kind is what operatorNoteKindName renders and what PendingOperatorNotes reads to decide
+// what rides the next dispatch, so a retry and a skip must not be folded into one note claiming to
+// be either. Within a kind the texts join with the same separator renderOperatorNotes uses between
+// notes, so the agent reads them exactly as it would have read several. FIRST-SEEN kind order, so
+// the writes are deterministic under replay.
+func (wf *csWorkflows) recordGateOverrides(ctx workflow.Context, tc taskContext, storm []*operatorOverrideSignal) {
+	var order []projectstate.OperatorNoteKind
+	byKind := map[projectstate.OperatorNoteKind]noteFeedback{}
+	for _, sig := range storm {
+		if sig == nil {
+			continue
+		}
+		kind, ok := overrideNoteKind(sig.Override.Kind)
+		if !ok {
+			workflow.GetLogger(ctx).Error("an override with no note kind reached a dispatch; nothing recorded",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID)
+			continue
+		}
+		held, seen := byKind[kind]
+		if !seen {
+			order = append(order, kind)
+		} else if held.text != "" && sig.Override.Notes != "" {
+			held.text += notesSeparator
+		}
+		held.text += sig.Override.Notes
+		held.comments = append(held.comments, sig.Override.Comments...)
+		byKind[kind] = held
+	}
+	for _, kind := range order {
+		if err := wf.recordOperatorNote(ctx, tc.In.csIn(), tc.State, &tc.State.walk.headVersion,
+			tc.State.walk.cred, kind, tc.Task.ID, byKind[kind]); err != nil {
+			workflow.GetLogger(ctx).Error("the override could not be recorded; the dispatch runs on",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "err", err.Error())
+		}
 	}
 }
 
@@ -961,13 +1050,12 @@ func (wf *csWorkflows) applyRecoveringOnBranch(
 //   - CommandFor. The command is tc.Task.Command, the lifecycle DATA. The two agree today
 //     (CommandFor is itself a lookup into this data) and Test_ConstructionCommands_MatchTheLifecycleData
 //     pins that; carrying the task's own field is what stops the platform holding two answers.
-//   - the VARIANCE LOOP (handleVariance: retry / takeover / escalate-and-await-an-override,
-//     bounded by maxVarianceAttempts). A failed job FLAGS the variance on the session view and
-//     FAILS the walk with the diagnostic on the attempt — which is Task 9's compute failure and
-//     Task 10's design failure rule, one rule for all three arms. Re-expressing retry over a
-//     task DAG needs a per-task budget, somewhere honest for the Engine's DECIDE to live and a
-//     new attempt number per re-dispatch, which the walk owns and a strategy cannot mint; it is
-//     Task 12's override work (Task 8 earmark 5 assigns it there) and it is a stated parity gap.
+// WHAT IT DOES REPRODUCE, and the first draft of this task did not (fix round 1): the VARIANCE
+// LOOP. handleVariance/executeOverride were the retired supervision loop's whole answer to a
+// failed job — DECIDE through the intervention Engine, retry or take over up to
+// maxVarianceAttempts, or escalate to a bounded operator override with a Skip terminal — and
+// dropping it made a red CI run cost a whole activity once instead of ten dispatches and a human.
+// It is reproduced HERE, per task, rather than in the walk: see runTaskVariance.
 // ---------------------------------------------------------------------------
 
 // produceConstructionChange runs ONE construction task: open the attempt the dispatch is
@@ -978,61 +1066,316 @@ func (wf *csWorkflows) applyRecoveringOnBranch(
 // task's output is a COMMIT the agent pushed to activity/<id>; this store holds no model for
 // it, so the producedSubject's StagedRef stays empty and gateSubjectRef falls to the PR (rung
 // two) or the attempt (rung three) — byte-for-byte what openGateRound did on the retired rail.
+// It is the SUPERVISION LOOP, not one dispatch: a failed job goes to the variance machinery,
+// which re-dispatches under the intervention Engine's directive up to maxVarianceAttempts times
+// and then escalates to the operator. `attempt` is 0-based and the budget is checked at the TOP,
+// exactly as runAttempt's own loop did, so the tenth failure escalates rather than the eleventh.
+//
+// EACH DISPATCH IS ITS OWN NUMBERED ATTEMPT (state.nextTaskAttempt), while the WALK's revision
+// does not move: a variance retry is not a send-back. That is why the returned subject carries
+// AttemptRecorded — runTask must not file the last dispatch's outcome under the first attempt's
+// number and erase the rest.
 func (wf *csWorkflows) produceConstructionChange(ctx workflow.Context, tc taskContext) (producedSubject, error) {
-	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), projectstate.MethodTask(tc.Task.ID), tc.Attempt)
-	// The PENDING attempt, opened BEFORE the dispatch it describes, so a run that dies
-	// mid-dispatch leaves an attempt that says it started and never resolved rather than
-	// nothing at all (openWorkAttempt's own reason, and what redraftDispatched reads). runTask
-	// RESOLVES this same id from the producedSubject below — one id, one attempt.
-	if err := wf.openWorkAttempt(ctx, tc.In.csIn(), tc.State, &tc.State.walk.headVersion, tc.State.walk.cred,
-		projectstate.MethodTask(tc.Task.ID), tc.Attempt, attemptID); err != nil {
-		return producedSubject{}, err
-	}
 	// THE SEND-BACK'S STEER (walk-local, carried in walkState.feedback across a continue).
 	// Without this a redraft runs against the prompt that was just rejected, which is the
-	// send-back doing nothing — the retired rail carried it as an ephemeral operator note and
-	// so does this, through the same renderer and the same dispatch input.
+	// send-back doing nothing — the retired rail carried it as an ephemeral operator note and so
+	// does this, through the same renderer and the same dispatch input. ONCE, before the loop:
+	// carrySendBackFeedback appends a note per call, and the pending-note queue is what carries
+	// it into every retry that follows.
 	carryWalkFeedback(ctx, tc)
-	handle, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
-	switch {
-	case err != nil:
-		return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed, Detail: err.Error()}, err
-	case !ok:
-		// The managed-scaffold sync refused: nothing was dispatched, and the refusal reads as a
-		// failed run exactly as it did on the retired rail.
-		return wf.constructionFailed(ctx, tc, attemptID, handle.obs)
+	var deferred []routedSignal
+	for attempt := 0; ; attempt++ {
+		if attempt >= maxVarianceAttempts {
+			// Terminal: the supervision budget is spent. failVarianceExhausted's own record.
+			return wf.constructionGaveUp(ctx, tc, deferred,
+				projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted,
+				"construction supervision exceeded max attempts")
+		}
+		tc.State.attempt = attempt + 1
+		attemptID, obs, err := wf.dispatchConstructionOnce(ctx, tc)
+		if err != nil {
+			// A REJECTED DISPATCH fails the walk, and that is the retired rail's behaviour too:
+			// submitPipeline's error propagated out of runPipeline and out of the supervision loop
+			// without reaching handleVariance, because a dispatch that could not be submitted is a
+			// wiring fault rather than a variance in the work. The scaffold-sync refusal, which the
+			// rail DID route through variance, arrives as a failed observation instead (see
+			// dispatchConstructionOnce).
+			wf.reofferDeferred(ctx, tc, deferred)
+			return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+				Detail: err.Error(), AttemptRecorded: attemptID != ""}, err
+		}
+		if obs.Phase == PipelineSucceeded {
+			wf.reofferDeferred(ctx, tc, deferred)
+			return producedSubject{
+				AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
+				EpisodeID: episodeIDOf(obs), AttemptRecorded: true,
+				Detail: "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
+			}, nil
+		}
+		verdict, held, verr := wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+		deferred = held
+		switch {
+		case verr != nil:
+			wf.reofferDeferred(ctx, tc, deferred)
+			return producedSubject{AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
+				Detail: verr.Error(), EpisodeID: episodeIDOf(obs), AttemptRecorded: true}, verr
+		case verdict == varianceRedispatch:
+			continue
+		default:
+			return wf.constructionExited(ctx, tc, deferred, attemptID, obs, verdict)
+		}
 	}
-	obs := wf.observeDispatchedJob(ctx, tc, handle.handle, projectstate.MethodTask(tc.Task.ID),
-		jobLabelConstruction, &tc.State.walk.gf)
-	if obs.Phase != PipelineSucceeded {
-		return wf.constructionFailed(ctx, tc, attemptID, obs)
-	}
-	return producedSubject{
-		AttemptID: attemptID, Outcome: projectstate.OutcomePassed,
-		EpisodeID: episodeIDOf(obs),
-		Detail:    "dispatched " + tc.Task.Command + " for " + tc.Phase.ID,
-	}, nil
 }
 
-// constructionFailed is the one place a construction dispatch's failure is turned into a
-// FAILED attempt and a walk-failing error. It FLAGS the variance on the session view first,
-// because that is the field the Activity Experience renders and the retired rail's
-// handleVariance set it before deciding anything.
-func (wf *csWorkflows) constructionFailed(
-	ctx workflow.Context, tc taskContext, attemptID string, obs csPipelineObservation,
-) (producedSubject, error) {
+// dispatchConstructionOnce is ONE dispatch of a construction task: the numbered attempt opened
+// PENDING before the job it describes (so a run that dies mid-dispatch leaves an attempt that
+// says it started and never resolved rather than nothing at all — openWorkAttempt's own reason,
+// and what redraftDispatched reads), the submit, the observe, and the attempt RESOLVED against
+// the terminal observation with the episode it burned as its evidence.
+//
+// The attempt pair is resolveWorkAttempt's, verbatim: one id, one attempt, two writes, and the
+// episode append runs first so the id it cites is already on the ledger.
+func (wf *csWorkflows) dispatchConstructionOnce(
+	ctx workflow.Context, tc taskContext,
+) (string, csPipelineObservation, error) {
+	in := tc.In.csIn()
+	task := projectstate.MethodTask(tc.Task.ID)
+	n := tc.State.nextTaskAttempt(task)
+	attemptID := projectstate.AttemptID(string(tc.In.ActivityID), task, n)
+	tc.State.workAttemptID = attemptID
+	if err := wf.openWorkAttempt(ctx, in, tc.State, &tc.State.walk.headVersion, tc.State.walk.cred,
+		task, n, attemptID); err != nil {
+		return "", csPipelineObservation{}, err
+	}
+	dispatch, ok, err := wf.submitConstructionJob(ctx, tc, attemptID)
+	if err != nil {
+		return attemptID, csPipelineObservation{}, err
+	}
+	obs := dispatch.obs
+	if ok {
+		obs = wf.observeDispatchedJob(ctx, tc, dispatch.handle, task, n, jobLabelConstruction, &tc.State.walk.gf)
+	}
+	// A scaffold-sync refusal dispatched NOTHING, so there is no episode to capture and no run
+	// to observe — but the attempt still resolves, as a failure, because an attempt left pending
+	// is indistinguishable from a run that died.
+	if rerr := wf.resolveWorkAttempt(ctx, in, tc.State, &tc.State.walk.headVersion, tc.State.walk.cred,
+		task, n, attemptID, obs); rerr != nil {
+		return attemptID, obs, rerr
+	}
+	return attemptID, obs, nil
+}
+
+// varianceVerdict is what the variance machinery decided about a failed dispatch.
+type varianceVerdict int
+
+const (
+	// varianceRedispatch: try the job again (Retry, Takeover, or an operator's Retry/Reassign/
+	// Takeover override).
+	varianceRedispatch varianceVerdict = iota
+	// varianceSkipped: the operator SKIPPED the activity. It exits Skipped, which the pump reads
+	// as Done so the dependents unblock — App A's "a skipped activity is an exit, not a stall".
+	varianceSkipped
+	// varianceEscalationTimedOut: nobody answered the escalation inside EscalationWaitTimeout.
+	varianceEscalationTimedOut
+)
+
+// runTaskVariance is handleVariance and executeOverride, through the child, for ONE task.
+//
+// WHY IT LIVES IN THE STRATEGY AND NOT IN THE WALK (architect Ruling 3(a)): the walk must not
+// know that a task's output comes from a pipeline that can fail in a venue, and the DECIDE is a
+// judgement about a DISPATCH — the intervention Engine is asked about a construction variance,
+// which is not a thing a computed Project-Design task or a design critique has. The walker sees
+// only the producedSubject this returns through, and the arch guard still passes.
+//
+// TWO DIFFERENCES FROM THE RETIRED LOOP, both structural:
+//
+//   - the operator's override arrives on THIS TASK'S INBOX, not on the shared
+//     operatorOverride channel. A fork has two dispatches in flight and a shared
+//     ReceiveChannel hands each message to exactly one of them, so an override aimed at the
+//     escalated task would be eaten by its sibling — the hole the router closes. It is
+//     TaskID-addressed, and whatever this loop cannot answer is parked in the local `deferred`
+//     slice and re-offered when the task retires, never re-queued into ws.pending.
+//   - a RETRY re-dispatches THIS TASK, not the activity's whole phase list from index 0. The
+//     completedPhases skip-guard existed because the retired retry re-walked everything; the
+//     DAG has no such re-walk, so there is nothing to skip.
+func (wf *csWorkflows) runTaskVariance(
+	ctx workflow.Context, tc taskContext, obs csPipelineObservation, attempt int, deferred []routedSignal,
+) (varianceVerdict, []routedSignal, error) {
 	detail := dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)
+	// The FLAGGED variance is the field the Activity Experience renders, and the retired
+	// handleVariance set it before deciding anything.
 	tc.State.variance = &FlaggedVariance{
 		ProjectID: tc.In.ProjectID, ActivityID: tc.In.ActivityID, Summary: detail,
 	}
 	workflow.GetLogger(ctx).Error("delivery.construction.jobFailed",
-		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID,
+		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "attempt", attempt+1,
 		"failureReason", int(deriveFailureReason(obs.Phase, obs.Diagnostic)))
-	return producedSubject{
-			AttemptID: attemptID, Outcome: projectstate.OutcomeFailed,
-			EpisodeID: episodeIDOf(obs), Detail: detail,
-		},
-		temporal.NewNonRetryableApplicationError(detail, "ConstructionJobFailed", nil)
+
+	directive, derr := wf.Intervention.DecideOnVariance(fweng.Context{Context: context.Background()},
+		intervention.ConstructionVariance{
+			// ProjectID is deliberately fed from the ACTIVITY id, not the project id: the retired
+			// handleVariance only ever carried this value and the Engine's refusal is on emptiness.
+			// Do not "fix" it here — it would change what the Engine is asked about mid-wave.
+			ProjectID:    intervention.ProjectID(tc.In.ActivityID),
+			ActivityID:   intervention.ActivityID(tc.In.ActivityID),
+			Kind:         intervention.WorkerMiss,
+			AttemptCount: int64(attempt),
+			Policy:       wf.InterventionPolicy,
+		})
+	if derr != nil {
+		return varianceRedispatch, deferred, fwmanager.MapError(derr)
+	}
+	switch directive {
+	case intervention.VarianceRetry, intervention.VarianceTakeover:
+		// EXECUTE retry / takeover: re-dispatch. The prior pipeline already reached a terminal
+		// before intervention was consulted, so there is nothing in flight to abandon.
+		tc.State.stage = StageDispatching
+		return varianceRedispatch, deferred, nil
+	case intervention.VarianceEscalate:
+		return wf.escalateTaskVariance(ctx, tc, detail, deferred)
+	}
+	// VarianceDirective has no Unknown sentinel (VarianceRetry is its zero value), so anything
+	// outside the closed set is an unrecognized engine decision.
+	return varianceRedispatch, deferred, temporal.NewNonRetryableApplicationError(
+		"intervention returned an unknown directive", "UnknownDirective", nil)
+}
+
+// escalateTaskVariance surfaces the variance to the operator and waits for their override on
+// this task's inbox, BOUNDED by EscalationWaitTimeout. A timeout is a terminal, not a hang: the
+// retired rail recorded EscalationTimedOut rather than waiting for an override that never comes.
+func (wf *csWorkflows) escalateTaskVariance(
+	ctx workflow.Context, tc taskContext, detail string, deferred []routedSignal,
+) (varianceVerdict, []routedSignal, error) {
+	tc.State.redraftExhausted = false
+	// Named at the moment of escalation, not only at its terminal: an operator who opens the log
+	// because an activity is waiting on them must be able to read WHAT they are being asked about.
+	workflow.GetLogger(ctx).Warn("delivery.construction.escalated",
+		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "detail", detail,
+		"window", wf.EscalationWaitTimeout.String())
+	tc.State.enterHumanStage(ctx, StageAwaitingTakeover, takeoverGateKey, wf.EscalationWaitTimeout)
+	override, got, held := wf.awaitRoutedOverride(ctx, tc, deferred)
+	if !got {
+		tc.State.leaveHumanStage(ctx, tc.In.Activity.activityTypeName(), gateOutcomeTimedOut)
+		return varianceEscalationTimedOut, held, nil
+	}
+	tc.State.leaveHumanStage(ctx, tc.In.Activity.activityTypeName(),
+		gateOutcomeOverridePrefix+strings.ToLower(overrideKindName(override.Kind)))
+	// The operator's steer is kept on the activity and — for a retry, takeover or reassign —
+	// carried by the next dispatch. A skip's note is kept and never pending: nothing runs after
+	// a skip. Identical to executeOverride's first act.
+	if kind, ok := overrideNoteKind(override.Kind); ok {
+		if err := wf.recordOperatorNote(ctx, tc.In.csIn(), tc.State, &tc.State.walk.headVersion,
+			tc.State.walk.cred, kind, takeoverGateKey,
+			noteFeedback{text: override.Notes, comments: override.Comments}); err != nil {
+			return varianceRedispatch, held, err
+		}
+	}
+	switch override.Kind {
+	case OverrideRetry, OverrideReassign, OverrideTakeover:
+		tc.State.stage = StageDispatching
+		return varianceRedispatch, held, nil
+	case OverrideSkip:
+		return varianceSkipped, held, nil
+	case OverrideUnknown:
+		// The zero-value sentinel is not a real override kind, and guessing at one would run work
+		// nobody asked for.
+		return varianceRedispatch, held, temporal.NewNonRetryableApplicationError(
+			"unknown operator override kind", "UnknownOverride", nil)
+	}
+	return varianceRedispatch, held, temporal.NewNonRetryableApplicationError(
+		"unknown operator override kind", "UnknownOverride", nil)
+}
+
+// awaitRoutedOverride is awaitOverrideBounded over the task's own INBOX rather than the shared
+// operatorOverride channel: the router already addressed the message to this task, so there is
+// no filter here and no sibling can steal it.
+//
+// A timeout of 0 means wait forever, which is the supervised EscalateEverything mode's own
+// behaviour and is preserved verbatim. Anything the escalation cannot answer — a gate decision,
+// a redraft, a comment status — is parked in `deferred` and re-offered when the task retires;
+// putting it back in ws.pending would spin the loop it came from (drainPending's rule).
+func (wf *csWorkflows) awaitRoutedOverride(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal,
+) (ActivityOverride, bool, []routedSignal) {
+	if tc.Inbox == nil {
+		return ActivityOverride{}, false, deferred
+	}
+	var timer workflow.Future
+	if wf.EscalationWaitTimeout > 0 {
+		timerCtx, cancel := workflow.WithCancel(ctx)
+		defer cancel()
+		timer = workflow.NewTimer(timerCtx, wf.EscalationWaitTimeout)
+	}
+	for {
+		if tc.Drain != nil {
+			// The receiver is what pulls an overflowed message through (drainPending): the router
+			// never blocks, so a 65th override sits in ws.pending until a receive loop asks for it.
+			tc.Drain()
+		}
+		var msg routedSignal
+		timedOut := false
+		sel := workflow.NewSelector(ctx)
+		sel.AddReceive(tc.Inbox, func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, &msg) })
+		if timer != nil {
+			sel.AddFuture(timer, func(workflow.Future) { timedOut = true })
+		}
+		sel.Select(ctx)
+		switch {
+		case timedOut:
+			workflow.GetLogger(ctx).Warn("the escalation window closed with no operator override",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID)
+			return ActivityOverride{}, false, deferred
+		case msg.Kind == routedKindOverride && msg.Override != nil:
+			return msg.Override.Override, true, deferred
+		case !routedPayloadPresent(msg):
+			workflow.GetLogger(ctx).Error("a routed signal reached an escalation with no payload for its kind; dropped",
+				"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "kind", msg.Kind)
+		default:
+			deferred = append(deferred, msg)
+		}
+	}
+}
+
+// constructionGaveUp records the ACTIVITY's terminal for a give-up the operator never had to
+// answer — the spent supervision budget — and hands the walk a subject that stops it without a
+// second terminal.
+func (wf *csWorkflows) constructionGaveUp(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal,
+	outcome projectstate.ActivityOutcome, reason projectstate.FailureReason, detail string,
+) (producedSubject, error) {
+	wf.reofferDeferred(ctx, tc, deferred)
+	if err := wf.recordExecutionOutcome(ctx, tc.In.csIn(), tc.State, &tc.State.walk.headVersion,
+		tc.State.walk.cred, outcome, reason, detail); err != nil {
+		return producedSubject{}, err
+	}
+	tc.State.stage = StageExited
+	workflow.GetLogger(ctx).Error("delivery.construction.gaveUp",
+		"activityId", tc.In.ActivityID, "taskId", tc.Task.ID, "reason", int(reason), "detail", detail)
+	return producedSubject{Outcome: projectstate.OutcomeFailed, Detail: detail, ActivityExited: true}, nil
+}
+
+// constructionExited records the ACTIVITY's terminal for the variance loop's two operator-facing
+// answers, so the walk stops with the right one on the ledger rather than a re-derived guess.
+func (wf *csWorkflows) constructionExited(
+	ctx workflow.Context, tc taskContext, deferred []routedSignal,
+	attemptID string, obs csPipelineObservation, verdict varianceVerdict,
+) (producedSubject, error) {
+	detail := dispatchJobFailedDetail(jobLabelConstruction, tc.Task.ID, obs)
+	if verdict == varianceSkipped {
+		subject, err := wf.constructionGaveUp(ctx, tc, deferred,
+			projectstate.ActivityOutcomeSkipped, projectstate.FailureReasonUnknown, "")
+		// A skip is not a failure: the attempt that failed stays on the ledger with its own
+		// diagnostic, and the ACTIVITY reads Skipped. The subject cites the skipped attempt so a
+		// reader can follow what the operator was looking at.
+		subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+		subject.Outcome, subject.Detail = projectstate.OutcomeSkipped, detail
+		return subject, err
+	}
+	timedOut := "escalation timed out: no operator override within the escalation-wait window (underlying: " + detail + ")"
+	subject, err := wf.constructionGaveUp(ctx, tc, deferred,
+		projectstate.ActivityOutcomeUnknown, projectstate.EscalationTimedOut, timedOut)
+	subject.AttemptID, subject.EpisodeID, subject.AttemptRecorded = attemptID, episodeIDOf(obs), true
+	return subject, err
 }
 
 // constructionDispatch is what submitConstructionJob hands back: the handle when something
@@ -1471,6 +1814,13 @@ func (wf *csWorkflows) DeliveryActivityWorkflow(ctx workflow.Context, in deliver
 	if err := wf.openActivityRow(ctx, in, state); err != nil {
 		return err
 	}
+	// THE PER-DISPATCH ATTEMPT COUNTER, seeded off the SAME read (fix round 1). The walk's
+	// revision map is in walkSnapshot; this counter is not, because it is not walk state — it is
+	// the ledger's own numbering, and the ledger is what a resumed or continued run must not
+	// collide with. A fresh constructState restarts it at 1, so without this seed a variance
+	// retry after a continue-as-new would mint an AttemptID the ledger already holds and the
+	// store would absorb the new dispatch as a replay of the old one.
+	seedTaskAttempts(state, snap.ActivityExecution[string(in.ActivityID)])
 	ws := wf.seedWalkFromLedger(ctx, in, lc, snap)
 	// The router starts BEFORE the first task is scheduled, so a signal that arrives
 	// during the very first dispatch is buffered against its task rather than lost.
@@ -1530,6 +1880,16 @@ func (wf *csWorkflows) walkTasks(
 		}
 		ws.byTask[d.taskID] = d.state
 		ws.closeInbox(workflow.GetLogger(ctx), d.taskID)
+		if d.state == walkTaskExited {
+			// The task's own supervision reached a terminal for the WHOLE activity and recorded
+			// it. Returning nil — not an error — is what the retired supervision loop did for the
+			// same three answers, and it is what keeps the pump's cascade alive: a child that
+			// errors fails the pump run that is blocked on it, so a single activity giving up
+			// would stop the project's one pump.
+			workflow.GetLogger(ctx).Info("delivery.walk.exitedInTask",
+				"activityId", in.ActivityID, "taskId", d.taskID)
+			return nil
+		}
 		if d.state == walkTaskSentBack {
 			reopenJudgedPair(lc, ws, d.taskID)
 		}
@@ -1801,6 +2161,7 @@ func (wf *csWorkflows) runTask(
 		In: in, Task: t, Phase: phase, Lifecycle: lc,
 		Revision: ws.revision[t.ID], Attempt: int(ws.revision[t.ID]) + 1,
 		State: state, Feedback: ws.feedback[t.ID], Inbox: inbox,
+		Drain: func() { ws.drainPending(t.ID) },
 	}
 
 	produced, perr := strat.Produce(ctx, tc)
@@ -1812,13 +2173,26 @@ func (wf *csWorkflows) runTask(
 	// operator saw a failed activity with an EMPTY attempt ledger and no diagnostic anywhere but
 	// the workflow error. Recorded first, then returned. A recording failure on top of a
 	// production failure keeps the PRODUCTION error, because that is the cause.
-	if produced.AttemptID != "" {
+	// AttemptRecorded is the strategy saying it already wrote this task's attempts — which the
+	// construction arm does, because ONE task can hold several numbered dispatches under its
+	// variance loop and a single record here would erase all but the last (producedSubject).
+	if produced.AttemptID != "" && !produced.AttemptRecorded {
 		if err := wf.recordTaskAttempt(ctx, in, t, tc, produced, state); err != nil && perr == nil {
 			return walkTaskFailed, err
 		}
 	}
 	if perr != nil {
 		return walkTaskFailed, perr
+	}
+	// THE ACTIVITY ALREADY EXITED, inside this task. The variance loop's three terminal answers
+	// record the activity's own outcome — Skipped, or Unknown carrying VarianceExhausted or
+	// EscalationTimedOut — so the walk must stop WITHOUT recording a second one over it. It is a
+	// flag and not an inferred outcome because the walk cannot tell those three apart, and
+	// reporting the same terminal for all three is how "the operator skipped it" becomes
+	// "it ran out of attempts" in the one view a founder reads.
+	if produced.ActivityExited {
+		ws.produced[t.ID] = produced
+		return walkTaskExited, nil
 	}
 	// The output is what a REVIEW task will cite, keyed by the task that produced it, so
 	// runGate can reach it through t.Reviews — a review task with a `reviews` target
@@ -2588,6 +2962,23 @@ func (wf *csWorkflows) seedWalkFromLedger(
 	return ws
 }
 
+// seedTaskAttempts raises the run's per-task dispatch counter to whatever the ledger already
+// holds, off both ledgers. It is seedResumeFromLedger's counter half, kept because the variance
+// loop mints an AttemptID per dispatch and a colliding id is silently absorbed as a replay — the
+// second dispatch would then vanish into the first. A GATE task is counted off BOTH the attempts
+// and the rounds, because one counter mints both and a resume that looked only at the attempts
+// could re-open a round the review ledger already holds.
+//
+// Pure over values already in workflow history (the start snapshot's recorded read).
+func seedTaskAttempts(state *constructState, row projectstate.ActivityExecution) {
+	for _, a := range row.Attempts {
+		seedTaskCount(state, a.Task, a.Attempt)
+	}
+	for _, r := range row.Reviews {
+		seedTaskCount(state, r.TaskID, int(r.Round))
+	}
+}
+
 // committedArtifactOfTask reports whether the artifact THIS task is about is already
 // committed on main — the skip-if-committed guard's one question.
 //
@@ -2730,8 +3121,15 @@ func (wf *csWorkflows) finalizeWalk(
 		}
 	}
 	csIn := in.csIn()
-	if err := wf.runWalkMerge(ctx, in, lc, ws, state); err != nil {
+	exited, err := wf.runWalkMerge(ctx, in, lc, ws, state)
+	if err != nil {
 		return err
+	}
+	if exited {
+		// The merge's own variance loop reached a terminal for the activity and recorded it: no
+		// binary exit to write over it, and no design slots to commit off a branch that never
+		// landed.
+		return nil
 	}
 	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred); err != nil {
 		return err
@@ -2897,16 +3295,19 @@ const mergeGateTaskID = mergeGateKey
 //
 //   - The hold reads the merge gate's INBOX, not workflow.GetSignalChannel. A fifth shared
 //     channel read from the walk would re-open exactly the hole the router closes.
-//   - A failed merge FAILS THE WALK rather than entering the variance loop. The variance
-//     loop is a supervision retry over a flat phase list — it re-walks from index 0 — and
-//     re-walking a task DAG is Task 12's override work, not something to fake here. The
-//     failure is recorded and named, which is what an operator needs either way.
+//   - the VARIANCE LOOP is the SAME one a dispatch gets (fix round 1), and the reason it is
+//     not runLocalMergeStep's is that the retired retry re-walked the whole phase list from
+//     index 0 with completedPhases skipping what had passed. Here a merge retry re-runs the
+//     MERGE and nothing else, which is what that skip-guard was for.
+//
+// It returns exited=true when the merge's variance reached a terminal for the ACTIVITY and
+// recorded it, so finalizeWalk stops without writing a binary exit over it.
 func (wf *csWorkflows) runWalkMerge(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
-) error {
+) (bool, error) {
 	if !state.walk.gitOn || wf.RailEnabled(in.ProjectID) || state.mergeCompleted {
-		return nil
+		return false, nil
 	}
 	// A LIFECYCLE THAT DISPATCHES NOTHING HAS NOTHING TO MERGE (stage 4b1 Task 9). The
 	// local merge lands the activity's branch on main; `projectDesign` is ONE computed
@@ -2918,7 +3319,7 @@ func (wf *csWorkflows) runWalkMerge(
 	if !lifecycleDispatchesWork(lc) {
 		workflow.GetLogger(ctx).Info("delivery.merge.skipped",
 			"activityId", in.ActivityID, "reason", "the lifecycle dispatches no work, so there is no branch to merge")
-		return nil
+		return false, nil
 	}
 	// AND A WALK THAT DISPATCHED NOTHING HAS NOTHING TO MERGE EITHER (stage 4b1 Task 10). The
 	// guard above asks the LIFECYCLE; this one asks this RUN. The skip-if-committed seed marks
@@ -2930,9 +3331,22 @@ func (wf *csWorkflows) runWalkMerge(
 	if !walkRanAnyTask(ws) {
 		workflow.GetLogger(ctx).Info("delivery.merge.skipped",
 			"activityId", in.ActivityID, "reason", "this run staged nothing, so no branch was advanced to merge")
-		return nil
+		return false, nil
 	}
 	csIn := in.csIn()
+	// THE MERGE GATE'S INBOX IS OPENED ONCE, HERE, and retired once, because TWO things read it
+	// now: the policy hold below and the variance loop's escalation. holdForMergeApproval opened
+	// its own until fix round 1, and a second openInbox would have replaced the channel — losing
+	// whatever the router had already buffered for a gate that was seeded walkTaskPending
+	// precisely so an early approve is kept.
+	inbox := ws.openInbox(ctx, mergeGateTaskID)
+	defer func() {
+		// RETIRE the merge gate, not just its inbox (Task 8 review finding 5): leaving it pending
+		// keeps the "too early, buffer it" arm live, so every later merge-gate signal queues in
+		// ws.pending for a hold that will never re-open — and rides every continue-as-new.
+		ws.byTask[mergeGateTaskID] = walkTaskPassed
+		ws.closeInbox(workflow.GetLogger(ctx), mergeGateTaskID)
+	}()
 	set, err := wf.proposeReviewSet(csIn, methodassets.LifecyclePhase{ID: projectstate.MethodPhaseConstruction.String()},
 		state.walk.policy, state)
 	if err != nil {
@@ -2942,19 +3356,65 @@ func (wf *csWorkflows) runWalkMerge(
 		workflow.GetLogger(ctx).Error("review engine refused to decide the merge gate; the merge proceeds unheld",
 			"activityId", in.ActivityID, "err", err.Error())
 	} else if set.RequiresHuman != nil && *set.RequiresHuman {
-		wf.holdForMergeApproval(ctx, in, ws, state)
+		wf.holdForMergeApproval(ctx, in, ws, state, inbox)
 	}
-	state.stage = StagePipelineRunning
-	obs, merr := wf.runMergePipeline(ctx, csIn, state)
-	if merr != nil {
-		return merr
+	return wf.mergeUnderSupervision(ctx, in, ws, state, inbox)
+}
+
+// mergeUnderSupervision runs the merge job under the SAME variance loop a dispatch gets: the
+// intervention Engine decides, a retry re-runs the merge and nothing else, and an escalation
+// waits on the merge gate's own inbox.
+//
+// The merge is addressed as the task `merge` (mergeGateTaskID) throughout, which is what the
+// router already does with it — it is a gate with no lifecycle task, and giving it a task id is
+// what lets an operator steer it at all.
+func (wf *csWorkflows) mergeUnderSupervision(
+	ctx workflow.Context, in deliveryActivityInput, ws *walkState,
+	state *constructState, inbox workflow.ReceiveChannel,
+) (bool, error) {
+	tc := taskContext{
+		In: in, State: state, Inbox: inbox,
+		Drain: func() { ws.drainPending(mergeGateTaskID) },
+		// A SYNTHETIC lifecycle task, and the synthesis is honest rather than convenient: the
+		// merge has no node in lifecycles.json (App A's twelve tasks stop at Code Review; landing
+		// the reviewed branch is this platform's own automation), and every reader below wants
+		// exactly its id.
+		Task: methodassets.LifecycleTask{ID: mergeGateTaskID},
 	}
-	if obs.Phase != PipelineSucceeded {
-		return wf.failWalk(ctx, in, state, mergeGateTaskID, temporal.NewNonRetryableApplicationError(
-			"the local merge did not land: "+obs.Diagnostic, "WalkMergeFailed", nil))
+	var deferred []routedSignal
+	for attempt := 0; ; attempt++ {
+		if attempt >= maxVarianceAttempts {
+			subject, err := wf.constructionGaveUp(ctx, tc, deferred,
+				projectstate.ActivityOutcomeUnknown, projectstate.VarianceExhausted,
+				"the local merge exceeded max attempts")
+			_ = subject
+			return true, err
+		}
+		state.attempt = attempt + 1
+		state.stage = StagePipelineRunning
+		obs, merr := wf.runMergePipeline(ctx, in.csIn(), state)
+		if merr != nil {
+			wf.reofferDeferred(ctx, tc, deferred)
+			return false, merr
+		}
+		if obs.Phase == PipelineSucceeded {
+			wf.reofferDeferred(ctx, tc, deferred)
+			state.mergeCompleted = true
+			return false, nil
+		}
+		verdict, held, verr := wf.runTaskVariance(ctx, tc, obs, attempt, deferred)
+		deferred = held
+		switch {
+		case verr != nil:
+			wf.reofferDeferred(ctx, tc, deferred)
+			return false, verr
+		case verdict == varianceRedispatch:
+			continue
+		default:
+			_, err := wf.constructionExited(ctx, tc, deferred, "", obs, verdict)
+			return true, err
+		}
 	}
-	state.mergeCompleted = true
-	return nil
 }
 
 // lifecycleDispatchesWork reports whether any task of this lifecycle DISPATCHES — that is,
@@ -2973,21 +3433,16 @@ func lifecycleDispatchesWork(lc methodassets.Lifecycle) bool {
 // decision has no redraft meaning for a merge (there is no draft to send back), so it is
 // logged and the hold keeps awaiting — the operator steers the activity itself with an
 // override, exactly as the retired rail's merge gate behaves.
-func (wf *csWorkflows) holdForMergeApproval(ctx workflow.Context, in deliveryActivityInput, ws *walkState, state *constructState) {
+// It TAKES the inbox (fix round 1) rather than opening one: the variance loop's escalation reads
+// the same gate, and two openInbox calls would replace the channel and drop whatever the router
+// had buffered for a gate that newWalkState seeds walkTaskPending precisely so an early approve
+// survives. Its retirement moved to runWalkMerge's defer for the same reason.
+func (wf *csWorkflows) holdForMergeApproval(
+	ctx workflow.Context, in deliveryActivityInput, ws *walkState,
+	state *constructState, inbox workflow.ReceiveChannel,
+) {
 	state.redraftExhausted = false
 	state.enterHumanStage(ctx, StageAwaitingApproval, mergeGateTaskID, 0)
-	inbox := ws.openInbox(ctx, mergeGateTaskID)
-	defer func() {
-		// RETIRE the merge gate, not just its inbox (Task 8 review finding 5). newWalkState
-		// seeds byTask[mergeGateKey] = walkTaskPending so an approve that arrives BEFORE the
-		// hold opens is buffered rather than dropped as too-late; leaving it pending after the
-		// hold returns keeps that arm live, so every later merge-gate signal buffers into
-		// ws.pending for a hold that will never re-open — and walkSnapshot carries them across
-		// every continue-as-new for the rest of the activity. closeInbox clears what is queued
-		// NOW; this is what stops more arriving.
-		ws.byTask[mergeGateTaskID] = walkTaskPassed
-		ws.closeInbox(workflow.GetLogger(ctx), mergeGateTaskID)
-	}()
 	for {
 		ws.drainPending(mergeGateTaskID)
 		var msg routedSignal

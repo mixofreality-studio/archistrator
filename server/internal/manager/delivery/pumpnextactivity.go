@@ -382,6 +382,18 @@ const changeGenericActivityChild = "generic-activity-child"
 // task DAG; an execution that recorded no marker keeps starting the retired child, because its
 // history holds that ChildWorkflow command by TYPE and by ID and replaying the other arm is a
 // non-determinism panic on the project's one pump.
+//
+// THE DefaultVersion ARM DELIBERATELY PREDATES TASK 10's DESIGN ROSTER, and it is worth saying so
+// because it looks like a bug: it sends a DESIGN activity to ConstructActivityWorkflow, whose
+// dispatch strategy that child never had. That is correct only because stage 4b1 is ONE UNDEPLOYED
+// WAVE — no history anywhere can hold changeDesignActivitiesDispatchable v1 without also holding
+// this marker, since the two were introduced one commit apart and nothing between them ran. A pump
+// on the old arm therefore never SELECTS a design activity in the first place
+// (admissibleInPhase refuses it below eligibleWithDesign), so the arm it would take for one is
+// unreachable. The retired roster predicate is NOT reproduced here on purpose: re-adding it would
+// make an unreachable path look load-bearing and would outlive its reason a second time. If any
+// part of 4b1 is ever deployed separately, this fence's minimum supported version must be raised
+// rather than this comment amended.
 func pumpStartsTheGenericChild(ctx workflow.Context) bool {
 	return workflow.GetVersion(ctx, changeGenericActivityChild, workflow.DefaultVersion, 1) >= 1
 }

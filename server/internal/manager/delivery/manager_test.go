@@ -24323,7 +24323,37 @@ func (f csFakeActivityExecution) OpenActivity(_ fwra.Context, _ projectstate.Pro
 	})
 }
 
+// RecordAttemptOutcome mirrors the store's rule for an id it already holds (stage 4b1 Task 11,
+// fix round 1): the same outcome is an idempotent no-op, a PENDING attempt resolves, and an
+// attempt already resolved to a DIFFERENT terminal is a ContractMisuse — "one id names one
+// attempt" (projectstateaccess.go:10192). The double overwrote instead, which made
+// producedSubject.AttemptRecorded unfalsifiable: a second write over a resolved attempt looked
+// harmless here and is a refusal in production.
+//
+// ONE RULE OF THE STORE'S IS DELIBERATELY NOT MIRRORED, and it is a FINDING rather than a
+// convenience: the store refuses a RE-OPEN too (its guard is `held.Outcome != OutcomePending`,
+// and OutcomePending is the empty string, so re-opening a resolved attempt is a re-resolution to
+// ""). The retired rail provokes exactly that on its DefaultVersion path —
+// Test_Construct_LedgerPartialResume_DefaultVersion_KeepsTheStoredSeed skips
+// seedResumeFromLedger, so the run re-mints attempt 1 and re-opens an attempt the ledger already
+// resolved. Mirroring it here would turn a pre-existing hazard on a pre-marker history into a red
+// test for a rail Task 13 deletes, so the re-open stays permissive and the hazard is EARMARKED.
+// The generic child cannot reach it: seedTaskAttempts runs unconditionally.
 func (f csFakeActivityExecution) RecordAttemptOutcome(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, expectedActivityVersion int64, activityID string, attempt projectstate.TaskAttemptInput, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	if err := f.refuseTerminality(activityID, func(row projectstate.ActivityExecution) error {
+		for _, held := range row.Attempts {
+			if held.AttemptID != attempt.AttemptID || held.Outcome == attempt.Outcome ||
+				held.Outcome == projectstate.OutcomePending || attempt.Outcome == projectstate.OutcomePending {
+				continue
+			}
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"fake projectstate.RecordAttemptOutcome: attempt %s is already resolved %q and cannot be re-resolved %q; one id names one attempt",
+				held.AttemptID, held.Outcome, attempt.Outcome))
+		}
+		return nil
+	}); err != nil {
+		return 0, err
+	}
 	return f.applyExecution(expectedActivityVersion, activityID, func(row *projectstate.ActivityExecution) {
 		evidence := projectstate.EvidenceRef{Kind: attempt.EvidenceKind, Ref: attempt.EvidenceRef}
 		for i := range row.Attempts {
@@ -24750,9 +24780,14 @@ type csFakePipeline struct {
 	// in flight at once. One Running poll is also the honest shape of a real CI run.
 	runningPolls int
 	pollsByTask  map[string]int
-	// failTask names the work tasks whose job reaches a terminal FAILURE, and failOnce limits
-	// that to the first dispatch of each.
+	// failTask names the work tasks whose EVERY dispatch reaches a terminal FAILURE.
 	failTask map[projectstate.MethodTask]bool
+	// failTaskFirst names how many of a task's LEADING dispatches fail before it succeeds — the
+	// variance loop's own subject (stage 4b1 Task 11, fix round 1). It needs a per-task dispatch
+	// ORDINAL, which is why every handle carries one.
+	failTaskFirst    map[projectstate.MethodTask]int
+	dispatchesByTask map[string]int
+	ordinalByHandle  map[agenticjob.PipelineHandle]int
 }
 
 // shapeDefaultLaggingPolls keeps the losing fork branch running long enough that the winning
@@ -24790,8 +24825,11 @@ func (p *csFakePipeline) recordShapeSubmit(handle agenticjob.PipelineHandle, spe
 	task := string(projectstate.AgentTaskFor(projectstate.ActivityMethodPhase(phase)))
 	if p.taskByHandle == nil {
 		p.taskByHandle = map[agenticjob.PipelineHandle]string{}
+		p.dispatchesByTask, p.ordinalByHandle = map[string]int{}, map[agenticjob.PipelineHandle]int{}
 	}
 	p.taskByHandle[handle] = task
+	p.dispatchesByTask[task]++
+	p.ordinalByHandle[handle] = p.dispatchesByTask[task]
 	if p.rec != nil {
 		p.rec.jobDispatched(spec.DispatchInputs["command"])
 		p.rec.taskStarted(task)
@@ -24825,6 +24863,9 @@ func (p *csFakePipeline) ObserveAgenticJob(_ fwra.Context, handle agenticjob.Pip
 // fail, and otherwise the configured terminal. Callers hold the lock.
 func (p *csFakePipeline) observedPhase(handle agenticjob.PipelineHandle, task string) PipelinePhase {
 	if p.failTask[projectstate.MethodTask(task)] {
+		return PipelineFailed
+	}
+	if n := p.failTaskFirst[projectstate.MethodTask(task)]; n > 0 && p.ordinalByHandle[handle] <= n {
 		return PipelineFailed
 	}
 	if budget := p.runningBudget(task); budget > 0 {
@@ -34389,6 +34430,10 @@ func driveServiceJoinWaits(t *testing.T, rig *shapeRig) shapeOutcome {
 func driveServiceSendBackJudgedPair(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
+	// stp LAGS far past the reject, so the send-back's real claim — it re-opens only the judged
+	// pair — is made while the sibling branch is genuinely MID-FLIGHT. With both branches already
+	// finished, "stp was not re-opened" is true of a walk that re-set everything too.
+	rig.forkWinner(projectstate.TaskDetailedDesign, 20)
 	rig.register(rig.env)
 	rig.env.RegisterDelayedCallback(shapeReject(rig.env, shapeDesignReviewTask, "name the failure"), 30*time.Second)
 	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 90*time.Second)
@@ -34868,17 +34913,20 @@ func Test_TaskStateOrdinalsNeverRenumber(t *testing.T) {
 		walkTaskPassed:   2,
 		walkTaskSentBack: 3,
 		walkTaskFailed:   4,
+		// APPENDED by stage 4b1 Task 11's fix round 1 — the variance loop's terminal, where the
+		// ACTIVITY's own outcome is already on the ledger.
+		walkTaskExited: 5,
 	}
 	for st, ordinal := range want {
 		if int(st) != ordinal {
 			t.Fatalf("walkTaskState ordinal moved: got %d, want %d — walkSnapshot.ByTask carries this number across a continue-as-new, so it is APPEND-ONLY", int(st), ordinal)
 		}
 	}
-	if len(want) != 5 {
+	if len(want) != 6 {
 		t.Fatalf("this table must name EVERY walkTaskState; it names %d", len(want))
 	}
-	if int(walkTaskFailed) != len(want)-1 {
-		t.Fatalf("a walkTaskState was added without an entry here (highest ordinal %d, table size %d); append it with its number", int(walkTaskFailed), len(want))
+	if int(walkTaskExited) != len(want)-1 {
+		t.Fatalf("a walkTaskState was added without an entry here (highest ordinal %d, table size %d); append it with its number", int(walkTaskExited), len(want))
 	}
 }
 
@@ -35252,31 +35300,38 @@ const shapeInboxFloodSize = deliveryTaskInboxCapacity + 1
 func driveInboxOverflow(t *testing.T, rig *shapeRig) shapeOutcome {
 	t.Helper()
 	rig.cs.project.ReviewPolicy = replayGatedOn(projectstate.MethodPhaseDetailedDesign)
-	// THE FLOOD'S TIMING IS THE CASE (stage 4b1 Task 11), and it has to be arranged rather than
-	// assumed, because the REAL dispatch strategy reads its inbox between polls (Task 10's
-	// misroute rule) where the retired stub read nothing. Measured against the ladder: srs
-	// succeeds at t=15 and the fork opens; stp reports RUNNING at t=15 and t=30, DRAINING after
-	// each — both times finding nothing — and succeeds at t=45, where the observe loop returns
-	// on a terminal BEFORE draining. So a flood at t=35 is still sitting in stp's inbox when
-	// the task retires, which is the undrained-inbox state this case is about.
+	// THE FLOOD LANDS INSIDE A DRAIN WINDOW, deliberately (Task 11 review, finding 3). It was
+	// timed to MISS one at first, which made the case pass while hiding a real defect: a drained
+	// flood used to be one recordOperatorNote CAS write per signal and the per-activity CAS
+	// exhausted. Now the drain COALESCES the pass into one note per kind, so the honest place for
+	// this flood is where a real operator's would land — mid-poll.
 	//
-	// It matters that it is undrained and not merely delivered: a drained flood is 65 operator
-	// notes written from one coroutine while the sibling branch writes its own attempts, and
-	// the per-activity CAS then genuinely exhausts (measured — MutateConflictExhausted). That
-	// is a real finding about override-storm handling, earmarked rather than hidden by this
-	// case's timing.
-	rig.forkWinner(projectstate.TaskDetailedDesign, 2)
+	// Measured against the ladder: srs succeeds at t=15 and the fork opens; stp reports RUNNING at
+	// t=15, t=30 and t=45, DRAINING after each, and succeeds at t=60. A flood at t=25 is therefore
+	// taken by the drain at t=30 — sixty-four of it, which is all the inbox held — and the
+	// SIXTY-FIFTH never reached anything, because ws.pending is only pulled by a receive loop and
+	// a dispatch's drain is not one.
+	rig.forkWinner(projectstate.TaskDetailedDesign, 3)
 	rig.register(rig.env)
 	rig.env.RegisterDelayedCallback(func() {
 		for range shapeInboxFloodSize {
 			shapeOverride(rig.env, shapeSTPTask)()
 		}
-	}, 35*time.Second)
+	}, 25*time.Second)
 	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, shapeDesignReviewTask), 120*time.Second)
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeServiceID, Activity: sampleActivity(),
 	})
 	shapeRequireCompleted(t, rig.env)
+	// THE DRAINED FLOOD IS ONE WRITE, asserted here rather than in assertShapeInboxOverflow
+	// because it is a fact about the STORE and the outcome carries only delivery. It is the
+	// deterministic half of the CAS finding: the exhaustion itself needed a concurrent sibling
+	// writer to surface, and a case that waited for the race would be flaky, while "sixty-four
+	// overrides became one note" is true on every run.
+	if n := countNotesAtGate(rig.cs, shapeServiceID, shapeSTPTask); n != 1 {
+		t.Fatalf("the drained flood of %d overrides wrote %d operator notes, want exactly 1 — one CAS write per "+
+			"signal is what exhausted the per-activity version", shapeInboxFloodSize, n)
+	}
 	return rig.csOutcome(shapeServiceID)
 }
 
@@ -35419,6 +35474,10 @@ type designJobPipeline struct {
 	// first of the three critique faults the retired rail routed to the human gate (Task 10
 	// review, F1), and the one whose absence made a red critique run unrecoverable.
 	failCritique map[string]bool
+	// rejectCritique names the kinds whose critique DISPATCH is refused outright — the SECOND of
+	// the three faults, and the one the first fix round left unpinned (Task 11 review, finding 2):
+	// reverting only the dispatch-side arm left the package green.
+	rejectCritique map[string]bool
 	// drafts counts the draft dispatches per kind, so a case can assert a redraft happened.
 	drafts map[string]int
 }
@@ -35428,7 +35487,7 @@ func newDesignJobPipeline(ps *csFakeProjectState, rec *shapeRecorder) *designJob
 		ps: ps, rec: rec,
 		reviseFirst: map[string]bool{}, silentCritique: map[string]bool{},
 		critiques: map[string]int{}, failDraft: map[string]bool{}, drafts: map[string]int{},
-		failCritique: map[string]bool{},
+		failCritique: map[string]bool{}, rejectCritique: map[string]bool{},
 	}
 }
 
@@ -35437,6 +35496,11 @@ func (p *designJobPipeline) SubmitAgenticJob(_ fwra.Context, spec agenticjob.Pip
 	defer p.mu.Unlock()
 	p.submitted = append(p.submitted, spec)
 	kind := spec.DispatchInputs[dispatchInputArtifactKind]
+	if p.rejectCritique[kind] && spec.DispatchInputs[dispatchInputJobMode] == jobModeCritique {
+		// The venue REFUSED the dispatch: no run, no handle, nothing to observe. The Manager's own
+		// refusals (an unresolvable repo target, an empty handle) arrive at the same arm.
+		return "", fwra.New(fwra.Infrastructure, "the design venue refused the critique dispatch")
+	}
 	if p.rec != nil {
 		// A job with no design COMMAND is the local merge — the one dispatch that is not a
 		// lifecycle task — and it is recorded under the same job key csFakePipeline uses, so a
@@ -36238,13 +36302,15 @@ func Test_ConstructionWalk_AttemptsAreOpenedPendingAndResolvedWithTheEpisode(t *
 	}
 }
 
-// A FAILED CONSTRUCTION JOB FLAGS THE VARIANCE, RECORDS THE FAILED ATTEMPT AND FAILS THE WALK
-// — one rule for all three strategy arms (Task 9's compute failure, Task 10's design job, this).
+// A FAILED CONSTRUCTION JOB FLAGS THE VARIANCE AND LEAVES THE FAILURE ON THE LEDGER. The four
+// answers the variance loop can then give are driven one per case in the variance block below;
+// what THIS case pins is the part that is true of all of them — the diagnostic is recorded on the
+// attempt, the flagged variance is on the session view, and the DAG never made the next phase
+// ready.
 //
-// WHAT IT DELIBERATELY DOES NOT DO, stated here because the absence is the parity gap: it does
-// not enter handleVariance's retry/takeover/escalate loop. The activity is left with a TERMINAL
-// record rather than stuck Running, which is the half that matters for the pump; re-expressing
-// the retry over a task DAG is Task 12's override work.
+// It runs the DEFAULT rig, whose fakeIntervention answers Retry, so the loop exhausts its budget:
+// the terminal is VarianceExhausted and the walk ends WITHOUT a workflow error, which is what the
+// retired failVarianceExhausted did and what keeps the pump's cascade alive.
 func Test_ConstructionWalk_JobFailure_FlagsTheVarianceAndRecordsATerminal(t *testing.T) {
 	rig := constructionShapeRig(t, projectstate.ReviewPolicy{})
 	rig.pipe.failTask = map[projectstate.MethodTask]bool{projectstate.TaskDetailedDesign: true}
@@ -36253,29 +36319,30 @@ func Test_ConstructionWalk_JobFailure_FlagsTheVarianceAndRecordsATerminal(t *tes
 	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
 		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
 	})
-	if !rig.env.IsWorkflowCompleted() {
-		t.Fatal("the walk must reach a terminal")
-	}
-	err := rig.env.GetWorkflowError()
-	if err == nil {
-		t.Fatal("a construction job that reached a terminal FAILURE must fail the walk; success was inferred from a non-success phase")
-	}
-	if !strings.Contains(err.Error(), "ConstructionJobFailed") || !strings.Contains(err.Error(), rig.pipe.diag) {
-		t.Errorf("the walk's error must name the failure and carry the venue's diagnostic; got %v", err)
+	shapeRequireCompleted(t, rig.env)
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("an exhausted supervision budget is a RECORDED terminal, not a workflow failure — a child that errors "+
+			"fails the pump run blocked on it: %v", err)
 	}
 	row := rig.cs.execution(shapeDeploymentID)
 	failed := false
 	for _, a := range row.Attempts {
 		if a.Task == projectstate.TaskDetailedDesign && a.Outcome == projectstate.OutcomeFailed {
 			failed = true
+			if a.Evidence.Kind != projectstate.EvidenceEpisode {
+				t.Errorf("the failed attempt cites %v; a failed dispatch still burned tokens and still owes the episode",
+					a.Evidence.Kind)
+			}
 		}
 	}
 	if !failed {
 		t.Errorf("the FAILED attempt must be on the ledger — an operator reads the attempt, not the workflow error. attempts=%+v", row.Attempts)
 	}
-	if rig.cs.execution(shapeDeploymentID).FailureReason != projectstate.VarianceExhausted {
-		t.Errorf("the activity must carry a terminal failure reason so the pump stops seeing it Running; got %v",
-			rig.cs.execution(shapeDeploymentID).FailureReason)
+	if row.FailureReason != projectstate.VarianceExhausted {
+		t.Errorf("the activity must carry a terminal failure reason so the pump stops seeing it Running; got %v", row.FailureReason)
+	}
+	if !strings.Contains(row.FailureDetail, "max attempts") {
+		t.Errorf("the terminal's detail must say the budget was spent; got %q", row.FailureDetail)
 	}
 	// And NOTHING was dispatched after the failure: the DAG's successor tasks never became
 	// ready, which is what a re-walk of a flat phase list would have got wrong.
@@ -36400,6 +36467,254 @@ func mergeJobCount(specs []agenticjob.PipelineSpec) int {
 		}
 	}
 	return n
+}
+
+// ---------------------------------------------------------------------------
+// THE VARIANCE LOOP, through the child (stage 4b1 Task 11, fix round 1). The retired
+// supervision loop's whole answer to a failed job — DECIDE, retry or take over up to
+// maxVarianceAttempts, or escalate to a bounded operator override with a Skip terminal —
+// reproduced per TASK instead of per activity, and asserted on the four answers it can give.
+// ---------------------------------------------------------------------------
+
+// varianceRig is a construction rig whose intervention Engine answers a fixed directive, so each
+// case drives ONE arm of handleVariance's switch rather than whatever the default policy happens
+// to decide.
+func varianceRig(t *testing.T, directive intervention.VarianceDirective, wait time.Duration) *shapeRig {
+	t.Helper()
+	var ts testsuite.WorkflowTestSuite
+	rig := &shapeRig{env: ts.NewTestWorkflowEnvironment(), rec: newShapeRecorder()}
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	ps.rec = rig.rec
+	pipe := &csFakePipeline{
+		phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec,
+		failTask: map[projectstate.MethodTask]bool{}, failTaskFirst: map[projectstate.MethodTask]int{},
+	}
+	deps := gateDeps(ps)
+	deps.Intervention = &fakeIntervention{directive: directive}
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	deps.EscalationWaitTimeout = wait
+	wf := csNewWorkflows(deps)
+	wf.Deliveries = rig.rec
+	rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+	rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	return rig
+}
+
+// A RETRY DIRECTIVE RE-DISPATCHES THE TASK AND THE WALK GOES ON. The ledger shows the failure
+// AND the success at the SAME task, under two numbered attempts, with the walk's revision
+// unmoved — a variance retry is not a send-back, so no round re-opens and no phase re-runs.
+func Test_ConstructionVariance_RetryRedispatchesTheTaskAndPasses(t *testing.T) {
+	rig := varianceRig(t, intervention.VarianceRetry, 0)
+	rig.pipe.failTaskFirst[projectstate.TaskDetailedDesign] = 1
+	rig.pipe.diag = "the construct job's CI check went red"
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	// The walk FINISHES, which is the whole point: one red CI run used to cost the activity.
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution(shapeDeploymentID)
+	var outcomes []projectstate.TaskOutcome
+	var numbers []int
+	for _, a := range row.Attempts {
+		if a.Task == projectstate.TaskDetailedDesign {
+			outcomes = append(outcomes, a.Outcome)
+			numbers = append(numbers, a.Attempt)
+		}
+	}
+	if !slices.Equal(outcomes, []projectstate.TaskOutcome{projectstate.OutcomeFailed, projectstate.OutcomePassed}) {
+		t.Fatalf("the ledger at detailedDesign reads %v, want FAILED then PASSED — a retry that overwrote the "+
+			"first attempt would erase the failure an operator has to see", outcomes)
+	}
+	if !slices.Equal(numbers, []int{1, 2}) {
+		t.Errorf("the two dispatches are attempts %v, want 1 then 2 — each dispatch is its own numbered attempt", numbers)
+	}
+	// THE REVISION DID NOT MOVE: exactly one round at the gate that judges it, numbered 1.
+	rounds := 0
+	for _, r := range row.Reviews {
+		if string(r.TaskID) == shapeDesignReviewTask {
+			rounds++
+			if r.Round != 1 {
+				t.Errorf("the judging round is numbered %d; a variance retry is not a send-back and must not bump the revision", r.Round)
+			}
+		}
+	}
+	if rounds != 1 {
+		t.Errorf("the judging gate opened %d rounds, want 1", rounds)
+	}
+	// And the activity still exits COMPLETED, with the later phases dispatched.
+	if !shapeExitedCompleted(rig.cs, shapeDeploymentID) {
+		t.Error("a retried-then-passed task must not stop the activity reaching its binary exit")
+	}
+}
+
+// THE BUDGET IS SPENT: maxVarianceAttempts dispatches, then the activity records
+// VarianceExhausted and the walk ends WITHOUT a workflow error — which is exactly what
+// failVarianceExhausted did, and what keeps the pump's cascade alive past an activity that gave
+// up. A returned error would fail the pump run blocked on this child.
+func Test_ConstructionVariance_BudgetExhausted_RecordsTheTerminalAndEndsQuietly(t *testing.T) {
+	rig := varianceRig(t, intervention.VarianceRetry, 0)
+	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution(shapeDeploymentID)
+	dispatched := 0
+	for _, a := range row.Attempts {
+		if a.Task == projectstate.TaskDetailedDesign {
+			dispatched++
+			if a.Outcome != projectstate.OutcomeFailed {
+				t.Errorf("attempt %d at detailedDesign resolved %q, want failed", a.Attempt, a.Outcome)
+			}
+		}
+	}
+	if dispatched != maxVarianceAttempts {
+		t.Errorf("the supervision budget allowed %d dispatches, want maxVarianceAttempts (%d) — the budget is checked at the "+
+			"TOP of the loop, so the tenth failure escalates rather than the eleventh", dispatched, maxVarianceAttempts)
+	}
+	if row.FailureReason != projectstate.VarianceExhausted {
+		t.Errorf("the activity's terminal reason is %v, want VarianceExhausted", row.FailureReason)
+	}
+	// The phase AFTER the failed one never ran: readyTasks never made it ready.
+	for _, spec := range submittedSpecs(rig.pipe) {
+		if spec.DispatchInputs["command"] == "deployment-construction" {
+			t.Error("the phase after the exhausted one was dispatched anyway")
+		}
+	}
+	if shapeExitedCompleted(rig.cs, shapeDeploymentID) {
+		t.Error("an activity that exhausted its budget must NOT read Completed")
+	}
+}
+
+// AN ESCALATION WAITS ON THE TASK'S OWN INBOX, and an operator's SKIP exits the activity Skipped
+// — which the pump reads as Done, so the dependents unblock rather than stalling behind work
+// nobody is going to do.
+//
+// The override is TaskID-addressed and reaches the escalated DISPATCH, not a gate: the shared
+// operatorOverride channel would have handed it to whichever coroutine the SDK scheduled first.
+func Test_ConstructionVariance_EscalatedThenOperatorSkip_ExitsTheActivitySkipped(t *testing.T) {
+	rig := varianceRig(t, intervention.VarianceEscalate, 0)
+	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{
+			TaskID:   string(projectstate.TaskDetailedDesign),
+			Override: ActivityOverride{Kind: OverrideSkip, Notes: "the provisioning spec is blocked on the vendor"},
+		})
+	}, time.Minute)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution(shapeDeploymentID)
+	// ONE dispatch: the escalation happened on the first failure and the operator answered it.
+	dispatched := 0
+	for _, a := range row.Attempts {
+		if a.Task == projectstate.TaskDetailedDesign {
+			dispatched++
+		}
+	}
+	if dispatched != 1 {
+		t.Errorf("an Escalate directive must not retry on its own; got %d dispatches", dispatched)
+	}
+	if row.FailureReason != projectstate.FailureReasonUnknown {
+		t.Errorf("a SKIP is not a failure; the terminal reason is %v, want none", row.FailureReason)
+	}
+	skipped := false
+	rig.cs.mu.Lock()
+	for _, e := range rig.cs.exited {
+		if e.activityID == shapeDeploymentID && e.outcome == projectstate.ActivityOutcomeSkipped {
+			skipped = true
+		}
+	}
+	rig.cs.mu.Unlock()
+	if !skipped {
+		t.Error("the operator's Skip must record ActivityOutcomeSkipped — the pump reads it as Done and unblocks the dependents")
+	}
+	// The operator's steer is kept on the activity, exactly as executeOverride kept it — and
+	// under the TAKEOVER gate, which is the gate an escalation's override answers.
+	if n := countNotesAtGate(rig.cs, shapeDeploymentID, takeoverGateKey); n != 1 {
+		t.Errorf("%d operator notes recorded at the takeover gate, want 1 — a skip with no recorded reason is a decision nobody can audit", n)
+	}
+}
+
+// countNotesAtGate counts the operator notes the run recorded for one activity at one gate. The
+// notes land through the constructionTransition facet (recordOperatorNote's verb), so they are
+// read off the double's own call log rather than off the execution row.
+func countNotesAtGate(ps *csFakeProjectState, activityID, gate string) int {
+	ps.mu.Lock()
+	defer ps.mu.Unlock()
+	n := 0
+	for _, c := range ps.notes {
+		if c.activityID == activityID && c.note.Gate == gate {
+			n++
+		}
+	}
+	return n
+}
+
+// AN ESCALATION THAT NOBODY ANSWERS TIMES OUT AND RECORDS IT, rather than hanging forever on an
+// override that never comes. The window is EscalationWaitTimeout; zero means wait-forever (the
+// supervised EscalateEverything mode), which is why this case sets one.
+func Test_ConstructionVariance_EscalationTimesOut_RecordsEscalationTimedOut(t *testing.T) {
+	rig := varianceRig(t, intervention.VarianceEscalate, 10*time.Minute)
+	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
+	rig.register(rig.env)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	shapeRequireCompleted(t, rig.env)
+	if err := rig.env.GetWorkflowError(); err != nil {
+		t.Fatalf("an unanswered escalation is a recorded terminal, not a workflow failure: %v", err)
+	}
+	row := rig.cs.execution(shapeDeploymentID)
+	if row.FailureReason != projectstate.EscalationTimedOut {
+		t.Fatalf("the activity's terminal reason is %v, want EscalationTimedOut", row.FailureReason)
+	}
+	if !strings.Contains(row.FailureDetail, "escalation timed out") || !strings.Contains(row.FailureDetail, "underlying") {
+		t.Errorf("the timeout's detail must name itself AND the underlying failure; got %q", row.FailureDetail)
+	}
+}
+
+// AN OVERRIDE STORM COALESCES TO ONE DECISION PER DISPATCH (fix round 1). Measured before the
+// bound: 65 overrides to a live dispatch became 65 sequential recordOperatorNote writes from one
+// coroutine while a sibling fork branch wrote its own attempts, and the per-activity CAS
+// exhausted — an activity killed by an operator pressing a button repeatedly.
+//
+// The bound is also the honest reading: an override is a decision ABOUT the dispatch in flight,
+// a second one says nothing new about it, and the next decision belongs to the next attempt.
+func Test_ConstructionVariance_OverrideStormCoalescesToOneNotePerDispatch(t *testing.T) {
+	const storm = deliveryTaskInboxCapacity / 2
+	rig := varianceRig(t, intervention.VarianceRetry, 0)
+	// One lagging poll on the task under the storm, so it is still in flight with an inbox it
+	// reads when the storm lands.
+	rig.pipe.laggingTask, rig.pipe.laggingPolls = projectstate.TaskDetailedDesign, 3
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(func() {
+		for range storm {
+			rig.env.SignalWorkflow(signalOperatorOverride, operatorOverrideSignal{
+				TaskID:   string(projectstate.TaskDetailedDesign),
+				Override: ActivityOverride{Kind: OverrideRetry, Notes: "steer"},
+			})
+		}
+	}, 20*time.Second)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: shapeProjectID, ActivityID: shapeDeploymentID, Activity: shapeDeploymentActivity(),
+	})
+	// It COMPLETES. Without the bound this is where MutateConflictExhausted surfaced.
+	shapeRequireCompleted(t, rig.env)
+
+	notes := countNotesAtGate(rig.cs, shapeDeploymentID, string(projectstate.TaskDetailedDesign))
+	if notes != 1 {
+		t.Fatalf("%d operator notes were written for one dispatch's storm of %d overrides, want exactly 1 — "+
+			"the rest are too late for the dispatch they were aimed at", notes, storm)
+	}
 }
 
 // THE COMMAND FALLBACK AGREES WITH THE DATA, for every dispatch task of every lifecycle. The
@@ -36551,7 +36866,7 @@ func Test_DesignWalk_FailedCritiqueJob_HoldsTheGateForAHumanAndFinishes(t *testi
 	shapeRequireCompleted(t, rig.env)
 
 	row := rig.cs.execution("requirements")
-	assertHeldForAHuman(t, latestRoundAt(row, "missionReview"))
+	assertHeldForAHuman(t, latestRoundAt(row, "missionReview"), "went red")
 	// The three siblings were auto-passed in the SAME walk, so the hold cannot be the preset's
 	// doing.
 	for _, task := range []string{"glossaryReview", "volatilitiesReview", "coreUseCasesReview"} {
@@ -36579,7 +36894,7 @@ func latestRoundAt(row projectstate.ActivityExecution, taskID string) projectsta
 // assertHeldForAHuman is the failed critique's whole claim: a HUMAN decided the round, and the
 // critic's silence is on the record as an ABSTENTION carrying the venue's diagnostic — not as an
 // approve, and not as a rejection nobody cast.
-func assertHeldForAHuman(t *testing.T, round projectstate.ReviewRound) {
+func assertHeldForAHuman(t *testing.T, round projectstate.ReviewRound, diagnostic string) {
 	t.Helper()
 	if round.RoundID == "" {
 		t.Fatal("the mission gate opened no round at all, so nothing held")
@@ -36589,7 +36904,7 @@ func assertHeldForAHuman(t *testing.T, round projectstate.ReviewRound) {
 	}
 	abstained := false
 	for _, v := range round.Verdicts {
-		if v.Verdict == projectstate.VerdictAbstain && strings.Contains(v.Summary, "went red") {
+		if v.Verdict == projectstate.VerdictAbstain && strings.Contains(v.Summary, diagnostic) {
 			abstained = true
 		}
 		if v.Verdict == projectstate.VerdictApprove && v.Actor != gateActorOperator {
@@ -36597,7 +36912,41 @@ func assertHeldForAHuman(t *testing.T, round projectstate.ReviewRound) {
 		}
 	}
 	if !abstained {
-		t.Errorf("the failed critique must leave an ABSTAIN carrying the venue's diagnostic; verdicts=%+v", round.Verdicts)
+		t.Errorf("the critique fault must leave an ABSTAIN carrying the venue's diagnostic (%q); verdicts=%+v",
+			diagnostic, round.Verdicts)
+	}
+}
+
+// A REJECTED CRITIQUE DISPATCH HOLDS THE GATE TOO — the SECOND of the retired rail's three
+// critique faults, and the one the first fix round left unpinned (Task 11 review, finding 2):
+// reverting only this arm to a returned error left the whole package green, because every other
+// case reached the gate through the terminal-failure arm instead.
+//
+// A refused dispatch is the same unrecoverable shape as a red run: nothing ran, so nothing judged,
+// and failing the child strands the activity with a StartedAt row that isActivityDispatchable
+// answers false for forever.
+func Test_DesignWalk_RejectedCritiqueDispatch_HoldsTheGateForAHumanAndFinishes(t *testing.T) {
+	rig, pipe := designShapeRig(t, projectstate.ReviewPresetVibes)
+	pipe.rejectCritique["mission"] = true
+	rig.register(rig.env)
+	rig.env.RegisterDelayedCallback(shapeApprove(rig.env, "missionReview"), 2*time.Minute)
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	row := rig.cs.execution("requirements")
+	assertHeldForAHuman(t, latestRoundAt(row, "missionReview"), "refused the critique dispatch")
+	// The three siblings still auto-passed, so the hold is the refusal's doing and not the preset's.
+	for _, task := range []string{"glossaryReview", "volatilitiesReview", "coreUseCasesReview"} {
+		if r := latestRoundAt(row, task); r.DecidedBy != gateActorSystem {
+			t.Errorf("round at %s was decided by %q; under vibes its siblings auto-pass", task, r.DecidedBy)
+		}
+	}
+	if !shapeExitedCompleted(rig.cs, "requirements") {
+		t.Error("the activity must reach its binary exit once the held gate is answered")
 	}
 }
 

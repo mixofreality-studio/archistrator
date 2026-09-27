@@ -10950,6 +10950,16 @@ const (
 	walkTaskPassed
 	walkTaskSentBack
 	walkTaskFailed
+	// walkTaskExited is APPENDED (stage 4b1 Task 11, fix round 1): the task did not pass and
+	// the ACTIVITY is over, with its terminal ALREADY on the ledger — the variance loop's three
+	// terminal answers (the budget exhausted, the escalation timed out, the operator skipped).
+	// It is not walkTaskFailed, because failWalk would then record a SECOND terminal over the
+	// first and report VarianceExhausted where the operator chose Skip; and it is not
+	// walkTaskPassed, because nothing was produced. The walk stops WITHOUT a workflow error,
+	// which is what the retired supervision loop did (failVarianceExhausted and
+	// executeOverride's Skip arm both returned attemptDone with a nil error) and what keeps the
+	// pump's cascade alive past an activity that gave up.
+	walkTaskExited
 )
 
 // producedSubject is what a strategy hands back: the ref a review round will cite, the
@@ -10968,6 +10978,22 @@ type producedSubject struct {
 	// with nothing in the task ledger pointing at them, which is the one link the cost views
 	// follow. Empty for a design task (its evidence is the STAGED model) and for a compute.
 	EpisodeID string
+	// AttemptRecorded says the STRATEGY already wrote this task's attempts to the ledger, so
+	// runTask must not write a second record over them (stage 4b1 Task 11, fix round 1).
+	//
+	// The construction arm needs it because ONE lifecycle task can hold SEVERAL dispatches: the
+	// variance loop re-dispatches a failed job up to maxVarianceAttempts times, each a numbered
+	// attempt of its own off constructState.nextTaskAttempt, while the WALK's revision — which
+	// is what tc.Attempt derives from — does not move. Leaving runTask to record would file the
+	// last dispatch's outcome under the FIRST attempt's number and erase every retry from the
+	// ledger, which is the one thing an operator reading a recovered activity needs to see.
+	AttemptRecorded bool
+	// ActivityExited says the strategy recorded the ACTIVITY's own terminal and the walk must
+	// stop without recording a second one. Only the variance machinery sets it, because only it
+	// knows WHICH terminal was reached — Skipped for an operator's skip, Unknown carrying
+	// VarianceExhausted or EscalationTimedOut for the two give-ups — and a walk that re-derived
+	// one would report the same thing for all three.
+	ActivityExited bool
 }
 
 // deliveryActivityInput is the start payload for the GENERIC per-activity child.
