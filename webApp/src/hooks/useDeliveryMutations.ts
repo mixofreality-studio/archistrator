@@ -3,8 +3,10 @@
  *
  * Three Managers published forty ops; `deliveryManager` publishes ten writes. The
  * hooks that used to differ by RAIL now differ only by which member of
- * `ReviewDecisionInput` an intent fills — the rail is the server's business, read
- * off the committed activity list (`railFor`), not the client's.
+ * `ReviewDecisionInput` an intent fills — the rail is the server's business, resolved
+ * from the committed activity list (`activityLifecycle`), not the client's. Stage 4b1
+ * finished the job: there is no rail-shaped refusal left in this module, only the one
+ * SEMANTIC refusal a construction stale-basis ack gets (see op 6).
  *
  * ── Addressing changed, and it is the one real shape change ──────────────────
  * The design-rail writes used to be addressed `(projectId, artifactKind)`. Every
@@ -39,7 +41,7 @@ import type {
   ReviewPreset,
 } from '../contracts/types';
 import type { components } from '../contracts/schema';
-import { phaseDecisionFilters, phaseDecisionMutationKey } from './phaseDecisionKey';
+import { reviewDecisionFilters, reviewDecisionMutationKey } from './reviewDecisionKey';
 import {
   activityViewKey,
   activityViewsKey,
@@ -247,10 +249,11 @@ export interface DispatchTaskVars extends ActivityTaskRef {
 }
 
 /**
- * Run (or re-run) one task of an activity: a design draft, a redraft, or the M0
- * plan's re-derivation. Replaces `RequestArtifactDraft` on both design rails and
- * `RequestSDPCommit`; the construction rail has no run verb before stage 4b and the
- * Manager says so.
+ * Run (or re-run) one task of an activity. ONE line on the server for every rail
+ * since stage 4b1: a `RedraftTask` signal to the generic child, which — on the rail
+ * that used to have no run verb at all — withdraws the round nobody judged and
+ * re-opens the judged pair at revision **n+1**. Not a second attempt at the same
+ * revision: that is the variance loop's shape and it belongs to the child.
  */
 export function useDispatchActivityTask(
   projectId: string
@@ -285,7 +288,7 @@ export interface DecisionAnswer {
 
 /** A decision that did not come back clean: the HTTP status where there was one
  *  (absent for a network failure), and when the console learned of it. */
-export class PhaseDecisionFailure extends Error {
+export class ReviewDecisionFailure extends Error {
   readonly status: number | undefined;
   /** The wire's error code, where one arrived — `failed_precondition` is the F55
    *  refusal the M0 advance answers with "advance anyway", so the surface that
@@ -295,7 +298,7 @@ export class PhaseDecisionFailure extends Error {
 
   constructor(cause: unknown, answeredAt: number) {
     super(cause instanceof Error ? cause.message : String(cause));
-    this.name = 'PhaseDecisionFailure';
+    this.name = 'ReviewDecisionFailure';
     this.status = cause instanceof ApiError ? cause.status : undefined;
     this.code = cause instanceof ApiError ? cause.code : undefined;
     this.answeredAt = answeredAt;
@@ -308,12 +311,13 @@ export function failureStatusOf(err: unknown): number | undefined {
 }
 
 /**
- * Every phase decision of one project shares this mutation key, so the console
+ * Every review decision of one project shares this mutation key, so the console
  * reads what is in flight — and what each one answered — from the QueryClient's
  * mutation cache (useMutationState) rather than from component state. A pending
  * decision therefore survives a remount of the console, and so does its evidence.
+ * It keys a TASK decision now (reviewDecisionKey.ts says why the name moved).
  */
-export { phaseDecisionFilters, phaseDecisionMutationKey };
+export { reviewDecisionFilters, reviewDecisionMutationKey };
 
 export interface SubmitDecisionVars extends ActivityTaskRef {
   decision: ReviewDecisionInput;
@@ -334,17 +338,20 @@ export interface SubmitDecisionVars extends ActivityTaskRef {
  * `ReviewDecisionInput` are filled — `containers/activityVerbs.ts` builds that and
  * is where the intent→members table lives.
  *
- * NOT every (rail, decision) pair is legal: the construction rail refuses
- * `ReviewSetCommentStatus` and `ReviewWithdraw` until stage 4b (the Manager answers
- * ContractMisuse), which is why `activityVerbs` still withholds those verbs there.
+ * EVERY (rail, decision) pair is legal now. Stage 4b1 gave the construction rail
+ * `SetTaskCommentStatus` and `WithdrawReviewRound`, so the two `activityVerbs` used to
+ * withhold there are offered; what the server still refuses is a WITHDRAW at a live
+ * gate (answer it, do not close it) and an APPROVE over an open change request
+ * ("cannot approve: N review thread(s) still open …", the same sentence on every rail —
+ * the bar disables the button with it, and this error is what a race answers with).
  */
 export function useSubmitReviewDecision(
   projectId: string
-): UseMutationResult<DecisionAnswer, PhaseDecisionFailure, SubmitDecisionVars> {
+): UseMutationResult<DecisionAnswer, ReviewDecisionFailure, SubmitDecisionVars> {
   const client = useQueryClient();
   const { ops } = useOpsClient();
-  return useMutation<DecisionAnswer, PhaseDecisionFailure, SubmitDecisionVars>({
-    mutationKey: phaseDecisionMutationKey(projectId),
+  return useMutation<DecisionAnswer, ReviewDecisionFailure, SubmitDecisionVars>({
+    mutationKey: reviewDecisionMutationKey(projectId),
     mutationFn: async (vars) => {
       try {
         await ops.call('deliverySubmitReviewDecision', {
@@ -357,7 +364,7 @@ export function useSubmitReviewDecision(
         });
         return { answeredAt: Date.now() };
       } catch (e) {
-        throw new PhaseDecisionFailure(e, Date.now());
+        throw new ReviewDecisionFailure(e, Date.now());
       }
     },
     // An APPROVE auto-advances the phase workflow, which AUTO-STARTS the next step's
@@ -390,10 +397,14 @@ export interface AskQuestionsVars extends ActivityTaskRef {
 
 /**
  * Ask clarifying QUESTIONS about a task's artifact WITHOUT sending it back for a
- * redraft. The questions are appended to the review ledger as question-type entries
- * and a lightweight answer job is dispatched; open questions do NOT block approve.
+ * redraft. The questions are appended to the review ledger as question-type entries;
+ * open questions do NOT block approve.
  *
- * Both design rails have it. The CONSTRUCTION rail does not, until stage 4b.
+ * EVERY rail has it since stage 4b1, and the two arms differ in one way worth knowing
+ * at the call site: a design SLOT's questions dispatch an answer JOB, while a
+ * construction round's land on the round's thread carried by an abstention and are
+ * answered by a HUMAN — `respondToReviewComment` is slot-scoped and is not registered
+ * in the construction job mode, so there is no agent to dispatch (Task 12, D4).
  */
 export function useAskQuestions(
   projectId: string
@@ -427,7 +438,13 @@ export interface AcknowledgeStaleVars extends ActivityTaskRef {
 /**
  * Mark a stale committed artifact "reviewed — unaffected" (F45): clears its
  * StaleBasis WITHOUT a redraft, recording the note as a durable staleAck audit
- * entry. Both design rails; not construction before stage 4b.
+ * entry.
+ *
+ * THE ONE REFUSAL STAGE 4b1 DID NOT REMOVE, and it is semantic rather than missing
+ * plumbing: `StaleBasis` is a field on an artifact SLOT and the verb takes the kind of
+ * the slot it clears, so a construction round — which judges its own work product and
+ * names no slot — has no basis flag to clear, and the Manager answers
+ * FailedPrecondition naming the missing datum. `activityVerbs` keeps the guard.
  */
 export function useAcknowledgeStaleBasis(
   projectId: string
@@ -496,12 +513,34 @@ export function useSetProjectRunState(
 export interface OverrideActivityVars {
   activityId: string;
   kind: OverrideKind;
+  /**
+   * REQUIRED in practice, optional only in this type: the Manager refuses an empty
+   * one — "an override requires non-empty notes — it is the operator's durable record
+   * of WHY the automatic path was steered". The surface that presses this keeps its
+   * button disabled until there is a note (`ActivityOverrideBar`).
+   */
   notes?: string;
   /** Anchored comments accumulated for this steer, ride alongside the notes. */
   comments?: Schemas['DeliveryAnchoredComment'][];
 }
 
-/** Steer one activity: retry or skip, with notes. */
+/**
+ * ONE op, TWO meanings, keyed by liveness — and the caller must know which one it is
+ * pressing, because the server can only tell it which one is POSSIBLE:
+ *
+ *   - a LIVE activity awaiting a takeover is STEERED. The override reaches the
+ *     escalated task's own inbox (the Manager recovers the task from the attempt
+ *     ledger) and is fed through the same decide→execute machinery the automatic
+ *     variance path uses. Anywhere else the façade refuses: *"activity X is at
+ *     <stage>, not awaiting a takeover — an override steers an escalation; decide a
+ *     gate with SubmitTaskDecision"*.
+ *   - a TERMINAL activity with no live child is RE-OPENED (stage 4b1): the row is
+ *     re-armed through `RecordOperatorNote{requeue}`, the pump selects it on its next
+ *     tick, and the re-run seeds every task that PASSED from the ledger. The override
+ *     KIND is ignored on this arm — the activity having no child is what selects it.
+ *
+ * `activityOverride.ts` is where the SPA decides which of the two it is offering.
+ */
 export function useOverrideActivity(
   projectId: string
 ): UseMutationResult<undefined, Error, OverrideActivityVars> {

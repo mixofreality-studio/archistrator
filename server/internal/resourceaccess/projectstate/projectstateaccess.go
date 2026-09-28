@@ -480,12 +480,37 @@ func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, e
 
 // AdvancePhase moves the project to the next Method phase (system design →
 // project design → construction) in one atomic version-guarded commit.
+//
+// THE CEILING IS PART OF THE VERB, and its absence was the root defect behind the
+// M0 double-writer race. Phase is a THREE-member closed enum (PhaseSystemDesign 0,
+// PhaseProjectDesign 1, PhaseConstruction 2) and this body was a bare `p.Phase++`,
+// so a second caller arriving after the phase was already sealed pushed Phase to
+// the unnamed ordinal 3 — and BOTH construction dispatchers (nextEligibleActivity
+// and PumpSweepWorkflow) select on `Phase == PhaseConstruction` exactly, so the
+// project went permanently quiet with nothing written anywhere to say why. Two
+// writers reach this verb on an M0 approve (the child's own seal and the
+// deliveryManager façade the SPA calls), so a ceiling on the WRITE is the only
+// place the invariant holds no matter which of them wins the race.
+//
+// The refusal is ContractMisuse (terminal, non-retryable): asking for a phase
+// beyond the last member is not a conflict a retry can heal, and the Manager's
+// seal-side conflict loop must not spin on it.
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		if p.Phase >= lastPhase {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate.AdvancePhase: project %s is already at the last Method phase (%d); there is no phase beyond construction",
+				projectID, int(p.Phase)))
+		}
 		p.Phase++
 		return nil
 	})
 }
+
+// lastPhase is the highest NAMED member of the Phase enum — the ceiling AdvancePhase
+// refuses to cross. It is spelled as the named constant rather than a literal so that
+// adding a phase (Operations is the documented next one) moves the ceiling with it.
+const lastPhase = PhaseConstruction
 
 // SetResearchInput takes the wire {Title, Content} corpus (unchanged) but persists it as
 // FILES (F42, founder ruling 2026-07-05): each source's Content is written to
@@ -8440,15 +8465,16 @@ func deriveVariant(activityID string) TestingVariant {
 	}
 }
 
-// ErrDesignActivityNotDispatchable is returned by ClassifyActivity, WITH the resolved
-// design ActivityType, for the three reserved design-prefix ids. The pair is the point:
-// a design activity IS classifiable — the console, QueryActivityView and the backfill
-// all need its type and its lifecycle — but it is not DISPATCHABLE by the construction
-// pump, which would run its design command as a construction pipeline (08-30 S2 ruling).
-// Stage 4's DeliveryManager dispatches it; until then callers select on errors.Is.
-var ErrDesignActivityNotDispatchable = errors.New(
-	"projectstate: design activities are not dispatched by the construction pump")
-
+// THE RETIRED SENTINEL (stage 4b1 Task 10). ErrDesignActivityNotDispatchable used to
+// come back from ClassifyActivity — WITH the resolved design ActivityType — for the three
+// reserved design-prefix ids, because the construction pump would otherwise have run a
+// design slash-command as a construction pipeline (08-30 S2 ruling). It is GONE: the
+// generic DeliveryActivityWorkflow walks the three design lifecycles' task DAGs through
+// the same strategy table it walks every other lifecycle with, so "classifiable but not
+// dispatchable" is no longer a state this platform has. The TABLE below survives — every
+// reader still needs the id → type mapping — and eleven call sites that selected on the
+// sentinel now read the type they were always given.
+//
 // designActivityTypes is the exact-id table for the three reserved design activities
 // DerivePlan emits as the plan's fixed prefix. An EXACT id match is the whole rule: the
 // derivation is the only writer of these ids (validateAdditive refuses an additive that
@@ -8484,10 +8510,10 @@ func designActivityType(id string) (ActivityType, bool) {
 //
 // Precedence, in order — the first matching rule wins, and there is NO default arm:
 //
-//  0. one of the three reserved design ids (designActivityType) → its design type,
-//     WITH ErrDesignActivityNotDispatchable. It must be checked FIRST: all three are
-//     authored system-architect/coding=false, so rule 6 would type them Documentation
-//     and the pump would run a design slash-command as a construction pipeline.
+//  0. one of the three reserved design ids (designActivityType) → its design type. It
+//     must be checked FIRST: all three are authored system-architect/coding=false, so
+//     rule 6 would type them Documentation and the pump would resolve a construction
+//     phase profile for a design lifecycle.
 //  1. workerClass ∈ {software-tester, test-engineer, qa-engineer} → Testing, with the
 //     variant read off the id (deriveVariant)
 //  2. workerClass == "ui-designer"    → Frontend when coding, else UIDesign
@@ -8499,15 +8525,17 @@ func designActivityType(id string) (ActivityType, bool) {
 //  8. otherwise                       → error (the activity is unclassifiable; repair
 //     is to amend workerClass or coding in the committed activity list)
 //
-// Rule 0's error is the ONLY one that comes back with a meaningful type: every other
-// error arm means "no type could be resolved". Callers therefore select on errors.Is —
-// a caller that only asks `err != nil` refuses a row it could have rendered.
+// EVERY error arm now means the SAME thing — "no type could be resolved" — which is what
+// retiring ErrDesignActivityNotDispatchable bought (stage 4b1 Task 10). Rule 0 used to be
+// the one arm that returned a meaningful type ALONGSIDE an error, so every caller had to
+// select on errors.Is and a caller that merely asked `err != nil` refused a row it could
+// have rendered. `err != nil` is now the whole question.
 //
 // The returned TestingVariant is meaningful only when the type is Testing; it is the
 // zero value (TestVariantPlan) otherwise.
 func ClassifyActivity(id, workerClass string, coding bool) (ActivityType, TestingVariant, error) {
 	if typ, ok := designActivityType(id); ok {
-		return typ, TestVariantPlan, ErrDesignActivityNotDispatchable
+		return typ, TestVariantPlan, nil
 	}
 	switch workerClass {
 	case "software-tester", "test-engineer", "qa-engineer":
@@ -8558,11 +8586,12 @@ func ClassifyType(id, workerClass string, coding, hasServiceContract bool) (Acti
 		return ActivityTypeService, true
 	}
 	typ, _, err := ClassifyActivity(id, workerClass, coding)
-	// The view lens asks "can this row be rendered honestly", and a design activity can:
-	// it has a type, a lifecycle and committed artifacts behind it. Only the PUMP cares
-	// that it is not dispatchable, so only the pump selects on the sentinel. Anything
-	// else ClassifyActivity refuses is genuinely untypeable and stays refused.
-	if err != nil && !errors.Is(err, ErrDesignActivityNotDispatchable) {
+	// A design activity needed a tolerance here until stage 4b1 Task 10: rule 0 handed back
+	// its type WITH ErrDesignActivityNotDispatchable, so this lens had to let that one error
+	// through or it would have refused to render a row that has a type, a lifecycle and
+	// committed artifacts behind it. The sentinel is gone, so the tolerance is gone with it:
+	// whatever ClassifyActivity refuses now is genuinely untypeable.
+	if err != nil {
 		return ActivityTypeService, false
 	}
 	return typ, true
@@ -8725,6 +8754,52 @@ func CurrentLifecyclePhase(resolved []PhaseCompletion) ActivityMethodPhase {
 // a row the backfill reconstructed (attempts, no head facts) never does.
 func PumpWroteRow(r ActivityExecution) bool {
 	return r.StartedAt != nil
+}
+
+// RequeuedAfterExit reports whether this row was RE-ARMED by an operator requeue after it
+// exited, and is therefore dispatchable again whatever its attempt ledger resolves to.
+//
+// THE DEFECT IT CLOSES, and it made the re-open half-real. RecordOperatorNote{NoteRequeue}
+// clears the four head facts — StartedAt, CompletedAt, FailureReason, FailureDetail — and KEEPS
+// both ledgers, which is what lets the re-run seed its passed tasks instead of re-doing them.
+// But with StartedAt cleared, CoarsePhaseFor falls through to the LEDGER, and a ledger whose
+// every gate passed resolves Done. So the pump asked "is this dispatchable?", got Done, and
+// never re-selected the activity: the re-open cleared the facts the pump reads and then handed
+// it a derivation that put the terminal straight back. The post-exit design-slot-commit window
+// — a Completed activity whose slots are still AwaitingReview — therefore did NOT heal in
+// production, however many times an operator pressed the button.
+//
+// THE EVIDENCE IS THE NOTE, not a flag. The row already records the operator's requeue with a
+// server clock, and the attempt ledger already records when the activity last finished work, so
+// "re-armed since it exited" is a comparison between two facts the store holds rather than a
+// fifth head field that would then need its own write-once rule. Concretely: the head must read
+// NOT-STARTED (all four facts cleared, which only reopenTerminalRow does), and the newest
+// requeue note must be NEWER than the newest RESOLVED attempt. The second half is what keeps
+// this from admitting a row whose requeue predates its last run — an activity re-opened, re-run
+// and finished again is finished, and its stale requeue note must not re-arm it a second time.
+func RequeuedAfterExit(r ActivityExecution) bool {
+	if r.StartedAt != nil || r.CompletedAt != nil || r.FailureReason != FailureReasonUnknown {
+		return false
+	}
+	var requeued time.Time
+	for _, n := range r.OperatorNotes {
+		if n.Kind == NoteRequeue && n.RecordedAt.After(requeued) {
+			requeued = n.RecordedAt
+		}
+	}
+	if requeued.IsZero() {
+		return false
+	}
+	var lastWork time.Time
+	for _, a := range r.Attempts {
+		if a.Outcome == OutcomePending || a.EndedAt == nil {
+			continue
+		}
+		if a.EndedAt.After(lastWork) {
+			lastWork = *a.EndedAt
+		}
+	}
+	return requeued.After(lastWork)
 }
 
 // DependencyResolution is the outcome of resolving one dependency id. ProblemReason is
@@ -10064,8 +10139,17 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 			// by never overwriting CompletedAt; that write-once rule cannot be honoured here
 			// by keeping the old value and reporting success, because the caller would be
 			// told it re-opened an activity it did not. So this refuses, matching the
-			// facet's own explicit terminality precedent (DecideReviewRound). A genuine
-			// requeue mints a new execution rather than resurrecting a closed one.
+			// facet's own explicit terminality precedent (DecideReviewRound).
+			//
+			// A REQUEUE IS THE ONE THING THAT RE-ARMS THE ROW, and it is NOT this verb:
+			// RecordOperatorNote{Kind: NoteRequeue} clears the four head facts first
+			// (reopenTerminalRow), after which this refusal no longer applies because the row
+			// is no longer terminal. That ordering is the whole design — the operator's reason
+			// and the re-arm land in ONE transition, so there is no window in which a re-armed
+			// activity has nobody's name on it — and it is why this comment must not say a
+			// requeue mints a new execution: it does not, and it has not since the re-open
+			// landed. The ledgers below are KEPT across a requeue, which is what lets the
+			// re-run seed its passed tasks instead of re-doing them.
 			if exited := CoarsePhaseFor(*cs, nil); exited == ActivityConstructionDone || exited == ActivityConstructionFailed {
 				refused = fwra.New(fwra.Conflict, fmt.Sprintf(
 					"projectstate.OpenActivity: activity %s already exited (%v); a finished activity is not re-opened in place", activityID, exited))
@@ -10082,6 +10166,33 @@ func (a *activityExecutionAccess) OpenActivity(rc fwra.Context, projectID Projec
 				refused = execMisuse("OpenActivity", fmt.Sprintf(
 					"activity %s is pinned to lifecycle %s@%s and cannot be re-pinned to %s@%s; the ledger was written under the first",
 					activityID, cs.Pin.TypeKey, cs.Pin.AssetsVersion, pin.TypeKey, pin.AssetsVersion))
+				return
+			}
+			// TYPE AND VARIANT ARE WRITE-ONCE, for the same reason the pin is. The row's
+			// Type is what ResolveConstructionRow resolves every read-time derivation
+			// against — the lifecycle profile, the phase set, earned value — so a re-open
+			// that quietly re-typed it would retro-date every attempt and round already
+			// recorded to a DAG they were never written under. That write-once rule cannot
+			// be honoured here by keeping the old value and reporting success: the caller
+			// would be told it opened the activity it asked for. So this refuses, exactly
+			// as the pin does.
+			//
+			// StartedAt (not the pin, and not a non-zero Type) is the "this row is LIVE
+			// rather than being birthed" test, the same one the stamp below uses: a BIRTH
+			// leaves it nil and writes both fields, and ActivityTypeService is the zero
+			// value, so a row born as a service is indistinguishable from an untyped one by
+			// Type alone. A row the RETIRED rail started (RecordActivityStarted stamps the
+			// same classified pair and the same StartedAt) therefore re-opens as the no-op
+			// it is, and the design rails' per-kind re-open of one prefix activity —
+			// requirements across mission/glossary/…, always the same (typ, variant) — is
+			// untouched.
+			//
+			// A genuine re-classification is an amendment to the committed activity list
+			// followed by a NEW execution, not a re-open of the old one.
+			if cs.StartedAt != nil && (cs.Type != typ || cs.Variant != variant) {
+				refused = execMisuse("OpenActivity", fmt.Sprintf(
+					"activity %s is open as %s/%s and cannot be re-opened as %s/%s; the ledger below it was written under the first",
+					activityID, cs.Type, cs.Variant, typ, variant))
 				return
 			}
 			cs.Type = typ
@@ -10206,22 +10317,50 @@ func (a *activityExecutionAccess) OpenReviewRound(rc fwra.Context, projectID Pro
 		return 0, execMisuse("OpenReviewRound", "empty subjectRef — a verdict on no subject cites nothing")
 	}
 	now := a.store.now()
+	// Copied, not aliased, for the same reason the roster below is cloned: the caller keeps
+	// its own pointer, and a stored row must not change because the caller's copy did.
+	var kind *ArtifactKind
+	if round.ArtifactKind != nil {
+		k := *round.ArtifactKind
+		kind = &k
+	}
 	return a.onActivity(rc, "OpenReviewRound", projectID, expectedVersion, expectedActivityVersion, activityID, cred, idempotencyKey, func(cs *ActivityExecution) error {
 		for i := range cs.Reviews {
-			if cs.Reviews[i].RoundID == round.RoundID {
-				return nil // already open: a no-op success, not a second round
+			if cs.Reviews[i].RoundID != round.RoundID {
+				continue
 			}
+			// The kind is WRITE-ONCE with the round, like every other identity fact on it: a
+			// round is opened once per (task, kind, n) and re-opening the same RoundID opens
+			// ONE round, so a second open carrying a different kind is the caller
+			// contradicting itself about what this round judges.
+			//
+			// The one-sided cases are not contradictions. A held round with NO kind is either
+			// a construction round or one written before the field existed, and a caller that
+			// now names the kind heals it in place rather than being refused — the ledger
+			// gains a fact it was missing. A caller that names none leaves the held kind
+			// alone: absence is not a claim.
+			held := cs.Reviews[i].ArtifactKind
+			switch {
+			case kind == nil:
+			case held == nil:
+				cs.Reviews[i].ArtifactKind = kind
+			case *held != *kind:
+				return execMisuse("OpenReviewRound", fmt.Sprintf(
+					"round %s already judges %s and cannot be re-opened judging %s", round.RoundID, *held, *kind))
+			}
+			return nil // already open: a no-op success, not a second round
 		}
 		opened := now
 		cs.Reviews = append(cs.Reviews, ReviewRound{
-			RoundID:    round.RoundID,
-			TaskID:     round.TaskID,
-			Reviews:    round.Reviews,
-			Round:      round.Round,
-			SubjectRef: round.SubjectRef,
-			Reviewers:  slices.Clone(round.Reviewers),
-			Outcome:    RoundPending,
-			OpenedAt:   opened.UTC().Format(time.RFC3339),
+			RoundID:      round.RoundID,
+			TaskID:       round.TaskID,
+			Reviews:      round.Reviews,
+			ArtifactKind: kind,
+			Round:        round.Round,
+			SubjectRef:   round.SubjectRef,
+			Reviewers:    slices.Clone(round.Reviewers),
+			Outcome:      RoundPending,
+			OpenedAt:     opened.UTC().Format(time.RFC3339),
 			// A live write is OBSERVED. The migration tool stamps backfilled (and must name
 			// its basis) so a reconstructed round can never be read as a recorded one.
 			Provenance: AttemptProvenance{Origin: OriginObserved, GeneratedAt: &opened},
@@ -10516,6 +10655,9 @@ func (a *activityExecutionAccess) RecordActivityOutcome(rc fwra.Context, project
 // already addressed to an attempt costs ONE commit, not two. deliveredToAttemptID is
 // optional — the ordinary case is a note recorded at a gate for an attempt that does
 // not exist yet, which stays pending until the dispatch that carries it.
+//
+// A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY, and it is the ONE note kind that changes the row
+// (stage 4b1 task 12; see reopenTerminalRow for the whole rule and why it lives here).
 func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID ProjectID, expectedVersion Version, expectedActivityVersion int64, activityID string, note OperatorNoteInput, deliveredToAttemptID string, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if err := validateOperatorNoteInput(activityID, note); err != nil {
 		return 0, err
@@ -10531,6 +10673,15 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 					"note %q is already recorded on %s with different content; one id names one note", note.NoteID, activityID))
 			}
 			return nil
+		}
+		// THE DEDUP COMES FIRST, deliberately: a REPLAY of a requeue must be the same no-op
+		// success every other replay is. Re-arming below the dedup would make the second delivery
+		// of one note refuse — the row is no longer terminal, because the FIRST delivery cleared
+		// it — turning an idempotent verb into one that fails on retry.
+		if note.Kind == NoteRequeue {
+			if err := reopenTerminalRow(cs, activityID); err != nil {
+				return err
+			}
 		}
 		held := OperatorNote{
 			NoteID:     note.NoteID,
@@ -10548,6 +10699,63 @@ func (a *activityExecutionAccess) RecordOperatorNote(rc fwra.Context, projectID 
 		cs.OperatorNotes = append(cs.OperatorNotes, held)
 		return nil
 	})
+}
+
+// reopenTerminalRow re-arms an activity that has EXITED so the pump can select it again. It is
+// the whole of the re-open rule, and it rides a REQUEUE note rather than a verb of its own
+// (stage 4b1 task 12).
+//
+// WHY THE ROW NEEDED THIS AT ALL. Terminal was terminal and nothing could undo it: OpenActivity
+// refuses an exited row in so many words, StartedAt/CompletedAt/FailureReason are write-once,
+// and the pump's eligibility refuses any row a pump has written. So a failed walk, a spent
+// variance budget, or an operator's own Skip left an activity NOTHING could ever re-run — the
+// operator's only recovery was an amendment to the committed activity list minting a NEW activity
+// id, which throws away the ledger that says what already passed.
+//
+// WHY IT IS A NOTE AND NOT A THIRTEENTH VERB, measured rather than asserted: a thirteenth op on
+// this facet puts it past App-C's operation ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX,
+// which the committed state's own advisory pin asserts ABSENT (designhealth's
+// TestGreenFixtureAdvisoriesFire — "the FIRST time the repo has had no Manager contract past
+// App-C's ceiling"). `requeue` was already in the OperatorNoteKind vocabulary WITH NO WRITER,
+// an operator's re-open is precisely the decision RecordOperatorNote records, and the fold makes
+// the audit entry and the re-arm ONE COMMIT — so a crash can no longer leave a re-armed activity
+// with nobody's name on it, which two ops could.
+//
+// WHAT IT CLEARS, AND WHAT IT MUST NOT. Exactly the four STICKY HEAD FACTS — StartedAt,
+// CompletedAt, FailureReason, FailureDetail. Everything below them is the record of work that
+// really happened and is KEPT: both append-only ledgers, the lifecycle pin, the classified
+// (type, variant), the produced artifacts and the notes. That is what makes the next walk
+// re-seed the tasks that PASSED and re-dispatch only what did not, with its per-dispatch counter
+// continuing the ledger's own numbering instead of colliding with it.
+//
+// CLEARING StartedAt IS THE LOAD-BEARING PART, and it looks like the least important: it is what
+// PumpWroteRow reads, so a row that keeps it is refused by the pump for ever however clean its
+// terminal is. With it clear, the effective phase derives from the attempt ledger alone — the
+// LEDGER-PARTIAL case the pump's eligibility already admits — so no selection rule changes, and
+// OpenActivity re-stamps it through its ordinary birth path on the next run.
+//
+// A ROW THAT HAS NOT EXITED IS REFUSED, never quietly accepted: there is nothing to requeue, and
+// re-arming a live row would hand a second child the row this one is writing.
+func reopenTerminalRow(cs *ActivityExecution, activityID string) error {
+	switch phase := CoarsePhaseFor(*cs, nil); phase {
+	case ActivityConstructionDone, ActivityConstructionFailed:
+		cs.StartedAt, cs.CompletedAt = nil, nil
+		cs.FailureReason, cs.FailureDetail = FailureReasonUnknown, ""
+		return nil
+	case ActivityConstructionNotStarted, ActivityConstructionRunning:
+		// A CONFLICT, NOT A CONTRACT MISUSE. The caller's ARGUMENTS are impeccable — the same
+		// note against the same activity is legal the moment it exits — so what is wrong is the
+		// STATE, and that is the distinction fwra's two kinds carry: ContractMisuse says "this
+		// request is malformed, retrying it will never work", Conflict says "not in this state".
+		// It matches the facet's own two explicit terminality refusals (OpenActivity on an
+		// exited row, DecideReviewRound on a decided round), and the façade maps it to
+		// FailedPrecondition for the operator exactly as it already maps those.
+		return fwra.New(fwra.Conflict, fmt.Sprintf(
+			"projectstate.RecordOperatorNote: activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
+			activityID, phase))
+	}
+	return fwra.New(fwra.Conflict, fmt.Sprintf(
+		"projectstate.RecordOperatorNote: activity %s has no coarse phase a requeue can reason about", activityID))
 }
 
 // AcknowledgeStaleBasis is the activity-scoped form: the same slot transition the

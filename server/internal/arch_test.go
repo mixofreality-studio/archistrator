@@ -670,14 +670,11 @@ var encapsulationAllowlistData = map[string][]string{
 		// total (modulo its unclassifiable error), side-effect-free, over already-public
 		// projectstate enum values.
 		//
-		// ErrDesignActivityNotDispatchable is ClassifyActivity's typed sentinel for the
-		// three reserved design ids: it comes back WITH the resolved design type, so a
-		// caller must be able to tell "not dispatchable" from "not classifiable". It is
-		// read from internal/manager/construction (dispatchSelectionFor), a different
-		// package, which selects on errors.Is to go quiet instead of blocking.
+		// (ErrDesignActivityNotDispatchable was allowlisted here beside them until stage 4b1
+		// Task 10 deleted it. An allowlist entry naming a symbol that no longer exists is a
+		// waiver nobody can ever retire, so the entry went with the sentinel.)
 		"ClassifyActivity",
 		"ClassifyType",
-		"ErrDesignActivityNotDispatchable",
 		// DesignCommandFor (Plan-2 Task B1) + its DesignJobMode dispatch-shape enum: the
 		// (kind, mode, addressee) → .claude slash-command name mapping the design Managers
 		// need to dispatch draft/critique/answer jobs. Same category as CommandFor above —
@@ -787,6 +784,19 @@ var encapsulationAllowlistData = map[string][]string{
 		"MilestonesByID",
 		"PumpWroteRow",
 		"ResolveDependencySatisfied",
+		// THE REQUEUE'S EVIDENCE (stage 4b1, Task 12 round 3). RequeuedAfterExit is the same
+		// category as PumpWroteRow beside it: a total, side-effect-free predicate over
+		// projectstate's OWN row type, so there is no resource to reach and no contract op to
+		// generate. It lives here rather than in the Manager for the reason PumpWroteRow does —
+		// the rule is about what THIS store's write path left behind (reopenTerminalRow clears
+		// four head facts and keeps both ledgers), and a Manager-side copy would be a second
+		// reader of an invariant only the store enforces. Caller outside this package,
+		// verifiable by grep:
+		//
+		//	RequeuedAfterExit → the delivery Manager (isActivityDispatchable): a row re-armed by
+		//	                    an operator requeue is dispatchable again whatever its attempt
+		//	                    ledger resolves to, because the ledger is deliberately KEPT.
+		"RequeuedAfterExit",
 		// OPERATOR NOTES (plan B1.1). OperatorNote is the STORED note on
 		// ActivityExecution.OperatorNotes, hand-written beside that row type like
 		// TaskAttempt; the verbs' input shape (OperatorNoteInput, NoteComment,

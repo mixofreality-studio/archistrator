@@ -49,7 +49,6 @@ import {
   ADVANCE_RETRY,
   advanceFailed,
   AMEND_ARCHITECTURE,
-  CONSTRUCTION_THREAD_READ_ONLY,
   REVISION_NOTE_LABEL,
 } from './activityCopy.ts';
 import { StaleBasisHeaderChip } from '../design/StaleBasisChip';
@@ -89,6 +88,7 @@ export function ReviewBody({
   historyCaption,
   note,
   stale,
+  costBasis,
   advance,
   live,
   openThreads,
@@ -99,7 +99,6 @@ export function ReviewBody({
   allowSendBack,
   allowAsk,
   approveCopy,
-  threadReadOnly,
   onApprove,
   onSendBack,
   onAsk,
@@ -151,6 +150,15 @@ export function ReviewBody({
       }
     | undefined;
   /**
+   * WHAT THE COST ON THIS SCREEN WAS COMPUTED ON, when part of it was assumed
+   * (`m0CostBasis.ts`). The M0 gate only: approving it binds the plan of record and
+   * starts spending, so an assumed number the founder never saw is the one way this
+   * screen can mislead. Rendered BESIDE the stale-basis chip and never instead of it
+   * — they are two different warnings about the same committed basis — and `undefined`
+   * whenever nothing was assumed.
+   */
+  costBasis?: string | undefined;
+  /**
    * The M0 approve is commit-then-advance, and the ADVANCE failed: the plan of
    * record is bound and construction is not running. Rendered independently of
    * {@link live}, because by then the gate is decided and the bar is gone —
@@ -176,15 +184,15 @@ export function ReviewBody({
   askPending: boolean;
   allowSendBack: boolean;
   /**
-   * This rail can send a question at all. False on every construction type
-   * (R2/GAP-6): the bar then never offers an Ask, and a question staged before
-   * the composer was hidden is reported by the bar's notice instead of turning
-   * the one verb on the gate into a button that dispatches nothing.
+   * This gate can send a question at all. TRUE on every rail since stage 4b1 gave
+   * construction `AskTaskQuestions`; what is left false is a design gate whose
+   * artifact kind will not resolve, which loses every verb. When false the bar never
+   * offers an Ask, and a question staged before the composer was hidden is reported by
+   * the bar's notice instead of turning the one verb on the gate into a button that
+   * dispatches nothing.
    */
   allowAsk: boolean;
   approveCopy?: { label: string; consequence: string } | undefined;
-  /** The rail behind this gate has no comment-status op (R2) — say so once. */
-  threadReadOnly: boolean;
   onApprove: () => void;
   onSendBack: () => void;
   onAsk: () => void;
@@ -211,15 +219,29 @@ export function ReviewBody({
         onRevision={onRevision}
       />
 
-      {stale !== undefined ? (
-        <Box sx={{ display: 'flex' }}>
-          <StaleBasisHeaderChip
-            ackError={stale.ackError}
-            acknowledgePending={stale.ackPending}
-            cause={stale.cause}
-            onAcknowledge={stale.onAcknowledge}
-            onReconcile={stale.onReconcile}
-          />
+      {/* The two warnings about the committed basis, on ONE row: the chip (an
+          upstream slot drifted) and the cost-basis line (part of the cost was
+          assumed). Either may render alone; neither replaces the other. */}
+      {stale !== undefined || costBasis !== undefined ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, flexWrap: 'wrap' }}>
+          {stale !== undefined ? (
+            <StaleBasisHeaderChip
+              ackError={stale.ackError}
+              acknowledgePending={stale.ackPending}
+              cause={stale.cause}
+              onAcknowledge={stale.onAcknowledge}
+              onReconcile={stale.onReconcile}
+            />
+          ) : null}
+          {costBasis !== undefined ? (
+            <Typography
+              data-testid={UI_IDENTIFIERS.Activity.COST_BASIS}
+              role="status"
+              sx={{ fontSize: 12.5, color: t.awaitingFg, lineHeight: 1.5, minWidth: 0 }}
+            >
+              {costBasis}
+            </Typography>
+          ) : null}
         </Box>
       ) : null}
 
@@ -239,12 +261,6 @@ export function ReviewBody({
           </Typography>
           <Typography sx={{ fontSize: 13.5, color: t.ink, lineHeight: 1.5 }}>{note}</Typography>
         </Box>
-      ) : null}
-
-      {threadReadOnly && openThreads > 0 ? (
-        <Typography sx={{ fontFamily: t.mono, fontSize: 12, color: t.muted }}>
-          {CONSTRUCTION_THREAD_READ_ONLY}
-        </Typography>
       ) : null}
 
       {historyCaption !== undefined ? (

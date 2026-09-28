@@ -11,8 +11,14 @@
  * design-review comment on an op sits level with it). Neither branch is reachable
  * under `node --test`, which is why they are asserted here. The same describe
  * block now also pins `OptionRow` (an SDP option row enrols its own anchor), and
- * a case below pins the OTHER half of C1: a rail with no question op offers no
- * way to stage a question.
+ * a case below pins the OTHER half of C1 — which stage 4b1 INVERTED: the
+ * construction rail has a question op now, so the case asserts that the composer
+ * OFFERS the toggle while the bar keeps the primary verb C1 was about.
+ *
+ * Two further describe blocks follow the §7.5 one: the operator's TWO overrides
+ * (Steer a live escalation vs Reopen a terminal activity — one op, two meanings,
+ * and the screen must not make a reader infer which), and the M0 cost basis (what
+ * an approve that starts spending was computed on, when part of it was assumed).
  *
  * TWO THINGS THE PREVIEW CANNOT SHOW, and what stands in for them:
  *
@@ -312,15 +318,21 @@ test.describe('activity experience: what each body says', () => {
     expect(offBundle).toEqual([]);
   });
 
-  // C1. `resolveSubmitVerb` used to answer a staged QUESTION with an `ask` verb
-  // BEFORE it looked at whether the rail had a question op — and ~30 of the 32
-  // gates have none (`constructionManager` has no AskQuestions, R2/GAP-6). One
-  // staged question therefore replaced Approve AND Send back with a button the
-  // container's ask handler returns early from: a dead end on the gate. The fix
-  // is a pair, and this case pins the half a unit test cannot reach — the
-  // composer that stages the question is not there to stage it.
+  // C1, INVERTED (stage 4b1 Task 14). `resolveSubmitVerb` used to answer a staged
+  // QUESTION with an `ask` verb BEFORE it looked at whether the rail had a question
+  // op — and ~30 of the 32 gates had none, so one staged question replaced Approve
+  // AND Send back with a button the container's ask handler returns early from.
+  // Stage 5 fixed it by taking the Question toggle OFF the construction composer;
+  // stage 4b1 gave the construction rail `AskTaskQuestions`, so leaving the toggle
+  // off would be the mirror-image defect — a rail that can send a question with no
+  // way to stage one. This case is therefore inverted, not deleted: it is what stops
+  // a later change from hiding a button that works.
+  //
+  // The GUARD that C1 installed is still asserted, by the pair below it: the bar
+  // keeps its primary verb and shows no dead-question notice, which is exactly what
+  // failed before the fix.
 
-  test('a construction gate offers NO way to stage a question, and keeps its primary verb', async ({
+  test('a construction gate CAN stage a question now, and keeps its primary verb', async ({
     page,
   }) => {
     const offBundle = await openState(page, 'activity-experience', SERVICE);
@@ -333,12 +345,12 @@ test.describe('activity experience: what each body says', () => {
     await page.getByTestId(TESTID.marginAddNote).click();
     await expect(page.getByTestId(TESTID.marginComposer)).toBeVisible();
 
-    // The composer IS open (its change-request toggle is there), and the Question
-    // toggle is ABSENT — not disabled. A control that cannot be used is not one.
+    // Both toggles are there: the question can be staged because it can be SENT.
     await expect(page.getByTestId(TESTID.marginComposerChangeRequest)).toBeVisible();
-    await expect(page.getByTestId(TESTID.marginComposerQuestion)).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.marginComposerQuestion)).toBeVisible();
 
-    // And the bar still carries the verb the reviewer came for.
+    // And the bar still carries the verb the reviewer came for — C1's own guard,
+    // which is what a question with nowhere to go used to destroy.
     await expect(page.getByTestId(TESTID.submitBarPrimary)).toBeVisible();
     await expect(page.getByTestId(TESTID.submitBarNotice)).toHaveCount(0);
 
@@ -346,16 +358,79 @@ test.describe('activity experience: what each body says', () => {
     expect(offBundle).toEqual([]);
   });
 
-  test('…while the M0 gate, which HAS a question op, still offers the toggle', async ({ page }) => {
-    // The discrimination: the composer is not question-less everywhere. Spec §6
-    // allows comments AND questions at M0, and `projectDesignAskQuestions` is the
-    // op behind it.
+  // RE-POINTED, not deleted (stage 4b1 Task 14 Step 4): this case used to be the
+  // discriminator proving the composer was not question-less everywhere. Now that
+  // every rail has the question op, that discrimination is gone — and a suite with
+  // two cases asserting the same thing has lost a guard. It is re-pointed at the M0
+  // refusal that SURVIVED: the plan is derived, so it is amended, never sent back.
+  test('…while the M0 gate, whose send-back refusal SURVIVED, still offers no way to return the plan', async ({
+    page,
+  }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0');
     await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
 
+    // The composer is fully live here too — comments AND questions (spec §6).
     await page.getByTestId(TESTID.marginAddNote).click();
     await expect(page.getByTestId(TESTID.marginComposer)).toBeVisible();
     await expect(page.getByTestId(TESTID.marginComposerQuestion)).toBeVisible();
+
+    // And yet the one verb that stays refused is refused: no send-back, and no
+    // overflow to hide one in. `NO_SDP_SEND_BACK` is not a stage that arrived.
+    await expect(page.getByTestId(TESTID.submitBarMenuButton)).toHaveCount(0);
+    await expect(page.getByTestId(TESTID.submitBarMenuItem('sendBack'))).toHaveCount(0);
+    // What stands in its place: the navigation to the activity that CAN change it.
+    await expect(page.getByTestId(TESTID.activityAmendArchitecture)).toBeVisible();
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  // ── The construction rail's own threads (stage 4b1 Task 14) ────────────────
+  // `deliveryManager` now answers `SetTaskCommentStatus`, `WithdrawReviewRound`,
+  // `AskTaskQuestions` and `RedraftTask` on the construction rail, and refuses an
+  // approve over open change requests with a sentence of its own. The three cases
+  // below are where the screen is held to each of those answers.
+
+  test('an open change request disables Approve in the SERVER’s words, and the question beside it does not', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'construction-round-withdrawn');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    // Round 3 carries ONE open change request and ONE open question. Only the
+    // change request counts — `ReviewCommentBlocksApprove` is `open && !question`,
+    // and a question is a soft warning at the gate, never a block.
+    const primary = page.getByTestId(TESTID.submitBarPrimary);
+    await expect(primary).toHaveText('Resolve 1 thread to approve');
+    await expect(primary).toBeDisabled();
+    // Verbatim the refusal `deliveryManager` answers a race with, so the greyed
+    // button and the 409 read as one sentence.
+    await expect(page.getByTestId(TESTID.submitBarConsequence)).toContainText(
+      'Cannot approve: 1 review thread still open — send it back or resolve it first'
+    );
+
+    // And the thread it names can actually be cleared from here — the comment-status
+    // op the rail refused until stage 4b1.
+    await expect(page.getByTestId(TESTID.marginResolve('r3c1'))).toBeVisible();
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('a WITHDRAWN round is in the history, saying the word — not missing from it', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'construction-round-withdrawn');
+    await expect(page.getByTestId(TESTID.activityScreen)).toBeVisible();
+
+    // The live round is 3, so the withdrawn 2 is under it rather than gone.
+    await expect(page.getByTestId(TESTID.lifecycleRevisionSelect)).toContainText(
+      'Revision 3 of 3 · latest'
+    );
+    await page.getByTestId(TESTID.lifecycleRevisionSelect).click();
+    // A round pulled back before anyone decided it is DELIBERATE, which is why it
+    // is not `failed` — and the menu says the outcome verbatim.
+    await expect(page.getByTestId(TESTID.lifecycleRevisionOption(2))).toContainText('withdrawn');
 
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);
@@ -458,6 +533,134 @@ test.describe('activity experience: §7.5 — the anchors a margin card is place
     // The control: the round's other comment points at a struct field the
     // artifact's view does not enrol, so it belongs in the unanchored group.
     await expect(unplaced.getByTestId(TESTID.marginCard('r1c2'))).toHaveCount(1);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+});
+
+/**
+ * `OverrideActivity` means TWO things keyed by liveness — steer a live escalation,
+ * re-open a terminal activity — and the server can only say which one is POSSIBLE,
+ * never which one the operator meant. The screen therefore names them as two
+ * actions, and these cases are what stops them collapsing back into one button whose
+ * meaning a reader has to infer.
+ */
+test.describe('activity experience: the operator’s two overrides', () => {
+  test('a TERMINAL activity offers Reopen, and no Steer at all', async ({ page }) => {
+    const offBundle = await openState(page, 'activity-experience', 'failed');
+    await expect(page.getByTestId(TESTID.activityScreen)).toBeVisible();
+
+    const bar = page.getByTestId(TESTID.activityOverrideBar);
+    await expect(bar).toContainText('This activity has finished');
+    await expect(bar).toContainText('Every task that passed is kept');
+    await expect(page.getByTestId(TESTID.activityReopen)).toBeVisible();
+    // ABSENT, not disabled: there is no child to steer, and a control that cannot
+    // be used is not a control.
+    await expect(page.getByTestId(TESTID.activitySteer)).toHaveCount(0);
+
+    // The Manager refuses an override with empty notes, so the button says so
+    // BEFORE the click rather than surfacing the refusal after it.
+    await expect(page.getByTestId(TESTID.activityReopen)).toBeDisabled();
+    await expect(bar).toContainText('an override without a reason is not an audit entry');
+    await page.getByTestId(TESTID.activityOverrideNote).getByRole('textbox').fill('Slot commit');
+    await expect(page.getByTestId(TESTID.activityReopen)).toBeEnabled();
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('…while the SAME failed attempt under a LIVE activity offers Steer, and no Reopen', async ({
+    page,
+  }) => {
+    // The discrimination, and it is one datum wide: `escalated` is `failed` with the
+    // activity's own state left running. A failed dispatch that has not exited is an
+    // escalation holding at a takeover gate; the same attempt under a terminal
+    // activity is a row to re-arm. Two different consequences, two different labels.
+    const offBundle = await openState(page, 'activity-experience', 'escalated');
+    await expect(page.getByTestId(TESTID.activityScreen)).toBeVisible();
+
+    const bar = page.getByTestId(TESTID.activityOverrideBar);
+    await expect(bar).toContainText('waiting for you to steer it');
+    await expect(bar).toContainText('Re-dispatches the task whose last attempt failed');
+    await expect(page.getByTestId(TESTID.activitySteer)).toBeVisible();
+    await expect(page.getByTestId(TESTID.activityReopen)).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('a healthy live activity offers neither — the bar is not on the screen', async ({ page }) => {
+    // The control. `service-fork-sent-back` is awaiting a human at a GATE, which is
+    // decided at the gate and never steered, and nothing of it has failed.
+    const offBundle = await openState(page, 'activity-experience', SERVICE);
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+    await expect(page.getByTestId(TESTID.activityOverrideBar)).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+});
+
+/**
+ * Approving M0 binds the plan of record and starts spending. The compute DEFAULTS
+ * any planning-assumption family the founder never authored and proceeds — a project
+ * that cannot reach its own cost-approval gate cannot be told what it would cost —
+ * so the one way this screen can mislead is a cost computed on numbers nobody showed
+ * the reader. The defaulting is recorded either way; without this line it is
+ * recorded and INVISIBLE, which is the same lie as refusing.
+ */
+test.describe('activity experience: what the M0 cost was computed on', () => {
+  test('nothing committed: the line names the assumption and the exit, beside the gate’s own copy', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'project-design-m0');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveText(
+      'Cost computed on assumed every planning assumption — no planning assumptions are committed for this project yet'
+    );
+    // It stands BESIDE the approve, not instead of it: the founder may still commit
+    // a cost they have been told the basis of.
+    await expect(page.getByTestId(TESTID.submitBarPrimary)).toBeEnabled();
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  // A COMMITTED SLOT 8 IS SILENCE, and that is the honest reading (final fix wave, F3).
+  // This case used to assert a second sentence for "the document in slot 8 is the compute's
+  // own, signed with `defaultPlanningAssumptionsNote`" — a state no run produces:
+  // `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
+  // compute never commits slot 8 at all. The arm that rendered it, its copy and its assertion
+  // are gone; what is left is the fact the screen can actually tell, which is that a
+  // committed slot 8 says nothing about PER-FAMILY defaults because no view carries them.
+  test('a committed slot 8 says nothing — the per-family defaults are not on the wire', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'project-design-m0-defaulted');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('never on a read-only history: it is a warning about a decision this reader cannot make', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'project-design-m0-history');
+    await expect(page.getByTestId(TESTID.activityHistoryBanner)).toBeVisible();
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('and never on a construction gate, whose cost it is not about', async ({ page }) => {
+    const offBundle = await openState(page, 'activity-experience', SERVICE);
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveCount(0);
 
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);

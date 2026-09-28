@@ -52,6 +52,7 @@ import (
 	"hash/fnv"
 	"log/slog"
 	"maps"
+	"math"
 	"path"
 	"slices"
 	"sort"
@@ -73,7 +74,6 @@ import (
 	fwmanager "github.com/mixofreality-studio/archistrator-platform/framework-go/manager"
 	"github.com/mixofreality-studio/archistrator-platform/framework-go/methodcheck"
 	fwra "github.com/mixofreality-studio/archistrator-platform/framework-go/resourceaccess"
-	"github.com/mixofreality-studio/archistrator-platform/framework-go/utilities/security"
 	methodassets "github.com/mixofreality-studio/archistrator-platform/method-assets"
 	billing "github.com/mixofreality-studio/archistrator/server/internal/engine/billing"
 	"github.com/mixofreality-studio/archistrator/server/internal/engine/designhealth"
@@ -96,147 +96,6 @@ import (
 // docs/superpowers/plans/2026-09-25-activity-experience-stage4a.md, Task 6 Step 2b,
 // and in this commit's message). 4b replaces this block with the generic DAG child.
 // ---------------------------------------------------------------------------
-
-// systemDesignManager is the systemDesignManager façade. It exposes the public
-// use-case ops (systemDesignManager.md §2) and OWNS Temporal. The 2026-05-29 re-cut
-// adds startSystemDesign (parent kickoff). The Temporal-backed ops:
-//   - StartSystemDesign  — Workflow (entry, parent SystemDesignPhaseWorkflow)
-//   - RequestArtifactDraft — Workflow (entry, child CoAuthorArtifactWorkflow gate)
-//   - SubmitReviewDecision — Signal (reviewDecision, to the child gate)
-//   - AdvancePhase         — Workflow (entry, short-lived seal)
-//   - GetSessionState      — Query (sessionState, read-only)
-//
-// Rendering is no longer a Manager concern: server-side rendering was removed
-// (the client renders typed models). The Manager exposes no RenderArtifact op and
-// holds no RenderingEngine.
-//
-// The façade methods use only the Temporal client + projectStateAccess (for the
-// StartSystemDesign ResearchInput precondition + the sync SetResearchInput write op).
-// It ALSO stores the three Worker-side deps it was constructed with — the published
-// agenticjob.AgenticJobAccess (design-job dispatch), the published
-// sourcecontrol.SourceControlAccess (the PR rail), and the per-project repo resolver —
-// so RegisterWorker can wire them (via the package's folded adapters) into the
-// hand-written Temporal Workflows. The former exported consumer-mirror interfaces +
-// the composition-root adapters are RETIRED; the manager now depends on the deps'
-// PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
-//
-// Pre-condition checks the contract puts on the façade (Phase-1 kind, non-empty
-// projectId, Reject-requires-feedback, ResearchInput present) are enforced here before
-// any downstream call (§2, §3).
-type systemDesignManager struct {
-	client       client.Client
-	projectState projectstate.ProjectStateAccess
-	pipeline     agenticjob.AgenticJobAccess
-	rail         sourcecontrol.SourceControlAccess
-	repo         func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-	// estimator + repoBase serve the folded CATALOG ops (CreateProject/GetProject/
-	// ListProjects — the former projectManager). estimator is the
-	// constructionEstimationEngine run at GetProject READ time (compute-at-read CPM +
-	// EV/SPI); nil disables compute. repoBase composes each git row's prUrl
-	// (<repoBase>/pull/<ref>); "" omits prUrl. The project's permanent identity is its
-	// living system design, so these reads belong on this Manager.
-	estimator estimation.EstimationEngine
-	repoBase  string
-
-	// designSession is the generated designSessionAccess dep. Every branch-scoped design
-	// flow (read-back, stage/commit/reject/withdraw, reconcile, the review-ledger branch
-	// mutations) is reached through the generated wf.Acts.DesignSession* invoker surface,
-	// backed by this dep (B10: the manager-local capability-fallback custom activities in
-	// activities_custom.go/reviewledger.go/gitrail.go that used to duplicate this RA's
-	// BranchAware/Ledger/Provenance/Reconciling type-assertion chains are deleted — this
-	// Manager now has ZERO custom Temporal Activities).
-	designSession projectstate.DesignSessionAccess
-
-	// activityExecution (stage 3, task 6) is the generated activityExecutionAccess dep —
-	// the fifth facet of the one project-state component, owner of the per-activity review
-	// ROUND ledger. The design rail dual-writes every review decision through it beside the
-	// slot's ReviewThread: taking the dep HERE is what registers its Temporal activities on
-	// this Manager's worker, which is the precondition for the CoAuthor spine's
-	// wf.Acts.ActivityExecution* calls. Held only to thread into genActivities — every call
-	// is a workflow-side Activity, never a manager-side one.
-	activityExecution projectstate.ActivityExecutionAccess
-
-	// designHealth is the DesignHealthEngine port behind the getDesignHealth
-	// read-model op — the M→E half of the shared System Design Phase Workflow
-	// volatility (this Manager owns the gate choreography; the Engine owns which
-	// rules judge a draft). It is NOT a generated constructor dep: the component
-	// carries no service contract, and an Engine is pure and stateless, so the
-	// builder constructs it directly rather than threading a parameter no
-	// composition root could vary.
-	designHealth designhealth.Engine
-
-	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
-	// episode ledger every terminal design dispatch appends to. The WORKFLOW paths reach
-	// it through the generated invoker surface (wf.Acts.EpisodesAppendEpisode); this
-	// field is held for two reasons: to thread it into genActivities, and because the
-	// answer-job capture (answerEpisodeWatch) runs MANAGER-SIDE, outside any workflow,
-	// and must call the RA directly.
-	episodes episode.EpisodeAccess
-}
-
-// newSystemDesignManager is the hand-written, unexported builder the generated
-// NewSystemDesignManager constructor delegates to. It wires the Temporal client + the
-// published deps into the façade. The façade itself uses only client + projectState;
-// pipeline/rail/repo are stored for RegisterWorker (rail may be nil — a dev server
-// with no source-control credentials runs the design spine repo-less).
-func newSystemDesignManager(c client.Client, ps projectstate.ProjectStateAccess, pipeline agenticjob.AgenticJobAccess, rail sourcecontrol.SourceControlAccess, repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool), estimator estimation.EstimationEngine, designSession projectstate.DesignSessionAccess, activityExecution projectstate.ActivityExecutionAccess, episodes episode.EpisodeAccess, repoBase string) *systemDesignManager {
-	return &systemDesignManager{client: c, projectState: ps, pipeline: pipeline, rail: rail, repo: repo, estimator: estimator, designSession: designSession, activityExecution: activityExecution, episodes: episodes, repoBase: repoBase, designHealth: designhealth.NewEngine()}
-}
-
-// StartSystemDesign — op 2.0 (2026-05-29). Temporal Workflow (entry;
-// StartWorkflow, id {projectId}:systemDesign) starting the PARENT
-// SystemDesignPhaseWorkflow, which drives the seven Phase-1 steps in fixed Method
-// order, spawns the per-step child gate, auto-advances on each human Approve, and
-// seals Phase 1.
-//
-// Pre-condition (systemDesignManager.md §2.0): the project exists and its
-// ResearchInput slot is PRESENT (read via projectStateAccess.ReadProject) — else
-// FailedPrecondition ("research not populated"). Idempotent on the id (a redundant
-// start returns the running SessionRef). The ResearchInput is woven into the
-// mission-draft prompt at step 1 (inside the child gate's draft step).
-//
-// SYNC from the Client's POV: returns once the parent start is durably accepted,
-// not once Phase 1 completes (it spans days of human review; the SPA polls
-// getSessionState / reads head-state).
-func (m *systemDesignManager) StartSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-
-	// Pre-condition: ResearchInput must be present. A brand-new project with no row
-	// (fwra.NotFound) likewise fails the precondition — research has not been set.
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		if isResearchReadNotFound(err) {
-			return "", newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
-		}
-		return "", mapReadProjectError(err)
-	}
-	if proj.Research.IsZero() {
-		return "", newError(fwmanager.FailedPrecondition, "research not populated")
-	}
-
-	wfID := systemDesignPhaseWorkflowID(projectID)
-	opts := client.StartWorkflowOptions{
-		ID:        wfID,
-		TaskQueue: TaskQueue,
-		// A RUNNING phase is reused (idempotent start); a CLOSED phase — FAILED (the
-		// 2026-07-16 incident: a child crash killed the rail pre-containment) or COMPLETED
-		// (a step was withdrawn / a child failure was contained and the phase halted
-		// gracefully) — is RESTARTED as a fresh run. The restarted run skips already-
-		// committed steps (SystemDesignPhaseWorkflow's skip-committed gate) and resumes at
-		// the first open step. ALLOW_DUPLICATE is the server default; pinned explicitly
-		// because the restart-a-dead-phase recovery path depends on it.
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhase, phaseInput{ProjectID: projectID})
-	if err != nil {
-		return "", mapStartError(err)
-	}
-	return newSessionRef(we.GetID()), nil
-}
 
 // isResearchReadNotFound reports whether a ReadProject error is the brand-new
 // project NotFound (no row yet) — which, for StartSystemDesign, is itself a
@@ -278,650 +137,6 @@ func isResearchReadNotFound(err error) bool {
 // the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
 // review-ledger SEED of the reopening feedback).
 
-func (m *systemDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase1(kind) {
-		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
-	}
-	// A redraft's feedback is OPTIONAL (nil = a fresh draft with no steer), but a
-	// non-nil envelope whose notes are empty is a third state that steers nothing
-	// while telling the agent it was steered. The sibling SubmitReviewDecision
-	// rejects exactly this shape; RequestArtifactDraft must agree.
-	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
-		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
-	}
-	// A re-request/amendment SEEDS round-0 threads before the session has loaded any thread
-	// at all (seedAmendmentLedger runs ahead of the first loadReviewThread), so there is
-	// nothing here for a replyTo to name. Refuse it rather than let it reach a seed that
-	// could only re-file it as a fresh comment (design §3.7).
-	if feedback != nil {
-		if perr := checkNoReplyTo("replyTo is not supported on requestArtifactDraft — it opens a new round of threads; file a reply against an existing thread through submitReviewDecision at the review gate", feedback.Comments); perr != nil {
-			return "", perr
-		}
-	}
-
-	// Spine-ordering gate. The Phase-1 spine is strictly ordered
-	// (mission → glossary → scrubbedRequirements → volatilities → coreUseCases →
-	// system → operationalConcepts → standardCheck): a kind may only be drafted once
-	// its immediate predecessor is Committed. The SPA locks steps this way client-side
-	// (DesignExperience.buildSpine); the wire surface MUST enforce it too so a raw
-	// API/MCP caller cannot draft out of order (systemDesignManager.md §2.1; STP-UC1-B1).
-	if err := m.checkPhase1Predecessor(ctx, projectID, kind); err != nil {
-		return "", err
-	}
-
-	// GENERATING GUARD (QA incident 2026-07-15, gtdapp:1). While the session is DRAFTING /
-	// REDRAFTING no gate consumes the redraft signal — SignalWithStart would BUFFER it in the
-	// workflow's signal channel, where it later auto-satisfies the StageDraftFailed recovery
-	// selector the instant that gate arms, silently skipping the human Retry/Withdraw decision
-	// (observed live: a stale "Request draft" click queued during drafting consumed the failed
-	// gate after a PM-critique flake, and an unwanted redraft round ran with nobody ever seeing
-	// the failure). Refuse the request up front with a FailedPrecondition naming the stage.
-	// Every other stage is receptive: AwaitingReview / DraftFailed have an open human gate, and
-	// the terminal/no-session stages mean the SignalWithStart STARTS a fresh run (re-begin /
-	// amendment semantics), whose gate-entry drain discards the start-path signal if unused.
-	if err := m.prepareForDraftRequest(rc, projectID, kind); err != nil {
-		return "", err
-	}
-
-	// F38 BACK-EDGE / AMENDMENT (founder ruling 2026-07-05, fixes F37). A draft request on
-	// an already-COMMITTED artifact is the LEGAL AMENDMENT path: it reopens the artifact and
-	// starts a FRESH review session on a new …-amend-N branch (N = the slot's prior commit
-	// count) with the committed model as the draft base and the reopening feedback seeded into
-	// the new session's review ledger. On any NON-committed slot (drafting/awaiting-review/
-	// rejected/withdrawn) amendment stays 0 and the behavior is exactly as before: an active
-	// session consumes the redraft signal (USE_EXISTING); a withdrawn/failed slot starts a
-	// fresh original draft. Because a committed slot's prior workflow run is CLOSED, the
-	// SignalWithStart below starts a brand-new run (with this Amendment) rather than reusing it.
-	amendment := 0
-	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
-		amendment = projectstate.AmendmentIndexFor(slotFor(proj, kind))
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-	opts := client.StartWorkflowOptions{
-		ID:        wfID,
-		TaskQueue: TaskQueue,
-		// Idempotent on the id: a redundant start of an already-running session
-		// reuses the existing execution rather than failing or duplicating
-		// (systemDesignManager.md §2.1 post-condition). The signal rides along.
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		// REVIVAL (2026-07-16 incident): a session whose previous run CLOSED — normally
-		// (committed/withdrawn → amendment/fresh draft) or ABNORMALLY (the run FAILED, as
-		// gtdapp:1 did) — must be revivable: this SignalWithStart STARTS a brand-new run.
-		// ALLOW_DUPLICATE is the server default; pinned explicitly because the dead-session
-		// recovery path depends on it (a stricter policy silently turns "Retry design job"
-		// into a no-op 200 — the observed false success).
-		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-	in := coAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
-
-	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, lSignalRedraft, redraftSignal{Feedback: feedback}, opts, executionKindCoAuthor, in)
-	if err != nil {
-		return "", mapStartError(err)
-	}
-	// NO FALSE 200s (2026-07-16 incident): the founder's "Retry design job" against the dead
-	// gtdapp:1 returned success while no run started. SignalWithStart's return alone cannot
-	// distinguish "fresh run started" from "signal bound to something that will never act", so
-	// VERIFY: the session's latest execution must now be live. Best-effort — only a confirmed
-	// abnormal-closed latest run is refused (a Describe blip never masks a genuine start).
-	if err := m.verifySessionRevived(ctx, wfID); err != nil {
-		return "", err
-	}
-	return newSessionRef(we.GetID()), nil
-}
-
-// verifySessionRevived confirms the co-author session's LATEST execution is not sitting
-// abnormally CLOSED right after a SignalWithStart — the honest-error backstop for the
-// false-200 revival failure (see RequestArtifactDraft). Describe errors are ignored
-// (best-effort verification; the start already durably succeeded).
-func (m *systemDesignManager) verifySessionRevived(ctx context.Context, wfID string) error {
-	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
-	if derr != nil {
-		return nil
-	}
-	if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-		return newError(fwmanager.Infrastructure,
-			"the design session could not be revived — the previous session ended abnormally and no fresh run started; restart the phase (Start System Design) or try again")
-	}
-	return nil
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// wedgedSupersedeReason is the Temporal termination reason recorded when Retry supersedes a
-// WEDGED design run (F-R2). Human-readable so the run's close event explains why.
-const wedgedSupersedeReason = "superseded by Retry: workflow task stuck in failed state"
-
-// prepareForDraftRequest is the pre-SignalWithStart gate for RequestArtifactDraft. It probes
-// the live session directly (Describe + Query) so it can SUPERSEDE a WEDGED run (F-R2): a run
-// whose workflow task is perpetually failing shows RUNNING to Describe but rejects the
-// sessionState query with the wedged signature, and a SignalWithStart with USE_EXISTING would
-// only BUFFER the redraft signal on that corpse forever (the deadlock). On exactly that shape,
-// TERMINATE the wedged run (tolerating a NotFound race) so the subsequent SignalWithStart
-// starts a genuinely fresh run. Termination is gated STRICTLY on the wedged classification —
-// a transient query timeout/Unavailable falls through to the normal receptive check and
-// surfaces as today's error, never a terminate. Every non-wedged outcome keeps the established
-// checkDraftRequestReceptive behavior (Drafting/Redrafting refusal, NotFound-starts-fresh).
-// Purely a manager-side precondition — no workflow logic, replay-safe by construction.
-func (m *systemDesignManager) prepareForDraftRequest(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	ctx := rc.Context
-	wfID := coAuthorWorkflowID(projectID, kind)
-	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
-	if derr != nil {
-		if isNotFound(derr) {
-			return nil // no session yet — this request starts the first one
-		}
-		// A Describe blip (non-NotFound): fall back to the query-based receptive check
-		// rather than masking a transient fault as receptive.
-		return m.checkDraftRequestReceptive(rc, projectID, kind)
-	}
-	// A non-RUNNING execution (abnormal-closed / completed / paused) is receptive: the
-	// SignalWithStart either revives a fresh run or the durable slot is already terminal —
-	// none of those is a live Drafting/Redrafting the redraft signal could stale-consume.
-	if desc.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
-		return nil
-	}
-	// A RUNNING execution: query its live stage — this ONE query ALSO detects the WEDGED shape.
-	enc, qerr := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
-	if qerr != nil {
-		if isWorkflowTaskFailedQueryErr(qerr) {
-			// Wedged RUNNING run — supersede it so the SignalWithStart starts a fresh run.
-			// Tolerate a NotFound (it closed between the query and here); any other terminate
-			// fault is surfaced so the caller never silently binds the signal to the corpse.
-			if terr := m.client.TerminateWorkflow(ctx, wfID, "", wedgedSupersedeReason); terr != nil && !isNotFound(terr) {
-				return newError(fwmanager.Infrastructure,
-					"could not supersede the stuck design session before retrying: "+terr.Error())
-			}
-			return nil // proceed to SignalWithStart (starts a fresh run)
-		}
-		if isNotFound(qerr) {
-			return nil // raced to closed between Describe and Query — the start revives it
-		}
-		return mapQueryError(qerr) // transient — surface, never terminate
-	}
-	var view SessionStateView
-	if err := enc.Get(&view); err != nil {
-		return newError(fwmanager.Infrastructure, err.Error())
-	}
-	// The generating guard: a live Drafting/Redrafting session is NOT receptive (a redraft
-	// signal would sit buffered and later stale-consume a recovery gate).
-	if view.Stage == StageDrafting || view.Stage == StageRedrafting {
-		return newError(fwmanager.FailedPrecondition,
-			"a draft is already generating for this artifact (currently "+sessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
-	}
-	return nil
-}
-
-// checkDraftRequestReceptive is the manager-side generating guard for RequestArtifactDraft
-// (QA incident 2026-07-15): reject the request while the live session's stage is Drafting or
-// Redrafting — a redraft signal sent then is consumable by NO open gate and would sit buffered
-// until it stale-consumes a later recovery gate. The stage is read through GetSessionState —
-// the SAME Describe-then-Query path the review-decision precondition (F19) and the SPA trust
-// (a dead run synthesizes StageDraftFailed, a COMPLETED run is rebuilt from the durable slot,
-// a live run answers the authoritative sessionState query) — so the refusal always agrees
-// with what the founder sees on screen. NotFound (no session ever ran) is receptive: the
-// request STARTS the first session. Purely a manager-side precondition — no workflow logic
-// changes, so it is replay-safe by construction.
-func (m *systemDesignManager) checkDraftRequestReceptive(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.GetSessionState(rc, projectID, kind)
-	if err != nil {
-		var me *fwmanager.Error
-		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
-			return nil // no session yet — this request starts one
-		}
-		return err
-	}
-	switch view.Stage {
-	case StageDrafting, StageRedrafting:
-		return newError(fwmanager.FailedPrecondition,
-			"a draft is already generating for this artifact (currently "+sessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
-	case SessionStageUnknown, StageAwaitingReview, StageCommitted, StageWithdrawn, StageRefused, StageDraftFailed:
-		return nil
-	default:
-		return nil
-	}
-}
-
-// checkPhase1Predecessor enforces the Phase-1 spine-ordering gate for a draft request:
-// the requested kind's immediate predecessor (per phase1PredecessorKind, the same order
-// the SPA's buildSpine locks by) must be Committed on head-state. Returns nil when the
-// gate is satisfied — the first kind (mission) has no predecessor, so it always passes
-// without a read; a redraft of an already in-review / Committed kind also passes because
-// a kind only reaches review after its predecessor was Committed (the send-back /
-// regenerate path is unaffected). Returns FailedPrecondition naming the uncommitted
-// predecessor otherwise. Extracted so the gate is unit-testable without a Temporal
-// client (RequestArtifactDraft calls it before the SignalWithStart).
-func (m *systemDesignManager) checkPhase1Predecessor(ctx context.Context, projectID ProjectID, kind ArtifactKind) error {
-	pred, ok := phase1PredecessorKind(kind)
-	if !ok {
-		return nil
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		if isResearchReadNotFound(err) {
-			// A brand-new project with no head-state row: no slot is committed, so
-			// the predecessor is by definition uncommitted.
-			return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
-		}
-		return mapReadProjectError(err)
-	}
-	if slotFor(proj, pred).Status != projectstate.ReviewCommitted {
-		return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
-	}
-	return nil
-}
-
-// submitReviewDecision — op 2.2. Temporal Signal (SignalWorkflow to workflow id
-// {projectId}:{artifactKind}, signal reviewDecision). feedback required when
-// decision == Reject.
-//
-// SubmitReviewDecision is the exported public op.
-func (m *systemDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
-	ctx := rc.Context
-	if err := validateReviewDecisionArgs(projectID, kind, decision, feedback); err != nil {
-		return err
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-
-	// F19: precondition — inspect the live session stage BEFORE signaling. A bare
-	// SignalWorkflow is fire-and-forget: an approve/reject delivered while the session
-	// is drafting, already committed, or was never started is silently BUFFERED or
-	// dropped by the workflow (at the failed-recovery gate ReviewApprove is explicitly
-	// ignored), yet the op returns success {} — a no-op masquerading as a decision that
-	// wedges the reviewer. Query the stage first and refuse a decision the current gate
-	// cannot honor with a FailedPrecondition naming the actual stage.
-	view, live, err := m.reviewGateView(ctx, wfID)
-	if err != nil {
-		return err
-	}
-	if perr := checkReviewPrecondition(decision, view.Stage); perr != nil {
-		return perr
-	}
-	// DEAD-SESSION HONESTY (2026-07-16 incident). An abnormally-CLOSED run synthesizes a
-	// StageDraftFailed view (so the SPA renders the failed card), which PASSES the reject/
-	// withdraw precondition above — but a signal to that corpse is refused by Temporal
-	// ("workflow execution already completed") and pre-fix surfaced as 503 noise with zero
-	// feedback. Refuse with an actionable FailedPrecondition instead: the ONLY lever on a
-	// dead session is requestArtifactDraft ("Retry design job"), which starts a fresh run.
-	// (Ordered AFTER the precondition so a never-started session keeps its "not started"
-	// message — checkReviewPrecondition refuses every decision at SessionStageUnknown.)
-	if !live {
-		// DEAD-SESSION WITHDRAW (F-R2 scoped). A dormant-mode session stages its slot on main
-		// (branch ""), so when its run died leaving an AwaitingReview/Rejected slot there, a
-		// Withdraw can still be honored SYNCHRONOUSLY through the RA — the slot resets durably
-		// and GetSessionState then renders Withdrawn. Only for Withdraw, and only for a slot
-		// actually staged on main; a never-staged slot keeps the refusal (Retry is the lever).
-		// A branch-backed session stages on a session branch, not main, so its main slot is not
-		// AwaitingReview and it correctly falls through to the refusal (Retry supersedes it).
-		if decision == ReviewWithdraw {
-			done, werr := m.withdrawDeadSessionOnMain(ctx, projectID, kind, feedback)
-			if werr != nil {
-				return werr
-			}
-			if done {
-				return nil
-			}
-		}
-		return newError(fwmanager.FailedPrecondition,
-			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry design job\" to start a fresh session, then decide on its review gate")
-	}
-	if lerr := m.applyReviewLedgerGate(ctx, wfID, decision, feedback, view.ReviewThread); lerr != nil {
-		return lerr
-	}
-
-	// PM-P2-4: capture the acting reviewer identity here (the one place a security.Principal
-	// reaches the review flow) and thread it through the signal so the eventual approve→commit
-	// records it as the commit's approvedBy provenance.
-	sig := reviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", signalReviewDecision, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// applyReviewLedgerGate is SubmitReviewDecision's review-LEDGER half, split out from the op
-// body (which reads as the review FLOW) and from its F19 stage gate. Three rules, all over
-// the thread the sessionState query just returned:
-//
-//   - APPROVE is blocked while any change-request thread is still OPEN (review-ledger §4,
-//     restated in the design §3.3 vocabulary) — the reviewer sends it back for a redraft or
-//     resolves it first. The message lists the open ids.
-//   - APPROVE then BULK-RESOLVES every ANSWERED thread (design §3.4). Approving IS accepting
-//     every answer the agent gave, so accepting a redraft that answered eight change requests
-//     costs one gesture, not eight Resolve clicks. Signaled BEFORE the decision because the
-//     gate's selector drains status signals first, so the commit that follows carries a
-//     fully-closed ledger. A failed resolve aborts the approve: half-closing the ledger and
-//     committing anyway would strand threads answered forever, and the reviewer can simply
-//     press Approve again.
-//   - REJECT refuses a replyTo naming no thread on this artifact (design §3.7). Here is the
-//     only place that refusal reaches the caller — the workflow receives the decision as a
-//     fire-and-forget signal, so its own (TOCTOU-safe) re-check can only divert to the
-//     failed gate.
-func (m *systemDesignManager) applyReviewLedgerGate(ctx context.Context, wfID string, decision ReviewDecision, feedback *ReviewFeedback, thread []ReviewCommentView) error {
-	switch decision {
-	case ReviewApprove:
-		if open := openReviewCommentViewIDs(thread); len(open) > 0 {
-			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first", len(open), strings.Join(open, ", ")))
-		}
-		for _, id := range bulkResolveAnswered(thread) {
-			resolve := setCommentStatusSignal{CommentID: id, Status: projectstate.ReviewCommentResolved}
-			if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, resolve); err != nil {
-				return mapSignalError(err)
-			}
-		}
-	case ReviewReject:
-		if feedback != nil {
-			return checkReplyTargets(viewCommentIDs(thread), feedback.Comments)
-		}
-	case ReviewWithdraw, ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
-		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
-		// made by the merged contract. They never reach this rail: the deliveryManager
-		// dispatcher answers both itself (the phase seal, and the comment transition),
-		// so they join the ignored arm here rather than changing any rail behaviour.
-		// Withdraw abandons the draft, ledger and all — there is nothing to gate on. The
-		// zero value never reaches here (validateReviewDecisionArgs refuses it up front).
-	}
-	return nil
-}
-
-// validateReviewDecisionArgs is SubmitReviewDecision's argument gate: the caller's
-// identifiers are well-formed, the kind belongs to Phase 1, and the decision is one
-// the op can act on — with Reject additionally requiring the feedback it exists to
-// carry. Split out so the op body reads as the review FLOW (inspect the gate, refuse
-// what cannot be honored, signal) rather than opening with its own validation block.
-func validateReviewDecisionArgs(projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase1(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
-	}
-	switch decision {
-	case ReviewApprove, ReviewWithdraw:
-		return nil
-	case ReviewReject:
-		if feedback == nil || feedback.Notes == "" {
-			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
-		}
-		return nil
-	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
-		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
-		// made by the merged contract. They never reach this rail: the deliveryManager
-		// dispatcher answers both itself (the phase seal, and the comment transition),
-		// so they join the ignored arm here rather than changing any rail behaviour.
-		// The zero value: a caller that forgot to set Decision, not a legitimate
-		// review outcome. Reject explicitly rather than falling through silently.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	default:
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	}
-}
-
-// deadWithdrawMaxAttempts bounds the sync-path Conflict re-read/re-apply loop for a
-// dead-session withdraw (F-R2).
-const deadWithdrawMaxAttempts = 5
-
-// withdrawDeadSessionOnMain honors a Withdraw against a DEAD session whose staged slot is
-// still on MAIN (F-R2). It returns done=true when it recorded the withdraw (the slot was
-// AwaitingReview/Rejected on main), done=false when the slot is NOT staged on main so the
-// caller keeps the refusal. Synchronous RA write on main (branch ""), the same
-// manager-calls-RA discipline the sync ops (SetResearchInput) use, with a bounded Conflict
-// re-read/re-apply. The idempotency key is pinned to the FIRST-read staged version, so a
-// retried withdraw of the SAME staged state dedups while a later distinct staged state (a
-// fresh dead session) keys differently. The call shape mirrors the generated withdraw
-// activity exactly (fwra.Context carrying the idempotency key + the explicit key param),
-// with branch "" for main.
-func (m *systemDesignManager) withdrawDeadSessionOnMain(ctx context.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (bool, error) {
-	if m.projectState == nil {
-		return false, nil // no durable store to consult → cannot do the scoped withdraw; refuse
-	}
-	fwctx := fwra.Context{Context: ctx}
-	psID := projectstate.ProjectID(projectID)
-	proj, err := m.projectState.ReadProject(fwctx, psID)
-	if err != nil {
-		return false, mapReadProjectError(err)
-	}
-	stagedOnMain := func(slot projectstate.ArtifactSlot) bool {
-		return slot.Status == projectstate.ReviewAwaitingReview || slot.Status == projectstate.ReviewRejected
-	}
-	if !stagedOnMain(slotFor(proj, kind)) {
-		return false, nil // not staged on main → not the dead-withdraw case; caller refuses
-	}
-	notes := ""
-	if feedback != nil {
-		notes = feedback.Notes
-	}
-	key := fwra.IdempotencyKey(fmt.Sprintf("%s:%s:deadWithdraw:%d", projectID, artifactKindString(kind), proj.Version))
-	expected := proj.Version
-	var lastErr error
-	for range deadWithdrawMaxAttempts {
-		_, werr := m.designSession.WithdrawArtifactOnBranch(
-			fwra.Context{Context: ctx, IdempotencyKey: key}, psID, expected, "", toPSKind(kind), notes, key)
-		if werr == nil {
-			return true, nil
-		}
-		if !isRAConflict(werr) {
-			return false, fwmanager.MapError(werr)
-		}
-		lastErr = werr
-		p, rerr := m.projectState.ReadProject(fwctx, psID)
-		if rerr != nil {
-			return false, mapReadProjectError(rerr)
-		}
-		// A concurrent writer already moved the slot off the staged state → the withdraw is
-		// done or no longer applicable; treat as handled rather than re-applying blindly.
-		if !stagedOnMain(slotFor(p, kind)) {
-			return true, nil
-		}
-		expected = p.Version
-	}
-	return false, fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "designSessionAccess.WithdrawArtifactOnBranch: exhausted conflict retries")
-}
-
-// reviewGateView returns the session's full gate view (stage + the durable review thread)
-// for the F19 review precondition AND the review-ledger approve/resolve preconditions, plus
-// whether a LIVE workflow can still honor a signal. Same dead-workflow defense as
-// GetSessionState: a CLOSED-ABNORMAL run reports StageDraftFailed with live=false (a signal
-// to it can never be honored — 2026-07-16 incident), a missing execution reports
-// SessionStageUnknown, a live run is read from the authoritative sessionState query.
-func (m *systemDesignManager) reviewGateView(ctx context.Context, wfID string) (SessionStateView, bool, error) {
-	describeLive := false
-	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
-		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-			return SessionStateView{Stage: StageDraftFailed}, false, nil
-		}
-		describeLive = true
-	} else if isNotFound(derr) {
-		return SessionStateView{Stage: SessionStageUnknown}, false, nil
-	}
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
-	if err != nil {
-		if isNotFound(err) {
-			return SessionStateView{Stage: SessionStageUnknown}, false, nil
-		}
-		// F-R2: a WEDGED run cannot honor a signal any more than a closed one — return
-		// live=false with the failed stage so SubmitReviewDecision's !live refusal (which
-		// points the human at Retry) fires instead of a raw 5xx. Only when Describe CONFIRMED
-		// the run live; a Describe blip + task-failed stays a retryable Infrastructure error.
-		if describeLive && isWorkflowTaskFailedQueryErr(err) {
-			return SessionStateView{Stage: StageDraftFailed}, false, nil
-		}
-		return SessionStateView{}, false, mapQueryError(err)
-	}
-	var view SessionStateView
-	if err := enc.Get(&view); err != nil {
-		return SessionStateView{}, false, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return view, true, nil
-}
-
-// SetReviewCommentStatus applies a REVIEWER status transition to one durable review-ledger
-// thread (design §3.3): resolve an OPEN or ANSWERED thread to close it (resolving an
-// untouched thread IS the old waive), or reopen a RESOLVED one to put it back in front of
-// the drafting agent. It mirrors SubmitReviewDecision's F19 shape —
-// a synchronous precondition check via the sessionState query before signaling the (fire-and-
-// forget) branch mutation, so a bad request fails loudly rather than silently no-op'ing.
-func (m *systemDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
-	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase1(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
-	}
-	if commentID == "" {
-		return newError(fwmanager.ContractMisuse, "empty commentId")
-	}
-	switch status {
-	case projectstate.ReviewCommentResolved, projectstate.ReviewCommentOpen:
-		// close (open|answered -> resolved) or reopen (resolved -> open) — the only
-		// reviewer-authored transitions. "answered" is derived by the server from the
-		// reply history and is never set by a human.
-	default:
-		return newError(fwmanager.ContractMisuse, "status must be \"resolved\" (to close a thread) or \"open\" (to reopen a resolved thread)")
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-	view, live, err := m.reviewGateView(ctx, wfID)
-	if err != nil {
-		return err
-	}
-	// A dead (abnormally-closed) session synthesizes StageDraftFailed and a never-started
-	// one SessionStageUnknown — both refuse below (neither is AwaitingReview), so the
-	// !live case needs no separate message here.
-	if view.Stage != StageAwaitingReview || !live {
-		return newError(fwmanager.FailedPrecondition,
-			"cannot change a review comment: the design is not awaiting review (current stage: "+sessionStageLabel(view.Stage)+")")
-	}
-	if perr := checkCommentTransition(view.ReviewThread, commentID, status); perr != nil {
-		return perr
-	}
-
-	sig := setCommentStatusSignal{CommentID: commentID, Status: status}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", signalSetCommentStatus, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// openReviewCommentViewIDs returns the ids of every OPEN CHANGE-REQUEST in a wire thread —
-// the approve blocker set. Open QUESTIONS are deliberately excluded: an unanswered question
-// is a soft warning at the approve gate (surfaced via the SPA confirm-strip), never a hard
-// block (question-comments §approve).
-func openReviewCommentViewIDs(thread []ReviewCommentView) []string {
-	var ids []string
-	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentOpen && c.Type != projectstate.ReviewCommentTypeQuestion {
-			ids = append(ids, c.ID)
-		}
-	}
-	return ids
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// checkCommentTransition validates a REVIEWER status transition against the live thread: the
-// comment must exist and the transition must be legal (open->resolved, answered->resolved,
-// resolved->open). Any other case is a FailedPrecondition naming the reason (the durable RA
-// verb re-checks, but a synchronous refusal is a better caller experience than a silently
-// dropped signal). Note what is ABSENT: answered->open is not a transition at all — it falls
-// out of the derive rule when a queued reviewer reply makes the last utterance human
-// (design §3.3).
-func checkCommentTransition(thread []ReviewCommentView, id, status string) error {
-	for _, c := range thread {
-		if c.ID != id {
-			continue
-		}
-		switch {
-		case (c.Status == projectstate.ReviewCommentOpen || c.Status == projectstate.ReviewCommentAnswered) &&
-			status == projectstate.ReviewCommentResolved:
-			return nil
-		case c.Status == projectstate.ReviewCommentResolved && status == projectstate.ReviewCommentOpen:
-			return nil
-		default:
-			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot change comment %s from %q to %q (allowed: open->resolved, answered->resolved, resolved->open)", id, c.Status, status))
-		}
-	}
-	return newError(fwmanager.FailedPrecondition, "review comment "+id+" not found in the thread")
-}
-
-// bulkResolveAnswered returns the ids of every ANSWERED thread on the slot. Approve
-// resolves them all in one gesture, so accepting a redraft that answered eight change
-// requests does not cost eight Resolve clicks (design §3.4). Threads the reviewer
-// explicitly reopened are OPEN, not answered, so they are excluded and keep blocking.
-func bulkResolveAnswered(thread []ReviewCommentView) []string {
-	var ids []string
-	for _, c := range thread {
-		if c.Status == projectstate.ReviewCommentAnswered {
-			ids = append(ids, c.ID)
-		}
-	}
-	return ids
-}
-
-// checkReviewPrecondition enforces that the submitted decision is meaningful at the
-// session's current stage (F19): approve is honored only at StageAwaitingReview;
-// reject and withdraw are honored at StageAwaitingReview OR the StageDraftFailed
-// recovery gate (where reject means retry-with-feedback — see awaitDraftFailedRecovery).
-// Any other stage — drafting, already committed/withdrawn/refused, or no session at all
-// — yields a FailedPrecondition naming the actual stage.
-func checkReviewPrecondition(decision ReviewDecision, stage SessionStage) error {
-	switch decision {
-	case ReviewApprove:
-		if stage != StageAwaitingReview {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot approve: the design is not awaiting review (current stage: "+sessionStageLabel(stage)+")")
-		}
-	case ReviewReject:
-		if stage != StageAwaitingReview && stage != StageDraftFailed {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot send back: the design is not at a review or recovery gate (current stage: "+sessionStageLabel(stage)+")")
-		}
-	case ReviewWithdraw:
-		if stage != StageAwaitingReview && stage != StageDraftFailed {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot withdraw: no review or recovery gate is open (current stage: "+sessionStageLabel(stage)+")")
-		}
-	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
-		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
-		// made by the merged contract. They never reach this rail: the deliveryManager
-		// dispatcher answers both itself (the phase seal, and the comment transition),
-		// so they join the ignored arm here rather than changing any rail behaviour.
-		// Unreachable: SubmitReviewDecision rejects the zero value as ContractMisuse
-		// before reaching the precondition. Guarded for switch-exhaustiveness.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	}
-	return nil
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// principalLabel renders a security.Principal as a short human-facing label for PM-P2-4
-// provenance (approvedBy): the username (GitHub login / preferred_username), else email,
-// else display name, else the opaque subject (dev-mode identity). Empty when no identity was
-// resolved — the commit then records no approvedBy (absent provenance is allowed).
-func principalLabel(p security.Principal) string {
-	switch {
-	case p.Username != "":
-		return p.Username
-	case p.Email != "":
-		return p.Email
-	case p.Name != "":
-		return p.Name
-	default:
-		return p.Subject
-	}
-}
-
 // sessionStageLabel renders a SessionStage as a short human label for the precondition
 // messages.
 func sessionStageLabel(s SessionStage) string {
@@ -947,65 +162,6 @@ func sessionStageLabel(s SessionStage) string {
 	// linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"
-}
-
-// advancePhase — op 2.3. Temporal Workflow (entry; StartWorkflow, workflow id
-// {projectId}:phaseAdvance:systemDesign). Returns the gating outcome.
-//
-// AdvancePhase is the exported public op.
-//
-// F55 STALE-SLOT GATE. A back-edge amendment (CommitArtifact staleness propagation) flags
-// every downstream committed slot StaleBasis when an earlier slot is re-committed. Sealing the
-// phase over a stale committed slot silently advances the project on a design whose basis has
-// shifted (the observed failure: advanced to Phase 2 while scrubbedRequirements was stale). So
-// before starting the seal workflow, refuse with FailedPrecondition naming the stale in-scope
-// slots — UNLESS the caller explicitly acknowledges (acknowledgeStale) that it intends to
-// advance over them. The message names the slots so a user/MCP consumer knows what to reconcile.
-func (m *systemDesignManager) AdvancePhase(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-
-	// Pre-seal gates over the committed head-state (read once).
-	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
-		// STD-FAIL-OPEN: a committed standard check that still carries a FAIL item means the
-		// Phase-1 design gate is red; sealing over it would advance on an unmet standard. A
-		// fail is NOT a staleness the caller can wave through, so this gate ignores
-		// acknowledgeStale.
-		if fails := standardCheckFailItems(proj); len(fails) > 0 {
-			return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot advance phase: the system-design standard check has %d failing item(s) (%s); resolve or waive them before sealing Phase 1.",
-					len(fails), strings.Join(fails, "; ")))
-		}
-		// STALE-UNACKED (F55): refuse to seal over a stale committed slot unless the caller
-		// explicitly acknowledges the staleness.
-		if !acknowledgeStale {
-			if stale := staleCommittedPhase1Kinds(proj); len(stale) > 0 {
-				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
-					fmt.Sprintf("cannot advance phase: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
-						len(stale), strings.Join(stale, ", ")))
-			}
-		}
-	}
-
-	wfID := phaseAdvanceWorkflowID(projectID)
-	opts := client.StartWorkflowOptions{
-		ID:        wfID,
-		TaskQueue: TaskQueue,
-	}
-	in := phaseAdvanceInput{ProjectID: projectID}
-
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindPhaseAdvance, in)
-	if err != nil {
-		return PhaseAdvanceResult{}, mapStartError(err)
-	}
-
-	var result PhaseAdvanceResult
-	if err := we.Get(ctx, &result); err != nil {
-		return PhaseAdvanceResult{}, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return result, nil
 }
 
 // staleCommittedPhase1Kinds returns the wire names of every COMMITTED Phase-1 slot that
@@ -1059,211 +215,11 @@ func standardCheckFailItems(proj projectstate.Project) []string {
 	return fails
 }
 
-// getSessionState — op 2.4. Temporal Query (QueryWorkflow, query sessionState,
-// read-only). Returns a point-in-time technical view without mutating state.
-//
-// GetSessionState is the exported public op.
-func (m *systemDesignManager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return SessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	wfID := coAuthorWorkflowID(projectID, kind)
-
-	// F15 gap 2a (query-side defense): a CoAuthorArtifactWorkflow that ended ABNORMALLY
-	// (FAILED / TERMINATED / TIMED_OUT / CANCELED — e.g. an activity crashed the run)
-	// STILL answers the sessionState Query by HISTORY-REPLAY, returning its last in-memory
-	// stage (typically StageDrafting). That LIES that drafting is in progress and wedges the
-	// SPA on an infinite "GENERATING" screen with no recovery. Describe the execution first;
-	// when it is closed-ABNORMAL, synthesize an explicit StageDraftFailed view instead of
-	// trusting the replayed query — supervision must reflect the real state.
-	//
-	// P0-2 (closed-COMPLETED case): a run that closed NORMALLY (COMPLETED) ALSO answers the
-	// sessionState Query by history-replay, returning its LAST in-memory stage. For a session
-	// that committed (or withdrew) and then completed, that replayed value can be a stale
-	// mid-flight StageDrafting — the SAME "GENERATING · MISSION forever" wedge, but for a
-	// SUCCESSFUL session whose artifact is long since committed on main. So a COMPLETED run is
-	// ALSO not trusted for its stage: derive the honest view from the durable slot on main —
-	// a committed slot renders the committed view (StageCommitted + the committed model), any
-	// other terminal-but-uncommitted slot renders an honest terminal (never Drafting).
-	//
-	// A RUNNING (or CONTINUED_AS_NEW / an amendment's fresh run) execution falls through to the
-	// live query, which is authoritative for those. A Describe error other than NotFound is
-	// best-effort: fall through to the query rather than masking a transient Describe blip.
-	//
-	// describeLive (F-R2) records that Describe CONFIRMED a live execution — only then is a
-	// task-failed query below trustworthy as the WEDGED signal (a Describe blip is not, and
-	// stays a clean retryable Infrastructure error).
-	describeLive := false
-	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
-		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
-		case isAbnormalClosedStatus(status):
-			// F-R2 durable-slot-first: a run can die AFTER its artifact landed on main (a
-			// died amendment attempt, or a death just after CommitArtifact), so consult the
-			// durable slot before falling back to the failed card (see abnormalClosedSessionView).
-			view, err := m.abnormalClosedSessionView(ctx, projectID, kind, status)
-			if err != nil {
-				return SessionStateView{}, err
-			}
-			return withStageName(view), nil
-		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-			view, err := m.completedSessionView(ctx, projectID, kind)
-			if err != nil {
-				return SessionStateView{}, err
-			}
-			return withStageName(view), nil
-		}
-		// Describe succeeded and the run is neither abnormal-closed nor completed — a LIVE
-		// execution (RUNNING / CONTINUED_AS_NEW / PAUSED). A task-failed query below is now
-		// trustworthy as the wedged signal.
-		describeLive = true
-	} else if isNotFound(derr) {
-		return SessionStateView{}, noActiveSessionError(projectID)
-	}
-
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", querySessionState)
-	if err != nil {
-		// F20 (error altitude): before a design session exists the CoAuthor workflow
-		// does not exist, and Temporal's raw "workflow not found for ID: <proj>:<n>"
-		// leaks the internal execution id to the client. Map that to a clean,
-		// user-altitude NotFound; other query faults keep their generic mapping.
-		if isNotFound(err) {
-			return SessionStateView{}, noActiveSessionError(projectID)
-		}
-		// F-R2: a WEDGED run (workflow task perpetually failing) shows RUNNING to the Describe
-		// above but rejects this query with the wedged signature. Do NOT surface a 5xx that
-		// leaves the SPA on an infinite GENERATING screen — synthesize the honest failed card
-		// so the human can Retry, which supersedes the stuck run (prepareForDraftRequest). Only
-		// when Describe CONFIRMED the run live: a Describe blip + task-failed stays a retryable
-		// Infrastructure error (we cannot prove the run is genuinely wedged).
-		if describeLive && isWorkflowTaskFailedQueryErr(err) {
-			return withStageName(wedgedSessionView(projectID, kind)), nil
-		}
-		return SessionStateView{}, mapQueryError(err)
-	}
-	var view SessionStateView
-	if err := enc.Get(&view); err != nil {
-		return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return withStageName(view), nil
-}
-
-// withStageName stamps the F72 human-readable StageName label alongside the bare Stage int
-// on the public SessionStateView, using sessionStageLabel as the single authoritative map.
-// Applied at the GetSessionState boundary so every wire consumer (web + MCP) sees the label
-// regardless of which internal path built the view. The Stage int (whose enum values DIFFER
-// across managers) is unchanged; StageName is purely additive.
-func withStageName(v SessionStateView) SessionStateView {
-	v.StageName = sessionStageLabel(v.Stage)
-	return v
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// isAbnormalClosedStatus reports whether a workflow-execution status is a CLOSED-ABNORMAL
-// terminal state — the session died without a clean commit/withdraw. A normally COMPLETED
-// or still-RUNNING (or CONTINUED_AS_NEW) execution is NOT abnormal.
-func isAbnormalClosedStatus(s enumspb.WorkflowExecutionStatus) bool {
-	switch s {
-	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT,
-		enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
-		return true
-	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
-		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
-		return false
-	default:
-		return false
-	}
-}
-
-// failedSessionView synthesizes the human-visible failed view for a session whose
-// workflow died abnormally (see GetSessionState). It reuses StageDraftFailed — the SAME
-// terminal-failure stage the live anti-wedge gate uses — so the SPA renders its existing
-// "design job failed → retry / withdraw" card (Retry re-dispatches via signal-with-start,
-// starting a fresh run). Carries a neutral human FailureReason; no run URL (the death was
-// not a specific CI run).
-func failedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) SessionStateView {
-	reason := terminatedSessionReason(status)
-	return SessionStateView{
-		ProjectID:     projectID,
-		ArtifactKind:  kind,
-		Stage:         StageDraftFailed,
-		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
-		FailureReason: &reason,
-	}
-}
-
-// wedgedSessionView synthesizes the honest failed card for a WEDGED run (F-R2): the workflow
-// task is perpetually failing, so the sessionState query cannot answer even though the run
-// still reports RUNNING to Describe. It reuses StageDraftFailed (the SPA's retry/withdraw
-// card), with copy promising that Retry supersedes the stuck session — which
-// prepareForDraftRequest actually does (terminate-then-SignalWithStart).
-func wedgedSessionView(projectID ProjectID, kind ArtifactKind) SessionStateView {
-	reason := "the design session hit an internal fault and cannot answer — Retry to start a fresh draft (the stuck session will be superseded)"
-	return SessionStateView{
-		ProjectID:     projectID,
-		ArtifactKind:  kind,
-		Stage:         StageDraftFailed,
-		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
-		FailureReason: &reason,
-	}
-}
-
-// abnormalClosedSessionView derives the honest view for a session whose workflow ended
-// ABNORMALLY (FAILED/TERMINATED/TIMED_OUT/CANCELED). Durable-slot-first (F-R2): a run can die
-// AFTER its artifact landed on main (a died amendment attempt, or a death just after
-// CommitArtifact), so consult main's slot before falling back to the failed card:
-//
-//   - Committed → the committed view (StageCommitted + the model) CARRYING a FailureReason so
-//     the last session's abnormal end stays visible; the committed view's amend affordance IS
-//     the retry, so this un-deadlocks the died-amendment case with ZERO writes.
-//   - Withdrawn → the withdrawn view.
-//   - anything else (the run died before committing) → today's failed card, preserving the
-//     2026-07-16 anti-wedge fix for a first-draft death.
-//
-// If the durable slot cannot be consulted — the store is unavailable (nil) or the read
-// faults — it falls back to the failed card rather than erroring or panicking: never wedge on
-// a recovery read (the failed card still offers Retry), matching the pre-fix behavior exactly.
-func (m *systemDesignManager) abnormalClosedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) (SessionStateView, error) {
-	if m.projectState == nil {
-		return failedSessionView(projectID, kind, status), nil
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		return failedSessionView(projectID, kind, status), nil
-	}
-	slot := slotFor(proj, kind)
-	switch slot.Status {
-	// A settled slot still has a model worth showing, even though the session
-	// that produced it died; every other status has nothing to show but the
-	// failure.
-	case projectstate.ReviewCommitted, projectstate.ReviewWithdrawn:
-		view, verr := committedSessionView(projectID, kind, slot)
-		if verr != nil {
-			return SessionStateView{}, verr
-		}
-		if slot.Status == projectstate.ReviewCommitted {
-			reason := "the last design session ended unexpectedly (" + workflowStatusLabel(status) + "); the committed model shown is unaffected"
-			view.FailureReason = &reason
-		}
-		return view, nil
-	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
-		return failedSessionView(projectID, kind, status), nil
-	default:
-		return failedSessionView(projectID, kind, status), nil
-	}
-}
-
 // completedSessionView derives the honest session view for a CoAuthor run that closed
 // NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run
 // (it can return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an
 // already-committed artifact), so the view is rebuilt from the DURABLE slot on main.
-func (m *systemDesignManager) completedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *deliveryManager) designCompletedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return SessionStateView{}, mapReadProjectError(err)
@@ -1315,42 +271,6 @@ func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectst
 	}
 }
 
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// terminatedSessionReason renders the neutral human "why" for a session whose workflow
-// died abnormally.
-func terminatedSessionReason(status enumspb.WorkflowExecutionStatus) string {
-	return "the design session ended unexpectedly and is no longer running (" + workflowStatusLabel(status) + "). Retry to start a fresh draft."
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// workflowStatusLabel maps an abnormal-closed status to a short, infrastructure-neutral
-// label for the failed card.
-func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
-	switch s {
-	case enumspb.WORKFLOW_EXECUTION_STATUS_FAILED:
-		return "the job failed"
-	case enumspb.WORKFLOW_EXECUTION_STATUS_TIMED_OUT:
-		return "the job timed out"
-	case enumspb.WORKFLOW_EXECUTION_STATUS_TERMINATED:
-		return "the job was terminated"
-	case enumspb.WORKFLOW_EXECUTION_STATUS_CANCELED:
-		return "the job was canceled"
-	case enumspb.WORKFLOW_EXECUTION_STATUS_UNSPECIFIED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING,
-		enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED,
-		enumspb.WORKFLOW_EXECUTION_STATUS_CONTINUED_AS_NEW,
-		enumspb.WORKFLOW_EXECUTION_STATUS_PAUSED:
-		return "the job stopped"
-	}
-	// Unreachable for the nine defined enumspb.WorkflowExecutionStatus values above
-	// (the exhaustive linter enforces that every real variant has its own case);
-	// kept as a defensive fallback for an out-of-range ordinal (e.g. a future
-	// Temporal SDK addition not yet triaged here).
-	return "the job stopped"
-}
-
 // SetResearchInput — op 2.6 (2026-05-30). SYNCHRONOUS, non-Temporal: it records
 // the Phase-1 ResearchInput Method INPUT so a fresh project can satisfy the
 // StartSystemDesign ResearchInput-present precondition through the UI. A single
@@ -1366,7 +286,7 @@ func workflowStatusLabel(s enumspb.WorkflowExecutionStatus) string {
 //
 // Returns the resulting head Version (the SPA may use it for optimistic display;
 // the frozen surface is the write itself).
-func (m *systemDesignManager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
+func (m *deliveryManager) SetResearchInput(rc fwmanager.Context, projectID ProjectID, research ResearchInput) (Version, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return 0, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -1499,14 +419,6 @@ func mapReadProjectError(err error) error {
 
 // --- error mapping at the façade boundary -----------------------------------
 
-// noActiveSessionError is the clean, user-altitude NotFound returned when no
-// design session (CoAuthor workflow) exists for the project — the no-active-session
-// read. It replaces Temporal's raw "workflow not found for ID: <proj>:<kind>" leak
-// (which exposed the internal execution-id format) with a client-appropriate message.
-func noActiveSessionError(projectID ProjectID) error {
-	return newError(fwmanager.NotFound, fmt.Sprintf("no active design session for project %q", projectID))
-}
-
 func mapStartError(err error) error {
 	// A "workflow already started" race under UseExisting policy is benign; the
 	// SDK surfaces it as *serviceerror.WorkflowExecutionAlreadyStarted, but with
@@ -1522,38 +434,6 @@ func mapSignalError(err error) error {
 		return newError(fwmanager.NotFound, err.Error())
 	}
 	return newError(fwmanager.Infrastructure, err.Error())
-}
-
-func mapQueryError(err error) error {
-	if isNotFound(err) {
-		return newError(fwmanager.NotFound, err.Error())
-	}
-	// A session whose workflow task is FAILING (e.g. a deploy-time non-determinism
-	// fault being retried) rejects queries with the raw Temporal internals
-	// "Unable to query workflow due to Workflow Task in failed state" — observed
-	// live on gtdapp:5 during the managed-scaffold-sync versioning incident. Same
-	// error-hygiene rule as the 065a9e7 not-found cleanup: clients get a clean,
-	// actionable Detail; the raw cause stays in the server-side log line at the
-	// call site.
-	if isWorkflowTaskFailedQueryErr(err) {
-		return newError(fwmanager.Infrastructure,
-			"design session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
-	}
-	return newError(fwmanager.Infrastructure, err.Error())
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// isWorkflowTaskFailedQueryErr reports whether a QueryWorkflow error is the WEDGED-RUN
-// signature (F-R2): the workflow task is perpetually failing (a deploy-time non-determinism
-// fault, a panic loop), so Temporal rejects the sessionState query with "...Workflow Task in
-// failed state" EVEN THOUGH DescribeWorkflowExecution still reports the run RUNNING. This is
-// the classification that (1) lets GetSessionState / reviewGateView synthesize an honest
-// failed view instead of a 5xx, and (2) authorizes RequestArtifactDraft to TERMINATE the
-// wedged run before starting a fresh one. A transient query timeout/Unavailable does NOT
-// match — it must never trigger a terminate. Same substring precedent as mapQueryError.
-func isWorkflowTaskFailedQueryErr(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "Workflow Task in failed state")
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
@@ -1658,32 +538,6 @@ func phase1RequiredKinds() []ArtifactKind {
 	return out
 }
 
-// phase1PredecessorKind returns the Phase-1 kind that must be Committed immediately
-// before `kind` may be drafted — the wire-side mirror of the SPA's buildSpine step
-// lock (a step is locked until its immediate predecessor is committed). The first
-// required kind (mission) has no predecessor and returns (_, false); a kind not in the
-// Phase-1 set likewise returns (_, false) (the caller has already gated on IsPhase1).
-func phase1PredecessorKind(kind ArtifactKind) (ArtifactKind, bool) {
-	req := phase1RequiredKinds()
-	for i, k := range req {
-		if k == kind {
-			if i == 0 {
-				return 0, false
-			}
-			return req[i-1], true
-		}
-	}
-	return 0, false
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// predecessorNotCommittedMsg is the FailedPrecondition detail naming the uncommitted
-// predecessor that blocks the requested draft (by its canonical camelCase wire name).
-func predecessorNotCommittedMsg(pred ArtifactKind) string {
-	return fmt.Sprintf("predecessor artifact %q must be committed before this kind can be drafted", artifactKindWireName(pred))
-}
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // strPtrOrNil maps a failure-reason string to the optional contract field: nil for
@@ -1757,20 +611,6 @@ func toPSResearch(r ResearchInput) projectstate.ResearchInput {
 // human-readable; safe to weave into a redraft prompt; no PII
 // optional; where in the model the finding sits
 
-// modelEnvelope/projectEnvelope are ALIASES to the projectstate types (the shared
-// wire codec lives in projectstate/envelope.go: EncodeModel/EncodeProject/Decode).
-// Aliasing preserves type identity for every existing declaration/field/call site
-// in this package; call the promoted methods by their exported names (Decode, not
-// decode).
-type (
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	modelEnvelope = projectstate.ModelEnvelope
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	projectEnvelope = projectstate.ProjectEnvelope
-)
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // draftModelFor builds the OPAQUE public DraftModel envelope ({kind, model}) the
@@ -1793,37 +633,13 @@ func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftMo
 	return env, nil
 }
 
-// encodeProject wraps the head-state aggregate for the Temporal boundary, delegating
-// the shared slot/model codec to projectstate.EncodeProject and then OPTING IN to
-// carrying the Research corpus pointer (projectstate/envelope.go doc: EncodeProject
-// leaves Research nil by default — a plain struct field's `omitempty` would not
-// suppress the key, so the promoted type uses a pointer and requires an explicit
-// opt-in). The persisted corpus (F42) is a set of {Title, Path, ContentBytes}
-// POINTERS — the book-sized Content lives as files at .aiarch/state/research/, NOT in
-// this envelope — so it round-trips whole and stays inherently tiny (the QA F29
-// titles-only slimming is now structural, not a special case). The mission-draft step
-// reads Title + Path off it.
-func encodeProject(p projectstate.Project) (projectEnvelope, error) {
-	env, err := projectstate.EncodeProject(p)
-	if err != nil {
-		return projectEnvelope{}, err
-	}
-	env.Research = &p.Research
-	return env, nil
-}
-
-// acknowledgestale.go implements the F45 per-slot staleness-acknowledge op: a reviewer marks
-// a stale COMMITTED artifact "reviewed — unaffected", clearing its StaleBasis flag WITHOUT a
-// redraft (which, for an unaffected artifact, would be a byte-identical no-op that dies at the
-// no-change gate). The clear + a durable staleAck audit entry commit atomically on main.
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 const acknowledgeStaleMaxAttempts = 5
 
 // AcknowledgeStaleBasis clears the committed slot's StaleBasis and records the reviewer's
 // note as a staleAck audit entry. Synchronous OCC write (mirrors SetResearchInput).
-func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
+func (m *deliveryManager) ackDesignStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -1840,7 +656,7 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 	// review PR merge-DIRTY, so the eventual approve's merge fails with a Conflict and the
 	// workflow bounces back to AwaitingReview looking like a silent no-op to the reviewer.
 	// Refuse up front: reconcile RIDES the amendment (its merge clears the staleness).
-	if err := m.refuseAckDuringLiveSession(rc, projectID, kind); err != nil {
+	if err := m.refuseDesignAckDuringLiveSession(rc, projectID, kind); err != nil {
 		return err
 	}
 	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
@@ -1873,8 +689,8 @@ func (m *systemDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projec
 // the review gate and the SPA trust (a dead run synthesizes StageDraftFailed; a COMPLETED
 // run is rebuilt from the durable slot) — so ack gating always agrees with what the
 // reviewer sees on screen. A NotFound (no session ever ran for this slot) passes.
-func (m *systemDesignManager) refuseAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.GetSessionState(rc, projectID, kind)
+func (m *deliveryManager) refuseDesignAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	view, err := m.designCompletedSessionView(rc, projectID, kind)
 	if err != nil {
 		var me *fwmanager.Error
 		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
@@ -1940,7 +756,7 @@ const askQuestionsMaxAttempts = 5
 // with the same questions: the seed is idempotent on its content key, so NO ledger entry is
 // duplicated (the existing entries' round is reused so the minted ids still match), while the
 // answer-job dispatch RE-FIRES via a per-call-unique key.
-func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -2049,8 +865,8 @@ func (m *systemDesignManager) AskQuestions(rc fwmanager.Context, projectID Proje
 // and the seeded questions land where nothing ever merges. GetSessionState synthesizes an
 // honest terminal for every closed run (StageCommitted / StageWithdrawn / StageDraftFailed)
 // and errors NotFound when there is no workflow — all of which fall back to main here.
-func (m *systemDesignManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
-	view, err := m.GetSessionState(rc, projectID, kind)
+func (m *deliveryManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
+	view, err := m.designCompletedSessionView(rc, projectID, kind)
 	if err != nil || !isLiveSessionStage(view.Stage) {
 		return ""
 	}
@@ -2065,7 +881,7 @@ func (m *systemDesignManager) resolveQuestionBranch(rc fwmanager.Context, projec
 // on-branch read moved onto the designSessionAccess facet (Wave 1 reconciliation), which
 // ships the aggregate as a ProjectEnvelope across the Manager-Temporal boundary; decode it
 // back to the concrete Project here. branch=="" reads main exactly as ReadProject.
-func (m *systemDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
+func (m *deliveryManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
 	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
 	if err != nil {
 		return projectstate.Project{}, err
@@ -2247,7 +1063,7 @@ func existingQuestionRound(thread []projectstate.ReviewComment, qs []projectstat
 // miss (rail not configured, repo unresolved, or a submit fault) was previously discarded and
 // the construction-pipeline RA has no logger, so it vanished with zero operator signal. A miss
 // is recoverable by re-calling AskQuestions (see the op doc) — never silent.
-func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
+func (m *deliveryManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
 	log := slog.Default().With(
 		"op", "systemdesign.AskQuestions.dispatchAnswerJob",
 		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
@@ -2279,7 +1095,8 @@ func (m *systemDesignManager) dispatchAnswerJob(ctx context.Context, projectID P
 	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
 	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
 	// RepoRef→RepoTarget decode + the placeholder step graph the retired pipelineDispatchAdapter
-	// added are inlined here (the workflow-side twin is dispatchDesignJob in dispatch.go).
+	// added are inlined here (the workflow-side twin is dispatchDesignJob, in this file since
+	// stage 4b1 Task 13 folded the co-author spine's survivors in).
 	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
 	if terr != nil {
 		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
@@ -2370,7 +1187,7 @@ const (
 // context and is cancelled the moment that call returns, while the job it dispatched runs
 // for minutes afterwards. WithoutCancel keeps the request's values (tracing, principal)
 // and drops only the cancellation.
-func (m *systemDesignManager) watchAnswerEpisode(ctx context.Context, projectID ProjectID, kind ArtifactKind, handle agenticjob.PipelineHandle, log *slog.Logger) {
+func (m *deliveryManager) watchAnswerEpisode(ctx context.Context, projectID ProjectID, kind ArtifactKind, handle agenticjob.PipelineHandle, log *slog.Logger) {
 	w := answerEpisodeWatch{
 		pipeline: m.pipeline,
 		episodes: m.episodes,
@@ -2677,7 +1494,7 @@ func episodeIDSafe(s string) string {
 // — a retry after a partial failure RE-CONVERGES rather than duplicating. The rail
 // (sourceControlAccess) is optional: nil ⇒ repo-less create (a dev server with no
 // GitHub App credentials).
-func (m *systemDesignManager) CreateProject(rc fwmanager.Context, owner OwnerScope, name string) (ProjectID, error) {
+func (m *deliveryManager) CreateProject(rc fwmanager.Context, owner OwnerScope, name string) (ProjectID, error) {
 	ctx := rc.Context
 	if owner == "" {
 		return "", newError(fwmanager.ContractMisuse, "empty owner")
@@ -2728,7 +1545,7 @@ func (m *systemDesignManager) CreateProject(rc fwmanager.Context, owner OwnerSco
 // UI/MCP calls it at creation — after CreateProject, before StartSystemDesign — to pick
 // self-operated (the default the project is born with) or archistrator-operated (which
 // constrains the deployment design to the platform palette). Returns the head Version.
-func (m *systemDesignManager) SetOperatingModel(rc fwmanager.Context, projectID ProjectID, model OperatingModel) (Version, error) {
+func (m *deliveryManager) SetOperatingModel(rc fwmanager.Context, projectID ProjectID, model OperatingModel) (Version, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return 0, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -2773,7 +1590,7 @@ func createProjectIdempotencyKey(projectID ProjectID) fwra.IdempotencyKey {
 // ListProjects returns the landing-grid catalog for owner, newest-first (the RA's
 // ordering). A pass-through over projectStateAccess.ListProjects, mapped to the
 // contract ProjectSummary.
-func (m *systemDesignManager) ListProjects(rc fwmanager.Context, owner OwnerScope) ([]ProjectSummary, error) {
+func (m *deliveryManager) ListProjects(rc fwmanager.Context, owner OwnerScope) ([]ProjectSummary, error) {
 	ctx := rc.Context
 	if owner == "" {
 		return nil, newError(fwmanager.ContractMisuse, "empty owner")
@@ -2792,7 +1609,7 @@ func (m *systemDesignManager) ListProjects(rc fwmanager.Context, owner OwnerScop
 // GetProject returns the full typed head-state for one project, mapping the
 // projectstate.Project aggregate's named typed slots into the contract ProjectState.
 // fwra.NotFound passes through as fwmanager.NotFound.
-func (m *systemDesignManager) GetProject(rc fwmanager.Context, projectID ProjectID) (ProjectState, error) {
+func (m *deliveryManager) GetProject(rc fwmanager.Context, projectID ProjectID) (ProjectState, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return ProjectState{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -2823,7 +1640,7 @@ func (m *systemDesignManager) GetProject(rc fwmanager.Context, projectID Project
 // DesignHealthEngine call below is the code that BACKS the
 // SystemDesignManager → DesignHealthEngine architecture edge, an ordinary
 // downward M→E call.
-func (m *systemDesignManager) GetDesignHealth(rc fwmanager.Context, projectID ProjectID) (DesignHealth, error) {
+func (m *deliveryManager) GetDesignHealth(rc fwmanager.Context, projectID ProjectID) (DesignHealth, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return DesignHealth{}, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -2979,7 +1796,7 @@ func sdMapRAError(err error, label string) error {
 // model. NO-OP when either slot is absent — a project that has not reached its
 // architecture yet has nothing to derive from, and the authored edges (if any)
 // still serve on their own.
-func (m *systemDesignManager) computeDeploymentEdgesAtRead(p *projectstate.Project) {
+func (m *deliveryManager) computeDeploymentEdgesAtRead(p *projectstate.Project) {
 	if m.designHealth == nil {
 		return
 	}
@@ -3132,7 +1949,7 @@ func callModeFromWireName(name string) projectstate.CallMode {
 // figures, criticality bands, milestone event times, summary) by running the
 // estimationEngine.ComputeNetwork over the AUTHORED network × activity list.
 // NO-OP when the estimator is nil or the Network slot has no authored model.
-func (m *systemDesignManager) computeNetworkAtRead(p *projectstate.Project) {
+func (m *deliveryManager) computeNetworkAtRead(p *projectstate.Project) {
 	if m.estimator == nil {
 		return
 	}
@@ -3274,7 +2091,7 @@ func summaryToContract(s projectstate.ProjectSummary) ProjectSummary {
 // ProjectState transport shape. Read-time projections (each git row's prUrl/prNumber
 // composed from the per-project repo base + the opaque ref, and the EV/SPI earned-value
 // curve from m.estimator) are sourced server-side here rather than re-derived by the webClient.
-func (m *systemDesignManager) projectStateToContract(p projectstate.Project) ProjectState {
+func (m *deliveryManager) projectStateToContract(p projectstate.Project) ProjectState {
 	phase := Phase(int(p.Phase))
 	return ProjectState{
 		ProjectID: ProjectID(p.ID),
@@ -3537,11 +2354,11 @@ func stageForStatus(s projectstate.ArtifactReviewStatus) ArtifactStage {
 // projectRepoBase(projectID) (which falls back to the central m.repoBase exactly when
 // the dispatch resolver is nil or misses — links stay central-pointing precisely when
 // dispatch does).
-func (m *systemDesignManager) gitRowsToContract(projectID ProjectID, rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
+func (m *deliveryManager) gitRowsToContract(projectID ProjectID, rows map[string]projectstate.ActivityGitStatus) map[string]ActivityGitStatus {
 	if len(rows) == 0 {
 		return nil
 	}
-	base := m.projectRepoBase(projectID)
+	base := m.deliveryProjectRepoBase(projectID)
 	out := make(map[string]ActivityGitStatus, len(rows))
 	for id, g := range rows {
 		prNumber, prURL := projectPRRef(g.PullRequestRef, base)
@@ -3595,13 +2412,23 @@ func projectPRRef(ref, repoBase string) (prNumber int, prURL string) {
 // dispatch stays central): the central m.repoBase is returned verbatim when the resolver
 // is nil, misses the project, yields a malformed ref, or the central base has no host to
 // borrow (unconfigured ⇒ "" ⇒ prUrl omitted downstream).
-func (m *systemDesignManager) projectRepoBase(projectID ProjectID) string {
+func (m *deliveryManager) deliveryProjectRepoBase(projectID ProjectID) string {
 	if m.repo == nil {
 		return m.repoBase
 	}
 	repoRef, ok := m.repo(projectID)
 	if !ok {
 		return m.repoBase
+	}
+	// A GITLOCAL PROJECT HAS NO WEB HOST (review fix round 1, finding 2). The deterministic local
+	// venue is a FILESYSTEM path, not a forge, and it is invisible here by accident rather than by
+	// construction: GitLocalRepoRefForProject mints a WELL-FORMED owner|owner/repo ref, so
+	// RepoRefOwnerRepo decodes it happily and the composed base came out as
+	// "<configured host>/local/<projectId>" — a plausible-looking URL that 404s, stamped onto every
+	// prUrl of every activity of every local boot. R6's single recognition point is what settles it,
+	// and it is the same question railLifecycleEnabled asks two lines from the same resolver.
+	if isGitLocalVenue(projectID, repoRef) {
+		return ""
 	}
 	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
 	if err != nil {
@@ -4001,18 +2828,6 @@ func classifiedRowView(
 	return projectstate.ResolveConstructionRow(r, meta)
 }
 
-// resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,
-// the profile-wins, ledger-per-phase resolution that classifiedRowView's phase set comes
-// from. The rule moved down into projectstate so the construction pump can share it; this
-// name stays because the view-model's tests pin the rule against it directly, with an
-// explicit profile, and must keep passing unmodified across the move.
-func resolvedPhaseCompletions(
-	profile projectstate.Profile,
-	attempts []projectstate.TaskAttempt,
-) []projectstate.PhaseCompletion {
-	return projectstate.ResolvePhaseCompletions(profile, attempts)
-}
-
 // phasesToContract maps the App-A internal phase-completion records onto the wire.
 // The caller (constructionRowsToContract) passes the ALREADY-RESOLVED phase set from
 // projectstate.ResolveConstructionRow (through classifiedRowView) — this function
@@ -4082,7 +2897,7 @@ func producedToContract(produced []projectstate.ProducedArtifact) []ProducedArti
 // constructionProgressToContract maps the project-level Phase-3 framing scalars
 // (nil in ⇒ nil out) AND computes the EV/SPI earned-value curve server-side via the
 // estimationEngine (compute-at-read).
-func (m *systemDesignManager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
+func (m *deliveryManager) constructionProgressToContract(p projectstate.Project) *ConstructionProgress {
 	cp := p.ConstructionProgress
 	if cp == nil {
 		return nil
@@ -4122,7 +2937,7 @@ func evPointsToContract(pts []projectstate.EvPoint) []EvPoint {
 // estimationEngine.ComputeEarnedValue over the AUTHORED activity list ×
 // network, the integrated activity set, the calendar days/week, and the total-week
 // framing. Zero EVCurve when the estimator is nil or inputs are degenerate.
-func (m *systemDesignManager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {
+func (m *deliveryManager) computeEVAtRead(p projectstate.Project, totalWeeks int64) EVCurve {
 	if m.estimator == nil {
 		return EVCurve{}
 	}
@@ -4547,7 +3362,7 @@ const pipelineDefaultToolchain = "go-1.23"
 // PipelineSubmit/ObserveAgenticJob); the value mapping that lived on the folded
 // pipelineDispatchAdapter — the RepoRef→RepoTarget decode, the PipelineSpec composition,
 // and the RA-phase→neutral-phase mapping — is now these PURE workflow-side helpers
-// (mirrors construction's dispatch.go). The idempotency key is stamped INSIDE the
+// (mirrors the child's own dispatch path). The idempotency key is stamped INSIDE the
 // generated submit Activity (genActivityIdempotencyKey, the same run-scoped 3-part scheme
 // the old hand-derived key used), so the redraft-vs-auto-retry distinction is unchanged.
 // The former EXPORTED consumer-mirror interface + the folded pipelineDispatchAdapter +
@@ -4626,22 +3441,6 @@ const (
 // designBranch PROMOTED to projectstate.DesignBranch (code-health-phase-bd task D3) —
 // byte-identical pure resolver, no longer duplicated with projectdesign's twin.
 
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// dispatchActivityOptions is the option preset for the generated
-// agenticJobAccess.submitAgenticJob Activity (consumed by the manager's
-// option hook — workermanifest.go). A transient submit error (ErrTransient / Retryable)
-// auto-retries via this RetryPolicy; a terminal RA fault (ContractMisuse / Auth /
-// QuotaExhausted) is non-retryable and surfaces to the workflow body. A PhaseFailed is NOT
-// a dispatch error — it is a successful observation of a failed job (§0d.4).
-func dispatchActivityOptions() workflow.ActivityOptions {
-	return fwmanager.ActivityPreset{
-		Timeout:     30 * time.Second,
-		MaxAttempts: 5,
-		TerminalRA:  []fwra.Kind{fwra.ContractMisuse, fwra.Auth, fwra.QuotaExhausted},
-	}.Options()
-}
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // appendEpisodeRetryWindow is the HARD wall-clock bound on the episode-append's own retry
@@ -4670,18 +3469,6 @@ func appendEpisodeActivityOptions() workflow.ActivityOptions {
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// observeActivityOptions is the option preset for the generated
-// agenticJobAccess.observeAgenticJob Activity. Transient reads retry;
-// a NotFound (GC'd handle) is non-retryable and surfaces.
-func observeActivityOptions() workflow.ActivityOptions {
-	return fwmanager.ActivityPreset{
-		Timeout:    15 * time.Second,
-		TerminalRA: []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
-	}.Options()
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // designWorkflowFileName is the per-project DESIGN workflow file the agentic design
 // dispatch must target (per-project-design-dispatch) — the BASENAME of
 // sourcecontrol.DesignWorkflowPath (".github/workflows/aiarch-design.yml"), i.e.
@@ -4703,19 +3490,29 @@ func mintCredActivityOptions() workflow.ActivityOptions {
 	}.Options()
 }
 
-// railActivityOptions — the generated sourceControlAccess PR-rail ops, including
-// syncManagedScaffold (B10). Auth + a merge Conflict (not-mergeable) + bad input are
-// terminal; transport/rate-limit retry. Feeds the manager's option hook (workermanifest.go),
-// keyed by each op's generated activity name.
 // scaffoldSyncActivityOptions carries a StartToClose long enough for a FULL scaffold
-// converge — ~100 file reads plus up to a whole-tree of contents-API writes on a torn
-// or version-bumped repo (F-QA2-36 addendum: the shared 30s rail deadline expired
-// mid-loop and the sync only progressed via retry-persisted writes). The sync is
-// resumable/idempotent (manifest written last), so a long deadline is safe.
+// converge — ~100 file reads plus up to a whole-tree of contents-API writes on a torn or
+// version-bumped repo. F-QA2-36's addendum is the incident it exists for: the shared
+// 30-second rail deadline expired mid-loop and the sync only progressed through
+// retry-persisted writes. The sync is resumable and idempotent (the manifest is written
+// LAST), so a long deadline is safe where a short one is not.
 func scaffoldSyncActivityOptions() workflow.ActivityOptions {
 	o := railActivityOptions()
 	o.StartToCloseTimeout = 5 * time.Minute
 	return o
+}
+
+// mutateActivityOptions is the preset for the head-state MUTATION ops the child reaches —
+// designSessionAccess.commitArtifactWithProvenance (the design slot commit) and
+// projectStateAccess.advancePhase (the Phase-1 seal). Retry Transient through the Activity
+// RetryPolicy; Conflict is deliberately NOT terminal, because the workflow-level
+// re-read→re-apply loop is what resolves it (applyRecovering) rather than a Temporal retry
+// re-issuing the same stale expected version forever. Terminal on ContractMisuse.
+func mutateActivityOptions() workflow.ActivityOptions {
+	return fwmanager.ActivityPreset{
+		Timeout:    15 * time.Second,
+		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
+	}.Options()
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
@@ -4801,113 +3598,6 @@ func reviewThreadToView(thread []projectstate.ReviewComment) []ReviewCommentView
 // TaskQueue is defined in the generated worker.gen.go.
 // ---------------------------------------------------------------------------
 
-// Signal and query names (systemDesignManager.md §6.5).
-const (
-	// signalReviewDecision resumes a suspended CoAuthorArtifactWorkflow at the
-	// AwaitingReview gate; backs submitReviewDecision.
-	signalReviewDecision = "reviewDecision"
-	// lSignalRedraft resumes a CoAuthorArtifactWorkflow that ended a draft attempt in
-	// the StageRefused terminal-but-live state (a terminal worker fault: the LLM
-	// worker is unavailable / out of credits, or produced an unconstructable
-	// response). It re-enters the draft loop in the SAME live workflow so the user's
-	// "Retry draft" recovers without a fresh run. Backs requestArtifactDraft's retry
-	// path (signal-with-start; systemDesignManager.md §2.1).
-	lSignalRedraft = "redraft"
-	// Stage 4a: ONE copy now serves the systemDesign+construction rails (byte-identical
-	// twins, collapsed by the package merge).
-	// querySessionState returns a SessionStateView; backs getSessionState.
-	querySessionState = "sessionState"
-	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
-	// AwaitingReview gate to apply a durable review-ledger status transition
-	// (open|answered->resolved / resolved->open) to one comment on the session branch; backs
-	// SetReviewCommentStatus (review-ledger feature).
-	signalSetCommentStatus = "setCommentStatus"
-)
-
-// ExecutionKinds for the durable-execution control plane (systemDesignManager.md §6.2).
-const (
-	// executionKindPhase is the PARENT SystemDesignPhaseWorkflow (2026-05-29), the
-	// ordered 7-step Phase-1 sequence started by startSystemDesign.
-	executionKindPhase = "systemDesignPhase"
-	// executionKindCoAuthor is the per-step child CoAuthorArtifactWorkflow gate.
-	executionKindCoAuthor = "systemDesignCoAuthor"
-	// executionKindPhaseAdvance is the short-lived phase-seal gating workflow.
-	executionKindPhaseAdvance = "systemDesignPhaseAdvance"
-)
-
-// workflows is the single systemDesignManager component struct. It holds ALL the
-// downstream dependencies the Manager orchestrates and is BOTH the workflow
-// receiver and the activity receiver — there is no separate Activities type.
-//
-// How the two dependency kinds are reached differs by their determinism class,
-// per the contract (systemDesignManager.md §6.3/§6.4):
-//
-//   - Validator (artifactValidationEngine) is a PURE, deterministic Engine, so
-//     the workflow body calls its named verbs DIRECTLY — replay-safe, no Activity
-//     wrapper (artifactValidationEngine.md §2.1).
-//   - ProjectState / Workers are I/O ResourceAccess ports and are NON-deterministic.
-//     They are fields here, but the workflow MUST NOT call them on the workflow
-//     goroutine. Instead the workflow invokes the Activity methods on this same
-//     struct via workflow.ExecuteActivity (activities.go).
-//
-// 2026-06-15 agentic-pivot re-cut (systemDesignManager.md §0d / D-MSD-Δ): the
-// drafting MECHANISM flips from a synchronous worker call to an ASYNC dispatch →
-// observe → read-back round-trip. DRAFT and PM-CRITIQUE no longer call
-// workerAccess.GenerateTypedData in-process; instead the Manager DISPATCHES a
-// claude-code-action DESIGN job via Pipeline (agenticJobAccess), OBSERVES
-// it to a typed terminal phase, and READS BACK the typed model the Action committed
-// via ProjectState.ReadProject. aiarch makes NO synchronous LLM call and writes NO
-// draft JSON on the main path (the Action commits it inside the user's CI; the
-// required CI validation check is the trust boundary).
-//
-//   - Pipeline (agenticJobAccess) — submit + observe, both Activity-
-//     wrapped (I/O). The claude-code-action job runs OUTSIDE aiarch's call graph
-//     (user's CI, user's token).
-//   - ProjectState — read-back of the committed Kind + the human-gate thin-writes
-//     (stage/commit/reject/withdraw/advancePhase), all Activity-wrapped.
-//
-// DROPPED from the draft path (server-shrink §1/§2): workerAccess (no synchronous
-// LLM call survives) and artifactValidationEngine (validation is now the required
-// CI check inside the Action, surfaced as the job's terminal phase). They are
-// removed from this struct.
-//
-// Rendering is not a server concern: server-side rendering was removed (the
-// client renders the typed models the query/head-state expose), so there is no
-// Rendering field here.
-type workflows struct {
-	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
-	// surface for EVERY contract-backed RA op this Manager reaches: projectStateAccess
-	// readProjectVersion / advancePhase, the agenticJobAccess submit/observe
-	// design-job pair, the six sourceControlAccess PR-rail verbs plus syncManagedScaffold,
-	// and the eight designSessionAccess verbs (the envelope-parameter Stage op, the
-	// branch-aware read-back/commit/reject/withdraw/reconcile/review-ledger mutations —
-	// B10). Each invoker consults the manager's per-op preset hook (workermanifest.go
-	// activityOptions), keyed by the generated activity name. This Manager carries NO RA
-	// dep of its own — every Activity it executes is generated (B10: the systemdesign
-	// rewire deleted the last custom Activities; activities_custom.go / errors.go are
-	// gone, and reviewledger.go/gitrail.go keep only non-Activity value carriers).
-	Acts genInvokers
-
-	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When
-	// both are non-nil AND a repo resolves for the project, the CoAuthor spine wraps
-	// each draft in the settled branch→PR→read-back→+1→merge model: ensure the session
-	// branch, open a PR (head=sessionBranch, base=main), read back + stage on the
-	// session branch, then on Approve guard-check + relay the +1 + merge to main before
-	// committing on main. When either is nil (the Postgres/non-git composition, or every
-	// existing test) the spine runs UNCHANGED — read-back/stage on main, no branch/PR
-	// ops — so the branch-aware path is purely additive and dormant-when-unwired,
-	// exactly like the construction Manager's git-forward slice.
-	//
-	// Rail is the PUBLISHED sourceControlAccess RA. Every rail verb (including
-	// syncManagedScaffold, since B10) is reached through the generated invoker surface
-	// (wf.Acts.Rail*); this field is held directly ONLY for the nil/dormant gitEnabled
-	// gate — a plain presence/absence check, never a call.
-	Rail sourcecontrol.SourceControlAccess
-	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
-	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
-	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-}
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // maxMutateConflictAttempts bounds the workflow-level Conflict re-read→re-apply
@@ -4924,36 +3614,6 @@ const maxMutateConflictAttempts = 20
 // keyed by the generated activity name — every Activity this Manager executes is
 // generated (B10), so no ctx-wrapper form is needed anymore.
 
-// readProjectActivityOptions is the preset for the generated
-// designSessionAccess.readProjectOnBranch and projectStateAccess.readProjectVersion ops.
-func readProjectActivityOptions() workflow.ActivityOptions {
-	// BOUND the read retries. A read that faults RETRYABLY (Transient / Infrastructure /
-	// RateLimited) must NOT loop forever — pre-fix a decode failure of committed state
-	// was mis-classified Infrastructure and retried every ~100s indefinitely with no
-	// failure surface (QA F36). Decode failures are now TERMINAL (ContractMisuse, listed
-	// below), but a GENUINE persistent infra outage must still surface rather than wedge
-	// invisibly, so cap the attempts.
-	return fwmanager.ActivityPreset{
-		Timeout:     10 * time.Second,
-		MaxAttempts: 8,
-		TerminalRA:  []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
-	}.Options()
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// mutateActivityOptions is the preset for the head-state mutation ops (the generated
-// designSessionAccess Stage / Commit / Reject / Withdraw / Reconcile / review-ledger
-// verbs) and the generated projectStateAccess.advancePhase. Retry Transient via the
-// Activity RetryPolicy; Conflict is handled by the workflow-level re-read→re-apply loop
-// (D-PA §6/§7). Terminal on ContractMisuse.
-func mutateActivityOptions() workflow.ActivityOptions {
-	return fwmanager.ActivityPreset{
-		Timeout:    15 * time.Second,
-		TerminalRA: []fwra.Kind{fwra.ContractMisuse},
-	}.Options()
-}
-
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // raConflictErrType is the canonical Temporal Type() a head-state mutation
@@ -4966,6 +3626,42 @@ var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
 // raNotFoundErrType is the canonical Temporal Type() the ReadProject Activity
 // surfaces when the addressed aggregate has NO row yet — a brand-new project.
 var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
+
+// raAuthErrType is the canonical Temporal Type() a rail Activity surfaces for an Auth
+// fault. The platform github ClassifyStatus conflates GitHub secondary RATE-LIMIT 403s
+// with real permission denials — both become fwra.Auth — and marks the result
+// NON-RETRYABLE, so the bounded rail retry (QA F35 + F-QA2-49) has to run WORKFLOW-SIDE.
+var raAuthErrType = fwmanager.RAErrType(fwra.Auth)
+
+// isRailAuthFault reports whether err is a rail Auth fault — the rate-limit-403-as-Auth
+// that railWithAuthRetry absorbs within a bounded budget.
+func isRailAuthFault(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raAuthErrType
+	}
+	return false
+}
+
+// railAuthRetry* bound the workflow-side rail retry (railWithAuthRetry).
+//
+// F-QA2-49: GitHub SECONDARY rate limits demand a >=60s cool-down before any retry can
+// succeed, so the original ~30s budget (5s → 10s → 15s) expired ENTIRELY INSIDE the
+// cool-down window after an API-heavy job — observed live as three openPR attempts across
+// 15s, all 403, then StageDraftFailed, with a manual retry 15 minutes later succeeding
+// first try. Four attempts over ~7 minutes outlast a secondary-rate-limit window and stay
+// bounded, so a GENUINE permission denial still reaches the caller's containment.
+const (
+	railAuthRetryMaxAttempts = 4
+	railAuthRetryBaseBackoff = 60 * time.Second
+	railAuthRetryMaxBackoff  = 240 * time.Second
+)
+
+// railCredRenewSkew is how far AHEAD of a credential's stated expiry liveCred re-mints.
+// A token that expires while a rail Activity is in flight 403s exactly as an expired one
+// does, and the mint is cheap next to the walk it protects, so the check buys a margin
+// rather than racing the clock.
+const railCredRenewSkew = 5 * time.Minute
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
@@ -4990,72 +3686,90 @@ func isReadNotFound(err error) bool {
 	return false
 }
 
-// systemDesignPhaseWorkflowID derives the parent continuity token:
-// {projectId}:systemDesign (systemDesignManager.md §2.0).
-func systemDesignPhaseWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:systemDesign", projectID)
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// coAuthorWorkflowID derives the continuity token for a per-artifact co-authoring
-// workflow: {projectId}:{artifactKind} (systemDesignManager.md §6.1).
-func coAuthorWorkflowID(projectID ProjectID, kind ArtifactKind) string {
-	return fmt.Sprintf("%s:%d", projectID, int(kind))
-}
-
-// coAuthorInput is the start payload for CoAuthorArtifactWorkflow.
-type coAuthorInput struct {
-	ProjectID    ProjectID
-	ArtifactKind ArtifactKind
-	// Feedback is the optional re-request feedback for the explicit
-	// withdraw-then-redraft-with-notes path (systemDesignManager.md §2.1, OQ6).
-	Feedback *ReviewFeedback
-	// Amendment is the AMENDMENT-session index (F38/F40 founder ruling 2026-07-05).
-	// 0 = the original review session (branch aiarch-design/<project>/<kind>). N>0 =
-	// the Nth reopening of an already-COMMITTED artifact — a fresh session whose v1
-	// branch/PR already merged, so it drafts on a NEW branch (…-amend-N). Constant for
-	// the life of a workflow run, so the session branch is STABLE across every redraft.
-	//
-	// INVARIANT (set by the manager's amendmentIndexFor): N >= 1 IFF the slot was COMMITTED
-	// at request time — the amendment condition. The manager floors a committed slot to 1
-	// (a slot committed before the Revisions field existed reads Revisions=0 but is still an
-	// amendment). So the spine's "Amendment > 0" checks (branch suffix, amendment prompt
-	// framing, and the maybeSeedAmendment ledger seed) are a faithful proxy for "amendment"
-	// and fire for EVERY committed slot, including pre-field ones.
-	Amendment int
-}
-
-// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
-// coAuthorOutcome is the child gate's terminal report to the parent — whether the
-// step's human gate approved (advance) or withdrew (halt).
-type coAuthorOutcome int
-
-const (
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	coAuthorUnknown coAuthorOutcome = iota
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	coAuthorApproved
-	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
-	// twins, collapsed by the package merge).
-	coAuthorWithdrawn
-)
-
-// phaseAdvanceWorkflowID derives the continuity token for the short-lived gating
-// workflow: {projectId}:phaseAdvance:systemDesign (systemDesignManager.md §6.1).
+// ===========================================================================
+// THE ROW RE-READ, and the Conflict that is not a race (stage 4b1, ruling R-A).
 //
-// The rail suffix is NOT decoration. projectDesignManager derived the same
-// {projectId}:phaseAdvance string; the two never collided only because they polled
-// different task queues and never ran at once. Stage 4a puts both on the single
-// `delivery` queue, where USE_EXISTING would silently join the OTHER rail's advance.
-// Existing in-flight advances keep the old id — they are covered by the stage-4 drain,
-// and a phase advance is seconds long.
-func phaseAdvanceWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:phaseAdvance:systemDesign", projectID)
+// ONE copy serves the systemDesign + projectDesign + construction rails: all three
+// applyRecovering loops call terminalAfterRowReread, so the discriminator exists once
+// even though the three loops keep their own receivers, branch parameter and logging.
+// ===========================================================================
+
+// changeRowConflictReread fences the row re-read applyRecovering gained in stage 4b1.
+// Pre-change executions keep their recorded sequence — project version only — because the
+// row read is a NEW durable command inside the loop, and a history that conflicted once
+// would otherwise replay into a command it never made.
+const changeRowConflictReread = "row-conflict-reread"
+
+// terminalConflictErrType is the Temporal Type() applyRecovering raises when a Conflict
+// cannot be a version conflict, because RE-READING CHANGED NOTHING.
+//
+// Why the re-read is the discriminator and not an error class: fwra.Kind is
+// platform-fixed (framework-go/resourceaccess/errors.go), every Conflict reaches a
+// workflow as nothing but that Kind's name (fwmanager.RAErrType, see raConflictErrType),
+// and matching a store's message text from a workflow would couple the two across a
+// release. The three terminality Conflicts this catches — OpenActivity on an exited row,
+// and AppendReviewVerdict / DecideReviewRound on a decided round — differ from a genuine
+// version conflict in exactly one OBSERVABLE way: nothing moves when you look again. So
+// we look again, and when neither the project version nor the row version moved we fail
+// with the honest cause instead of burning twenty attempts to report the wrong one.
+//
+// WHERE THE SENTENCE CAN BE WRONG, and it is the message and not the verdict: on a design
+// rail a mutation targeting MAIN can carry an `expected` read from the SESSION BRANCH (QA
+// F29), so the number it holds may exceed main's and re-reading main moves nothing —
+// forever. That is a MIS-ADDRESSED CAS, not a store refusing a transition, yet it reaches
+// here looking identical and is reported as "the store is refusing". The non-retryable
+// OUTCOME is right either way (no number of retries fixes a token read off the wrong
+// substrate) and it now arrives in one attempt rather than twenty, but an operator reading
+// the sentence on a branch-targeted design mutation should suspect the branch before the
+// store. Telling the two apart would mean re-reading on the branch the mutation targets,
+// which is the F29 question itself and not this fence's.
+const terminalConflictErrType = "MutateTerminalConflict"
+
+// terminalConflictMessage is the one sentence that terminal carries. It names what was
+// asked (both versions) and what the answer means (a refusal, not a race), because the
+// operator reading it cannot re-run the re-read the workflow already did.
+const terminalConflictMessage = "head-state conflict is terminal: neither the project version nor the activity row moved on re-read, so the store is refusing this transition rather than racing it"
+
+// isTerminalConflict reports whether err is that terminal. Callers that legitimately race
+// to a terminal state — the round sweep withdrawing a round someone else just decided —
+// treat it as success rather than as a failure.
+func isTerminalConflict(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == terminalConflictErrType
+	}
+	return false
 }
+
+// rowAccessor is the PER-RUN binding the row re-read needs: WHICH activity row this
+// execution writes, what version it believes that row is at, and how to re-seed that
+// belief once the store has been asked again.
+//
+// It rides the RUN's workflow.Context and NOT the workflows receiver. The receiver
+// (csWorkflows / workflows / pdWorkflows) is built ONCE per worker — WorkerManifest hands
+// its method values to RegisterWorkflow — and is therefore shared by every execution on
+// that worker: accessor FIELDS there would be a data race between concurrent children and
+// would let one activity's row version re-seed another activity's CAS. A context value is
+// per-execution, deterministic, and emits no command, so it also costs no fence of its own
+// and leaves all three applyRecovering signatures and their ~49 call sites untouched.
+type rowAccessor struct {
+	// activityID is the row the run writes. Empty means the run holds no row.
+	activityID string
+	// version reads the run's copy of the row's version (constructState /
+	// coAuthorState / pdCoAuthorState activityVersion — the CAS token it passes).
+	version func() int64
+	// setVersion re-seeds that copy from what the store just reported.
+	setVersion func(int64)
+}
+
+// rowAccessorKey is the private context key. A struct{} type (not a string) so nothing
+// outside this package can collide with it or read the binding out.
+//
+// The four funcs that READ or WRITE this binding take a workflow.Context and so cannot
+// live in the impl file at all (arch.CheckFileLayout's workflow-in-impl-file rule): they
+// sit in deliveryactivity.go, the file the wave keeps — withRowAccessor,
+// rowAccessorFrom, rereadRowVersion and terminalAfterRowReread.
+type rowAccessorKey struct{}
 
 // slotFor returns the named Project slot for a Phase-1 kind.
 func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.ArtifactSlot {
@@ -5104,110 +3818,11 @@ func slotFor(proj projectstate.Project, kind ArtifactKind) projectstate.Artifact
 // are NOT Activities; the durable-execution in-workflow primitives (awaitSignal /
 // startTimer) are the Manager's own code.
 
-// activityOptions returns the option-preset hook the generated invokers consult for
-// EVERY Activity this Manager executes (projectState / pipeline / rail / designSession —
-// this is the complete set). A name with no entry falls back to the generated default
-// (invokers.gen.go). Keyed by the generated registered activity name
-// (<componentKey>.<opName>); each designSessionAccess.* entry uses the same
-// readProjectOpts/mutateOpts preset as the equivalent projectStateAccess entry, and
-// syncManagedScaffold uses the same railOpts preset as the other rail entries.
-func activityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
-	presets := map[string]workflow.ActivityOptions{
-		"projectStateAccess.readProjectVersion":                  readProjectActivityOptions(),
-		"projectStateAccess.advancePhase":                        mutateActivityOptions(),
-		"agenticJobAccess.submitAgenticJob":                      dispatchActivityOptions(),
-		"agenticJobAccess.observeAgenticJob":                     observeActivityOptions(),
-		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
-		"sourceControlAccess.openBranch":                         railActivityOptions(),
-		"sourceControlAccess.openPullRequest":                    railActivityOptions(),
-		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
-		"sourceControlAccess.postReview":                         railActivityOptions(),
-		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
-		"sourceControlAccess.syncManagedScaffold":                scaffoldSyncActivityOptions(),
-		"designSessionAccess.readProjectOnBranch":                readProjectActivityOptions(),
-		"designSessionAccess.stageArtifactForReviewOnBranch":     mutateActivityOptions(),
-		"designSessionAccess.commitArtifactWithProvenance":       mutateActivityOptions(),
-		"designSessionAccess.rejectArtifactOnBranchWithComments": mutateActivityOptions(),
-		"designSessionAccess.withdrawArtifactOnBranch":           mutateActivityOptions(),
-		"designSessionAccess.reconcileBranchFromMain":            mutateActivityOptions(),
-		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
-		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
-		// The ROUND-ledger dual-write (stage 3 task 6). Every one is a head-state mutation
-		// through the same applyMutation funnel the designSession verbs ride, so it takes
-		// the same envelope: the workflow's own Conflict re-read loop (applyRecovering) is
-		// what resolves a CAS loss, not a longer retry here.
-		"activityExecutionAccess.openActivity":           mutateActivityOptions(),
-		"activityExecutionAccess.openReviewRound":        mutateActivityOptions(),
-		"activityExecutionAccess.appendReviewVerdict":    mutateActivityOptions(),
-		"activityExecutionAccess.decideReviewRound":      mutateActivityOptions(),
-		"activityExecutionAccess.setReviewCommentStatus": mutateActivityOptions(),
-		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
-		// business one (see appendEpisodeActivityOptions).
-		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
-	}
-	return func(name string) (workflow.ActivityOptions, bool) {
-		o, ok := presets[name]
-		return o, ok
-	}
-}
-
-// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
-// the three workflow bodies under their registered names, the per-activity option-preset
-// hook, and the genActivities threaded from the impl's stored published deps.
-//
-// The workflows receiver holds the generated invoker surface (Acts) — every contract-
-// backed RA op (readProjectVersion / advancePhase / submit / observe / the seven rail
-// verbs / the eight designSession verbs) is reached through it — plus the published Rail
-// (held directly ONLY for the nil/dormant gitEnabled gate) and Repo. The receiver carries
-// no RA dep of its own; every Activity it executes is generated (B10).
-func (m *systemDesignManager) WorkerManifest() genWorkerManifest {
-	optsHook := activityOptions()
-
-	wf := &workflows{
-		Acts: genInvokers{Opts: optsHook},
-		// Rail is the PUBLISHED sourceControlAccess: nil ⇒ the PR rail is dormant and the
-		// CoAuthor spine runs the original main-path behavior. Held directly ONLY for the
-		// gitEnabled gate; every rail verb (including syncManagedScaffold) goes through the
-		// generated invoker surface (wf.Acts.Rail*).
-		Rail: m.rail,
-		Repo: m.repo,
-	}
-
-	return genWorkerManifest{
-		Workflows: []genRegisteredWorkflow{
-			{Name: executionKindPhase, Fn: wf.SystemDesignPhaseWorkflow},
-			{Name: executionKindCoAuthor, Fn: wf.CoAuthorArtifactWorkflow},
-			{Name: executionKindPhaseAdvance, Fn: wf.PhaseAdvanceWorkflow},
-		},
-		// Every Activity this Manager's workflows execute is generated, so the generated
-		// RegisterWorker registers the complete set — no explicit custom-Activity
-		// registration remains (B10).
-		ActivityOptions: optsHook,
-		Activities: genActivities{
-			ProjectState:      m.projectState,
-			Pipeline:          m.pipeline,
-			Rail:              m.rail,
-			DesignSession:     m.designSession,
-			ActivityExecution: m.activityExecution,
-			Episodes:          m.episodes,
-		},
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Episode facet read ops (SP1 capture-seam, Task 9 — founder ruling 2026-08-02:
-// episode observability is a facet of the existing use cases, not a new
-// episodeManager). Both ops are PLAIN METHODS that consult episodeAccess directly
-// — no Temporal — the same shape as ListProjects/GetProject above. The whole-
-// project exportEpisodes op is cut from v1 (per-target export is client-side,
-// Task 10).
-// ---------------------------------------------------------------------------
-
 // ListEpisodesForArtifact returns every episode record (design/review/rework runs,
 // or gaps) captured against one System-Design artifact, in episodeAccess's own
 // (append) order. A pass-through over episodeAccess.ListEpisodes scoped by
 // TargetRef=artifactKind, mapped to the contract EpisodeRecordView.
-func (m *systemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
+func (m *deliveryManager) listArtifactEpisodes(rc fwmanager.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return nil, newError(fwmanager.ContractMisuse, "empty projectId")
@@ -5226,54 +3841,6 @@ func (m *systemDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, proj
 		return nil, sdMapRAError(err, "episodeAccess.ListEpisodes")
 	}
 	return sdEpisodeRecordViews(records), nil
-}
-
-// GetEpisodeTimeline returns one episode's full timeline: its ledger record plus
-// the sequenced trace events mined from its run. NotFound if episodeID does not
-// name a record on this project.
-func (m *systemDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if episodeID == "" {
-		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty episodeId")
-	}
-	// ListEpisodes has no by-id lookup (episodeAccess.md — the ledger is append-
-	// scanned by TargetRef); querying with no TargetRef and finding the one record
-	// whose EpisodeID matches is the only way to resolve one episode across every
-	// target on the project.
-	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{ProjectID: episode.ProjectID(projectID)})
-	if err != nil {
-		return EpisodeTimeline{}, sdMapRAError(err, "episodeAccess.ListEpisodes")
-	}
-	rec, ok := findEpisodeRecord(records, episodeID)
-	if !ok {
-		return EpisodeTimeline{}, newError(fwmanager.NotFound, fmt.Sprintf("episode %q not found", episodeID))
-	}
-	// A GAP record (episode.EpisodeGap — the dispatch that produced no summary at
-	// all) has no trace file: TracePath is nil on the ledger record. The
-	// never-silent gap doctrine (Task 2/7) treats a gap as a PRESENT, first-class
-	// outcome, not an absence — the record itself must always resolve; only its
-	// timeline is empty. Skip the RA round-trip entirely when TracePath says
-	// there is nothing to read, and treat a NotFound FROM ReadTraceEvents (e.g. a
-	// TracePath that no longer resolves) the same way, rather than erroring the
-	// whole timeline — either would otherwise be indistinguishable from an
-	// unknown episodeID.
-	if rec.TracePath == nil || *rec.TracePath == "" {
-		return EpisodeTimeline{Record: sdEpisodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
-	}
-	raw, err := m.episodes.ReadTraceEvents(fwra.Context{Context: ctx}, episode.ProjectID(projectID), episodeID)
-	if err != nil {
-		if isEpisodeTraceNotFound(err) {
-			return EpisodeTimeline{Record: sdEpisodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
-		}
-		return EpisodeTimeline{}, sdMapRAError(err, "episodeAccess.ReadTraceEvents")
-	}
-	return EpisodeTimeline{
-		Record: sdEpisodeRecordToView(rec),
-		Events: episodeTimelineEvents(raw),
-	}, nil
 }
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
@@ -5445,598 +4012,6 @@ func episodeTraceEventType(raw json.RawMessage) string {
 // dependency seams (agenticJobAccess / sourceControlRail) + the Temporal
 // pdWorkflows struct stay hand-written and are NOT part of this contract.
 
-// projectDesignManager is the projectDesignManager façade. It exposes the public
-// use-case ops (projectDesignManager.md §2) and OWNS Temporal. It is the Phase-2 twin
-// of the systemdesign Manager. The Temporal-backed ops:
-//   - RequestArtifactDraft   — Workflow (entry, per-artifact CoAuthorPhase2ArtifactWorkflow)
-//   - RequestSDPCommit       — Workflow (entry, AssembleSDPReviewWorkflow)
-//   - SubmitSDPDecision      — Signal (sdpDecision, to the SDP-review workflow)
-//   - AdvanceToConstruction  — Workflow (entry, short-lived Phase-2 seal)
-//   - GetSessionState        — Query (sessionState, read-only)
-//
-// plus SubmitReviewDecision — Signal (reviewDecision, the per-artifact OQ-3 gate).
-//
-// Each op leads with the Manager-layer call Context (fwmanager.Context, embedding
-// context.Context + the Principal); the *projectDesignManager derives ctx :=
-// rc.Context inside. Pre-condition checks the contract puts on the façade (Phase-2
-// kind, non-empty projectId, Commit-requires-optionId, RejectAll-requires-feedback)
-// are enforced here before any downstream call (§2, §3).
-//
-// The façade methods themselves use ONLY the Temporal client. It ALSO stores the
-// Worker-side deps it was constructed with — the published
-// projectstate.ProjectStateAccess (head-state read-back + thin writes), the published
-// agenticjob.AgenticJobAccess (Phase-2 design-job dispatch), the
-// published sourcecontrol.SourceControlAccess (the PR rail), the three estimation
-// Engines (the in-workflow SDP-assembly join), and the per-project repo resolver — so
-// RegisterWorker can wire them (via the package's folded adapters) into the
-// hand-written Temporal pdWorkflows. The former exported consumer-mirror interfaces +
-// the composition-root adapters are RETIRED; the manager now depends on the deps'
-// PUBLISHED interfaces and adapts them internally (Option-B boundary mapping).
-type projectDesignManager struct {
-	client       client.Client
-	projectState projectstate.ProjectStateAccess
-	pipeline     agenticjob.AgenticJobAccess
-	rail         sourcecontrol.SourceControlAccess
-	estimator    estimation.EstimationEngine
-	opEstimator  operationestimation.OperationEstimationEngine
-	settlement   billing.BillingEngine
-
-	// designSession (B6) is the generated designSessionAccess dep. Since B9, every
-	// branch-scoped design flow EXCEPT StageArtifactForReview reaches it through the
-	// generated invoker surface (invokers.gen.go/activities.gen.go, via wf.Acts) —
-	// read-back, commit/reject/withdraw, and the review-ledger set/seed verbs. Stage
-	// alone stays on the manager-local capability-fallback custom Activity
-	// (activities_custom.go): the generated invoker's `model` parameter is the sealed
-	// projectstate.ArtifactModel interface, which Temporal's default JSON DataConverter
-	// cannot decode across the wire (verified; see activities_custom.go's file doc).
-	designSession projectstate.DesignSessionAccess
-
-	// activityExecution (stage 3, task 6) is the generated activityExecutionAccess dep —
-	// the fifth facet of the one project-state component, owner of the per-activity review
-	// ROUND ledger. The Phase-2 design rail dual-writes every review decision through it
-	// beside the slot's ReviewThread: taking the dep HERE is what registers its Temporal
-	// activities on this Manager's worker, which is the precondition for the CoAuthor
-	// spine's wf.Acts.ActivityExecution* calls. Held only to thread into genActivities —
-	// every call is a workflow-side Activity, never a manager-side one.
-	activityExecution projectstate.ActivityExecutionAccess
-
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-
-	// episodes (SP1 capture-seam) is the generated episodeAccess dep — the agentic-
-	// episode ledger every terminal design dispatch appends to. The WORKFLOW paths reach
-	// it through the generated invoker surface (wf.Acts.EpisodesAppendEpisode); this
-	// field is held for two reasons: to thread it into genActivities, and because the
-	// answer-job capture (pdAnswerEpisodeWatch) runs MANAGER-SIDE, outside any workflow,
-	// and must call the RA directly.
-	episodes episode.EpisodeAccess
-}
-
-// newProjectDesignManager is the hand-written, unexported builder the generated
-// NewProjectDesignManager constructor delegates to. It wires the Temporal client + the
-// published deps into the façade. The façade itself uses only client; projectState /
-// pipeline / rail / the three estimators / repo are stored for RegisterWorker (rail
-// may be nil — a dev server with no source-control credentials runs the design spine
-// repo-less).
-func newProjectDesignManager(
-	c client.Client,
-	projectState projectstate.ProjectStateAccess,
-	pipeline agenticjob.AgenticJobAccess,
-	rail sourcecontrol.SourceControlAccess,
-	estimator estimation.EstimationEngine,
-	opEstimator operationestimation.OperationEstimationEngine,
-	settle billing.BillingEngine,
-	designSession projectstate.DesignSessionAccess,
-	activityExecution projectstate.ActivityExecutionAccess,
-	episodes episode.EpisodeAccess,
-	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
-) *projectDesignManager {
-	return &projectDesignManager{
-		client:            c,
-		projectState:      projectState,
-		pipeline:          pipeline,
-		rail:              rail,
-		estimator:         estimator,
-		opEstimator:       opEstimator,
-		settlement:        settle,
-		designSession:     designSession,
-		activityExecution: activityExecution,
-		episodes:          episodes,
-		repo:              repo,
-	}
-}
-
-// RequestArtifactDraft — op 2.1. Temporal Workflow (entry; StartWorkflow /
-// signal-with-start), workflow id {projectId}:{artifactKind}. Idempotent on the id.
-//
-// Pre: projectID non-nil; kind is a Phase-2 kind AND != KindSdpReview (the SDP
-// review is assembled via RequestSDPCommit, not co-authored). The spine-ordering gate
-// (the requested kind's immediate Phase-2 predecessor must be Committed) is enforced
-// here on head-state — the wire-side mirror of the SPA's Phase-2 buildSpine step lock —
-// so a raw API/MCP caller cannot draft out of order (the CoAuthorPhase2ArtifactWorkflow
-// itself never gated ordering; it drafts immediately). The first Phase-2 kind
-// (planningAssumptions) has no Phase-2 predecessor.
-// amendmentIndexFor PROMOTED to projectstate.AmendmentIndexFor (code-health-phase-bd task
-// D3) — byte-identical pure resolver, no longer duplicated with systemdesign's twin. It
-// returns the AMENDMENT index for a draft request against slot: the count of prior
-// commits, used as the …-amend-N branch suffix and the "revision N" prompt framing, and
-// the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
-// review-ledger SEED of the reopening feedback).
-
-func (m *projectDesignManager) RequestArtifactDraft(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, feedback *ReviewFeedback) (SessionRef, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase2(kind) {
-		return "", newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
-	}
-	if kind == KindSdpReview {
-		return "", newError(fwmanager.FailedPrecondition, "use requestSDPCommit for the SDP review")
-	}
-	// A redraft's feedback is OPTIONAL (nil = a fresh draft with no steer), but a
-	// non-nil envelope whose notes are empty is a third state that steers nothing
-	// while telling the agent it was steered. The sibling SubmitReviewDecision
-	// rejects exactly this shape; RequestArtifactDraft must agree.
-	if feedback != nil && strings.TrimSpace(feedback.Notes) == "" {
-		return "", newError(fwmanager.ContractMisuse, "feedback is present but its notes are empty — omit feedback entirely to request a fresh draft with no steer")
-	}
-	// RULING P13: refuse a queued reply rather than let the amendment seed re-file it as a
-	// new round-0 thread. See pdCheckNoReplyTo.
-	if feedback != nil {
-		if perr := pdCheckNoReplyTo(feedback.Comments); perr != nil {
-			return "", perr
-		}
-	}
-
-	// Spine-ordering gate (Phase-2 twin of the systemdesign Manager). A Phase-2 kind
-	// may only be drafted once its immediate predecessor in the Phase-2 sequence is
-	// Committed (the same order the SPA's PHASE2_ORDER locks by).
-	if err := m.checkPhase2Predecessor(ctx, projectID, kind); err != nil {
-		return "", err
-	}
-
-	// F-R2 (Phase-2 port): the generating guard + WEDGED-run supersede. Refuse the request
-	// while the live session is Drafting/Redrafting (a buffered redraft signal would later
-	// stale-consume a recovery gate), and TERMINATE a wedged RUNNING run so the SignalWithStart
-	// below starts a fresh run instead of binding the signal to a corpse. Ports the 2026-07-16
-	// systemdesign fixes that were never mirrored here.
-	if err := m.prepareForDraftRequest(rc, projectID, kind); err != nil {
-		return "", err
-	}
-
-	// F38 BACK-EDGE / AMENDMENT (Phase-2 twin). A draft request on an already-COMMITTED
-	// Phase-2 artifact is the legal amendment path: fresh session on a …-amend-N branch
-	// (N = the slot's prior commit count) with the reopening feedback seeded into its ledger.
-	// A non-committed slot keeps today's behavior (active session redraft / fresh draft).
-	amendment := 0
-	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
-		amendment = projectstate.AmendmentIndexFor(pdSlotFor(proj, toPSKind(kind)))
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-		// F-R2 (Phase-2 port): a session whose previous run CLOSED (committed/withdrawn →
-		// amendment/fresh draft, or died abnormally) must be revivable — this SignalWithStart
-		// STARTS a brand-new run. ALLOW_DUPLICATE is the server default; pinned explicitly
-		// because the dead-session recovery path depends on it (a stricter policy silently
-		// turns "Retry" into a no-op 200).
-		WorkflowIDReusePolicy: enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
-	}
-	in := pdCoAuthorInput{ProjectID: projectID, ArtifactKind: kind, Feedback: feedback, Amendment: amendment}
-
-	// F47: DELIVER the feedback via the redraft SIGNAL, not a bare ExecuteWorkflow. A draft
-	// request against an ALREADY-RUNNING session (the retry-at-failed-gate path — the session
-	// is suspended at ProjectStageDraftFailed awaiting a decision) resolves USE_EXISTING to the running
-	// run; a plain ExecuteWorkflow returns that handle WITHOUT delivering `in`, so the request's
-	// feedback was silently DROPPED and the redraft repeated the same mistake. SignalWithStart
-	// delivers the redraft signal (carrying the feedback) to the running session's gate AND, when
-	// no run is live (fresh start / amendment on a committed→closed slot), starts a new run with
-	// `in` (whose Feedback the spine seeds into the first prompt). This mirrors the systemdesign
-	// Manager. The gate MERGES the signal feedback with any retained feedback (request wins).
-	we, err := m.client.SignalWithStartWorkflow(ctx, wfID, pdSignalRedraft, redraftSignal{Feedback: feedback}, opts, pdExecutionKindCoAuthor, in)
-	if err != nil {
-		return "", pdMapStartError(err)
-	}
-	// F-R2 (Phase-2 port): NO FALSE 200s. SignalWithStart's return alone cannot distinguish
-	// "fresh run started" from "signal bound to something that will never act", so VERIFY the
-	// session's latest execution is now live. Best-effort — only a confirmed abnormal-closed
-	// latest run is refused (a Describe blip never masks a genuine start).
-	if err := m.verifySessionRevived(ctx, wfID); err != nil {
-		return "", err
-	}
-	return newSessionRef(we.GetID()), nil
-}
-
-// verifySessionRevived confirms the co-author session's LATEST execution is not sitting
-// abnormally CLOSED right after a SignalWithStart (F-R2 Phase-2 port) — the honest-error
-// backstop for the false-200 revival failure. Describe errors are ignored (best-effort; the
-// start already durably succeeded).
-func (m *projectDesignManager) verifySessionRevived(ctx context.Context, wfID string) error {
-	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
-	if derr != nil {
-		return nil
-	}
-	if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-		return newError(fwmanager.Infrastructure,
-			"the design session could not be revived — the previous session ended abnormally and no fresh run started; restart the phase or try again")
-	}
-	return nil
-}
-
-// prepareForDraftRequest is the pre-SignalWithStart gate for RequestArtifactDraft (F-R2
-// Phase-2 port; mirrors systemdesign). It probes the live session directly (Describe + Query)
-// so it can SUPERSEDE a WEDGED run — one whose workflow task is perpetually failing shows
-// RUNNING to Describe but rejects the sessionState query with the wedged signature, and a
-// SignalWithStart with USE_EXISTING would only BUFFER the redraft signal on that corpse
-// forever. On exactly that shape, TERMINATE the wedged run (tolerating a NotFound race) so the
-// subsequent SignalWithStart starts a fresh run. Termination is gated STRICTLY on the wedged
-// classification — a transient query fault falls through to the normal receptive check and
-// surfaces as today's error, never a terminate. Every non-wedged outcome keeps the established
-// checkDraftRequestReceptive behavior.
-func (m *projectDesignManager) prepareForDraftRequest(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	ctx := rc.Context
-	wfID := coAuthorWorkflowID(projectID, kind)
-	desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, "")
-	if derr != nil {
-		if isNotFound(derr) {
-			return nil // no session yet — this request starts the first one
-		}
-		// A Describe blip (non-NotFound): fall back to the query-based receptive check
-		// rather than masking a transient fault as receptive.
-		return m.checkDraftRequestReceptive(rc, projectID, kind)
-	}
-	// A non-RUNNING execution (abnormal-closed / completed / paused) is receptive: the
-	// SignalWithStart either revives a fresh run or the durable slot is already terminal —
-	// none of those is a live Drafting/Redrafting the redraft signal could stale-consume.
-	if desc.GetWorkflowExecutionInfo().GetStatus() != enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
-		return nil
-	}
-	// A RUNNING execution: query its live stage — this ONE query ALSO detects the WEDGED shape.
-	enc, qerr := m.client.QueryWorkflow(ctx, wfID, "", pdQuerySessionState)
-	if qerr != nil {
-		if isWorkflowTaskFailedQueryErr(qerr) {
-			// Wedged RUNNING run — supersede it so the SignalWithStart starts a fresh run.
-			// Tolerate a NotFound (it closed between the query and here); any other terminate
-			// fault is surfaced so the caller never silently binds the signal to the corpse.
-			if terr := m.client.TerminateWorkflow(ctx, wfID, "", wedgedSupersedeReason); terr != nil && !isNotFound(terr) {
-				return newError(fwmanager.Infrastructure,
-					"could not supersede the stuck design session before retrying: "+terr.Error())
-			}
-			return nil // proceed to SignalWithStart (starts a fresh run)
-		}
-		if isNotFound(qerr) {
-			return nil // raced to closed between Describe and Query — the start revives it
-		}
-		return pdMapQueryError(qerr) // transient — surface, never terminate
-	}
-	var view ProjectSessionStateView
-	if err := enc.Get(&view); err != nil {
-		return newError(fwmanager.Infrastructure, err.Error())
-	}
-	// The generating guard: a live Drafting/Redrafting session is NOT receptive (a redraft
-	// signal would sit buffered and later stale-consume a recovery gate).
-	if view.Stage == ProjectStageDrafting || view.Stage == ProjectStageRedrafting {
-		return newError(fwmanager.FailedPrecondition,
-			"a draft is already generating for this artifact (currently "+pdSessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
-	}
-	return nil
-}
-
-// checkDraftRequestReceptive is the manager-side generating guard for RequestArtifactDraft
-// (F-R2 Phase-2 port): reject the request while the live session's stage is Drafting or
-// Redrafting — a redraft signal sent then is consumable by NO open gate and would sit buffered
-// until it stale-consumes a later recovery gate. The stage is read through GetSessionState —
-// the SAME Describe-then-Query path (a dead run synthesizes ProjectStageDraftFailed, a COMPLETED run
-// is rebuilt from the durable slot, a live run answers the sessionState query) — so the refusal
-// always agrees with what the founder sees on screen. NotFound (no session yet) is receptive:
-// the request STARTS the first session. Purely a manager-side precondition — replay-safe.
-func (m *projectDesignManager) checkDraftRequestReceptive(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.GetSessionState(rc, projectID, kind)
-	if err != nil {
-		var me *fwmanager.Error
-		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
-			return nil // no session yet — this request starts one
-		}
-		return err
-	}
-	switch view.Stage {
-	case ProjectStageDrafting, ProjectStageRedrafting:
-		return newError(fwmanager.FailedPrecondition,
-			"a draft is already generating for this artifact (currently "+pdSessionStageLabel(view.Stage)+") — wait for it to finish before requesting another")
-	// Every other stage is a settled (or not-yet-started) session: a new request
-	// is free to start one.
-	case ProjectSessionStageUnknown, ProjectStageAssemblingSDP, ProjectStageAwaitingReview,
-		ProjectStageCommitted, ProjectStageWithdrawn, ProjectStageRefused, ProjectStageDraftFailed:
-		return nil
-	default:
-		return nil
-	}
-}
-
-// checkPhase2Predecessor enforces the Phase-2 spine-ordering gate for a draft request:
-// the requested kind's immediate predecessor (per phase2PredecessorKind) must be
-// Committed on head-state. Returns nil when the gate is satisfied — the first Phase-2
-// kind (planningAssumptions) has no predecessor, so it always passes without a read,
-// mirroring the SPA which unlocks planningAssumptions without a sealed Phase 1; a
-// redraft of an already in-review / Committed kind also passes (its predecessor is
-// committed by construction). Returns FailedPrecondition naming the uncommitted
-// predecessor otherwise. Extracted so the gate is unit-testable without a Temporal
-// client. Only checks the Phase-2 order (slots 8..16); Phase-1 sealing is the
-// Phase2AdvanceWorkflow's concern.
-func (m *projectDesignManager) checkPhase2Predecessor(ctx context.Context, projectID ProjectID, kind ArtifactKind) error {
-	pred, ok := phase2PredecessorKind(kind)
-	if !ok {
-		return nil
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		if isRAReadNotFound(err) {
-			// A brand-new project with no head-state row: no slot is committed, so
-			// the predecessor is by definition uncommitted.
-			return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
-		}
-		return pdMapReadProjectError(err)
-	}
-	if pdSlotFor(proj, toPSKind(pred)).Status != projectstate.ReviewCommitted {
-		return newError(fwmanager.FailedPrecondition, predecessorNotCommittedMsg(pred))
-	}
-	return nil
-}
-
-// RequestSDPCommit — op 2.2. Temporal Workflow (entry; StartWorkflow /
-// signal-with-start), workflow id {projectId}:sdpReview. Idempotent on the id
-// (UseExisting): a redundant start (or a replan re-entry) reuses the running
-// SDP-review workflow.
-func (m *projectDesignManager) RequestSDPCommit(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return "", newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-
-	wfID := sdpReviewWorkflowID(projectID)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-	}
-	in := sdpReviewInput{ProjectID: projectID}
-
-	we, err := m.client.ExecuteWorkflow(ctx, opts, pdExecutionKindSDPReview, in)
-	if err != nil {
-		return "", pdMapStartError(err)
-	}
-	return newSessionRef(we.GetID()), nil
-}
-
-// SubmitSDPDecision — op 2.3. Temporal Signal (SignalWorkflow to workflow id
-// {projectId}:sdpReview, signal sdpDecision).
-//
-// Validate: decision ∈ {SDPCommit, SDPRejectAll}; SDPCommit requires a non-empty
-// optionID (ContractMisuse otherwise); SDPRejectAll requires feedback with
-// non-empty Notes (ContractMisuse otherwise).
-func (m *projectDesignManager) SubmitSDPDecision(rc fwmanager.Context, projectID ProjectID, decision SDPDecision, optionID *OptionID, feedback *ReviewFeedback) error {
-	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	switch decision {
-	case SDPCommit:
-		if optionID == nil || *optionID == "" {
-			return newError(fwmanager.ContractMisuse, "Commit requires a non-empty optionId")
-		}
-	case SDPRejectAll:
-		if feedback == nil || feedback.Notes == "" {
-			return newError(fwmanager.ContractMisuse, "RejectAll requires feedback")
-		}
-	case SDPDecisionUnknown:
-		// The zero value: a caller that forgot to set Decision, not a legitimate
-		// SDP outcome. Reject explicitly rather than falling through silently.
-		return newError(fwmanager.ContractMisuse, "unknown SDP decision")
-	default:
-		return newError(fwmanager.ContractMisuse, "unknown SDP decision")
-	}
-	// RULING P13: the SDP reject path lands through the same comment-less ledger verb, so a
-	// replyTo here would be dropped outright. See pdCheckNoReplyTo.
-	if feedback != nil {
-		if perr := pdCheckNoReplyTo(feedback.Comments); perr != nil {
-			return perr
-		}
-	}
-
-	wfID := sdpReviewWorkflowID(projectID)
-	// PM-P2-4: capture the acting identity for the SdpReview commit's approvedBy provenance.
-	sig := sdpDecisionSignal{Decision: decision, OptionID: optionID, Feedback: feedback, Approver: principalLabel(rc.Principal)}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", pdSignalSDPDecision, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// SubmitReviewDecision — the per-artifact Phase-2 review gate (OQ-3). Temporal
-// Signal (SignalWorkflow to workflow id {projectId}:{artifactKind}, signal
-// reviewDecision). feedback required when decision == Reject. kind must be a
-// Phase-2 kind other than the SDP review.
-func (m *projectDesignManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
-	ctx := rc.Context
-	if err := pdValidateReviewDecisionArgs(projectID, kind, decision, feedback); err != nil {
-		return err
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-
-	// F19: precondition — inspect the live session stage BEFORE signaling. A bare
-	// SignalWorkflow is fire-and-forget: an approve/reject delivered while the session
-	// is drafting, already committed, or was never started is silently BUFFERED or
-	// dropped by the workflow (at the failed-recovery gate ReviewApprove is explicitly
-	// ignored), yet the op returns success {} — a no-op masquerading as a decision.
-	// Query the stage first and refuse a decision the current gate cannot honor with a
-	// FailedPrecondition naming the actual stage. (Mirrors systemdesign's F19 fix.)
-	view, live, err := m.reviewGateView(ctx, wfID)
-	if err != nil {
-		return err
-	}
-	if perr := pdCheckReviewPrecondition(decision, view.Stage); perr != nil {
-		return perr
-	}
-	// DEAD-SESSION HONESTY (F-R2 Phase-2 port). An abnormally-CLOSED or WEDGED run synthesizes a
-	// ProjectStageDraftFailed view (so the SPA renders the failed card), which PASSES the reject/
-	// withdraw precondition above — but a signal to that corpse can never be honored (Temporal
-	// refuses it, or the wedged run never processes it). Refuse with an actionable
-	// FailedPrecondition instead: the ONLY lever on a dead session is requestArtifactDraft
-	// ("Retry"), which starts a fresh run. Ordered AFTER the precondition so a never-started
-	// session keeps its "not started" message (pdCheckReviewPrecondition refuses at
-	// ProjectSessionStageUnknown). NOTE (F-R2 asymmetry with systemdesign 2.1e): the systemdesign twin
-	// additionally honors a Withdraw against a dead session whose slot is staged on MAIN; the
-	// spec's 2.1f enumeration did not list that scoped withdraw for Phase-2, so it is NOT ported
-	// here — flagged for the architect.
-	if !live {
-		return newError(fwmanager.FailedPrecondition,
-			"the design session for this artifact is no longer running (it ended abnormally) — review decisions cannot reach it. Use \"Retry\" to start a fresh session, then decide on its review gate")
-	}
-	// REVIEW LEDGER (review-ledger §4): approve is blocked while any comment is still open —
-	// the reviewer must send it back (redraft) or resolve each first. The message lists the open ids.
-	if decision == ReviewApprove {
-		if open := openReviewCommentViewIDs(view.ReviewThread); len(open) > 0 {
-			return newError(fwmanager.FailedPrecondition,
-				fmt.Sprintf("cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first", len(open), strings.Join(open, ", ")))
-		}
-	}
-
-	// PM-P2-4: capture the acting reviewer identity for the commit's approvedBy provenance.
-	sig := pdReviewDecisionSignal{Decision: decision, Feedback: feedback, Approver: principalLabel(rc.Principal)}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", pdSignalReviewDecision, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// reviewGateView returns the session's full gate view (stage + durable review thread) for the
-// F19 review precondition AND the review-ledger approve/resolve preconditions, plus whether a
-// LIVE workflow can still honor a signal (F-R2 Phase-2 port). Same dead-workflow defense as
-// GetSessionState: a CLOSED-ABNORMAL run reports ProjectStageDraftFailed with live=false (a signal to
-// it can never be honored), a WEDGED run likewise (live=false), a missing execution reports
-// ProjectSessionStageUnknown, and a live run is read from the authoritative sessionState query.
-func (m *projectDesignManager) reviewGateView(ctx context.Context, wfID string) (ProjectSessionStateView, bool, error) {
-	describeLive := false
-	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
-		if status := desc.GetWorkflowExecutionInfo().GetStatus(); isAbnormalClosedStatus(status) {
-			return ProjectSessionStateView{Stage: ProjectStageDraftFailed}, false, nil
-		}
-		describeLive = true
-	} else if isNotFound(derr) {
-		return ProjectSessionStateView{Stage: ProjectSessionStageUnknown}, false, nil
-	}
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", pdQuerySessionState)
-	if err != nil {
-		if isNotFound(err) {
-			return ProjectSessionStateView{Stage: ProjectSessionStageUnknown}, false, nil
-		}
-		// F-R2: a WEDGED run cannot honor a signal any more than a closed one — return
-		// live=false with the failed stage so the !live refusal (which points the human at
-		// Retry) fires instead of a raw 5xx. Only when Describe CONFIRMED the run live; a
-		// Describe blip + task-failed stays a retryable Infrastructure error.
-		if describeLive && isWorkflowTaskFailedQueryErr(err) {
-			return ProjectSessionStateView{Stage: ProjectStageDraftFailed}, false, nil
-		}
-		return ProjectSessionStateView{}, false, pdMapQueryError(err)
-	}
-	var view ProjectSessionStateView
-	if err := enc.Get(&view); err != nil {
-		return ProjectSessionStateView{}, false, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return view, true, nil
-}
-
-// SetReviewCommentStatus applies a REVIEWER status transition to one durable review-ledger
-// thread (design §3.3): resolve an OPEN or ANSWERED thread to close it (resolving an
-// untouched thread IS the old waive), or reopen a RESOLVED one to send it back for another
-// redraft. Mirrors SubmitReviewDecision's F19 shape — a
-// synchronous precondition check via the sessionState query before signaling the (fire-and-
-// forget) branch mutation.
-func (m *projectDesignManager) SetReviewCommentStatus(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, commentID string, status string) error {
-	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase2(kind) || kind == KindSdpReview {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
-	}
-	if commentID == "" {
-		return newError(fwmanager.ContractMisuse, "empty commentId")
-	}
-	switch status {
-	case projectstate.ReviewCommentResolved, projectstate.ReviewCommentOpen:
-		// close (open|answered -> resolved) or reopen (resolved -> open) — the only
-		// reviewer-authored transitions. "answered" is derived by the server from the
-		// reply history and is never set by a human.
-	default:
-		return newError(fwmanager.ContractMisuse, "status must be \"resolved\" (to close a thread) or \"open\" (to reopen a resolved thread)")
-	}
-
-	wfID := coAuthorWorkflowID(projectID, kind)
-	view, live, err := m.reviewGateView(ctx, wfID)
-	if err != nil {
-		return err
-	}
-	// A dead (abnormally-closed/wedged) session synthesizes ProjectStageDraftFailed and a
-	// never-started one ProjectSessionStageUnknown — both are !AwaitingReview, so folding !live into
-	// this check refuses them with the same honest message (no separate !live branch needed).
-	if view.Stage != ProjectStageAwaitingReview || !live {
-		return newError(fwmanager.FailedPrecondition,
-			"cannot change a review comment: the design is not awaiting review (current stage: "+pdSessionStageLabel(view.Stage)+")")
-	}
-	if perr := checkCommentTransition(view.ReviewThread, commentID, status); perr != nil {
-		return perr
-	}
-
-	sig := setCommentStatusSignal{CommentID: commentID, Status: status}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", pdSignalSetCommentStatus, sig); err != nil {
-		return mapSignalError(err)
-	}
-	return nil
-}
-
-// pdValidateReviewDecisionArgs is SubmitReviewDecision's pure ARGUMENT gate, split out from the
-// op body (which reads as the review FLOW): the identifiers are well-formed, the kind belongs
-// to the co-authored Phase-2 set, the decision is one the op can act on — with Reject
-// additionally requiring the feedback it exists to carry — and no comment in that feedback
-// carries a replyTo this Manager cannot route (ruling P13; see pdCheckNoReplyTo). Every check
-// here needs nothing but its arguments, so all of them refuse BEFORE the session query rather
-// than after a pointless round-trip. Mirrors the systemdesign twin.
-func pdValidateReviewDecisionArgs(projectID ProjectID, kind ArtifactKind, decision ReviewDecision, feedback *ReviewFeedback) error {
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase2(kind) || kind == KindSdpReview {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a co-authored Phase-2 kind")
-	}
-	switch decision {
-	case ReviewApprove, ReviewWithdraw:
-		// ok
-	case ReviewReject:
-		if feedback == nil || feedback.Notes == "" {
-			return newError(fwmanager.ContractMisuse, "Reject requires feedback")
-		}
-	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
-		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
-		// made by the merged contract. They never reach this rail: the deliveryManager
-		// dispatcher answers both itself (the phase seal, and the comment transition),
-		// so they join the ignored arm here rather than changing any rail behaviour.
-		// The zero value: a caller that forgot to set Decision, not a legitimate
-		// review outcome. Reject explicitly rather than falling through silently.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	default:
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
-	}
-	if feedback != nil {
-		return pdCheckNoReplyTo(feedback.Comments)
-	}
-	return nil
-}
-
 // pdCheckNoReplyTo refuses a batch carrying ANY replyTo (CONTROLLER RULING P13). Phase-2 reply
 // ROUTING is a Stage-2 deliverable: neither this Manager nor its co-author workflow can append
 // an utterance into an existing thread, so a replyTo that arrived here could only be converted
@@ -6056,40 +4031,6 @@ func pdCheckNoReplyTo(incoming []AnchoredComment) error {
 			return newError(fwmanager.ContractMisuse,
 				"replyTo is not supported on Phase-2 (project design) yet — threaded replies are a Stage-2 deliverable; until then a Phase-2 comment can only open a new thread (offending replyTo: "+c.ReplyTo+")")
 		}
-	}
-	return nil
-}
-
-// pdCheckReviewPrecondition enforces that the submitted decision is meaningful at the
-// session's current stage (F19): approve is honored only at ProjectStageAwaitingReview;
-// reject and withdraw are honored at ProjectStageAwaitingReview OR the ProjectStageDraftFailed
-// recovery gate (where reject means retry-with-feedback — see awaitDraftFailedRecovery).
-// Any other stage yields a FailedPrecondition naming the actual stage.
-func pdCheckReviewPrecondition(decision ReviewDecision, stage ProjectSessionStage) error {
-	switch decision {
-	case ReviewApprove:
-		if stage != ProjectStageAwaitingReview {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot approve: the design is not awaiting review (current stage: "+pdSessionStageLabel(stage)+")")
-		}
-	case ReviewReject:
-		if stage != ProjectStageAwaitingReview && stage != ProjectStageDraftFailed {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot send back: the design is not at a review or recovery gate (current stage: "+pdSessionStageLabel(stage)+")")
-		}
-	case ReviewWithdraw:
-		if stage != ProjectStageAwaitingReview && stage != ProjectStageDraftFailed {
-			return newError(fwmanager.FailedPrecondition,
-				"cannot withdraw: no review or recovery gate is open (current stage: "+pdSessionStageLabel(stage)+")")
-		}
-	case ReviewDecisionUnknown, ReviewAdvance, ReviewSetCommentStatus:
-		// ReviewAdvance and ReviewSetCommentStatus are stage-4a ADDITIONS to the enum,
-		// made by the merged contract. They never reach this rail: the deliveryManager
-		// dispatcher answers both itself (the phase seal, and the comment transition),
-		// so they join the ignored arm here rather than changing any rail behaviour.
-		// Unreachable: SubmitReviewDecision rejects the zero value as ContractMisuse
-		// before reaching the precondition. Guarded for switch-exhaustiveness.
-		return newError(fwmanager.ContractMisuse, "unknown review decision")
 	}
 	return nil
 }
@@ -6132,12 +4073,11 @@ func pdSessionStageLabel(s ProjectSessionStage) string {
 // FailedPrecondition naming the stale in-scope (Phase-2) slots — UNLESS the caller explicitly
 // acknowledges (acknowledgeStale). The message names the slots so a consumer knows what to
 // reconcile.
-func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
+func (m *deliveryManager) AdvanceToConstruction(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
 		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-
 	if !acknowledgeStale {
 		if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
 			if stale := staleCommittedPhase2Kinds(proj); len(stale) > 0 {
@@ -6147,117 +4087,145 @@ func (m *projectDesignManager) AdvanceToConstruction(rc fwmanager.Context, proje
 			}
 		}
 	}
-
-	wfID := pdPhaseAdvanceWorkflowID(projectID)
-	opts := client.StartWorkflowOptions{
-		ID:        wfID,
-		TaskQueue: TaskQueue,
-	}
-	in := phaseAdvanceInput{ProjectID: projectID}
-
-	we, err := m.client.ExecuteWorkflow(ctx, opts, pdExecutionKindPhaseAdvance, in)
-	if err != nil {
-		return PhaseAdvanceResult{}, pdMapStartError(err)
-	}
-
-	var result PhaseAdvanceResult
-	if err := we.Get(ctx, &result); err != nil {
-		return PhaseAdvanceResult{}, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return result, nil
+	return m.sealPhase(ctx, projectID, projectstate.PhaseConstruction, phase2SealGate)
 }
 
-// GetSessionState — op 2.5. Temporal Query (QueryWorkflow, query sessionState,
-// read-only). When kind == KindSdpReview, queries {projectId}:sdpReview; otherwise
-// {projectId}:{kind}.
-func (m *projectDesignManager) GetSessionState(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) (ProjectSessionStateView, error) {
+// phase2SealGate is Phase 2's seal condition: every Phase2RequiredKinds() slot is committed
+// AND an option is BOUND (the committed SdpReview's Recommendation is non-empty). There is no
+// artifactValidationEngine call — there is no Phase-2 verb on the frozen surface, so the
+// slot-committed + option-bound gate IS the standard check for this increment.
+func phase2SealGate(proj projectstate.Project) []ArtifactKind {
+	var missing []ArtifactKind
+	for _, kind := range projectstate.Phase2RequiredKinds() {
+		if pdSlotFor(proj, kind).Status != projectstate.ReviewCommitted {
+			missing = append(missing, fromPSKind(kind))
+		}
+	}
+	// Only flag the unbound option when the review IS committed; otherwise it is already missing.
+	if !optionBound(proj) && pdSlotFor(proj, projectstate.KindSdpReview).Status == projectstate.ReviewCommitted {
+		missing = append(missing, KindSdpReview)
+	}
+	return missing
+}
+
+// optionBound reports whether the project's committed SdpReview binds an option (a non-empty
+// Recommendation).
+func optionBound(proj projectstate.Project) bool {
+	slot := proj.SdpReview
+	if slot.Status != projectstate.ReviewCommitted || slot.Model == nil {
+		return false
+	}
+	rev, ok := slot.Model.(*projectstate.SdpReview)
+	return ok && rev.Recommendation != ""
+}
+
+// sealSystemDesignPhase is the operator's explicit Phase-1 seal, and since stage 4b1 Task 13
+// it is a SYNCHRONOUS Manager-side write rather than a short-lived Temporal workflow.
+//
+// WHY THE WORKFLOW WENT AND NOTHING WAS LOST. PhaseAdvanceWorkflow existed to run one gate
+// read plus one AdvancePhase from inside a durable execution, and it was started and
+// immediately awaited by this very op — a workflow whose whole life was the caller's own
+// request. The seal's real home is now the CHILD: sealSystemDesign asks this same question
+// after every design slot commit, so a project that finishes its design walk seals itself.
+// What is left here is the OPERATOR's override for a project whose seal did not fire, and for
+// that a synchronous RA write is strictly more honest — the caller gets the answer rather than
+// a workflow id they then have to poll.
+//
+// The two PRE-SEAL gates over head state are carried verbatim, because both are refusals a
+// seal must make and neither is the child's:
+//
+//   - STD-FAIL-OPEN: a committed standard check that still carries a FAIL item means the
+//     Phase-1 design gate is red, and sealing over it would advance on an unmet standard. A
+//     fail is not a staleness the caller can wave through, so this gate ignores acknowledgeStale.
+//   - STALE-UNACKED (F55): a committed slot whose basis a back-edge amendment invalidated is
+//     refused unless the caller explicitly acknowledges it.
+func (m *deliveryManager) sealSystemDesignPhase(rc fwmanager.Context, projectID ProjectID, acknowledgeStale bool) (PhaseAdvanceResult, error) {
 	ctx := rc.Context
 	if projectID == "" {
-		return ProjectSessionStateView{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return PhaseAdvanceResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
-	var wfID string
-	if kind == KindSdpReview {
-		wfID = sdpReviewWorkflowID(projectID)
-	} else {
-		wfID = coAuthorWorkflowID(projectID, kind)
-	}
-
-	// F15/F28 + P0-2 (query-side defense, Phase-2 twin). A CoAuthor/SDP workflow answers the
-	// sessionState Query by HISTORY-REPLAY even after it has CLOSED, returning its last in-
-	// memory stage. For a run that died ABNORMALLY that replayed value lies "drafting in
-	// progress" and wedges the SPA on an infinite "GENERATING" screen; for a run that closed
-	// NORMALLY (COMPLETED) after committing (or withdrawing) it can ALSO be a stale mid-flight
-	// ProjectStageDrafting — the same wedge on a SUCCESSFUL, long-committed artifact. Describe the
-	// execution first: an abnormal-closed run synthesizes an honest ProjectStageDraftFailed view; a
-	// COMPLETED run is rebuilt from the durable slot on main (committed slot → ProjectStageCommitted +
-	// the committed model; any other terminal → honest terminal, never Drafting). A RUNNING /
-	// CONTINUED_AS_NEW run (incl. an amendment's fresh run) falls through to the live query,
-	// which is authoritative for those. A Describe error other than NotFound is best-effort:
-	// fall through to the query rather than masking a transient Describe blip as a failure.
-	//
-	// describeLive (F-R2) records that Describe CONFIRMED a live execution — only then is a
-	// task-failed query below trustworthy as the WEDGED signal (a Describe blip is not).
-	describeLive := false
-	if desc, derr := m.client.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil {
-		switch status := desc.GetWorkflowExecutionInfo().GetStatus(); {
-		case isAbnormalClosedStatus(status):
-			// F-R2 durable-slot-first: a run can die AFTER its artifact landed on main (a
-			// died amendment attempt, or a death just after CommitArtifact), so consult the
-			// durable slot before falling back to the failed card (see abnormalClosedSessionView).
-			view, err := m.abnormalClosedSessionView(ctx, projectID, kind, status)
-			if err != nil {
-				return ProjectSessionStateView{}, err
+	if proj, rerr := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID)); rerr == nil {
+		if fails := standardCheckFailItems(proj); len(fails) > 0 {
+			return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+				fmt.Sprintf("cannot advance phase: the system-design standard check has %d failing item(s) (%s); resolve or waive them before sealing Phase 1.",
+					len(fails), strings.Join(fails, "; ")))
+		}
+		if !acknowledgeStale {
+			if stale := staleCommittedPhase1Kinds(proj); len(stale) > 0 {
+				return PhaseAdvanceResult{}, newError(fwmanager.FailedPrecondition,
+					fmt.Sprintf("cannot advance phase: %d committed artifact(s) are stale and must be reconciled first (%s). Re-run the design for each, or advance anyway by acknowledging the staleness.",
+						len(stale), strings.Join(stale, ", ")))
 			}
-			return pdWithStageName(view), nil
-		case status == enumspb.WORKFLOW_EXECUTION_STATUS_COMPLETED:
-			view, err := m.completedSessionView(ctx, projectID, kind)
-			if err != nil {
-				return ProjectSessionStateView{}, err
-			}
-			return pdWithStageName(view), nil
 		}
-		// Describe succeeded and the run is neither abnormal-closed nor completed — a LIVE
-		// execution (RUNNING / CONTINUED_AS_NEW / PAUSED). A task-failed query below is now
-		// trustworthy as the wedged signal.
-		describeLive = true
-	} else if isNotFound(derr) {
-		return ProjectSessionStateView{}, newError(fwmanager.NotFound, "project design has not started for this project")
 	}
-
-	enc, err := m.client.QueryWorkflow(ctx, wfID, "", pdQuerySessionState)
-	if err != nil {
-		// F20 (error altitude): before Phase 2 the co-author/SDP workflow does not
-		// exist, and Temporal's raw "workflow not found for ID: <proj>:<n>" leaks the
-		// internal execution id to the client. Map that to a clean, user-altitude
-		// NotFound; other query faults keep their generic mapping.
-		if isNotFound(err) {
-			return ProjectSessionStateView{}, newError(fwmanager.NotFound, "project design has not started for this project")
-		}
-		// F-R2: a WEDGED run (workflow task perpetually failing) shows RUNNING to the Describe
-		// above but rejects this query with the wedged signature. Do NOT surface a 5xx that
-		// leaves the SPA on an infinite GENERATING screen — synthesize the honest failed card
-		// so the human can Retry, which supersedes the stuck run (prepareForDraftRequest). Only
-		// when Describe CONFIRMED the run live; a Describe blip + task-failed stays a retryable
-		// Infrastructure error.
-		if describeLive && isWorkflowTaskFailedQueryErr(err) {
-			return pdWithStageName(pdWedgedSessionView(projectID, kind)), nil
-		}
-		return ProjectSessionStateView{}, pdMapQueryError(err)
-	}
-	var view ProjectSessionStateView
-	if err := enc.Get(&view); err != nil {
-		return ProjectSessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return pdWithStageName(view), nil
+	return m.sealPhase(ctx, projectID, projectstate.PhaseProjectDesign, phase1SealGate)
 }
 
-// pdWithStageName stamps the F72 human-readable StageName label alongside the bare Stage int
-// on the public ProjectSessionStateView, using pdSessionStageLabel as the single authoritative map
-// (the Phase-2 stage enum values DIFFER from Phase-1's, so the label removes the ambiguity).
-// Applied at the GetSessionState boundary; StageName is purely additive to the wire shape.
-func pdWithStageName(v ProjectSessionStateView) ProjectSessionStateView {
-	v.StageName = pdSessionStageLabel(v.Stage)
-	return v
+// phase1SealGate is Phase 1's seal condition: every Phase1RequiredKinds() slot is committed.
+// Per the agentic pivot (§0d.5) there is no in-workflow re-validation — validity is the
+// required CI check inside the Action (a slot only reaches ReviewCommitted after its design
+// job's CI validation went green AND the architect approved), so the all-committed gate IS the
+// seal condition.
+func phase1SealGate(proj projectstate.Project) []ArtifactKind {
+	var missing []ArtifactKind
+	for _, kind := range phase1RequiredKinds() {
+		if slotFor(proj, kind).Status != projectstate.ReviewCommitted {
+			missing = append(missing, kind)
+		}
+	}
+	return missing
+}
+
+// sealPhase is the ONE seal body the two phases share: read, ask the phase's own gate which
+// required slots are missing, and — when none is — advance once under optimistic concurrency.
+//
+// A missing slot is NOT an error: it is the answer (Advanced=false plus the list), which is
+// what the SPA renders as "these artifacts still have to land". Only the write can fail.
+//
+// sealsInto NAMES THE PHASE THIS SEAL PRODUCES, and it is the guard, not decoration. A seal
+// is reachable CONCURRENTLY with the child's own seal of the same phase: the child's
+// gate-passed handler advances on an M0 approve (passRound → completeProjectDesign →
+// advanceToConstruction) while the SPA's approve returns and the façade is called on the same
+// decision. Without this read-back guard the façade's gate would pass a SECOND time over the
+// already-sealed project and issue a second AdvancePhase. The child guards itself the same
+// way (advanceToConstruction re-reads and early-returns on `Phase >= PhaseConstruction`); the
+// façade now does too, so whichever writer wins, the loser is an honest no-op rather than a
+// second increment. The RA's own ceiling (projectstate.AdvancePhase) is the backstop under
+// both, for the window between this read and that write.
+//
+// Already-sealed is Advanced=false with NO missing artifacts — "nothing was owed and nothing
+// was done" — which is the only answer that is neither a lie (Advanced=true claims a write
+// that did not happen) nor an error (there is nothing wrong with sealing twice).
+func (m *deliveryManager) sealPhase(
+	ctx context.Context, projectID ProjectID, sealsInto projectstate.Phase, gate func(projectstate.Project) []ArtifactKind,
+) (PhaseAdvanceResult, error) {
+	psID := projectstate.ProjectID(projectID)
+	var lastErr error
+	for range acknowledgeStaleMaxAttempts {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
+		if err != nil {
+			if isResearchReadNotFound(err) {
+				// A project with no row has committed nothing, so the gate's whole list is missing.
+				return PhaseAdvanceResult{Advanced: false, MissingArtifacts: gate(projectstate.Project{ID: psID})}, nil
+			}
+			return PhaseAdvanceResult{}, mapReadProjectError(err)
+		}
+		if proj.Phase >= sealsInto {
+			return PhaseAdvanceResult{Advanced: false}, nil
+		}
+		if missing := gate(proj); len(missing) > 0 {
+			return PhaseAdvanceResult{Advanced: false, MissingArtifacts: missing}, nil
+		}
+		if _, err := m.projectState.AdvancePhase(fwra.Context{Context: ctx}, psID, proj.Version); err != nil {
+			if isRAConflict(err) {
+				lastErr = err
+				continue
+			}
+			return PhaseAdvanceResult{}, mapRAError(err, "projectStateAccess.AdvancePhase")
+		}
+		return PhaseAdvanceResult{Advanced: true}, nil
+	}
+	return PhaseAdvanceResult{}, fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "advancePhase: exhausted conflict retries")
 }
 
 // staleCommittedPhase2Kinds returns the wire names of every COMMITTED Phase-2 slot that carries
@@ -6275,26 +4243,11 @@ func staleCommittedPhase2Kinds(proj projectstate.Project) []string {
 	return stale
 }
 
-// pdFailedSessionView synthesizes the human-visible failed view for a session whose workflow
-// died abnormally. It reuses ProjectStageDraftFailed — the SAME terminal-failure stage the live
-// anti-wedge gate uses — so the SPA renders its existing "design job failed → retry / withdraw"
-// card. Carries a neutral human FailureReason.
-func pdFailedSessionView(projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) ProjectSessionStateView {
-	reason := terminatedSessionReason(status)
-	return ProjectSessionStateView{
-		ProjectID:     projectID,
-		ArtifactKind:  kind,
-		Stage:         ProjectStageDraftFailed,
-		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
-		FailureReason: &reason,
-	}
-}
-
 // completedSessionView derives the honest session view for a CoAuthor/SDP run that closed
 // NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run (it can
 // return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an already-committed
 // artifact), so the view is rebuilt from the DURABLE slot on main.
-func (m *projectDesignManager) completedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (ProjectSessionStateView, error) {
+func (m *deliveryManager) planCompletedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (ProjectSessionStateView, error) {
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return ProjectSessionStateView{}, pdMapReadProjectError(err)
@@ -6344,69 +4297,6 @@ func pdCommittedSessionView(projectID ProjectID, kind ArtifactKind, slot project
 	}
 }
 
-// pdWedgedSessionView synthesizes the honest failed card for a WEDGED run (F-R2): the workflow
-// task is perpetually failing, so the sessionState query cannot answer even though the run
-// still reports RUNNING to Describe. It reuses ProjectStageDraftFailed (the SPA's retry/withdraw
-// card), with copy promising that Retry supersedes the stuck session — which
-// prepareForDraftRequest actually does (terminate-then-SignalWithStart).
-func pdWedgedSessionView(projectID ProjectID, kind ArtifactKind) ProjectSessionStateView {
-	reason := "the design session hit an internal fault and cannot answer — Retry to start a fresh draft (the stuck session will be superseded)"
-	return ProjectSessionStateView{
-		ProjectID:     projectID,
-		ArtifactKind:  kind,
-		Stage:         ProjectStageDraftFailed,
-		Draft:         DraftModel{Kind: artifactKindWireName(kind)},
-		FailureReason: &reason,
-	}
-}
-
-// abnormalClosedSessionView derives the honest view for a session whose workflow ended
-// ABNORMALLY (FAILED/TERMINATED/TIMED_OUT/CANCELED). Durable-slot-first (F-R2): a run can die
-// AFTER its artifact landed on main (a died amendment attempt, or a death just after
-// CommitArtifact), so consult main's slot before falling back to the failed card:
-//
-//   - Committed → the committed view (ProjectStageCommitted + the model) CARRYING a FailureReason so
-//     the last session's abnormal end stays visible; the committed view's amend affordance IS
-//     the retry, so this un-deadlocks the died-amendment case with ZERO writes.
-//   - Withdrawn → the withdrawn view.
-//   - anything else (the run died before committing) → today's failed card, preserving the
-//     anti-wedge fix for a first-draft death.
-//
-// If the durable slot cannot be consulted — the store is unavailable (nil) or the read
-// faults — it falls back to the failed card rather than erroring or panicking: never wedge on
-// a recovery read (the failed card still offers Retry), matching the pre-fix behavior exactly.
-func (m *projectDesignManager) abnormalClosedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind, status enumspb.WorkflowExecutionStatus) (ProjectSessionStateView, error) {
-	if m.projectState == nil {
-		return pdFailedSessionView(projectID, kind, status), nil
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		return pdFailedSessionView(projectID, kind, status), nil
-	}
-	slot := pdSlotFor(proj, toPSKind(kind))
-	switch slot.Status {
-	// A settled slot still has a model worth showing, even though the session
-	// that produced it died; every other status has nothing to show but the
-	// failure.
-	case projectstate.ReviewCommitted, projectstate.ReviewWithdrawn:
-		view, verr := pdCommittedSessionView(projectID, kind, slot)
-		if verr != nil {
-			return ProjectSessionStateView{}, verr
-		}
-		if slot.Status == projectstate.ReviewCommitted {
-			reason := "the last design session ended unexpectedly (" + workflowStatusLabel(status) + "); the committed model shown is unaffected"
-			view.FailureReason = &reason
-		}
-		return view, nil
-	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
-		return pdFailedSessionView(projectID, kind, status), nil
-	default:
-		return pdFailedSessionView(projectID, kind, status), nil
-	}
-}
-
-// --- error mapping at the façade boundary -----------------------------------
-
 // isRAReadNotFound reports whether err is a RAW projectStateAccess fwra.NotFound
 // (a brand-new / unknown project) returned DIRECTLY on the sync façade read path —
 // distinct from workflow.go's isReadNotFound, which inspects the Temporal-wrapped
@@ -6428,146 +4318,6 @@ func pdMapReadProjectError(err error) error {
 	return newError(fwmanager.Infrastructure, err.Error())
 }
 
-func pdMapStartError(err error) error {
-	// A "workflow already started" race under UseExisting policy is benign; the
-	// SDK returns the existing handle without error. Any error here is treated as a
-	// infrastructure fault.
-	return newError(fwmanager.Infrastructure, err.Error())
-}
-
-func pdMapQueryError(err error) error {
-	if isNotFound(err) {
-		return newError(fwmanager.NotFound, err.Error())
-	}
-	// A session whose workflow task is FAILING (e.g. a deploy-time non-determinism
-	// fault being retried) rejects queries with the raw Temporal internals
-	// "Unable to query workflow due to Workflow Task in failed state" (observed on
-	// the systemdesign twin, gtdapp:5). Same error-hygiene rule as the 065a9e7
-	// not-found cleanup: clients get a clean, actionable Detail.
-	if isWorkflowTaskFailedQueryErr(err) {
-		return newError(fwmanager.Infrastructure,
-			"design session state is temporarily unavailable — the session hit an internal fault and is being retried by the server; try again shortly")
-	}
-	return newError(fwmanager.Infrastructure, err.Error())
-}
-
-// ---------------------------------------------------------------------------
-// Identity / domain scalars (projectdesign's OWN named types — value-identical to
-// projectstate; the Manager converts at the projectStateAccess boundary). They are
-// PURE DATA on the generated surface; behavior lives in behavior.go as free
-// functions so contract.gen.go imports no projectstate.
-// ---------------------------------------------------------------------------
-
-// ProjectID is the project aggregate identifier — its value IS the user-supplied
-// adopted repo name (name-as-identity). Mirrors projectstate.ProjectID.
-
-// OptionID names one project-design option in the SDP review (the architect commits
-// one at the option-commitment gate). Mirrors projectstate.OptionID.
-
-// ArtifactKind is the closed artifact-slot enum. The ordinals MIRROR
-// projectstate.ArtifactKind so int(...) conversion at the boundary is
-// meaning-preserving; behavior (WireName/IsPhase2/...) lives in behavior.go as free
-// functions over a projectstate conversion so the generated type stays pure data.
-
-// ---- Phase 1 (carried for ordinal parity with projectstate; not driven here) ----
-
-// ---- Phase 2 ----
-
-// ---------------------------------------------------------------------------
-// Session reference + review surface.
-// ---------------------------------------------------------------------------
-
-// SessionRef is an opaque, infrastructure-opaque reference to a running Phase-2
-// session (an artifact-co-authoring session or the SDP-review session — contract
-// §3.1). It wraps the underlying durable-execution identity as an opaque string the
-// Client persists/echoes and never parses. Construction is via the newSessionRef
-// free function (behavior.go).
-
-// ReviewDecision is the architect's commit-authority decision at the per-artifact
-// Phase-2 review gate (contract §10 OQ-3 — Phase-2 artifacts ARE individually
-// gated, mirroring Phase 1).
-
-// commit the typed model in its slot
-// loop back to draft with feedback
-// abandon the draft
-
-// ReviewFeedback is the architect's free-text rejection/withdraw rationale
-// (contract §3.2). Required on Reject and on an SDP RejectAll; optional on
-// Withdraw; ignored on Approve.
-
-// SDPDecision is the architect's decision at the option-commitment gate
-// (contract §3.2). Commit binds the named option; RejectAll re-enters Phase 2
-// with feedback to produce a fresh SDP review.
-
-// bind the named option, commit the review
-// record the rejected outcome; re-assemble with feedback
-
-// PhaseAdvanceResult is the gating outcome of advanceToConstruction
-// (contract §3.3). A non-Advanced result is the NORMAL "you still owe artifacts
-// X, Y / no option bound" answer (not an error).
-
-// ---------------------------------------------------------------------------
-// Session read view (getSessionState) + the OPAQUE staged-draft envelope.
-//
-// DraftModel is the discriminated {kind, model} envelope the staged typed draft /
-// assembled SdpReview is carried as — IDENTICAL on the wire to the systemdesign
-// DraftModel envelope. The model is carried OPAQUELY as raw JSON: projectdesign
-// never names the concrete projectstate model types or the sealed ArtifactModel sum
-// here.
-// ---------------------------------------------------------------------------
-
-// DraftModel is the opaque {kind, model} envelope carrying the staged typed draft (or
-// the assembled SdpReview) as raw JSON. Model is omitted when no draft is staged.
-// Kind is the canonical camelCase wire name (e.g. "planningAssumptions").
-
-// ProjectSessionStage collapses the technical workflow state into the handful of stages
-// the UI needs (contract §3.4). ProjectStageAssemblingSDP sits between drafting and
-// awaiting-review for the SDP-review session.
-
-// worker dispatched; typed model not yet produced
-// SDP-review workflow: assembling options + joining Engine outputs
-// model staged (status AwaitingReview); suspended on the review signal
-// architect rejected; looping back with feedback
-// commitArtifact applied; terminal for this kind/option
-// withdrawArtifact applied; terminal
-// worker refused/cancelled and could not produce a model; terminal
-// ProjectStageDraftFailed (agentic-pivot D-MPD-Δ, §3.4 — the twin of systemDesignManager
-// ProjectStageDraftFailed) is the human-visible, human-actionable stage the session lands
-// in when the dispatched agentic Phase-2 DESIGN job reaches a TYPED terminal failure
-// phase. It carries the job's neutral Diagnostic in FailureReason. Surfaced by
-// getSessionState so the SPA renders an actionable failure and NEVER a perpetual
-// ProjectStageDrafting / ProjectStageAssemblingSDP spinner (the anti-wedge requirement).
-
-// ProjectSessionStateView is a point-in-time, read-only view of one Phase-2 session's
-// TECHNICAL progress (contract §3.4) — the answer to getSessionState (a Temporal
-// Query), NOT the business-state read. The staged TYPED draft / assembled SdpReview
-// is carried OPAQUELY via DraftModel; Findings explain "why it's being redrafted".
-
-// Draft is the staged typed draft / SdpReview awaiting review, carried as the
-// opaque {kind, model} envelope (model nil before the first stage).
-
-// FailureReason is a short, human, non-leaking explanation set ONLY when Stage is
-// ProjectStageDraftFailed (a terminal Phase-2 design-job failure). It gives the SPA a
-// message + recovery affordance instead of a wedged "generating" screen. Empty
-// (nil) otherwise.
-
-// ---------------------------------------------------------------------------
-// Façade error model (projectDesignManager.md §3.5).
-// These are CALLER/PROGRAMMER errors at the façade boundary — distinct from the
-// workflow's own failure handling. Kinds follow the framework-go standard set.
-// ---------------------------------------------------------------------------
-
-// behavior.go holds the FREE FUNCTIONS that carry behavior over the contract value
-// types. The generated contract surface (contract.gen.go) is PURE DATA — enums and
-// structs with no methods — so any logic over a contract value (the canonical-name
-// lookups that used to be methods on the projectstate enums, the opaque SessionRef
-// constructor) lives here as a free function.
-//
-// projectdesign's OWN ArtifactKind mirrors projectstate.ArtifactKind ordinal-for-
-// ordinal, so its behavior is derived by a meaning-preserving int conversion to the
-// canonical projectstate type rather than re-implemented here. This is the Phase-2
-// twin of systemdesign/behavior.go.
-
 // fromPSKind converts a canonical projectstate.ArtifactKind to projectdesign's OWN
 // ArtifactKind (ordinal-preserving) at the read boundary.
 func fromPSKind(k projectstate.ArtifactKind) ArtifactKind { return ArtifactKind(k) }
@@ -6575,87 +4325,7 @@ func fromPSKind(k projectstate.ArtifactKind) ArtifactKind { return ArtifactKind(
 // artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
 func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
 
-// phase2RequiredKinds returns the ordered set of Phase-2 artifact kinds (projectdesign's
-// OWN type), mirroring projectstate.Phase2RequiredKinds() — the same order the SPA's
-// PHASE2_ORDER locks steps by.
-func phase2RequiredKinds() []ArtifactKind {
-	ps := projectstate.Phase2RequiredKinds()
-	out := make([]ArtifactKind, 0, len(ps))
-	for _, k := range ps {
-		out = append(out, fromPSKind(k))
-	}
-	return out
-}
-
-// phase2PredecessorKind returns the Phase-2 kind that must be Committed immediately
-// before `kind` may be drafted — the wire-side mirror of the SPA's Phase-2 buildSpine
-// step lock. The first required kind (planningAssumptions) has no predecessor and
-// returns (_, false); a kind not in the Phase-2 set likewise returns (_, false).
-func phase2PredecessorKind(kind ArtifactKind) (ArtifactKind, bool) {
-	req := phase2RequiredKinds()
-	for i, k := range req {
-		if k == kind {
-			if i == 0 {
-				return 0, false
-			}
-			return req[i-1], true
-		}
-	}
-	return 0, false
-}
-
-// pdEncodeProject wraps the head-state aggregate for the Temporal boundary, delegating
-// to the promoted projectstate.EncodeProject.
-//
-// F16 (payload slimming): the Phase-1 ResearchInput corpus is DELIBERATELY NOT
-// carried here — projectstate.EncodeProject leaves ProjectEnvelope.Research nil by
-// default and this wrapper does NOT opt in (unlike systemdesign's own pdEncodeProject).
-// A research source can be a whole book (660KB observed), and every projectdesign
-// Activity payload crosses the Temporal boundary — dead weight that pushes toward
-// Temporal's 2MB kill threshold. Phase-2 project design never reads the corpus (unlike
-// systemdesign, whose mission-draft step legitimately weaves it in — that Manager's
-// envelope opts in), so dropping the field costs nothing here.
-func pdEncodeProject(p projectstate.Project) (projectEnvelope, error) {
-	return projectstate.EncodeProject(p)
-}
-
-// findings.go owns the SESSION-TRANSIENT validation-finding value types this Manager
-// surfaces on its getSessionState read (ProjectSessionStateView.Findings). The SPA renders
-// findings[] to explain "why it's being redrafted". They are part of this component's
-// OWN generated contract surface (registered in cmd/schemagen) — pure data, no methods.
-//
-// Defined LOCALLY (mirroring systemdesign/findings.go) because a Manager importing
-// another Manager is a sideways edge the layer model forbids (TestMethodLayering
-// NoSideways); systemdesign and projectdesign each own their own copy.
-//
-// WIRE: severity is a camelCase STRING name ("info"|"warning"|"error"). It is a STRING
-// enum (the value IS the wire name) so the generated type is pure data AND the wire
-// form is byte-identical — f.severity === 'error' / 'warning' in the SPA decodes
-// unchanged.
-
-// Severity is a finding severity. Only SeverityError fails a verdict; Warning/Info
-// ride along advisory. The value IS its canonical camelCase wire name.
-
-// RuleID is the stable, namespaced id of a validation rule. Stable across runs for
-// finding-diff and worker-prompt continuity.
-
-// Location locates a finding within a typed model. NO Line field: the input is a
-// typed model, not bytes.
-
-// stable position used for deterministic finding ordering
-// human-readable locus, e.g. "Objective 4"
-
-// Finding is a single machine-checkable rule violation surfaced to the SPA.
-
-// human-readable; safe to weave into a redraft prompt; no PII
-// optional; where in the model the finding sits
-
-// acknowledgestale.go implements the F45 per-slot staleness-acknowledge op for Project Design
-// (twin of the systemdesign impl): a reviewer marks a stale COMMITTED Phase-2 artifact
-// "reviewed — unaffected", clearing its StaleBasis WITHOUT a redraft, with a durable staleAck
-// audit entry — both committed atomically on main.
-
-func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
+func (m *deliveryManager) ackPlanStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -6672,7 +4342,7 @@ func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, proje
 	// review PR merge-DIRTY, so the eventual approve's merge fails with a Conflict and the
 	// workflow bounces back to AwaitingReview looking like a silent no-op to the reviewer.
 	// Refuse up front: reconcile RIDES the amendment (its merge clears the staleness).
-	if err := m.refuseAckDuringLiveSession(rc, projectID, kind); err != nil {
+	if err := m.refusePlanAckDuringLiveSession(rc, projectID, kind); err != nil {
 		return err
 	}
 	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
@@ -6705,8 +4375,8 @@ func (m *projectDesignManager) AcknowledgeStaleBasis(rc fwmanager.Context, proje
 // (a dead run synthesizes ProjectStageDraftFailed; a COMPLETED run is rebuilt from the durable
 // slot) — so ack gating always agrees with what the reviewer sees on screen. A NotFound
 // (no session ever ran for this slot) passes.
-func (m *projectDesignManager) refuseAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.GetSessionState(rc, projectID, kind)
+func (m *deliveryManager) refusePlanAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	view, err := m.planCompletedSessionView(rc, projectID, kind)
 	if err != nil {
 		var me *fwmanager.Error
 		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
@@ -6768,7 +4438,7 @@ func mapStaleAckError(err error) error {
 // Dispatch inputs for the design jobs. Project Design has no PM-critique, so its dispatch
 // path historically carried no job_mode; under thin dispatch the MCP scopes its ambient
 // mode on this input, so BOTH the draft and answer jobs now set it — pdJobModeDraft on the
-// workflow-side draft dispatch (dispatch.go), pdJobModeAnswer on this manager-side answer job.
+// workflow-side draft dispatch, pdJobModeAnswer on this manager-side answer job.
 const (
 	pdDispatchInputJobMode = "job_mode"
 	pdJobModeDraft         = "draft"
@@ -6787,7 +4457,7 @@ const (
 // is idempotent on its content key, so NO ledger entry is duplicated (the existing entries'
 // round is reused so the minted ids still match), while the answer-job dispatch RE-FIRES via a
 // per-call-unique key.
-func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+func (m *deliveryManager) askPlanQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -6849,49 +4519,6 @@ func (m *projectDesignManager) AskQuestions(rc fwmanager.Context, projectID Proj
 	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
 }
 
-// resolveQuestionBranch — twin of the systemdesign impl (see there for the full F73 rationale).
-// A GENUINELY ACTIVE session (co-author workflow OPEN and in a non-terminal stage) keeps its
-// ledger on the session branch; every closed/completed/withdrawn/failed/absent run falls back
-// to main (""). Resolution reuses the P0-2 Describe-first machinery via GetSessionState rather
-// than a bare sessionState Query, which would REPLAY a dead run's stale live stage and wrongly
-// resolve an abandoned amendment's leftover branch.
-func (m *projectDesignManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
-	view, err := m.GetSessionState(rc, projectID, kind)
-	if err != nil || !pdIsLiveSessionStage(view.Stage) {
-		return ""
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
-	if err != nil {
-		return ""
-	}
-	return projectstate.DesignBranch(projectstate.ProjectID(projectID), toPSKind(kind), projectstate.AmendmentIndexFor(pdSlotFor(proj, toPSKind(kind))))
-}
-
-// readProjectMaybeBranch reads the head-state aggregate from the given branch. The
-// on-branch read moved onto the designSessionAccess facet (Wave 1 reconciliation), which
-// ships the aggregate as a ProjectEnvelope across the Manager-Temporal boundary; decode it
-// back to the concrete Project here. branch=="" reads main exactly as ReadProject.
-func (m *projectDesignManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
-	if err != nil {
-		return projectstate.Project{}, err
-	}
-	return env.Decode()
-}
-
-// pdIsLiveSessionStage reports whether a co-author session is live (its ledger lives on the
-// session branch, not main).
-func pdIsLiveSessionStage(stage ProjectSessionStage) bool {
-	switch stage {
-	case ProjectStageDrafting, ProjectStageAwaitingReview, ProjectStageRedrafting, ProjectStageRefused:
-		return true
-	case ProjectSessionStageUnknown, ProjectStageAssemblingSDP, ProjectStageCommitted, ProjectStageWithdrawn, ProjectStageDraftFailed:
-		return false
-	default:
-		return false
-	}
-}
-
 func pdAskQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
 	h := fnv.New64a()
 	_, _ = h.Write([]byte(branch))
@@ -6905,127 +4532,6 @@ func pdAskQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch
 		_, _ = h.Write([]byte{0})
 	}
 	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
-}
-
-// pdAnswerJobDispatchKey derives a per-call-unique answer-job idempotency key from the
-// content base plus a monotonic nonce (see answerJobDispatchSeq).
-func pdAnswerJobDispatchKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
-	base := pdAskQuestionsIdempotencyKey(projectID, kind, branch, qs)
-	return fwra.IdempotencyKey(fmt.Sprintf("%s:answerJob:%d", base, answerJobDispatchSeq.Add(1)))
-}
-
-// dispatchAnswerJob fires the BEST-EFFORT answer job for the freshly-seeded questions and
-// LOGS the outcome loudly (F82). A dispatch miss previously vanished (the error was discarded
-// and the construction-pipeline RA has no logger); now every failure mode is logged at ERROR
-// (or WARN when the rail is simply not configured) with the projectID/kind/addressee/branch,
-// and a success at INFO. The questions are already recorded, so a miss is recoverable by
-// re-calling AskQuestions (see the op doc) — never silent.
-func (m *projectDesignManager) dispatchAnswerJob(ctx context.Context, projectID ProjectID, kind ArtifactKind, branch, addressee string, qs []projectstate.ReviewComment) {
-	log := slog.Default().With(
-		"op", "projectdesign.AskQuestions.dispatchAnswerJob",
-		"projectID", string(projectID), "artifactKind", artifactKindString(kind),
-		"addressee", addressee, "branch", branch)
-	if m.pipeline == nil || m.repo == nil {
-		log.Warn("answer job NOT dispatched: design pipeline/repo not configured (rail dormant) — the question is recorded but will not be auto-answered")
-		return
-	}
-	repoRef, ok := m.repo(projectID)
-	if !ok {
-		log.Error("answer job NOT dispatched: could not resolve the project repo — the question is recorded but will not be auto-answered; re-run AskQuestions to retry")
-		return
-	}
-	// MANAGED-SCAFFOLD SYNC (sync-on-dispatch): an answer job runs the same seated
-	// aiarch-design.yml (and installs the same aiarch-state-mcp binary) as a draft, so it
-	// too must never run against a stale scaffold. Failure keeps the answer-job miss
-	// semantics: recorded question, loud log, no dispatch — re-run AskQuestions to retry.
-	if m.rail != nil {
-		cred, cerr := m.rail.GetInstallationToken(fwra.Context{Context: ctx}, repoRef)
-		if cerr != nil {
-			log.Error("answer job NOT dispatched: could not mint the repo credential for the managed-scaffold sync; re-run AskQuestions to retry", "err", cerr.Error())
-			return
-		}
-		if _, serr := sourcecontrol.SyncManagedScaffold(ctx, m.rail, repoRef, cred); serr != nil {
-			log.Error("answer job NOT dispatched: managed-scaffold sync failed — the seated design workflow could not be proven current; re-run AskQuestions to retry", "err", serr.Error())
-			return
-		}
-	}
-	// Direct manager-side dispatch (NOT a Temporal workflow): the answer job is a
-	// fire-and-forget submit over the PUBLISHED agenticJobAccess RA. The
-	// RepoRef→RepoTarget decode + the placeholder step graph that the retired
-	// pipelineDispatchAdapter added are inlined here (the workflow-side twin is
-	// dispatchDesignJob in dispatch.go).
-	target, terr := designRepoTarget(sourcecontrol.RepoRefString(repoRef))
-	if terr != nil {
-		log.Error("answer job NOT dispatched: could not resolve the target repo for the answer job; re-run AskQuestions to retry", "err", terr.Error())
-		return
-	}
-	// The addressee rides the .claude command NAME now (design-answer vs design-answer-pm)
-	// rather than a composed answer prompt. An empty slug is contract misuse — an addressee
-	// that is neither "architect" nor "pm"; keep the answer-job miss semantics (recorded
-	// question, loud log, no dispatch).
-	command := projectstate.DesignCommandFor(toPSKind(kind), projectstate.DesignJobModeAnswer, addressee)
-	if command == "" {
-		log.Error("answer job NOT dispatched: no design-answer command slug for the addressee (contract misuse — expected \"architect\" or \"pm\")")
-		return
-	}
-	inputs := map[string]string{
-		dispatchInputArtifactKind:  artifactKindString(kind),
-		dispatchInputCommand:       command,
-		dispatchInputTargetBranch:  branch,
-		dispatchInputPriorStateRef: "",
-		pdDispatchInputJobMode:     pdJobModeAnswer,
-	}
-	spec := agenticjob.PipelineSpec{
-		ProjectID: agenticjob.ProjectID(projectID),
-		Steps: []agenticjob.PipelineStep{{
-			Name:      "design",
-			Toolchain: agenticjob.ToolchainRef(pipelineDefaultToolchain),
-			Command:   []string{"sh", "-c", "true"},
-		}},
-		DispatchInputs: inputs,
-		TargetRepo:     target,
-		WorkflowFile:   designWorkflowFileName,
-	}
-	key := pdAnswerJobDispatchKey(projectID, kind, branch, qs)
-	handle, err := m.pipeline.SubmitAgenticJob(fwra.Context{Context: ctx, IdempotencyKey: key}, spec)
-	if err != nil {
-		log.Error("answer job dispatch FAILED — the question is recorded but not auto-answered; re-run AskQuestions with the same question to retry",
-			"err", err.Error(), "key", string(key))
-		return
-	}
-	log.Info("answer job dispatched", "key", string(key))
-	m.watchAnswerEpisode(ctx, projectID, kind, handle, log)
-}
-
-// ---------------------------------------------------------------------------
-// Episode capture for the ANSWER job (SP1 capture-seam, Task 7)
-// ---------------------------------------------------------------------------
-//
-// The answer job is the ONE agentic dispatch this Manager makes outside a Temporal
-// workflow: AskQuestions submits it fire-and-forget and returns. Nothing observes it, so
-// without this watch every answer episode — real tokens, really spent — would be invisible
-// to the ledger.
-//
-// NON-DURABLE BY CONSTRUCTION, and that is accepted: this is a plain goroutine in the
-// server process. A restart between the dispatch and the terminal observation loses the
-// watch and therefore the record — no gap line either, because nothing is left to write
-// one. Only the WORKFLOW-side capture paths carry the durable never-silent guarantee; the
-// answer job is auxiliary (it gates nothing) and did not warrant its own workflow.
-
-// watchAnswerEpisode spawns the bounded manager-side watch for one dispatched answer job.
-// It detaches from the CALLER'S context on purpose: ctx is the AskQuestions request
-// context and is cancelled the moment that call returns, while the job it dispatched runs
-// for minutes afterwards. WithoutCancel keeps the request's values (tracing, principal)
-// and drops only the cancellation.
-func (m *projectDesignManager) watchAnswerEpisode(ctx context.Context, projectID ProjectID, kind ArtifactKind, handle agenticjob.PipelineHandle, log *slog.Logger) {
-	w := pdAnswerEpisodeWatch{
-		pipeline: m.pipeline,
-		episodes: m.episodes,
-		poll:     answerEpisodePollInterval,
-		window:   answerEpisodeWatchWindow,
-		log:      log,
-	}
-	go w.run(context.WithoutCancel(ctx), projectID, artifactKindString(kind), handle)
 }
 
 // pdAnswerEpisodeWatch is the bounded observe-then-append loop behind watchAnswerEpisode,
@@ -7172,285 +4678,6 @@ func (w pdAnswerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, t
 // TaskQueue is defined in the generated worker.gen.go.
 // ---------------------------------------------------------------------------
 
-// Signal and query names (contract §6.5).
-const (
-	// pdSignalReviewDecision resumes a suspended CoAuthorPhase2ArtifactWorkflow at
-	// the per-artifact AwaitingReview gate; backs submitReviewDecision (OQ-3).
-	pdSignalReviewDecision = "reviewDecision"
-	// pdSignalSetCommentStatus resumes a suspended CoAuthorPhase2ArtifactWorkflow at the
-	// AwaitingReview gate to apply a durable review-ledger status transition
-	// (open|answered->resolved / resolved->open) to one comment on the session branch; backs
-	// SetReviewCommentStatus (review-ledger feature).
-	pdSignalSetCommentStatus = "setCommentStatus"
-	// pdSignalRedraft resumes a CoAuthorPhase2ArtifactWorkflow that landed in the
-	// ProjectStageDraftFailed recovery gate (a terminal Phase-2 design-job failure). It
-	// re-enters the dispatch loop in the SAME live workflow so the user's "Retry
-	// draft" recovers without a fresh run. Backs requestArtifactDraft's retry path
-	// (signal-with-start; projectDesignManager.md §2.1 / §0.5.4).
-	pdSignalRedraft = "redraft"
-	// pdSignalSDPDecision resumes the AssembleSDPReviewWorkflow at the option-commit
-	// gate; backs submitSDPDecision.
-	pdSignalSDPDecision = "sdpDecision"
-	// pdQuerySessionState returns a ProjectSessionStateView; backs getSessionState.
-	pdQuerySessionState = "sessionState"
-)
-
-// ExecutionKinds for the durable-execution control plane (contract §6.2).
-const (
-	// pdExecutionKindCoAuthor is the per-artifact Phase-2 co-authoring gate.
-	pdExecutionKindCoAuthor = "projectDesignCoAuthor"
-	// pdExecutionKindSDPReview is the UC2 SDP-review assembly + option-commit gate.
-	pdExecutionKindSDPReview = "projectDesignSDPReview"
-	// pdExecutionKindPhaseAdvance is the short-lived Phase-2 seal gating workflow.
-	pdExecutionKindPhaseAdvance = "projectDesignPhaseAdvance"
-)
-
-// pdWorkflows is the single projectDesignManager component struct — the workflow
-// receiver. It carries ZERO custom Temporal Activities and NO I/O ResourceAccess dep
-// (B9 + its follow-up ruling): every RA op is a GENERATED activity reached through the
-// typed invoker surface (Acts), and the last custom Activity
-// (StageArtifactForReviewActivity) was deleted when the designSessionAccess Stage op's
-// model param became the codable ModelEnvelope at the schema.
-//
-//   - Estimation, OperationEst, Settlement are PURE, deterministic Engines, so the
-//     workflow body calls their verbs DIRECTLY — replay-safe, no Activity wrapper.
-//     They STAY server-side in-workflow (§0.5.5 "RETAINED, unchanged"): they are
-//     by-value joins, NOT LLM work, and do NOT become agentic dispatches.
-//
-// 2026-06-15 agentic-pivot re-cut (projectDesignManager.md §0.5 / D-MPD-Δ): the
-// Phase-2 plan-DRAFTING mechanism flips from a synchronous worker call to an ASYNC
-// dispatch → observe → read-back round-trip. The per-artifact CoAuthorPhase2-
-// ArtifactWorkflow no longer calls workerAccess.GenerateTypedData in-process; instead
-// the Manager DISPATCHES a claude-code-action DESIGN job via the generated
-// agenticJobAccess submit/observe activities, OBSERVES it to a typed terminal
-// phase, and READS BACK the typed model the Action committed via the generated
-// designSessionAccess.readProjectOnBranch activity. aiarch makes NO synchronous LLM
-// call and writes NO draft JSON on the main path.
-//
-// DROPPED from the draft path (§0.5.5): workerAccess (no synchronous LLM call
-// survives; the in-flight cancel is agenticJobAccess.cancel) and
-// artifactValidationEngine (Phase-2 validation is the required CI check inside the
-// Action, surfaced as the job's terminal phase). Both are removed from this struct.
-type pdWorkflows struct {
-	Estimation   estimation.EstimationEngine
-	OperationEst operationestimation.OperationEstimationEngine
-	Settlement   billing.BillingEngine
-
-	// Acts is the GENERATED typed invoker surface (invokers.gen.go) — the workflow's call
-	// surface for EVERY contract-backed RA op: projectStateAccess readProjectVersion /
-	// advancePhase, the agenticJobAccess submit/observe design-job pair, the
-	// seven sourceControlAccess PR-rail verbs, and the eight designSessionAccess
-	// branch-session verbs. Each invoker consults the manager's per-op preset hook
-	// (workermanifest.go pdActivityOptions), keyed by the generated activity name.
-	Acts genInvokers
-
-	// Rail + Repo are the OPTIONAL git-forward PR rail (I-DESIGN-DISPATCH §2b). When both
-	// are non-nil AND a repo resolves, the per-artifact CoAuthorPhase2ArtifactWorkflow
-	// draft path wraps each draft in the settled branch→PR→read-back→+1→merge model + the
-	// branch-aware read-back/stage; when nil that path runs UNCHANGED (read-back/stage on
-	// main, no branch/PR ops). The AssembleSDPReviewWorkflow (the in-workflow three-Engine
-	// join) is UNCHANGED — it gets NO rail (only the per-artifact draft path does).
-	//
-	// Rail is the PUBLISHED sourceControlAccess RA. The rail verbs are reached through
-	// the generated invoker surface (wf.Acts.Rail*); this field is held directly ONLY for
-	// the nil/dormant gate (gitEnabled).
-	Rail sourcecontrol.SourceControlAccess
-	// Repo resolves the per-project RepoRef the rail verbs address. nil ⇒ the rail is
-	// dormant. Injected so the repo-resolution policy is swappable without a new RA edge.
-	Repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
-}
-
-// Activity option presets (contract §6.4). Concrete RetryPolicy / timeout choices live
-// here, in the Manager. Each preset is an ActivityOptions VALUE consumed by the
-// generated-invoker option hook in workermanifest.go, keyed by the generated activity
-// name. This Manager has ZERO custom Temporal Activities (B9 follow-up — the last one,
-// StageArtifactForReviewActivity, was deleted when the contract op's model param became
-// the codable ModelEnvelope), so no ctx-wrapper forms remain.
-
-// pdReadProjectActivityOptions is the preset for the read path: since B9 this is EXCLUSIVELY
-// the generated designSessionAccess.readProjectOnBranch invoker (both branch=="" main reads
-// and branch-aware reads funnel through it), plus the generated
-// projectStateAccess.readProjectVersion. Both are keyed onto this VALUE via the
-// workermanifest.go option hook.
-func pdReadProjectActivityOptions() workflow.ActivityOptions {
-	// BOUND the read retries so a RETRYABLE fault (Transient / Infrastructure /
-	// RateLimited) cannot loop forever — decode failures of committed state are now
-	// TERMINAL (ContractMisuse, below), but a genuine persistent infra outage must
-	// still surface rather than wedge invisibly (QA F36, mirrors systemdesign).
-	return fwmanager.ActivityPreset{
-		Timeout:     10 * time.Second,
-		MaxAttempts: 8,
-		TerminalRA:  []fwra.Kind{fwra.NotFound, fwra.ContractMisuse},
-	}.Options()
-}
-
-// sdpReviewWorkflowID derives the continuity token: {projectId}:sdpReview.
-func sdpReviewWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:sdpReview", projectID)
-}
-
-// pdPhaseAdvanceWorkflowID derives the continuity token: {projectId}:phaseAdvance:projectDesign.
-// See systemDesign's pdPhaseAdvanceWorkflowID for why the rail suffix is load-bearing —
-// the two Managers derived the same string before stage 4a put them on one task queue.
-func pdPhaseAdvanceWorkflowID(projectID ProjectID) string {
-	return fmt.Sprintf("%s:phaseAdvance:projectDesign", projectID)
-}
-
-// ---------------------------------------------------------------------------
-// Internal helpers (deterministic; no clock, no RNG).
-// ---------------------------------------------------------------------------
-
-// pdCoAuthorState is the live technical state backing the sessionState Query. Reused
-// (in a slightly fuller form) by both the per-artifact and the SDP-review pdWorkflows.
-type pdCoAuthorState struct {
-	projectID    ProjectID
-	artifactKind ArtifactKind
-	stage        ProjectSessionStage
-	draft        projectstate.ArtifactModel
-	findings     []Finding
-	headVersion  projectstate.Version
-	// failureReason is set only on ProjectStageDraftFailed: the neutral job Diagnostic, the
-	// human "why" for the SPA's retry/withdraw screen (the anti-wedge requirement).
-	failureReason string
-	// reviewThread is the durable review ledger for this artifact (review-ledger feature),
-	// refreshed from the session branch after every (re)stage and every resolve/reopen so the
-	// query + approve gate see the live thread. Nil until a read-back carries comments.
-	reviewThread []projectstate.ReviewComment
-	// policyAutoApprove and vibesAutogateEnabled drive the VIBES AUTOGATE (F-R3 vibes-everywhere,
-	// founder-ratified): when this session's committed ReviewPolicy preset is "vibes"
-	// (policyAutoApprove), the review gate AUTO-APPROVES a clean draft (no open change-requests)
-	// instead of waiting for a human — honoring ReviewPolicy exactly like construction. Both are
-	// snapshot ONCE at session start (coAuthorSessionSetup): policyAutoApprove from the head-state
-	// ReviewPolicy.Preset, vibesAutogateEnabled from the "design-vibes-autogate" GetVersion gate
-	// (an in-flight session replays DefaultVersion → autogate OFF → the human gate for its whole
-	// run). See the review-gate loop in CoAuthorPhase2ArtifactWorkflow.
-	policyAutoApprove    bool
-	vibesAutogateEnabled bool
-	// roundLedgerEnabled drives the ROUND-LEDGER DUAL-WRITE (stage 3 task 6): resolved ONCE
-	// at session start from the "design-round-ledger" GetVersion fence, exactly like
-	// vibesAutogateEnabled above, so a session in flight at deploy time replays
-	// DefaultVersion and runs its WHOLE life on the old command sequence. See the round
-	// ledger section of coauthorphase2artifact.go for what the dual-write records and why
-	// the slot write stays.
-	roundLedgerEnabled bool
-	// roundReviewers is the ROSTER the review engine computed for this session's design
-	// gate, snapshot at session start beside policyAutoApprove. On THIS rail the engine
-	// returns no agent reviewers at all (the plan is computed, not drafted), so the roster
-	// is the human row alone whenever the policy holds for a person.
-	roundReviewers []projectstate.RoundReviewer
-	// roundBase is the highest round number the DURABLE ledger already holds for this
-	// session's artifact kind at its gate, read ONCE at session start
-	// (seedRoundBaseFromLedger) and never changed after. Every round this session opens is
-	// numbered above it, which is what stops a second session of the same kind re-minting
-	// the first session's round ids. Zero for a first session, for a kind whose lifecycle
-	// carries no review task — which today is every Phase-2 kind — and whenever the read
-	// could not be made.
-	roundBase int
-	// ledgerVersion is the optimistic-concurrency token for the MAIN-side execution ledger.
-	// It is deliberately NOT headVersion: headVersion tracks whichever substrate the design
-	// session is writing (the session branch while a draft is staged), whereas the round
-	// ledger lives on main like construction's, so the two genuinely differ during the
-	// review window. Seeded from the session-start main read and advanced by each round
-	// write; applyRecovering re-reads main on any drift.
-	ledgerVersion projectstate.Version
-	// activityVersion is the PER-ACTIVITY CAS token: the version the design activity's own
-	// execution row was at the last time this session wrote it. ledgerVersion is the whole
-	// document's token; this one is scoped to the row, so two sessions writing DIFFERENT
-	// activities never contend while two writing the SAME row cannot interleave.
-	//
-	// Seeded from the row seedRoundBaseFromLedger already reads, and advanced by one per
-	// APPLIED transition (the store stamps exactly one). 0 —
-	// projectstate.NoActivityVersionExpectation — for a first session, whose OpenActivity
-	// births the row, and for every session whose seed read could not be made: those write
-	// no round either way.
-	activityVersion int64
-	// activityOpened records that this session has already birthed the design activity's
-	// execution row. OpenActivity is idempotent, so this saves a command rather than
-	// guarding correctness.
-	activityOpened bool
-	// round is the review round currently OPEN at the human gate — empty between gates, and
-	// empty for a kind whose lifecycle carries no review task, which today is every Phase-2
-	// kind (see the round ledger section). Every write point treats an empty round as
-	// "write nothing".
-	round designRound
-	// roundComments pairs a SLOT comment id with where the same comment landed on the round
-	// ledger, so a resolve / reopen filed against the slot's id can be mirrored.
-	roundComments map[string]roundCommentRef
-	// resumeFromReadBack is the F35-twin checkpoint: set true when a POST-read-back rail step
-	// (openPR) faulted and the session landed at the failed gate WITH the draft already
-	// committed on the branch. On the next Retry the draft round consumes it and RESUMES from
-	// the read-back — SKIPPING the re-dispatch — so it does not redispatch Claude onto a branch
-	// that already carries the model (which the no-commit guard would red). Workflow-local,
-	// deterministic on replay (set from a recorded Activity error, never wall-clock).
-	resumeFromReadBack bool
-	// feedbackSeeded reports whether the CURRENT contents of the workflow's feedback variable
-	// are already durably in the review ledger. The review-gate REJECT and the AMENDMENT seed
-	// fold their feedback into the ledger themselves (pdFeedbackToLedgerComments / seedAmendment
-	// Ledger), so they set this true. The MEMORY-ONLY failed-gate paths — a redraft-signal
-	// (F47), a Retry-via-Reject AT a failed gate, a faulted reject — only retain the feedback in
-	// this workflow variable, so they set it false. Under thin dispatch the drafting agent reads
-	// context ONLY via getReviewThread, so before each redraft dispatch a false flag triggers
-	// seedFailedGateFeedback to seed the retained anchored comments, while a true flag skips it
-	// so an already-seeded path is never double-seeded.
-	feedbackSeeded bool
-	// decisionSeq counts the review decisions HANDLED at the AwaitingReview gate — one
-	// monotonic increment per received reviewDecision signal (F-QA2-44, systemdesign twin
-	// parity). Replay-stable: driven purely by the recorded signal order. It keys the
-	// per-attempt version gate (gate-decision-token-remint-p2-<seq>) guarding the approve
-	// arm's gate-time credential re-mint; see coAuthorApprove for why that gate is
-	// per-attempt rather than static. Stays zero for AssembleSDPReviewWorkflow (no gate).
-	decisionSeq int
-	// activeRole / activeStep / activeRound are the WORKFLOW-LOCAL sub-step indicator
-	// backing the honest role-driven loading pill (Plan-3 C2, mirroring systemdesign's C1).
-	// They are SET immediately before each dispatch boundary (architect drafting/revising —
-	// Phase 2 has NO PM critique, so ActiveRoleProductManager / ActiveStepCritiquing are
-	// never stamped here) and CLEARED to none/none/0 the instant that dispatch is observed
-	// complete or the session reaches any terminal / AwaitingReview stage. Pure in-workflow
-	// state served by view() (NOT boundary-stamped like StageName) — setting it issues NO
-	// Temporal history command, so no GetVersion gate is needed (the honesty invariant). Also
-	// reused, always at its zero value, by AssembleSDPReviewWorkflow — the SDP assembly is
-	// server-side (no role/step to stamp), so its view() naturally reports none/none/0.
-	activeRole  ActiveRole
-	activeStep  ActiveStep
-	activeRound int
-}
-
-// markActive stamps the in-flight sub-step (role / step / round) the loading pill renders.
-// Pure workflow-local state; no history command.
-func (s *pdCoAuthorState) markActive(role ActiveRole, step ActiveStep, round int) {
-	s.activeRole = role
-	s.activeStep = step
-	s.activeRound = round
-}
-
-// clearActive resets the sub-step to none/none/0 — the honest "no role is working" state
-// the pill falls back to today's plain "DRAFTING…" copy for. Called on observed dispatch
-// completion and on every terminal / AwaitingReview stage.
-func (s *pdCoAuthorState) clearActive() {
-	s.activeRole = ActiveRoleNone
-	s.activeStep = ActiveStepNone
-	s.activeRound = 0
-}
-
-func (s *pdCoAuthorState) view() (ProjectSessionStateView, error) {
-	dm, err := draftModelFor(s.artifactKind, s.draft)
-	if err != nil {
-		return ProjectSessionStateView{}, err
-	}
-	return ProjectSessionStateView{
-		ProjectID:     s.projectID,
-		ArtifactKind:  s.artifactKind,
-		Stage:         s.stage,
-		Draft:         dm,
-		Findings:      s.findings,
-		FailureReason: strPtrOrNil(s.failureReason),
-		ReviewThread:  reviewThreadToView(s.reviewThread),
-		ActiveRole:    s.activeRole,
-		ActiveStep:    s.activeStep,
-		Round:         int64(s.activeRound),
-	}, nil
-}
-
 // slotAccessors is the flat kind→slot dispatch behind pdSlotFor, in table form so the
 // exhaustive gate (check: map) still fails on a missing ArtifactKind exactly like the
 // former switch did.
@@ -7499,224 +4726,6 @@ func pdSlotFor(proj projectstate.Project, kind projectstate.ArtifactKind) projec
 // The three estimate Engines (Estimation / OperationEst / Settlement) are called DIRECTLY
 // in-workflow (deterministic, by value) and are NOT Activities; the durable-execution
 // in-workflow primitives (awaitSignal / startTimer) are the Manager's own code.
-
-// pdActivityOptions returns the option-preset hook the generated invokers consult for the
-// contract-backed RA Activities (projectState / pipeline / rail / designSession). A name
-// with no entry falls back to the generated default (invokers.gen.go). Keyed by the
-// generated registered activity name (<componentKey>.<opName>); every
-// designSessionAccess.* entry below uses the same readProjectOpts/mutateOpts preset
-// as the equivalent projectStateAccess entry.
-func pdActivityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
-	presets := map[string]workflow.ActivityOptions{
-		"projectStateAccess.readProjectVersion":                  pdReadProjectActivityOptions(),
-		"projectStateAccess.advancePhase":                        mutateActivityOptions(),
-		"agenticJobAccess.submitAgenticJob":                      dispatchActivityOptions(),
-		"agenticJobAccess.observeAgenticJob":                     observeActivityOptions(),
-		"sourceControlAccess.getInstallationToken":               mintCredActivityOptions(),
-		"sourceControlAccess.openBranch":                         railActivityOptions(),
-		"sourceControlAccess.openPullRequest":                    railActivityOptions(),
-		"sourceControlAccess.getPullRequestStatus":               railActivityOptions(),
-		"sourceControlAccess.postReview":                         railActivityOptions(),
-		"sourceControlAccess.mergePullRequest":                   railActivityOptions(),
-		"sourceControlAccess.syncManagedScaffold":                railActivityOptions(),
-		"designSessionAccess.readProjectOnBranch":                pdReadProjectActivityOptions(),
-		"designSessionAccess.stageArtifactForReviewOnBranch":     mutateActivityOptions(),
-		"designSessionAccess.commitArtifactWithProvenance":       mutateActivityOptions(),
-		"designSessionAccess.rejectArtifactOnBranchWithComments": mutateActivityOptions(),
-		"designSessionAccess.withdrawArtifactOnBranch":           mutateActivityOptions(),
-		"designSessionAccess.setReviewCommentStatusOnBranch":     mutateActivityOptions(),
-		"designSessionAccess.seedReviewCommentsOnBranch":         mutateActivityOptions(),
-		// The ROUND-ledger dual-write (stage 3 task 6). Every one is a head-state mutation
-		// through the same applyMutation funnel the designSession verbs ride, so it takes
-		// the same envelope: the workflow's own Conflict re-read loop (applyRecovering) is
-		// what resolves a CAS loss, not a longer retry here.
-		"activityExecutionAccess.openActivity":           mutateActivityOptions(),
-		"activityExecutionAccess.openReviewRound":        mutateActivityOptions(),
-		"activityExecutionAccess.appendReviewVerdict":    mutateActivityOptions(),
-		"activityExecutionAccess.decideReviewRound":      mutateActivityOptions(),
-		"activityExecutionAccess.setReviewCommentStatus": mutateActivityOptions(),
-		// SP1 capture-seam: the episode ledger append rides its OWN envelope, never a
-		// business one (see appendEpisodeActivityOptions).
-		"episodeAccess.appendEpisode": appendEpisodeActivityOptions(),
-	}
-	return func(name string) (workflow.ActivityOptions, bool) {
-		o, ok := presets[name]
-		return o, ok
-	}
-}
-
-// WorkerManifest assembles the genWorkerManifest RegisterWorker (worker.gen.go) consumes:
-// the three workflow bodies under their registered names, the per-activity option-preset
-// hook, and the genActivities threaded from the impl's stored published deps.
-//
-// The pdWorkflows receiver holds the generated invoker surface (Acts) — every
-// contract-backed RA op (readProjectVersion / advancePhase / submit / observe / the
-// seven rail verbs / the eight designSession verbs) is reached through it; the receiver
-// carries no RA dep of its own.
-func (m *projectDesignManager) WorkerManifest() genWorkerManifest {
-	optsHook := pdActivityOptions()
-
-	wf := &pdWorkflows{
-		Estimation:   m.estimator,
-		OperationEst: m.opEstimator,
-		Settlement:   m.settlement,
-		Acts:         genInvokers{Opts: optsHook},
-		// Rail is the PUBLISHED sourceControlAccess: nil ⇒ the PR rail is dormant and the
-		// CoAuthor draft path runs the original main-path behavior. Held directly for the
-		// gitEnabled gate; the seven rail verbs (including syncManagedScaffold, since B9) go
-		// through the generated invoker surface (wf.Acts.Rail*).
-		Rail: m.rail,
-		Repo: m.repo,
-	}
-
-	return genWorkerManifest{
-		Workflows: []genRegisteredWorkflow{
-			{Name: pdExecutionKindCoAuthor, Fn: wf.CoAuthorPhase2ArtifactWorkflow},
-			{Name: pdExecutionKindSDPReview, Fn: wf.AssembleSDPReviewWorkflow},
-			{Name: pdExecutionKindPhaseAdvance, Fn: wf.Phase2AdvanceWorkflow},
-		},
-		ActivityOptions: optsHook,
-		Activities: genActivities{
-			ProjectState:      m.projectState,
-			Pipeline:          m.pipeline,
-			Rail:              m.rail,
-			DesignSession:     m.designSession,
-			ActivityExecution: m.activityExecution,
-			Episodes:          m.episodes,
-		},
-	}
-}
-
-// ---------------------------------------------------------------------------
-// Episode facet read ops (SP1 capture-seam, Task 9 — founder ruling 2026-08-02:
-// episode observability is a facet of the existing use cases, not a new
-// episodeManager). Both ops are PLAIN METHODS that consult episodeAccess directly
-// — no Temporal — the same shape as systemDesignManager.ListProjects/GetProject
-// (these facets collapse into one when the ratified DesignManager merge lands).
-// The whole-project exportEpisodes op is cut from v1 (per-target export is
-// client-side, Task 10).
-// ---------------------------------------------------------------------------
-
-// ListEpisodesForArtifact returns every episode record (design/rework runs, or
-// gaps) captured against one Project-Design (Phase 2) artifact, in episodeAccess's
-// own (append) order. A pass-through over episodeAccess.ListEpisodes scoped by
-// TargetRef=artifactKind, mapped to the contract EpisodeRecordView.
-func (m *projectDesignManager) ListEpisodesForArtifact(rc fwmanager.Context, projectID ProjectID, artifactKind ArtifactKind) ([]EpisodeRecordView, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return nil, newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	// TargetRef on the ledger is the PascalCase artifactKindString(kind) form —
-	// exactly what the capture-seam write path (episodeRecordFromSummary via
-	// dispatchAndObserve) stamps as TargetRef, NOT the wire-name form. artifactKind
-	// is typed as the contract's own ArtifactKind enum (not a bare string) so this
-	// conversion cannot be skipped by a caller that only has the wire name.
-	targetRef := artifactKindString(artifactKind)
-	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{
-		ProjectID: episode.ProjectID(projectID),
-		TargetRef: &targetRef,
-	})
-	if err != nil {
-		return nil, mapRAError(err, "episodeAccess.ListEpisodes")
-	}
-	return episodeRecordViews(records), nil
-}
-
-// GetEpisodeTimeline returns one episode's full timeline: its ledger record plus
-// the sequenced trace events mined from its run. NotFound if episodeID does not
-// name a record on this project.
-func (m *projectDesignManager) GetEpisodeTimeline(rc fwmanager.Context, projectID ProjectID, episodeID string) (EpisodeTimeline, error) {
-	ctx := rc.Context
-	if projectID == "" {
-		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if episodeID == "" {
-		return EpisodeTimeline{}, newError(fwmanager.ContractMisuse, "empty episodeId")
-	}
-	// ListEpisodes has no by-id lookup (episodeAccess.md — the ledger is append-
-	// scanned by TargetRef); querying with no TargetRef and finding the one record
-	// whose EpisodeID matches is the only way to resolve one episode across every
-	// target on the project.
-	records, err := m.episodes.ListEpisodes(fwra.Context{Context: ctx}, episode.EpisodeQuery{ProjectID: episode.ProjectID(projectID)})
-	if err != nil {
-		return EpisodeTimeline{}, mapRAError(err, "episodeAccess.ListEpisodes")
-	}
-	rec, ok := findEpisodeRecord(records, episodeID)
-	if !ok {
-		return EpisodeTimeline{}, newError(fwmanager.NotFound, fmt.Sprintf("episode %q not found", episodeID))
-	}
-	// A GAP record (episode.EpisodeGap — the dispatch that produced no summary at
-	// all) has no trace file: TracePath is nil on the ledger record. The
-	// never-silent gap doctrine (Task 2/7) treats a gap as a PRESENT, first-class
-	// outcome, not an absence — the record itself must always resolve; only its
-	// timeline is empty. Skip the RA round-trip entirely when TracePath says
-	// there is nothing to read, and treat a NotFound FROM ReadTraceEvents (e.g. a
-	// TracePath that no longer resolves) the same way, rather than erroring the
-	// whole timeline — either would otherwise be indistinguishable from an
-	// unknown episodeID.
-	if rec.TracePath == nil || *rec.TracePath == "" {
-		return EpisodeTimeline{Record: episodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
-	}
-	raw, err := m.episodes.ReadTraceEvents(fwra.Context{Context: ctx}, episode.ProjectID(projectID), episodeID)
-	if err != nil {
-		if isEpisodeTraceNotFound(err) {
-			return EpisodeTimeline{Record: episodeRecordToView(rec), Events: episodeTimelineEvents(nil)}, nil
-		}
-		return EpisodeTimeline{}, mapRAError(err, "episodeAccess.ReadTraceEvents")
-	}
-	return EpisodeTimeline{
-		Record: episodeRecordToView(rec),
-		Events: episodeTimelineEvents(raw),
-	}, nil
-}
-
-// episodeRecordViews maps a slice of ledger records onto the contract view type.
-func episodeRecordViews(records []episode.EpisodeRecord) []EpisodeRecordView {
-	out := make([]EpisodeRecordView, 0, len(records))
-	for _, r := range records {
-		out = append(out, episodeRecordToView(r))
-	}
-	return out
-}
-
-// episodeRecordToView maps one episodeAccess ledger record onto this contract's
-// OWN copy of the view shape (EpisodeRecordView mirrors episodeAccess.EpisodeRecord
-// field-for-field; contracts are self-contained, so this is an intentional
-// duplicate of the mapping episodeAccess itself owns, not a shared function).
-func episodeRecordToView(r episode.EpisodeRecord) EpisodeRecordView {
-	v := EpisodeRecordView{
-		EpisodeID:      r.EpisodeID,
-		Kind:           episodeViewKind(r.Kind),
-		TargetRef:      r.TargetRef,
-		WorkerClass:    r.WorkerClass,
-		Model:          r.Model,
-		Usage:          EpisodeUsage(r.Usage),
-		CostUSD:        r.CostUSD,
-		NumTurns:       r.NumTurns,
-		ToolCallCounts: r.ToolCallCounts,
-		StartedAt:      r.StartedAt,
-		EndedAt:        r.EndedAt,
-		Outcome:        episodeViewOutcome(r.Outcome),
-		GapReason:      r.GapReason,
-		TracePath:      r.TracePath,
-	}
-	if r.Lineage != nil {
-		l := EpisodeLineage(*r.Lineage)
-		v.Lineage = &l
-	}
-	if r.StreamedUsage != nil {
-		u := EpisodeUsage(*r.StreamedUsage)
-		v.StreamedUsage = &u
-	}
-	if len(r.SubagentSpans) > 0 {
-		spans := make([]SubagentSpan, 0, len(r.SubagentSpans))
-		for _, s := range r.SubagentSpans {
-			spans = append(spans, SubagentSpan(s))
-		}
-		v.SubagentSpans = spans
-	}
-	return v
-}
 
 // Stage 4a: ONE copy now serves the projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
@@ -8077,6 +5086,636 @@ func derivedCriticalPath(
 	return cp, nil
 }
 
+// ===========================================================================
+// DETERMINISTIC PROJECT DESIGN (stage 4b1 Task 9, spec §6/R7). Everything below
+// is PURE — no workflow.Context, no clock, no RNG, no map iteration that reaches
+// an output — so the generic child's compute strategy can run it in-workflow and a
+// unit test can run it without Temporal. Its workflow half (sdpComputeStrategy,
+// computeProjectPlan) is in deliveryactivity.go, where the file-layout gate puts
+// anything holding a workflow.Context.
+//
+// WHAT IT REPLACES: four agent-drafted Solution slots, an agent-drafted risk model
+// and an agent-assembled SDP review. Slots 11-16 have carried `revisions: 1` and
+// `staleBasis: true` since the day they were written, because there was never
+// anything for an agent to judge in them — the options are The Method's doctrine
+// and the risk is what the estimation Engine already returns.
+// ===========================================================================
+
+// sdpEngines is the three estimate Engines the Project-Design compute calls, held as
+// ONE value so they travel together through the strategy registry (architect ruling
+// R9-5: a strategy's engines are THREADED, never reached for). They are called
+// DIRECTLY in-workflow — deterministic, by value, no I/O — exactly as
+// AssembleSDPReviewWorkflow has always called them, so they are not Activities.
+type sdpEngines struct {
+	Estimation   estimation.EstimationEngine
+	OperationEst operationestimation.OperationEstimationEngine
+	Settlement   billing.BillingEngine
+}
+
+// wired reports whether all three Engines are present. A compute with a missing Engine
+// must refuse LOUDLY rather than nil-panic inside a workflow task, which retries forever.
+func (e sdpEngines) wired() bool {
+	return e.Estimation != nil && e.OperationEst != nil && e.Settlement != nil
+}
+
+// solutionDials is everything a Solution slot contributes to an assembled option.
+// MEASURED, not assumed: assembleOption reads sol.StaffingCap, sol.BufferDays and
+// sol.CriticalSpeedup and NOTHING ELSE — its ClassRates come from deriveClassRates(pa,
+// classes) and the per-option CalendarDaysPerWeek "cheat" (compressed silently
+// switching 2 -> 5 d/wk) was retired by the Phase-2 rework's F5. So the four
+// agent-drafted solution slots were four sets of three numbers.
+type solutionDials struct {
+	StaffingCap     int
+	BufferDays      float64
+	CriticalSpeedup float64
+}
+
+// subcriticalStaffingCut / compressedCriticalSpeedup / decompressedBufferDays are the
+// three numbers with a judgement in them.
+//
+// subcriticalStaffingCut is two fewer agents than normal, matching this repo's committed
+// 6 -> 4. A cap below 1 is clamped, because a subcritical option with no staff has no
+// duration to be costlier than.
+const (
+	subcriticalStaffingCut    = 2
+	compressedCriticalSpeedup = 1.8
+	decompressedBufferDays    = 20.0
+)
+
+// derivedSolutionDials is The Method's four options as doctrine, not as drafts.
+//
+//	normal        — minimum staffing for unimpeded critical-path progress (ch. 12).
+//	subcritical   — deliberately understaffed: LONGER, COSTLIER and RISKIER than
+//	                normal, whose whole purpose is disproving "fewer people = cheaper".
+//	compressed    — same staffing, critical path sped up; the >30% exclusion guard in
+//	                recommendOption is what keeps it out of the death zone.
+//	decompressed  — normal, deliberately extended, to drop criticality risk toward the
+//	                tipping point without consuming the float by cutting staff.
+//
+// TWO PARAMETERS, because every dial set is relative to the NORMAL option's cap: a
+// subcritical option is not "four agents", it is "two fewer than whatever normal needs".
+//
+// The values reproduce this repo's committed slots 11-14 EXACTLY (cap 6/4/6/6, buffer
+// 0/0/0/20, speedup 1/1/1.8/1), which is the acceptance: the compute must not change the
+// plan on the state it is first run against, or its first output would be
+// indistinguishable from a regression.
+func derivedSolutionDials(kind projectstate.ArtifactKind, staffingCap int) (solutionDials, bool) {
+	switch kind {
+	case projectstate.KindNormalSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: 0, CriticalSpeedup: 1}, true
+	case projectstate.KindSubcriticalSolution:
+		cut := max(staffingCap-subcriticalStaffingCut, 1)
+		return solutionDials{StaffingCap: cut, BufferDays: 0, CriticalSpeedup: 1}, true
+	case projectstate.KindCompressedSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: 0, CriticalSpeedup: compressedCriticalSpeedup}, true
+	case projectstate.KindDecompressedSolution:
+		return solutionDials{StaffingCap: staffingCap, BufferDays: decompressedBufferDays, CriticalSpeedup: 1}, true
+	case projectstate.KindMission, projectstate.KindGlossary, projectstate.KindScrubbedRequirements,
+		projectstate.KindVolatilities, projectstate.KindCoreUseCases, projectstate.KindSystem,
+		projectstate.KindOperationalConcepts, projectstate.KindStandardCheck,
+		projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindRiskModel, projectstate.KindSdpReview:
+		// Not a solution slot. Named exhaustively rather than defaulted (the designSlotForKind
+		// precedent) so a new ArtifactKind fails the gate here and its author has to decide
+		// whether The Method gives it a dial set.
+		return solutionDials{}, false
+	default:
+		return solutionDials{}, false
+	}
+}
+
+// derivedSolution renders one Solution slot from its dials and the DERIVED class rates.
+//
+// ClassRates IS EMITTED, and the first draft of this function was wrong to drop it. The
+// argument for dropping it was that assembleOption reads none of it — the per-day rate of a
+// worker class comes from deriveClassRates over the planning assumptions' rate card — so
+// re-emitting the committed slots' authored map would make the derivation depend on a stale
+// field. That half is right. What it missed is a READER outside the compute:
+// webApp/src/components/project/SolutionView.tsx renders a "BUILD-COST RATES" block from it,
+// with an AuthoredBadge and a per-rate comment anchor (solutionAnchor(kind,
+// 'classRates.<class>')), fed by projectAdapters.ts. Dropping the field would have made all
+// four Solution views read "No class rates specified." the moment M0 approved, and taken
+// their comment anchors with them — review aids are first-class, and losing one silently is
+// exactly what that house rule forbids.
+//
+// So the resolution is DERIVE IT IN PLACE rather than choose between a stale map and none:
+// the rates come from the SAME deriveClassRates the option assembly uses, over the resolved
+// planning assumptions and the activity list's own worker classes. The screen keeps
+// rendering, the numbers are derived, and nothing depends on an authored field.
+func derivedSolution(
+	kind projectstate.ArtifactKind, dials solutionDials, classRates map[string]projectstate.Money,
+) *projectstate.Solution {
+	return &projectstate.Solution{
+		SlotKind:    kind,
+		ClassRates:  classRates,
+		StaffingCap: dials.StaffingCap,
+		// Zero, matching every committed slot: the calendar is a SHARED planning assumption
+		// for every option since F5 retired the per-option cheat.
+		CalendarDaysPerWeek: 0,
+		BufferDays:          dials.BufferDays,
+		CriticalSpeedup:     dials.CriticalSpeedup,
+	}
+}
+
+// normalStaffingCap is the cap the whole dial table is relative to: the committed normal
+// solution's, when there is one, else derivedNormalStaffingCap.
+//
+// It READS the committed slot rather than deriving a cap from the network, because "the
+// minimum staffing that keeps the critical path unimpeded" is a founder fact about how
+// many agent streams a human can supervise (this repo's own planning notes cap it at 3
+// in flight), not something the graph answers. A project with no committed normal
+// solution gets the documented default and the caller records that it defaulted.
+func normalStaffingCap(proj projectstate.Project) (int, bool) {
+	sol, err := committedSolution(proj, projectstate.KindNormalSolution)
+	if err != nil || sol.StaffingCap < 1 {
+		return derivedNormalStaffingCap, false
+	}
+	return sol.StaffingCap, true
+}
+
+// derivedNormalStaffingCap is the normal option's cap for a project that has never had
+// one. SIX, which is this repo's own committed value and the number the dial table's
+// acceptance is stated against; it is a starting point the founder edits, not a claim
+// about their team.
+const derivedNormalStaffingCap = 6
+
+// riskModelFrom joins the per-option risk the estimation Engine already computed into the
+// RiskModel slot, with the App-C exclusion zones the SDP review already applies.
+//
+// There was never anything for an agent to judge here: EstimateForOption returns
+// criticality risk, activity risk and their composite per option, and sdpOptionInBand
+// already decides inclusion from the same numbers. This is the join, and it uses the SAME
+// thresholds recommendOption uses, so the committed risk model and the committed
+// recommendation can no longer disagree.
+//
+// THREE PARAMETERS, and the third is an ArtifactKind rather than an OptionID on purpose:
+// RiskModel.Recommendation is an ArtifactKind — the same vocabulary Rows[].SolutionKind
+// uses — while SdpReview.Recommendation is an OptionID. The two slots name the chosen
+// option in two vocabularies and the join must not mix them, so the CALLER maps
+// recommendOption's OptionID onto the winning row's SolutionKind before calling here.
+func riskModelFrom(
+	rows []projectstate.SdpOptionRow,
+	risks map[projectstate.ArtifactKind]estimation.RiskScore,
+	recommendation projectstate.ArtifactKind,
+) projectstate.RiskModel {
+	normalDur := 0.0
+	for _, r := range rows {
+		if r.SolutionKind == projectstate.KindNormalSolution {
+			normalDur = r.DurationDays
+		}
+	}
+	out := projectstate.RiskModel{
+		Rows:              make([]projectstate.RiskRow, 0, len(rows)),
+		TooRiskyThreshold: riskTooRisky,
+		OverSafeThreshold: riskOverSafe,
+		MaxCompressionPct: maxCompression,
+		Recommendation:    recommendation,
+	}
+	for _, r := range rows {
+		score := risks[r.SolutionKind]
+		included := sdpOptionInBand(r, normalDur)
+		out.Rows = append(out.Rows, projectstate.RiskRow{
+			SolutionKind:    r.SolutionKind,
+			CriticalityRisk: score.CriticalityRisk,
+			ActivityRisk:    score.ActivityRisk,
+			Composite:       score.Composite,
+			DurationDays:    r.DurationDays,
+			TotalCost:       r.BuildCost,
+			Included:        included,
+			ExclusionReason: sdpExclusionReason(r, normalDur, included),
+		})
+	}
+	return out
+}
+
+// sdpExclusionReason is the sentence an EXCLUDED row carries, in the same words the
+// committed slot holds. An included row carries none: a reason beside an included option
+// is the reader's first wrong assumption.
+func sdpExclusionReason(r projectstate.SdpOptionRow, normalDur float64, included bool) string {
+	switch {
+	case included:
+		return ""
+	case r.CompositeRisk > riskTooRisky:
+		return fmt.Sprintf("composite risk %.3f exceeds the %g ceiling", r.CompositeRisk, riskTooRisky)
+	case r.CompositeRisk < riskOverSafe:
+		return fmt.Sprintf("composite risk %.3f is below the %g floor — the option is over-safe", r.CompositeRisk, riskOverSafe)
+	case normalDur > 0 && r.DurationDays < normalDur:
+		return fmt.Sprintf("compressed %.0f%% below the normal option, past the %.0f%% death-zone bound",
+			100*(normalDur-r.DurationDays)/normalDur, 100*maxCompression)
+	}
+	return "outside the App C exclusion zones"
+}
+
+// The assumption FAMILIES defaultPlanningAssumptions can fill, named as the M0 screen
+// will read them back. They are the strings the attempt's Detail carries, so they are
+// customer-facing prose and not identifiers.
+const (
+	assumedResources  = "the roster of roles"
+	assumedCalendar   = "the working calendar"
+	assumedRates      = "the agent rate card"
+	assumedIndirect   = "the indirect daily rate"
+	assumedUsage      = "the declared load"
+	assumedTerms      = "the billing terms"
+	assumedInfra      = "the infrastructure kind"
+	assumedStaffing   = "the normal option's staffing cap"
+	assumedEverything = "every planning assumption"
+)
+
+// defaultPlanningAssumptions is what the compute assumes when slot 8 is uncommitted.
+// R-E's controller override, 2026-09-26: an absent slot 8 DEFAULTS and the compute
+// PROCEEDS — it must not raise SDPInputsIncomplete. A project that cannot reach its own
+// cost-approval gate cannot be told what it would cost, and refusing at M0 refuses the
+// one screen that exists to ask the question. (The historical refusal was correct while
+// slot 8 had an agent to draft it; stage 4b1 deletes that rail.)
+//
+// Every number has a source, and none of them is invented here:
+//
+//	Resources            the WORKER CLASSES the derived plan actually uses, read off the
+//	                     activity list — Löwy ch. 7's staffing question answered by the
+//	                     plan rather than guessed ahead of it. Never a head count: the
+//	                     option's StaffingCap is the cap, and this is the roster of ROLES
+//	                     the network needs. Sorted, so the output is replay-stable.
+//	CalendarDaysPerWeek  5 — the book's nominal working week (App. A's day is a working
+//	                     day). This repo's own committed value is 2, which is a FOUNDER
+//	                     fact about a solo founder's availability and precisely the kind
+//	                     of thing a default must not pretend to know. The default applies
+//	                     only when the slot is ABSENT; it never overrides present data.
+//	IndirectDailyRate    defaultIndirectDailyRate ($50/day, assemblesdpreview.go's F6
+//	                     constant) — the overhead that accrues per calendar day
+//	                     regardless of which agents are active, and what makes a
+//	                     subcritical option demonstrably costlier.
+//	RateCard             defaultRateSpec per class — the SAME helper deriveClassRates
+//	                     already falls back to for a class the authored card omitted. So
+//	                     the whole-slot default is the per-class rule applied to every
+//	                     class, not a second rule that can drift from it.
+//	InfrastructureKind   the platform's ONE registered infrastructure. MEASURED, and the
+//	                     brief's "else the zero value" is wrong twice over:
+//	                     DeploymentOperationsModel carries NO InfrastructureKind member to
+//	                     read (it holds a ScenarioKind and infra building blocks), and the
+//	                     zero value is InfrastructureKindUnknown, which
+//	                     operationEstimationEngine.costModelFor REFUSES outright ("the
+//	                     Engine never falls back to a default Strategy"). Defaulting to
+//	                     the zero value would therefore fail the very compute R-E exists
+//	                     to let through. GoTemporalPostgres is not a choice among
+//	                     alternatives — it is the only kind with a cost model — so
+//	                     assuming it assumes nothing a founder could have decided
+//	                     differently today.
+//	DeclaredUsage        one user, one request a minute, a 4 KiB payload: the smallest
+//	                     load that is not zero, because a zero-load option has no
+//	                     operating cost to compare and the operating half of the M0
+//	                     headline would read $0.
+//	Terms                RevenueShare 0 / ComputeCost tieredFloors / Schedule monthly —
+//	                     the platform's shipped billing posture (docs/billing-setup.md;
+//	                     the 2026-06-09 MoR reversal), not a per-project choice.
+//
+// It returns the ASSUMPTIONS and the family names it filled, so the M0 screen can say
+// "cost computed on an assumed calendar and rate card" rather than presenting an
+// assumption as a decision. Rendering that sentence is Task 14's; RECORDING it is this
+// task's, on the attempt.
+//
+// It takes ONLY the activity list. The brief also passes the whole project, for
+// InfrastructureKind — measured, that read does not exist (see the InfrastructureKind note
+// above), and a parameter no body reads is exactly the lie proposeReviewSet's doc calls out
+// about its retired architectureGraph argument: one the compiler cannot catch.
+func defaultPlanningAssumptions(al projectstate.ActivityList) (projectstate.PlanningAssumptions, []string) {
+	// ONE roster derivation, shared with resolveCostFamilies' per-family fills. Two copies of
+	// "which worker classes does this plan use" is two answers to keep in step, and the
+	// whole-slot default and the per-family default must never disagree about the roster.
+	roles := workerClassesOf(al)
+	card := make(map[string]projectstate.WorkerRateSpec, len(roles))
+	for _, c := range roles {
+		card[c] = defaultRateSpec(c)
+	}
+	pa := projectstate.PlanningAssumptions{
+		Resources:           roles,
+		CalendarDaysPerWeek: defaultCalendarDaysPerWeek,
+		InfrastructureKind:  defaultInfrastructureKind,
+		DeclaredUsage:       defaultDeclaredUsage(),
+		Terms:               defaultSettlementTerms(),
+		Notes:               defaultPlanningAssumptionsNote,
+		IndirectDailyRate:   defaultIndirectDailyRate,
+		RateCard:            card,
+	}
+	return pa, []string{
+		assumedResources, assumedCalendar, assumedRates, assumedIndirect,
+		assumedUsage, assumedTerms, assumedInfra,
+	}
+}
+
+// defaultDeclaredUsage is one user, one request a minute, a 4 KiB payload.
+func defaultDeclaredUsage() projectstate.UsageAssumption {
+	return projectstate.UsageAssumption{
+		ExpectedDailyActiveUsers: 1,
+		RequestsPerMinute:        1,
+		AvgPayloadBytes:          4096,
+	}
+}
+
+// defaultSettlementTerms is the platform's shipped billing posture: NO revenue share, a
+// tiered-floors compute cost, billed monthly (docs/billing-setup.md; the 2026-06-09
+// merchant-of-record reversal).
+//
+// RevenueShareNegotiatedRate at ZERO PERCENT, and this needs its reason stated because the
+// obvious encoding is wrong: "no revenue share" has NO member of its own in the
+// RevenueShareKind vocabulary — the zero value is RevenueShareUnknown, and billingEngine's
+// money-safety guard REFUSES it outright ("settling real money under an unregistered
+// revenue-share regime is a financial-correctness hazard… the Engine NEVER silently falls
+// back"). That guard is right, and it is why this cannot be the zero value. A negotiated
+// rate of 0% is the vocabulary's only truthful way to say "a share was agreed and it is
+// nothing"; the projection echoes 0% either way.
+//
+// EARMARKED: the vocabulary wants a RevenueShareNone member, which is a project.json edit
+// plus codegen. Until it exists this is the encoding, and it is written down HERE rather
+// than guessed at each call site.
+func defaultSettlementTerms() projectstate.SettlementTerms {
+	return projectstate.SettlementTerms{
+		RevenueShare:        projectstate.RevenueShareNegotiatedRate,
+		RevenueSharePercent: 0,
+		ComputeCost:         projectstate.ComputeCostTieredFloors,
+		Schedule:            projectstate.ScheduleMonthly,
+	}
+}
+
+// resolvePlanningAssumptions is what the compute actually reads: the COMMITTED slot 8 where
+// it holds a usable value, and The Method's default for each family where it does not.
+//
+// PER FAMILY, not all-or-nothing, and that distinction is the whole of R-E read carefully.
+// "Defaults when absent" is not "defaults when the slot is missing": a field whose value is
+// its vocabulary's UNKNOWN member is absent in the only sense that matters, because no
+// Engine can price it. MEASURED on this repo's own state, which is why this function exists
+// at all: slot 8 is committed and its `terms.revenueShare` is 0 — RevenueShareUnknown — so
+// billingEngine refuses every option and the SDP assembly cannot run at all. That is why
+// slots 11-16 have carried staleBasis since the billing reversal: nothing could re-derive
+// them. Refusing at M0 over a field that is zero BY DESIGN is exactly the failure R-E
+// removes.
+//
+// It NEVER replaces a NAMED value. A committed calendar of two days a week stays two days a
+// week; a committed FlatMarkup regime stays FlatMarkup. Only the unknown members and the
+// uncommitted slot are filled, and every fill is recorded.
+func resolvePlanningAssumptions(
+	proj projectstate.Project,
+	al projectstate.ActivityList,
+) (projectstate.PlanningAssumptions, []string) {
+	pa, err := committedPlanningAssumptions(proj)
+	if err != nil {
+		return defaultPlanningAssumptions(al)
+	}
+	var defaulted []string
+	if pa.Terms.RevenueShare == projectstate.RevenueShareUnknown || pa.Terms.ComputeCost == projectstate.ComputeCostUnknown {
+		// The percents ride with the regime: a percent kept from an unregistered regime would
+		// be a number with no rule behind it.
+		pa.Terms = defaultSettlementTerms()
+		defaulted = append(defaulted, assumedTerms)
+	}
+	if pa.InfrastructureKind == projectstate.InfrastructureKindUnknown {
+		pa.InfrastructureKind = defaultInfrastructureKind
+		defaulted = append(defaulted, assumedInfra)
+	}
+	if pa.CalendarDaysPerWeek <= 0 {
+		pa.CalendarDaysPerWeek = defaultCalendarDaysPerWeek
+		defaulted = append(defaulted, assumedCalendar)
+	}
+	// PER FIELD, not per family, and the `&&` this replaces was a real hole: a committed slot
+	// naming requestsPerMinute: 5 and expectedDailyActiveUsers: 0 kept a ZERO-USER load —
+	// neither defaulted nor recorded — so the operating cost was computed against no users at
+	// all and the M0 screen said nothing had been assumed. Each of the three numbers is its own
+	// answer, so each is filled and recorded on its own.
+	defaults := defaultDeclaredUsage()
+	if pa.DeclaredUsage.ExpectedDailyActiveUsers <= 0 {
+		pa.DeclaredUsage.ExpectedDailyActiveUsers = defaults.ExpectedDailyActiveUsers
+		defaulted = append(defaulted, assumedUsage)
+	}
+	if pa.DeclaredUsage.RequestsPerMinute <= 0 {
+		pa.DeclaredUsage.RequestsPerMinute = defaults.RequestsPerMinute
+		defaulted = appendOnce(defaulted, assumedUsage)
+	}
+	if pa.DeclaredUsage.AvgPayloadBytes <= 0 {
+		pa.DeclaredUsage.AvgPayloadBytes = defaults.AvgPayloadBytes
+		defaulted = appendOnce(defaulted, assumedUsage)
+	}
+	return resolveCostFamilies(pa, al, defaulted)
+}
+
+// resolveCostFamilies is the other three families resolvePlanningAssumptions owes, split out
+// so each function stays one readable list of rules (gocyclo).
+//
+// THE RATE CARD, THE INDIRECT RATE AND THE RESOURCES were missed by the first pass, and each
+// silently priced the plan wrong rather than refusing: an EMPTY rate card makes
+// deriveClassRates fall back to defaultRateSpec per class WITHOUT the fill being recorded, so
+// the M0 screen claims the founder's own rates; a ZERO IndirectDailyRate makes indirectDailyRateOf
+// substitute its own default, again unrecorded; and an empty Resources list is the roster every
+// option's staffing is read against. The rule is the same one the four families above follow —
+// fill what the vocabulary cannot price, record every fill, never replace a named value.
+func resolveCostFamilies(
+	pa projectstate.PlanningAssumptions, al projectstate.ActivityList, defaulted []string,
+) (projectstate.PlanningAssumptions, []string) {
+	roles := workerClassesOf(al)
+	if len(pa.Resources) == 0 {
+		pa.Resources = roles
+		defaulted = append(defaulted, assumedResources)
+	}
+	if len(pa.RateCard) == 0 {
+		card := make(map[string]projectstate.WorkerRateSpec, len(roles))
+		for _, c := range roles {
+			card[c] = defaultRateSpec(c)
+		}
+		pa.RateCard = card
+		defaulted = append(defaulted, assumedRates)
+	}
+	if pa.IndirectDailyRate.MinorUnits <= 0 {
+		pa.IndirectDailyRate = defaultIndirectDailyRate
+		defaulted = append(defaulted, assumedIndirect)
+	}
+	return pa, defaulted
+}
+
+// appendOnce keeps the defaulted list a SET of families: three zero usage numbers are one
+// assumption to a reader, and the M0 copy line would otherwise name it three times.
+func appendOnce(list []string, family string) []string {
+	if slices.Contains(list, family) {
+		return list
+	}
+	return append(list, family)
+}
+
+// workerClassesOf is the activity list's worker classes, unique and SORTED. Sorted because it
+// seeds both the default Resources roster and the default rate card, and a map walk there
+// would put a different order in the committed document on every run.
+func workerClassesOf(al projectstate.ActivityList) []string {
+	seen := map[string]struct{}{}
+	for _, a := range al.Activities {
+		if a.WorkerClass != "" {
+			seen[a.WorkerClass] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(seen))
+	for c := range seen {
+		out = append(out, c)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// defaultCalendarDaysPerWeek is App. A's nominal working week. It is FIVE and not this
+// repo's committed two: two is a founder fact, and a default that guessed it would tell
+// every other project's founder their own availability.
+const defaultCalendarDaysPerWeek = 5.0
+
+// defaultPlanningAssumptionsNote is what the slot itself says about where it came from,
+// so a reader of the committed document is never left guessing which numbers a human
+// chose.
+const defaultPlanningAssumptionsNote = "Derived defaults: no planning assumptions were authored, so the platform assumed " +
+	"The Method's nominal 5-day working week, the default agent rate card and indirect daily rate, " +
+	"the smallest non-zero declared load, and the platform's shipped billing posture. " +
+	"Edit this slot to replace any of them with a fact about your own team."
+
+// defaultInfrastructureKind is the platform's ONE registered infrastructure. See
+// defaultPlanningAssumptions' InfrastructureKind note: the zero value is a refusal, not a
+// default, so this is the only value a default can hold.
+const defaultInfrastructureKind = projectstate.InfrastructureKindGoTemporalPostgres
+
+// defaultedDetail is the sentence the attempt records when the compute had to assume
+// something, and the EMPTY STRING when it did not. An empty Detail is the honest answer
+// for a project whose founder authored their assumptions: a note saying "nothing was
+// assumed" is noise on every well-formed project.
+func defaultedDetail(defaulted []string) string {
+	if len(defaulted) == 0 {
+		return ""
+	}
+	return "the plan's cost was computed on ASSUMED values for " + strings.Join(defaulted, ", ") +
+		" — the founder authored none, so these are the platform's documented defaults and not decisions"
+}
+
+// computedSlot is one slot the Project-Design compute produced, in the order it is
+// staged. A SLICE and not a map: staging order is a durable command sequence, and a map
+// walk there would be non-determinism.
+type computedSlot struct {
+	Kind  projectstate.ArtifactKind
+	Model projectstate.ArtifactModel
+}
+
+// projectDesignComputedKinds is the EIGHT slots the compute writes, in staging order. It
+// is the one list the compute stages from and the M0 gate commits, so the two cannot
+// disagree about what Project Design produced.
+//
+// Slot 8 (planningAssumptions) is deliberately NOT here: it is the one authored input the
+// compute READS. It carries the founder's resources, calendar, infrastructure kind,
+// declared usage, settlement terms and rate card — business input no engine can derive.
+func projectDesignComputedKinds() []projectstate.ArtifactKind {
+	out := []projectstate.ArtifactKind{projectstate.KindActivityList, projectstate.KindNetwork}
+	out = append(out, projectstate.SolutionKinds()...)
+	return append(out, projectstate.KindRiskModel, projectstate.KindSdpReview)
+}
+
+// computeProjectPlanSlots is the WHOLE deterministic Project Design, as a pure function
+// of the committed project state.
+//
+//	slots 9,10   activityList + network — MaterializeActivityPlan, the SAME derivation
+//	             `make derived-plan-write` drives and `derived-plan-check` gates, so the
+//	             committed plan and the child's plan cannot diverge.
+//	slots 11-14  the four Solution dial-sets — derivedSolutionDials.
+//	slot 15      riskModel — riskModelFrom, over the risk EstimateForOption already
+//	             returns per option.
+//	slot 16      sdpReview — assembleSdpReviewOver, unchanged and kept whole.
+//
+// The ONE precondition that cannot be defaulted is the ARCHITECTURE: a plan derived from
+// an uncommitted slot 5 would be a plan for nothing, so that stays a FailedPrecondition
+// naming it (materializePhase2Draft raises it).
+//
+// It returns the slots AND the assumption families it had to default, which the attempt's
+// Detail records.
+func computeProjectPlanSlots(
+	proj projectstate.Project,
+	eng sdpEngines,
+) ([]computedSlot, []string, error) {
+	if !eng.wired() {
+		return nil, nil, newError(fwmanager.FailedPrecondition,
+			"the Project-Design compute has no estimate Engines wired; nothing can price the plan")
+	}
+	listModel, lErr := materializePhase2Draft(proj, projectstate.KindActivityList, nil)
+	if lErr != nil {
+		return nil, nil, lErr
+	}
+	list, ok := listModel.(*projectstate.ActivityList)
+	if !ok {
+		return nil, nil, wrongModelType(projectstate.KindActivityList, listModel)
+	}
+	pa, defaulted := resolvePlanningAssumptions(proj, *list)
+	netModel, nErr := materializePhase2Draft(proj, projectstate.KindNetwork, committedNetworkDecorations(proj))
+	if nErr != nil {
+		return nil, nil, nErr
+	}
+	net, ok := netModel.(*projectstate.Network)
+	if !ok {
+		return nil, nil, wrongModelType(projectstate.KindNetwork, netModel)
+	}
+
+	cap0, capAuthored := normalStaffingCap(proj)
+	if !capAuthored {
+		defaulted = append(defaulted, assumedStaffing)
+	}
+	// The per-class $/day rates every derived Solution slot carries, from the SAME derivation
+	// the option assembly uses — one answer, two consumers (the Engine's cost math and the
+	// SPA's BUILD-COST RATES block).
+	classRates := deriveClassRates(pa, workerClassesOf(*list))
+	solutions := make(map[projectstate.ArtifactKind]*projectstate.Solution, len(projectstate.SolutionKinds()))
+	for _, kind := range projectstate.SolutionKinds() {
+		dials, known := derivedSolutionDials(kind, cap0)
+		if !known {
+			return nil, nil, newError(fwmanager.FailedPrecondition,
+				"no Method dial set is derived for solution kind "+kind.String())
+		}
+		solutions[kind] = derivedSolution(kind, dials, classRates)
+	}
+
+	review, risks, rErr := assembleSdpReviewOver(eng, pa, *list, *net, solutions, "")
+	if rErr != nil {
+		return nil, nil, rErr
+	}
+	riskModel := riskModelFrom(review.Options, risks, solutionKindOfOption(review.Options, review.Recommendation))
+
+	out := make([]computedSlot, 0, len(projectDesignComputedKinds()))
+	out = append(out,
+		computedSlot{Kind: projectstate.KindActivityList, Model: list},
+		computedSlot{Kind: projectstate.KindNetwork, Model: net},
+	)
+	for _, kind := range projectstate.SolutionKinds() {
+		out = append(out, computedSlot{Kind: kind, Model: solutions[kind]})
+	}
+	return append(out,
+		computedSlot{Kind: projectstate.KindRiskModel, Model: &riskModel},
+		computedSlot{Kind: projectstate.KindSdpReview, Model: review},
+	), defaulted, nil
+}
+
+// committedNetworkDecorations hands materializePhase2Draft the AUTHORED network whose
+// milestone Name/Public decorations it carries across. The committed slot 10 is that
+// authored document: milestone names have no derivation source, so the re-derivation
+// preserves the ones already committed rather than refusing every milestone as anonymous.
+// A project with no committed slot 10 passes an empty network, and materializeNetwork's
+// own loud refusal names the first anonymous milestone.
+func committedNetworkDecorations(proj projectstate.Project) projectstate.ArtifactModel {
+	net, err := committedNetwork(proj)
+	if err != nil {
+		return &projectstate.Network{}
+	}
+	return &net
+}
+
+// solutionKindOfOption maps the SdpReview's chosen OptionID onto the solution KIND the
+// RiskModel names it by. The two slots speak two vocabularies (OptionID vs ArtifactKind)
+// and this is the one place that crosses between them; an unknown id answers with the
+// zero kind rather than guessing, so a mismatch shows up as an empty recommendation
+// instead of the wrong option.
+func solutionKindOfOption(rows []projectstate.SdpOptionRow, id projectstate.OptionID) projectstate.ArtifactKind {
+	for _, r := range rows {
+		if r.OptionID == id {
+			return r.SolutionKind
+		}
+	}
+	return projectstate.ArtifactKind(0)
+}
+
 // ---------------------------------------------------------------------------
 // CONSTRUCTION RAIL — moved verbatim from internal/manager/construction/
 // constructionmanager.go at stage 4a. Bodies are unchanged; only package-private
@@ -8115,6 +5754,13 @@ type constructionManager struct {
 	gitActivityStatus      projectstate.GitActivityStatusAccess
 	escalationWaitTimeout  time.Duration
 	interventionMode       string
+
+	// sdpEngines are the three estimate Engines deterministic Project Design calls (stage
+	// 4b1 Task 9). The construction half holds them because the GENERIC child runs on this
+	// half's worker, and the child now walks the `projectDesign` lifecycle too — the
+	// projectDesignManager's own copies stay where they are for as long as the retired SDP
+	// assembly does. Threaded into the csWorkflows via wfDeps.SDPEngines (WorkerManifest).
+	sdpEngines sdpEngines
 
 	// repo (B5) is the per-project Repo resolver the gh-mode venue switch dispatches
 	// through: projectID → the project's own RepoRef. nil, a miss, or the DESIGN rails'
@@ -8182,6 +5828,11 @@ func newConstructionManager(
 	escalationWaitTimeout time.Duration,
 	interventionMode string,
 	repo func(projectID ProjectID) (sourcecontrol.RepoRef, bool),
+	// eng are the three estimate Engines deterministic Project Design calls. ONE trailing
+	// struct parameter rather than three positional interfaces, because this constructor
+	// already takes sixteen and three more nils at seventeen call sites is a miscount
+	// waiting to happen.
+	eng sdpEngines,
 ) *constructionManager {
 	return &constructionManager{
 		client:                 c,
@@ -8200,6 +5851,7 @@ func newConstructionManager(
 		escalationWaitTimeout:  escalationWaitTimeout,
 		interventionMode:       interventionMode,
 		repo:                   repo,
+		sdpEngines:             eng,
 	}
 }
 
@@ -8700,21 +6352,141 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 		return err
 	}
 	view, err := m.activitySession(ctx, projectID, activityID)
+	switch {
+	case err == nil:
+		if view.Stage != StageAwaitingTakeover {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitTaskDecision",
+				activityID, sessionStageName(view.Stage)))
+		}
+	case isManagerNotFound(err):
+		// NO LIVE CHILD. The activity is not escalated — it is OVER, and this is the one steer
+		// that means something for a finished activity: RE-OPEN it (stage 4b1 Task 12, fix round
+		// 1). Every other override addresses a dispatch in flight and has nothing to reach.
+		return m.reopenActivity(ctx, projectID, activityID, override)
+	default:
+		return err
+	}
+	// THE OVERRIDE MUST NAME THE TASK IT STEERS (stage 4b1 Task 12; the Task-11 round-2
+	// defect D2). The generic child's router forwards by TaskID and DROPS a signal that
+	// names none, and since the variance loop moved into the child (Task 11, fix round 1) the
+	// escalation WAITS on the escalated task's own inbox — so a task-less override meant
+	// every escalation timed out with the operator unable to steer, and under
+	// EscalateEverything (a zero window) waited forever while the pump blocked on child.Get.
+	// The task is recovered from the LEDGER (escalatedTaskOf), because nothing the operator
+	// sends carries it and the session view's gate key for an escalation is `takeover`.
+	task, err := m.escalatedTask(ctx, projectID, activityID)
 	if err != nil {
 		return err
 	}
-	if view.Stage != StageAwaitingTakeover {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-			"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitPhaseDecision",
-			activityID, sessionStageName(view.Stage)))
-	}
-
-	wfID := constructActivityWorkflowID(projectID, activityID)
-	sig := operatorOverrideSignal{Override: override}
+	wfID := deliveryActivityWorkflowID(projectID, activityID)
+	sig := operatorOverrideSignal{Override: override, TaskID: string(task)}
 	if err := m.client.SignalWorkflow(ctx, wfID, "", signalOperatorOverride, sig); err != nil {
 		return mapSignalError(err)
 	}
 	return nil
+}
+
+// reopenActivity is the override's REOPEN arm: against a TERMINAL row with NO LIVE CHILD it
+// re-arms the row at its CURRENT revision so the pump selects the activity again on its next
+// tick (stage 4b1 Task 12, fix round 1; controller ruling 3).
+//
+// WHAT IT IS FOR. A failed walk, a spent variance budget and an operator's own Skip all leave a
+// terminal row, and until the requeue note re-armed one, nothing could ever re-run it: the pump
+// refuses any row a pump has written. The activity's ledger is the whole point of re-arming
+// rather than re-planning — the next walk seeds every task that PASSED from it
+// (seedWalkFromLedger) and re-dispatches only what did not, and its per-dispatch counter
+// continues the ledger's numbering (seedTaskAttempts). NOTHING here mints an attempt or a
+// revision: this writes head facts, and the walk owns its own numbering.
+//
+// IT IS ONE WRITE, and that is the fold's own argument: the operator's REASON and the re-arm
+// land in the SAME commit (RecordOperatorNote of kind requeue — see reopenTerminalRow in the
+// store), so no crash can leave a re-armed activity with nobody's name on it, and none can leave
+// a reason filed against an activity that was never re-armed.
+//
+// It is the ONE override kind that is NOT a steer of something in flight, and every kind
+// reaches it: an operator looking at a finished activity is asking for it to run again whatever
+// word the SPA put on the button. The store refuses a row that has NOT exited, so a live
+// activity whose child merely has not started yet cannot be re-armed through this door.
+func (m *constructionManager) reopenActivity(ctx context.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
+	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		// TERMINALITY IS PRE-CHECKED HERE, on the row this attempt just read, and the reason is the
+		// error KIND the store answers with (Task 12 round 3, minor (e)): a requeue against a live
+		// row is refused `fwra.Conflict`, because the arguments are impeccable and only the STATE is
+		// wrong. But onActivityRow reads a Conflict as a RACE and retries it, so without this check
+		// the operator's refusal arrives as "activity A changed concurrently … re-read it and try
+		// again" after three wasted attempts — a sentence about a race that never happened, for a
+		// row that is simply still running. The store's Conflict stays the backstop for the genuine
+		// race (an activity that exits between this read and the write); this is the honest answer
+		// for the case the operator is actually in.
+		if phase := projectstate.CoarsePhaseFor(row, nil); phase != projectstate.ActivityConstructionDone &&
+			phase != projectstate.ActivityConstructionFailed {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"constructionManager.OverrideActivity: activity %s is %v, not finished — a requeue re-arms an activity that already exited, and re-arming a live one would hand a second child the row this one is writing",
+				activityID, phase))
+		}
+		_, err := m.activityExecution.RecordOperatorNote(fwra.Context{Context: ctx},
+			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			projectstate.OperatorNoteInput{
+				NoteID: reopenNoteID(activityID, row),
+				Kind:   projectstate.NoteRequeue,
+				Gate:   reopenGateKey,
+				Text:   override.Notes,
+				// The note carries the operator's own anchored comments, exactly as a takeover's does.
+				Comments: noteComments(override.Comments),
+			}, "", projectstate.RepoCredential{}, rowWriteKey("reopen", projectID, activityID))
+		if err != nil && !csIsRAConflict(err) {
+			return mapRAError(err, "activityExecutionAccess.RecordOperatorNote")
+		}
+		return err
+	})
+}
+
+// reopenGateKey is the gate a requeue note is filed under. It is not a lifecycle task and not
+// the takeover gate: a re-open is a decision about the WHOLE activity, and filing it under the
+// task that happened to fail would read as a steer of that task.
+const reopenGateKey = "reopen"
+
+// reopenNoteID keys the requeue note to the TERMINAL it re-opens — the exit stamp, which is
+// unique per terminal and non-nil on every one of them (stampExit writes it for both arms).
+//
+// It is deliberately NOT a sequence over the note list: the two writes are separate commits, so
+// a re-open whose note landed and whose re-arm lost the CAS is retried — and a count-based id
+// would mint a SECOND id on that retry and file the operator's reason twice. Keyed by the
+// terminal, the retry converges on the same id and the store absorbs it ("one id names one
+// note"), while a genuinely later re-open of a re-failed activity has a new exit stamp and so a
+// new id.
+func reopenNoteID(activityID ActivityID, row projectstate.ActivityExecution) string {
+	at := int64(0)
+	if row.CompletedAt != nil {
+		at = row.CompletedAt.UnixNano()
+	}
+	return fmt.Sprintf("%s:note:%s:%d", activityID, reopenGateKey, at)
+}
+
+// escalatedTask reads the activity's execution row and answers which task the operator's
+// override is about (escalatedTaskOf). It refuses with FailedPrecondition naming the missing
+// datum rather than sending a signal the router would silently drop.
+//
+// It is the NARROW read (ReadActivityExecution) and not a whole-project one: the only thing
+// it needs is one row's attempt ledger, and an activity with no row has not been dispatched,
+// which the store answers NotFound for and this maps to the sentence an operator can act on.
+func (m *constructionManager) escalatedTask(ctx context.Context, projectID ProjectID, activityID ActivityID) (projectstate.MethodTask, error) {
+	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
+	if err != nil {
+		if isRANotFound(err) {
+			return "", newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s has no execution row, so nothing has been dispatched for an override to steer", activityID))
+		}
+		return "", mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
+	}
+	task, ok := escalatedTaskOf(row)
+	if !ok {
+		return "", newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"activity %s is awaiting a takeover but no task on its ledger holds a failed attempt, so there is nothing an override could name; re-read the activity",
+			activityID))
+	}
+	return task, nil
 }
 
 // GetSessionState — op 2.5. Temporal Query (sessionState, read-only). Returns a
@@ -8732,7 +6504,14 @@ func (m *constructionManager) GetSessionState(rc fwmanager.Context, projectID Pr
 		if *activityID == "" {
 			return ConstructionSessionView{}, newError(fwmanager.ContractMisuse, "empty activityId")
 		}
-		wfID = constructActivityWorkflowID(projectID, *activityID)
+		// THE GENERIC CHILD IS THE ONE PER-ACTIVITY EXECUTION (stage 4b1 Task 12, the Task-11
+		// round-2 defect D2). Task 11 re-pointed the pump at DeliveryActivityWorkflow for
+		// EVERY activity, and this query kept naming the retired child's id — so every
+		// per-activity session read answered NotFound, which is what made both façade
+		// prechecks below refuse every decision and every override. There is no version fence
+		// here because the Manager is not a workflow: it must address whatever is RUNNING, and
+		// after the drain this wave requires (spec §8) that is only ever the generic child.
+		wfID = deliveryActivityWorkflowID(projectID, *activityID)
 	} else {
 		wfID = pauseTargetWorkflowID(projectID)
 	}
@@ -8779,8 +6558,9 @@ func (m *constructionManager) GetSessionState(rc fwmanager.Context, projectID Pr
 // An id the committed activity list does not
 // hold is NotFound. Since stage 2 that list HOLDS requirements, architecture and
 // projectDesign (slot 9 opens with all three), so a design activity reads like any
-// other — ClassifyType tolerates ErrDesignActivityNotDispatchable for exactly this
-// reason, and LifecycleKeyFor resolves all three against method-assets.
+// other — ClassifyType types all three cleanly (stage 4b1 Task 10 retired the
+// not-dispatchable sentinel this lens used to have to tolerate), and LifecycleKeyFor
+// resolves all three against method-assets.
 //
 // The live session is read ONCE and both the attempt list and the gate come out of that
 // one read: state rule 1 answers awaitingHuman for the gate task matching the live gate
@@ -8877,42 +6657,324 @@ func (m *constructionManager) GetPumpStatus(rc fwmanager.Context, projectID Proj
 	return status, nil
 }
 
-// SubmitPhaseDecision — op 2.6. Temporal Signal (phaseDecision) to the
-// per-activity child workflow {projectId}:{activityId}. Delivers the operator's
-// phase-gated approve/send-back decision (and optional feedback) through the same
-// signal machinery as OverrideActivity. SYNC: returns once the signal is durably
-// enqueued. SendBack requires non-empty feedback notes.
+// activityRowWriteAttempts bounds a Manager-side row write's re-read → re-apply loop before
+// it answers "changed concurrently; retry". It is the façade twin of the workflow's
+// applyRecovering bound and of ResumeProject's resumeConflictAttempts, and it exists for the
+// same reason: the CHILD writes the same row while the operator is deciding, so a Conflict
+// here is the ordinary case and not an error to surface.
+const activityRowWriteAttempts = 3
+
+// onActivityRow is the Manager-side applyRecovering: read the project ONCE (its version AND
+// the row's come out of the same read, so the two expectations the facet's CAS pair needs
+// can never disagree), apply, and re-read on a version Conflict.
 //
-// phase is one of the five ActivityMethodPhase wire names OR mergeGateKey
-// ("merge") — the local merge hold (runLocalMergeStep) suspends on the same
-// signal, and this op is the ONLY operator path that releases it. The merge gate
-// takes Approve only (see validatePhaseDecision).
+// ONE READ PER ATTEMPT, deliberately. The narrow ReadActivityExecution answers the row but
+// not the project version the verbs assert on, so a narrow read would be two reads and two
+// chances for them to describe different moments.
 //
-// PRECHECK (B1.3), in a pinned order: the ContractMisuse checks first (ids, then
-// validatePhaseDecision, then SendBack notes); then the activity's session is read
-// (no session is NotFound); then the op refuses with FailedPrecondition unless the
-// session is awaiting approval at exactly this gate (awaitingGate), and refuses a
-// SendBack at a gate whose redraft budget is spent (redraftExhausted) — never a silent
-// no-op presenting as success. Nothing is signalled on any refusal. The workflow still
-// matches decisions by key, so this is honesty, not safety: a stale decision cannot
-// close the wrong gate either way. During a rolling deploy a view served by an old
-// worker carries no awaitingGate; the refusal is then transient and fails safe.
-func (m *constructionManager) SubmitPhaseDecision(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, phase string, decision PhaseDecision, feedback *ReviewFeedback) error {
+// A Conflict is RETRIED; anything else is returned as it came, because `apply` also carries
+// this path's own FailedPrecondition refusals (no round, a decided round, a live gate) and
+// re-reading cannot change any of them.
+func (m *constructionManager) onActivityRow(
+	ctx context.Context, projectID ProjectID, activityID ActivityID,
+	apply func(proj projectstate.Project, row projectstate.ActivityExecution) error,
+) error {
+	var last error
+	for range activityRowWriteAttempts {
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+		if err != nil {
+			if isRANotFound(err) {
+				return newError(fwmanager.NotFound, err.Error())
+			}
+			return newError(fwmanager.Infrastructure, err.Error())
+		}
+		row, ok := proj.ActivityExecution[string(activityID)]
+		if !ok {
+			return newError(fwmanager.NotFound, fmt.Sprintf(
+				"activity %s has no execution row: the pump has not dispatched it, so it has no ledger to write on", activityID))
+		}
+		row.ActivityID = string(activityID)
+		err = apply(proj, row)
+		if err == nil {
+			return nil
+		}
+		if !csIsRAConflict(err) {
+			return err
+		}
+		last = err
+	}
+	return fwmanager.Wrap(fwmanager.FailedPrecondition, last, fmt.Sprintf(
+		"activity %s changed concurrently while the write was applied — re-read it and try again", activityID))
+}
+
+// rowWriteKey mints one Manager-side write's idempotency key. It is DELIBERATELY per-call
+// (a uuid) and not derived from the write's content: the store's dedup ledger would absorb a
+// resolve → reopen → resolve sequence's third write as a replay of the first, and a comment
+// really can be resolved twice with a reopen between.
+func rowWriteKey(op string, projectID ProjectID, activityID ActivityID) fwra.IdempotencyKey {
+	return fwra.IdempotencyKey(op + ":" + string(projectID) + ":" + string(activityID) + ":" + uuid.NewString())
+}
+
+// SetTaskCommentStatus is the construction rail's Resolve / Reopen (stage 4a refusal 2 of 5).
+// It walks the ROUND's thread through the same transitions the artifact ledger's own
+// comment-status verb walks (open→resolved, answered→resolved, resolved→open); the store
+// owns those rules and this does not restate them.
+//
+// It is SYNCHRONOUS and it is the only writer. The design rails answer the same verb with a
+// fire-and-forget signal into a per-kind session, which cannot tell the caller that the
+// comment does not exist or that the transition is illegal; a construction reviewer gets
+// both answers back. The generic child's setCommentStatus arm is NOT mirrored behind this —
+// see applyRoundCommentStatus, which records the measurement.
+func (m *constructionManager) SetTaskCommentStatus(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID, commentID, status string,
+) error {
+	if strings.TrimSpace(commentID) == "" {
+		return newError(fwmanager.ContractMisuse, "a comment-status decision needs the commentId it is about")
+	}
+	if strings.TrimSpace(status) == "" {
+		return newError(fwmanager.ContractMisuse, "a comment-status decision needs the status to set")
+	}
+	var mirror string
+	if err := m.onActivityRow(rc.Context, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		r, ok := roundOfComment(row, commentID)
+		if !ok {
+			// The caller's own address is in the sentence, because "no such comment" is most often
+			// a client looking at a different task's thread than the one it names.
+			return newError(fwmanager.NotFound, fmt.Sprintf(
+				"no review comment %s on any round of activity %s (addressed at task %s)", commentID, activityID, taskID))
+		}
+		mirror = taskOfRound(r)
+		_, err := m.activityExecution.SetReviewCommentStatus(fwra.Context{Context: rc.Context},
+			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			r.RoundID, commentID, status, projectstate.RepoCredential{},
+			rowWriteKey("comment-status", projectID, activityID))
+		if err != nil && !csIsRAConflict(err) {
+			return mapRAError(err, "activityExecutionAccess.SetReviewCommentStatus")
+		}
+		return err
+	}); err != nil {
+		return err
+	}
+	// THE MIRROR SIGNAL, and it is load-bearing since fix round 2: a gate held ONLY because its
+	// round carried an open comment auto-passes the moment the last one is resolved, and the CHILD
+	// is the only thing that can decide that. Nothing is written by it (the ledger write above is
+	// the whole of the write), and a dormant activity is not an error: the status is already
+	// recorded, and there is no gate left to release.
+	//
+	// It is addressed by the ROUND's own task (taskOfRound), not by the task the caller named:
+	// the router forwards by TaskID, and the round that holds the comment is the gate whose hold
+	// this could release.
+	if err := m.signalActivity(rc.Context, projectID, activityID, signalSetCommentStatus,
+		setCommentStatusSignal{TaskID: mirror, CommentID: commentID, Status: status}); err != nil {
+		if isManagerFailedPrecondition(err) {
+			return nil
+		}
+		return err
+	}
+	return nil
+}
+
+// roundKindOfTask resolves the ARTIFACT KIND a task's round judges, off the lifecycle — the
+// same answer the child's openRound stamps on the round (roundArtifactKind), so a Manager write
+// and a child write agree about which round they mean (fix round 2, review minor M1).
+//
+// It answers nil for every CONSTRUCTION task, and that is not because construction tasks name no
+// artifactKind — v0.9.0's srs/detailedDesign/construction/integration/stp all do ("SRS",
+// "DetailedDesign", …). It is because none of those names is a projectstate.ArtifactKind: they
+// name the task's own work product, not one of the seventeen design SLOTS, so ArtifactKindFromWireName
+// does not resolve them and the round is kindless — which is exactly what
+// ReviewRound.ArtifactKind's optionality means. A DESIGN task's round IS kinded, and passing nil
+// for one would resolve `architectureReview` to whichever of its three kinds was written last.
+func roundKindOfTask(lc methodassets.Lifecycle, taskID string) *projectstate.ArtifactKind {
+	t, ok := lifecycleTaskByID(lc, taskID)
+	if !ok {
+		return nil
+	}
+	return roundArtifactKind(lc, t)
+}
+
+// isManagerFailedPrecondition reports whether err is (or wraps) this Manager's own
+// FailedPrecondition — which signalActivity answers for an activity with no live execution.
+func isManagerFailedPrecondition(err error) bool {
+	var me *fwmanager.Error
+	return errors.As(err, &me) && me.Kind == fwmanager.FailedPrecondition
+}
+
+// WithdrawReviewRound pulls a round BACK — decided RoundWithdrawn, judged by nobody (stage
+// 4a refusal 3 of 5; Task 4 gave the outcome its wire member and this is what fills it).
+//
+// IT REFUSES AT A LIVE GATE, and that refusal is the whole design. A withdraw is not a
+// verdict: it records that nobody judged this round. Landing it behind a child that is
+// AWAITING that very round would strand the walk — the gate keeps waiting, and its eventual
+// decision hits DecideReviewRound's terminality Conflict on a round the operator closed. So
+// a live gate is answered with Approve, with a send-back, or with a re-dispatch, and the
+// withdraw is for the round NO ONE is judging: the activity's execution is gone (a crash, a
+// deploy, a give-up) and its last round is still pending. The stranded-round sweep closes
+// those on its own schedule; this is the operator's way to do it now, with their own name on
+// it rather than the sweep's.
+//
+// THE CHECK-THEN-ACT WINDOW, and its REAL consequence (fix round 2, review minor M2). Between
+// the session read above and the write below, a pump tick can start a child that opens a gate on
+// this very round. The write then lands, and the child's own decision hits DecideReviewRound's
+// terminality Conflict — at which point the recovery loop does NOT burn its bound: the row's own
+// version has not moved, so terminalAfterRowReread recognises the Conflict as TERMINAL rather
+// than as a race and short-circuits to a NonRetryable error after one or two attempts. The walk
+// FAILS the activity, promptly and legibly. That is no longer unrecoverable: a failed activity is
+// re-opened with a requeue note (reopenTerminalRow), the re-run seeds every task that passed, and
+// the pump re-selects it (RequeuedAfterExit). The window is milliseconds wide and the outcome is
+// a recoverable failure rather than a stranded one.
+//
+// ROUTING THE WITHDRAW THROUGH THE CHILD'S INBOX would serialize it against the child's own gate
+// and is the obvious narrowing — but it does not narrow THIS window, because the window's premise
+// is that there IS no child to route through: the only writes this op makes are the ones it makes
+// after finding none. A child that starts LATER is unaffected, since it seeds its revision off the
+// ledger and opens round n+1 over the withdrawn round rather than colliding with it.
+func (m *constructionManager) WithdrawReviewRound(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
+) error {
 	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
+	view, err := m.activitySession(ctx, projectID, activityID)
+	switch {
+	case err == nil:
+		if view.Stage == StageAwaitingApproval && gateNameOf(view) == taskID {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s is awaiting your decision at %s: approve it, send it back, or re-dispatch the task — a withdraw records that nobody judged the round, and pulling it out from under a live gate would strand the activity",
+				activityID, taskID))
+		}
+	case isManagerNotFound(err):
+		// NO LIVE EXECUTION is exactly the case this verb is for: the round is pending and
+		// nothing is left to judge it.
+	default:
+		return err
 	}
-	if activityID == "" {
-		return newError(fwmanager.ContractMisuse, "empty activityId")
+	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		r, rerr := latestRoundFor(row, taskID, kind)
+		if rerr != nil {
+			return rerr
+		}
+		if r.Outcome != projectstate.RoundPending {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"round %d of %s is already decided %q by %s; a withdraw pulls back a round nobody has judged",
+				r.Round, taskID, r.Outcome, r.DecidedBy))
+		}
+		_, err := m.activityExecution.DecideReviewRound(fwra.Context{Context: ctx},
+			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID),
+			r.RoundID, projectstate.RoundWithdrawn, decidedByOperator, projectstate.RepoCredential{},
+			rowWriteKey("withdraw", projectID, activityID))
+		if err != nil && !csIsRAConflict(err) {
+			return mapRAError(err, "activityExecutionAccess.DecideReviewRound")
+		}
+		return err
+	})
+}
+
+// AskTaskQuestions records anchored QUESTIONS on the round under review (stage 4a refusal 4
+// of 5). Spec §5.3: an Ask is a `ReviewComment.type = question` on the round's thread — not
+// a third mechanism beside verdicts and comments — so it rides AppendReviewVerdict, which is
+// the verb that lands a judgement AND its comments in ONE commit.
+//
+// THE VERDICT IT CARRIES IS AN ABSTENTION, because that is what asking IS: the reviewer has
+// not judged, they have asked. Recording an approve or a send-back to get the comments onto
+// the round would put a verdict in the ledger nobody cast — the same rule criticVerdictFor
+// applies to a critic that did not finish.
+//
+// IT DOES NOT DISPATCH AN ANSWER JOB, and that is measured rather than forgotten: the design
+// rails' answer job runs `design-answer`/`design-answer-pm` against an artifact KIND on a
+// design branch, and its MCP verb (respondToReviewComment) answers a SLOT's thread and is not
+// even registered in the construction job mode. A construction round's thread has no kind and
+// no slot, so there is nothing for that job to answer and dispatching one would start a
+// session that finds nothing to do. The questions are recorded, the SPA shows them, and a
+// human answers them; a construction answer command is earmarked.
+func (m *constructionManager) AskTaskQuestions(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID, addressee string,
+	kind *projectstate.ArtifactKind, questions []AnchoredComment,
+) error {
+	ctx := rc.Context
+	// `at` is stamped ONCE, outside the loop, so a re-applied write carries the identical
+	// utterance rather than a second one a clock apart (the design rail's own rule).
+	at := time.Now().UTC().Format(time.RFC3339)
+	fresh, replies := partitionIncomingComments(questions, at)
+	qs := questionsToLedger(addressee, fresh)
+	// A REPLY-ONLY batch is a legitimate ask — the follow-up IS the question this round.
+	if len(qs) == 0 && len(replies) == 0 {
+		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
-	if err := validatePhaseDecision(phase, decision); err != nil {
+	return m.onActivityRow(ctx, projectID, activityID, func(proj projectstate.Project, row projectstate.ActivityExecution) error {
+		r, rerr := latestRoundFor(row, taskID, kind)
+		if rerr != nil {
+			return rerr
+		}
+		// A DECIDED ROUND TAKES NO FURTHER VERDICTS (the store's own terminality rule), so the
+		// refusal is stated here with the sentence a reviewer can act on rather than surfaced as
+		// a Conflict from inside the append.
+		if r.Outcome != projectstate.RoundPending {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"round %d of %s is already decided %q: questions land on the round under review, so ask at the next one",
+				r.Round, taskID, r.Outcome))
+		}
+		// A replyTo naming no utterance on THIS round is a hard refusal, never a silent new
+		// thread — the same rule the design rails' ask applies, run against the thread just read.
+		if perr := checkReplyTargets(ledgerCommentIDs(r.Thread), questions); perr != nil {
+			return perr
+		}
+		_, err := m.activityExecution.AppendReviewVerdict(fwra.Context{Context: ctx},
+			projectstate.ProjectID(projectID), proj.Version, row.Version, string(activityID), r.RoundID,
+			projectstate.ReviewVerdict{
+				ReviewerRole: reviewAuthorRole,
+				Actor:        decidedByOperator,
+				Verdict:      projectstate.VerdictAbstain,
+				Summary:      askSummary(len(qs), len(replies), addressee),
+				AttemptID:    judgedAttemptOfRound(string(activityID), row, r),
+			}, qs, replies, projectstate.RepoCredential{},
+			rowWriteKey("ask", projectID, activityID))
+		if err != nil && !csIsRAConflict(err) {
+			return mapRAError(err, "activityExecutionAccess.AppendReviewVerdict")
+		}
+		return err
+	})
+}
+
+// askSummary is the one line the round's verdict list shows for an ask. It says WHAT was
+// asked of WHOM, because the verdict row is what a later reader sees before they open the
+// thread — and reviewVerdictPresent keys on the summary, so two different asks on one round
+// are two verdicts rather than one absorbed as a replay of the other.
+func askSummary(questions, replies int, addressee string) string {
+	switch {
+	case questions == 0:
+		return fmt.Sprintf("asked %d follow-up(s) of %s", replies, addressee)
+	case replies == 0:
+		return fmt.Sprintf("asked %d question(s) of %s", questions, addressee)
+	}
+	return fmt.Sprintf("asked %d question(s) and %d follow-up(s) of %s", questions, replies, addressee)
+}
+
+// SubmitTaskDecision delivers the operator's verdict to the GENERIC DAG child, addressed BY
+// TASK (stage 4a refusal 1 of 5, and the op every construction gate now travels through).
+//
+// It replaces the retired per-activity phase-decision door for three reasons, each measured:
+// the pump starts DeliveryActivityWorkflow under a DIFFERENT id (so the old signal reached
+// nothing); the generic child reads `taskDecision` and not the retired phase signal; and the
+// gate key is now a lifecycle TASK id, which the old five-phase vocabulary rejected — so an
+// approve at `designReview` was a ContractMisuse before it ever left the Manager.
+//
+// The PRECHECK is the retired op's, verbatim in shape (B1.3): the session must be awaiting a
+// human at exactly this task, and a send-back past the redraft budget is refused rather than
+// silently ignored. It is honesty and not safety — the child matches decisions by task id
+// either way — and during a rolling deploy a view from an old worker carries no gate, so the
+// refusal is transient and fails safe.
+func (m *constructionManager) SubmitTaskDecision(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string,
+	kind *projectstate.ArtifactKind, decision ReviewDecision, option *OptionID, feedback *ReviewFeedback,
+) error {
+	ctx := rc.Context
+	if err := validateTaskDecision(taskID, decision); err != nil {
 		return err
 	}
 	// A whitespace-only note is an empty one (M3), as it is for an override.
-	if decision == PhaseSendBack && (feedback == nil || strings.TrimSpace(feedback.Notes) == "") {
-		return newError(fwmanager.ContractMisuse, "SendBack requires non-empty feedback notes")
+	if decision == ReviewReject && (feedback == nil || strings.TrimSpace(feedback.Notes) == "") {
+		return newError(fwmanager.ContractMisuse, "a send-back requires non-empty feedback notes")
 	}
-	if decision == PhaseSendBack {
+	if feedback != nil {
 		if err := checkOperatorNoteSize("a send-back note", feedback.Notes, feedback.Comments); err != nil {
 			return err
 		}
@@ -8921,14 +6983,220 @@ func (m *constructionManager) SubmitPhaseDecision(rc fwmanager.Context, projectI
 	if err != nil {
 		return err
 	}
-	if err := precheckPhaseDecision(view, activityID, phase, decision); err != nil {
+	if err := precheckTaskDecision(view, activityID, taskID, decision); err != nil {
 		return err
 	}
+	// THE APPROVE'S THREAD SETTLEMENT: an open CHANGE REQUEST refuses it, and every ANSWERED
+	// thread is swept resolved. Both halves read ONE round, which is why they are one call —
+	// see settleThreadsBeforeApprove.
+	//
+	// The child re-checks the refusal before it decides the round: this is a fire-and-forget
+	// signal, so the window between the two is closed there (decideTaskGate) and not here.
+	if decision == ReviewApprove {
+		if err := m.settleThreadsBeforeApprove(ctx, projectID, activityID, taskID, kind); err != nil {
+			return err
+		}
+	}
+	// THE OPTION RIDES THE APPROVE (stage 4b1 Task 13). M0's approve is the one gate decision
+	// that carries a CHOICE beside its verdict — which of the four project-design options the
+	// founder bought — and the child's gate stamps it on the round it decides. Every other gate
+	// passes nil, and the child ignores it for a task that names no option.
+	sig := taskDecisionSignal{TaskID: taskID, Decision: decision, OptionID: option, Feedback: feedback, DecidedBy: decidedByOperator}
+	return m.signalActivity(ctx, projectID, activityID, signalTaskDecision, sig)
+}
 
-	wfID := constructActivityWorkflowID(projectID, activityID)
-	sig := phaseDecisionSignal{Phase: phase, Decision: decision, Feedback: feedback}
-	if err := m.client.SignalWorkflow(ctx, wfID, "", signalPhaseDecision, sig); err != nil {
+// settleThreadsBeforeApprove SETTLES the task's latest round against the approve about to be
+// sent, and it does two things rather than one — which is what the name says and the old one
+// (refuseApproveOverOpenComments) did not:
+//
+//  1. an open CHANGE REQUEST REFUSES the approve, in the design rail's own words, because the
+//     reviewer asked for something and approving over it would bury the ask. An open QUESTION does
+//     NOT block — doctrine makes it a soft warning at the approve gate
+//     (ReviewCommentBlocksApprove) — and the AUTOGATE is deliberately stricter, because there is
+//     nobody there to be warned (runGate);
+//  2. every ANSWERED thread is SWEPT resolved (design §3.4), so accepting a redraft that answered
+//     eight change requests does not cost eight Resolve clicks.
+//
+// WHY ONE FUNCTION AND ONE ROUND READ, stated because a checker that writes is worth explaining
+// rather than splitting on reflex: both halves are statements about the SAME thread at the SAME
+// moment, and reading the round twice would let the refusal and the sweep see different threads —
+// a comment filed between the two reads would be refused by neither and swept by the second. The
+// order is load-bearing too: the sweep runs only AFTER the refusal has passed, because a blocked
+// reviewer must not come back to a tidied thread and a gate that is still closed.
+//
+// A task with no round at all passes both halves — there is nothing to have left open, and
+// refusing would block the first approve of every gate.
+func (m *constructionManager) settleThreadsBeforeApprove(
+	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
+) error {
+	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
+	if err != nil {
+		if isRANotFound(err) {
+			return nil // no row, no round, nothing open
+		}
+		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
+	}
+	round, rerr := latestRoundFor(row, taskID, kind)
+	if rerr != nil {
+		return nil // no round yet: the first approve of this gate has nothing to be blocked by
+	}
+	if open := projectstate.OpenReviewCommentIDs(round.Thread); len(open) > 0 {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"cannot approve: %d review thread(s) still open (%s) — send them back or resolve them first",
+			len(open), strings.Join(open, ", ")))
+	}
+	// APPROVE RESOLVES EVERY ANSWERED THREAD IN ONE GESTURE (design §3.4, restored on BOTH rails
+	// by stage 4b1 Task 13's review fix round 1, finding 3). The retired design rail did this at
+	// applyReviewLedgerGate and nothing on the generic child did, so accepting a redraft that
+	// answered eight change requests left eight ANSWERED threads behind — each still shown as
+	// outstanding on the Activity Experience, and each costing the reviewer a Resolve click on a
+	// thread they had just accepted the answer to.
+	//
+	// A thread the reviewer explicitly REOPENED is open, not answered, so it is excluded by
+	// construction and keeps blocking above. Resolving is best-effort in the same sense the
+	// design rail's was: the approve is the decision and the tidy-up rides behind it, so a
+	// failure to resolve one thread is logged and the approve still goes through rather than
+	// being refused for a bookkeeping write.
+	for _, id := range bulkResolveAnswered(round.Thread) {
+		if err := m.SetTaskCommentStatus(fwmanager.Context{Context: ctx}, projectID, activityID, taskID,
+			id, projectstate.ReviewCommentResolved); err != nil {
+			slog.Default().Warn("approve: an ANSWERED thread could not be bulk-resolved; it stays answered and the approve goes on",
+				"op", "delivery.SubmitTaskDecision", "projectID", string(projectID),
+				"activityID", string(activityID), "taskID", taskID, "commentID", id, "err", err.Error())
+		}
+	}
+	return nil
+}
+
+// bulkResolveAnswered returns the ids of every ANSWERED comment on a round. Approve resolves them
+// all in one gesture (design §3.4). A thread the reviewer explicitly REOPENED is OPEN rather than
+// answered, so it is excluded here and keeps blocking the approve.
+func bulkResolveAnswered(thread []projectstate.ReviewComment) []string {
+	var ids []string
+	for _, c := range thread {
+		if c.Status == projectstate.ReviewCommentAnswered {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// RedraftTask re-dispatches ONE task of a live activity (stage 4a refusal 5 of 5, the
+// FailedPrecondition that said construction had no run/re-run op).
+//
+// It is the one op that makes the child's `redrafts` channel load-bearing, and the whole
+// contract is in the payload: the router forwards by TaskID, so an unset id would make this
+// a silent no-op. The child's redraft arm withdraws the round nobody judged and re-opens the
+// judged pair at revision n+1 — the same thing a send-back does, asked for directly.
+//
+// IT REFUSES AWAY FROM A GATE. A redraft signal delivered to a task that is mid-dispatch sits
+// in that task's inbox and is re-offered when it retires, i.e. it does nothing; and a task
+// whose activity has already exited has no inbox at all. Both would present as success. The
+// repair for a task whose activity gave up is a RE-OPEN of the activity, which needs a store
+// verb this facet does not have (see the task-12 report).
+func (m *constructionManager) RedraftTask(
+	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, feedback *ReviewFeedback,
+) (SessionRef, error) {
+	ctx := rc.Context
+	// A redraft's feedback is OPTIONAL (nil = re-run with no steer), but a non-nil envelope
+	// with empty notes is a third state that steers nothing while telling the agent it was
+	// steered — RequestArtifactDraft refuses exactly this shape and this must agree.
+	if feedback != nil {
+		if strings.TrimSpace(feedback.Notes) == "" {
+			return "", newError(fwmanager.ContractMisuse,
+				"feedback is present but its notes are empty — omit feedback entirely to re-dispatch with no steer")
+		}
+		if err := checkOperatorNoteSize("a re-dispatch note", feedback.Notes, feedback.Comments); err != nil {
+			return "", err
+		}
+	}
+	view, err := m.activitySession(ctx, projectID, activityID)
+	if err != nil {
+		return "", err
+	}
+	if gate := deliveryDerefString(view.AwaitingGate); view.Stage != StageAwaitingApproval || gate != taskID {
+		return "", newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"activity %s is at %s/%s, not awaiting a decision at %s — a re-dispatch answers an open gate; a task already running re-dispatches itself under the variance loop",
+			activityID, sessionStageName(view.Stage), gateNameOf(view), taskID))
+	}
+	sig := redraftSignal{TaskID: taskID, Feedback: feedback}
+	if err := m.signalActivity(ctx, projectID, activityID, lSignalRedraft, sig); err != nil {
+		return "", err
+	}
+	return SessionRef(deliveryActivityWorkflowID(projectID, activityID)), nil
+}
+
+// signalActivity delivers one signal to the activity's GENERIC child and maps the one
+// failure an operator can act on: no live execution. mapSignalError's generic mapping hides
+// that behind a transport sentence, and "the activity is dormant" is the difference between
+// "retry" and "start the activity first".
+func (m *constructionManager) signalActivity(
+	ctx context.Context, projectID ProjectID, activityID ActivityID, name string, payload any,
+) error {
+	wfID := deliveryActivityWorkflowID(projectID, activityID)
+	if err := m.client.SignalWorkflow(ctx, wfID, "", name, payload); err != nil {
+		if isNotFound(err) {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s has no live execution: the pump starts one when the activity is eligible, and a signal to a dormant activity would be lost",
+				activityID))
+		}
 		return mapSignalError(err)
+	}
+	return nil
+}
+
+// isManagerNotFound reports whether err is (or wraps) this Manager's own NotFound. The
+// per-activity session read answers it for an activity with no live execution, which two of
+// the five write paths treat as a legitimate state rather than as a failure.
+func isManagerNotFound(err error) bool {
+	var me *fwmanager.Error
+	return errors.As(err, &me) && me.Kind == fwmanager.NotFound
+}
+
+// gateNameOf renders a session's gate for a refusal sentence: the gate it is at, or that
+// there is none.
+func gateNameOf(v ConstructionSessionView) string {
+	if v.AwaitingGate == nil || *v.AwaitingGate == "" {
+		return "no gate"
+	}
+	return *v.AwaitingGate
+}
+
+// validateTaskDecision is SubmitTaskDecision's ContractMisuse gate over the (task, decision)
+// pair. It is validatePhaseDecision's successor and it deliberately does NOT enumerate the
+// keys: the vocabulary is now every lifecycle TASK id of fourteen lifecycles plus the merge
+// hold, which this Manager cannot list without resolving the activity's lifecycle — and the
+// precheck below it already refuses any key the session is not actually waiting at, which is
+// the check that has teeth. The merge rule survives verbatim, because it is about the KEY and
+// not about the session: a merge has no draft to send back.
+func validateTaskDecision(taskID string, decision ReviewDecision) error {
+	if strings.TrimSpace(taskID) == "" {
+		return newError(fwmanager.ContractMisuse, "empty taskId")
+	}
+	if taskID == mergeGateKey && decision != ReviewApprove {
+		return newError(fwmanager.ContractMisuse, fmt.Sprintf(
+			"the %q gate accepts Approve only — a merge has no draft to send back; steer the activity with OverrideActivity instead", mergeGateKey))
+	}
+	switch decision {
+	case ReviewApprove, ReviewReject:
+		return nil
+	case ReviewDecisionUnknown, ReviewWithdraw, ReviewSetCommentStatus, ReviewAdvance:
+		return newError(fwmanager.ContractMisuse, fmt.Sprintf(
+			"decision %d is not a verdict a task gate takes — approve or send back", int(decision)))
+	}
+	return newError(fwmanager.ContractMisuse, fmt.Sprintf("unknown decision %d", int(decision)))
+}
+
+// precheckTaskDecision is SubmitTaskDecision's FailedPrecondition gate over the activity's
+// session view — precheckPhaseDecision's successor, keyed by TASK.
+func precheckTaskDecision(v ConstructionSessionView, activityID ActivityID, taskID string, decision ReviewDecision) error {
+	if v.Stage != StageAwaitingApproval || gateNameOf(v) != taskID {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("activity %s is at %s/%s, not awaiting %s",
+			activityID, sessionStageName(v.Stage), gateNameOf(v), taskID))
+	}
+	if decision == ReviewReject && v.RedraftExhausted {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"the redraft budget for %s of activity %s is spent — approve it or steer the activity with an override", taskID, activityID))
 	}
 	return nil
 }
@@ -8952,6 +7220,9 @@ func operatorNoteRunes(notes string, comments []AnchoredComment) int {
 // maxOperatorNoteRunes characters, and at most maxOperatorNoteBodyBytes once rendered, so
 // the note always reaches the agent whole (the 16 KiB block keeps the newest note whole).
 func checkOperatorNoteSize(what, notes string, comments []AnchoredComment) error {
+	if err := checkNoReplyTo(what, comments); err != nil {
+		return err
+	}
 	if operatorNoteRunes(notes, comments) > maxOperatorNoteRunes {
 		return newError(fwmanager.ContractMisuse, fmt.Sprintf("%s is at most %d characters, anchored comments and their paths included", what, maxOperatorNoteRunes))
 	}
@@ -8961,29 +7232,43 @@ func checkOperatorNoteSize(what, notes string, comments []AnchoredComment) error
 	return nil
 }
 
+// checkNoReplyTo REFUSES a replyTo on a door that cannot route one — the surviving twin of
+// pdCheckNoReplyTo, restored for the three OPERATOR-NOTE doors (an override's notes, a
+// send-back note, a re-dispatch note). It lives in checkOperatorNoteSize because that is
+// the ONE function all three already share, so the refusal cannot drift between them.
+//
+// WHAT WAS SILENTLY LOST. Every one of those three doors funnels its comments through
+// noteComments, which builds projectstate.NoteComment{JSONPath, Text} — a shape with NO
+// ReplyTo member at all. A reviewer who replied inside a thread and sent it as a send-back
+// note therefore had their reply re-filed as a fresh, detached, flat note: the anchor
+// survived, the conversation it answered did not. That is exactly the loss design §3.7
+// exists to prevent, and it is worse than the Phase-2 case the surviving check refuses,
+// because here the reader sees a comment that LOOKS filed.
+//
+// REFUSE RATHER THAN ROUTE, and the reason is structural rather than a preference. These
+// doors write to the OPERATOR NOTE ledger, which is a flat delivery queue carried into the
+// next dispatch — it has no threads, so there is no thread for a reply to land in. Routing
+// would need NoteComment to gain a reply identity AND the note ledger to gain threads,
+// which is a contract change (.aiarch/state/project.json), not a guard. A loud
+// ContractMisuse naming the offending id is the honest answer until that exists; the
+// reviewer can fold the reply's text into the note, which is what the SPA already does for
+// the Phase-2 refusal.
+func checkNoReplyTo(what string, comments []AnchoredComment) error {
+	for _, c := range comments {
+		if c.ReplyTo != "" {
+			return newError(fwmanager.ContractMisuse,
+				what+" cannot carry a threaded reply: it is filed as an operator note, and the note ledger has no thread for a reply to land in — "+
+					"fold the reply's text into the comment instead (offending replyTo: "+c.ReplyTo+")")
+		}
+	}
+	return nil
+}
+
 // activitySession reads one activity's session through the SAME Query GetSessionState
 // serves, with its error mapping: no session is NotFound, any other query fault is
 // Infrastructure.
 func (m *constructionManager) activitySession(ctx context.Context, projectID ProjectID, activityID ActivityID) (ConstructionSessionView, error) {
 	return m.GetSessionState(fwmanager.Context{Context: ctx}, projectID, &activityID)
-}
-
-// precheckPhaseDecision is SubmitPhaseDecision's FailedPrecondition gate over the
-// activity's session view (B1.3).
-func precheckPhaseDecision(v ConstructionSessionView, activityID ActivityID, key string, decision PhaseDecision) error {
-	gate := "no gate"
-	if v.AwaitingGate != nil {
-		gate = *v.AwaitingGate
-	}
-	if v.Stage != StageAwaitingApproval || gate != key {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("activity %s is at %s/%s, not awaiting %s",
-			activityID, sessionStageName(v.Stage), gate, key))
-	}
-	if decision == PhaseSendBack && v.RedraftExhausted {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-			"the redraft budget for %s is spent — approve, or steer with OverrideActivity", key))
-	}
-	return nil
 }
 
 // sessionStageName is a ConstructionStage's wire word, for refusal messages. A free
@@ -9100,9 +7385,26 @@ func replanSweepWorkflowID(projectID *ProjectID, tickID string) string {
 	return fmt.Sprintf("%s:replanSweep:%s", *projectID, tickID)
 }
 
-// constructActivityWorkflowID derives the per-activity child id {projectId}:{activityId}.
-func constructActivityWorkflowID(projectID ProjectID, activityID ActivityID) string {
-	return fmt.Sprintf("%s:%s", projectID, activityID)
+// roundSweepWorkflowID derives the per-project round-sweep child id
+// {projectId}:roundSweep:{tickId}. Deliberately TICK-BEARING, the opposite of
+// pumpWorkflowID's choice and for the opposite reason: two pumps over one frontier would
+// race each other, whereas two sweep ticks are not redundant — the later one reads the
+// later ledger — so each firing gets its own child and the already-started tolerance
+// collapses only a double firing of the SAME tick.
+func roundSweepWorkflowID(projectID ProjectID, tickID string) string {
+	return fmt.Sprintf("%s:roundSweep:%s", projectID, tickID)
+}
+
+// deliveryActivityWorkflowID derives the GENERIC per-activity child's id
+// {projectId}:activity:{activityId} (stage 4b1 Task 8).
+//
+// The ":activity:" segment is deliberate and is not decoration: the retired child's id is
+// {projectId}:{activityId}, so reusing that shape would make the new child collide with an
+// in-flight old one on the same activity — Temporal answers AlreadyStarted and the pump
+// reads a dispatch that silently did nothing. A distinct segment lets both ids coexist while
+// both types are registered.
+func deliveryActivityWorkflowID(projectID ProjectID, activityID ActivityID) string {
+	return fmt.Sprintf("%s:activity:%s", projectID, activityID)
 }
 
 // pauseTargetWorkflowID derives the project-level pump workflow id pause/sweep
@@ -9244,36 +7546,6 @@ type constructionActivity struct {
 	Variant projectstate.TestingVariant
 }
 
-// validatePhaseDecision rejects a gate key that is empty or outside the closed
-// vocabulary the child workflow actually waits on: the five ActivityMethodPhase
-// wire names plus mergeGateKey. The wire type is a bare string, and JSON Schema
-// `required` only proves the KEY was sent — so "" (and any typo) reached the child
-// workflow's phase gate as a signal that could never match a real gate, silently
-// doing nothing. Closed vocabularies are validated here for the same reason
-// SetReviewPolicy validates its preset and SetReviewCommentStatus its status.
-//
-// The merge gate accepts Approve ONLY: a merge has no draft to send back, and the
-// hold ignores any other decision, so a SendBack on it would be another silent
-// no-op presenting as success. It is refused here, where the operator sees it.
-func validatePhaseDecision(phase string, decision PhaseDecision) error {
-	if phase == mergeGateKey {
-		if decision != PhaseApprove {
-			return newError(fwmanager.ContractMisuse, fmt.Sprintf("the %q gate accepts Approve only — a merge has no draft to send back; steer the activity with OverrideActivity instead", mergeGateKey))
-		}
-		return nil
-	}
-	switch projectstate.ActivityMethodPhase(phase) {
-	case projectstate.MethodPhaseRequirements, projectstate.MethodPhaseDetailedDesign,
-		projectstate.MethodPhaseTestPlan, projectstate.MethodPhaseConstruction,
-		projectstate.MethodPhaseIntegration:
-		return nil
-	}
-	if strings.TrimSpace(phase) == "" {
-		return newError(fwmanager.ContractMisuse, "empty phase")
-	}
-	return newError(fwmanager.ContractMisuse, fmt.Sprintf("unknown phase %q — expected one of requirements|detailed_design|test_plan|construction|integration|%s", phase, mergeGateKey))
-}
-
 // activityTypeName returns the canonical activity-type wire name
 // ("service"/"frontend"/"testing"/…) for the activity's STAMPED type. These are the
 // exact keys the ReviewPolicy's GatedPhasesByType map is keyed by (and the keys the
@@ -9337,17 +7609,17 @@ const (
 // id vs. dependency cycle); BlockedReason is the human-readable detail WITHIN that
 // class — the governing rule is one variant per repair class, detail discriminates
 // instances, never classes.
+// (SkippedDesign is GONE, with stage 4b1 Task 10. It named every design activity the scan
+// walked past on a tick — eligible work the pump could classify and would not dispatch —
+// and it existed only so a project whose remaining work was all design did not read as an
+// unexplained quiet tick. The pump dispatches those three now, so there is nothing left
+// for it to report having declined.)
 type pumpSelection struct {
 	Activity             constructionActivity
 	Verdict              pumpVerdict
 	BlockedActivityID    string
 	BlockedReason        string
 	BlockedFailureReason projectstate.FailureReason
-	// SkippedDesign names every design activity the scan walked past this tick. A design
-	// activity is eligible work the CONSTRUCTION pump does not do (stage 4's
-	// DeliveryManager does), so it is reported, never blocked — it rides every verdict,
-	// including a dispatch of some later activity.
-	SkippedDesign []string
 }
 
 // eligibilityRule is which activities the pump's selection may pick. It is chosen by the
@@ -9363,7 +7635,53 @@ const (
 	// eligibleDispatchable is architect (D), D.1.2: also an integration-pending row, one no
 	// pump wrote whose ledger holds some phases complete (isActivityDispatchable).
 	eligibleDispatchable
+	// eligibleWithDesign additionally admits the THREE DESIGN ACTIVITIES (stage 4b1 Task
+	// 10). It is its own rung, behind its own change id, because the rule genuinely changes
+	// which activity a tick picks on state that already exists: this repo's own committed
+	// slot 9 opens with requirements/architecture/projectDesign and none of the three has an
+	// execution row, so a recorded pump history that walked past them and dispatched a
+	// construction activity would, under the new rule, select `requirements` (declaration
+	// index 0) instead — a DIFFERENT child id, which is a non-determinism error on replay.
+	// The same reason changeLedgerPartialResume is version-gated.
+	eligibleWithDesign
 )
+
+// admitsDesignActivities reports whether this rule lets the pump pick one of the three
+// design activities. Read in TWO places — the phase gate and the scan — because the design
+// activities' phase floor is their OWN (a `requirements` activity runs while the project is
+// still in Phase 1), so the blanket PhaseConstruction gate cannot stand for them.
+func (r eligibilityRule) admitsDesignActivities() bool { return r == eligibleWithDesign }
+
+// isDesignLifecycle reports whether this activity type is one of the THREE whose lifecycle
+// produces a design artifact — a Phase-1 slot or the Phase-2 plan — rather than a commit.
+//
+// It answered a second question until stage 4b1 Task 11 ("which child walks this?", as
+// runsOnTheDeliveryChild) and no longer does: ONE child walks every lifecycle now, so the only
+// live question is the PHASE FLOOR, which is admissibleInPhase's and is genuinely a property of
+// what the activity produces — `requirements` and `architecture` write Phase-1 slots and
+// `projectDesign` writes the Phase-2 plan, so requiring PhaseConstruction of them would require
+// the output before the work.
+//
+// It asks the TYPE rather than the id, because the id table lives in projectstate and the
+// three types are what railFor already reads; and it is exhaustive over ActivityType, so a
+// new type must decide where its floor is rather than inheriting an answer.
+func isDesignLifecycle(typ projectstate.ActivityType) bool {
+	switch typ {
+	case projectstate.ActivityTypeRequirements,
+		projectstate.ActivityTypeArchitecture,
+		projectstate.ActivityTypeProjectDesign:
+		return true
+	case projectstate.ActivityTypeService,
+		projectstate.ActivityTypeFrontend,
+		projectstate.ActivityTypeTesting,
+		projectstate.ActivityTypeDeployment,
+		projectstate.ActivityTypeDocumentation,
+		projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration:
+		return false
+	}
+	return false
+}
 
 // changeLedgerPartialResume is the ONE change id guarding D1 in both csWorkflows: the pump's
 // widened selection and the construct workflow's ledger-aware start seed. A v1 pump only
@@ -9382,11 +7700,20 @@ const changeLedgerPartialResume = "ledger-partial-resume"
 // is chosen (the candidate-list name tie-break below is currently unreachable, since
 // declIdx is already unique per activity).
 func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpSelection {
-	// Committed Network+ActivityList alone are not authorization to build: the
-	// Phase-2 seal (AdvanceToConstruction — every slot committed, SDP review binding
-	// an option) is what moves the project into PhaseConstruction. Selecting work
-	// before that would start construction on an unvalidated project design.
-	if proj.Phase != projectstate.PhaseConstruction {
+	// Committed Network+ActivityList alone are not authorization to BUILD: the Phase-2 seal
+	// (M0's approve — every plan slot committed, the SDP review approved) is what moves the
+	// project into PhaseConstruction. Selecting construction work before that would start
+	// building on an unvalidated project design.
+	//
+	// THE GATE IS NOW PER ACTIVITY (stage 4b1 Task 10), and that is the whole of what the
+	// rule change buys: the three DESIGN activities are precisely the work that runs BEFORE
+	// the seal — `requirements` and `architecture` in Phase 1, `projectDesign` in Phase 2 —
+	// so a blanket construction-only gate made them permanently unselectable and left Task
+	// 9's deterministic Project Design inert. A design activity is admitted in any phase; a
+	// construction activity still waits for the seal. The chain's ORDER is not this gate's
+	// business and never was: slot 10 carries requirements → architecture → projectDesign
+	// → M0 → everything else, and AllDepsSatisfied is what reads it.
+	if proj.Phase != projectstate.PhaseConstruction && !rule.admitsDesignActivities() {
 		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	network, activityList, ok := committedPlanInputs(proj)
@@ -9426,18 +7753,12 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	// exactly the failure mode this change closes for milestone dependencies.
 	var problemActivityID, problemReason string
 	var problemKind projectstate.FailureReason
-	// skippedDesign collects the design activities walked past below. The skip is
-	// deliberately ahead of the dependency check: a design activity is not this pump's
-	// work whatever its dependencies say, so the report names every unfinished one, not
-	// only the one whose turn it happened to be.
-	var skippedDesign []string
 	for i, item := range activityList.Activities {
 		name := item.Name
 		if !eligibleUnder(rule, name, item, proj.ActivityExecution) {
 			continue
 		}
-		if isDesignActivity(name, item) {
-			skippedDesign = append(skippedDesign, name)
+		if !admissibleInPhase(proj.Phase, rule, name, item) {
 			continue
 		}
 		res := projectstate.AllDepsSatisfied(depsByActivity[name], itemByName, proj.ActivityExecution, milestones)
@@ -9461,10 +7782,9 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 				BlockedReason: fmt.Sprintf(
 					"activity %s: %s — terminally failed; amending the committed network alone will NOT restart it (RecordActivityFailed is sticky and there is no reopen/retry path)",
 					problemActivityID, problemReason),
-				SkippedDesign: skippedDesign,
 			}
 		}
-		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: skippedDesign}
+		return pumpSelection{Verdict: verdictQuiescent}
 	}
 	sort.SliceStable(candidates, func(i, j int) bool {
 		if candidates[i].declIdx != candidates[j].declIdx {
@@ -9474,20 +7794,36 @@ func nextEligibleActivity(proj projectstate.Project, rule eligibilityRule) pumpS
 	})
 
 	chosen := candidates[0].activity
-	sel := dispatchSelectionFor(proj, chosen, itemByName[chosen])
-	// The scan's skips ride whatever verdict the chosen activity produced: a tick that
-	// dispatched something else still reports the design work it walked past.
-	sel.SkippedDesign = append(skippedDesign, sel.SkippedDesign...)
-	return sel
+	return dispatchSelectionFor(proj, chosen, itemByName[chosen])
 }
 
-// isDesignActivity reports whether the construction pump must walk past this activity:
-// ClassifyActivity types it but refuses it for dispatch, because running a design
-// lifecycle's slash-command as a construction pipeline is the N-ENV defect in a new
-// costume (08-30 S2 ruling). Stage 4's DeliveryManager is what dispatches these.
-func isDesignActivity(name string, item projectstate.ActivityItem) bool {
-	_, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
-	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
+// admissibleInPhase is the PER-ACTIVITY phase floor the blanket construction-only gate
+// became (stage 4b1 Task 10).
+//
+// Under the two pre-4b1 rules it is the old behaviour exactly: the caller already refused
+// every non-construction phase, and a design activity is walked past silently — the pump has
+// no child for it under those rules, and a recorded history that skipped it must keep
+// skipping it. (That skip used to be REPORTED, in pumpSelection.SkippedDesign; the report is
+// gone with the skip's reason, and the version gate is what keeps the skip itself alive for
+// the histories that recorded it.)
+//
+// Under eligibleWithDesign: a DESIGN activity is admitted in any phase, because its phase
+// floor is the phase it produces — `requirements` and `architecture` write Phase-1 slots and
+// `projectDesign` writes the Phase-2 plan, so requiring PhaseConstruction of them is
+// requiring the output before the work. A CONSTRUCTION activity still requires the seal.
+//
+// An UNCLASSIFIABLE activity is admitted rather than skipped, deliberately: dispatchSelectionFor
+// is where a plan defect becomes verdictBlocked with its repair named, and swallowing it here
+// would turn a reportable defect back into a silent quiet tick.
+func admissibleInPhase(phase projectstate.Phase, rule eligibilityRule, name string, item projectstate.ActivityItem) bool {
+	typ, _, err := projectstate.ClassifyActivity(name, item.WorkerClass, item.Coding)
+	if err != nil {
+		return true
+	}
+	if !isDesignLifecycle(typ) {
+		return phase == projectstate.PhaseConstruction
+	}
+	return rule.admitsDesignActivities()
 }
 
 // dispatchSelectionFor resolves the CHOSEN activity into its dispatchable selection:
@@ -9522,14 +7858,12 @@ func dispatchSelectionFor(proj projectstate.Project, chosen string, item project
 	// guessing: the id-prefix guess is what handed infra activity N-ENV a testing
 	// command and killed it with VarianceExhausted. Block instead, as a plan defect.
 	typ, variant, cerr := projectstate.ClassifyActivity(chosen, item.WorkerClass, item.Coding)
-	// A design activity is CLASSIFIED and still refused: the scan above already walks
-	// past it, so reaching here means some other path chose it, and going quiet is the
-	// only safe answer. NEVER verdictBlocked — that writes RecordActivityFailed, which
-	// is sticky and has no reopen path, so blocking here would terminally fail the very
-	// activity stage 4 exists to run.
-	if errors.Is(cerr, projectstate.ErrDesignActivityNotDispatchable) {
-		return pumpSelection{Verdict: verdictQuiescent, SkippedDesign: []string{chosen}}
-	}
+	// (A design activity used to take its own quiescent arm HERE, because rule 0 classified
+	// it and then refused it: reaching this line meant some path had chosen an activity the
+	// scan walks past, and going quiet was the only safe answer — verdictBlocked writes the
+	// sticky RecordActivityFailed and would have terminally failed the very activity stage 4
+	// exists to run. Stage 4b1 Task 10 gave the three a child, so they classify cleanly and
+	// dispatch through the same arm as everything else.)
 	if cerr != nil {
 		return pumpSelection{
 			Verdict:              verdictBlocked,
@@ -9585,8 +7919,14 @@ func committedPlanInputs(proj projectstate.Project) (*projectstate.Network, *pro
 }
 
 // eligibleUnder applies the pump's eligibility rule to one activity.
+//
+// THE RULES ARE CUMULATIVE, and the test must say so rather than name one rung: eligibleWithDesign
+// (stage 4b1 Task 10) adds the design admission ON TOP of D1's widened row rule, so a
+// `rule == eligibleDispatchable` equality test silently demoted the newest rule to the PRE-D1
+// selection — measured, as Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration picking
+// the not-started activity over the integration-pending one.
 func eligibleUnder(rule eligibilityRule, activityID string, item projectstate.ActivityItem, status map[string]projectstate.ActivityExecution) bool {
-	if rule == eligibleDispatchable {
+	if rule >= eligibleDispatchable {
 		return isActivityDispatchable(activityID, item, status)
 	}
 	return isActivityNotStarted(activityID, item, status)
@@ -9607,6 +7947,17 @@ func isActivityDispatchable(activityID string, item projectstate.ActivityItem, s
 	}
 	if projectstate.PumpWroteRow(s) {
 		return false
+	}
+	// A REQUEUE RE-ARMS THE ROW WHATEVER ITS LEDGER RESOLVES TO (stage 4b1, Task 12 round 3).
+	// This is asked BEFORE the ledger derivation on purpose: an operator's re-open clears the
+	// four head facts and KEEPS both ledgers — which is what lets the re-run seed its passed
+	// tasks — so a walk whose every gate had passed resolves Done off the ledger and the pump
+	// would refuse the very activity the operator just re-opened. The post-exit slot-commit
+	// window (Completed, slots still AwaitingReview) did not heal in production for exactly
+	// that reason. The evidence is the requeue NOTE against the last resolved attempt, so the
+	// rule reads two facts the store already holds rather than a fifth head field.
+	if projectstate.RequeuedAfterExit(s) {
+		return true
 	}
 	effective, _ := projectstate.EffectiveConstructionPhase(s, item)
 	return effective == projectstate.ActivityConstructionNotStarted || effective == projectstate.ActivityConstructionRunning
@@ -9636,8 +7987,17 @@ func isActivityNotStarted(activityID string, item projectstate.ActivityItem, sta
 // as an empty string into every PR body.
 //
 // typ/variant are the caller's ALREADY-RESOLVED classification (nextEligibleActivity's
-// single ClassifyActivity call): this function stamps them and derives Phases from
-// them, so the phase walk and the stamped pair can never name different profiles.
+// single ClassifyActivity call), stamped here and carried by every downstream consumer.
+//
+// IT NO LONGER STAMPS Phases (stage 4b1 Task 11). The field's only readers were the retired
+// flat walk (walkPhases, and runAttempt's ProfileFor fallback for a payload that predated the
+// stamp); the generic child reads the lifecycle's task DAG and never looks at it. Measured
+// before removing it, because a write nobody reads and a read nobody writes are one grep apart:
+// the ONLY `Phases:` producers were this line and that fallback, and `ActivityConstructionStatus.Phases`
+// — the field a reader might mistake for this one — is a VIEW derivation off
+// phasesToContract(resolved), which reads the profile and the attempt ledger and never the
+// dispatch payload. So QueryActivityView does NOT read it, the field goes with
+// ConstructActivityWorkflow in Task 13, and nothing in a view changes here.
 func hydrateConstructionActivity(activityID string, item projectstate.ActivityItem, comp *projectstate.Component, typ projectstate.ActivityType, variant projectstate.TestingVariant) constructionActivity {
 	kind := activityKindNoncoding
 	if item.Coding {
@@ -9649,7 +8009,6 @@ func hydrateConstructionActivity(activityID string, item projectstate.ActivityIt
 		EstimateDays: item.EffortDays,
 		Type:         typ,
 		Variant:      variant,
-		Phases:       projectstate.ProfileFor(typ, variant).PhaseIDs(),
 	}
 	if comp != nil {
 		act.ComponentID = comp.ID
@@ -9744,6 +8103,13 @@ type wfDeps struct {
 	// conversion).
 	InterventionPolicy intervention.InterventionPolicy
 
+	// SDPEngines are the three estimate Engines deterministic Project Design calls (stage
+	// 4b1 Task 9). They reach the compute strategy through productionStrategies, not
+	// through a package var: a strategy's engines are THREADED (architect ruling R9-5), so
+	// a boot that wires none gets a compute that refuses by name rather than one that
+	// nil-panics inside a workflow task and retries forever.
+	SDPEngines sdpEngines
+
 	// EscalationWaitTimeout bounds how long an escalated/architectOnly activity waits
 	// for an operator override before it terminally FAILS the activity. 0 == wait-forever.
 	EscalationWaitTimeout time.Duration
@@ -9766,6 +8132,20 @@ type csWorkflows struct {
 	NextEligibleActivity  func(proj projectstate.Project, rule eligibilityRule) pumpSelection
 	InterventionPolicy    intervention.InterventionPolicy
 	EscalationWaitTimeout time.Duration
+
+	// Strategies is the generic child's task-strategy table (deliveryactivity.go). It is a
+	// FIELD rather than a package function so a test can substitute a stub for a slot whose
+	// real implementation arrives in a later task — which is how the DAG's fork/join shape
+	// is proved before either dispatch implementation exists. csNewWorkflows defaults it to
+	// productionStrategies(), so an unwired composition cannot read a nil map.
+	Strategies strategyRegistry
+
+	// Deliveries observes WHICH TASK each routed signal reached (walkState.deliver). Nil in
+	// production, and it is an observation seam rather than behaviour because the walk's
+	// TERMINAL cannot tell a delivered override from a lost one: a gate that never receives
+	// one simply waits for its decision instead, so a case asserting only the terminal would
+	// pass with the message gone — which is the defect the router exists to remove.
+	Deliveries walkDeliveryRecorder
 }
 
 // railDormant is the RailEnabled answer of a boot with no construction PR-rail
@@ -9790,6 +8170,11 @@ func csNewWorkflows(d wfDeps) *csWorkflows {
 		NextEligibleActivity:  d.NextEligibleActivity,
 		InterventionPolicy:    d.InterventionPolicy,
 		EscalationWaitTimeout: d.EscalationWaitTimeout,
+		// The generic child's strategy table is defaulted HERE, not read lazily, so an
+		// unwired composition cannot nil-map-read its way to a walk with no dispatch. The
+		// estimate Engines ride the registry constructor, which is what makes the
+		// Project-Design compute testable against a substituted Engine.
+		Strategies: productionStrategies(d.SDPEngines),
 	}
 }
 
@@ -9860,134 +8245,19 @@ func isRAContractMisuse(err error) bool {
 	return false
 }
 
-// constructState is the live technical state backing the sessionState Query.
-type constructState struct {
-	projectID     ProjectID
-	activityID    ActivityID
-	stage         ConstructionStage
-	pipelinePhase *PipelinePhase
-	reviewSet     *ReviewSet
-	// reviewSetError is why reviewSet is nil at the current gate ("" when the engine answered).
-	reviewSetError string
-	variance       *FlaggedVariance
+// decodeFaultErrType names an IN-WORKFLOW envelope decode failure over committed state —
+// the other half of QA F36's decode class (isRAContractMisuse covers the one the Activity
+// raises). It is terminal by construction: the stored document does not type, and no retry
+// changes a stored document.
+const decodeFaultErrType = "ProjectEnvelopeDecodeFailed"
 
-	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
-	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
-	// workflow start from the start-snapshot activity's PhaseCompletion slice and
-	// MARKED unconditionally on EVERY phase completion (Approve / no-gate / inert) —
-	// independent of gitOn. This is what stops the outer variance-retry loop (which
-	// re-walks phases from index 0) from re-gating an already-approved phase across a
-	// non-git execution where no head-state completion record exists to re-read.
-	completedPhases map[projectstate.ActivityMethodPhase]bool
-
-	// redraftExhausted reports that the phase gate the workflow is waiting at can take no
-	// further SendBack redraft: its human-paced budget (maxPhaseRedrafts) is spent. It does
-	// NOT fail the activity or re-enter the variance loop — the gate keeps awaiting the
-	// human; the flag surfaces that redrafting is spent. RECOMPUTED on entry to every gate
-	// (B1.2): it used to be set once and never reset, so it leaked into every later gate of
-	// the same run (plan G5).
-	redraftExhausted bool
-
-	// awaitingGate / awaitingSince / awaitingUntil describe the human stage the workflow is
-	// in right now (B1.2): which gate (a lifecycle phase's wire name, mergeGateKey or
-	// takeoverGateKey), when THIS occurrence of it began, and — for an escalation with a
-	// bounded wait — when it gives up. awaitingSince is workflow.Now, so a query served by
-	// replay rebuilds the original time, and a redraft re-entering its gate starts a new
-	// occurrence. Written only by enterHumanStage and cleared only by leaveHumanStage.
-	awaitingGate  string
-	awaitingSince time.Time
-	awaitingUntil *time.Time
-
-	// attempt is the current supervision attempt, 1-based (set by runAttempt); 0 before
-	// the first attempt.
-	attempt int
-
-	// reviewContracts is the per-execution set of contract identifiers captured from
-	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
-	// gate's reviewer set is display-populated without re-reading mid-loop.
-	reviewContracts []string
-
-	// floorTouched is the Task 7 non-overridable-floor snapshot: whether the
-	// activity's committed contract (start-snapshot, B5-style — never re-read
-	// mid-loop) touches deploy/spend/schema (projectstate.ContractTouchesReviewFloor).
-	// Consulted by runPhaseGate via the reviewEngine's ProposeReviews (this is the
-	// floor flag it passes) to force a human gate at MethodPhaseConstruction
-	// regardless of preset, including "vibes".
-	floorTouched bool
-
-	// mergeCompleted is the LIVE in-memory skip-guard for the local merge step
-	// (local-merge-and-policy Commit 1, same discipline as completedPhases):
-	// marked once the merge job landed, so a variance retry of a LATER finalize
-	// fault does not re-dispatch a merge whose activity branch is already
-	// merged and deleted (which would honestly — and wrongly — fail).
-	mergeCompleted bool
-
-	// taskAttempts counts, per Figure A-1 task (MethodTask), how many times a pipeline
-	// has been dispatched for that task's phase on this activity — seeded at start from
-	// the row's attempt ledger (loadReviewSnapshot, v1 of changeLedgerPartialResume), so
-	// a new run's AttemptIDs continue the ledger's instead of colliding with them — the join key
-	// projectstate.AttemptID needs to attribute an episode to the (activity, task,
-	// attempt) it was actually burned on (Task 10, constructactivity.go). It counts
-	// across BOTH the outer variance-retry loop and a gated phase's human-paced redraft
-	// loop, since both re-enter runPipeline for the SAME phase. Workflow-local (rebuilt
-	// deterministically on replay, never persisted); lazily initialized by
-	// constructState.nextTaskAttempt so a state that never dispatches a pipeline
-	// (ProjectSupervisionWorkflow's) allocates nothing.
-	taskAttempts map[projectstate.MethodTask]int
-
-	// noteDelivery is true on an execution that recorded the operator-note-delivery
-	// marker (plan B1.4): only then are notes recorded, carried and stamped, and the
-	// managed scaffold synced before a GitHub-venue dispatch.
-	noteDelivery bool
-	// noteSeq numbers the notes this run records (operatorNoteID).
-	noteSeq int
-	// pendingNotes are the notes the next agent dispatch carries, oldest first: seeded
-	// from the row at start (projectstate.PendingOperatorNotes), appended to as notes are
-	// recorded, and each dropped once a dispatch carried it whole and it was stamped.
-	pendingNotes []projectstate.OperatorNote
-	// carriedTo names, per note id, the last attempt a dispatch carried the note into,
-	// so a note is never carried twice into the same attempt (M4).
-	carriedTo map[string]string
-
-	// executionLedger is true on an execution that recorded the execution-ledger marker
-	// (changeExecutionLedger, stage 3): only then does this run WRITE what it does to the
-	// per-activity attempt and review-round ledgers. An execution that recorded no marker
-	// stays wholly on the retired facet — no activity opened, no attempt recorded, no
-	// round opened, no verdict appended — because its history holds no events for those
-	// Activities and never will.
-	executionLedger bool
-
-	// activityVersion is this run's copy of the per-activity CAS token: the version the
-	// activity's own execution row was at the last time this workflow wrote it. It is
-	// deliberately NOT headVersion — headVersion is the whole document's token, and two
-	// children writing DIFFERENT activities would contend on it while never touching each
-	// other's rows. This one is scoped to the row, so it refuses exactly the interleaving
-	// that matters and nothing else, which is the guard 4b's parallel pump rests on.
-	//
-	// Seeded at session start from the row the start snapshot already read
-	// (loadReviewSnapshot), 0 for an activity with no row yet — which is
-	// projectstate.NoActivityVersionExpectation, the honest posture of a writer about to
-	// BIRTH the row. Advanced by rowAdvanced on every applied transition.
-	activityVersion int64
-
-	// workAttemptID is the AttemptID of the last AGENT-WORK dispatch runPipeline minted.
-	// The gate that follows judges exactly that attempt, so it is what the round cites as
-	// its subject and what every verdict on that round names — the join that makes a
-	// verdict traceable to the work it judged and to the episode that burned it.
-	workAttemptID string
-
-	// gate is the execution-ledger identity of the review round the workflow is at right
-	// now. Exactly one gate is live at a time (the phase walk is sequential), so this is
-	// one value rather than a map; it is rebuilt deterministically on replay like every
-	// other workflow-local field.
-	gate gateLedger
-
-	// ephemeralNotes are the ids of the workflow-local notes that carry a send-back's
-	// feedback into the redraft WITHOUT being recorded (stage 3): the round IS the record
-	// of the send-back now, so a NoteSendBack beside it would be one fact stored twice.
-	// They render into the dispatch block like any other note and are never stamped
-	// delivered, because there is no stored note to stamp.
-	ephemeralNotes map[string]bool
+// isDecodeFault reports whether err is that terminal.
+func isDecodeFault(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == decodeFaultErrType
+	}
+	return false
 }
 
 // rowAdvanced records that ONE transition applied to the activity's execution row, which
@@ -10013,6 +8283,12 @@ func (s *constructState) rowAdvanced() { s.activityVersion++ }
 // counters would let the two ledgers disagree about which review a passing gate came
 // from. nextTaskAttempt is the single counter, seeded from whichever of the two ledgers
 // has gone further (seedResumeFromLedger).
+//
+// It is passed to the round writers BY POINTER rather than read off constructState,
+// because the generic child (deliveryactivity.go) runs several gates AT ONCE on a fork and
+// this holds exactly one: two concurrent gates sharing constructState.gate would each
+// overwrite the other's round id and decide the wrong round. The retired rail's walk is
+// sequential and passes &state.gate, so its behaviour is unchanged to the byte.
 type gateLedger struct {
 	task    projectstate.MethodTask
 	number  int
@@ -10021,6 +8297,168 @@ type gateLedger struct {
 	// actor is who passed or rejected the gate — stamped when the round is decided and
 	// read back by the gate attempt the completion writes.
 	actor projectstate.TaskActor
+	// judgedAttemptID is the AttemptID of the work this gate judges — what every verdict on
+	// the round names, which is the join that makes a verdict traceable to the work it
+	// judged and to the episode that burned it. It lives HERE rather than being read off
+	// constructState.workAttemptID for the same reason the rest of this struct does: on a
+	// fork two gates judge two different attempts at the same moment.
+	judgedAttemptID string
+}
+
+// walkRun is the generic child's per-run head-state and git lifecycle. The helpers it
+// shares with the retired rail take a *projectstate.Version and a *gitForward by
+// PARAMETER, and the walk cannot thread them that way — its function signatures are fixed
+// by the tasks that follow it, and its dispatch strategies reach them through
+// taskContext.State — so the run's copy lives here, on the state every strategy already
+// holds. Zero-valued and unread on the retired rail, which threads its own by pointer.
+type walkRun struct {
+	// headVersion is the walk's read-your-writes token for the whole document.
+	headVersion projectstate.Version
+	// gf is the per-activity branch/PR lifecycle, dormant when the git slice is unwired.
+	gf gitForward
+	// gitOn is startedCred's answer: whether the head-state records fire at all.
+	gitOn bool
+	// cred is the credential minted ONCE for this activity's git lifecycle.
+	cred railCredEnvelope
+	// policy is the committed ReviewPolicy this run gates against, snapshotted at start
+	// and NEVER re-read mid-walk — the same discipline the retired rail's parameter has.
+	policy projectstate.ReviewPolicy
+}
+
+// walkTaskState is one task's position in the walk. It is WALK-LOCAL: the durable truth is the
+// attempt and round ledgers, and the map is rebuilt from them on resume.
+//
+// ITS ORDINALS ARE PAYLOAD-VISIBLE across a ContinueAsNew (walkSnapshot.ByTask encodes
+// this iota), which puts them under this repo's never-renumber rule: a new state is
+// APPENDED, and re-ordering the existing five would silently re-interpret every in-flight
+// walk at the moment the new image goes live. Pinned by
+// Test_TaskStateOrdinalsNeverRenumber. (Serialising them as strings was the alternative
+// and was rejected: it trades one pinned table for a second vocabulary to keep in step
+// with the iota, and the pin is three lines.)
+type walkTaskState int
+
+const (
+	walkTaskPending walkTaskState = iota
+	walkTaskRunning
+	walkTaskPassed
+	walkTaskSentBack
+	walkTaskFailed
+	// walkTaskExited is APPENDED (stage 4b1 Task 11, fix round 1): the task did not pass and
+	// the ACTIVITY is over, with its terminal ALREADY on the ledger — the variance loop's three
+	// terminal answers (the budget exhausted, the escalation timed out, the operator skipped).
+	// It is not walkTaskFailed, because failWalk would then record a SECOND terminal over the
+	// first and report VarianceExhausted where the operator chose Skip; and it is not
+	// walkTaskPassed, because nothing was produced. The walk stops WITHOUT a workflow error,
+	// which is what the retired supervision loop did (failVarianceExhausted and
+	// executeOverride's Skip arm both returned attemptDone with a nil error) and what keeps the
+	// pump's cascade alive past an activity that gave up.
+	walkTaskExited
+)
+
+// producedSubject is what a strategy hands back: the ref a review round will cite, the
+// attempt id the ledger recorded, and the attempt's outcome. StagedRef is empty when the
+// strategy staged nothing (construction's output is a commit the agent pushed, not a model
+// this platform staged) and gateSubjectRef falls through its ladder accordingly.
+type producedSubject struct {
+	StagedRef string
+	AttemptID string
+	Outcome   projectstate.TaskOutcome
+	Detail    string
+	// EpisodeID is the agentic episode the dispatch burned, and it is the CONSTRUCTION arm's
+	// evidence (stage 4b1 Task 11). The retired rail's resolveWorkAttempt cited
+	// EvidenceEpisode + this id, and dropping it would leave every construction attempt in
+	// the new child citing EvidenceNone — the tokens spent would be in the episode ledger
+	// with nothing in the task ledger pointing at them, which is the one link the cost views
+	// follow. Empty for a design task (its evidence is the STAGED model) and for a compute.
+	EpisodeID string
+	// AttemptRecorded says the STRATEGY already wrote this task's attempts to the ledger, so
+	// runTask must not write a second record over them (stage 4b1 Task 11, fix round 1).
+	//
+	// The construction arm needs it because ONE lifecycle task can hold SEVERAL dispatches: the
+	// variance loop re-dispatches a failed job up to maxVarianceAttempts times, each a numbered
+	// attempt of its own off constructState.nextTaskAttempt, while the WALK's revision — which
+	// is what tc.Attempt derives from — does not move. Leaving runTask to record would file the
+	// last dispatch's outcome under the FIRST attempt's number and erase every retry from the
+	// ledger, which is the one thing an operator reading a recovered activity needs to see.
+	AttemptRecorded bool
+	// ActivityExited says the strategy recorded the ACTIVITY's own terminal and the walk must
+	// stop without recording a second one. Only the variance machinery sets it, because only it
+	// knows WHICH terminal was reached — Skipped for an operator's skip, Unknown carrying
+	// VarianceExhausted or EscalationTimedOut for the two give-ups — and a walk that re-derived
+	// one would report the same thing for all three.
+	ActivityExited bool
+}
+
+// deliveryActivityInput is the start payload for the GENERIC per-activity child.
+//
+// constructionActivity is REUSED UNRENAMED. It is the pump's classified activity — the
+// same id, component, layer, type and variant the generic walk needs — and renaming it to
+// something rail-neutral is a class-D rename touching every construction call site, which
+// is not in this wave's scope.
+//
+// Resume is nil on a fresh start and carries the walk across a ContinueAsNew.
+type deliveryActivityInput struct {
+	ProjectID  ProjectID
+	ActivityID ActivityID
+	Activity   constructionActivity
+	Resume     *walkSnapshot
+}
+
+// walkSnapshot is the walk across ContinueAsNew: exported fields, the four walk maps plus
+// the undelivered messages, and nothing else. No channel (re-created), no lifecycle
+// (re-resolved from the activity), no review policy (re-snapshotted), because anything
+// re-derivable must be re-derived rather than carried — a snapshot that carries a
+// derivable fact is a second copy to keep in step.
+type walkSnapshot struct {
+	ByTask   map[string]int             `json:"byTask"`
+	Revision map[string]int64           `json:"revision"`
+	Feedback map[string]string          `json:"feedback"`
+	Produced map[string]producedSubject `json:"produced"`
+	Pending  map[string][]routedSignal  `json:"pending"`
+}
+
+// The four signal kinds the router forwards. They are the message's discriminator, not a
+// wire enum of their own: exactly one of routedSignal's four pointers is non-nil and the
+// kind says which.
+const (
+	routedKindDecision = "decision"
+	routedKindStatus   = "status"
+	routedKindOverride = "override"
+	routedKindRedraft  = "redraft"
+)
+
+// routedSignal is one message the router took off a shared signal channel and forwarded to
+// ONE task's inbox. Its fields are EXPORTED because walkSnapshot carries the undelivered
+// ones across a ContinueAsNew, so they must survive the data converter.
+type routedSignal struct {
+	Kind     string
+	TaskID   string
+	Decision *taskDecisionSignal
+	Status   *setCommentStatusSignal
+	Override *operatorOverrideSignal
+	Redraft  *redraftSignal
+}
+
+// taskDecisionSignal is the taskDecision payload: a decision aimed at ONE TASK's gate
+// inside the generic child. Every field the old phaseDecisionSignal carried is here, keyed
+// by task instead of by lifecycle phase.
+type taskDecisionSignal struct {
+	// TaskID is the lifecycle task whose gate this decides. The router keys on it, so a
+	// decision that names none reaches no gate at all.
+	TaskID string
+	// Decision is the verdict; ReviewApprove and ReviewReject are the two the gate acts on.
+	Decision ReviewDecision
+	// OptionID is the option an M0 approve commits. Read by Task 9's M0 handler; every
+	// other gate leaves it nil.
+	OptionID *OptionID
+	// Feedback is the reviewer's notes and anchored comments.
+	Feedback *ReviewFeedback
+	// DecidedBy is the acting identity the round records. Empty falls back to the operator
+	// the platform can honestly attribute a decision to.
+	DecidedBy string
+	// AcknowledgeStale is the reviewer confirming they judged a basis that has since moved.
+	// Read by Task 12, which owns the acknowledgeStaleBasis verb.
+	AcknowledgeStale bool
 }
 
 func (s *constructState) view() (ConstructionSessionView, error) {
@@ -10083,42 +8521,6 @@ type operatorPauseSignal struct {
 // (deterministic, by value) and are NOT Activities; the durableExecutionAccess in-workflow
 // primitives (awaitSignal / startTimer / executeChild) are the Manager's own code.
 
-// Signal and query names (constructionManager.md §6.1/§6.2).
-const (
-	// signalOperatorPauseRequested resumes a suspended construction execution at
-	// its awaitSignal; backs PauseProject (NCUC2).
-	signalOperatorPauseRequested = "operatorPauseRequested"
-	// signalOperatorOverride resumes a per-activity child workflow; backs
-	// OverrideActivity.
-	signalOperatorOverride = "operatorOverride"
-	// signalPhaseDecision delivers a phase-gated approval/send-back decision to a
-	// per-activity child workflow; backs SubmitPhaseDecision.
-	signalPhaseDecision = "phaseDecision"
-	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
-	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
-	// background self-cascade drain (constructionManager.md §2.1).
-	queryPumpDispatch = "pumpDispatchDecision"
-)
-
-// ExecutionKinds — the registered workflow names (constructionManager.md §6.2).
-const (
-	// executionKindPump is PumpNextActivityWorkflow — the project's ONE pump,
-	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
-	// 30s pump sweep (not one execution per tick).
-	executionKindPump = "constructionPumpNextActivity"
-	// executionKindConstructActivity is the per-activity child workflow.
-	executionKindConstructActivity = "constructionConstructActivity"
-	// executionKindReplanSweep is the per-tick ReplanSweepWorkflow (the 5m sweep).
-	executionKindReplanSweep = "constructionReplanSweep"
-	// executionKindProjectSupervision is the long-lived project-level supervision
-	// workflow that hosts the operator-pause branch + project-level session Query.
-	executionKindProjectSupervision = "constructionProjectSupervision"
-	// executionKindPumpSweep is the Schedule-triggered, platform-wide fan-out
-	// (the 30s pump sweep; pumpsweep.go) — the actual Schedule target, since a
-	// Schedule cannot itself vary executionKindPump's ProjectID per firing.
-	executionKindPumpSweep = "constructionPumpSweep"
-)
-
 // Schedule ids + cadences (constructionManager.md §6.1; Task 7c). Namespaced with
 // the manager's own name (mirroring operations' "operations:operatedStateReconcile"
 // over billing's bare "shortfallSweep") since Schedule ids are namespace-global —
@@ -10150,15 +8552,26 @@ const (
 	scheduleIDReplanSweep = "delivery:replanSweep"
 	// replanSweepIntervalSecs is the replan-sweep cadence (5m) — the single tunable knob.
 	replanSweepIntervalSecs = 5 * 60
+
+	// scheduleIDRoundSweep is the platform-wide round-sweep Schedule id (stage 4b1 Task
+	// 6). It carries the delivery: prefix from the start and has no older id of its own to
+	// delete, unlike the two above. The DRAIN note must still list it: it is a third
+	// Schedule an operator has to account for in `temporal schedule list`.
+	scheduleIDRoundSweep = "delivery:roundSweep"
+	// roundSweepIntervalSecs is the round-sweep cadence (5m) — the single tunable knob.
+	// Slower than the pump's 30s on purpose: a stranded round is a record that is already
+	// wrong and stays wrong, so nothing degrades while it waits, and every tick reads
+	// every project.
+	roundSweepIntervalSecs = 5 * 60
 )
 
-// csActivityOptions returns the option-preset hook the generated invokers consult for the
+// deliveryActivityOptions returns the option-preset hook the generated invokers consult for the
 // contract-backed RA Activities. A name with no entry falls back to the generated
 // default (invokers.gen.go). Keyed by the generated registered activity name
 // (<componentKey>.<opName>), including the 14 head-state Record*/read presets
 // (recordOpts / readProjectOpts's VALUE forms — recordActivityOptions /
 // csReadProjectActivityOptions, workflow.go).
-func csActivityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
+func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptions, bool) {
 	presets := map[string]workflow.ActivityOptions{
 		"agenticJobAccess.submitAgenticJob":        submitPipelineActivityOptions(),
 		"agenticJobAccess.observeAgenticJob":       observePipelineActivityOptions(),
@@ -10179,15 +8592,54 @@ func csActivityOptions() func(activityName string) (workflow.ActivityOptions, bo
 		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityFailed": recordActivityOptions(),
 		"constructionTransitionAccess.recordOperatorPaused": recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseStarted":   recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseCompleted": recordActivityOptions(),
+		// (recordPhaseStarted / recordPhaseCompleted went with the retired flat walk, stage 4b1
+		// review fix round 2: they were the only two presets in this map naming an activity NO
+		// surviving workflow invokes, which Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned
+		// found and now guards. The verbs themselves survive on the deprecated facet until 4b2;
+		// a preset for a call that cannot happen is configuration nobody can retire.)
 		// B1.4: the operator note and its delivery stamp are head-state Record verbs.
 		"constructionTransitionAccess.recordOperatorNote": recordActivityOptions(),
 		// The delivery stamp has its own bounded envelope (M4): it follows a submit that
 		// already dispatched the job, so it retries rather than fail the run.
 		"constructionTransitionAccess.recordOperatorNoteDelivered": stampNoteDeliveredActivityOptions(),
 		// C.1.4: the managed-scaffold sync before a GitHub-venue dispatch is a rail verb.
-		"sourceControlAccess.syncManagedScaffold":            railActivityOptions(),
+		// THE SCAFFOLD SYNC TAKES FIVE MINUTES, NOT THIRTY SECONDS (stage 4b1 Task 13, Step 5).
+		//
+		// THE MEASUREMENT BEHIND THE RE-TUNE. Two of the three retired rails answered for this
+		// activity name and they DISAGREED: the design hooks said scaffoldSyncActivityOptions()
+		// (5 min) and this one said railActivityOptions() (30 s). The divergence was INERT only
+		// because mf.ActivityOptions had exactly one reader per worker and each rail's workflows
+		// consulted their OWN hook — a design dispatch got 5 minutes, a construction dispatch got
+		// 30 seconds, and neither ever saw the other's answer. Collapsing the three hooks into
+		// this one without re-tuning silently gives EVERY dispatch the 30-second answer, and the
+		// generic child now does the design work that needed the long one. F-QA2-36's addendum is
+		// the incident: the 30-second deadline expired mid-loop on a torn or version-bumped repo
+		// (~100 file reads plus up to a whole-tree of contents-API writes) and the sync only
+		// progressed through retry-persisted writes. That is the difference between a slow
+		// refresh and a failed session.
+		"sourceControlAccess.syncManagedScaffold": scaffoldSyncActivityOptions(),
+		// THE TWO ENTRIES THE DESIGN HOOKS OWNED, carried into the one hook. The merge the retired
+		// WorkerManifest ran resolved each name against three hooks with construction last-wins,
+		// so for a name only the design hooks answered, the DESIGN answer was the merged answer.
+		// These are the two such names the surviving child still reaches — the Phase-1 seal's
+		// advance and the design slot commit — measured by grepping the generated invoker call
+		// sites after the deletion. The design hooks' other seven keys
+		// (stageArtifactForReviewOnBranch, rejectArtifactOnBranchWithComments,
+		// withdrawArtifactOnBranch, setReviewCommentStatusOnBranch, seedReviewCommentsOnBranch,
+		// activityExecutionAccess.setReviewCommentStatus) had their ONLY workflow-side callers in
+		// the retired co-author files, so an entry for them here would be a preset for a call
+		// that cannot happen.
+		//
+		// reconcileBranchFromMain LEFT THAT LIST in the final fix wave: restoring the F80c
+		// diverged-branch reconcile onto the child's merge guard gave it a workflow caller again
+		// (reconcileDivergedBranch), so it needs its preset back. It is a branch MUTATION like
+		// the other two, and for the same reason: ContractMisuse is terminal, Conflict is
+		// deliberately NOT, because applyRecoveringOnBranch's re-read→re-apply loop is what
+		// resolves a stale branch version — a Temporal retry would re-issue the same stale
+		// expectedVersion forever.
+		"projectStateAccess.advancePhase":                    mutateActivityOptions(),
+		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
+		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
@@ -10208,6 +8660,16 @@ func csActivityOptions() func(activityName string) (workflow.ActivityOptions, bo
 		"activityExecutionAccess.appendReviewVerdict":   recordActivityOptions(),
 		"activityExecutionAccess.decideReviewRound":     recordActivityOptions(),
 		"activityExecutionAccess.recordActivityOutcome": recordActivityOptions(),
+		// The ROW READ the Conflict arm makes (stage 4b1, terminalAfterRowReread) takes NO
+		// entry here, DELIBERATELY: it rides the generated default, exactly as the two
+		// design rails' row read has since stage 3. A preset was considered and rejected —
+		// it would have changed the envelope of an existing call on two rails for no
+		// measured defect, and the reason to add one does not hold: fwra carries Retryable
+		// PER ERROR (framework-go manager.MapError → tagError), so the NotFound this arm maps
+		// to NoActivityVersionExpectation already returns on the first attempt without any
+		// NonRetryableErrorTypes entry. EARMARK: a fwra.Transient row read retries unbounded
+		// under the default, here and on both design rails alike — one envelope question for
+		// all three, not a thing to fix on one rail inside this task.
 	}
 	return func(name string) (workflow.ActivityOptions, bool) {
 		o, ok := presets[name]
@@ -10257,7 +8719,7 @@ func (m *constructionManager) railEnabled() func(projectID ProjectID) bool {
 // the four workflow bodies under their registered names, the per-activity option-preset
 // hook, and the genActivities threaded from the impl's stored published deps.
 func (m *constructionManager) WorkerManifest() genWorkerManifest {
-	optsHook := csActivityOptions()
+	optsHook := deliveryActivityOptions()
 	wf := csNewWorkflows(wfDeps{
 		Intervention: m.intervention,
 		Review:       m.review,
@@ -10279,15 +8741,19 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 		NextEligibleActivity:  nextEligibleActivity,
 		InterventionPolicy:    constructionInterventionPolicy(m.interventionMode),
 		EscalationWaitTimeout: m.escalationWaitTimeout,
+		SDPEngines:            m.sdpEngines,
 	})
 
 	return genWorkerManifest{
 		Workflows: []genRegisteredWorkflow{
 			{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
-			{Name: executionKindConstructActivity, Fn: wf.ConstructActivityWorkflow},
 			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
 			{Name: executionKindPumpSweep, Fn: wf.PumpSweepWorkflow},
+			{Name: executionKindRoundSweep, Fn: wf.RoundSweepWorkflow},
+			// The GENERIC per-activity child — the ONE workflow every activity in the product
+			// runs on since stage 4b1 Task 13, and the only one the pump starts.
+			{Name: executionKindDeliveryActivity, Fn: wf.DeliveryActivityWorkflow},
 		},
 		ActivityOptions: optsHook,
 		Activities: genActivities{
@@ -10356,41 +8822,6 @@ func (a messageBusAdapter) RegisterSchedule(ctx context.Context, spec scheduleSp
 		},
 	)
 }
-
-// RegisterSchedules registers (idempotently) the TWO platform-wide delivery
-// Temporal Schedules at startup via the messageBus utility (constructionManager.md
-// §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
-// every construction-phase project's own PumpNextActivityWorkflow; see this file's
-// header + pumpsweep.go) and the replan sweep (5m — targets ReplanSweepWorkflow with
-// no ProjectID, its existing "sweep all in-flight projects" scope). Called once at
-// process start; a re-registration with the same id+spec is a harmless no-op
-// (last-writer-wins Update, messagebus.go).
-func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
-	adapter := messageBusAdapter{inner: bus}
-	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
-		ID:           scheduleIDPumpSweep,
-		WorkflowType: executionKindPumpSweep,
-		TaskQueue:    TaskQueue,
-		IntervalSecs: pumpSweepIntervalSecs,
-	}); err != nil {
-		return err
-	}
-	return adapter.RegisterSchedule(ctx, scheduleSpec{
-		ID:           scheduleIDReplanSweep,
-		WorkflowType: executionKindReplanSweep,
-		TaskQueue:    TaskQueue,
-		IntervalSecs: replanSweepIntervalSecs,
-	})
-}
-
-// ---------------------------------------------------------------------------
-// Episode facet read ops (SP1 capture-seam, Task 9 — founder ruling 2026-08-02:
-// episode observability is a facet of the existing use cases, not a new
-// episodeManager). Both ops are PLAIN METHODS that consult episodeAccess directly
-// — no Temporal — the same shape as systemDesignManager.ListProjects/GetProject.
-// The whole-project exportEpisodes op is cut from v1 (per-target export is
-// client-side, Task 10).
-// ---------------------------------------------------------------------------
 
 // ListEpisodesForActivity returns every episode record (dispatch runs, or gaps)
 // captured against one construction activity, in episodeAccess's own (append)
@@ -10555,6 +8986,7 @@ const (
 	revSentBack      = "sentBack"
 	revFailed        = "failed"
 	revSkipped       = "skipped"
+	revWithdrawn     = "withdrawn"
 
 	taskPending       = "pending"
 	taskLocked        = "locked"
@@ -10706,9 +9138,10 @@ func ledgerRejections(out []projectstate.TaskAttempt, gate projectstate.MethodTa
 // numbered 1 at the same gate, and ordering by number would interleave two unrelated
 // review histories into one invented sequence. Ledger order is the only total order the
 // two kinds share, and it is a real one. Nothing here parses a round id into segments
-// either (equality is all any code in this repo asks of one): the join to the attempt
-// ledger is by FIELDS, and a revision's number is its position in this order, never the
-// round number — exactly as it already is for a gate attempt.
+// either (equality is all any code in this repo asks of one): which artifact a round judges
+// is a FIELD on it (roundGateKey), the join to the attempt ledger is by those fields, and a
+// revision's number is its position in this order, never the round number — exactly as it
+// already is for a gate attempt.
 func roundsForTask(rounds []projectstate.ReviewRound, task projectstate.MethodTask) []projectstate.ReviewRound {
 	out := make([]projectstate.ReviewRound, 0, len(rounds))
 	for _, r := range rounds {
@@ -10717,6 +9150,196 @@ func roundsForTask(rounds []projectstate.ReviewRound, task projectstate.MethodTa
 		}
 	}
 	return out
+}
+
+// roundGateKey is the identity of a GATE: which review task, judging which artifact. A
+// review task's id is not enough on its own — `designReview` names a task in eight
+// lifecycles and `testing` in nine, each resolving its subject through `reviews` — and
+// several kinds are designed to share one lifecycle phase, which is why the design rails'
+// RoundID is four-part. A construction round has no kind and keys on the task alone,
+// exactly as it always did.
+//
+// Two arities over one rule, deliberately: the stranded-round sweep needs the gate
+// identity WITHOUT a round number, and asking for it by synthesising a zero-Round
+// ReviewRound would depend on roundJoinKey's suffix being constant — true by accident.
+func roundGateKey(taskID projectstate.MethodTask, kind *projectstate.ArtifactKind) string {
+	if kind == nil {
+		return string(taskID)
+	}
+	return string(taskID) + ":" + kind.WireName()
+}
+
+// roundJoinKey is the identity a REVISION groups rounds by: the gate, plus the round
+// number. This is the fix for the stage-3 entry criterion "two kinds' round 1 would bind
+// one gate attempt"; nothing here parses a RoundID.
+func roundJoinKey(r projectstate.ReviewRound) string {
+	return roundGateKey(r.TaskID, r.ArtifactKind) + ":" + strconv.FormatInt(r.Round, 10)
+}
+
+// attemptGateKey is the SAME identity for a gate ATTEMPT. No attempt carries an artifact
+// kind today — the design rails record no attempt ledger at all (stage 3 gives them one)
+// — so an attempt's key is its task and its number, which is exactly the key a KINDLESS
+// round mints. That is the whole fix: a kinded round's key can never equal a kindless
+// attempt's, so two kinds' round 1 can no longer both claim gate attempt 1, and the
+// construction rail's own join is unchanged to the byte.
+func attemptGateKey(a projectstate.TaskAttempt) string {
+	return roundGateKey(a.Task, nil) + ":" + strconv.Itoa(a.Attempt)
+}
+
+// ---------------------------------------------------------------------------
+// THE FOUR LEDGER RESOLVERS the formerly-refused construction write paths share
+// (stage 4b1 Task 12). Every one of the five paths has to answer "which round, and whose
+// task?" and writing that five times is how five answers drift. They are PURE over one
+// row, so the Manager-side ops and the tests state the rule without a Temporal
+// environment — and they read FIELDS, never a parsed RoundID (§5.3: nothing may parse one).
+// ---------------------------------------------------------------------------
+
+// latestRoundFor resolves (activity, task) to the round a write should land on: the
+// HIGHEST round on that task's gate key. It is the one place the five formerly-refused
+// construction writes agree about which round they mean, and it REFUSES rather than
+// guessing when there is none — a comment resolved against a task that has never been
+// reviewed is a caller error, not an empty success.
+//
+// It keys through roundGateKey, so two artifact kinds sharing a gate task resolve to their
+// OWN latest round (stage 4b1 Task 3) rather than to whichever was written last. A tie on
+// the round NUMBER is broken by ledger order (the later append wins), which is the only
+// total order two kinds at one gate share — the same rule roundsForTask states.
+func latestRoundFor(row projectstate.ActivityExecution, taskID string, kind *projectstate.ArtifactKind) (projectstate.ReviewRound, error) {
+	want := roundGateKey(projectstate.MethodTask(taskID), kind)
+	var best projectstate.ReviewRound
+	found := false
+	for _, r := range row.Reviews {
+		if roundGateKey(r.TaskID, r.ArtifactKind) != want {
+			continue
+		}
+		if !found || r.Round >= best.Round {
+			best, found = r, true
+		}
+	}
+	if !found {
+		return projectstate.ReviewRound{}, newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"task %s of activity %s has no review round: there is nothing to write against until it has been reviewed once",
+			taskID, row.ActivityID))
+	}
+	return best, nil
+}
+
+// taskOfRound is the task a round belongs to, and it is a FIELD read rather than a derivation:
+// OpenReviewRound stamps the review task on every round it opens, so the round → task mapping the
+// signal router needs is already data (controller ruling 2).
+//
+// Its ONE caller is the comment-status mirror signal (SetTaskCommentStatus), and it earns its
+// name there: the signal must be addressed by the round that HOLDS the comment, not by the task
+// the caller named, because a reviewer resolves at the current gate a comment filed at a previous
+// one and the router forwards by TaskID. (Fix round 1 deleted this function when the mirror was
+// measured out of existence; fix round 2's held autogate put the mirror — and it — back.)
+func taskOfRound(r projectstate.ReviewRound) string { return string(r.TaskID) }
+
+// roundOfComment finds the round whose thread holds commentID. THE COMMENT DECIDES ITS
+// ROUND, not the task the caller addressed: a reviewer resolves at the CURRENT gate a
+// comment they filed at a previous one (the design rail's own case,
+// Test_CoAuthor_ResolveComment_IsMirroredOntoTheRound), so resolving through
+// latestRoundFor would land the transition on a thread that does not hold the comment and
+// the store would answer NotFound for a comment that plainly exists.
+func roundOfComment(row projectstate.ActivityExecution, commentID string) (projectstate.ReviewRound, bool) {
+	for _, r := range row.Reviews {
+		for _, c := range r.Thread {
+			if c.ID == commentID {
+				return r, true
+			}
+		}
+	}
+	return projectstate.ReviewRound{}, false
+}
+
+// escalatedTaskOf answers WHICH TASK an operator override is about, off the attempt
+// ledger, because the override carries no task and the generic child's router DROPS a
+// signal that names none (stage 4b1 Task 12, controller ruling 2 + the Task-11 round-2
+// defect D2).
+//
+// The rule: the LAST task on the ledger whose highest-numbered attempt FAILED. That is
+// exactly the state an escalation leaves behind — dispatchConstructionOnce resolves the
+// attempt against its terminal observation BEFORE the intervention Engine is consulted, so
+// by the time the operator is asked, the failed dispatch is on the ledger and nothing has
+// superseded it. Ledger order breaks the tie a FORK can create (two branches escalated at
+// once): the most recent dispatch is the one the operator is looking at, and there is no
+// other datum to prefer — the session view carries `takeover` as its gate key, not a task.
+//
+// It answers false rather than guessing when no attempt failed, and the caller refuses with
+// FailedPrecondition naming the missing datum. A task-less signal would be silently dropped
+// by the router, which is the one outcome an operator override must never have.
+func escalatedTaskOf(row projectstate.ActivityExecution) (projectstate.MethodTask, bool) {
+	for i := len(row.Attempts) - 1; i >= 0; i-- {
+		task := row.Attempts[i].Task
+		if out, _ := latestTaskOutcome(row, task); out == projectstate.OutcomeFailed {
+			return task, true
+		}
+	}
+	return "", false
+}
+
+// judgedAttemptOfRound is the attempt id a round's own writes must cite: the
+// highest-numbered attempt at the task this round JUDGES. AppendReviewVerdict refuses an
+// empty attemptId ("a verdict that names no attempt cannot be joined back to what it
+// judged"), and the Manager — unlike the child, which holds gate.judgedAttemptID in
+// memory — has to recover it from the ledger.
+//
+// With no such attempt it cites the ROUND's own id, which is minted in the attempt-id shape
+// for the gate itself (openRound). That is honest: a round opened over a subject with no
+// recorded dispatch is judging the gate's own attempt, and citing the round is strictly
+// more useful than citing nothing the store would refuse.
+func judgedAttemptOfRound(activityID string, row projectstate.ActivityExecution, r projectstate.ReviewRound) string {
+	if _, n := latestTaskOutcome(row, r.Reviews); n > 0 {
+		return projectstate.AttemptID(activityID, r.Reviews, n)
+	}
+	return r.RoundID
+}
+
+// roundSweepDecidedBy is who the ledger records for a swept round. It is deliberately
+// not an operator and not a role: nobody decided this round, a sweep closed it.
+const roundSweepDecidedBy = "platform-sweep"
+
+// strandedRounds returns the PENDING rounds of one row that a later round on the same
+// GATE has superseded — in ledger order, so a tick's writes are deterministic.
+// A pending round that is its gate's latest is NOT stranded: it may be a live gate
+// awaiting a human.
+//
+// "Same gate" is roundGateKey: the review task AND the artifact kind. Two kinds sharing
+// one gate task are two gates here, so neither can strand the other — which is the
+// artifactKind field doing its job. This is WHY roundGateKey exists at its own arity:
+// asking roundJoinKey for a gate identity would mean synthesising a zero-Round
+// ReviewRound and relying on every call getting the same ":0" suffix, which is true by
+// accident and not by contract.
+//
+// It is a PURE function of one row (no workflow context), so the file-layout standard
+// puts it here beside roundGateKey rather than in roundsweep.go, and the sweep's tests
+// can state the rule without a Temporal environment.
+func strandedRounds(row projectstate.ActivityExecution) []projectstate.ReviewRound {
+	latest := make(map[string]int64, len(row.Reviews))
+	for _, r := range row.Reviews {
+		gate := roundGateKey(r.TaskID, r.ArtifactKind)
+		if r.Round > latest[gate] {
+			latest[gate] = r.Round
+		}
+	}
+	var out []projectstate.ReviewRound
+	for _, r := range row.Reviews {
+		if r.Outcome != projectstate.RoundPending {
+			continue
+		}
+		if r.Round < latest[roundGateKey(r.TaskID, r.ArtifactKind)] {
+			out = append(out, r)
+		}
+	}
+	return out
+}
+
+// sortedActivityIDs is the round sweep's walk order over the execution map. Map
+// iteration order in a workflow is non-determinism, not a style question: two replays
+// of the same history would issue the same writes in a different sequence and the
+// second would not match the first's recorded commands.
+func sortedActivityIDs(rows map[string]projectstate.ActivityExecution) []string {
+	return slices.Sorted(maps.Keys(rows))
 }
 
 // sendBackNotesFor is the phase's send-back notes in recorded order (append-only slice
@@ -11025,18 +9648,21 @@ func splitAtLowestRound(gate []projectstate.TaskAttempt, rounds []projectstate.R
 // revisions. The round is the record: its verdicts, its thread, its roster, its subject,
 // its number and its decision are carried verbatim, and no ordering heuristic gets a vote.
 //
-// THE JOIN TO THE ATTEMPT LEDGER IS BY FIELDS. The construction rail mints a round's id
-// with projectstate.AttemptID, so its <n> IS the gate attempt's number — but the design
-// rails mint a four-part id for the same gate, and splitting either into segments is a
-// parse nothing else in this repo does (equality is all any code asks of a round id). So
-// the attempt this round settled is found as "the gate attempt whose number is the round's
-// number", which is true on both rails and false for neither.
+// THE JOIN TO THE ATTEMPT LEDGER IS BY FIELDS, through roundJoinKey — never by splitting a
+// round id into segments, which is a parse nothing in this repo does (equality is all any
+// code asks of a round id). The construction rail mints a round's id with
+// projectstate.AttemptID, so its <n> IS the gate attempt's number, and a KINDLESS round's
+// key is exactly the kindless attempt's: that rail's join is unchanged to the byte.
 //
-// EARMARK, stage 4. That join is unique only while the design rails record NO attempts.
-// Two artifact kinds share the architecture gate and each counts its own rounds, so once
-// the design rail writes its attempt ledger, two rounds numbered 1 would both bind the one
-// attempt numbered 1. The fix belongs where the ambiguity is born — a round that names the
-// attempt it judged, as ReviewVerdict.AttemptID already does — not in a wider join here.
+// THE EARMARK THIS CLOSES (stage-3 entry criterion). The old join was the round NUMBER
+// alone, and two artifact kinds share one gate while each counts its own rounds — so two
+// rounds numbered 1 both bound the one attempt numbered 1, and a reader was shown one
+// kind's revision citing the other's evidence. The kind is now a field on the round, so a
+// round that judges an artifact keys on (task, kind, n) and cannot collide with an attempt
+// recorded without one. While the design rails record no attempt ledger (stage 3 gives
+// them one) that means a kinded round cites no attempt — which is the truth: there is none.
+// Its successor question, which attempt of a kind a round settled, is answered by the same
+// key the day attempts carry kinds too.
 //
 // A ROUND WITH NO GATE ATTEMPT IS NORMAL, not a gap. The construction rail opens the round
 // when the gate is reached and writes the gate attempt only when the round is DECIDED, so
@@ -11054,8 +9680,9 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 			Note: sendBackNote(r), Comments: threadAnchors(r.Thread),
 			StartedAt: rfc3339OrNil(r.OpenedAt), EndedAt: rfc3339OrNil(r.DecidedAt),
 		}
+		join := roundJoinKey(r)
 		for _, a := range gate {
-			if int64(a.Attempt) == r.Round {
+			if attemptGateKey(a) == join {
 				rev.AttemptIDs = []string{a.AttemptID}
 				break
 			}
@@ -11068,17 +9695,14 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 // roundOutcome renders a stored round outcome as a revision outcome. Total over the
 // vocabulary with no default arm.
 //
-// EARMARK. RoundWithdrawn — a round pulled back before anyone decided it — has no wire
-// name of its own on TaskRevisionOutcome and reads as failed: the revision did not clear
-// its gate, which is the part a reader must not be lied to about. "Failed" overstates the
-// drama (a withdrawal is deliberate, not a fault); giving it its own wire value belongs
-// with the Activity Experience screen that will render it (stage 5).
+// RoundWithdrawn has its own wire member from stage 4b1: a round pulled back before
+// anyone decided it is deliberate, and `failed` said the revision faulted. The
+// construction rail gains a withdraw verb in the same wave (spec §7.2's fifth refused
+// path), so this stopped being a design-rail-only rendering question.
 //
-// Its neighbour, same earmark: a round STRANDED pending by a run that died renders
-// `running` for as long as it is the gate's last round — and with no session there is no
-// live gate, so it never even reads awaitingHuman. Both rails state that crash window and
-// both leave it to the stage-4 sweep, which is the only thing that can know the run is
-// gone; RoundWithdrawn is the terminal it will stamp.
+// Its neighbour, the STRANDED pending round, is closed by the sweep in the same wave:
+// a pending round with no live session and a later round on the same gate is stamped
+// RoundWithdrawn rather than rendering `running` forever.
 func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 	switch o {
 	case projectstate.RoundPassed:
@@ -11086,7 +9710,7 @@ func roundOutcome(o projectstate.ReviewRoundOutcome, live bool) string {
 	case projectstate.RoundSentBack:
 		return revSentBack
 	case projectstate.RoundWithdrawn:
-		return revFailed
+		return revWithdrawn
 	case projectstate.RoundPending:
 		if live {
 			return revAwaitingHuman
@@ -11575,37 +10199,55 @@ func revisionProvenance(o projectstate.RecordOrigin) TaskRevisionProvenance {
 }
 
 // ---------------------------------------------------------------------------
-// STAGE 4a — THE TWELVE-OP DISPATCHER
+// THE ONE MANAGER — TWELVE OPS, ONE CHILD
 //
-// Everything above this banner is the three rails, moved verbatim. Everything
-// below is the ONE Manager the model now carries: the twelve contract ops, the
-// rail resolver they route on, the single worker manifest and the two Schedules.
-// 4b replaces the three rails with one generic DAG walker and these twelve
-// bodies stop being a switch.
+// Everything above this banner used to be three rails moved verbatim; stage 4b1
+// Task 13 deleted the seven per-kind workflows they drove, so what is left above
+// is the Manager-side half the generic child does not own: the catalog reads, the
+// two design slot-threads (ask / acknowledge), the two phase seals, and the
+// projections. The twelve ops below no longer route on a rail — they route on the
+// TASK's artifact kind, which is the same DATA the child's walker reads.
 // ---------------------------------------------------------------------------
 
-// deliveryManager is the ONE Manager of the Project Delivery Workflow volatility. In
-// stage 4a it is deliberately a DISPATCHER: the three rails it replaces are still here,
-// moved verbatim, and the twelve ops route onto their forty. That is the whole point of
-// splitting stage 4 — the model, the package and the wire move in one reviewable commit
-// while the choreography stays byte-for-byte what nineteen replay fixtures already pin.
-// Stage 4b replaces the three rails with one generic DAG walker and these twelve bodies
-// stop being a switch.
+// deliveryManager is the ONE Manager of the Project Delivery Workflow volatility, and
+// since stage 4b1 Task 13 it is no longer a dispatcher over three receivers: the two
+// design façades are gone and their surviving bodies are methods on this type. It holds
+// ONE inner manager (cs), whose WorkerManifest builds ONE csWorkflows — the generic DAG
+// child and the pump quartet.
 type deliveryManager struct {
-	sd *systemDesignManager
-	pd *projectDesignManager
 	cs *constructionManager
 
-	// railFor's input, held once so no op re-reads it from a rail's own field.
-	projectState projectstate.ProjectStateAccess
+	// THE MANAGER-SIDE DEPS. Every one of these is read by a body that runs OUTSIDE a
+	// workflow — the catalog reads, the two slot-thread writes, the answer-job dispatch and
+	// its episode watch, the two phase seals. The workflow-side deps are threaded into
+	// csWorkflows by the manifest and are NOT reached from here.
+	client            client.Client
+	projectState      projectstate.ProjectStateAccess
+	pipeline          agenticjob.AgenticJobAccess
+	rail              sourcecontrol.SourceControlAccess
+	repo              func(projectID ProjectID) (sourcecontrol.RepoRef, bool)
+	designSession     projectstate.DesignSessionAccess
+	activityExecution projectstate.ActivityExecutionAccess
+	episodes          episode.EpisodeAccess
+
+	// estimator + repoBase serve the folded CATALOG ops (GetProject's compute-at-read CPM +
+	// EV/SPI, and each git row's prUrl). repoBase "" omits prUrl.
+	estimator estimation.EstimationEngine
+	repoBase  string
+
+	// designHealth is the DesignHealthEngine behind the designHealth read. It is NOT a
+	// generated constructor dep: the component carries no service contract and an Engine is
+	// pure and stateless, so the builder constructs it directly rather than threading a
+	// parameter no composition root could vary. Re-classifying it is 4b2's.
+	designHealth designhealth.Engine
 }
 
 var _ DeliveryManager = (*deliveryManager)(nil)
 
 // newDeliveryManager is the hand-written builder the GENERATED NewDeliveryManager
-// delegates to. Its parameter list is the contract's `deps` list in order, and it
-// splits that union back out across the three moved rails — which is the only place
-// in this package that still knows there were three.
+// delegates to. Its parameter list is the contract's `deps` list in order and is
+// UNCHANGED by this task (R9 — dropping the deprecated facets is post-drain, 4b2); what
+// changed is that it no longer splits that union across three receivers.
 func newDeliveryManager(
 	c client.Client,
 	projectState projectstate.ProjectStateAccess,
@@ -11629,71 +10271,61 @@ func newDeliveryManager(
 	repoBase string,
 ) *deliveryManager {
 	return &deliveryManager{
-		sd: newSystemDesignManager(c, projectState, pipeline, rail, repo, estimator,
-			designSession, activityExecution, episodes, repoBase),
-		pd: newProjectDesignManager(c, projectState, pipeline, rail, estimator,
-			operationEstimator, billingEstimator, designSession, activityExecution, episodes, repo),
 		cs: newConstructionManager(c, projectState, art, interventionEng, reviewEng, pipeline,
 			rail, constructionTransition, gitStatus, designSession, activityExecution, bus,
-			episodes, escalationWaitTimeout, interventionMode, repo),
-		projectState: projectState,
+			episodes, escalationWaitTimeout, interventionMode, repo,
+			// The three estimate Engines, handed to the construction half TOO: the generic child
+			// runs on its worker and walks the projectDesign lifecycle, whose one task is a
+			// server-side computation over them.
+			sdpEngines{Estimation: estimator, OperationEst: operationEstimator, Settlement: billingEstimator}),
+		client:            c,
+		projectState:      projectState,
+		pipeline:          pipeline,
+		rail:              rail,
+		repo:              repo,
+		designSession:     designSession,
+		activityExecution: activityExecution,
+		episodes:          episodes,
+		estimator:         estimator,
+		repoBase:          repoBase,
+		designHealth:      designhealth.NewEngine(),
 	}
 }
 
-// rail names which of the three moved choreographies owns an activity. It is derived,
-// never stored: projectstate.ClassifyActivity already maps the committed activity id to
-// an ActivityType, and the design types are exactly the three the plan derivation emits
-// as activities 1-3 (requirements, architecture, projectDesign). A construction activity
-// is anything else with a committed row.
-type rail int
-
-const (
-	railUnknown rail = iota
-	railSystemDesign
-	railProjectDesign
-	railConstruction
-)
-
-// railFor reads the project once, classifies the activity, and returns both the rail
-// that owns it and the lifecycle its task ids come from.
-//
-// projectstate.ErrDesignActivityNotDispatchable is TOLERATED here: it is rule 0 of
-// ClassifyActivity and says only that the PUMP does not dispatch the activity, not that
-// it is unclassifiable — and the three activities it names are exactly the two design
-// rails' own.
-func (m *deliveryManager) railFor(rc fwmanager.Context, projectID ProjectID, activityID ActivityID) (rail, methodassets.Lifecycle, error) {
+// activityLifecycle is what is LEFT of railFor once the three rails became one child: it
+// reads the project, classifies the activity and answers the lifecycle its task ids come
+// from. The rail enum it used to return with is gone — every op that needed to know which
+// of three choreographies owned an activity now asks the TASK what artifact it is about
+// (artifactKindForTask, then phase1Kind), which is the same data the child's walker reads
+// and the only thing the split ever stood for. Its one surviving line of judgement,
+// methodassets.LifecycleFor(projectstate.LifecycleKeyFor(typ, variant)), is here.
+func (m *deliveryManager) activityLifecycle(rc fwmanager.Context, projectID ProjectID, activityID ActivityID) (methodassets.Lifecycle, error) {
 	if projectID == "" {
-		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.ContractMisuse, "empty projectId")
+		return methodassets.Lifecycle{}, newError(fwmanager.ContractMisuse, "empty projectId")
 	}
 	if activityID == "" {
-		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.ContractMisuse, "empty activityId")
+		return methodassets.Lifecycle{}, newError(fwmanager.ContractMisuse, "empty activityId")
 	}
 	id := string(activityID)
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
 	if err != nil {
-		return railUnknown, methodassets.Lifecycle{}, mapRAError(err, "projectStateAccess.ReadProject")
+		return methodassets.Lifecycle{}, mapRAError(err, "projectStateAccess.ReadProject")
 	}
 	item, ok := committedActivityItem(proj, id)
 	if !ok {
-		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.NotFound,
+		return methodassets.Lifecycle{}, newError(fwmanager.NotFound,
 			"no activity "+id+" in the committed activity list")
 	}
 	typ, variant, err := projectstate.ClassifyActivity(id, item.WorkerClass, item.Coding)
-	if err != nil && !errors.Is(err, projectstate.ErrDesignActivityNotDispatchable) {
-		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
+	if err != nil {
+		return methodassets.Lifecycle{}, newError(fwmanager.FailedPrecondition, err.Error())
 	}
 	lc, ok := methodassets.LifecycleFor(projectstate.LifecycleKeyFor(typ, variant))
 	if !ok {
-		return railUnknown, methodassets.Lifecycle{}, newError(fwmanager.Infrastructure,
+		return methodassets.Lifecycle{}, newError(fwmanager.Infrastructure,
 			"the platform's method assets carry no lifecycle for activity type "+projectstate.LifecycleKeyFor(typ, variant))
 	}
-	if typ == projectstate.ActivityTypeRequirements || typ == projectstate.ActivityTypeArchitecture {
-		return railSystemDesign, lc, nil
-	}
-	if typ == projectstate.ActivityTypeProjectDesign {
-		return railProjectDesign, lc, nil
-	}
-	return railConstruction, lc, nil
+	return lc, nil
 }
 
 // artifactKindForTask resolves a task id to the artifact the task is ABOUT. A dispatch
@@ -11741,17 +10373,6 @@ func lowerFirstRune(s string) string {
 	}
 	r := []rune(s)
 	return strings.ToLower(string(r[0])) + string(r[1:])
-}
-
-// designKindFor is the rail-scoped resolution the design ops share: it insists the task
-// names an artifact, and names the op in the misuse when it does not.
-func designKindFor(lc methodassets.Lifecycle, taskID, op string) (ArtifactKind, error) {
-	kind, ok := artifactKindForTask(lc, taskID)
-	if !ok {
-		return 0, newError(fwmanager.ContractMisuse,
-			"deliveryManager."+op+": task "+taskID+" names no artifact in this activity's lifecycle")
-	}
-	return kind, nil
 }
 
 // phase1Kind reports whether an artifact kind belongs to Phase 1 (KindMission …
@@ -11822,7 +10443,7 @@ func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, n
 		if name == "" {
 			return out, newError(fwmanager.ContractMisuse, "deliveryManager.StartProject: a new project needs a name")
 		}
-		created, err := m.sd.CreateProject(rc, owner, name)
+		created, err := m.CreateProject(rc, owner, name)
 		if err != nil {
 			return out, err
 		}
@@ -11832,28 +10453,28 @@ func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, n
 	}
 	out.ProjectID = id
 	if model != nil {
-		v, err := m.sd.SetOperatingModel(rc, id, *model)
+		v, err := m.SetOperatingModel(rc, id, *model)
 		if err != nil {
 			return out, err
 		}
 		out.Version = v
 	}
 	if research != nil {
-		v, err := m.sd.SetResearchInput(rc, id, *research)
+		v, err := m.SetResearchInput(rc, id, *research)
 		if err != nil {
 			return out, err
 		}
 		out.Version = v
 	}
 	if out.Version == 0 {
-		st, err := m.sd.GetProject(rc, id)
+		st, err := m.GetProject(rc, id)
 		if err != nil {
 			return out, err
 		}
 		out.Version = Version(st.Version)
 	}
 	if start {
-		ref, err := m.sd.StartSystemDesign(rc, id)
+		ref, err := m.startSystemDesign(rc, id)
 		if err != nil {
 			return out, err
 		}
@@ -11861,6 +10482,70 @@ func (m *deliveryManager) StartProject(rc fwmanager.Context, owner OwnerScope, n
 	}
 	return out, nil
 }
+
+// startSystemDesign is the brand-new-project BOOTSTRAP, and since stage 4b1 Task 13 it
+// starts the GENERIC CHILD for the reserved `requirements` activity rather than the
+// retired SystemDesignPhaseWorkflow.
+//
+// WHY THE CHILD AND NOT THE PUMP. The pump selects from the COMMITTED activity list, and a
+// brand-new project has none — slot 9 is written by M0, which is three activities away. The
+// three design activities are RESERVED ids the derived plan always emits
+// (requirements → architecture → projectDesign), so the bootstrap can name the first one
+// without a plan; from its exit onward the pump's own eligibility (slot 10's
+// requirements → architecture edge plus each child's dependsOn walk) carries the project.
+//
+// The pre-condition is unchanged: the project exists and its ResearchInput slot is PRESENT
+// (a brand-new project with no row fails the same precondition — research has not been set),
+// because the mission draft weaves the research into its prompt and a session started without
+// it drafts from nothing.
+//
+// The id reuse policy is unchanged too, and for the same reason it was pinned before: a
+// RUNNING activity is reused (idempotent start) and a CLOSED one is RESTARTED as a fresh run,
+// which the child's own skip-if-committed seed makes safe — it marks every task whose slot is
+// already committed passed and resumes at the first open one.
+func (m *deliveryManager) startSystemDesign(rc fwmanager.Context, projectID ProjectID) (SessionRef, error) {
+	ctx := rc.Context
+	if projectID == "" {
+		return "", newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
+	if err != nil {
+		if isResearchReadNotFound(err) {
+			return "", newError(fwmanager.FailedPrecondition, "research not populated (project has no state)")
+		}
+		return "", mapReadProjectError(err)
+	}
+	if proj.Research.IsZero() {
+		return "", newError(fwmanager.FailedPrecondition, "research not populated")
+	}
+	activityID := ActivityID(bootstrapDesignActivityID)
+	opts := client.StartWorkflowOptions{
+		ID:                       deliveryActivityWorkflowID(projectID, activityID),
+		TaskQueue:                TaskQueue,
+		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
+		WorkflowIDReusePolicy:    enumspb.WORKFLOW_ID_REUSE_POLICY_ALLOW_DUPLICATE,
+	}
+	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  projectID,
+		ActivityID: activityID,
+		Activity: constructionActivity{
+			ActivityID: string(activityID),
+			Kind:       activityKindConstruction,
+			Type:       projectstate.ActivityTypeRequirements,
+		},
+	})
+	if err != nil {
+		return "", mapStartError(err)
+	}
+	return newSessionRef(we.GetID()), nil
+}
+
+// bootstrapDesignActivityID is the FIRST of the three reserved design activity ids the
+// derived plan emits, and the only one the bootstrap names: the pump takes over from its
+// exit. It is a literal rather than a read of the plan because the bootstrap's whole premise
+// is that there is no committed plan yet; projectstate.ClassifyActivity resolves the same
+// three prefixes, which is what keeps this name and the plan's own agreeing.
+const bootstrapDesignActivityID = "requirements"
 
 // ---- op 2: ExecuteNextActivity ---------------------------------------------
 
@@ -11877,131 +10562,125 @@ func (m *deliveryManager) ExecuteNextActivity(rc fwmanager.Context, projectID Pr
 
 // ---- op 3: DispatchActivityTask --------------------------------------------
 
-// DispatchActivityTask asks for one task of one activity to be produced. On the two
-// design rails that is the artifact draft (or re-draft, when feedback rides along); on
-// the projectDesign rail's single M0 gate it is the SDP assembly. The construction rail
-// has no run/re-run op before stage 4b — a send-back re-dispatches its task from inside
-// the activity's own workflow — so it answers FailedPrecondition rather than pretending.
+// DispatchActivityTask asks for one task of one activity to be produced. Since stage 4b1
+// Task 13 that is ONE call for every activity in the product: a `redraft` signal to the
+// activity's live generic child carrying the TASK id, which the child's gate turns into a
+// new attempt at revision n+1 — the same thing a send-back does, asked for directly.
+//
+// The three per-rail doors it replaces each signalled a workflow that no longer exists
+// (RequestArtifactDraft's signal-with-start on {projectId}:{artifactKind}, and
+// RequestSDPCommit's start of the SDP assembly). The lifecycle is still resolved, and
+// deliberately: it is what makes an unknown activity a NotFound and an unclassifiable one a
+// FailedPrecondition here, rather than a signal to an id nothing is running.
 func (m *deliveryManager) DispatchActivityTask(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, feedback *ReviewFeedback) (SessionRef, error) {
 	if err := requireActivityTask(projectID, activityID, taskID); err != nil {
 		return "", err
 	}
-	r, lc, err := m.railFor(rc, projectID, activityID)
+	lc, err := m.activityLifecycle(rc, projectID, activityID)
 	if err != nil {
 		return "", err
 	}
-	switch r {
-	case railSystemDesign:
-		kind, err := designKindFor(lc, taskID, "DispatchActivityTask")
-		if err != nil {
-			return "", err
-		}
-		return m.sd.RequestArtifactDraft(rc, projectID, kind, feedback)
-	case railProjectDesign:
-		if taskID == sdpReviewTaskID {
-			return m.pd.RequestSDPCommit(rc, projectID)
-		}
-		kind, err := designKindFor(lc, taskID, "DispatchActivityTask")
-		if err != nil {
-			return "", err
-		}
-		return m.pd.RequestArtifactDraft(rc, projectID, kind, feedback)
-	case railConstruction:
-		return "", newError(fwmanager.FailedPrecondition,
-			"deliveryManager.DispatchActivityTask: construction run/re-run has no op before stage 4b — a send-back re-dispatches the task")
-	case railUnknown:
-		return "", newError(fwmanager.FailedPrecondition, "deliveryManager.DispatchActivityTask: the activity has no rail")
+	if _, ok := lifecycleTaskByID(lc, taskID); !ok {
+		return "", newError(fwmanager.ContractMisuse,
+			"deliveryManager.DispatchActivityTask: task "+taskID+" is not in activity "+string(activityID)+"'s lifecycle")
 	}
-	return "", newError(fwmanager.FailedPrecondition, "deliveryManager.DispatchActivityTask: the activity has no rail")
+	return m.cs.RedraftTask(rc, projectID, activityID, taskID, feedback)
 }
 
 // ---- op 4: SubmitReviewDecision --------------------------------------------
 
-// SubmitReviewDecision is the single write behind every gate in the product. It routes
-// the decision onto whichever of the nine writers the rail and the decision name.
+// SubmitReviewDecision is the single write behind every gate in the product, and since
+// stage 4b1 Task 13 four of its five members are ONE writer for every rail: the generic
+// child's gate ledger. Only `advance` still splits, because advancing a PHASE is a
+// project-level transition and a construction activity has none — its gates advance its own
+// task DAG.
+//
+// THE DEFECT THIS CLOSES, stated because it was live for four tasks: the two design arms
+// signalled the retired per-kind co-author id and the M0 approve signalled the retired SDP
+// assembly, and the pump stopped starting either of those workflows in Task 10. Every design
+// gate — the M0 approve included — was therefore UNANSWERABLE: the signal went to an id
+// nothing was running and the founder's decision vanished with a success.
 func (m *deliveryManager) SubmitReviewDecision(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
 	if err := requireActivityTask(projectID, activityID, taskID); err != nil {
 		return err
 	}
-	r, lc, err := m.railFor(rc, projectID, activityID)
+	lc, err := m.activityLifecycle(rc, projectID, activityID)
 	if err != nil {
 		return err
 	}
-	switch r {
-	case railSystemDesign:
-		return m.submitSystemDesignDecision(rc, projectID, lc, taskID, decision, feedback)
-	case railProjectDesign:
-		return m.submitProjectDesignDecision(rc, projectID, lc, taskID, decision, feedback)
-	case railConstruction:
-		return m.submitConstructionDecision(rc, projectID, activityID, taskID, decision, feedback)
-	case railUnknown:
-		return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: the activity has no rail")
-	}
-	return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: the activity has no rail")
-}
-
-func (m *deliveryManager) submitSystemDesignDecision(rc fwmanager.Context, projectID ProjectID, lc methodassets.Lifecycle, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
 	if decision.Decision == ReviewAdvance {
-		// The gating outcome is readable through QueryProjectView(summary); the
-		// PhaseAdvanceResult is not part of the twelve-op surface.
-		_, err := m.sd.AdvancePhase(rc, projectID, deliveryDerefBool(decision.AcknowledgeStale))
-		return err
+		return m.advancePhaseForTask(rc, projectID, lc, taskID, deliveryDerefBool(decision.AcknowledgeStale))
 	}
-	kind, err := designKindFor(lc, taskID, "SubmitReviewDecision")
-	if err != nil {
-		return err
+	// M0 HAS NO SEND-BACK (spec §6; stage 4b1 Task 9). The typed refusal lives HERE, at the
+	// façade, because this is the one place the founder's decision arrives and therefore the
+	// only place a refusal can be shown to them: the SPA has refused it since stage 5
+	// (NO_SDP_SEND_BACK) and the server gives the SAME reason, so the screen and the API
+	// cannot disagree about why. The generic child's gate refuses it a second time, for a
+	// signal that arrives past this guard.
+	//
+	// Why a refusal and not an absorbed rejection: the plan is DERIVED. There is no draft to
+	// re-run and no judged task to re-open, so a send-back has nothing to act on — it would
+	// withdraw the round and strand the activity. Changing the plan means amending the
+	// Architecture, which recomputes it.
+	if taskID == sdpReviewTaskID && decision.Decision == ReviewReject {
+		return newError(fwmanager.FailedPrecondition, "deliveryManager.SubmitReviewDecision: "+noSendBackAtM0)
 	}
-	if decision.Decision == ReviewSetCommentStatus {
-		return m.sd.SetReviewCommentStatus(rc, projectID, kind, deliveryDerefString(decision.CommentID), deliveryDerefString(decision.CommentStatus))
-	}
-	return m.sd.SubmitReviewDecision(rc, projectID, kind, decision.Decision, feedback)
-}
-
-func (m *deliveryManager) submitProjectDesignDecision(rc fwmanager.Context, projectID ProjectID, lc methodassets.Lifecycle, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
-	if decision.Decision == ReviewAdvance {
-		_, err := m.pd.AdvanceToConstruction(rc, projectID, deliveryDerefBool(decision.AcknowledgeStale))
-		return err
-	}
-	if taskID == sdpReviewTaskID && (decision.Decision == ReviewApprove || decision.Decision == ReviewReject) {
-		sdp := SDPCommit
-		if decision.Decision == ReviewReject {
-			sdp = SDPRejectAll
-		}
-		var opt *OptionID
-		if decision.OptionID != nil {
-			o := OptionID(*decision.OptionID)
-			opt = &o
-		}
-		return m.pd.SubmitSDPDecision(rc, projectID, sdp, opt, feedback)
-	}
-	kind, err := designKindFor(lc, taskID, "SubmitReviewDecision")
-	if err != nil {
-		return err
-	}
-	if decision.Decision == ReviewSetCommentStatus {
-		return m.pd.SetReviewCommentStatus(rc, projectID, kind, deliveryDerefString(decision.CommentID), deliveryDerefString(decision.CommentStatus))
-	}
-	return m.pd.SubmitReviewDecision(rc, projectID, kind, decision.Decision, feedback)
-}
-
-func (m *deliveryManager) submitConstructionDecision(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, decision ReviewDecisionInput, feedback *ReviewFeedback) error {
+	kind := roundKindOfTask(lc, taskID)
 	switch decision.Decision {
 	case ReviewApprove:
-		return m.cs.SubmitPhaseDecision(rc, projectID, activityID, taskID, PhaseApprove, feedback)
+		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, kind, ReviewApprove, optionIDOf(decision), feedback)
 	case ReviewReject:
-		return m.cs.SubmitPhaseDecision(rc, projectID, activityID, taskID, PhaseSendBack, feedback)
-	case ReviewDecisionUnknown, ReviewWithdraw, ReviewAdvance, ReviewSetCommentStatus:
-		return newError(fwmanager.ContractMisuse,
-			"deliveryManager.SubmitReviewDecision: the construction rail has no comment-status or withdraw verb until stage 4b")
+		return m.cs.SubmitTaskDecision(rc, projectID, activityID, taskID, kind, ReviewReject, nil, feedback)
+	case ReviewSetCommentStatus:
+		return m.cs.SetTaskCommentStatus(rc, projectID, activityID, taskID,
+			deliveryDerefString(decision.CommentID), deliveryDerefString(decision.CommentStatus))
+	case ReviewWithdraw:
+		return m.cs.WithdrawReviewRound(rc, projectID, activityID, taskID, kind)
+	case ReviewDecisionUnknown, ReviewAdvance:
+		return newError(fwmanager.ContractMisuse, "deliveryManager.SubmitReviewDecision: unknown decision")
 	}
-	return newError(fwmanager.ContractMisuse,
-		"deliveryManager.SubmitReviewDecision: the construction rail has no comment-status or withdraw verb until stage 4b")
+	return newError(fwmanager.ContractMisuse, "deliveryManager.SubmitReviewDecision: unknown decision")
+}
+
+// optionIDOf reads ReviewDecisionInput's OPTIONAL optionId as the typed OptionID the M0
+// approve carries. It is the ONE decision extra that is not a scalar the zero value already
+// means: M0's approve names WHICH of the four project-design options the founder bought, and
+// the child's gate stamps it on the round it decides.
+func optionIDOf(decision ReviewDecisionInput) *OptionID {
+	if decision.OptionID == nil {
+		return nil
+	}
+	o := OptionID(*decision.OptionID)
+	return &o
+}
+
+// advancePhaseForTask routes the `advance` decision onto the phase the TASK's artifact
+// belongs to. A task that names no artifact kind is a construction task, and that refusal is
+// not an IOU: advancing a phase is a project-level transition the design halves own.
+func (m *deliveryManager) advancePhaseForTask(rc fwmanager.Context, projectID ProjectID, lc methodassets.Lifecycle, taskID string, acknowledgeStale bool) error {
+	kind, ok := artifactKindForTask(lc, taskID)
+	if !ok {
+		return newError(fwmanager.ContractMisuse,
+			"deliveryManager.SubmitReviewDecision: a construction activity has no phase to advance — its gates advance its own task DAG")
+	}
+	// The gating outcome is readable through QueryProjectView(summary); the PhaseAdvanceResult
+	// is not part of the twelve-op surface.
+	if phase1Kind(kind) {
+		_, err := m.sealSystemDesignPhase(rc, projectID, acknowledgeStale)
+		return err
+	}
+	_, err := m.AdvanceToConstruction(rc, projectID, acknowledgeStale)
+	return err
 }
 
 // ---- op 5: AskQuestions ----------------------------------------------------
 
-// AskQuestions records anchored questions against a task's review thread and dispatches
-// the lightweight answer job to the addressed role.
+// AskQuestions records anchored questions against a task's review thread. Where the thread
+// lives is the one thing that still splits, and it splits on DATA rather than on a rail: a
+// task that names a design SLOT seeds the slot's own durable review ledger and dispatches the
+// answer job the addressed role answers in place; a task that names none is a construction
+// task, whose questions land on the activity's review ROUND (spec §5.3: an Ask is a
+// ReviewComment.type = question), which is why it needs no artifact kind at all.
 func (m *deliveryManager) AskQuestions(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, addressee string, questions []AnchoredComment) error {
 	if err := requireActivityTask(projectID, activityID, taskID); err != nil {
 		return err
@@ -12009,28 +10688,24 @@ func (m *deliveryManager) AskQuestions(rc fwmanager.Context, projectID ProjectID
 	if strings.TrimSpace(addressee) == "" {
 		return newError(fwmanager.ContractMisuse, "empty addressee")
 	}
-	r, lc, err := m.railFor(rc, projectID, activityID)
+	lc, err := m.activityLifecycle(rc, projectID, activityID)
 	if err != nil {
 		return err
 	}
-	if r == railConstruction {
-		return newError(fwmanager.ContractMisuse,
-			"deliveryManager.AskQuestions: the construction rail has no question verb until stage 4b")
+	kind, ok := artifactKindForTask(lc, taskID)
+	if !ok {
+		return m.cs.AskTaskQuestions(rc, projectID, activityID, taskID, addressee, nil, questions)
 	}
-	kind, err := designKindFor(lc, taskID, "AskQuestions")
-	if err != nil {
-		return err
+	if phase1Kind(kind) {
+		return m.askDesignQuestions(rc, projectID, kind, addressee, questions)
 	}
-	if r == railProjectDesign {
-		return m.pd.AskQuestions(rc, projectID, kind, addressee, questions)
-	}
-	return m.sd.AskQuestions(rc, projectID, kind, addressee, questions)
+	return m.askPlanQuestions(rc, projectID, kind, addressee, questions)
 }
 
 // ---- op 6: AcknowledgeStaleBasis -------------------------------------------
 
-// AcknowledgeStaleBasis records the audited "reviewed — unaffected" acknowledgement
-// that clears a committed artifact's stale-basis flag without re-opening it.
+// AcknowledgeStaleBasis records the audited "reviewed — unaffected" acknowledgement that
+// clears a committed artifact's stale-basis flag without re-opening it.
 func (m *deliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string, note string) error {
 	if err := requireActivityTask(projectID, activityID, taskID); err != nil {
 		return err
@@ -12038,22 +10713,37 @@ func (m *deliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID 
 	if strings.TrimSpace(note) == "" {
 		return newError(fwmanager.ContractMisuse, "acknowledging a stale basis requires a note")
 	}
-	r, lc, err := m.railFor(rc, projectID, activityID)
+	lc, err := m.activityLifecycle(rc, projectID, activityID)
 	if err != nil {
 		return err
 	}
-	if r == railConstruction {
-		return newError(fwmanager.ContractMisuse,
-			"deliveryManager.AcknowledgeStaleBasis: the construction rail has no stale-basis verb until stage 4b")
+	kind, ok := artifactKindForTask(lc, taskID)
+	if !ok {
+		// A CONSTRUCTION ACTIVITY HAS NO STALE BASIS TO ACKNOWLEDGE, and this refusal is
+		// SEMANTIC rather than an IOU (stage 4b1 Task 12). StaleBasis is a field on an ARTIFACT
+		// SLOT and the activity-scoped verb takes the ArtifactKind of the slot it clears; a
+		// construction task names no artifact kind in any of the fourteen lifecycles (its work
+		// products — srs, detailedDesign, construction, integration, stp — are the task's own
+		// outputs, not one of the seventeen design SLOTS, so ArtifactKindFromWireName does not
+		// resolve them and the round is kindless, which is exactly what ReviewRound.ArtifactKind's
+		// optionality means). A construction activity's outputs are a commit plus
+		// .serviceContracts/.phaseArtifacts entries, none of which carries a basis flag, so there
+		// is nothing on this activity a note could clear — and clearing the Architecture's flag
+		// from here would un-stale that slot for every OTHER activity too, which is the
+		// architect's decision on the design half and not this activity's.
+		//
+		// The SPA agrees by construction: its chip renders only where a SLOT reports staleBasis
+		// (ActivityExperienceContainer's staleSlot), so no construction screen can reach this
+		// door. If a construction activity is ever given a basis of its own, it wants a field on
+		// the row and a verb that names the activity, not this one.
+		return newError(fwmanager.FailedPrecondition,
+			"deliveryManager.AcknowledgeStaleBasis: task "+taskID+" of activity "+string(activityID)+
+				" produces no committed artifact slot, so it has no stale basis to acknowledge — a stale BASIS is a property of a design slot")
 	}
-	kind, err := designKindFor(lc, taskID, "AcknowledgeStaleBasis")
-	if err != nil {
-		return err
+	if phase1Kind(kind) {
+		return m.ackDesignStaleBasis(rc, projectID, kind, note)
 	}
-	if r == railProjectDesign {
-		return m.pd.AcknowledgeStaleBasis(rc, projectID, kind, note)
-	}
-	return m.sd.AcknowledgeStaleBasis(rc, projectID, kind, note)
+	return m.ackPlanStaleBasis(rc, projectID, kind, note)
 }
 
 // ---- op 7: SetProjectRunState ----------------------------------------------
@@ -12124,9 +10814,6 @@ func (m *deliveryManager) SetProjectExecutionPolicy(rc fwmanager.Context, projec
 // QueryProjectView is the ONE read of the twelve. Its kind selects which of the
 // thirteen former readers answers, and the query object carries the selector that kind
 // needs; a missing selector is a ContractMisuse that names it.
-//
-// GetEpisodeTimeline had three byte-identical implementations (all three read the same
-// episodeAccess); the construction one is the copy this keeps.
 func (m *deliveryManager) QueryProjectView(rc fwmanager.Context, query ProjectViewQuery) (ProjectView, error) {
 	out := ProjectView{Kind: query.Kind}
 	switch query.Kind {
@@ -12154,7 +10841,7 @@ func (m *deliveryManager) queryProjectSummary(rc fwmanager.Context, query Projec
 	if err != nil {
 		return out, err
 	}
-	st, err := m.sd.GetProject(rc, id)
+	st, err := m.GetProject(rc, id)
 	if err != nil {
 		return out, err
 	}
@@ -12167,7 +10854,7 @@ func (m *deliveryManager) queryProjectList(rc fwmanager.Context, query ProjectVi
 	if query.Owner == nil {
 		return out, missingSelector("projects", "owner")
 	}
-	list, err := m.sd.ListProjects(rc, *query.Owner)
+	list, err := m.ListProjects(rc, *query.Owner)
 	if err != nil {
 		return out, err
 	}
@@ -12195,7 +10882,7 @@ func (m *deliveryManager) queryDesignHealthView(rc fwmanager.Context, query Proj
 	if err != nil {
 		return out, err
 	}
-	dh, err := m.sd.GetDesignHealth(rc, id)
+	dh, err := m.GetDesignHealth(rc, id)
 	if err != nil {
 		return out, err
 	}
@@ -12204,6 +10891,10 @@ func (m *deliveryManager) queryDesignHealthView(rc fwmanager.Context, query Proj
 }
 
 // queryTimelineView answers the `timeline` kind: one episode's full trace.
+//
+// The three rails each carried a byte-identical GetEpisodeTimeline over the same
+// episodeAccess; this is the one copy, and stage 4b1 Task 13 deleted the two the router
+// never reached (they had been unreachable since the twelve-op surface landed).
 func (m *deliveryManager) queryTimelineView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "timeline")
 	if err != nil {
@@ -12222,6 +10913,19 @@ func (m *deliveryManager) queryTimelineView(rc fwmanager.Context, query ProjectV
 
 // querySessionView answers the `session` kind: an artifactKind selects the Phase-1 or
 // Phase-2 design session by its phase, an activityId selects the construction session.
+//
+// THE TWO DESIGN MEMBERS ARE NOW DERIVED (stage 4b1 Task 13, R-J). They used to be a
+// Temporal QUERY against the per-kind co-author workflow, with a Describe-first dance to
+// synthesize an honest terminal for a run that had closed. That workflow is gone, so there is
+// nothing to query — and nothing is lost, because the facts the view carries are durable: the
+// STAGE comes from the slot's own review status and the thread comes from the slot's ledger,
+// which is the derivation QueryActivityView already runs over .activityExecution. A committed
+// slot renders committed, a withdrawn slot withdrawn, and a slot that is neither renders the
+// honest draft-failed terminal rather than a "GENERATING" spinner nobody will ever satisfy.
+//
+// `constructionSession` still comes from the CHILD's live sessionState query, because that
+// one is genuinely held in the running workflow: the walk's current stage, its reviewer set
+// and its pipeline phase are not written to head state until they are decided.
 func (m *deliveryManager) querySessionView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "session")
 	if err != nil {
@@ -12229,14 +10933,14 @@ func (m *deliveryManager) querySessionView(rc fwmanager.Context, query ProjectVi
 	}
 	if query.ArtifactKind != nil {
 		if phase1Kind(*query.ArtifactKind) {
-			v, err := m.sd.GetSessionState(rc, id, *query.ArtifactKind)
+			v, err := m.designCompletedSessionView(rc.Context, id, *query.ArtifactKind)
 			if err != nil {
 				return out, err
 			}
 			out.Session = &v
 			return out, nil
 		}
-		v, err := m.pd.GetSessionState(rc, id, *query.ArtifactKind)
+		v, err := m.planCompletedSessionView(rc.Context, id, *query.ArtifactKind)
 		if err != nil {
 			return out, err
 		}
@@ -12261,23 +10965,14 @@ func (m *deliveryManager) querySessionView(rc fwmanager.Context, query ProjectVi
 }
 
 // queryEpisodesView answers the `episodes` kind: an artifactKind lists a design
-// artifact's episodes (Phase-1 or Phase-2 by its phase), an activityId lists a
-// construction activity's.
+// artifact's episodes, an activityId lists a construction activity's.
 func (m *deliveryManager) queryEpisodesView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "episodes")
 	if err != nil {
 		return out, err
 	}
 	if query.ArtifactKind != nil {
-		if phase1Kind(*query.ArtifactKind) {
-			recs, err := m.sd.ListEpisodesForArtifact(rc, id, *query.ArtifactKind)
-			if err != nil {
-				return out, err
-			}
-			out.Episodes = recs
-			return out, nil
-		}
-		recs, err := m.pd.ListEpisodesForArtifact(rc, id, *query.ArtifactKind)
+		recs, err := m.listArtifactEpisodes(rc, id, *query.ArtifactKind)
 		if err != nil {
 			return out, err
 		}
@@ -12319,85 +11014,22 @@ func (m *deliveryManager) QueryActivityView(rc fwmanager.Context, projectID Proj
 
 // ---- ONE worker, ONE queue -------------------------------------------------
 
-// RegisterManagerWorker registers the ONE delivery worker: eleven workflow types under
-// their EXISTING registered names (R2 — nineteen replay fixtures replay against those
-// strings) and the generated Activity set of the merged contract, all on task queue
-// "delivery".
-func RegisterManagerWorker(w worker.Worker, m DeliveryManager) {
-	impl, ok := m.(*deliveryManager)
-	if !ok {
-		panic("delivery: RegisterManagerWorker requires a *deliveryManager from NewDeliveryManager")
-	}
-	RegisterWorker(w, impl.WorkerManifest())
-}
-
-// WorkerManifest is the union of the three rails' manifests: their eleven workflow
-// entry functions under their unchanged names, one merged ActivityOptions hook, and one
-// genActivities threading every dep of the merged contract.
+// WorkerManifest is ONE manifest over ONE csWorkflows: the six surviving workflow entry
+// functions under their unchanged names, ONE ActivityOptions hook, and one genActivities
+// threading every dep of the merged contract.
+//
+// Stage 4a merged three manifests here and resolved each activity name against the three
+// rails' hooks with construction last-wins. That merge is gone with the rails, and the ONE
+// hook carries the two entries only the design hooks answered for plus the re-tuned
+// scaffold-sync preset — see deliveryActivityOptions for the measurement.
 func (m *deliveryManager) WorkerManifest() genWorkerManifest {
-	sdmf := m.sd.WorkerManifest()
-	pdmf := m.pd.WorkerManifest()
-	csmf := m.cs.WorkerManifest()
-	wfs := make([]genRegisteredWorkflow, 0, len(sdmf.Workflows)+len(pdmf.Workflows)+len(csmf.Workflows))
-	wfs = append(wfs, sdmf.Workflows...)
-	wfs = append(wfs, pdmf.Workflows...)
-	wfs = append(wfs, csmf.Workflows...)
-	return genWorkerManifest{
-		Workflows: wfs,
-		// deliveryActivityOptions resolves a name against the three hooks in rail order
-		// with CONSTRUCTION LAST-WINS, because construction's presets are the tuned ones
-		// (see the doc comment there).
-		ActivityOptions: deliveryActivityOptions(sdmf.ActivityOptions, pdmf.ActivityOptions, csmf.ActivityOptions),
-		Activities:      m.genActivities(),
-	}
-}
-
-// deliveryActivityOptions merges the three rails' per-activity option hooks. Where two
-// rails answer for the SAME generated activity name they agree in all but a handful of
-// cases; where they differ the CONSTRUCTION answer wins, because construction's presets
-// are the tuned ones (the design rails inherited the shape and never re-tuned it). The
-// divergence is earmarked for 4b, when one rail leaves one answer.
-func deliveryActivityOptions(hooks ...func(activityName string) (workflow.ActivityOptions, bool)) func(activityName string) (workflow.ActivityOptions, bool) {
-	return func(name string) (workflow.ActivityOptions, bool) {
-		var out workflow.ActivityOptions
-		found := false
-		for _, h := range hooks {
-			if h == nil {
-				continue
-			}
-			if opts, ok := h(name); ok {
-				out, found = opts, true
-			}
-		}
-		return out, found
-	}
-}
-
-// genActivities threads every dep of the merged contract into the ONE generated
-// Activity set. The three rails' own manifests each threaded their own subset; the
-// merged worker registers the union, which is what takes the registered-name golden
-// from three workers' overlapping sets to one.
-func (m *deliveryManager) genActivities() genActivities {
-	return genActivities{
-		ProjectState:           m.cs.projectState,
-		Artifact:               m.cs.artifact,
-		Pipeline:               m.cs.pipeline,
-		Rail:                   m.cs.rail,
-		ConstructionTransition: m.cs.constructionTransition,
-		GitStatus:              m.cs.gitActivityStatus,
-		Episodes:               m.cs.episodes,
-		DesignSession:          m.cs.designSession,
-		MessageBus:             m.cs.messageBus,
-		ActivityExecution:      m.cs.activityExecution,
-	}
+	return m.cs.WorkerManifest()
 }
 
 // deliveryDerefBool / deliveryDerefString read ReviewDecisionInput's OPTIONAL extras.
 // The contract marks only `decision` required — presence-only, per the 2026-08-13
 // strictness ruling — so the extras arrive as pointers and their absence is the zero
-// value the forwarded op already means by it. (The projectDesign rail already had a
-// derefString of its own, with a caller-supplied fallback; these two are the
-// dispatcher's, with the zero value baked in.)
+// value the forwarded op already means by it.
 func deliveryDerefBool(p *bool) bool {
 	if p == nil {
 		return false
@@ -12410,4 +11042,2209 @@ func deliveryDerefString(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// ===========================================================================
+// THE SDP ASSEMBLY — moved here from assemblesdpreview.go when stage 4b1 Task 13
+// deleted AssembleSDPReviewWorkflow (the retired Project-Design rail's entry).
+//
+// Everything below is PURE: the deterministic four-option assembly, the three
+// Engine calls per option, the join into an SdpReview, the recommendation and the
+// exclusion-zone rules. It is the generic child's compute:SdpReview strategy's own
+// body (Task 9 split it out as assembleSdpReviewOver so BOTH the child and the
+// retired rail could run the identical join; the rail's reader half went with the
+// workflow). It lives in deliverymanager.go rather than deliveryactivity.go because
+// not one line of it takes a workflow.Context — the file-layout rule (R-C) puts a
+// pure helper with the Manager and a context-taker with the child.
+// ===========================================================================
+
+// assembleSdpReviewOver runs the three Engines per option and joins them into the
+// SdpReview. Pure — no clock, no RNG, no I/O — unit-testable without Temporal and
+// replay-safe, and it takes its four inputs BY VALUE so a caller that derived them (the
+// generic child's compute) and a caller that read them off head-state (the retired rail)
+// run the identical join.
+//
+// It returns the per-option RiskScore ALONGSIDE the review, because slot 15 needs
+// criticality risk and activity risk SEPARATELY while an SdpOptionRow carries only the
+// composite. Keeping the whole score here is what lets riskModelFrom be a join rather than
+// a second run of the estimation Engine over the same four options.
+//
+// Iteration is projectstate.SolutionKinds() — a fixed slice — so the row order and the
+// Engine call order are deterministic; the solutions map is only ever PROBED by that
+// slice's members and never walked.
+func assembleSdpReviewOver(
+	eng sdpEngines,
+	pa projectstate.PlanningAssumptions,
+	al projectstate.ActivityList,
+	nw projectstate.Network,
+	solutions map[projectstate.ArtifactKind]*projectstate.Solution,
+	feedback string,
+) (*projectstate.SdpReview, map[projectstate.ArtifactKind]estimation.RiskScore, error) {
+	rows := make([]projectstate.SdpOptionRow, 0, len(projectstate.SolutionKinds()))
+	risks := make(map[projectstate.ArtifactKind]estimation.RiskScore, len(projectstate.SolutionKinds()))
+	for _, kind := range projectstate.SolutionKinds() {
+		sol := solutions[kind]
+		if sol == nil {
+			return nil, nil, sdpIncomplete(fwmanager.New(fwmanager.FailedPrecondition,
+				"SDP prerequisite "+kind.String()+" is not committed"))
+		}
+		opt := assembleOption(kind, pa, al, nw, *sol)
+
+		ce, eErr := eng.Estimation.EstimateForOption(fweng.Context{Context: context.Background()}, toEstimationOption(opt))
+		if eErr != nil {
+			return nil, nil, escalateEngine("estimationEngine", kind, eErr)
+		}
+		of, oErr := eng.OperationEst.EstimateForOption(
+			fweng.Context{Context: context.Background()},
+			toOperationOption(opt),
+			toOperationUsage(opt.DeclaredUsage),
+			operationestimation.InfrastructureKind(opt.InfrastructureKind),
+		)
+		if oErr != nil {
+			return nil, nil, escalateEngine("operationEstimationEngine", kind, oErr)
+		}
+		proj2, pErr := eng.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
+		if pErr != nil {
+			return nil, nil, escalateEngine("settlementEngine", kind, pErr)
+		}
+
+		risks[kind] = ce.Risk
+		rows = append(rows, projectstate.SdpOptionRow{
+			OptionID:             opt.OptionID,
+			SolutionKind:         kind,
+			DurationDays:         ce.DurationDays,
+			BuildCost:            toProjectStateMoneyFromEstimation(ce.BuildCost),
+			CompositeRisk:        ce.Risk.Composite,
+			ProjectedMonthlyCost: monthlyCostAtDeclaredLoad(of.UsageCostCurve),
+			ExpectedPerCycleNet:  toProjectStateMoney(of.CostSensitivityForecast.ExpectedPerCycleCharge),
+			RevenueSharePercent:  proj2.RevenueSharePercent,
+		})
+	}
+
+	rec, rationale := recommendOption(rows)
+	if feedback != "" {
+		rationale = rationale + " (re-assembled with architect feedback: " + feedback + ")"
+	}
+	return &projectstate.SdpReview{Options: rows, Recommendation: rec, Rationale: rationale}, risks, nil
+}
+
+// toSettlementOption converts the canonical projectstate option to the
+// settlementEngine's OWN ProjectOption snapshot at the call boundary (Option B full
+// encapsulation: the Engine redefines every domain type it uses as its own generated
+// def and imports no projectstate, so the Manager maps field-by-field here). The
+// Engine reads only the option's settlement Terms, so only OptionID + Terms cross.
+func toSettlementOption(opt projectstate.ProjectOption) billing.ProjectOption {
+	t := opt.Terms
+	return billing.ProjectOption{
+		OptionID: billing.OptionID(opt.OptionID),
+		Terms: billing.BillingTerms{
+			RevenueShare:         billing.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          billing.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             billing.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationOption converts the canonical projectstate option to the
+// operationEstimationEngine's OWN slim ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the option's settlement Terms, so only OptionID + Terms
+// cross.
+func toOperationOption(opt projectstate.ProjectOption) operationestimation.ProjectOption {
+	t := opt.Terms
+	return operationestimation.ProjectOption{
+		OptionID: operationestimation.OptionID(opt.OptionID),
+		Terms: operationestimation.SettlementTerms{
+			RevenueShare:         operationestimation.RevenueShareKind(t.RevenueShare),
+			RevenueSharePercent:  t.RevenueSharePercent,
+			ComputeCost:          operationestimation.ComputeCostKind(t.ComputeCost),
+			ComputeMarkupPercent: t.ComputeMarkupPercent,
+			Schedule:             operationestimation.ScheduleKind(t.Schedule),
+		},
+	}
+}
+
+// toOperationUsage converts the canonical declared-usage snapshot to the
+// operationEstimationEngine's OWN UsageAssumption at the call boundary. The integer
+// fields widen to int64 in the generated contract def.
+func toOperationUsage(u projectstate.UsageAssumption) operationestimation.UsageAssumption {
+	return operationestimation.UsageAssumption{
+		ExpectedDailyActiveUsers: int64(u.ExpectedDailyActiveUsers),
+		RequestsPerMinute:        u.RequestsPerMinute,
+		AvgPayloadBytes:          int64(u.AvgPayloadBytes),
+	}
+}
+
+// assembleOption builds one ProjectOption by value from the committed Phase-2 slots
+// (contract §6.3 B step 2). DETERMINISTIC — no clock, no RNG; the activity ordering
+// is preserved from the ActivityList so the Engine join replays identically.
+func assembleOption(
+	kind projectstate.ArtifactKind,
+	pa projectstate.PlanningAssumptions,
+	al projectstate.ActivityList,
+	nw projectstate.Network,
+	sol projectstate.Solution,
+) projectstate.ProjectOption {
+	onCritical := make(map[string]bool, len(nw.CriticalPath))
+	for _, name := range nw.CriticalPath {
+		onCritical[name] = true
+	}
+
+	classSet := map[string]struct{}{}
+	activities := make([]projectstate.OptionActivity, 0, len(al.Activities))
+	for _, a := range al.Activities {
+		classSet[a.WorkerClass] = struct{}{}
+		activities = append(activities, projectstate.OptionActivity{
+			ActivityID:  a.Name,
+			EffortDays:  a.EffortDays,
+			WorkerClass: a.WorkerClass,
+			// OnCriticalPath/RiskBucket are authored METADATA only — the estimationEngine
+			// computes its OWN per-option critical path + float-based risk from the network
+			// (Phase-2 rework F2/F3); it no longer trusts these fields for the math.
+			OnCriticalPath: onCritical[a.Name],
+			RiskBucket:     a.RiskBucket,
+		})
+	}
+	classes := make([]string, 0, len(classSet))
+	for c := range classSet {
+		classes = append(classes, c)
+	}
+
+	// Calendar is a SHARED planning assumption for EVERY option (Phase-2 rework F5): the
+	// per-option Solution.CalendarDaysPerWeek "cheat" (compressed silently switching 2→5
+	// d/wk) is retired. Compression now comes from a higher StaffingCap (parallelism where
+	// the network allows) + the 30% exclusion guard in recommendOption.
+	//
+	// EARMARK (F5e — deferred): the book's SECOND compression lever, "top resources" (a
+	// model-tier upgrade, e.g. junior sonnet→opus, that shortens critical-activity effort
+	// at higher $/day), is NOT modeled here — cap-based parallelism cannot shorten below
+	// the unconstrained critical path. When implemented, the compressed option would carry
+	// a per-class effort/throughput multiplier fed to the estimationEngine.
+	return projectstate.ProjectOption{
+		OptionID:     projectstate.OptionID(kind.String()),
+		SolutionKind: kind,
+		Network:      projectstate.ActivityNetwork{Activities: activities},
+		// AI-derived per-class $/day rates (Phase-2 rework F11) — not the old flat human rates.
+		WorkerMix:           projectstate.WorkerMix{ClassRates: deriveClassRates(pa, classes), StaffingCap: sol.StaffingCap},
+		CalendarDaysPerWeek: pa.CalendarDaysPerWeek,
+		Terms:               pa.Terms,
+		DeclaredUsage:       pa.DeclaredUsage,
+		InfrastructureKind:  pa.InfrastructureKind,
+		Dependencies:        nw.Dependencies,
+		Milestones:          nw.Milestones,
+		IndirectDailyRate:   indirectDailyRateOf(pa),
+		BufferDays:          sol.BufferDays,
+		// Top-resource compression lever (F5e): >1 for the compressed option, which speeds
+		// up its critical path (shorter + riskier) at a convex cost premium in the engine.
+		CriticalSpeedup: sol.CriticalSpeedup,
+	}
+}
+
+// monthlyCostAtDeclaredLoad picks the UsageCostCurve point nearest LoadMultiplier==1.0
+// (the declared-usage point). Deterministic.
+func monthlyCostAtDeclaredLoad(curve operationestimation.UsageCostCurve) projectstate.Money {
+	best := operationestimation.Money{}
+	bestDist := math.MaxFloat64
+	for _, p := range curve.Points {
+		d := math.Abs(p.LoadMultiplier - 1.0)
+		if d < bestDist {
+			bestDist = d
+			best = p.ProjectedMonthlyCost
+		}
+	}
+	// Convert the Engine's OWN Money back to the canonical projectstate.Money at the
+	// boundary (Option B full encapsulation).
+	return toProjectStateMoney(best)
+}
+
+// toProjectStateMoney converts the operationEstimationEngine's OWN Money back to the
+// canonical projectstate.Money at the call boundary (Option B full encapsulation).
+func toProjectStateMoney(m operationestimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+}
+
+// toEstimationOption converts the canonical projectstate option to the
+// estimationEngine's OWN SLIM ProjectOption snapshot at the call boundary
+// (Option B full encapsulation: the Engine redefines every domain type it uses as its
+// own generated def and imports no projectstate, so the Manager maps field-by-field
+// here). The Engine reads only the construction-side network + worker mix + calendar,
+// so only those (plus OptionID for audit) cross — the settlement Terms / declared usage
+// / infra / solution kind do NOT. The generated WorkerMix.StaffingCap + OptionActivity.
+// RiskBucket widen int → int64.
+func toEstimationOption(opt projectstate.ProjectOption) estimation.ProjectOption {
+	activities := make([]estimation.OptionActivity, 0, len(opt.Network.Activities))
+	for _, a := range opt.Network.Activities {
+		activities = append(activities, estimation.OptionActivity{
+			ActivityId:     a.ActivityID,
+			EffortDays:     a.EffortDays,
+			WorkerClass:    a.WorkerClass,
+			OnCriticalPath: a.OnCriticalPath,
+			RiskBucket:     int64(a.RiskBucket),
+		})
+	}
+	rates := make(map[string]estimation.Money, len(opt.WorkerMix.ClassRates))
+	for cls, m := range opt.WorkerMix.ClassRates {
+		rates[cls] = estimation.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+	}
+	deps := make([]estimation.NetworkDependency, 0, len(opt.Dependencies))
+	for _, d := range opt.Dependencies {
+		deps = append(deps, estimation.NetworkDependency{Activity: d.Activity, DependsOn: d.DependsOn})
+	}
+	milestones := make([]estimation.NetworkMilestone, 0, len(opt.Milestones))
+	for _, m := range opt.Milestones {
+		milestones = append(milestones, estimation.NetworkMilestone{Id: m.ID, DependsOn: m.DependsOn})
+	}
+	return estimation.ProjectOption{
+		OptionId:            estimation.OptionID(opt.OptionID),
+		Network:             estimation.ActivityNetwork{Activities: activities, Dependencies: deps, Milestones: milestones},
+		WorkerMix:           estimation.WorkerMix{ClassRates: rates, StaffingCap: int64(opt.WorkerMix.StaffingCap)},
+		CalendarDaysPerWeek: opt.CalendarDaysPerWeek,
+		IndirectDailyRate:   estimation.Money{MinorUnits: opt.IndirectDailyRate.MinorUnits, Currency: opt.IndirectDailyRate.Currency},
+		BufferDays:          opt.BufferDays,
+		CriticalSpeedup:     opt.CriticalSpeedup,
+	}
+}
+
+// toProjectStateMoneyFromEstimation converts the estimationEngine's OWN
+// Money back to the canonical projectstate.Money at the call boundary (Option B full
+// encapsulation).
+func toProjectStateMoneyFromEstimation(m estimation.Money) projectstate.Money {
+	return projectstate.Money{MinorUnits: m.MinorUnits, Currency: m.Currency}
+}
+
+// Exclusion-zone bounds (App C §4.7g–i; the-method-risk-modeling Step 5). Options with
+// composite risk above tooRisky or below overSafe are OUT; a compressed option more than
+// maxCompression shorter than normal is OUT (death-zone proximity / >30% rule, F8).
+const (
+	riskTooRisky   = 0.75
+	riskOverSafe   = 0.30
+	maxCompression = 0.30
+)
+
+// recommendOption applies the App C exclusion zones across the option rows, then picks the
+// best IN-band option (lowest CompositeRisk, tie-break lowest DurationDays) — this is the
+// cost-risk sweet spot the book expects to land on the decompressed-normal (F8). If every
+// option is out of band it falls back to the lowest-risk row so the recommendation is never
+// empty (management still needs a pointer, with the caveat in the rationale).
+func recommendOption(rows []projectstate.SdpOptionRow) (projectstate.OptionID, string) {
+	if len(rows) == 0 {
+		return "", "no options assembled"
+	}
+	normalDur := 0.0
+	for _, r := range rows {
+		if r.SolutionKind == projectstate.KindNormalSolution {
+			normalDur = r.DurationDays
+		}
+	}
+	included := func(r projectstate.SdpOptionRow) bool { return sdpOptionInBand(r, normalDur) }
+	if best, ok := pickBestSdpOption(rows, included); ok {
+		return best.OptionID, fmt.Sprintf(
+			"recommend %s: lowest in-band composite risk (%.3f) at %.1f days (App C risk-crossover exclusions applied)",
+			best.OptionID, best.CompositeRisk, best.DurationDays)
+	}
+	best, _ := pickBestSdpOption(rows, func(projectstate.SdpOptionRow) bool { return true })
+	return best.OptionID, fmt.Sprintf(
+		"recommend %s: ALL options fell outside the App C risk band [%.2f,%.2f]; picked lowest composite risk (%.3f) — review before committing",
+		best.OptionID, riskOverSafe, riskTooRisky, best.CompositeRisk)
+}
+
+// sdpOptionInBand applies the App C exclusion zones to one row: composite risk outside
+// [overSafe, tooRisky] is OUT, and a row compressed more than maxCompression below the
+// normal option's duration is OUT (death-zone proximity / >30% rule, F8). normalDur==0
+// (no normal row assembled) skips the compression bound — only the risk band applies.
+func sdpOptionInBand(r projectstate.SdpOptionRow, normalDur float64) bool {
+	if r.CompositeRisk > riskTooRisky || r.CompositeRisk < riskOverSafe {
+		return false
+	}
+	if normalDur > 0 && r.DurationDays < normalDur {
+		if (normalDur-r.DurationDays)/normalDur > maxCompression {
+			return false
+		}
+	}
+	return true
+}
+
+// pickBestSdpOption returns the pred-matching row with the lowest CompositeRisk,
+// tie-broken by lowest DurationDays — the cost-risk sweet spot ordering recommendOption
+// ranks by. found=false when no row matches pred.
+func pickBestSdpOption(rows []projectstate.SdpOptionRow, pred func(projectstate.SdpOptionRow) bool) (projectstate.SdpOptionRow, bool) {
+	var best projectstate.SdpOptionRow
+	found := false
+	for _, r := range rows {
+		if !pred(r) {
+			continue
+		}
+		if !found || r.CompositeRisk < best.CompositeRisk ||
+			(r.CompositeRisk == best.CompositeRisk && r.DurationDays < best.DurationDays) {
+			best = r
+			found = true
+		}
+	}
+	return best, found
+}
+
+// sdpIncomplete wraps a missing-prerequisite error as a non-retryable terminal.
+func sdpIncomplete(cause error) error {
+	return temporal.NewNonRetryableApplicationError(
+		"sdp inputs incomplete: "+cause.Error(), "SDPInputsIncomplete", cause)
+}
+
+// escalateEngine wraps an Engine error as a non-retryable terminal (the option was
+// mis-assembled or an engine invariant broke — neither is retryable).
+func escalateEngine(engineName string, kind projectstate.ArtifactKind, cause error) error {
+	return temporal.NewNonRetryableApplicationError(
+		fmt.Sprintf("%s failed for option %s: %s", engineName, kind, cause.Error()),
+		"SDPEngineError", cause)
+}
+
+// committedModel returns the committed typed model in the slot named by kind, or a
+// FailedPrecondition error if the slot is not committed / not populated.
+func committedModel(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.ArtifactModel, error) {
+	slot := pdSlotFor(proj, kind)
+	if slot.Status != projectstate.ReviewCommitted || slot.Model == nil {
+		return nil, fwmanager.New(fwmanager.FailedPrecondition,
+			fmt.Sprintf("SDP prerequisite %s is not committed", kind))
+	}
+	return slot.Model, nil
+}
+
+func committedPlanningAssumptions(proj projectstate.Project) (projectstate.PlanningAssumptions, error) {
+	m, err := committedModel(proj, projectstate.KindPlanningAssumptions)
+	if err != nil {
+		return projectstate.PlanningAssumptions{}, err
+	}
+	pa, ok := m.(*projectstate.PlanningAssumptions)
+	if !ok {
+		return projectstate.PlanningAssumptions{}, wrongModelType(projectstate.KindPlanningAssumptions, m)
+	}
+	return *pa, nil
+}
+
+func committedNetwork(proj projectstate.Project) (projectstate.Network, error) {
+	m, err := committedModel(proj, projectstate.KindNetwork)
+	if err != nil {
+		return projectstate.Network{}, err
+	}
+	nw, ok := m.(*projectstate.Network)
+	if !ok {
+		return projectstate.Network{}, wrongModelType(projectstate.KindNetwork, m)
+	}
+	return *nw, nil
+}
+
+func committedSolution(proj projectstate.Project, kind projectstate.ArtifactKind) (projectstate.Solution, error) {
+	m, err := committedModel(proj, kind)
+	if err != nil {
+		return projectstate.Solution{}, err
+	}
+	sol, ok := m.(*projectstate.Solution)
+	if !ok {
+		return projectstate.Solution{}, wrongModelType(kind, m)
+	}
+	return *sol, nil
+}
+
+func wrongModelType(want projectstate.ArtifactKind, got projectstate.ArtifactModel) error {
+	gotKind := "nil"
+	if got != nil {
+		gotKind = got.Kind().String()
+	}
+	return fwmanager.New(fwmanager.ContractMisuse,
+		fmt.Sprintf("expected a %s model, got %s", want, gotKind))
+}
+
+// airates.go derives each project option's per-worker-class build-cost rate from the AI
+// rate card (Phase-2 estimation rework F11). Team members are AI AGENTS, not humans, so
+// the old flat $800/$500 human day-rates are gone: an agent's cost is the LLM inference
+// it burns per agent-day = expected tokens × the Claude API price for the model that
+// agent runs.
+//
+//	rate($/day) = MegatokensInPerDay × price_in + MegatokensOutPerDay × price_out
+//
+// The role→model mapping is the source-of-truth agent roster in .claude/agents/*.md
+// frontmatter (F11c). Phantom worker classes that map to no agent (architect,
+// devops-agent, web-engineer-agent) are intentionally absent (F11d).
+//
+// Pure + deterministic (no clock, no RNG, no I/O) so the SDP assembly stays replay-safe.
+
+// modelPrice is the Claude API price for one model, in USD MINOR UNITS (cents) per
+// megatoken (MTok). Source: Anthropic price list (F11b) — fable $10/$50, opus $5/$25,
+// sonnet $3/$15, haiku $1/$5 per MTok in/out.
+type modelPrice struct {
+	inCentsPerMTok  float64
+	outCentsPerMTok float64
+}
+
+// apiPricing is the per-model Claude API price list, keyed by the frontmatter model id.
+var apiPricing = map[string]modelPrice{
+	"fable":  {inCentsPerMTok: 1000, outCentsPerMTok: 5000}, // $10 in / $50 out
+	"opus":   {inCentsPerMTok: 500, outCentsPerMTok: 2500},  // $5 in / $25 out
+	"sonnet": {inCentsPerMTok: 300, outCentsPerMTok: 1500},  // $3 in / $15 out
+	"haiku":  {inCentsPerMTok: 100, outCentsPerMTok: 500},   // $1 in / $5 out
+}
+
+// priceFamily normalizes a model id to its apiPricing family key. The rate card's
+// modelId is authored as a FULL API id ("claude-opus-4-8", "claude-haiku-4-5-20251001")
+// while apiPricing is keyed by short family names — the exact-key lookup silently
+// priced EVERY full id as sonnet (found live on gtdapp 2026-07-11: the opus architect
+// class costed at sonnet rates). Substring match on the lowercased id; unknown ids
+// keep the documented sonnet fallback via the caller's miss branch.
+func priceFamily(modelID string) string {
+	id := strings.ToLower(modelID)
+	for _, fam := range [...]string{"fable", "opus", "sonnet", "haiku"} {
+		if strings.Contains(id, fam) {
+			return fam
+		}
+	}
+	return id
+}
+
+// roleModel maps each worker CLASS (agent role) to the model it runs (F11c), taken
+// verbatim from .claude/agents/*.md frontmatter. The phantom classes (architect,
+// devops-agent, web-engineer-agent) are deliberately NOT here.
+var roleModel = map[string]string{
+	"system-architect": "fable",
+	"project-manager":  "fable",
+	"senior-developer": "opus",
+	"product-manager":  "opus",
+	"ui-designer":      "opus",
+	"junior-developer": "sonnet",
+	"qa-engineer":      "sonnet",
+	"test-engineer":    "sonnet",
+	"software-tester":  "sonnet",
+	"ux-reviewer":      "sonnet",
+}
+
+// Default token throughput per agent-day (F11a). Kept uniform across classes so the cost
+// SPREAD between classes comes purely from the model tier (fable roles are the most
+// expensive per day, sonnet roles the cheapest). Tunable per-class via
+// PlanningAssumptions.RateCard once the state pass authors it.
+const (
+	defaultMTokInPerDay  = 2.0 // ~2M input tokens / agent-day (context + tool results)
+	defaultMTokOutPerDay = 0.5 // ~0.5M output tokens / agent-day (generated code + notes)
+)
+
+// defaultModelForClass returns the model a class runs, defaulting an UNKNOWN class (e.g.
+// a stale "architect" fixture) to sonnet so rate derivation never fails a valid option.
+func defaultModelForClass(class string) string {
+	if m, ok := roleModel[class]; ok {
+		return m
+	}
+	return "sonnet"
+}
+
+// defaultRateSpec returns the default AI rate spec for a class (uniform throughput on the
+// class's mapped model).
+func defaultRateSpec(class string) projectstate.WorkerRateSpec {
+	return projectstate.WorkerRateSpec{
+		ModelID:             defaultModelForClass(class),
+		MegatokensInPerDay:  defaultMTokInPerDay,
+		MegatokensOutPerDay: defaultMTokOutPerDay,
+	}
+}
+
+// deriveClassRates computes the per-day build-cost rate for every worker class used by
+// the option (F11b). It prefers the authored PlanningAssumptions.RateCard entry, falling
+// back to the documented default spec for any class the card omits, so an option always
+// assembles even before the state pass authors the card. Deterministic: the output map
+// is keyed by class; iteration order is irrelevant.
+func deriveClassRates(pa projectstate.PlanningAssumptions, classes []string) map[string]projectstate.Money {
+	rates := make(map[string]projectstate.Money, len(classes))
+	for _, class := range classes {
+		spec, ok := pa.RateCard[class]
+		if !ok || spec.ModelID == "" {
+			spec = defaultRateSpec(class)
+		}
+		rates[class] = rateForSpec(spec)
+	}
+	return rates
+}
+
+// rateForSpec turns a rate spec into a USD/day Money via the Claude API price list. An
+// unknown model id falls back to sonnet pricing (never panics). Deterministic integer
+// truncation (no rounding-mode ambiguity) matches the estimationEngine's cost math.
+func rateForSpec(spec projectstate.WorkerRateSpec) projectstate.Money {
+	price, ok := apiPricing[priceFamily(spec.ModelID)]
+	if !ok {
+		price = apiPricing["sonnet"]
+	}
+	cents := spec.MegatokensInPerDay*price.inCentsPerMTok + spec.MegatokensOutPerDay*price.outCentsPerMTok
+	return projectstate.Money{MinorUnits: int64(cents), Currency: "USD"}
+}
+
+// defaultIndirectDailyRate is the overhead burn per calendar day used when
+// PlanningAssumptions.IndirectDailyRate is unset (F6). $50/day (5000 cents USD) — the
+// platform/orchestration overhead that accrues over the schedule regardless of which
+// agents are active. Makes a longer (subcritical) option demonstrably costlier.
+var defaultIndirectDailyRate = projectstate.Money{MinorUnits: 5000, Currency: "USD"}
+
+// indirectDailyRateOf returns the authored indirect rate, or the documented default when
+// unset.
+func indirectDailyRateOf(pa projectstate.PlanningAssumptions) projectstate.Money {
+	if pa.IndirectDailyRate.MinorUnits != 0 || pa.IndirectDailyRate.Currency != "" {
+		return pa.IndirectDailyRate
+	}
+	return defaultIndirectDailyRate
+}
+
+// ===========================================================================
+// THE CONSTRUCTION SPINE'S SURVIVING PURE HALF — moved here from
+// constructactivity.go with the deletion of ConstructActivityWorkflow. Nothing
+// below takes a workflow.Context, which is the file-layout rule (R-C) that split
+// the move in two: a context-taker goes to deliveryactivity.go beside the child,
+// a pure helper goes here beside the Manager.
+//
+// isGitLocalVenue is in this half, and it matters: R6's SINGLE recognition point
+// for the deterministic local venue, called from railLifecycleEnabled OUTSIDE the
+// file it used to live in. constructRepoTarget is here for the same reason — since
+// Task 10 it is the venue resolver for BOTH the design and the construction
+// dispatch, not one rail's.
+// ===========================================================================
+// pipelineSpec is the Manager's infrastructure-neutral dispatch spec.
+type pipelineSpec struct {
+	ProjectID   ProjectID
+	ActivityID  string
+	ComponentID string
+	RepoURL     string
+	Ref         string
+	// Phase is the ActivityMethodPhase.String() for the current activity phase — which is the
+	// SAME wire string a lifecycle phase's id carries, so the generic child passes its
+	// tc.Phase.ID here unconverted.
+	Phase string
+	// Command is the slash command this dispatch runs, when the CALLER already holds it. The
+	// generic child does: it is the lifecycle task's own `command` field (stage 4b1 Task 11).
+	// Empty means "re-derive it from Type/Variant/Phase", which is the retired flat walk, and
+	// dispatchInputsFor is where that fallback lives.
+	Command string
+	// Type/Variant are the activity's classification, COPIED from the dispatched
+	// constructionActivity (classified once by the pump) rather than re-derived from
+	// the id here. dispatchInputsFor resolves the slash command from this pair, so the
+	// command is by construction drawn from the same pair the phase profile came from.
+	Type    projectstate.ActivityType
+	Variant projectstate.TestingVariant
+	// OperatorNote is the rendered block of the operator notes this agent dispatch carries
+	// (renderOperatorNotes, plan B1.4); empty when none is pending.
+	OperatorNote string
+}
+
+// csPipelineObservation is the Manager's neutral pipeline observation.
+type csPipelineObservation struct {
+	Phase      PipelinePhase
+	Diagnostic string
+	// RunURL is the dispatched run's URL when the bound agenticJobAccess realisation
+	// resolved one. It is carried for ONE reason here (construction has no run-link
+	// view): it is the only VENUE signal a workflow ever sees — the GitHub-Actions arm
+	// stamps the run's html URL on every observation, while the local executor and the
+	// dry-run stub never set it. See episodeVenueIsRemote.
+	RunURL string
+	// Episode is the terminal run's captured agentic-episode summary (SP1 capture-seam):
+	// the tokens/turns/tools the dispatched agent actually burned. Nil on every
+	// non-terminal observation, on the GitHub-Actions arm (which mines no episode in
+	// v1), on a non-agentic job (the local merge job spawns no agent), and — legitimately
+	// — on a CANCELLED run's FIRST terminal observation, whose summary lands only once
+	// the subprocess has unwound (see awaitLateEpisode).
+	Episode *agenticjob.EpisodeSummary
+}
+
+// constructWorkflowFileName is the per-project CONSTRUCTION workflow file the agentic
+// construction job dispatches into (the gh-mode venue switch, B5). It rides on the
+// contract PipelineSpec.WorkflowFile alongside the per-project TargetRepo; the RA's
+// resolveTarget falls back to the configured central construction workflow file when
+// this (and TargetRepo) is zero. The scaffold seats this file in every app repo (B4);
+// archistrator's own repo keeps its hand-maintained copy (self-hosting divergence).
+const constructWorkflowFileName = "aiarch-construct.yml"
+
+// constructRepoTarget resolves the per-project construction venue: it runs the injected
+// Repo resolver and DECODES the opaque RepoRef into the RA's infrastructure-neutral
+// RepoTarget{Owner,Name} + the construct workflow file. A nil/unresolving resolver
+// yields a ZERO RepoTarget + empty workflow file, so submitPipeline leaves the contract
+// fields zero and the RA falls back to the configured central construction repo (the
+// pre-B5 legacy behavior, preserved for unresolvable projects). A malformed RepoRef
+// surfaces the RA's ContractMisuse — decoded via sourcecontrol's own OwnerRepo accessor
+// so the RepoRef encoding stays owned by sourceControlAccess (no encoding leak here).
+func (wf *csWorkflows) constructRepoTarget(projectID ProjectID) (agenticjob.RepoTarget, string, error) {
+	if wf.Repo == nil {
+		return agenticjob.RepoTarget{}, "", nil
+	}
+	repoRef, ok := wf.Repo(projectID)
+	if !ok {
+		return agenticjob.RepoTarget{}, "", nil
+	}
+	// A GITLOCAL ref is not a construction venue (stage 4a fix round 1). Recognising it
+	// here reproduces the pre-collapse nil resolver byte-for-byte (zero RepoTarget, empty
+	// workflow file ⇒ the RA falls back to the configured central construction repo)
+	// without splitting the dep back into two. Round 2 gave railLifecycleEnabled the same
+	// recognition, so on a local boot the dispatch AND the rail lifecycle agree.
+	if isGitLocalVenue(projectID, repoRef) {
+		return agenticjob.RepoTarget{}, "", nil
+	}
+	owner, name, err := sourcecontrol.RepoRefOwnerRepo(repoRef)
+	if err != nil {
+		return agenticjob.RepoTarget{}, "", err
+	}
+	return agenticjob.RepoTarget{Owner: owner, Name: name}, constructWorkflowFileName, nil
+}
+
+// isGitLocalVenue reports whether a resolved RepoRef is the DESIGN rails' deterministic
+// GitLocal venue for this project — the local profile's filesystem repo, which is not a
+// construction venue and carries no PR-rail lifecycle for construction. It is the ONE
+// place the recognition lives: the dispatch target (constructRepoTarget) and the rail
+// lifecycle (railLifecycleEnabled) must never disagree about it, and the encoding stays
+// owned by sourceControlAccess (the ref is compared against what its own pure resolver
+// mints, never parsed here).
+func isGitLocalVenue(projectID ProjectID, repoRef sourcecontrol.RepoRef) bool {
+	return repoRef == sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(projectID))
+}
+
+// dispatchInputsFor builds the DispatchInputs bag for a construction pipeline dispatch.
+// The `command` input is the thin slash-command the workflow runs, so the workflow itself
+// holds no routing logic. component_id is a Manager-resolved passthrough. (Moved
+// workflow-side from the retired pipelineAdapter — it only reads workflow state +
+// projectstate.CommandFor.)
+//
+// WHERE THE COMMAND COMES FROM, and why there are two answers for one commit-range (stage
+// 4b1 Task 11). The generic child reads the LIFECYCLE TASK's own `command` field and passes
+// it on the spec — the platform's data is the source of truth for what a task runs. The
+// retired flat walk has no task, only a phase, so it still re-derives from the activity's
+// CARRIED type/variant (classified once by the pump). The two agree by construction —
+// CommandFor is itself a lookup into the same lifecycle data, pinned by
+// Test_ConstructionCommands_MatchTheLifecycleData — and the fallback dies with the flat walk
+// in Task 13.
+func dispatchInputsFor(spec pipelineSpec) map[string]string {
+	m := map[string]string{
+		"activity_id":  spec.ActivityID,
+		"component_id": spec.ComponentID,
+	}
+	if spec.Phase != "" {
+		m["phase"] = spec.Phase
+		m["command"] = spec.Command
+		if m["command"] == "" {
+			m["command"] = projectstate.CommandFor(spec.Type, spec.Variant, projectstate.ActivityMethodPhase(spec.Phase))
+		}
+	}
+	// The operator's steer rides ONLY when a note is pending (B1.4): every no-note
+	// dispatch's inputs stay byte-identical to before, so a seated workflow that predates
+	// the operator_note input still accepts them. Both arms read the same key: the
+	// GitHub arm passes it through as the construct workflow's input, the local arm
+	// stamps it into the aiarch-state rig.
+	if spec.OperatorNote != "" {
+		m[dispatchInputOperatorNote] = spec.OperatorNote
+	}
+	return m
+}
+
+// dispatchInputOperatorNote is the dispatch input carrying the operator's notes. Like the
+// other inputs it is a bare literal: the seated construct workflow template is the source
+// of truth for the wire key (agenticjob's own constant documents it on the RA side).
+const dispatchInputOperatorNote = "operator_note"
+
+// managerPipelinePhase maps the contract PipelinePhase onto the Manager-neutral
+// PipelinePhase (mapped here so a future re-order is safe). Moved workflow-side from the
+// retired pipelineAdapter.
+func managerPipelinePhase(p agenticjob.PipelinePhase) PipelinePhase {
+	switch p {
+	case agenticjob.PhasePending:
+		return PipelinePending
+	case agenticjob.PhaseRunning:
+		return PipelineRunning
+	case agenticjob.PhaseSucceeded:
+		return PipelineSucceeded
+	case agenticjob.PhaseFailed:
+		return PipelineFailed
+	case agenticjob.PhaseCancelled:
+		return PipelineCancelled
+	default:
+		return PipelinePhaseUnknown
+	}
+}
+
+// csEpisodeIDSeed is the deterministic, replay-stable seed a GAP record's EpisodeID is
+// built from — the dispatch handle (unique per dispatch, and already in workflow
+// history) with the activity id as the fallback for a zero handle.
+func csEpisodeIDSeed(handle pipelineHandle, in constructActivityInput) string {
+	if handle.Name != "" {
+		return handle.Name
+	}
+	return string(in.ActivityID)
+}
+
+// nextTaskAttempt returns the next 1-based attempt number for t, the Figure A-1 task a
+// dispatch's episode attributes to (see runPipeline / runMergePipeline). It is the SAME
+// counter across an activity's outer variance retries AND a gated phase's human-paced
+// redrafts — both re-enter runPipeline for the SAME phase — so it is the single source
+// of the attempt number projectstate.AttemptID needs (Task 10). Lazily initialized so a
+// constructState built without ever dispatching a pipeline (ProjectSupervisionWorkflow's)
+// allocates nothing. workflow-local and rebuilt deterministically on replay; it starts
+// from the row's attempt ledger (seedResumeFromLedger), and no live writer appends to
+// that ledger yet.
+func (s *constructState) nextTaskAttempt(t projectstate.MethodTask) int {
+	if s.taskAttempts == nil {
+		s.taskAttempts = map[projectstate.MethodTask]int{}
+	}
+	s.taskAttempts[t]++
+	return s.taskAttempts[t]
+}
+
+// gitforward.go is the WORKFLOW-LEVEL wiring of the git-forward (branch→PR→CI→+1→
+// merge) lifecycle into the per-activity construction spine (C-MCN-GIT; D-PA-GIT §5).
+// It is the ONLY place that composes the two seams the constructionManager alone
+// touches: the PR rail (sourceControlAccess / IPullRequestRail) and the per-activity
+// git head-state mirror (projectStateAccess §GIT-HEAD-STATE). The division of labor
+// (D-PA-GIT §5):
+//
+//   - the rail OWNS the git provider interaction (cut branch, open PR, read CI,
+//     relay +1, perform merge) and RETURNS opaque handles + a status reflection;
+//   - this Manager receives the opaque returns and MIRRORS them onto the head-state
+//     via the additive Record* verbs;
+//   - projectStateAccess stores the opaque strings + typed CI enum — it never calls
+//     the rail (RA-never-calls-RA).
+//
+// The merge AUTHORITY split is preserved: interventionEngine DECIDES when to merge
+// (the existing variance machinery), the Manager PERFORMS it here. The +1 is the
+// architect's in-app approval; the existing reviewEngine fan-out is the technical
+// review and is unchanged — the git +1 relay is the SEPARATE, audit-worthy human
+// architecture sign-off the head-state records.
+//
+// CRASH-SAFETY / IDEMPOTENCY: every rail call is on a deterministic name (idempotent
+// in the rail) and every Record* goes through applyRecovering — the workflow-level
+// Conflict re-read→re-apply loop (§6.5) — with the per-Activity idempotency key, so a
+// workflow retry re-running any step is a no-op (the rail's deterministic-name
+// idempotency + the git store's dedup-first ledger). The cred is minted ONCE per
+// activity lifecycle and threaded into every rail + record verb.
+
+// gitForward is the per-activity git-lifecycle state the spine carries across its
+// steps. It is workflow-local (rebuilt deterministically on replay) and holds the
+// opaque handles the rail returned + the credential the Manager minted. headVersion
+// is shared with the non-git transition records (read-your-writes; §6.5) — the caller
+// passes a pointer to the spine's headVersion so both record families advance one
+// monotonic token.
+type gitForward struct {
+	enabled   bool
+	repoRef   sourcecontrol.RepoRef
+	cred      railCredEnvelope
+	branch    string
+	branchRef string
+	prRef     string
+	crLabel   string
+	isRevert  bool
+}
+
+// gitEnabled reports whether the git-forward slice is wired AND a repo resolves for
+// this project. When false the spine runs unchanged (the live Postgres-store
+// composition that predates the GitStore).
+func (wf *csWorkflows) gitEnabled(projectID ProjectID) (sourcecontrol.RepoRef, bool) {
+	if wf.GitStatus == nil || wf.Repo == nil || !wf.RailEnabled(projectID) {
+		return sourcecontrol.RepoRef(""), false
+	}
+	return wf.Repo(projectID)
+}
+
+// activityBranchName derives the provider-neutral per-activity branch name
+// "activity/<activityID>" (D-PA-GIT GIT.1 example). Deterministic in the activity id.
+func activityBranchName(activityID ActivityID) string {
+	return "activity/" + string(activityID)
+}
+
+// prTitle / prBody are the human-facing PR text the Manager's sequence owns.
+func prTitle(activityID ActivityID) string {
+	return fmt.Sprintf("aiarch: construction activity %s", activityID)
+}
+
+func prBody(activity constructionActivity) string {
+	return fmt.Sprintf("Automated construction of component %s (%s, layer %s).",
+		activity.ComponentID, activityKindName(activity.Kind), activity.Layer)
+}
+
+// activityKindName returns the canonical activity-kind name — a free function over
+// the Manager-owned activityKind enum (the schema-first rule keeps enum types
+// method-free, so the Stringer behaviour lives here). Produces the IDENTICAL strings
+// the former handoff.ActivityKind Stringer did (PR body text — zero behavior change).
+func activityKindName(k activityKind) string {
+	switch k {
+	case activityKindUnknown:
+		// zero-value sentinel, not a real activity kind.
+		return "Unknown"
+	case activityKindDetailedDesign:
+		return "DetailedDesign"
+	case activityKindConstruction:
+		return "Construction"
+	case activityKindIntegration:
+		return "Integration"
+	case activityKindNoncoding:
+		return "Noncoding"
+	}
+	// Unreachable for the five defined activityKind values above (the exhaustive
+	// linter enforces that every real variant has its own case); kept as a defensive
+	// fallback for an out-of-range ordinal.
+	return "Unknown"
+}
+
+// archApprovalBody is the +1 relay's review body — the architect's in-app
+// architecture sign-off relayed onto the PR.
+func archApprovalBody(activityID ActivityID) string {
+	return fmt.Sprintf("architecture +1 relayed for %s", activityID)
+}
+
+// crLabelHints encodes the cr-NN change-request group label into the rail's opaque
+// PullRequestSpec.Hints (labels ride in Hints, not a first-class field —
+// sourcecontrol.go §3). Empty label ⇒ nil hints.
+func crLabelHints(crLabel string) []byte {
+	if crLabel == "" {
+		return nil
+	}
+	return []byte(crLabel)
+}
+
+// csPullRequestStatusView is the Manager-local Activity-boundary projection of the
+// rail's PullRequestStatus (a reflection the Manager feeds interventionEngine — NOT a
+// gate). CheckRollup is the provider-neutral CI rollup the git head-state mirrors.
+type csPullRequestStatusView struct {
+	CheckRollup   projectstate.CICheckState
+	ApprovalCount int
+	Mergeable     bool
+}
+
+// mapCheckState maps the rail's CheckState onto the git head-state's provider-neutral
+// CICheckState (the two enums are aligned-by-identity, mapped here so a future re-order
+// is safe). A DUMB reflection — it never gates any Approve control.
+func mapCheckState(s sourcecontrol.CheckState) projectstate.CICheckState {
+	switch s {
+	case sourcecontrol.CheckPending:
+		// explicit: pending check state maps directly, same as any unmapped value.
+		return projectstate.CICheckPending
+	case sourcecontrol.CheckSuccess:
+		return projectstate.CICheckSuccess
+	case sourcecontrol.CheckFailure:
+		return projectstate.CICheckFailure
+	default:
+		return projectstate.CICheckPending
+	}
+}
+
+// adapters.go holds the bridges between the Manager's OWN broader domain vocabulary
+// (constructionActivity, this component's generated façade ReviewSet/Reviewer) and
+// each dependency's PUBLISHED contract shape, for the calls that are NOT identity —
+// either because the Manager's own type carries strictly more fields than the Engine
+// needs, or because the target is this component's
+// OWN generated public façade type with a real field-shape divergence
+// (reviewSetFromEngine), or because the Manager derives a real config value from raw
+// composition-root config (constructionInterventionPolicy).
+//
+// The two Engines (intervention.InterventionEngine / review.ReviewEngine) have NO
+// adapter STRUCT — the workflow calls their published contracts DIRECTLY (workflow.go /
+// signals.go), with fweng.Context{Context: context.Background()} supplied inline at each
+// call site.
+
+// ===========================================================================
+// reviewEngine — reviewSetFromEngine bridges the published review.ReviewSet/Reviewer
+// onto THIS component's OWN generated façade ReviewSet/Reviewer (contract.gen.go,
+// off-limits — DO NOT EDIT). A REAL divergence, not an identity mirror: the façade's
+// Reviewer.ReferenceArtifact is *string (optional, omitempty) while the Engine's own
+// Reviewer.ReferenceArtifact is a plain string (empty ⇒ none) — the nil/empty-string
+// boundary is exactly the kind of zero-value divergence that must be bridged
+// explicitly, not cast.
+// ===========================================================================
+
+func reviewSetFromEngine(set review.ReviewSet) ReviewSet {
+	reviewers := make([]Reviewer, 0, len(set.Reviewers))
+	for _, r := range set.Reviewers {
+		cr := Reviewer{
+			Role:        r.Role,
+			Perspective: r.Perspective,
+			MayAmend:    r.MayAmend,
+		}
+		if r.ReferenceArtifact != "" {
+			ref := r.ReferenceArtifact
+			cr.ReferenceArtifact = &ref
+		}
+		reviewers = append(reviewers, cr)
+	}
+	// The gate verdict rides onto the façade beside the roster: the two are one answer
+	// from one call. Both are *T on the façade (additive optional properties), so a
+	// pre-stage-2 client that never reads them decodes unchanged.
+	human, reason := set.RequiresHuman, set.Reason
+	return ReviewSet{Reviewers: reviewers, RequiresHuman: &human, Reason: &reason}
+}
+
+// maxVarianceAttempts bounds the dispatch→review→variance supervision loop
+// before the Engine's Escalate/Takeover must terminate it.
+const maxVarianceAttempts = 10
+
+// maxPhaseRedrafts bounds a gated phase's human-paced SendBack redraft budget —
+// SEPARATE from maxVarianceAttempts. SendBack is NOT a variance: it redrafts THIS
+// phase in place; on exhaustion the gate keeps awaiting the human (it never
+// re-enters the variance loop or fails the activity).
+const maxPhaseRedrafts = 5
+
+// The observe-poll SCHEDULE is the ONE ladder in deliveryactivity.go (observeInterval,
+// maxObserveTotalPolls) — R-L, stage 4b1. The ceiling is unchanged and so is the escalation:
+// a stuck pipeline still exhausts the budget and routes through handleVariance. Only the
+// cadence moved, from a flat 15s x 240 to 4x15s + 9x60s + 10x300s — the same hour, 23 polls
+// instead of 240, because one child now holds eleven of these loops instead of one.
+
+// ===========================================================================
+// ConstructActivityWorkflow — the per-activity UC3 spine (constructionManager.md
+// §6.3). Loop/supervise until exited.
+// ===========================================================================
+
+// constructActivityInput is the start payload for the per-activity child workflow.
+type constructActivityInput struct {
+	ProjectID  ProjectID
+	ActivityID ActivityID
+	Activity   constructionActivity
+}
+
+// seedResumeFromLedger seeds a run's start state from its activity's stored row, read the
+// way every other reader reads it (architect (D), D.1.3):
+//   - completedPhases from projectstate.ResolvePhaseCompletions over the activity's profile:
+//     the attempt ledger decides every phase it has decided (a passed gate completes the
+//     phase, a rejected one leaves it incomplete), and a phase whose gate has no attempt
+//     is a phase nothing is claimed about.
+//   - taskAttempts from the highest attempt number the ledger records per task, so the
+//     next dispatch of a task is attempt n+1 and its AttemptID (the episode TargetRef)
+//     never collides with one the ledger already holds. A GATE task is counted off BOTH
+//     ledgers (stage 3): its number is shared by its attempt and its review round, so a
+//     resume that looked only at the attempts could mint a round id the review ledger
+//     already holds — and OpenReviewRound is idempotent on that id, so the second gate
+//     occurrence would silently vanish into the first.
+//
+// Pure over values already in workflow history (the snapshot's recorded readProject).
+func seedResumeFromLedger(state *constructState, act constructionActivity, acs projectstate.ActivityExecution) {
+	profile := projectstate.ProfileFor(act.Type, act.Variant)
+	for _, pc := range projectstate.ResolvePhaseCompletions(profile, acs.Attempts) {
+		if pc.Completed {
+			state.completedPhases[pc.Phase] = true
+		}
+	}
+	for _, a := range acs.Attempts {
+		seedTaskCount(state, a.Task, a.Attempt)
+	}
+	for _, r := range acs.Reviews {
+		seedTaskCount(state, r.TaskID, int(r.Round))
+	}
+}
+
+// seedTaskCount raises the run's per-task counter to n when the ledger has gone further.
+func seedTaskCount(state *constructState, task projectstate.MethodTask, n int) {
+	if state.taskAttempts == nil {
+		state.taskAttempts = map[projectstate.MethodTask]int{}
+	}
+	if n > state.taskAttempts[task] {
+		state.taskAttempts[task] = n
+	}
+}
+
+// takeoverGateKey is the awaitingGate an escalation waits at (the operator steers with
+// OverrideActivity; no phase decision closes it).
+const takeoverGateKey = "takeover"
+
+// The closed outcome vocabulary a human stage ends in (the metric's outcome tag and the
+// log line's). An override adds its kind: "override:retry", "override:skip", ….
+const (
+	gateOutcomeApproved          = "approved"
+	gateOutcomeSentBack          = "sentBack"
+	gateOutcomeSentBackExhausted = "sentBackExhausted"
+	gateOutcomeTimedOut          = "timedOut"
+	gateOutcomeOverridePrefix    = "override:"
+)
+
+// gateMetrics is the handler the gate-wait timer records through: the workflow's own
+// metrics handler, which the SDK suppresses on replay (the OTel handler the composition
+// root wires). A package-level seam only so a test can capture what is recorded — SDK
+// v1.44's test environment exposes no metrics hook.
+var gateMetrics = workflow.GetMetricsHandler
+
+// humanGateClass is the bounded gate tag: phase, merge or takeover.
+func humanGateClass(gate string) string {
+	switch gate {
+	case mergeGateKey:
+		return "merge"
+	case takeoverGateKey:
+		return takeoverGateKey
+	default:
+		return "phase"
+	}
+}
+
+// mergeGateKey is the gate key the local merge hold suspends on. It is NOT an
+// ActivityMethodPhase and it takes Approve only (a merge has no draft to send back —
+// validateTaskDecision refuses anything else); the operator releases it through
+// SubmitReviewDecision addressed at this key as the task.
+const mergeGateKey = "merge"
+
+// ---------------------------------------------------------------------------
+// Operator notes (plan B1.4). A note is PENDING from the moment it is recorded until an
+// agent dispatch carries it: every pending note rides the NEXT agent dispatch of the
+// activity and is stamped delivered to that dispatch's AttemptID (the key its episode
+// carries as TargetRef). Recording, carrying, stamping and the scaffold sync are all
+// behind ONE change id, so an execution is wholly old or wholly new.
+//
+// WHAT "DELIVERED" MEANS (B1 fix round, I1). Only a note the dispatch carried IN FULL is
+// stamped. When the pending notes exceed maxRenderedOperatorNotesBytes, the OLDEST are
+// withheld so the newest steer arrives whole; the block says how many were withheld, and
+// they stay pending for a later attempt.
+//
+// DELIVERY IS AT-LEAST-ONCE (M4). The stamp follows a successful submit, and is its own
+// write with its own bounded retry (noteStampRetryWindow). If it still fails, the run
+// goes on — the job is already dispatched — and the note stays pending, so the next
+// attempt carries it again: an agent may see one note twice, never zero times. A note
+// is never carried twice into the SAME attempt (constructState.carriedTo), and the store
+// refuses to stamp one note to two attempts.
+//
+// PENDING NOTES WITH NO DISPATCH AHEAD (M5). A retry whose phases are all complete (the
+// local merge only), a takeover the operator finishes by hand, and a skip start no agent
+// run, so their notes are kept and not stamped. They are neither expired nor dropped:
+// they stay pending on the activity (the console counts them), and ride the activity's
+// next agent dispatch if one ever comes (a re-queue). A skip note is never pending.
+// ---------------------------------------------------------------------------
+
+// changeOperatorNoteDelivery is the version marker gating note record/carry/stamp and
+// the managed-scaffold sync before a GitHub-venue dispatch.
+const changeOperatorNoteDelivery = "operator-note-delivery"
+
+// ---------------------------------------------------------------------------
+// THE EXECUTION LEDGER (stage 3). Until now this workflow wrote no attempt and no
+// review data at all: nextTaskAttempt minted attempt numbers nothing recorded, every
+// roster the review engine computed was thrown away once it had been displayed, and a
+// send-back left a one-line OperatorNote — no roster, no verdict, no thread, no round
+// number, no subject. This is where each of those becomes a real write, through
+// activityExecutionAccess's twelve verbs.
+//
+// ONE CHANGE ID FOR ALL OF IT. Every write below is a Temporal Activity, so the command
+// sequence moves at five points, and they are one feature: an execution is either on it
+// or off it. Five ids would admit a half-fenced execution that opens a round and never
+// decides it. The same argument changeLedgerPartialResume already makes by reusing its
+// const at two call sites.
+//
+// WHAT THE OLD RAIL STOPS DOING BEHIND THE FENCE, so no fact is written twice:
+//   - RecordActivityStarted  → OpenActivity (same StartedAt/type/variant, plus the pin)
+//   - RecordPhaseCompleted   → the PASSED gate attempt this workflow now writes itself
+//     (that verb's whole body is the synthesis of exactly that attempt)
+//   - RecordActivityExited / RecordActivityFailed / RecordActivityCompleted
+//     → RecordActivityOutcome (the fold of all three)
+//   - the NoteSendBack record → the round, with the feedback carried to the redraft
+//     workflow-locally (carrySendBackFeedback)
+//
+// RecordPhaseStarted and RecordChangeReviewed keep being called on BOTH paths: task 3
+// retired their bodies in place, so they now write no fact at all and cannot duplicate
+// one. Stage 4 deletes them with the fixtures that record them.
+// ---------------------------------------------------------------------------
+
+// changeExecutionLedger is the ONE version marker gating every execution-ledger write.
+const changeExecutionLedger = "execution-ledger-writes"
+
+// lifecyclePinFor is the lifecycle an activity's task DAG is resolved against for the
+// whole of its run: the type key the row's profile is keyed on, and the method-assets
+// release that key was read out of. Without it a release landing mid-flight re-shapes an
+// activity that is already running, and every attempt and round already on the ledger
+// would be read back against a DAG they were never written under.
+func lifecyclePinFor(act constructionActivity) projectstate.LifecyclePin {
+	return projectstate.LifecyclePin{
+		TypeKey:       projectstate.LifecycleKeyFor(act.Type, act.Variant),
+		AssetsVersion: methodassets.Version(),
+	}
+}
+
+// attemptOutcomeFor maps a terminal pipeline phase onto the attempt's terminal. Only a
+// SUCCEEDED run passed; everything else — failed, cancelled, or a phase that is not
+// terminal at all (the poll budget ran out with the run still going) — is a failed
+// attempt, because the task it was dispatched for did not get done.
+func attemptOutcomeFor(p PipelinePhase) projectstate.TaskOutcome {
+	switch p {
+	case PipelineSucceeded:
+		return projectstate.OutcomePassed
+	case PipelineFailed, PipelineCancelled, PipelinePending, PipelineRunning, PipelinePhaseUnknown:
+		return projectstate.OutcomeFailed
+	}
+	// Unreachable for the six defined PipelinePhase values above; kept as a defensive
+	// fallback for an out-of-range ordinal, which is a failure like any other.
+	return projectstate.OutcomeFailed
+}
+
+// gateSubjectRef names WHAT this round judges — and it must differ from round to round, or
+// the ledger cannot say which revision each round looked at.
+//
+// THE DEFECT THIS REPLACES: the pull request is per-ACTIVITY, so rounds 1 and 2 of one gate
+// both cited gf.prRef and the ledger claimed one subject for two different drafts. The fix
+// is to name the COMMIT — stagedRef, the ref StageTaskOutput returned for the work task
+// this round judges, which advances with every redraft.
+//
+// The ladder, most specific first — the SAME RULE the design rails' designSubjectRef runs
+// (a shared rule, not a shared signature: the two rails have different fallbacks):
+//   - a staged ref ⇒ SubjectCommit. The honest answer, and the only rung that moves per
+//     revision. EMPTY until the generic child stages construction output; stage 4b1 Task 11
+//     fills it, and this signature is widened now so that task re-parameterises nothing.
+//   - else a live PR ⇒ SubjectPullRequest. Coarse, but it is a handle a reviewer can open,
+//     and it is what the rail had.
+//   - else the work ATTEMPT ⇒ SubjectArtifact. Joins to both ledgers and to the episode
+//     that burned it.
+func gateSubjectRef(gf *gitForward, stagedRef, workAttemptID string) projectstate.SubjectRef {
+	if stagedRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectCommit, Ref: stagedRef}
+	}
+	if gf.enabled && gf.prRef != "" {
+		return projectstate.SubjectRef{Kind: projectstate.SubjectPullRequest, Ref: gf.prRef}
+	}
+	return projectstate.SubjectRef{Kind: projectstate.SubjectArtifact, Ref: workAttemptID}
+}
+
+// roundReviewers is the roster the round persists: the engine's rows, plus the human row
+// when the policy requires a person. The engine's rows are NOT Required — the reviewer
+// set is advisory in v1 and nothing dispatches it, and a row marked required that nothing
+// waits for would make the round claim a gate it never had.
+//
+// Actor is the role for an engine row because on this rail a role IS the agent charter
+// dispatched for it; the human row has no name to give, so it carries the operator the
+// platform can honestly attribute the decision to.
+func roundReviewers(set ReviewSet) []projectstate.RoundReviewer {
+	out := make([]projectstate.RoundReviewer, 0, len(set.Reviewers)+1)
+	for _, r := range set.Reviewers {
+		out = append(out, projectstate.RoundReviewer{Role: r.Role, Actor: r.Role, Required: false})
+	}
+	if set.RequiresHuman != nil && *set.RequiresHuman {
+		out = append(out, projectstate.RoundReviewer{Role: gateRoleHuman, Actor: gateActorOperator, Required: true})
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
+}
+
+// roundComments re-types a decision's anchored comments onto the round thread's. The
+// ids, the round number and the open/answered status are the store's to mint, so only
+// what the operator actually wrote travels.
+func roundComments(in []AnchoredComment) []projectstate.ReviewComment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]projectstate.ReviewComment, 0, len(in))
+	for _, c := range in {
+		out = append(out, projectstate.ReviewComment{Anchor: c.JSONPath, Text: c.Text, AuthorRole: gateRoleHuman})
+	}
+	return out
+}
+
+// gateEvidence maps the round's subject onto the attempt's evidence vocabulary, so the
+// UI's click dispatch opens the right thing from either ledger.
+func gateEvidence(subject projectstate.SubjectRef) (projectstate.EvidenceKind, string) {
+	switch subject.Kind {
+	case projectstate.SubjectPullRequest, projectstate.SubjectCommit:
+		return projectstate.EvidenceGit, subject.Ref
+	case projectstate.SubjectArtifact:
+		return projectstate.EvidenceArtifact, subject.Ref
+	}
+	// An unset subject (a round this workflow did not open) cites nothing.
+	return projectstate.EvidenceNone, ""
+}
+
+// owedSendBackRound is the latest round on the phase's gate WHEN the next dispatch still
+// owes it feedback: it was sent back, and nothing has been re-dispatched since.
+//
+// "since" is read off the ledger rather than remembered, because the run that would
+// remember it is the one that died. The send-back verdict names the work attempt it
+// judged, so a LATER attempt at that work task is the one honest signal that the redraft
+// already went out — whoever sent it. That is also the delivered-once guard: once the
+// redraft has run, its attempt outranks the judged one and the steer is not carried twice.
+func owedSendBackRound(acs projectstate.ActivityExecution, lifecyclePhase projectstate.ActivityMethodPhase) (projectstate.ReviewRound, bool) {
+	gate, work := projectstate.GateTaskFor(lifecyclePhase), projectstate.AgentTaskFor(lifecyclePhase)
+	if gate == "" || work == "" {
+		return projectstate.ReviewRound{}, false
+	}
+	var latest projectstate.ReviewRound
+	found := false
+	for _, r := range acs.Reviews {
+		if r.TaskID == gate && (!found || r.Round > latest.Round) {
+			latest, found = r, true
+		}
+	}
+	if !found || latest.Outcome != projectstate.RoundSentBack {
+		return projectstate.ReviewRound{}, false
+	}
+	return latest, !redraftDispatched(acs, work, latest)
+}
+
+// redraftDispatched reports whether the ledger holds a RESOLVED work attempt later than
+// the one the round judged. The judged attempt is found by the id the verdict names; the
+// round NUMBER is the fallback, since one counter mints both and they cannot drift.
+//
+// RESOLVED, not merely present, and the distinction is the whole point. runPipeline opens
+// the attempt BEFORE the dispatch it describes, so a later attempt sitting pending is
+// exactly the run that died on the way out — the redraft never reached an agent and the
+// steer is still owed. Counting it as delivered is how the feedback would be lost in the
+// one case this guard exists for.
+//
+// A run that died while the redraft was actually RUNNING leaves the same pending attempt
+// and will carry the note again. That is at-least-once, which is the delivery contract
+// operator notes already state: an agent may see one note twice, never zero times.
+func redraftDispatched(acs projectstate.ActivityExecution, work projectstate.MethodTask, r projectstate.ReviewRound) bool {
+	judged := int(r.Round)
+	for _, a := range acs.Attempts {
+		if a.AttemptID != "" && a.AttemptID == sendBackJudgedAttempt(r) {
+			judged = a.Attempt
+			break
+		}
+	}
+	for _, a := range acs.Attempts {
+		if a.Task == work && a.Attempt > judged && a.Outcome != projectstate.OutcomePending {
+			return true
+		}
+	}
+	return false
+}
+
+// sendBackJudgedAttempt is the AttemptID the round's send-back verdict named.
+func sendBackJudgedAttempt(r projectstate.ReviewRound) string {
+	for _, v := range r.Verdicts {
+		if v.Verdict == projectstate.VerdictSendBack {
+			return v.AttemptID
+		}
+	}
+	return ""
+}
+
+// roundFeedback rebuilds the operator's steer from a decided round: the send-back
+// verdict's summary, and the comments on its thread that are still OPEN — which is the
+// spec's own definition of pending feedback (§5.3), now that it is answered from the
+// round rather than from a note.
+func roundFeedback(r projectstate.ReviewRound) *ReviewFeedback {
+	fb := &ReviewFeedback{}
+	for _, v := range r.Verdicts {
+		if v.Verdict == projectstate.VerdictSendBack {
+			fb.Notes = v.Summary
+			break
+		}
+	}
+	for _, c := range r.Thread {
+		if c.Status == projectstate.ReviewCommentOpen {
+			fb.Comments = append(fb.Comments, AnchoredComment{JSONPath: c.Anchor, Text: c.Text})
+		}
+	}
+	return fb
+}
+
+// maxRenderedOperatorNotesBytes caps the rendered notes block one dispatch carries, far
+// under GitHub's 65,535-character workflow_dispatch input cap. The façade caps one note
+// (maxOperatorNoteRunes, and maxOperatorNoteBodyBytes once rendered), so one note always
+// fits whole: only several pending notes can reach the cap.
+const maxRenderedOperatorNotesBytes = 16 << 10
+
+// noteFramingReserveBytes is the room kept for one note's header line and the
+// withheld-notes line, so a note the façade accepted always fits the block whole.
+const noteFramingReserveBytes = 1 << 10
+
+// maxOperatorNoteBodyBytes caps one note's rendered body (its text and anchored comments,
+// as renderNoteBody writes them) at the façade.
+const maxOperatorNoteBodyBytes = maxRenderedOperatorNotesBytes - noteFramingReserveBytes
+
+// noteStampRetryWindow bounds the delivery stamp's own retry envelope (M4): attempts are
+// uncapped inside it, and past it the run goes on with the note still pending.
+const noteStampRetryWindow = 2 * time.Minute
+
+// noteFeedback is one note's operator text and anchored comments, from a send-back's
+// feedback or an override.
+type noteFeedback struct {
+	text     string
+	comments []AnchoredComment
+}
+
+// feedbackText is a send-back's note; a nil feedback (a signal that bypassed the
+// façade) is an empty note, which recordOperatorNote skips.
+func feedbackText(f *ReviewFeedback) noteFeedback {
+	if f == nil {
+		return noteFeedback{}
+	}
+	return noteFeedback{text: f.Notes, comments: f.Comments}
+}
+
+// overrideNoteKind maps an override onto the note kind it records.
+func overrideNoteKind(k OverrideKind) (projectstate.OperatorNoteKind, bool) {
+	switch k {
+	case OverrideRetry:
+		return projectstate.NoteRetry, true
+	case OverrideTakeover:
+		return projectstate.NoteTakeover, true
+	case OverrideReassign:
+		return projectstate.NoteReassign, true
+	case OverrideSkip:
+		return projectstate.NoteSkip, true
+	case OverrideUnknown:
+		return projectstate.OperatorNoteKindUnknown, false
+	}
+	return projectstate.OperatorNoteKindUnknown, false
+}
+
+// operatorNoteID is a note's deterministic id: the activity, this run, and the run's
+// note sequence — replay-stable, and unique across runs of the same activity.
+func operatorNoteID(activityID ActivityID, runID string, seq int) string {
+	return fmt.Sprintf("%s:note:%s:%d", activityID, runID, seq)
+}
+
+// noteComments re-types a decision's anchored comments onto the note's.
+func noteComments(in []AnchoredComment) []projectstate.NoteComment {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make([]projectstate.NoteComment, 0, len(in))
+	for _, c := range in {
+		out = append(out, projectstate.NoteComment{JSONPath: c.JSONPath, Text: c.Text})
+	}
+	return out
+}
+
+// renderedNotes is what one dispatch carries: the block, the notes it carries IN FULL
+// (the only ones stamped delivered), and how many older notes the cap withheld.
+type renderedNotes struct {
+	block    string
+	whole    []projectstate.OperatorNote
+	withheld int
+}
+
+// notesSeparator sits between two notes, and after the withheld-notes line.
+const notesSeparator = "\n\n"
+
+// renderOperatorNotes renders the pending notes as the one block a dispatch carries,
+// oldest first, each headed by its id, kind and gate. Within maxRenderedOperatorNotesBytes
+// it keeps the NEWEST notes whole and withholds the oldest, naming how many it withheld.
+// No notes render nothing.
+//
+// A single note the block cannot hold whole (only a signal that bypassed the façade's
+// maxOperatorNoteBodyBytes can carry one) is carried cut and marked, and is NOT among the
+// whole notes: it stays pending rather than be stamped delivered in part.
+func renderOperatorNotes(notes []projectstate.OperatorNote) renderedNotes {
+	if len(notes) == 0 {
+		return renderedNotes{}
+	}
+	sections := make([]string, len(notes))
+	for i, n := range notes {
+		sections[i] = renderNoteSection(n)
+	}
+	start, total := len(notes), 0
+	for i := len(notes) - 1; i >= 0; i-- {
+		add := len(sections[i])
+		if start < len(notes) {
+			add += len(notesSeparator)
+		}
+		framing := 0
+		if i > 0 {
+			framing = len(withheldNotesLine(i)) + len(notesSeparator)
+		}
+		if total+add+framing > maxRenderedOperatorNotesBytes {
+			break
+		}
+		total += add
+		start = i
+	}
+	var b strings.Builder
+	if start == len(notes) {
+		last := len(notes) - 1
+		if last > 0 {
+			b.WriteString(withheldNotesLine(last) + notesSeparator)
+		}
+		b.WriteString(sections[last])
+		return renderedNotes{block: cutRenderedOperatorNotes(b.String()), withheld: last}
+	}
+	if start > 0 {
+		b.WriteString(withheldNotesLine(start) + notesSeparator)
+	}
+	b.WriteString(strings.Join(sections[start:], notesSeparator))
+	return renderedNotes{block: b.String(), whole: notes[start:], withheld: start}
+}
+
+// renderNoteSection renders one note: its header line, then its body.
+func renderNoteSection(n projectstate.OperatorNote) string {
+	header := fmt.Sprintf("[operator note %s — %s", n.NoteID, operatorNoteKindName(n.Kind))
+	if n.Gate != "" {
+		header += " at " + n.Gate
+	}
+	return header + "]\n" + renderNoteBody(n.Text, n.Comments)
+}
+
+// renderNoteBody renders a note's text and its anchored comments — the part the façade
+// caps at maxOperatorNoteBodyBytes.
+func renderNoteBody(text string, comments []projectstate.NoteComment) string {
+	var b strings.Builder
+	b.WriteString(text)
+	for _, c := range comments {
+		fmt.Fprintf(&b, "\n  comment on %s: %s", c.JSONPath, c.Text)
+	}
+	return b.String()
+}
+
+// withheldNotesLine opens a block that withholds the n oldest pending notes.
+func withheldNotesLine(n int) string {
+	if n == 1 {
+		return "[1 older operator note is not shown: the notes exceed the 16 KiB one dispatch carries. It stays pending and rides a later attempt; every note is on the activity.]"
+	}
+	return fmt.Sprintf("[%d older operator notes are not shown: the notes exceed the 16 KiB one dispatch carries. They stay pending and ride a later attempt; every note is on the activity.]", n)
+}
+
+// renderedNotesTruncated ends a block cut at maxRenderedOperatorNotesBytes.
+const renderedNotesTruncated = "\n[truncated: this operator note exceeds 16 KiB; it stays pending, and the full note is on the activity]"
+
+// cutRenderedOperatorNotes cuts s to maxRenderedOperatorNotesBytes on a rune boundary,
+// marking the cut.
+func cutRenderedOperatorNotes(s string) string {
+	if len(s) <= maxRenderedOperatorNotesBytes {
+		return s
+	}
+	cut := maxRenderedOperatorNotesBytes - len(renderedNotesTruncated)
+	for cut > 0 && !utf8.RuneStart(s[cut]) {
+		cut--
+	}
+	return s[:cut] + renderedNotesTruncated
+}
+
+// operatorNoteKindName is a note kind's wire word, for the rendered block.
+func operatorNoteKindName(k projectstate.OperatorNoteKind) string {
+	switch k {
+	case projectstate.NoteSendBack:
+		return "sendBack"
+	case projectstate.NoteRetry:
+		return "retry"
+	case projectstate.NoteTakeover:
+		return "takeover"
+	case projectstate.NoteReassign:
+		return "reassign"
+	case projectstate.NoteSkip:
+		return "skip"
+	case projectstate.NoteRequeue:
+		return "requeue"
+	case projectstate.OperatorNoteKindUnknown:
+		return "unknown"
+	}
+	return "unknown"
+}
+
+// proposeReviewSet is the Manager's SINGLE review decision point: it hands the engine
+// the activity's TYPE, the lifecycle phase's wire name, the committed policy document
+// and the floor flag, and gets back the whole answer — the roster, whether a human must
+// sign off, and the one-line reason. The call is to the PURE published
+// review.ReviewEngine, directly (deterministic, replay-safe).
+//
+// The (activity type, lifecycle phase) → review kind table MOVED into
+// internal/engine/review when ProposeReviews took the activity type (spec 2026-09-20
+// §5.4, stage 2), taking the "no component degrades to a sign-off" rule with it; the
+// engine owns the whole table now, so the Manager cannot pass a kind the engine does
+// not know.
+//
+// The contracts are sourced from the start-snapshot project (B5). The architectureGraph
+// parameter is GONE: every production call passed "" and the v1 policy ignored it — a
+// parameter that is always empty is a lie the compiler cannot catch (earmark: feed the
+// committed SystemDesign through `contracts`' successor when the reviewer set becomes
+// enforcing). reviewSetFromEngine (adapters.go) bridges the Engine's own ReviewSet onto
+// this component's generated façade ReviewSet (contract.gen.go) — a real divergence,
+// not an identity mirror.
+func (wf *csWorkflows) proposeReviewSet(in constructActivityInput, lifecyclePhase methodassets.LifecyclePhase, policy projectstate.ReviewPolicy, state *constructState) (ReviewSet, error) {
+	change := review.ReviewChange{ActivityID: string(in.ActivityID), ComponentID: in.Activity.ComponentID}
+	set, err := wf.Review.ProposeReviews(fweng.Context{Context: context.Background()},
+		change, review.ActivityType(in.Activity.activityTypeName()), lifecyclePhase.ID,
+		in.Activity.ComponentID, engineReviewPolicy(policy), state.floorTouched, state.reviewContracts)
+	if err != nil {
+		return ReviewSet{}, err
+	}
+	return reviewSetFromEngine(set), nil
+}
+
+// snapshotContractKeys derives the deterministic (sorted) set of contract identifiers
+// from the start-snapshot project's committed service contracts — the display input
+// for the gate's reviewer set. Sorted so the derived slice is replay-stable (map
+// iteration order is randomized).
+func snapshotContractKeys(p projectstate.Project) []string {
+	if len(p.ServiceContracts) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(p.ServiceContracts))
+	for k := range p.ServiceContracts {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	return keys
+}
+
+// deriveFailureReason maps a terminal pipeline phase + neutral diagnostic to the
+// head-state FailureReason: a cancelled run → PipelineCancelled; a timed-out
+// diagnostic (the RA's neutralDiagnostic for timed_out / the poll-budget exhaustion
+// synthetic) → PipelineTimedOut; otherwise PipelineFailed.
+func deriveFailureReason(phase PipelinePhase, diagnostic string) projectstate.FailureReason {
+	if phase == PipelineCancelled {
+		return projectstate.PipelineCancelled
+	}
+	if strings.Contains(diagnostic, "timed out") || strings.Contains(diagnostic, "did not reach a terminal phase") {
+		return projectstate.PipelineTimedOut
+	}
+	return projectstate.PipelineFailed
+}
+
+// operatorOverrideSignal is the operatorOverride payload (constructionManager.md
+// §2.4). Delivered to the per-activity child {projectId}:{activityId}.
+type operatorOverrideSignal struct {
+	Override ActivityOverride
+	// TaskID names the TASK the override is aimed at, for the generic child's signal
+	// router (deliveryactivity.go). It is the field that fixes a real hole the walk's
+	// concurrency creates: two tasks in flight means two coroutines, and a shared
+	// ReceiveChannel hands each message to exactly ONE of them, so an override meant for a
+	// gate would be eaten by a polling sibling and silently lost. Empty on the retired
+	// rail, whose walk is sequential and reads the channel directly.
+	//
+	// EARMARK: OverrideActivity's façade signature names an ACTIVITY and no task, so the
+	// Manager cannot fill this until Task 12 widens it; until then an override reaching the
+	// child from the façade names no task and is LOGGED loudly rather than broadcast.
+	TaskID string
+}
+
+// ===========================================================================
+// WHAT SURVIVED THE CO-AUTHOR SPINE (pure half) — moved here from
+// coauthorartifact.go with CoAuthorArtifactWorkflow's deletion. railCredEnvelope is
+// the load-bearing one: every credential-bearing RA call the child makes takes it,
+// and its toProjectState half already lived in this file.
+// ===========================================================================
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// raContractMisuseErrType is the canonical Temporal Type() the read Activities surface when
+// the committed state DECODES MALFORMED (a closed-enum field carrying free prose, a type
+// mismatch) — the projectstate codec now classifies these ContractMisuse (terminal) rather
+// than Infrastructure (QA F36). On a pure READ path there is no bad-argument misuse to
+// confuse it with (the addressed absence is NotFound), so a ContractMisuse from a read-back
+// is unambiguously a decode-of-committed-state failure.
+var raContractMisuseErrType = fwmanager.RAErrType(fwra.ContractMisuse)
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// redraftSignal is the redraft signal payload — the "Retry draft" lever delivered
+// to a CoAuthorArtifactWorkflow suspended in the StageRefused recovery gate
+// (requestArtifactDraft's retry path). Feedback is the optional re-request feedback
+// woven into the next draft dispatch.
+type redraftSignal struct {
+	Feedback *ReviewFeedback
+	// TaskID names the TASK to re-draft, for the generic child's signal router
+	// (deliveryactivity.go). Empty on both design rails, which hold one session per
+	// artifact kind; Task 12's DispatchActivityTask is the sender that fills it.
+	TaskID string
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+func signalNotes(f *ReviewFeedback) string {
+	if f != nil {
+		return f.Notes
+	}
+	return ""
+}
+
+// designPipelinePhase maps the RA's phase to the manager's neutral phase, preserving
+// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
+// terminal as a StageDraftFailed gate).
+func designPipelinePhase(p agenticjob.PipelinePhase) pipelinePhase {
+	switch p {
+	case agenticjob.PhasePending:
+		return pipelinePending
+	case agenticjob.PhaseRunning:
+		return pipelineRunning
+	case agenticjob.PhaseSucceeded:
+		return pipelineSucceeded
+	case agenticjob.PhaseFailed:
+		return pipelineFailed
+	case agenticjob.PhaseCancelled:
+		return pipelineCancelled
+	default:
+		return lPipelinePhaseUnknown
+	}
+}
+
+// pipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-
+// neutral lifecycle phase the Manager branches on. The terminal trio drives the
+// observe loop's exit + the failure path.
+type pipelinePhase int
+
+const (
+	lPipelinePhaseUnknown pipelinePhase = iota
+	pipelinePending
+	pipelineRunning
+	pipelineSucceeded
+	pipelineFailed
+	pipelineCancelled
+)
+
+// IsTerminal reports whether the phase is one the job can no longer leave.
+func (p pipelinePhase) IsTerminal() bool {
+	switch p {
+	case pipelineSucceeded, pipelineFailed, pipelineCancelled:
+		return true
+	case lPipelinePhaseUnknown, pipelinePending, pipelineRunning:
+		return false
+	default:
+		return false
+	}
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// maxLateEpisodePolls bounds the EXTRA observe polls a CANCELLED run is given before its
+// episode is written off as a gap. Cancel flips the RA's phase SYNCHRONOUSLY while the
+// agent subprocess is still unwinding, so a cancelled run's FIRST terminal observation
+// legitimately carries no summary — it appears on a later poll.
+const maxLateEpisodePolls = 4
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// lateEpisodePollInterval spaces the late-episode grace polls. DELIBERATELY tighter than
+// the business poll interval: the wait is pure bookkeeping, but the workflow is blocked on
+// it, so a cancelled run would otherwise sit visibly "generating" for a further minute
+// before landing at its failure gate. Five seconds comfortably clears the executor's own
+// subprocess wait, and four of them cap the whole grace window at 20s.
+const lateEpisodePollInterval = 5 * time.Second
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// episodeVenueIsRemote reports whether this observation came from the REMOTE
+// (GitHub-Actions) venue, which mines no episode summary in v1. The run URL is the only
+// venue fact an observation carries: the Actions arm stamps it, and neither the local
+// executor nor the dry-run stub ever does. A GH run whose URL the RA could not resolve
+// therefore reads as local and earns a gap — deliberately the safe direction (a visible,
+// labelled gap beats a silent loss).
+func episodeVenueIsRemote(runURL string) bool {
+	return runURL != ""
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// railCredEnvelope carries the opaque short-lived credential across the Activity
+// boundary. The Bytes are write-only at every consumer (never logged); they ride the
+// Temporal payload exactly as the rail returns them.
+type railCredEnvelope struct {
+	Bytes     []byte
+	ExpiresAt time.Time
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+func (c railCredEnvelope) toRail() sourcecontrol.RepoCredential {
+	return sourcecontrol.RepoCredential{Bytes: c.Bytes, ExpiresAt: c.ExpiresAt}
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// mainBranch is the flat git-forward base every design PR targets (op-concepts §15).
+const mainBranch = "main"
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// setCommentStatusSignal is the SetReviewCommentStatus signal payload. It rides the
+// signalSetCommentStatus channel to the CoAuthorArtifactWorkflow suspended at the
+// AwaitingReview gate, which applies the branch mutation (open|answered->resolved /
+// resolved->open).
+type setCommentStatusSignal struct {
+	CommentID string
+	Status    string
+	// TaskID names the TASK whose round holds this comment. The generic child's signal
+	// router keys every payload on it (deliveryactivity.go): a walk runs several gates at
+	// once, and a status message with no task cannot be forwarded to one of them.
+	//
+	// The design rails leave it EMPTY and are unaffected — they hold one session per
+	// artifact kind and read the shared channel directly — so this is additive and an
+	// older buffered signal decodes it as "". EARMARK: SetReviewCommentStatus's façade
+	// signature carries no task, so the Manager cannot fill it until Task 12 gives the
+	// twelve ops a task id; until then the child's drop path is reachable from the façade
+	// and is LOGGED loudly rather than refused.
+	TaskID string
+}
+
+// reviewerUtteranceRole is the role stamped on a REPLY the human reviewer files into an
+// existing thread. It differs from reviewAuthorRole ("architect", the role stamped on the
+// comments the reviewer OPENS) because the derive rule reads it: projectstate.isReviewerRole
+// treats "architect" and "pm" as AGENT roles, so a reviewer reply stamped "architect" would
+// leave the thread reading as answered by its own author. Design §3.2 names this role.
+const reviewerUtteranceRole = "architect-user"
+
+// partitionIncomingComments is the thread-INDEPENDENT half of the split: it sorts one batch
+// into the entries that open a thread (no replyTo) and the utterances that answer one, with
+// no knowledge of which threads exist. Kept separate so a caller that must know the shape of
+// a batch BEFORE it reads the ledger (AskQuestions derives its idempotency key and its
+// emptiness refusal up front) partitions once and runs checkReplyTargets against the thread
+// it later reads — without duplicating the reply-stamping rule.
+func partitionIncomingComments(incoming []AnchoredComment, at string) ([]AnchoredComment, []projectstate.ReviewReply) {
+	var fresh []AnchoredComment
+	var replies []projectstate.ReviewReply
+	for _, c := range incoming {
+		if c.ReplyTo == "" {
+			fresh = append(fresh, c)
+			continue
+		}
+		if strings.TrimSpace(c.Text) == "" {
+			continue // an empty utterance is not a reply (mirrors the fresh-comment drop)
+		}
+		replies = append(replies, projectstate.ReviewReply{
+			CommentID:  c.ReplyTo,
+			AuthorRole: reviewerUtteranceRole,
+			Text:       c.Text,
+			At:         at,
+		})
+	}
+	return fresh, replies
+}
+
+// checkReplyTargets refuses a batch whose replyTo names no thread on this artifact. Split
+// out from splitIncomingComments so the Manager op can run the SAME refusal synchronously
+// against the queried wire thread, where a ContractMisuse still reaches the caller (a signal
+// payload's error cannot).
+func checkReplyTargets(known map[string]bool, incoming []AnchoredComment) error {
+	for _, c := range incoming {
+		if c.ReplyTo != "" && !known[c.ReplyTo] {
+			return newError(fwmanager.ContractMisuse, "replyTo names no thread on this artifact: "+c.ReplyTo)
+		}
+	}
+	return nil
+}
+
+// ledgerCommentIDs / viewCommentIDs collect the thread's entry ids from the durable and the
+// wire projection respectively — the two shapes checkReplyTargets is asked about.
+func ledgerCommentIDs(thread []projectstate.ReviewComment) map[string]bool {
+	ids := make(map[string]bool, len(thread))
+	for _, c := range thread {
+		ids[c.ID] = true
+	}
+	return ids
+}
+
+// designActivityFor maps an artifact kind onto the DESIGN activity the reviewEngine
+// keys its rows on: the activity type and the lifecycle phase within it. It is the
+// design rail's half of the vocabulary the engine's tables are total over (spec
+// 2026-09-20 §5.4, stage 2); the construction rail's half is the ActivityMethodPhase
+// wire names.
+//
+// The requirements activity carries the four business-alignment / volatility steps.
+// scrubbedRequirements shares the GLOSSARY phase deliberately: the scrubbing pass runs
+// with the glossary inside the-method-requirements-analysis step and shares its gate.
+// The architecture activity carries the System draft and the two architect-owned
+// documents that hang off it (operational concepts, standard check).
+//
+// EVERY Phase-2 kind maps to the projectDesign type at the kind's OWN wire name, and
+// deliberately NOT to the phase id "sdp". "sdp" is the M0 gate of the projectDesign
+// lifecycle, which the engine makes always-human because M0 approves spend; the nine
+// Phase-2 artifact DRAFTS are not that gate, and mapping them there would gate nine
+// drafts that auto-approve under vibes today. Pinned by
+// Test_DesignActivityFor_Phase2KindsAreNotTheSdpGate.
+func designActivityFor(kind projectstate.ArtifactKind) (review.ActivityType, string) {
+	switch kind {
+	case projectstate.KindMission:
+		return review.ActivityTypeRequirements, "mission"
+	case projectstate.KindGlossary, projectstate.KindScrubbedRequirements:
+		return review.ActivityTypeRequirements, "glossary"
+	case projectstate.KindVolatilities:
+		return review.ActivityTypeRequirements, "volatilities"
+	case projectstate.KindCoreUseCases:
+		return review.ActivityTypeRequirements, "coreUseCases"
+	case projectstate.KindSystem, projectstate.KindOperationalConcepts, projectstate.KindStandardCheck:
+		return review.ActivityTypeArchitecture, "architecture"
+	case projectstate.KindPlanningAssumptions, projectstate.KindActivityList, projectstate.KindNetwork,
+		projectstate.KindNormalSolution, projectstate.KindSubcriticalSolution,
+		projectstate.KindCompressedSolution, projectstate.KindDecompressedSolution,
+		projectstate.KindRiskModel, projectstate.KindSdpReview:
+		return review.ActivityTypeProjectDesign, kind.WireName()
+	}
+	// An out-of-vocabulary kind cannot reach here through the typed façade; route it to
+	// the architect's own step so the engine still answers rather than refusing.
+	return review.ActivityTypeArchitecture, "architecture"
+}
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// engineReviewPolicy converts the COMMITTED policy document into the reviewEngine's own
+// copy — Preset dereferenced (nil ⇒ "", the legacy/explicit mode), GatedPhasesByType
+// re-keyed to the phases' wire names because an Engine may not import projectstate (F3).
+//
+// BYTE-IDENTICAL COPY in internal/manager/construction/constructactivity.go and
+// internal/manager/projectdesign/coauthorphase2artifact.go: three packages, and no
+// shared home for a five-line conversion that would not cost an
+// internal/arch_test.go allowlist entry. Edit all three together; their parity is
+// pinned by Test_EngineReviewPolicy_CarriesTheStoredDocument in each package.
+func engineReviewPolicy(p projectstate.ReviewPolicy) review.ReviewPolicy {
+	out := review.ReviewPolicy{}
+	if p.Preset != nil {
+		out.Preset = *p.Preset
+	}
+	if len(p.GatedPhasesByType) > 0 {
+		out.GatedPhasesByType = make(map[string][]string, len(p.GatedPhasesByType))
+		for typ, phases := range p.GatedPhasesByType {
+			names := make([]string, 0, len(phases))
+			for _, ph := range phases {
+				names = append(names, ph.String())
+			}
+			out.GatedPhasesByType[typ] = names
+		}
+	}
+	return out
+}
+
+// sameArtifactModel PROMOTED to projectstate.SameArtifactModel
+// (code-health-phase-bd task D3) — byte-identical pure comparator, no longer duplicated
+// with projectdesign's twin.
+
+// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+// twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
+// encodeModel delegates to the promoted projectstate.EncodeModel. Kept as a
+// package-level wrapper (rather than rewriting every call site to the qualified name)
+// so this move stays a minimal, mechanical diff.
+func encodeModel(model projectstate.ArtifactModel) (modelEnvelope, error) {
+	return projectstate.EncodeModel(model)
+}
+
+// critiqueRoleProductManager / critiqueRoleArchitect are the CritiqueView.Role wire
+// labels for the two critique-issuing roles (critiqueCriticFor). They match the SPA's
+// ActiveRole wire naming ("productManager" / "architect") so both surfaces name the
+// role identically.
+const ()
+
+// pdDesignPipelinePhase maps the RA's phase to this Manager's neutral phase, preserving
+// the Cancelled terminal distinctly (the design Manager treats any non-Succeeded
+// terminal as a ProjectStageDraftFailed gate).
+func pdDesignPipelinePhase(p agenticjob.PipelinePhase) pdPipelinePhase {
+	switch p {
+	case agenticjob.PhasePending:
+		return pdPipelinePending
+	case agenticjob.PhaseRunning:
+		return pdPipelineRunning
+	case agenticjob.PhaseSucceeded:
+		return pdPipelineSucceeded
+	case agenticjob.PhaseFailed:
+		return pdPipelineFailed
+	case agenticjob.PhaseCancelled:
+		return pdPipelineCancelled
+	default:
+		return pdPipelinePhaseUnknown
+	}
+}
+
+// pdPipelinePhase mirrors agenticJobAccess.md §3 — the infrastructure-neutral
+// lifecycle phase the Manager branches on. The terminal trio drives the observe
+// loop's exit + the failure path.
+type pdPipelinePhase int
+
+const (
+	pdPipelinePhaseUnknown pdPipelinePhase = iota
+	pdPipelinePending
+	pdPipelineRunning
+	pdPipelineSucceeded
+	pdPipelineFailed
+	pdPipelineCancelled
+)
+
+// IsTerminal reports whether the phase is one the job can no longer leave.
+func (p pdPipelinePhase) IsTerminal() bool {
+	switch p {
+	case pdPipelineSucceeded, pdPipelineFailed, pdPipelineCancelled:
+		return true
+	case pdPipelinePhaseUnknown, pdPipelinePending, pdPipelineRunning:
+		return false
+	default:
+		return false
+	}
+}
+
+// RegisterManagerWorker registers the ONE delivery worker: the SIX surviving workflow types
+// under their existing registered names and the generated Activity set of the merged contract,
+// all on task queue "delivery". Stage 4a registered eleven across three rails; stage 4b1 Task
+// 13 deleted the seven per-kind ones.
+func RegisterManagerWorker(w worker.Worker, m DeliveryManager) {
+	impl, ok := m.(*deliveryManager)
+	if !ok {
+		panic("delivery: RegisterManagerWorker requires a *deliveryManager from NewDeliveryManager")
+	}
+	RegisterWorker(w, impl.WorkerManifest())
+}
+
+// RegisterSchedules registers (idempotently) the THREE platform-wide delivery
+// Temporal Schedules at startup via the messageBus utility (constructionManager.md
+// §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
+// every construction-phase project's own PumpNextActivityWorkflow; see this file's
+// header + pumpsweep.go), the replan sweep (5m — targets ReplanSweepWorkflow with
+// no ProjectID, its existing "sweep all in-flight projects" scope) and, from stage 4b1,
+// the round sweep (5m — targets RoundSweepWorkflow with an EMPTY ProjectID, its fan-out
+// arm; roundsweep.go). Called once at process start; a re-registration with the same
+// id+spec is a harmless no-op (last-writer-wins Update, messagebus.go).
+func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
+	adapter := messageBusAdapter{inner: bus}
+	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDPumpSweep,
+		WorkflowType: executionKindPumpSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: pumpSweepIntervalSecs,
+	}); err != nil {
+		return err
+	}
+	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDReplanSweep,
+		WorkflowType: executionKindReplanSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: replanSweepIntervalSecs,
+	}); err != nil {
+		return err
+	}
+	return adapter.RegisterSchedule(ctx, scheduleSpec{
+		ID:           scheduleIDRoundSweep,
+		WorkflowType: executionKindRoundSweep,
+		TaskQueue:    TaskQueue,
+		IntervalSecs: roundSweepIntervalSecs,
+	})
+}
+
+// ---------------------------------------------------------------------------
+// Episode facet read ops (SP1 capture-seam, Task 9 — founder ruling 2026-08-02:
+// episode observability is a facet of the existing use cases, not a new
+// episodeManager). Both ops are PLAIN METHODS that consult episodeAccess directly
+// — no Temporal — the same shape as systemDesignManager.ListProjects/GetProject.
+// The whole-project exportEpisodes op is cut from v1 (per-target export is
+// client-side, Task 10).
+// ---------------------------------------------------------------------------
+// constructState is the live technical state backing the sessionState Query.
+type constructState struct {
+	projectID     ProjectID
+	activityID    ActivityID
+	stage         ConstructionStage
+	pipelinePhase *PipelinePhase
+	reviewSet     *ReviewSet
+	// reviewSetError is why reviewSet is nil at the current gate ("" when the engine answered).
+	reviewSetError string
+	variance       *FlaggedVariance
+
+	// completedPhases is the LIVE in-memory skip-guard the phase loop consults so an
+	// already-completed phase is never re-dispatched or re-gated. It is SEEDED at
+	// workflow start from the start-snapshot activity's PhaseCompletion slice and
+	// MARKED unconditionally on EVERY phase completion (Approve / no-gate / inert) —
+	// independent of gitOn. This is what stops the outer variance-retry loop (which
+	// re-walks phases from index 0) from re-gating an already-approved phase across a
+	// non-git execution where no head-state completion record exists to re-read.
+	completedPhases map[projectstate.ActivityMethodPhase]bool
+
+	// redraftExhausted reports that the phase gate the workflow is waiting at can take no
+	// further SendBack redraft: its human-paced budget (maxPhaseRedrafts) is spent. It does
+	// NOT fail the activity or re-enter the variance loop — the gate keeps awaiting the
+	// human; the flag surfaces that redrafting is spent. RECOMPUTED on entry to every gate
+	// (B1.2): it used to be set once and never reset, so it leaked into every later gate of
+	// the same run (plan G5).
+	redraftExhausted bool
+
+	// awaitingGate / awaitingSince / awaitingUntil describe the human stage the workflow is
+	// in right now (B1.2): which gate (a lifecycle phase's wire name, mergeGateKey or
+	// takeoverGateKey), when THIS occurrence of it began, and — for an escalation with a
+	// bounded wait — when it gives up. awaitingSince is workflow.Now, so a query served by
+	// replay rebuilds the original time, and a redraft re-entering its gate starts a new
+	// occurrence. Written only by enterHumanStage and cleared only by leaveHumanStage.
+	awaitingGate  string
+	awaitingSince time.Time
+	awaitingUntil *time.Time
+
+	// attempt is the current supervision attempt, 1-based (set by runAttempt); 0 before
+	// the first attempt.
+	attempt int
+
+	// reviewContracts is the per-execution set of contract identifiers captured from
+	// the start-snapshot project (B5) and fed to reviewEngine.ProposeReviews so the
+	// gate's reviewer set is display-populated without re-reading mid-loop.
+	reviewContracts []string
+
+	// floorTouched is the Task 7 non-overridable-floor snapshot: whether the
+	// activity's committed contract (start-snapshot, B5-style — never re-read
+	// mid-loop) touches deploy/spend/schema (projectstate.ContractTouchesReviewFloor).
+	// Consulted by runPhaseGate via the reviewEngine's ProposeReviews (this is the
+	// floor flag it passes) to force a human gate at MethodPhaseConstruction
+	// regardless of preset, including "vibes".
+	floorTouched bool
+
+	// mergeCompleted is the LIVE in-memory skip-guard for the local merge step
+	// (local-merge-and-policy Commit 1, same discipline as completedPhases):
+	// marked once the merge job landed, so a variance retry of a LATER finalize
+	// fault does not re-dispatch a merge whose activity branch is already
+	// merged and deleted (which would honestly — and wrongly — fail).
+	mergeCompleted bool
+
+	// taskAttempts counts, per Figure A-1 task (MethodTask), how many times a pipeline
+	// has been dispatched for that task's phase on this activity — seeded at start from
+	// the row's attempt ledger (loadReviewSnapshot, v1 of changeLedgerPartialResume), so
+	// a new run's AttemptIDs continue the ledger's instead of colliding with them — the join key
+	// projectstate.AttemptID needs to attribute an episode to the (activity, task,
+	// attempt) it was actually burned on (Task 10, constructactivity.go). It counts
+	// across BOTH the outer variance-retry loop and a gated phase's human-paced redraft
+	// loop, since both re-enter runPipeline for the SAME phase. Workflow-local (rebuilt
+	// deterministically on replay, never persisted); lazily initialized by
+	// constructState.nextTaskAttempt so a state that never dispatches a pipeline
+	// (ProjectSupervisionWorkflow's) allocates nothing.
+	taskAttempts map[projectstate.MethodTask]int
+
+	// noteDelivery is true on an execution that recorded the operator-note-delivery
+	// marker (plan B1.4): only then are notes recorded, carried and stamped, and the
+	// managed scaffold synced before a GitHub-venue dispatch.
+	noteDelivery bool
+	// noteSeq numbers the notes this run records (operatorNoteID).
+	noteSeq int
+	// pendingNotes are the notes the next agent dispatch carries, oldest first: seeded
+	// from the row at start (projectstate.PendingOperatorNotes), appended to as notes are
+	// recorded, and each dropped once a dispatch carried it whole and it was stamped.
+	pendingNotes []projectstate.OperatorNote
+	// carriedTo names, per note id, the last attempt a dispatch carried the note into,
+	// so a note is never carried twice into the same attempt (M4).
+	carriedTo map[string]string
+
+	// executionLedger is true on an execution that recorded the execution-ledger marker
+	// (changeExecutionLedger, stage 3): only then does this run WRITE what it does to the
+	// per-activity attempt and review-round ledgers. An execution that recorded no marker
+	// stays wholly on the retired facet — no activity opened, no attempt recorded, no
+	// round opened, no verdict appended — because its history holds no events for those
+	// Activities and never will.
+	executionLedger bool
+
+	// activityVersion is this run's copy of the per-activity CAS token: the version the
+	// activity's own execution row was at the last time this workflow wrote it. It is
+	// deliberately NOT headVersion — headVersion is the whole document's token, and two
+	// children writing DIFFERENT activities would contend on it while never touching each
+	// other's rows. This one is scoped to the row, so it refuses exactly the interleaving
+	// that matters and nothing else, which is the guard 4b's parallel pump rests on.
+	//
+	// Seeded at session start from the row the start snapshot already read
+	// (loadReviewSnapshot), 0 for an activity with no row yet — which is
+	// projectstate.NoActivityVersionExpectation, the honest posture of a writer about to
+	// BIRTH the row. Advanced by rowAdvanced on every applied transition.
+	activityVersion int64
+
+	// workAttemptID is the AttemptID of the last AGENT-WORK dispatch runPipeline minted.
+	// The gate that follows judges exactly that attempt, so it is what the round cites as
+	// its subject and what every verdict on that round names — the join that makes a
+	// verdict traceable to the work it judged and to the episode that burned it.
+	workAttemptID string
+
+	// stagedRef is the ref of the OUTPUT the last work task staged — the commit the gate
+	// that follows actually judges, and the one rung of gateSubjectRef's ladder that moves
+	// per revision rather than per activity.
+	//
+	// (stagedRef and gate went with the retired sequential walk, stage 4b1 Task 13: the
+	// generic child stages through producedSubject and carries ONE *gateLedger per review
+	// coroutine, because a forked walk holds several gates at once and a single-valued field
+	// would make two concurrent gates decide each other's round — R8-7.)
+
+	// walk is the GENERIC child's per-run head-state and git lifecycle (walkRun). Zero and
+	// unread on the retired rail, which threads the same facts by parameter.
+	walk walkRun
+
+	// ephemeralNotes are the ids of the workflow-local notes that carry a send-back's
+	// feedback into the redraft WITHOUT being recorded (stage 3): the round IS the record
+	// of the send-back now, so a NoteSendBack beside it would be one fact stored twice.
+	// They render into the dispatch block like any other note and are never stamped
+	// delivered, because there is no stored note to stamp.
+	ephemeralNotes map[string]bool
+}
+
+// modelEnvelope/projectEnvelope are ALIASES to the projectstate types (the shared
+// wire codec lives in projectstate/envelope.go: EncodeModel/EncodeProject/Decode).
+// Aliasing preserves type identity for every existing declaration/field/call site
+// in this package; call the promoted methods by their exported names (Decode, not
+// decode).
+type (
+	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+	// twins, collapsed by the package merge).
+	modelEnvelope = projectstate.ModelEnvelope
+	// Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
+	// twins, collapsed by the package merge).
+)
+
+// Signal and query names (systemDesignManager.md §6.5).
+const (
+	// signalReviewDecision resumes a suspended CoAuthorArtifactWorkflow at the
+	// AwaitingReview gate; backs submitReviewDecision.
+	// lSignalRedraft resumes a CoAuthorArtifactWorkflow that ended a draft attempt in
+	// the StageRefused terminal-but-live state (a terminal worker fault: the LLM
+	// worker is unavailable / out of credits, or produced an unconstructable
+	// response). It re-enters the draft loop in the SAME live workflow so the user's
+	// "Retry draft" recovers without a fresh run. Backs requestArtifactDraft's retry
+	// path (signal-with-start; systemDesignManager.md §2.1).
+	lSignalRedraft = "redraft"
+	// Stage 4a: ONE copy now serves the systemDesign+construction rails (byte-identical
+	// twins, collapsed by the package merge).
+	// querySessionState returns a SessionStateView; backs getSessionState.
+	querySessionState = "sessionState"
+	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
+	// AwaitingReview gate to apply a durable review-ledger status transition
+	// (open|answered->resolved / resolved->open) to one comment on the session branch; backs
+	// SetReviewCommentStatus (review-ledger feature).
+	signalSetCommentStatus = "setCommentStatus"
+)
+
+// Signal and query names (constructionManager.md §6.1/§6.2).
+const (
+	// signalOperatorPauseRequested resumes a suspended construction execution at
+	// its awaitSignal; backs PauseProject (NCUC2).
+	signalOperatorPauseRequested = "operatorPauseRequested"
+	// signalOperatorOverride resumes a per-activity child workflow; backs
+	// OverrideActivity.
+	signalOperatorOverride = "operatorOverride"
+	// signalTaskDecision delivers a decision to ONE TASK's gate inside the generic
+	// per-activity child (stage 4b1 Task 8). It is the retired phase-decision signal's
+	// successor and not a rename of it: the old signal keyed on a lifecycle PHASE and
+	// multiplexed one gate at a time, and the walk runs several gates at once, so the new one
+	// keys on the TASK — which is also what lets the router forward it to exactly one coroutine.
+	signalTaskDecision = "taskDecision"
+	// queryPumpDispatch returns THIS pump run's pumpDispatch decision; backs the
+	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
+	// background self-cascade drain (constructionManager.md §2.1).
+	queryPumpDispatch = "pumpDispatchDecision"
+)
+
+// ExecutionKinds — the registered workflow names (constructionManager.md §6.2).
+const (
+	// executionKindPump is PumpNextActivityWorkflow — the project's ONE pump,
+	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
+	// 30s pump sweep (not one execution per tick).
+	executionKindPump = "constructionPumpNextActivity"
+	// executionKindReplanSweep is the per-tick ReplanSweepWorkflow (the 5m sweep).
+	executionKindReplanSweep = "constructionReplanSweep"
+	// executionKindProjectSupervision is the long-lived project-level supervision
+	// workflow that hosts the operator-pause branch + project-level session Query.
+	executionKindProjectSupervision = "constructionProjectSupervision"
+	// executionKindPumpSweep is the Schedule-triggered, platform-wide fan-out
+	// (the 30s pump sweep; pumpsweep.go) — the actual Schedule target, since a
+	// Schedule cannot itself vary executionKindPump's ProjectID per firing.
+	executionKindPumpSweep = "constructionPumpSweep"
+	// executionKindRoundSweep is the stranded-review-round sweep (the 5m round sweep;
+	// roundsweep.go, stage 4b1 Task 6). ONE type for both of its arms: the Schedule
+	// fires it with an empty ProjectID (the fan-out) and it starts children of its own
+	// type per project (the sweep proper). The name carries the delivery* spelling
+	// because it is BORN here — unlike the construction* four above, which keep theirs so
+	// a rename cannot strand an in-flight execution.
+	executionKindRoundSweep = "deliveryRoundSweep"
+	// executionKindDeliveryActivity is the GENERIC per-activity child (stage 4b1 Task 8):
+	// ONE workflow type that walks any method-assets lifecycle's task DAG. It carries the
+	// delivery* spelling for the same reason the round sweep does — it is BORN here, so no
+	// in-flight execution can be stranded by the name it was given.
+	executionKindDeliveryActivity = "deliveryActivity"
+)
+
+// The gate's ledger vocabulary. A construction gate's human row has no named person
+// behind it — the decision signal carries feedback, not an identity — so the ROLE is
+// what the round records and "operator" is who the platform can honestly say answered it.
+const (
+	gateRoleHuman     = "human"
+	gateActorOperator = "operator"
+	// (gateRoleReviewEngine went with the retired rail's refused-roster abstention, stage 4b1
+	// Task 13: the child's runAgentReviewers records a critic's abstention under the reviewer's
+	// OWN workerClass, and a roster the engine cannot staff is logged and the gate held rather
+	// than given a synthetic role.)
+	// A construction gate is closed by a person answering it. (Its twin, decidedByPolicy —
+	// "the committed review policy said no person was needed here" — is RETIRED in the final
+	// fix wave: it had zero callers repo-wide, because a policy-closed gate records the
+	// policy's own reason string rather than a fixed decidedBy word.)
+	decidedByOperator = "operator"
+)
+
+// resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,
+// the profile-wins, ledger-per-phase resolution that classifiedRowView's phase set comes
+// from. The rule moved down into projectstate so the construction pump can share it; this
+// name stays because the view-model's tests pin the rule against it directly, with an
+// explicit profile, and must keep passing unmodified across the move.
+func resolvedPhaseCompletions(
+	profile projectstate.Profile,
+	attempts []projectstate.TaskAttempt,
+) []projectstate.PhaseCompletion {
+	return projectstate.ResolvePhaseCompletions(profile, attempts)
 }

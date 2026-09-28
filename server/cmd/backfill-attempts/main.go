@@ -313,13 +313,35 @@ var designPhaseArtifact = map[projectstate.ActivityMethodPhase]string{
 	projectstate.MethodPhaseIntegration:    "",
 }
 
-// isDesignActivity asks the CLASSIFIER, not a second table: ClassifyActivity returns
-// projectstate.ErrDesignActivityNotDispatchable together with the design type for exactly
-// the three reserved design ids, so this tool and the construction pump cannot end up
-// disagreeing about which activities those are.
-func isDesignActivity(a projectstate.ActivityItem) bool {
-	_, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding)
-	return errors.Is(err, projectstate.ErrDesignActivityNotDispatchable)
+// producesArtifactSlots asks the CLASSIFIER, not a second table: ClassifyActivity maps
+// exactly the three reserved design ids onto the three design ActivityTypes, so this tool
+// and the delivery pump cannot end up disagreeing about which activities those are.
+//
+// It used to select on projectstate.ErrDesignActivityNotDispatchable, which rule 0 returned
+// ALONGSIDE the type. Stage 4b1 Task 10 retired that sentinel — the generic
+// DeliveryActivityWorkflow walks the design lifecycles now — so the question is asked of the
+// TYPE, which is what it was always really about: a design activity's work product is a
+// committed artifact slot rather than code the corpus can read.
+func producesArtifactSlots(a projectstate.ActivityItem) bool {
+	typ, _, err := projectstate.ClassifyActivity(a.Name, a.WorkerClass, a.Coding)
+	if err != nil {
+		return false
+	}
+	switch typ {
+	case projectstate.ActivityTypeRequirements,
+		projectstate.ActivityTypeArchitecture,
+		projectstate.ActivityTypeProjectDesign:
+		return true
+	case projectstate.ActivityTypeService,
+		projectstate.ActivityTypeFrontend,
+		projectstate.ActivityTypeTesting,
+		projectstate.ActivityTypeDeployment,
+		projectstate.ActivityTypeDocumentation,
+		projectstate.ActivityTypeUIDesign,
+		projectstate.ActivityTypeIntegration:
+		return false
+	}
+	return false
 }
 
 // designSlotEvidence is the evidence path for a design-prefix activity: every artifact
@@ -435,7 +457,7 @@ func evaluate(in inputs) ([]verdict, error) {
 		component, hasComponent := components[a.ComponentID]
 		var v verdict
 		switch {
-		case isDesignActivity(a):
+		case producesArtifactSlots(a):
 			// FIRST, before hasComponent: a design activity is componentless, so it would
 			// otherwise fall to signedOff and report "no evidence path" for work whose
 			// artifacts are sitting committed in this very file.

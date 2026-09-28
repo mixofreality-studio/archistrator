@@ -179,9 +179,59 @@ export function verdictLine(verdict: {
   return parts.join(' · ');
 }
 
-/** Why a construction thread offers no Resolve / Reopen / Ask (R2). */
-export const CONSTRUCTION_THREAD_READ_ONLY =
-  'Construction review threads are recorded, but cannot be resolved, reopened or replied to from here yet.';
+/**
+ * THE M0 COST BASIS, said out loud (stage 4b1 Step 3a).
+ *
+ * The Project-Design compute DEFAULTS any planning-assumption family the founder
+ * never authored and proceeds — a project that cannot reach its own cost-approval
+ * gate cannot be told what it would cost. Approving that gate binds the plan of
+ * record and starts spending, so a cost computed on numbers nobody showed the
+ * founder is the one way this screen can mislead: the defaulting is recorded, and
+ * without this line it would be recorded and INVISIBLE, which is the same lie as
+ * refusing.
+ *
+ * ONE sentence, not two. Its twin (`defaultedCostBasis` — "what is committed is the
+ * platform's own document") is retired in the final fix wave with the unreachable arm
+ * that was its only caller: the compute never commits slot 8, so that state has no run
+ * that produces it.
+ */
+export function assumedCostBasis(families: string): string {
+  return `Cost computed on assumed ${families} — no planning assumptions are committed for this project yet`;
+}
+
+/**
+ * THE TWO OVERRIDES, said as two actions (stage 4b1 Task 14, controller ruling 3).
+ *
+ * `OverrideActivity` means one thing at a live escalation and another at a finished
+ * activity, and the server can only tell the operator which one is POSSIBLE — never
+ * which one they meant. So the screen names them: one button, one label, one
+ * consequence, chosen by what the activity is (`activityOverride.ts`), and never one
+ * button whose meaning the reader has to infer.
+ */
+export const STEER_HEADING = 'This activity is waiting for you to steer it';
+export const STEER_LABEL = 'Steer';
+export const STEER_CONSEQUENCE =
+  'Re-dispatches the task whose last attempt failed, with your note on the record. The walk resumes from it.';
+
+export const REOPEN_HEADING = 'This activity has finished. Reopening runs what did not pass.';
+export const REOPEN_LABEL = 'Reopen';
+export const REOPEN_CONSEQUENCE =
+  'Re-arms the activity so the next pump tick selects it again. Every task that passed is kept; only what did not is re-run.';
+
+/**
+ * The note both carry. The Manager REQUIRES it — "an override requires non-empty
+ * notes — it is the operator's durable record of WHY the automatic path was steered" —
+ * so the button is disabled until there is one, which is the refusal said before it
+ * happens rather than after.
+ */
+export const OVERRIDE_NOTE_LABEL = 'Why (recorded on the activity)';
+export const OVERRIDE_NOTE_REQUIRED =
+  'Required: an override without a reason is not an audit entry.';
+
+/** An override the server refused, verbatim — the refusal names the stage it is at. */
+export function overrideFailed(detail: string): string {
+  return `That did not go through: ${detail}`;
+}
 
 /** The reviewers strip when the review engine refused to propose a roster. */
 export function reviewSetRefused(detail: string): string {

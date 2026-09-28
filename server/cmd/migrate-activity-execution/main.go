@@ -304,8 +304,13 @@ func slotRounds(
 			outcome = last
 		}
 		subject, subjectBasis := subjectRefFor(s.Kind)
+		// The kind as a FIELD as well as the id's third segment, for the same reason the live
+		// design rail writes it: nothing may parse a RoundID, so a round backfilled from a
+		// slot thread must SAY which artifact it judged or the reader is back to guessing
+		// between the kinds that share this gate.
+		kind := s.Kind
 		out = append(out, projectstate.ReviewRound{
-			RoundID: id, TaskID: gate, Reviews: work, Round: n, SubjectRef: subject,
+			RoundID: id, TaskID: gate, Reviews: work, ArtifactKind: &kind, Round: n, SubjectRef: subject,
 			Thread:  commentsInRound(slot.ReviewThread, slotRound),
 			Outcome: outcome,
 			Provenance: backfilled(now, fmt.Sprintf("slots.%s.reviewThread round %d; subject from %s",

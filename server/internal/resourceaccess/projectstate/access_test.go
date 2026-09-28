@@ -3507,6 +3507,53 @@ func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testin
 	}
 }
 
+// TestGitStore_AdvancePhase_RefusesPastTheLastPhase proves the ceiling on the phase
+// verb. Phase is a THREE-member closed enum and the body was a bare `p.Phase++`, so a
+// SECOND seal of an already-sealed project pushed Phase to the unnamed ordinal 3 — and
+// both construction dispatchers select on `Phase == PhaseConstruction` exactly, so the
+// project went permanently quiet with nothing logged. Two writers race on an M0 approve
+// (the child's own seal and the deliveryManager façade), which is why the invariant has
+// to hold on the WRITE and not only in each caller.
+func TestGitStore_AdvancePhase_RefusesPastTheLastPhase(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ProjectID(uuid.NewString())
+	v, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// Walk to the last named phase: system design → project design → construction.
+	for i, key := range []fwra.IdempotencyKey{"wf:advance-1", "wf:advance-2"} {
+		if v, err = store.AdvancePhase(ctx, id, v, cred, key); err != nil {
+			t.Fatalf("AdvancePhase %d: %v", i+1, err)
+		}
+	}
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Phase != PhaseConstruction {
+		t.Fatalf("phase after two advances = %d, want PhaseConstruction (%d)", int(proj.Phase), int(PhaseConstruction))
+	}
+
+	// The third advance is the one the race issues, and it must be refused.
+	if _, err := store.AdvancePhase(ctx, id, v, cred, "wf:advance-3"); err == nil {
+		t.Fatal("AdvancePhase past the last phase must be refused, got nil error")
+	} else if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("advance past the last phase kind = %v, want ContractMisuse", k)
+	}
+
+	// And the refusal must leave the phase WHERE IT WAS — a phase that moved and then
+	// errored would be the same outage with an error message attached.
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject after refusal: %v", err)
+	}
+	if after.Phase != PhaseConstruction {
+		t.Fatalf("phase after the refused advance = %d, want it unchanged at PhaseConstruction (%d)",
+			int(after.Phase), int(PhaseConstruction))
+	}
+}
+
 // TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse proves the F80c branch
 // reconciler refuses an empty branch: reconciliation only makes sense against a real
 // session branch (main never diverges from itself), so an empty branch is a ContractMisuse
@@ -8964,10 +9011,12 @@ func TestClassifyType_ClassifiableRowsStillResolve(t *testing.T) {
 	}
 }
 
-// The three reserved design ids classify to their own types and carry the
-// not-dispatchable sentinel with them. The workerClass/coding pair they are authored
-// with (system-architect, coding=false) would otherwise type them as Documentation.
-func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
+// The three reserved design ids classify to their own types, CLEANLY — stage 4b1 Task 10
+// retired ErrDesignActivityNotDispatchable, because the generic DeliveryActivityWorkflow
+// now walks their lifecycles and "classifiable but not dispatchable" is no longer a state
+// this platform has. The workerClass/coding pair they are authored with
+// (system-architect, coding=false) would otherwise type them as Documentation.
+func TestClassifyActivity_DesignPrefixIsTypedAndDispatchable(t *testing.T) {
 	cases := []struct {
 		id   string
 		want ActivityType
@@ -8981,8 +9030,8 @@ func TestClassifyActivity_DesignPrefixIsTypedButNotDispatchable(t *testing.T) {
 		if typ != c.want || variant != TestVariantPlan {
 			t.Errorf("%s -> (%s, %s), want (%s, plan)", c.id, typ, variant, c.want)
 		}
-		if !errors.Is(err, ErrDesignActivityNotDispatchable) {
-			t.Errorf("%s: err = %v, want ErrDesignActivityNotDispatchable", c.id, err)
+		if err != nil {
+			t.Errorf("%s: err = %v, want nil — a design activity classifies cleanly since the sentinel died", c.id, err)
 		}
 		// The VIEW lens must still type it: a design row renders with its lifecycle.
 		if got, ok := ClassifyType(c.id, "system-architect", false, false); !ok || got != c.want {
@@ -10498,6 +10547,91 @@ func TestOpenReviewRound_ADifferentKeyForTheSameRoundStillAppendsOnce(t *testing
 	}
 }
 
+// TestOpenReviewRound_StoresTheArtifactKindAndIsWriteOnceOnIt — a round SAYS which artifact
+// it judges, and says it once.
+//
+// The field is what makes a stored round self-describing: a review task's id does not
+// determine what it judges (`designReview` names a task in eight lifecycles), and several
+// artifact kinds are designed to share one lifecycle phase, so a reader joining on (taskId,
+// round) alone would bind two kinds' round 1 into one review. The kind is ALSO inside the
+// design rails' four-part RoundID, and nothing may parse a RoundID — this field is the
+// honest copy.
+//
+// WRITE-ONCE, because re-opening the same RoundID opens ONE round: a second open naming a
+// different kind is the caller contradicting itself about what this round judges. The
+// one-sided cases are not contradictions — a caller that names none leaves the stored kind
+// alone, and a stored round that has none (a construction round, or one written before the
+// field existed) gains it.
+func TestOpenReviewRound_StoresTheArtifactKindAndIsWriteOnceOnIt(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+
+	system, concepts := KindSystem, KindOperationalConcepts
+	design := ReviewRoundInput{
+		RoundID: "architecture:architectureReview:system:1", TaskID: MethodTask("architectureReview"), Reviews: MethodTask("system"),
+		Round: 1, SubjectRef: SubjectRef{Kind: SubjectArtifact, Ref: "system"}, ArtifactKind: &system,
+	}
+	v, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", design, cred, fwra.IdempotencyKey("k1"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound: %v", err)
+	}
+	// A construction round in the same row carries NO kind: its subject is a commit, not a
+	// slot model, and claiming a kind would be a fabrication.
+	v = openRoundFixture(t, a, id, v, cred)
+
+	exec, err := a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if len(exec.Reviews) != 2 {
+		t.Fatalf("two round ids, two rounds; got %d", len(exec.Reviews))
+	}
+	if exec.Reviews[0].ArtifactKind == nil || *exec.Reviews[0].ArtifactKind != KindSystem {
+		t.Fatalf("the design round must store the kind it was opened with; got %v", exec.Reviews[0].ArtifactKind)
+	}
+	if exec.Reviews[1].ArtifactKind != nil {
+		t.Fatalf("a construction round judges no artifact kind; got %v", *exec.Reviews[1].ArtifactKind)
+	}
+	// The contradiction is REFUSED, and the row is left as it stood.
+	contradiction := design
+	contradiction.ArtifactKind = &concepts
+	if _, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", contradiction, cred, fwra.IdempotencyKey("k2")); err == nil {
+		t.Fatal("re-opening a round under a DIFFERENT artifact kind must be refused: the caller is contradicting itself")
+	}
+	// A re-open that names no kind is still the no-op success it always was, and does not
+	// erase what the round judges.
+	silent := design
+	silent.ArtifactKind = nil
+	if v, err = a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", silent, cred, fwra.IdempotencyKey("k3")); err != nil {
+		t.Fatalf("a re-open that names no kind is a no-op success: %v", err)
+	}
+	exec, _ = a.ReadActivityExecution(execRC(), id, "C-X")
+	if exec.Reviews[0].ArtifactKind == nil || *exec.Reviews[0].ArtifactKind != KindSystem {
+		t.Fatalf("absence is not a claim: the stored kind stands; got %v", exec.Reviews[0].ArtifactKind)
+	}
+	// And a LEGACY round — one written before the field existed — gains the kind from a
+	// caller that now names it, rather than being refused. This is the only way a row the
+	// migration backfilled without the field ever becomes self-describing.
+	legacy := ReviewRoundInput{
+		RoundID: "architecture:architectureReview:operationalConcepts:2", TaskID: MethodTask("architectureReview"),
+		Reviews: MethodTask("system"), Round: 2, SubjectRef: SubjectRef{Kind: SubjectArtifact, Ref: "operationalConcepts"},
+	}
+	v, err = a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", legacy, cred, fwra.IdempotencyKey("k4"))
+	if err != nil {
+		t.Fatalf("OpenReviewRound (legacy shape, no kind): %v", err)
+	}
+	healed := legacy
+	healed.ArtifactKind = &concepts
+	if _, err := a.OpenReviewRound(execRC(), id, v, NoActivityVersionExpectation, "C-X", healed, cred, fwra.IdempotencyKey("k5")); err != nil {
+		t.Fatalf("a round with no kind gains one from a caller that names it: %v", err)
+	}
+	exec, _ = a.ReadActivityExecution(execRC(), id, "C-X")
+	last := exec.Reviews[len(exec.Reviews)-1]
+	if last.ArtifactKind == nil || *last.ArtifactKind != KindOperationalConcepts {
+		t.Fatalf("the legacy round must gain the kind it judges; got %v", last.ArtifactKind)
+	}
+}
+
 // TestAppendReviewVerdict_CarriesItsCommentsInTheSameCommit — a verdict and its comments
 // land in ONE commit (spec §5.3, "AppendReviewVerdict (verdict + its comments in one
 // commit)"). A crash between them would leave a round whose verdict cites comments
@@ -11032,6 +11166,78 @@ func TestOpenActivity_PinsTheLifecycleOnce(t *testing.T) {
 	}
 	if got := readConstruction(t, store, id, cred, "C-X").Pin; got.AssetsVersion != "v0.9.0" {
 		t.Fatalf("a refused re-pin must not have written; pin = %+v", got)
+	}
+}
+
+// TestOpenActivity_TypesTheRowOnce — (typ, variant) is write-once for the same reason the
+// pin is. The row's Type is what ResolveConstructionRow resolves every read-time
+// derivation against — the lifecycle profile, the phase set, earned value — so a re-open
+// that quietly re-typed it would retro-date every attempt and round already recorded to a
+// DAG they were never written under.
+//
+// Pre-fix `cs.Type = typ` and `cs.Variant = variant` were unconditional: the pin above them
+// was write-once and the start stamp below them was write-once, and the pair between the two
+// took whatever the last caller said.
+//
+// The three arms are the three things a caller can mean: the retry (same pair — the
+// idempotent no-op the design rails depend on, re-opening ONE prefix activity once per
+// artifact kind), the contradiction (either field different — refused), and the BIRTH (a
+// row that does not exist yet — always written, whatever the pair).
+func TestOpenActivity_TypesTheRowOnce(t *testing.T) {
+	a, store, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	pin := LifecyclePin{TypeKey: "service", AssetsVersion: "v0.9.0"}
+	born := readConstruction(t, store, id, cred, "C-X")
+
+	// THE RETRY. Re-opening with the same pair succeeds and re-dates nothing: this is the
+	// design rails' per-kind re-open (requirements across mission, glossary, …) and the
+	// construction rail's resume, and a refusal here would break both.
+	v2, err := a.OpenActivity(execRC(), id, v, NoActivityVersionExpectation, "C-X", ActivityTypeService, TestVariantPlan, pin, cred, fwra.IdempotencyKey("t1"))
+	if err != nil {
+		t.Fatalf("re-opening with the same (typ, variant) must succeed: %v", err)
+	}
+	if again := readConstruction(t, store, id, cred, "C-X"); again.StartedAt == nil || !again.StartedAt.Equal(*born.StartedAt) {
+		t.Fatalf("a re-open resumes the run rather than re-dating it; StartedAt %v → %v", born.StartedAt, again.StartedAt)
+	}
+
+	// THE CONTRADICTION, either field over. The refusal names BOTH pairs, because the
+	// caller's whole problem is that it does not know which classification the row holds.
+	for _, tt := range []struct {
+		name    string
+		typ     ActivityType
+		variant TestingVariant
+		names   []string
+		key     fwra.IdempotencyKey
+	}{
+		{"a different type", ActivityTypeTesting, TestVariantPlan, []string{"service/plan", "testing/plan"}, "t2"},
+		{"a different variant", ActivityTypeService, TestVariantSystemTest, []string{"service/plan", "service/systemTest"}, "t3"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			_, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "C-X", tt.typ, tt.variant, pin, cred, tt.key)
+			if err == nil || kindOfErr(err) != fwra.ContractMisuse {
+				t.Fatalf("re-typing a live row must be ContractMisuse; got %v", err)
+			}
+			for _, want := range tt.names {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("the refusal must name %q so the caller can see both classifications; got %v", want, err)
+				}
+			}
+			if after := readConstruction(t, store, id, cred, "C-X"); after.Type != ActivityTypeService || after.Variant != TestVariantPlan {
+				t.Fatalf("a refused re-type must not have written; got %s/%s", after.Type, after.Variant)
+			}
+		})
+	}
+
+	// THE BIRTH. A row that does not exist yet has no classification to contradict, and
+	// StartedAt — nil until this very call — is what tells the two cases apart (Type cannot:
+	// ActivityTypeService is the zero value, so an untyped row and a service row are the
+	// same bytes).
+	if _, err := a.OpenActivity(execRC(), id, v2, NoActivityVersionExpectation, "N-IT", ActivityTypeTesting, TestVariantSystemTest,
+		LifecyclePin{TypeKey: "testing.systemTest", AssetsVersion: "v0.9.0"}, cred, fwra.IdempotencyKey("t4")); err != nil {
+		t.Fatalf("a BIRTH must be written whatever the pair: %v", err)
+	}
+	if fresh := readConstruction(t, store, id, cred, "N-IT"); fresh.Type != ActivityTypeTesting || fresh.Variant != TestVariantSystemTest {
+		t.Fatalf("the birth stamps the pair the dispatcher classified; got %s/%s", fresh.Type, fresh.Variant)
 	}
 }
 
@@ -11720,5 +11926,107 @@ func TestLegacyIntegratedRow_NeverOverridesARecordedGate(t *testing.T) {
 	_, build := EffectiveConstructionPhase(row, ActivityItem{Name: "C-a", WorkerClass: "junior-developer", Coding: true})
 	if build == BuildIntegrated {
 		t.Fatal("a rejected construction gate must keep the row out of Integrated")
+	}
+}
+
+// A REQUEUE NOTE RE-ARMS A TERMINAL ACTIVITY (stage 4b1 task 12), and it is the ONE note kind
+// that changes the row. Every claim the Manager's re-open path rests on is here, against the
+// real store: the four sticky head facts are cleared, everything below them survives, a row that
+// has not exited is refused, and a replayed note is the same no-op success every other replay is.
+func TestRecordOperatorNote_RequeueReArmsATerminalActivity(t *testing.T) {
+	a, _, id, v, cred := newExecutionStore(t)
+	v = openTestActivity(t, a, id, v, cred)
+	// A ledger under the terminal, so the "everything below is kept" claim has something to keep.
+	v, err := a.RecordAttemptOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X", TaskAttemptInput{
+		AttemptID: "C-X:srs:1", TaskID: TaskSRS, Attempt: 1, Outcome: OutcomePassed,
+	}, cred, fwra.IdempotencyKey("wf:attempt-1"))
+	if err != nil {
+		t.Fatalf("RecordAttemptOutcome: %v", err)
+	}
+	requeue := func(v Version, key string) (Version, error) {
+		return a.RecordOperatorNote(execRC(), id, v, NoActivityVersionExpectation, "C-X", OperatorNoteInput{
+			NoteID: "C-X:note:reopen:1", Kind: NoteRequeue, Gate: "reopen", Text: "the vendor unblocked us",
+		}, "", cred, fwra.IdempotencyKey(key))
+	}
+
+	// (1) A ROW THAT HAS NOT EXITED IS REFUSED, and nothing moves.
+	before := verbRowVersion(t, a, id, "C-X")
+	if _, err := requeue(v, "wf:requeue-live"); err == nil {
+		t.Fatal("a requeue against a live activity must be refused — re-arming it would hand a second child the row")
+	} else if got := kindOf(t, err); got != fwra.Conflict {
+		// A CONFLICT, NOT A CONTRACT MISUSE (Task 12 round 3, minor (e)). The arguments are
+		// impeccable — the same note is legal the moment the activity exits — so what is wrong is
+		// the STATE, which is the distinction the two kinds carry and the one this facet's other
+		// two terminality refusals already make (OpenActivity on an exited row, DecideReviewRound
+		// on a decided round). The façade maps it to FailedPrecondition for the operator either way.
+		t.Fatalf("kind = %v, want Conflict", got)
+	}
+	if got := verbRowVersion(t, a, id, "C-X"); got != before {
+		t.Fatalf("a refused requeue must leave the row where it found it: version = %d, want %d", got, before)
+	}
+
+	// (2) THE TERMINAL, then the re-open.
+	v, err = a.RecordActivityOutcome(execRC(), id, v, NoActivityVersionExpectation, "C-X",
+		ActivityOutcomeUnknown, VarianceExhausted, "construction supervision exceeded max attempts", cred, fwra.IdempotencyKey("wf:exit"))
+	if err != nil {
+		t.Fatalf("RecordActivityOutcome: %v", err)
+	}
+	row, err := a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if CoarsePhaseFor(row, nil) != ActivityConstructionFailed {
+		t.Fatalf("the fixture must be terminal, got %v", CoarsePhaseFor(row, nil))
+	}
+	if v, err = requeue(v, "wf:requeue-1"); err != nil {
+		t.Fatalf("a requeue against a TERMINAL activity must be accepted: %v", err)
+	}
+	row, err = a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	assertRequeuedRow(t, row)
+
+	// (3) A REPLAY is a no-op success, not a refusal — the row is no longer terminal, and an
+	// idempotent verb must not start failing on retry.
+	if _, err := requeue(v, "wf:requeue-replay"); err != nil {
+		t.Fatalf("a replayed requeue must be the same no-op success every other replay is: %v", err)
+	}
+	row, err = a.ReadActivityExecution(execRC(), id, "C-X")
+	if err != nil {
+		t.Fatalf("ReadActivityExecution: %v", err)
+	}
+	if got := len(row.OperatorNotes); got != 1 {
+		t.Fatalf("a replayed note must not be appended twice, got %d notes", got)
+	}
+}
+
+// assertRequeuedRow is the re-armed row's whole shape: the four sticky head facts cleared, and
+// everything a later read has to be able to interpret still there.
+func assertRequeuedRow(t *testing.T, row ActivityExecution) {
+	t.Helper()
+	if row.StartedAt != nil || row.CompletedAt != nil || row.FailureReason != FailureReasonUnknown || row.FailureDetail != "" {
+		t.Fatalf("the requeue must clear exactly the four sticky head facts, got %+v", row)
+	}
+	if PumpWroteRow(row) {
+		t.Fatal("clearing StartedAt is the load-bearing part: PumpWroteRow must answer false or the pump refuses the row for ever")
+	}
+	if len(row.Attempts) != 1 || row.Attempts[0].Outcome != OutcomePassed {
+		t.Fatalf("the attempt ledger is what the re-run seeds from and must survive, got %+v", row.Attempts)
+	}
+	if row.Pin == nil || row.Pin.TypeKey != "service" {
+		t.Fatalf("the lifecycle pin must survive — the ledger below was written under it; got %+v", row.Pin)
+	}
+	if row.Type != ActivityTypeService {
+		t.Fatalf("the classified type must survive, got %v", row.Type)
+	}
+	notes := 0
+	for _, n := range row.OperatorNotes {
+		if n.Kind == NoteRequeue {
+			notes++
+		}
+	}
+	if notes != 1 {
+		t.Fatalf("the operator's reason is the audit entry and lands in the SAME commit; got %d requeue notes", notes)
 	}
 }

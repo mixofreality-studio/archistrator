@@ -40,10 +40,17 @@
  *
  * ── Which op each verb fires ────────────────────────────────────────────────
  * `verbsFor` (activityVerbs.ts) is the pure table; this file is the only place
- * allowed to turn one of its targets into a hook call. Three rails answer the
- * same four verbs and two of them are missing ops the third has, which is why
- * the rule is written down and tested rather than inlined as a switch nobody
- * can read.
+ * allowed to turn one of its targets into a hook call. Since stage 4b1 every rail
+ * answers every verb but one (a construction round has no artifact SLOT, so it has
+ * no stale basis to acknowledge), which is why the rule is still written down and
+ * tested rather than inlined as a switch nobody can read: the ONE surviving
+ * asymmetry is the one a reader would otherwise never expect.
+ *
+ * ── Two overrides, not one button ───────────────────────────────────────────
+ * `OverrideActivity` steers a LIVE escalation and re-opens a FINISHED activity, and
+ * the server can only say which is possible — never which the operator meant. So the
+ * screen names them as two actions (`ActivityOverrideBar` + `activityOverride.ts`),
+ * above the body, because neither belongs to the gate on screen.
  *
  * ── The read-only history (R1) ──────────────────────────────────────────────
  * On a non-latest revision the whole screen goes read-only: a banner over the
@@ -68,6 +75,7 @@ import { useNavigate } from '@tanstack/react-router';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentMargin } from '../components/design/CommentMargin';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
+import { ActivityOverrideBar } from '../components/activity/ActivityOverrideBar';
 import { DispatchBody } from '../components/activity/DispatchBody';
 import { HistoryBanner } from '../components/activity/HistoryBanner';
 import { LifecycleGraph } from '../components/activity/LifecycleGraph';
@@ -84,6 +92,8 @@ import {
 } from '../components/activity/activityCopy.ts';
 import { activityCommentKey } from '../components/activity/pendingCommentKey.ts';
 import { lastPlanLens } from '../components/activity/planLensMemory.ts';
+import { OVERRIDE_KIND, overrideActionFor } from '../components/activity/activityOverride.ts';
+import { m0CostBasisNotice } from '../components/activity/m0CostBasis.ts';
 import {
   isHistorical,
   revisionParam,
@@ -335,10 +345,12 @@ export function ActivityExperienceContainer({
   const questionCount = pendingQuestions().length;
   const changeRequestCount = comments.length - questionCount;
   const canSetCommentStatus = verbs.commentStatus.kind !== 'none';
-  // This rail has a question op at all. Both design phases do; construction does
-  // not (R2/GAP-6). It gates BOTH the composer's Question toggle and the bar's
-  // Ask verb, so a question can never be staged where pressing Ask would dispatch
-  // nothing — and the bar can never lose Approve/Send back to an Ask that does.
+  // This gate has a question op at all. EVERY rail does since stage 4b1 (the
+  // construction arm is `AskTaskQuestions`); what is left false is a design gate whose
+  // artifact kind will not resolve. The flag stays and is still driven from the verb
+  // table: it gates BOTH the composer's Question toggle and the bar's Ask verb, so a
+  // question can never be staged where pressing Ask would dispatch nothing — and the
+  // bar can never lose Approve/Send back to an Ask that does.
   const canAsk = verbs.ask.kind !== 'none';
 
   /**
@@ -380,11 +392,16 @@ export function ActivityExperienceContainer({
       {
         onSuccess: () => {
           reset();
-          // Approve at the M0 gate is commit-THEN-advance (spec §6): the option
-          // binds the plan of record, and the advance is what unlocks construction.
-          if (approve && verbs.advanceAfterApprove === true) {
-            advanceGate(false);
-          }
+          // THE CLIENT NO LONGER ADVANCES THE PHASE (final fix wave, F1). It used to fire
+          // ReviewAdvance unconditionally on every M0 approve, which made the M0 approve a
+          // RACE with two phase writers: the child's own gate-passed handler seals Phase 2
+          // (passRound → completeProjectDesign → advanceToConstruction) while this call was
+          // already in flight. Whichever lost the race issued a SECOND AdvancePhase over a
+          // three-member enum — and both construction dispatchers select on
+          // `Phase == PhaseConstruction` EXACTLY, so the project went permanently quiet with
+          // nothing logged. The server refuses the second write now (a read-back guard on the
+          // façade, a ceiling in the RA), and the client call was pure risk on top of a seal
+          // the child already performs — so it is gone.
         },
       }
     );
@@ -402,24 +419,34 @@ export function ActivityExperienceContainer({
     });
   };
 
-  /** Re-run the work this gate judges — a redraft, or another construction attempt. */
+  /**
+   * Re-run the work this gate judges. ONE op on every rail now: a design redraft, or
+   * a construction `RedraftTask` — which withdraws the round nobody judged and
+   * re-opens the judged pair at revision n+1 (Task 12, D6). It is deliberately NOT an
+   * Override any more: the override steers an escalation or re-opens a finished
+   * activity, and neither of those is "run this gate's work again".
+   */
   const rerun = (): void => {
-    const target = verbs.rerun;
-    if (target.kind === 'dispatch') {
-      dispatchTask.mutate({ ...ref, artifactKind: decidedKind });
-      return;
-    }
-    if (target.kind === 'override') {
-      overrideActivity.mutate({ activityId, kind: 'retry' });
-    }
+    if (verbs.rerun.kind !== 'dispatch') return;
+    dispatchTask.mutate({ ...ref, artifactKind: decidedKind });
+  };
+
+  /**
+   * The operator's override, in its TWO meanings (ruling 3) — steer the escalated
+   * task, or re-open a finished activity. `overrideActionFor` decides which; the note
+   * is required by the Manager and the bar will not submit without one.
+   */
+  const overrideAction = historical ? 'none' : overrideActionFor(view);
+  const applyOverride = (note: string): void => {
+    overrideActivity.mutate({ activityId, kind: OVERRIDE_KIND, notes: note });
   };
 
   /**
    * Send the staged questions, grouped by addressee — one batch per role, because
-   * the op addresses a whole batch to one role. Both design rails have the verb;
-   * the CONSTRUCTION rail does not until stage 4b, and `verbs.ask` is `none` there,
-   * which is also what takes the Ask verb off its bar and the Question toggle out
-   * of its composer.
+   * the op addresses a whole batch to one role. Every rail has the verb now; a
+   * construction batch lands on the round's own thread carried by an abstention, and
+   * NOBODY BUT A HUMAN ANSWERS IT (Task 12, D4: the answer job is slot-scoped and is
+   * not registered in the construction job mode), which is what the addressee is for.
    */
   const askQuestions = (): void => {
     if (verbs.ask.kind !== 'ask') return;
@@ -467,6 +494,16 @@ export function ActivityExperienceContainer({
   // blocks — both exits below are offered, neither is required.
   const staleSlot =
     artifact.kind === 'slot' ? slots.find((s) => s.kind === artifact.artifactKind) : undefined;
+
+  // ── What the M0 cost was computed on (Step 3a) ────────────────────────────
+  // The Project-Design compute defaults any planning-assumption family the founder
+  // never authored and proceeds; approving this gate binds that cost and starts
+  // spending. The line renders on the M0 gate only — `advanceAfterApprove` is what
+  // names it, the same discriminator the amend-Architecture link uses — and is empty
+  // whenever nothing was assumed. Never on a read-only history: it is a warning about
+  // a decision this reader is about to make.
+  const costBasis =
+    verbs.advanceAfterApprove === true && !historical ? m0CostBasisNotice(slots) : '';
 
   /** Reconcile by AMENDING: a redraft on the design rails, the Architecture on M0. */
   const reconcileStale = (): void => {
@@ -523,10 +560,11 @@ export function ActivityExperienceContainer({
     node?.kind === 'review' && marginOpen
       ? (scrollRoot: HTMLElement | null): ReactNode => (
           <CommentMargin
-            // A question cannot be STAGED where it could never be SENT: the
-            // construction rail has no AskQuestions op (R2/GAP-6), so its composer
-            // renders no Question toggle at all. The bar's own `allowAsk` is the
-            // other half of the same fact.
+            // A question cannot be STAGED where it could never be SENT. Every rail
+            // can send one now, so this is true on every gate but a design gate whose
+            // artifact kind will not resolve; the mechanism stays because it is the
+            // right guard for the next surface that lacks the op. The bar's own
+            // `allowAsk` is the other half of the same fact.
             allowQuestions={canAsk}
             // On a read-only history a DECIDED thread is the point of the history,
             // not noise in it, so resolved cards stay open instead of collapsing
@@ -538,11 +576,11 @@ export function ActivityExperienceContainer({
             onCollapse={() => {
               setClosedAt(requestId);
             }}
-            // Omitted where no op exists (R2: the construction rail has no
-            // comment-status op) and on a read-only history, where resolving a
-            // past round's thread is not a thing a reader may do — the documented
-            // posture for a surface with no mutation, rather than buttons that
-            // would fail.
+            // Omitted where no op exists (only a design gate with no resolvable
+            // artifact kind, now that construction resolves its own threads) and on a
+            // read-only history, where resolving a past round's thread is not a thing
+            // a reader may do — the documented posture for a surface with no
+            // mutation, rather than buttons that would fail.
             {...(canSetCommentStatus && !historical
               ? {
                   onReopen: (id: string): void => {
@@ -627,6 +665,18 @@ export function ActivityExperienceContainer({
           />
         ) : null}
 
+        {/* The operator's override, above the body: it is about the ACTIVITY, not
+            about the task on screen, and exactly one of the two is possible at a
+            time (activityOverride.ts). Absent — not disabled — when neither is. */}
+        {overrideAction !== 'none' ? (
+          <ActivityOverrideBar
+            action={overrideAction}
+            error={overrideActivity.error?.message}
+            pending={overrideActivity.isPending}
+            onSubmit={applyOverride}
+          />
+        ) : null}
+
         {error !== null ? (
           <Paper data-testid={UI_IDENTIFIERS.Common.ERROR_ALERT} sx={{ p: 3 }}>
             <Typography sx={{ fontSize: 13.5, color: t.ink, lineHeight: 1.5 }}>
@@ -675,6 +725,7 @@ export function ActivityExperienceContainer({
             artifact={artifact}
             askPending={askQuestionsMut.isPending}
             contractJoin={contractJoin}
+            costBasis={costBasis.length > 0 ? costBasis : undefined}
             decisionPending={decisionPending}
             facts={facts}
             // What is rendered is the CURRENT artifact, not the one this revision
@@ -720,9 +771,6 @@ export function ActivityExperienceContainer({
                 : undefined
             }
             systemEnvelope={systemEnvelope}
-            // The history banner already says the whole surface is read-only;
-            // repeating it per thread would be noise.
-            threadReadOnly={!historical && !canSetCommentStatus}
             title={node.title}
             verdicts={revisionWire?.verdicts}
             vm={vm}

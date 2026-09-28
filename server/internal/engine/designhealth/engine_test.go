@@ -3,6 +3,7 @@ package designhealth
 import (
 	"encoding/json"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -912,7 +913,16 @@ func TestManagerWithOnlyResourceAccessIsValid(t *testing.T) {
 func TestDriftFixtureShapeDoesNotFlagCoveredComponents(t *testing.T) {
 	doc := withSlots(
 		sysDoc(
-			comps(comp("c1", "client"), comp("m1", "manager"), comp("ra1", "resourceAccess"), comp("ra2", "resourceAccess"), comp("r1", "resource")),
+			// The three volatility-OWNING components carry an encapsulates blurb: stage
+			// 4b1 moved SYS-ENCAPSULATES in from the delivery Manager, and it holds a
+			// manager/engine/resourceAccess with a blank encapsulates to be an Error
+			// regardless of whether any volatility is committed. A blurb-less m1 was
+			// therefore never the "valid shape" this fixture claims to be — it only
+			// looked valid because no rule here read the field.
+			comps(compBlurb("c1", "client", ""), compBlurb("m1", "manager", "owns the widget workflow"),
+				compBlurb("ra1", "resourceAccess", "owns the widget store access"),
+				compBlurb("ra2", "resourceAccess", "owns the widget index access"),
+				comp("r1", "resource")),
 			rels(rel("c1", "m1", "sync"), rel("m1", "ra1", "sync"), rel("m1", "ra2", "sync"), rel("ra1", "r1", "sync"), rel("ra2", "r1", "sync")),
 			nil),
 		slot("0", 0, map[string]any{"objectives": []any{map[string]any{"number": 1}}}),
@@ -2162,5 +2172,501 @@ func TestPaths_BudgetDoesNotBindOnOrdinaryDiagram(t *testing.T) {
 	}
 	if len(got) != 27 {
 		t.Fatalf("want all 27 cross-producted combinations, got %d", len(got))
+	}
+}
+
+// ---------------------------------------------------------------------------
+// STAGE 4b1 — PARITY FOR THE THIRTEEN RULES THAT LEFT THE DELIVERY MANAGER
+// ---------------------------------------------------------------------------
+
+// TestMovedManagerRulesFireIdenticallyOnTheGreenFixture is the acceptance for the
+// stage-4b1 move of thirteen Method rules out of the delivery Manager. The green
+// fixture is the committed project.json, where every one of the thirteen must be
+// SILENT — that is what "green" means — and one hand-built red mutant per rule
+// must make exactly that rule, and no other, fire.
+//
+// Mutation is the whole test. A rule copied with its condition inverted, or with a
+// projectstate type re-typed onto the wrong absorbed field, is SILENT on the green
+// fixture too; only the mutant separates "moved correctly" from "moved dead".
+//
+// The attribution half — nothing ELSE may fire on a rule's mutant — is not a
+// formality here, because three of the moved rules deliberately OVERLAP a rule this
+// package already had: SYS-ENCAPSULATES beside DH-COMP-NO-VOLATILITY,
+// USECASE-DYNAMIC-MISSING (all use cases) beside the core-only DH-COV-UC-DYNAMIC,
+// and SYS-VOLATILITY-COVERAGE (the prose claim) beside the typed
+// DH-VOL-ENCAP-MISSING. Each mutant is built narrow enough to separate its rule from
+// its neighbour — the prose-claim mutant redacts a blurb and leaves the typed join
+// alone, the encapsulation mutant adds a component that carries a typed claim but no
+// prose — so the check runs with NO declared exceptions. If a future edit makes one
+// of a pair fire on the other's mutant, that is the overlap becoming a real
+// duplicate, and this test is where it surfaces.
+func TestMovedManagerRulesFireIdenticallyOnTheGreenFixture(t *testing.T) {
+	moved := []methodcheck.RuleID{
+		RuleSysRAOrphan, RuleSysEncapsulates, RuleSysRelDup, RuleDVTitleEmpty,
+		RuleUCVariationRef, RuleGlossFourQ, RuleSRIDUnique, RuleOPCTopicCoverage,
+		RuleUCActivityMissing, RuleUCDynamicMissing, RuleSysLayerDegenerate,
+		RuleVolCoverage, RuleSysServicesExplosion,
+	}
+	raw := readCommittedProjectJSON(t)
+	green := indexByRule(EvaluateRaw(raw))
+	for _, id := range moved {
+		if len(green[id]) != 0 {
+			t.Errorf("%s fires on the committed state; the Manager copy was silent there, so the move changed behaviour: %s", id, renderFindings(green[id]))
+		}
+	}
+	for _, id := range moved {
+		t.Run(string(id), func(t *testing.T) {
+			if id == RuleOPCTopicCoverage {
+				// OPC-TOPIC-COVERAGE arrived INERT: the free-text decisions[].topic list it
+				// nudged over was replaced by required typed fields, so it returned no
+				// findings in the Manager either. A rule that cannot fire has no red mutant;
+				// TestOPCTopicCoverageIsInert pins the emptiness instead.
+				t.Skip("inert by design — see TestOPCTopicCoverageIsInert")
+			}
+			mutant := mutantFor(t, raw, id)
+			got := indexByRule(EvaluateRaw(mutant))
+			if len(got[id]) == 0 {
+				t.Fatalf("%s did not fire on its own mutant — the moved rule is dead", id)
+			}
+			for other, fs := range got {
+				if other == id || len(fs) == 0 || len(green[other]) != 0 {
+					continue
+				}
+				t.Errorf("%s's mutant also fired %s (%s); the mutant is too broad to attribute", id, other, renderFindings(fs))
+			}
+		})
+	}
+}
+
+// indexByRule groups findings by rule id, keeping every finding (unlike
+// indexBySeverity, which collapses a rule to its highest severity) so a mutant's
+// attribution failure can print what actually fired.
+func indexByRule(fs []methodcheck.Finding) map[methodcheck.RuleID][]methodcheck.Finding {
+	out := map[methodcheck.RuleID][]methodcheck.Finding{}
+	for _, f := range fs {
+		out[f.RuleID] = append(out[f.RuleID], f)
+	}
+	return out
+}
+
+// TestOPCTopicCoverageIsInert pins the one moved rule that cannot fire: it is carried
+// across so the rule inventory and its reserved id are complete, and this states the
+// emptiness rather than leaving a silently dead rule in the set.
+func TestOPCTopicCoverageIsInert(t *testing.T) {
+	doc := withSlots(
+		sysDoc(comps(comp("m", "manager")), rels(), nil),
+		slot("6", 6, map[string]any{"decisions": []any{map[string]any{"topic": ""}}}),
+	)
+	for _, f := range EvaluateRaw(mustMarshal(t, doc)) {
+		if f.RuleID == RuleOPCTopicCoverage {
+			t.Fatalf("OPC-TOPIC-COVERAGE is inert by design; something made it fire: %s", f.Message)
+		}
+	}
+	if got := opcTopicFindings(Input{}); got != nil {
+		t.Fatalf("opcTopicFindings must return nil for every input, got %+v", got)
+	}
+}
+
+// ---- the thirteen red mutants -------------------------------------------------
+
+// mutantFor returns the committed document with the MINIMAL edit that trips exactly
+// one moved rule, by dispatching to that rule's own mutator in movedRuleMutants.
+// A table rather than one long switch: adding a rule is a row, and every mutator has
+// the same shape, so none of them can quietly grow a second responsibility.
+func mutantFor(t *testing.T, raw []byte, id methodcheck.RuleID) []byte {
+	t.Helper()
+	mutate, ok := movedRuleMutants[id]
+	if !ok {
+		t.Fatalf("no mutant defined for %s", id)
+	}
+	doc := parseDoc(t, raw)
+	mutate(t, doc)
+	return remarshal(t, doc)
+}
+
+// movedRuleMutants is one mutator per moved rule. Each mutator's oracle is that
+// rule's own condition, and each t.Fatalf's — never silently leaves the document
+// untouched — when it cannot find its target in the committed state, or the subtest
+// would pass for the wrong reason. OPC-TOPIC-COVERAGE has no entry: it is inert by
+// design and the parity test skips it by name.
+var movedRuleMutants = map[methodcheck.RuleID]func(*testing.T, map[string]any){
+	// Blank the first dynamic view's title.
+	RuleDVTitleEmpty: func(t *testing.T, doc map[string]any) {
+		first, ok := dynamicViewsOf(t, doc)[0].(map[string]any)
+		if !ok {
+			t.Fatalf("dynamicViews[0] is not an object")
+		}
+		first["title"] = "   "
+	},
+	// Point a nonCore use case's variationOf at an id no core use case carries.
+	RuleUCVariationRef: func(t *testing.T, doc map[string]any) {
+		for _, d := range decisionsOf(t, doc) {
+			uc := useCaseOf(t, d)
+			if uc["classification"] != "core" {
+				uc["variationOf"] = "no-such-core-use-case"
+				return
+			}
+		}
+		t.Fatal("no nonCore use case in the committed state to point at a missing parent")
+	},
+	// Give a term a category outside the closed Four-Questions set.
+	RuleGlossFourQ: func(t *testing.T, doc map[string]any) {
+		first, ok := slotItems(t, doc, "1")[0].(map[string]any)
+		if !ok {
+			t.Fatalf("glossary items[0] is not an object")
+		}
+		first["category"] = "Whom"
+	},
+	// ADD a requirement duplicating an existing id, rather than renaming one: a
+	// rename would also strand the volatility traces that cite the old id.
+	RuleSRIDUnique: func(t *testing.T, doc map[string]any) {
+		items := slotItems(t, doc, "2")
+		first, ok := items[0].(map[string]any)
+		if !ok {
+			t.Fatalf("requirement items[0] is not an object")
+		}
+		setSlotItems(t, doc, "2", append(items, map[string]any{
+			"id": first["id"], "statement": "a duplicate of the first requirement's id",
+		}))
+	},
+	// A new ResourceAccess named by no relationship at all. It carries both an
+	// encapsulates blurb and a typed volatility claim so it trips ONLY the orphan
+	// rule and not the encapsulation pair.
+	RuleSysRAOrphan: func(t *testing.T, doc map[string]any) {
+		addComponent(t, doc, map[string]any{
+			"id": "orphan-access", "name": "OrphanAccess", "kind": "resourceAccess",
+			"layer": "resourceAccess", "encapsulates": "reaches nothing at all",
+			"encapsulatesVolatilities": []any{firstVolatilityName(t, doc)},
+		})
+	},
+	// A new ENGINE with a blank encapsulates. Added rather than blanking an existing
+	// component's blurb, because blanking one would also strand the volatility names
+	// that component's prose was the only mention of.
+	RuleSysEncapsulates: func(t *testing.T, doc map[string]any) {
+		addComponent(t, doc, map[string]any{
+			"id": "silent-engine", "name": "SilentEngine", "kind": "engine",
+			"layer": "engine", "encapsulates": "",
+			"encapsulatesVolatilities": []any{firstVolatilityName(t, doc)},
+		})
+	},
+	// An exact duplicate of an existing (from, to, mode) edge.
+	RuleSysRelDup: func(t *testing.T, doc map[string]any) {
+		rels := relationshipsOf(t, doc)
+		first, ok := rels[0].(map[string]any)
+		if !ok {
+			t.Fatalf("relationships[0] is not an object")
+		}
+		dup := map[string]any{}
+		maps.Copy(dup, first)
+		setRelationships(t, doc, append(rels, dup))
+	},
+	// A new nonCore use case with NO activity diagram — and WITH a dynamic view, so
+	// the dynamic-view rule stays silent and the attribution is unambiguous.
+	RuleUCActivityMissing: func(t *testing.T, doc map[string]any) {
+		ucID := addUseCase(t, doc, nil)
+		setDynamicViews(t, doc, append(dynamicViewsOf(t, doc), map[string]any{
+			"key": ucID + "-view", "title": "A Titled View", "useCaseId": ucID, "steps": []any{},
+		}))
+	},
+	// A new nonCore use case with a WELL-FORMED activity and no dynamic view.
+	RuleUCDynamicMissing: func(t *testing.T, doc map[string]any) {
+		addUseCase(t, doc, map[string]any{
+			"nodes": []any{
+				map[string]any{"id": "n-start", "kind": "start"},
+				map[string]any{"id": "n-act", "kind": "action", "label": "do the thing"},
+				map[string]any{"id": "n-end", "kind": "end"},
+			},
+			"edges": []any{
+				map[string]any{"from": "n-start", "to": "n-act"},
+				map[string]any{"from": "n-act", "to": "n-end"},
+			},
+		})
+	},
+	// Re-label a Manager's LAYER while keeping its "…Manager" name — the name/layer
+	// contradiction that is the fingerprint of a defaulted layer.
+	RuleSysLayerDegenerate: func(t *testing.T, doc map[string]any) {
+		for _, c := range componentsOf(t, doc) {
+			comp, ok := c.(map[string]any)
+			if !ok || comp["kind"] != "manager" {
+				continue
+			}
+			comp["layer"] = "engine"
+			return
+		}
+		t.Fatal("no manager component in the committed state to mis-label")
+	},
+	// Redact a volatility's NAME out of every component's encapsulates prose, leaving
+	// the typed encapsulatesVolatilities join (which DH-VOL-ENCAP-MISSING reads)
+	// untouched — so only the prose-claim rule notices.
+	RuleVolCoverage: func(t *testing.T, doc map[string]any) {
+		name := unredactableVolatilityName(t, doc)
+		redacted := 0
+		for _, c := range componentsOf(t, doc) {
+			comp, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			blurb, _ := comp["encapsulates"].(string)
+			if !containsFold(blurb, name) {
+				continue
+			}
+			comp["encapsulates"] = redactFold(blurb, name)
+			redacted++
+		}
+		if redacted == 0 {
+			t.Fatalf("volatility %q is claimed by no blurb in the committed state — nothing to redact", name)
+		}
+	},
+	// Rename Managers so their stems MIRROR core use-case names: the count already
+	// matches (three Managers, three core use cases) on the committed state, and the
+	// 60% name-mirroring threshold is the only thing keeping the rule silent.
+	RuleSysServicesExplosion: mirrorManagerNamesOntoCoreUseCases,
+}
+
+// ---- mutant plumbing: tolerant accessors over the committed document ----------
+//
+// Every accessor t.Fatalf's on a shape it does not find, so a mutant can never
+// quietly become a no-op and let its subtest pass for the wrong reason.
+
+func parseDoc(t *testing.T, raw []byte) map[string]any {
+	t.Helper()
+	var doc map[string]any
+	if err := json.Unmarshal(raw, &doc); err != nil {
+		t.Fatalf("unmarshal the committed project.json: %v", err)
+	}
+	return doc
+}
+
+func remarshal(t *testing.T, doc map[string]any) []byte {
+	t.Helper()
+	out, err := json.Marshal(doc)
+	if err != nil {
+		t.Fatalf("marshal the mutant: %v", err)
+	}
+	return out
+}
+
+// slotModel returns the named slot's model object.
+func slotModel(t *testing.T, doc map[string]any, key string) map[string]any {
+	t.Helper()
+	slots, ok := doc["slots"].(map[string]any)
+	if !ok {
+		t.Fatal("the committed document carries no slots map")
+	}
+	s, ok := slots[key].(map[string]any)
+	if !ok {
+		t.Fatalf("slot %q is absent from the committed document", key)
+	}
+	model, ok := s["model"].(map[string]any)
+	if !ok {
+		t.Fatalf("slot %q carries no model object", key)
+	}
+	return model
+}
+
+func slotItems(t *testing.T, doc map[string]any, key string) []any {
+	t.Helper()
+	items, ok := slotModel(t, doc, key)["items"].([]any)
+	if !ok || len(items) == 0 {
+		t.Fatalf("slot %q carries no items", key)
+	}
+	return items
+}
+
+func setSlotItems(t *testing.T, doc map[string]any, key string, items []any) {
+	t.Helper()
+	slotModel(t, doc, key)["items"] = items
+}
+
+func componentsOf(t *testing.T, doc map[string]any) []any {
+	t.Helper()
+	comps, ok := slotModel(t, doc, "5")["components"].([]any)
+	if !ok || len(comps) == 0 {
+		t.Fatal("the committed System carries no components")
+	}
+	return comps
+}
+
+func addComponent(t *testing.T, doc map[string]any, c map[string]any) {
+	t.Helper()
+	slotModel(t, doc, "5")["components"] = append(componentsOf(t, doc), c)
+}
+
+func relationshipsOf(t *testing.T, doc map[string]any) []any {
+	t.Helper()
+	rels, ok := slotModel(t, doc, "5")["relationships"].([]any)
+	if !ok || len(rels) == 0 {
+		t.Fatal("the committed System carries no relationships")
+	}
+	return rels
+}
+
+func setRelationships(t *testing.T, doc map[string]any, rels []any) {
+	t.Helper()
+	slotModel(t, doc, "5")["relationships"] = rels
+}
+
+func dynamicViewsOf(t *testing.T, doc map[string]any) []any {
+	t.Helper()
+	views, ok := slotModel(t, doc, "5")["dynamicViews"].([]any)
+	if !ok || len(views) == 0 {
+		t.Fatal("the committed System carries no dynamicViews")
+	}
+	return views
+}
+
+func setDynamicViews(t *testing.T, doc map[string]any, views []any) {
+	t.Helper()
+	slotModel(t, doc, "5")["dynamicViews"] = views
+}
+
+func decisionsOf(t *testing.T, doc map[string]any) []any {
+	t.Helper()
+	ds, ok := slotModel(t, doc, "4")["decisions"].([]any)
+	if !ok || len(ds) == 0 {
+		t.Fatal("the committed CoreUseCases carries no decisions")
+	}
+	return ds
+}
+
+func useCaseOf(t *testing.T, decision any) map[string]any {
+	t.Helper()
+	d, ok := decision.(map[string]any)
+	if !ok {
+		t.Fatal("a use-case decision is not an object")
+	}
+	uc, ok := d["useCase"].(map[string]any)
+	if !ok {
+		t.Fatal("a use-case decision carries no useCase object")
+	}
+	return uc
+}
+
+// addUseCase appends a nonCore use-case decision that is CLEAN for every rule except
+// the one under test: it names an existing core parent, states its rejectionReason,
+// declares an actor for its clientAction trigger, and carries the activity the caller
+// passes (nil for the activity-missing mutant). It returns the new use case's id.
+func addUseCase(t *testing.T, doc map[string]any, activity map[string]any) string {
+	t.Helper()
+	var parent string
+	for _, d := range decisionsOf(t, doc) {
+		uc := useCaseOf(t, d)
+		if uc["classification"] == "core" {
+			parent, _ = uc["id"].(string)
+			break
+		}
+	}
+	if parent == "" {
+		t.Fatal("no core use case in the committed state to vary from")
+	}
+	uc := map[string]any{
+		"id": "mutant-variation", "name": "A Mutant Variation", "classification": "nonCore",
+		"variationOf": parent, "trigger": "clientAction",
+		"actors":   []any{map[string]any{"id": "mutant-actor", "name": "Mutant Actor"}},
+		"activity": activity,
+	}
+	model := slotModel(t, doc, "4")
+	model["decisions"] = append(decisionsOf(t, doc), map[string]any{
+		"useCase": uc, "rejectionReason": "it is a permutation, not the essence of the business",
+	})
+	return "mutant-variation"
+}
+
+func firstVolatilityName(t *testing.T, doc map[string]any) string {
+	t.Helper()
+	first, ok := slotItems(t, doc, "3")[0].(map[string]any)
+	if !ok {
+		t.Fatal("volatility items[0] is not an object")
+	}
+	name, _ := first["name"].(string)
+	if name == "" {
+		t.Fatal("volatility items[0] carries no name")
+	}
+	return name
+}
+
+// unredactableVolatilityName returns a committed volatility whose name is claimed in
+// prose but is NOT a substring of another volatility's name — so redacting it out of
+// every blurb cannot silently strand a second volatility too.
+func unredactableVolatilityName(t *testing.T, doc map[string]any) string {
+	t.Helper()
+	var names []string
+	for _, it := range slotItems(t, doc, "3") {
+		v, ok := it.(map[string]any)
+		if !ok {
+			continue
+		}
+		if n, _ := v["name"].(string); n != "" {
+			names = append(names, n)
+		}
+	}
+	for _, n := range names {
+		overlaps := false
+		for _, other := range names {
+			if other != n && (containsFold(other, n) || containsFold(n, other)) {
+				overlaps = true
+				break
+			}
+		}
+		if overlaps {
+			continue
+		}
+		for _, c := range componentsOf(t, doc) {
+			comp, ok := c.(map[string]any)
+			if !ok {
+				continue
+			}
+			if blurb, _ := comp["encapsulates"].(string); containsFold(blurb, n) {
+				return n
+			}
+		}
+	}
+	t.Fatal("no committed volatility is both prose-claimed and free of name overlap — the redaction mutant has no clean target")
+	return ""
+}
+
+// redactFold removes every case-insensitive occurrence of needle from s, keeping the
+// blurb non-empty so the mutant trips the prose-claim rule and not SYS-ENCAPSULATES.
+func redactFold(s, needle string) string {
+	out := s
+	for {
+		i := strings.Index(strings.ToLower(out), strings.ToLower(needle))
+		if i < 0 {
+			return "the claim was redacted: " + out
+		}
+		out = out[:i] + "REDACTED" + out[i+len(needle):]
+	}
+}
+
+// mirrorManagerNamesOntoCoreUseCases renames every Manager so its stem IS a committed
+// core use case's name — the services-explosion fingerprint. contractKey is left
+// alone (the committed Managers carry an explicit one), so the contract joins are
+// unaffected by the rename.
+func mirrorManagerNamesOntoCoreUseCases(t *testing.T, doc map[string]any) {
+	t.Helper()
+	var coreNames []string
+	for _, d := range decisionsOf(t, doc) {
+		uc := useCaseOf(t, d)
+		if uc["classification"] != "core" {
+			continue
+		}
+		if n, _ := uc["name"].(string); n != "" {
+			coreNames = append(coreNames, n)
+		}
+	}
+	renamed := 0
+	for _, c := range componentsOf(t, doc) {
+		comp, ok := c.(map[string]any)
+		if !ok || comp["kind"] != "manager" {
+			continue
+		}
+		if renamed >= len(coreNames) {
+			break
+		}
+		comp["name"] = normalizeNameToken(coreNames[renamed]) + "Manager"
+		renamed++
+	}
+	if renamed == 0 || renamed != len(coreNames) {
+		t.Fatalf("the services-explosion mutant needs one Manager per core use case to rename; renamed %d of %d", renamed, len(coreNames))
 	}
 }

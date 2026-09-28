@@ -124,15 +124,12 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	// activity from the same recorded readProject result — a different child id — so the
 	// rule is version-gated: an execution that recorded the old choice replays it.
 	sel := wf.nextEligible(proj, pumpEligibilityRule(ctx))
-	// A design activity is eligible work this pump deliberately does not do. Saying so at
-	// Info keeps a project whose only remaining work is design from reading as an
-	// unexplained quiet tick — the silent-quiescent disguise the blocked arm below exists
-	// to end. No GetVersion fence: no committed plan has ever held a design activity, so
-	// no recorded history can contain a selection this skip would change.
-	if len(sel.SkippedDesign) > 0 {
-		logger.Info("construction pump: skipping design activities — the construction pump does not dispatch design activities; the DeliveryManager does, from stage 4",
-			"projectId", string(in.ProjectID), "activityIds", sel.SkippedDesign)
-	}
+	// (The design-skip log stood HERE until stage 4b1 Task 10: the pump reported at Info
+	// every design activity it walked past, so a project whose only remaining work was design
+	// did not read as an unexplained quiet tick. The pump dispatches the three now, so there
+	// is nothing to report — and the SELECTION change is version-gated in
+	// pumpEligibilityRule, because a recorded history that walked past `requirements` and
+	// dispatched a construction activity would otherwise re-select a different child.)
 	switch sel.Verdict {
 	case verdictBlocked:
 		// LOUD, DURABLE, APP-VISIBLE (spec §4.3). The log line alone is the failure mode
@@ -196,18 +193,23 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 
 	// Eligible ⇒ start a per-activity child workflow (idempotent on its id; a
 	// redundant tick collapses to the running child). PARENT_CLOSE_POLICY ABANDON:
-	// the construction activity is its own durable execution, independent of this
-	// pump tick's continue-as-new chain.
-	childID := constructActivityWorkflowID(in.ProjectID, ActivityID(activity.ActivityID))
-	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
-		WorkflowID:        childID,
-		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
-	})
-	child := workflow.ExecuteChildWorkflow(cctx, executionKindConstructActivity, constructActivityInput{
-		ProjectID:  in.ProjectID,
-		ActivityID: ActivityID(activity.ActivityID),
-		Activity:   activity,
-	})
+	// the activity is its own durable execution, independent of this pump tick's
+	// continue-as-new chain.
+	//
+	// ONE CHILD FOR EVERY ACTIVITY (stage 4b1 Task 11). Task 10 pointed the three DESIGN
+	// lifecycles at the generic DeliveryActivityWorkflow and left the other eleven on the
+	// retired ConstructActivityWorkflow for exactly one commit-range, because the construction
+	// half of the dispatch strategy refused by name until this commit. It no longer does, so the
+	// ROSTER split (runsOnTheDeliveryChild, its two-armed id and its two-armed start) is gone.
+	//
+	// WHAT REPLACES IT IS A VERSION FENCE AND NOT A ROSTER, and the difference matters: the two
+	// arms below are the SAME question every other change in this file asks — did this execution
+	// record the marker? A pump parked in child.Get across the deploy replays its recorded
+	// ChildWorkflow command, and that command names a workflow TYPE and an ID; taking the new
+	// arm on replay is a non-determinism panic that wedges the project's one pump (measured —
+	// two pre-b1/pre-d pump fixtures went red before this fence existed). A new pump records
+	// v1 and starts the generic child for everything.
+	child := wf.startActivityChild(ctx, in.ProjectID, activity)
 	// Record the dispatch decision NOW — after the child-start command is queued but
 	// BEFORE the blocking child.Get — so the façade's synchronous ExecuteNextActivity
 	// returns {Dispatched:true, ActivityID} for THIS tick while the cascade drains on in
@@ -220,6 +222,11 @@ func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInp
 	// activity's RecordActivityCompleted has landed in head-state before we pick the
 	// next eligible activity — otherwise nextEligible would re-select the same
 	// still-Running activity. child.Get blocks on the child's terminal result.
+	//
+	// THIS BLOCKING Get IS DELIBERATELY UNCHANGED BY STAGE 4b1 (architect Ruling 3(b)): the
+	// react-by-signal pump — one that starts a child and returns, and is re-woken by the
+	// child's terminal — is stage 4b2's, and moving the pump's shape in the same wave as the
+	// child's would make a cascade failure unattributable to either. It is not an oversight.
 	if err := child.Get(ctx, nil); err != nil {
 		return PumpResult{}, err
 	}
@@ -337,15 +344,53 @@ func pumpPauseRequested(ch workflow.ReceiveChannel) (reason string, paused bool)
 	}
 }
 
+// changeDesignActivitiesDispatchable versions the DESIGN admission (stage 4b1 Task 10).
+// It is its own change id rather than a bump of changeLedgerPartialResume because the two
+// rules answer different questions and a shared id would pin them together forever.
+const changeDesignActivitiesDispatchable = "design-activities-dispatchable"
+
 // pumpEligibilityRule is the selection rule this pump run uses: the pre-D1
 // eligibleNotStarted for an execution that recorded no changeLedgerPartialResume marker,
-// eligibleDispatchable otherwise. GetVersion is always called, so the marker is recorded
-// deterministically on every new run.
+// then eligibleDispatchable, then eligibleWithDesign once the design activities have a child
+// to run on. GetVersion is always called at every rung, so the markers are recorded
+// deterministically on every new run and a recorded history resolves the ladder it recorded.
+//
+// WHY THE DESIGN RUNG NEEDS A FENCE AT ALL, measured: this repo's committed slot 9 opens with
+// requirements/architecture/projectDesign and none of the three has an execution row, so a
+// pump history that walked past them and dispatched a construction activity would — replayed
+// under eligibleWithDesign — select `requirements` instead and start a DIFFERENT child id.
 func pumpEligibilityRule(ctx workflow.Context) eligibilityRule {
 	if workflow.GetVersion(ctx, changeLedgerPartialResume, workflow.DefaultVersion, 1) < 1 {
 		return eligibleNotStarted
 	}
-	return eligibleDispatchable
+	if workflow.GetVersion(ctx, changeDesignActivitiesDispatchable, workflow.DefaultVersion, 1) < 1 {
+		return eligibleDispatchable
+	}
+	return eligibleWithDesign
+}
+
+// startActivityChild starts the child that runs ONE activity and returns its future.
+//
+// ONE CHILD, ONE ID. Stage 4b1 Task 11 fenced this with changeGenericActivityChild because a
+// pump parked in child.Get across the deploy would replay a recorded ChildWorkflow command
+// naming the RETIRED type and id — a non-determinism panic on the project's one pump. Task 13
+// RETIRED THAT FENCE together with the workflow it protected: the drain this wave requires
+// before deploy is what discharges it, and a GetVersion marker whose other arm names a workflow
+// the build no longer has is worse than no marker — it compiles, records a version, and then
+// panics differently. The drain sequence is in docs/bugs/2026-09-24-stage3-rail-earmarks.md.
+func (wf *csWorkflows) startActivityChild(
+	ctx workflow.Context, projectID ProjectID, activity constructionActivity,
+) workflow.ChildWorkflowFuture {
+	id := ActivityID(activity.ActivityID)
+	cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
+		WorkflowID:        deliveryActivityWorkflowID(projectID, id),
+		ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
+	})
+	workflow.GetLogger(ctx).Info("delivery pump: starting the generic DAG child",
+		"projectId", string(projectID), "activityId", activity.ActivityID, "activityType", activity.Type.String())
+	return workflow.ExecuteChildWorkflow(cctx, executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: projectID, ActivityID: id, Activity: activity,
+	})
 }
 
 // nextEligible resolves the next selection via the injected helper. With no helper

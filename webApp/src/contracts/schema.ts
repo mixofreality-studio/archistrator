@@ -1078,14 +1078,18 @@ export interface components {
       jsonPath: string;
       text: string;
     };
-    /** @enum {string} */
+    /**
+     * @description A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it — deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human.
+     * @enum {string}
+     */
     DeliveryTaskRevisionOutcome:
       | 'running'
       | 'awaitingHuman'
       | 'passed'
       | 'sentBack'
       | 'failed'
-      | 'skipped';
+      | 'skipped'
+      | 'withdrawn';
     /**
      * @description The worst origin among the revision's attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed.
      * @enum {string}

@@ -2310,6 +2310,7 @@ components:
                 - text
             type: object
         DeliveryTaskRevisionOutcome:
+            description: A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it — deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human.
             enum:
                 - running
                 - awaitingHuman
@@ -2317,6 +2318,7 @@ components:
                 - sentBack
                 - failed
                 - skipped
+                - withdrawn
             type: string
             x-enum-varnames:
                 - TaskRevisionRunning
@@ -2325,6 +2327,7 @@ components:
                 - TaskRevisionSentBack
                 - TaskRevisionFailed
                 - TaskRevisionSkipped
+                - TaskRevisionWithdrawn
             x-go-base: string
         DeliveryTaskRevisionProvenance:
             description: 'The worst origin among the revision''s attempts: synthesized if any was fabricated, else backfilled if any was reconstructed from evidence recorded elsewhere, else observed.'

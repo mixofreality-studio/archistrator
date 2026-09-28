@@ -927,6 +927,7 @@ const (
 	TaskRevisionSentBack      TaskRevisionOutcome = "sentBack"
 	TaskRevisionFailed        TaskRevisionOutcome = "failed"
 	TaskRevisionSkipped       TaskRevisionOutcome = "skipped"
+	TaskRevisionWithdrawn     TaskRevisionOutcome = "withdrawn"
 )
 
 type TaskRevisionProvenance string

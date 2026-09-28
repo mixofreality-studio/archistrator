@@ -11,19 +11,26 @@
  * activity list and resolves the artifact kind from the (activity, task) the
  * container already has, so no target carries a kind any more.
  *
- * ── What is still asymmetric, and why that is not this file's bug ────────────
- * Stage 4a unified the WRITE SURFACE, not every rail's verbs. `deliveryManager`
- * answers ContractMisuse for, on the CONSTRUCTION rail:
- *   - `ReviewSetCommentStatus` / `ReviewWithdraw` ("no comment-status or withdraw
- *     verb until stage 4b"),
- *   - `AskQuestions` ("no question verb until stage 4b"),
- *   - `AcknowledgeStaleBasis` (same),
- *   - `DispatchActivityTask` ("run/re-run has no op before stage 4b — a send-back
- *     re-dispatches the task").
- * So the R2/GAP-6 asymmetry SURVIVES 4a: it moved from "this manager has no op" to
- * "the one manager refuses this rail", which is the same dead button to a user.
- * This table therefore still withholds Ask, Resolve and the stale exits on a
- * construction gate; `rerun` there is an Override(retry), which is a real op.
+ * ── What the construction rail now answers, and the ONE thing it still does not ─
+ * Stage 4a unified the WRITE SURFACE and left five construction paths answering a
+ * guaranteed 400 ("until stage 4b"). Stage 4b1 made all five real, each by its own
+ * mechanism, so this table no longer withholds them:
+ *   - `ReviewSetCommentStatus` → `SetTaskCommentStatus` on the round the COMMENT is
+ *     on (resolve / reopen),
+ *   - `ReviewWithdraw` → `WithdrawReviewRound` (a round no one is judging),
+ *   - `AskQuestions` → `AskTaskQuestions`, which lands the questions on the round's
+ *     thread carried by an abstention. There is no agent answerer yet: a human
+ *     answers a construction question (Task 12, D4),
+ *   - `DispatchActivityTask` → `RedraftTask`, which withdraws the unjudged round and
+ *     re-opens the judged pair at revision n+1 (Task 12, D6) — a REAL dispatch, not
+ *     the Override(retry) this table used to route a re-run through,
+ *   - approve / send back → `SubmitTaskDecision`, which works for the first time.
+ * The ONE survivor is `AcknowledgeStaleBasis`: it is a SEMANTIC refusal on this rail
+ * (`NO_CONSTRUCTION_STALE_OP`), not a missing op — see that constant.
+ *
+ * `OverrideActivity` is no longer any verb of this table. It kept the variance loop
+ * and gained a second meaning (re-open a finished activity), and the two are
+ * activity-scoped rather than gate-scoped — `activityOverride.ts` owns them.
  *
  * ── The M0 gate keeps its two special rules (spec §6/R7) ────────────────────
  *   approve  → commits the chosen OPTION (the only intent carrying an optionId),
@@ -58,8 +65,8 @@ export const REVIEW_SET_COMMENT_STATUS =
  *                        `foldReplies` — the Phase-2 ledger refuses a `replyTo`).
  *  - `commentStatus`   → SubmitReviewDecision with the comment members, which the
  *                        container fills per comment.
- *  - `dispatch`        → DispatchActivityTask (a design draft or redraft).
- *  - `override`        → OverrideActivity (construction's re-run).
+ *  - `dispatch`        → DispatchActivityTask (a design draft, or a construction
+ *                        redraft that re-opens the judged pair at revision n+1).
  *  - `acknowledgeStale`→ AcknowledgeStaleBasis.
  *  - `none`            → nothing, carrying the REASON the bar renders.
  */
@@ -68,7 +75,6 @@ export type VerbTarget =
   | { kind: 'ask'; foldReplies?: boolean }
   | { kind: 'commentStatus' }
   | { kind: 'dispatch' }
-  | { kind: 'override' }
   | { kind: 'acknowledgeStale' }
   | { kind: 'none'; reason: string };
 
@@ -76,13 +82,15 @@ export interface VerbsFor {
   approve: VerbTarget;
   /** `{ kind: 'none' }` for projectDesign (spec R7). */
   sendBack: VerbTarget;
-  /** `{ kind: 'none' }` for construction until stage 4b. */
+  /** Every rail has the question op now; `{ kind: 'none' }` only where the gate
+   *  judges an artifact kind the SPA does not know. */
   ask: VerbTarget;
-  /** `{ kind: 'none' }` for construction until stage 4b. */
+  /** Every rail has the comment-status op now — same exception as `ask`. */
   commentStatus: VerbTarget;
-  /** A design redraft, a construction Override(retry), or nothing (M0). */
+  /** A redraft on every rail, or nothing (M0: the plan is re-derived, not re-run). */
   rerun: VerbTarget;
-  /** The "reviewed — unaffected" exit. `{ kind: 'none' }` for construction. */
+  /** The "reviewed — unaffected" exit. `{ kind: 'none' }` for construction, whose
+   *  rounds carry no artifact SLOT to clear a basis flag on. */
   acknowledgeStale: VerbTarget;
   /** The other stale exit: AMEND. A design redraft carrying the reconcile
    *  rationale; for M0 it is a NAVIGATION (amend the Architecture), which the
@@ -98,18 +106,21 @@ export interface VerbsFor {
 const DESIGN_RAIL_TYPES: ReadonlySet<string> = new Set(['requirements', 'architecture']);
 
 /**
- * Why a construction gate offers no thread lifecycle and no question. Named here
- * rather than in `activityCopy.ts` because it is the REASON a target carries, not a
- * sentence any component renders on its own.
+ * Why a construction gate offers neither stale exit — the ONE refusal that survived
+ * stage 4b1, and it is SEMANTIC, not a missing op.
  *
- * Stage 4a did NOT close this — `deliveryManager` refuses both on the construction
- * rail "until stage 4b", so the button would dispatch a guaranteed 400.
+ * `StaleBasis` is a field on an artifact SLOT, and the verb that clears it takes the
+ * kind of the slot it clears. A construction task's `artifactKind` names its own WORK
+ * PRODUCT (`srs`, `detailedDesign`, `construction`, `integration`, `stp`) and none of
+ * those is one of the seventeen design slots, so a construction round is KINDLESS and
+ * the verb has no slot to name; clearing the Architecture's flag from a construction
+ * activity would un-stale it for every other activity too, which is the architect's
+ * decision on the design rail. `deliveryManager` therefore answers FailedPrecondition
+ * naming the missing datum (Task 12, D3), which is a refusal the button must not
+ * provoke.
  */
-const NO_CONSTRUCTION_THREAD_OP =
-  'A construction review thread cannot yet be resolved, reopened or replied to: the delivery manager has no comment-status or question verb for the construction rail until stage 4b.';
-
 const NO_CONSTRUCTION_STALE_OP =
-  'A construction activity has no stale-basis acknowledgement until stage 4b.';
+  'A stale basis is acknowledged on the design activity that owns the slot: a construction round judges its own work product, names no artifact slot, and so has no basis flag to clear.';
 
 const NO_SDP_SEND_BACK =
   'The M0 gate has no send-back: the plan is derived, so changing it means amending the Architecture.';
@@ -187,16 +198,23 @@ export function verbsFor(input: {
     };
   }
 
-  // Every other type is a CONSTRUCTION activity. Approve and send back are the
-  // same op as everywhere else; the rest the rail still refuses.
+  // Every other type is a CONSTRUCTION activity. Every verb but the stale
+  // acknowledgement is the same op as everywhere else now (stage 4b1 Task 12): the
+  // re-run is a real `RedraftTask`, which withdraws the round nobody judged and
+  // re-opens the judged pair at revision n+1 — not another attempt at the same
+  // revision, which is the VARIANCE loop's shape and is the child's own business.
   return {
     approve: { kind: 'decision', decision: REVIEW_APPROVE },
     sendBack: { kind: 'decision', decision: REVIEW_REJECT },
-    ask: { kind: 'none', reason: NO_CONSTRUCTION_THREAD_OP },
-    commentStatus: { kind: 'none', reason: NO_CONSTRUCTION_THREAD_OP },
-    rerun: { kind: 'override' },
+    ask: { kind: 'ask' },
+    commentStatus: { kind: 'commentStatus' },
+    rerun: { kind: 'dispatch' },
     acknowledgeStale: { kind: 'none', reason: NO_CONSTRUCTION_STALE_OP },
-    reconcileStale: { kind: 'none', reason: NO_CONSTRUCTION_STALE_OP },
+    // The AMEND exit is a redraft, which this rail now has; it is unreachable in
+    // practice for the same reason the acknowledgement is refused (only a SLOT
+    // reports a stale basis, and no construction gate judges one), and it is the
+    // honest op for the day one does.
+    reconcileStale: { kind: 'dispatch' },
     allowSendBack: true,
   };
 }

@@ -51,6 +51,7 @@ export const OUTCOME_TEXT: Readonly<Record<OutcomeWire, string>> = {
   sentBack: 'sent back',
   failed: 'failed',
   skipped: 'skipped',
+  withdrawn: 'withdrawn',
 };
 
 /**

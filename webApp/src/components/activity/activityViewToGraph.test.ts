@@ -68,6 +68,13 @@ void test('the outcome enum becomes the sentence a reader reads, never the wire 
   assert.equal(OUTCOME_TEXT.passed, 'approved');
 });
 
+// Stage 4b1 entry criterion: a withdrawn revision reads as withdrawn, never as failed — a
+// withdrawal is deliberate, and `failed` would claim the revision faulted.
+void test('a withdrawn revision renders as withdrawn, not as failed', () => {
+  assert.equal(OUTCOME_TEXT.withdrawn, 'withdrawn');
+  assert.notEqual(OUTCOME_TEXT.withdrawn, OUTCOME_TEXT.failed);
+});
+
 void test('the dispatch facts are joined from the lifecycle table — the wire carries none of them', () => {
   const view = fixture('not-started'); // U-SPA-web-client, type: frontend
   const facts = taskFactsFor(view, 'srs');

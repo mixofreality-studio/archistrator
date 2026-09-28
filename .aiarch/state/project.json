@@ -13744,7 +13744,7 @@
       "goPackage": "internal/resourceaccess/projectstate",
       "railAuthority": true,
       "title": "activityExecutionAccess contract",
-      "notes": "The one staging -> review -> commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3: the three facets it supersedes (constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess) are deprecated IN PLACE, not deleted, because their Temporal activity names are recorded in nine of the thirteen construction replay fixtures (five of them pre-* histories that are never re-captured) and the SDK matches a scheduled activity on lastPartOfName(activityType). Task 5 switches the construction child workflow onto these verbs behind workflow.GetVersion, with the old branch still calling the old ops; the deletion is a post-drain commit in stage 4. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -> re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention.",
+      "notes": "The one staging -> review -> commit verb family for EVERY activity, and the owner of the two append-only per-activity ledgers (Attempts, Reviews). Added ADDITIVELY in stage 3 task 3: the three facets it supersedes (constructionTransitionAccess, gitActivityStatusAccess, designSessionAccess) are deprecated IN PLACE, not deleted, because their Temporal activity names are recorded in nine of the thirteen construction replay fixtures (five of them pre-* histories that are never re-captured) and the SDK matches a scheduled activity on lastPartOfName(activityType). Task 5 switches the construction child workflow onto these verbs behind workflow.GetVersion, with the old branch still calling the old ops; the deletion is a post-drain commit in stage 4. NO SEPARATE COMMIT LANE. Spec 5.3 asks for a project-scoped serialized lane {projectId}:statewrite; it is deliberately NOT built, because applyMutationOnBranchFiles already is one: it fetches the branch tip fresh per call, probes the idempotency ledger BEFORE the version guard, and commits project.json plus the dedup record in ONE git commit CAS'd against the observed base, so git's ref update is the cross-process gate on both substrates. A CAS loss surfaces as fwra.Conflict, which is Temporal-retryable, and the workflow already carries the re-read -> re-apply loop. A second durable singleton per project is exactly the shape the pump-singular-per-project fix had to clean up. Per-activity Version (task 4) is an additional in-document guard inside the transition, not a lane; {projectId}:statewrite is earmarked for stage 4, where the parallel pump actually raises contention. REOPEN IS A REQUEUE NOTE, NOT A THIRTEENTH VERB (stage 4b1 task 12). Terminal was terminal and nothing could undo it: OpenActivity refuses an exited row ('a finished activity is not re-opened in place'), StartedAt/CompletedAt/FailureReason/FailureDetail are write-once, and the pump's eligibility refuses any row a pump has written - so a failed walk, a spent variance budget or an operator's Skip left an activity NOTHING could ever re-run, and the operator's only recovery was an amendment minting a new activity id. RecordOperatorNote of kind REQUEUE now re-arms such a row: it clears exactly those four head facts and preserves everything that makes the activity's history readable (both ledgers, the lifecycle pin, the classified type/variant, produced artifacts, operator notes), so the next walk re-seeds the tasks that passed and re-dispatches only what did not. A requeue against a row that has NOT exited is refused - there is nothing to requeue, and re-arming a live row would hand a second child the row this one is writing. WHY A FOLD AND NOT A NEW OP, measured rather than assumed: a thirteenth verb here puts this facet past App-C's op ceiling of 12 and fires DH-CONTRACT-OPCOUNT-MAX, which the committed state's own advisory pin asserts ABSENT (designhealth TestGreenFixtureAdvisoriesFire: 'the largest surviving contract is 12 ... the FIRST time the repo has had no Manager contract past App-C's ceiling'). The requeue kind was already in the OperatorNoteKind vocabulary with no writer, an operator's re-open is exactly the decision that verb records, and folding makes the audit entry and the re-arm ONE commit - so a crash can no longer leave a re-armed activity with nobody's name on it, which two ops could.",
       "$defs": {
         "ActivityOutcome": {
           "type": "integer",
@@ -13939,7 +13939,7 @@
             "NoteRequeue"
           ],
           "x-go-base": "int",
-          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue (re-queueing a failed activity). 0 is the unknown sentinel and is refused."
+          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue. 0 is the unknown sentinel and is refused. REQUEUE IS THE ONE KIND THAT CHANGES THE ROW, and WHICH FACET recorded it decides whether it does (this $def is SHARED, and modelgen admits one shape for one name, so the promise has to be facet-scoped rather than blanket). On activityExecutionAccess a requeue against an activity that has EXITED RE-ARMS the row: the four sticky head facts (startedAt, completedAt, failureReason, failureDetail) are cleared in the same commit as the note, both ledgers and the lifecycle pin are kept, and the pump selects the activity again because the note itself is the evidence it reads. It is refused against a row that has not exited. On the DEPRECATED constructionTransitionAccess the same kind RECORDS THE NOTE AND NOTHING ELSE - that facet's write path does not re-arm, and it survives only until the 4b2 facet drop. Every other kind, on either facet, is a steer of work in flight and leaves the row's own facts alone."
         },
         "ProducedArtifact": {
           "type": "object",
@@ -14373,6 +14373,13 @@
               "x-go-type": "MethodTask",
               "description": "The work task this round judges."
             },
+            "artifactKind": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ArtifactKind",
+              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. The caller supplies it; the store stores it verbatim, and write-once: re-opening a round id under a different kind is the caller contradicting itself about what this round judges."
+            },
             "round": {
               "type": "integer",
               "x-go-type": "int64",
@@ -14418,6 +14425,13 @@
               "type": "string",
               "x-go-type": "MethodTask",
               "description": "The work task this round judges."
+            },
+            "artifactKind": {
+              "type": [
+                "null"
+              ],
+              "$ref": "#/$defs/ArtifactKind",
+              "description": "The artifact this round judges, when the round is about one. PRESENT on a design round and ABSENT on a construction round, whose subject is a commit rather than a slot model. It is a FIELD for two reasons. A review task's ID does not determine what it judges: `designReview` names a task in eight lifecycles and `testing` in nine, each carrying no artifactKind of its own and resolving its subject through `reviews`, so a round keyed (taskId, round) alone can only be resolved by re-fetching the activity's lifecycle. And several artifact kinds are designed to share one lifecycle phase — the four-part design RoundID exists for exactly that — so the day one gate task judges two kinds, a reader that joins on (taskId, round) binds both into one revision. The kind is ALSO inside that RoundID, and nothing may parse a RoundID: this is the field that makes the join honest. ABSENT on a round written before this field existed, which the readers treat as the legacy case it is rather than as a construction round."
             },
             "round": {
               "type": "integer",
@@ -17280,7 +17294,7 @@
             "NoteRequeue"
           ],
           "x-go-base": "int",
-          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue (re-queueing a failed activity). 0 is the unknown sentinel and is refused."
+          "description": "Why an operator wrote a note, i.e. the gate or steer it rode on: 1 sendBack (a phase gate's SendBack feedback), 2 retry, 3 takeover, 4 reassign, 5 skip (recorded, never delivered: nothing runs after a skip), 6 requeue. 0 is the unknown sentinel and is refused. REQUEUE IS THE ONE KIND THAT CHANGES THE ROW, and WHICH FACET recorded it decides whether it does (this $def is SHARED, and modelgen admits one shape for one name, so the promise has to be facet-scoped rather than blanket). On activityExecutionAccess a requeue against an activity that has EXITED RE-ARMS the row: the four sticky head facts (startedAt, completedAt, failureReason, failureDetail) are cleared in the same commit as the note, both ledgers and the lifecycle pin are kept, and the pump selects the activity again because the note itself is the evidence it reads. It is refused against a row that has not exited. On the DEPRECATED constructionTransitionAccess the same kind RECORDS THE NOTE AND NOTHING ELSE - that facet's write path does not re-arm, and it survives only until the 4b2 facet drop. Every other kind, on either facet, is a steer of work in flight and leaves the row's own facts alone."
         },
         "ProjectID": {
           "type": "string"
@@ -21050,7 +21064,8 @@
             "passed",
             "sentBack",
             "failed",
-            "skipped"
+            "skipped",
+            "withdrawn"
           ],
           "x-enum-varnames": [
             "TaskRevisionRunning",
@@ -21058,9 +21073,11 @@
             "TaskRevisionPassed",
             "TaskRevisionSentBack",
             "TaskRevisionFailed",
-            "TaskRevisionSkipped"
+            "TaskRevisionSkipped",
+            "TaskRevisionWithdrawn"
           ],
-          "x-go-base": "string"
+          "x-go-base": "string",
+          "description": "A revision's rendered outcome. `withdrawn` is a round pulled back before anyone decided it — deliberate, not a fault, which is why it is not `failed`; `skipped` is a gate the policy did not hold for a human."
         },
         "TaskRevisionProvenance": {
           "type": "string",

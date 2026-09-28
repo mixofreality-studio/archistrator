@@ -111,7 +111,6 @@ var registeredTemporalNamesGolden = []string{
 	"billingStateAccess.registerCustomer",
 	"billingStateAccess.resettleCycle",
 	"billingStateAccess.settleCycle",
-	"constructionConstructActivity",
 	"constructionProjectSupervision",
 	"constructionPumpNextActivity",
 	"constructionPumpSweep",
@@ -128,6 +127,8 @@ var registeredTemporalNamesGolden = []string{
 	"constructionTransitionAccess.recordPhaseStarted",
 	"constructionTransitionAccess.recordReviewPolicy",
 	"constructionTransitionAccess.recordServiceContractProduced",
+	"deliveryActivity",
+	"deliveryRoundSweep",
 	"designSessionAccess.commitArtifactWithProvenance",
 	"designSessionAccess.readProjectOnBranch",
 	"designSessionAccess.reconcileBranchFromMain",
@@ -175,9 +176,6 @@ var registeredTemporalNamesGolden = []string{
 	"operationsReconcile",
 	"operationsRegister",
 	"operationsWithdraw",
-	"projectDesignCoAuthor",
-	"projectDesignPhaseAdvance",
-	"projectDesignSDPReview",
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.acknowledgeStaleBasis",
 	"projectStateAccess.advancePhase",
@@ -210,9 +208,6 @@ var registeredTemporalNamesGolden = []string{
 	"sourceControlAccess.openPullRequest",
 	"sourceControlAccess.postReview",
 	"sourceControlAccess.syncManagedScaffold",
-	"systemDesignCoAuthor",
-	"systemDesignPhase",
-	"systemDesignPhaseAdvance",
 	"usageAccess.readRange",
 	"usageAccess.readRange",
 	"usageAccess.recordComputeUsage",
@@ -262,11 +257,47 @@ func TestRegisteredTemporalNamesGolden(t *testing.T) {
 	}
 }
 
-// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 20
+// TestRegisteredTemporalNamesGolden_FrozenWorkflowNames asserts the 15
 // externally-referenced workflow names (Global Constraints) are present
 // verbatim — these are the ones external Temporal starters key off, and must
 // never silently disappear even if the golden above is updated for an
 // activity-only rename.
+//
+// STAGE 4b1 TASK 13 REMOVED SEVEN of them — constructionConstructActivity,
+// systemDesignPhase, systemDesignCoAuthor, systemDesignPhaseAdvance, projectDesignCoAuthor,
+// projectDesignSDPReview and projectDesignPhaseAdvance — and the removal is legitimate for
+// exactly one reason, which is worth stating because it is the ONLY one that discharges the
+// guarantee this list encodes. The list exists so an externally-started workflow name cannot
+// vanish silently: a client or a Schedule outside this codebase holds the name, so a rename or
+// a deletion leaves it starting a type no worker serves. A DRAIN is what makes that harmless —
+// after it there is no in-flight execution and no external starter left for these seven,
+// because the twelve-op façade stopped naming them and the pump stopped starting them. The
+// drain sequence is in docs/bugs/2026-09-24-stage3-rail-earmarks.md, and nothing may deploy
+// this wave before it has run.
+//
+// The count in the first paragraph is 22 - 7 = 15, and it is stated because a doc that says 22
+// beside a list of 15 is the next reader's first wrong assumption.
+//
+// STAGE 4b1 ADDED deliveryRoundSweep (Task 6), and a Schedule target belongs here for
+// the same reason a client-started workflow does: a Temporal Schedule holds the workflow
+// TYPE name as LIVE NAMESPACE STATE, so once delivery:roundSweep exists every firing
+// starts that name from outside this codebase. A rename this test did not catch would
+// leave the Schedule firing into a name no worker serves — a dead sweep that reports no
+// error at all, which is the same silent failure the Schedule-id consts in
+// deliverymanager.go warn about.
+//
+// STAGE 4b1 ALSO ADDED deliveryActivity (Task 8), and it belongs here for a third reason
+// again: it is the type a CONTINUE-AS-NEW re-starts by name from inside the workflow, and
+// a live walk's own re-start reads the name out of the running image rather than out of a
+// client. A rename mid-wave would therefore break the continue of every in-flight walk —
+// the run would end with a NewContinueAsNewError naming a type no worker serves — which is
+// the same silent failure a renamed Schedule target causes, arriving from inside instead of
+// outside. Frozen here from its FIRST commit, before the pump starts it (Task 9), because
+// the cheapest moment to freeze a name is before anything depends on it.
+//
+// EARMARK: constructionPumpSweep is a Schedule target too and is NOT in this list, which
+// is an omission by the same argument rather than a decision. Adding it belongs with the
+// frozen-list edit Task 13 already owns, not here.
 func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 	frozen := []string{
 		"billingOnboardPayment",
@@ -274,15 +305,10 @@ func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 		"billingCloseCycle",
 		"billingShortfallSweep",
 		"constructionPumpNextActivity",
-		"constructionConstructActivity",
 		"constructionReplanSweep",
 		"constructionProjectSupervision",
-		"projectDesignCoAuthor",
-		"projectDesignSDPReview",
-		"projectDesignPhaseAdvance",
-		"systemDesignPhase",
-		"systemDesignCoAuthor",
-		"systemDesignPhaseAdvance",
+		"deliveryRoundSweep",
+		"deliveryActivity",
 		"operationsDeploy",
 		"operationsReconcile",
 		"operationsWithdraw",
