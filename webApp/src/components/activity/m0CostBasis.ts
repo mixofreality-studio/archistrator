@@ -11,10 +11,14 @@
  *
  *   - NO slot 8 at all ⇒ `defaultPlanningAssumptions` filled every family, which is
  *     the whole-slot default and the case the compute's `defaulted` list reports as
- *     seven families at once;
- *   - slot 8 committed whose `notes` begin with the platform's own
- *     `defaultPlanningAssumptionsNote` prefix ⇒ the document the compute wrote on a
- *     previous run, not one a human authored.
+ *     seven families at once.
+ *
+ * THERE USED TO BE A SECOND ARM, and it could never fire (final fix wave, F3). It read a
+ * COMMITTED slot 8 whose `notes` began with the compute's own `Derived defaults:` prefix —
+ * "the platform wrote this document on a previous run". Nothing writes that:
+ * `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
+ * compute never commits slot 8 at all. The arm read as coverage of the defaulted case while
+ * covering nothing, which is worse than the silence below, so it is gone.
  *
  * WHAT THIS CANNOT SEE, stated where it matters rather than in a report only: the
  * PER-FAMILY fills (`resolvePlanningAssumptions` — an authored slot whose
@@ -26,20 +30,11 @@
  *
  * Pure and React-free so `node --test` loads it directly.
  */
-import { narrowProject } from '../../contracts/projectAdapters.ts';
-import type { ArtifactSlotView, ProjectArtifactModelEnvelope } from '../../contracts/types.ts';
-import { assumedCostBasis, defaultedCostBasis } from './activityCopy.ts';
+import type { ArtifactSlotView } from '../../contracts/types.ts';
+import { assumedCostBasis } from './activityCopy.ts';
 
 /** The slot the M0 cost is priced from. */
 const PLANNING_ASSUMPTIONS = 'planningAssumptions';
-
-/**
- * The opening words of `defaultPlanningAssumptionsNote` — the compute's own signature
- * on a planning-assumptions document nobody authored. A PREFIX match, because the
- * sentence after it names the defaults and will be edited as they change; the words
- * that say WHERE the document came from are what this depends on.
- */
-export const PLATFORM_DEFAULTS_NOTE_PREFIX = 'Derived defaults:';
 
 /**
  * The families the notice names. Not a list of field names: the two cases this can
@@ -58,21 +53,5 @@ const EVERY_FAMILY = 'every planning assumption';
 export function m0CostBasisNotice(slots: readonly ArtifactSlotView[]): string {
   const slot = slots.find((s) => s.kind === PLANNING_ASSUMPTIONS);
   if (slot === undefined) return assumedCostBasis(EVERY_FAMILY);
-  const notes = notesOf(slot);
-  if (notes.startsWith(PLATFORM_DEFAULTS_NOTE_PREFIX)) return defaultedCostBasis(EVERY_FAMILY);
   return '';
-}
-
-/**
- * The committed document's OWN `notes` — `PlanningAssumptions.Notes`, which is what
- * the compute writes its provenance into — and not `ArtifactSlotView.notes`, which is
- * the slot's separate commentary. Narrowed through the envelope's `kind` (the same
- * cast the container makes for the activity list: the Phase-1 and Phase-2 envelopes
- * are one wire shape with two TS spellings), so a slot whose envelope disagrees with
- * its own kind answers the empty note rather than throwing on the screen a founder is
- * trying to approve a plan on.
- */
-function notesOf(slot: ArtifactSlotView): string {
-  const envelope = slot.model as unknown as ProjectArtifactModelEnvelope | undefined;
-  return narrowProject(envelope, PLANNING_ASSUMPTIONS)?.notes ?? '';
 }

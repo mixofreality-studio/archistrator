@@ -628,16 +628,19 @@ test.describe('activity experience: what the M0 cost was computed on', () => {
     expect(offBundle).toEqual([]);
   });
 
-  test('a slot the PLATFORM wrote is a different fact, and a different exit', async ({ page }) => {
+  // A COMMITTED SLOT 8 IS SILENCE, and that is the honest reading (final fix wave, F3).
+  // This case used to assert a second sentence for "the document in slot 8 is the compute's
+  // own, signed with `defaultPlanningAssumptionsNote`" — a state no run produces:
+  // `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
+  // compute never commits slot 8 at all. The arm that rendered it, its copy and its assertion
+  // are gone; what is left is the fact the screen can actually tell, which is that a
+  // committed slot 8 says nothing about PER-FAMILY defaults because no view carries them.
+  test('a committed slot 8 says nothing — the per-family defaults are not on the wire', async ({
+    page,
+  }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0-defaulted');
     await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
-
-    // Slot 8 is committed — but the document in it is the compute's own, signed with
-    // `defaultPlanningAssumptionsNote`. "Author the slot" would be wrong advice here;
-    // "edit the one you have" is the exit, and the sentence differs to say so.
-    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveText(
-      "Cost computed on assumed every planning assumption — the committed planning assumptions are the platform's own defaults, not this project's"
-    );
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveCount(0);
 
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);

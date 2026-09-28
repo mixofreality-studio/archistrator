@@ -63,5 +63,13 @@ export function toReviewThread(thread: readonly ThreadWire[] | undefined): Revie
  *     to the field.
  */
 export function openThreadCount(thread: readonly ReviewCommentView[]): number {
-  return thread.filter((c) => c.type === 'changeRequest' && c.status === 'open').length;
+  // THE PREDICATE IS THE SERVER'S, NEGATED (final fix wave, F6). `ReviewCommentBlocksApprove`
+  // is `Status == Open && !IsQuestion` — everything that is not a question blocks — while this
+  // counted `type === 'changeRequest'`, everything that IS a change request. The two agree
+  // only because `toReviewCommentView` collapses the wire's third member (`staleAck`) onto
+  // `changeRequest`; the moment a fourth wire type arrives, or that mapping changes, the bar
+  // would stop counting a comment the server still refuses to approve over — and the reviewer
+  // would see an Approve the server rejects. Saying it the server's way makes that impossible
+  // rather than merely unlikely today.
+  return thread.filter((c) => c.type !== 'question' && c.status === 'open').length;
 }

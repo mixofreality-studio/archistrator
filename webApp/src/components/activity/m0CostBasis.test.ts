@@ -7,7 +7,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { m0CostBasisNotice, PLATFORM_DEFAULTS_NOTE_PREFIX } from './m0CostBasis.ts';
+import { m0CostBasisNotice } from './m0CostBasis.ts';
 import type { ArtifactSlotView } from '../../contracts/types.ts';
 
 function planningAssumptions(notes: string): ArtifactSlotView {
@@ -44,20 +44,10 @@ void test('no planning-assumptions slot at all: the cost rode on every family, a
   );
 });
 
-void test('a slot the platform wrote itself is still assumed — the founder authored none of it', () => {
-  const notice = m0CostBasisNotice([
-    sdpReview,
-    planningAssumptions(
-      `${PLATFORM_DEFAULTS_NOTE_PREFIX} no planning assumptions were authored, so the platform assumed …`
-    ),
-  ]);
-  assert.match(notice, /^Cost computed on assumed every planning assumption/);
-  assert.match(
-    notice,
-    /the platform's own defaults, not this project's/,
-    'the committed case is a different fact from the absent one, and a different exit'
-  );
-});
+// (The 'a slot the platform wrote itself' case is GONE with the arm it exercised: the
+// compute never commits slot 8, so a committed slot 8 carrying the platform's own
+// `Derived defaults:` note is a state no run can reach — see m0CostBasis.ts. The case
+// asserted coverage that covered nothing.)
 
 void test('an AUTHORED slot says nothing — ABSENT, not a reassurance nobody reads', () => {
   assert.equal(

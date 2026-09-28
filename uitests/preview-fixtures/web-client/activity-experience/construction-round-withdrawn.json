@@ -31484,6 +31484,8 @@
                   }
                 ],
                 "verdicts": [],
+                "decidedBy": "operator",
+                "decidedAt": "2026-09-19T12:09:44Z",
                 "provenance": "observed"
               },
               {
@@ -31496,7 +31498,11 @@
                 "comments": [
                   {
                     "jsonPath": "$.serviceContracts[component=billingStateAccess].ops[signature=\"ReadBilling(customerID: uuid.UUID) → (Billing, fwra.Error)\"]",
-                    "text": "ReadBilling still hands back the whole aggregate. Name the projection."
+                    "text": "ReadBilling still hands back the whole aggregate. Name the projection its two callers actually read."
+                  },
+                  {
+                    "jsonPath": "$['$defs'].LedgerEntry.properties.amount",
+                    "text": "Is amountMinor always the customer's own currency, or the platform's?"
                   }
                 ],
                 "subjectRef": {

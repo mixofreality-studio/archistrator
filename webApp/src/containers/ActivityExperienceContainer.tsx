@@ -392,11 +392,16 @@ export function ActivityExperienceContainer({
       {
         onSuccess: () => {
           reset();
-          // Approve at the M0 gate is commit-THEN-advance (spec §6): the option
-          // binds the plan of record, and the advance is what unlocks construction.
-          if (approve && verbs.advanceAfterApprove === true) {
-            advanceGate(false);
-          }
+          // THE CLIENT NO LONGER ADVANCES THE PHASE (final fix wave, F1). It used to fire
+          // ReviewAdvance unconditionally on every M0 approve, which made the M0 approve a
+          // RACE with two phase writers: the child's own gate-passed handler seals Phase 2
+          // (passRound → completeProjectDesign → advanceToConstruction) while this call was
+          // already in flight. Whichever lost the race issued a SECOND AdvancePhase over a
+          // three-member enum — and both construction dispatchers select on
+          // `Phase == PhaseConstruction` EXACTLY, so the project went permanently quiet with
+          // nothing logged. The server refuses the second write now (a read-back guard on the
+          // façade, a ceiling in the RA), and the client call was pure risk on top of a seal
+          // the child already performs — so it is gone.
         },
       }
     );

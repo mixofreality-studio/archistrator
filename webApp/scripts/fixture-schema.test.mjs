@@ -261,9 +261,12 @@ void test('the activity-experience fixtures are recorded where the preview can o
   const states = (root) => activityViews(root).map(([p]) => p.slice(p.lastIndexOf('/') + 1)).sort();
   assert.deepEqual(states(UITESTS_FIXTURES), [
     'architecture-round.json',
+    'construction-round-withdrawn.json',
     'deployment-linear.json',
     'done.json',
+    'escalated.json',
     'failed.json',
+    'project-design-m0-defaulted.json',
     'project-design-m0-history.json',
     'project-design-m0.json',
     'requirements-backfilled.json',
@@ -380,16 +383,23 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
           if (rev[k] === undefined) offences.push(`${where}: a persisted round carries ${k}`);
         }
         if (rev.startedAt === undefined) offences.push(`${where}: a round is opened before it is judged, so it has a startedAt`);
-        const decided = rev.outcome === 'passed' || rev.outcome === 'sentBack';
+        // WITHDRAWN IS A DECISION TOO, and one nobody judged. `WithdrawReviewRound`
+        // decides the round `RoundWithdrawn` with `decidedByOperator` (deliverymanager.go),
+        // and `roundRevisions` derives `endedAt` FROM `decidedAt` for every round alike —
+        // so a withdrawn round carries the same decision stamps a passed one does. What it
+        // does NOT carry is a verdict (nobody reviewed it) or a gate attempt (the rail
+        // never wrote one), which is why those two arms name `judged` instead.
+        const decided = rev.outcome === 'passed' || rev.outcome === 'sentBack' || rev.outcome === 'withdrawn';
+        const judged = rev.outcome === 'passed' || rev.outcome === 'sentBack';
         if (decided !== (rev.decidedBy !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedBy ${rev.decidedBy}`);
         if (decided !== (rev.decidedAt !== undefined)) offences.push(`${where}: outcome ${rev.outcome} vs decidedAt ${rev.decidedAt}`);
         if ((rev.endedAt ?? undefined) !== rev.decidedAt) {
           offences.push(`${where}: a round ends when it is decided — endedAt ${rev.endedAt} vs decidedAt ${rev.decidedAt}`);
         }
-        if (!decided && rev.attemptIds.length > 0) {
-          offences.push(`${where}: an undecided round has no gate attempt yet, but cites ${rev.attemptIds}`);
+        if (!judged && rev.attemptIds.length > 0) {
+          offences.push(`${where}: a round nobody judged has no gate attempt, but cites ${rev.attemptIds}`);
         }
-        if (decided && (rev.verdicts ?? []).length === 0) {
+        if (judged && (rev.verdicts ?? []).length === 0) {
           offences.push(`${where}: a decided round carries the deciding reviewer's verdict`);
         }
         if (rev.outcome === 'sentBack' && !(rev.verdicts ?? []).some((v) => v.verdict === 'sendBack')) {
@@ -419,19 +429,22 @@ void test('the activity-experience fixtures hold a persisted round AND a reconst
 // schema.ts says it verbatim: `reviewers` is "Empty on a reconstructed revision: a
 // pre-ledger row recorded who reviewed nowhere", `decidedAt` and `subjectRef` are
 // "Omitted ... on a reconstructed revision". And every revision IS its attempts — the
-// attemptIds list is what a revision is made of — with exactly one exception, an OPEN
-// round, for which the rail has not written the gate attempt yet.
+// attemptIds list is what a revision is made of — with exactly two exceptions, both of
+// them rounds nobody judged: an OPEN round, for which the rail has not written the gate
+// attempt yet, and a WITHDRAWN one, for which it never will (`roundRevisions` joins a
+// gate attempt onto a round, and a round pulled back before a decision has none to join).
 void test('a revision provenance matches what it carries', () => {
   let reviewRevisions = 0;
   for (const [path, view] of FIXTURE_ROOTS.flatMap(activityViews)) {
     for (const task of view.tasks) {
       for (const rev of task.revisions) {
         const where = `${path.slice(path.lastIndexOf('/') + 1)}: ${task.id} rev ${rev.n}`;
-        const openRound = rev.round !== undefined && rev.outcome === 'awaitingHuman';
-        if (!openRound) {
+        const unjudgedRound =
+          rev.round !== undefined && (rev.outcome === 'awaitingHuman' || rev.outcome === 'withdrawn');
+        if (!unjudgedRound) {
           assert.ok(rev.attemptIds.length >= 1, `${where}: a revision is its attempts, and cites none`);
         } else {
-          assert.deepEqual(rev.attemptIds, [], `${where}: an open round has no gate attempt yet`);
+          assert.deepEqual(rev.attemptIds, [], `${where}: a round nobody judged has no gate attempt`);
         }
         if (task.kind !== 'review') continue;
         reviewRevisions += 1;

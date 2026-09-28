@@ -190,16 +190,13 @@ export function verdictLine(verdict: {
  * without this line it would be recorded and INVISIBLE, which is the same lie as
  * refusing.
  *
- * Two sentences because they are two different facts — nothing is committed at all,
- * versus what is committed is the platform's own document rather than this project's
- * — and the exits differ (author slot 8; or edit the slot you already have).
+ * ONE sentence, not two. Its twin (`defaultedCostBasis` — "what is committed is the
+ * platform's own document") is retired in the final fix wave with the unreachable arm
+ * that was its only caller: the compute never commits slot 8, so that state has no run
+ * that produces it.
  */
 export function assumedCostBasis(families: string): string {
   return `Cost computed on assumed ${families} — no planning assumptions are committed for this project yet`;
-}
-
-export function defaultedCostBasis(families: string): string {
-  return `Cost computed on assumed ${families} — the committed planning assumptions are the platform's own defaults, not this project's`;
 }
 
 /**
