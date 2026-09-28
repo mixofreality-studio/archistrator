@@ -6318,16 +6318,16 @@ func csIsRAConflict(err error) bool {
 // SAME decide→execute machinery as the automatic variance path. SYNC: returns once
 // the signal is durably enqueued.
 //
-// PRECHECK (B1.3): after the ContractMisuse checks, the op reads the activity's session
-// (the Query GetSessionState serves; no session is NotFound) and refuses with
-// FailedPrecondition unless the activity is awaiting a takeover. The workflow buffers
-// override signals, so an override sent at any other time used to be consumed by the
-// activity's NEXT escalation — a steer applied to a situation the operator never saw
-// (plan G7). This is honesty at the façade, not a lock: the residual check-then-act
-// window is milliseconds, and draining a stale buffered override inside the workflow
-// is a command change that is EARMARKED behind its own GetVersion. During a rolling
-// deploy a view served by an old worker carries no awaitingGate; the refusal is then
-// transient and fails safe.
+// PRECHECK (B1.3, re-pointed at the ledger by stage 4b2 Task 2): after the ContractMisuse
+// checks, the op refuses with FailedPrecondition unless the activity's attempt LEDGER names
+// an escalated task. The workflow buffers override signals, so an override sent at any other
+// time used to be consumed by the activity's NEXT escalation — a steer applied to a situation
+// the operator never saw (plan G7). This is honesty at the façade, not a lock: the residual
+// check-then-act window is milliseconds, and draining a stale buffered override inside the
+// workflow is a command change that is EARMARKED behind its own GetVersion.
+//
+// It was the session's single-valued `stage` that answered this until 4b2; see the precheck
+// itself for why a FORK made that wrong.
 func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
 	ctx := rc.Context
 	if projectID == "" {
@@ -6351,20 +6351,25 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 	if err := checkOperatorNoteSize("an override's notes", override.Notes, override.Comments); err != nil {
 		return err
 	}
-	view, err := m.activitySession(ctx, projectID, activityID)
-	switch {
-	case err == nil:
-		if view.Stage != StageAwaitingTakeover {
-			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-				"activity %s is at %s, not awaiting a takeover — an override steers an escalation; decide a gate with SubmitTaskDecision",
-				activityID, sessionStageName(view.Stage)))
+	// THE PRECHECK ASKS THE LEDGER, NOT THE VIEW (stage 4b2 Task 2; the open 4b1 defect).
+	// constructState.stage is SINGLE-VALUED and a fork holds two gates, so the view reports
+	// whichever was entered last and this precheck refused a steer the client correctly
+	// offered — on a `service`/`frontend` walk with `stp` escalated and `designReview` at an
+	// approval gate, the operator could not reach the branch that was actually waiting on
+	// them. The authoritative answer was already being read fifteen lines below, on the
+	// success path: escalatedTaskOf scans the row's attempts per TASK, and 4b1 proved the
+	// ledger correct on a fork (each review coroutine owns its own *gateLedger).
+	//
+	// The session read STAYS, for the one thing it still answers that the row cannot: is
+	// there a LIVE CHILD. NotFound means the activity is OVER, and the reopen arm below is
+	// what an operator looking at a finished activity is asking for. Every other override
+	// addresses a dispatch in flight and has nothing to reach. During a rolling deploy a
+	// view served by an old worker still answers the liveness question, so the refusal no
+	// longer depends on a field an old worker may not carry.
+	if _, err := m.activitySession(ctx, projectID, activityID); err != nil {
+		if isManagerNotFound(err) {
+			return m.reopenActivity(ctx, projectID, activityID, override)
 		}
-	case isManagerNotFound(err):
-		// NO LIVE CHILD. The activity is not escalated — it is OVER, and this is the one steer
-		// that means something for a finished activity: RE-OPEN it (stage 4b1 Task 12, fix round
-		// 1). Every other override addresses a dispatch in flight and has nothing to reach.
-		return m.reopenActivity(ctx, projectID, activityID, override)
-	default:
 		return err
 	}
 	// THE OVERRIDE MUST NAME THE TASK IT STEERS (stage 4b1 Task 12; the Task-11 round-2
@@ -6375,6 +6380,10 @@ func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID P
 	// EscalateEverything (a zero window) waited forever while the pump blocked on child.Get.
 	// The task is recovered from the LEDGER (escalatedTaskOf), because nothing the operator
 	// sends carries it and the session view's gate key for an escalation is `takeover`.
+	//
+	// escalatedTask refuses FailedPrecondition when the ledger names no escalated task, with
+	// the sentence the operator reads. It is the ONE question, asked ONCE — it is both the
+	// precheck and the addressing.
 	task, err := m.escalatedTask(ctx, projectID, activityID)
 	if err != nil {
 		return err
@@ -6468,6 +6477,10 @@ func reopenNoteID(activityID ActivityID, row projectstate.ActivityExecution) str
 // override is about (escalatedTaskOf). It refuses with FailedPrecondition naming the missing
 // datum rather than sending a signal the router would silently drop.
 //
+// Since stage 4b2 Task 2 its refusal IS OverrideActivity's precheck — "no escalated task on
+// the ledger" and "not steerable" are the same fact, and asking once is what makes a fork's
+// escalated branch reachable while its sibling holds a gate.
+//
 // It is the NARROW read (ReadActivityExecution) and not a whole-project one: the only thing
 // it needs is one row's attempt ledger, and an activity with no row has not been dispatched,
 // which the store answers NotFound for and this maps to the sentence an operator can act on.
@@ -6483,7 +6496,7 @@ func (m *constructionManager) escalatedTask(ctx context.Context, projectID Proje
 	task, ok := escalatedTaskOf(row)
 	if !ok {
 		return "", newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-			"activity %s is awaiting a takeover but no task on its ledger holds a failed attempt, so there is nothing an override could name; re-read the activity",
+			"activity %s is in flight but no task on its ledger holds a failed attempt, so it is not escalated and there is nothing an override could name — decide a gate with SubmitTaskDecision, or re-read the activity",
 			activityID))
 	}
 	return task, nil

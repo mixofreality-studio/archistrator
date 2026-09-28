@@ -14302,21 +14302,13 @@ func b13Mock(view ConstructionSessionView, queryErr error, signal bool) *tempora
 	return mc
 }
 
-func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
+// TestOverrideActivity_Precheck_OnlyAnEscalationIsSteerable is the ACCEPT half of the B1.3
+// precheck plus its ordering claim. The REFUSAL half moved to
+// Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask when stage 4b2 Task 2
+// re-pointed the precheck at the attempt ledger: refusing by `constructState.stage` was the
+// open 4b1 fork defect, so a case that pinned the stage-worded refusal was pinning the bug.
+func TestOverrideActivity_Precheck_OnlyAnEscalationIsSteerable(t *testing.T) {
 	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
-	for name, view := range map[string]ConstructionSessionView{
-		"a phase gate":       awaitingAt("detailed_design"),
-		"the merge hold":     awaitingAt(mergeGateKey),
-		"a running pipeline": {Stage: StagePipelineRunning},
-		"an exited activity": {Stage: StageExited},
-	} {
-		mc := b13Mock(view, nil, false)
-		err := newTestConstructionManager(mc).OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
-		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition || !strings.Contains(e.Detail, "not awaiting a takeover") {
-			t.Errorf("%s: want FailedPrecondition, got %s %q", name, e.Kind, e.Detail)
-		}
-		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
-	}
 	mc := b13Mock(ConstructionSessionView{Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)}, nil, true)
 	if err := newFacadeConstructionManager(mc, escalatedRowStore("C-Orders", projectstate.TaskDetailedDesign)).
 		OverrideActivity(testCtx(), "proj-1", "C-Orders", retry); err != nil {
@@ -14327,6 +14319,127 @@ func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
 	strict := &temporalmocks.Client{}
 	if got := asConstructionError(t, newTestConstructionManager(strict).OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{Kind: OverrideRetry, Notes: " "})).Kind; got != fwmanager.ContractMisuse {
 		t.Fatalf("want ContractMisuse before the session read, got %s", got)
+	}
+}
+
+// forkLedgerStore seeds ONE activity row in the shape a `service`/`frontend` FORK leaves
+// behind: the design branch has passed its work and sits at its approval gate, and the test
+// branch has escalated. `escalated` is the task whose latest attempt resolved FAILED; pass ""
+// for a row on which nothing failed.
+//
+// The designReview attempt is LAST on purpose. Ledger order is the only thing that records
+// which branch the walk touched most recently, and it is the datum the retired stage-based
+// precheck was effectively reading through `constructState.stage` — so a seed that put the
+// failure last would not reproduce the defect.
+func forkLedgerStore(activityID string, escalated projectstate.MethodTask) *csFakeProjectState {
+	at := func(task projectstate.MethodTask, outcome projectstate.TaskOutcome) projectstate.TaskAttempt {
+		return projectstate.TaskAttempt{
+			AttemptID: projectstate.AttemptID(activityID, task, 1), Task: task, Attempt: 1, Outcome: outcome,
+		}
+	}
+	outcomeOf := func(task projectstate.MethodTask) projectstate.TaskOutcome {
+		if task == escalated {
+			return projectstate.OutcomeFailed
+		}
+		return projectstate.OutcomePassed
+	}
+	return &csFakeProjectState{project: projectstate.Project{
+		Phase: projectstate.PhaseConstruction,
+		ActivityExecution: map[string]projectstate.ActivityExecution{
+			activityID: {
+				ActivityID: activityID,
+				StartedAt:  &testLedgerClock,
+				Attempts: []projectstate.TaskAttempt{
+					at(projectstate.TaskDetailedDesign, outcomeOf(projectstate.TaskDetailedDesign)),
+					at(projectstate.TaskSTP, outcomeOf(projectstate.TaskSTP)),
+					at(projectstate.TaskDesignReview, outcomeOf(projectstate.TaskDesignReview)),
+				},
+			},
+		},
+	}}
+}
+
+// Test_OverrideActivity_SteersAnEscalatedForkBranchWhileASiblingHoldsAGate is the OPEN
+// 4b1 defect. A `service` fork holds `stp` (escalated: its latest attempt FAILED) and
+// `designReview` (at an approval gate). constructState.stage is single-valued and reports
+// whichever was ENTERED LAST, so the precheck refused a steer the ledger can name — and the
+// SPA's own overrideActionFor, which reproduces escalatedTaskOf's rule off the wire, was
+// correctly offering it.
+//
+// It is driven at the FAÇADE with a seeded row rather than through a live child,
+// deliberately: the defect is in the precheck's choice of source, and driving it through
+// a walk would make the test depend on which gate the scheduler enters second — the very
+// nondeterminism the fix removes. What a live child adds — that the router forwards an
+// override by TaskID to that task's own inbox — is pinned by
+// Test_Facade_OverrideAtATakeover_ReachesTheEscalatedTasksInbox and by the
+// fork-signal-reaches-the-named-task lifecycle shape.
+func Test_OverrideActivity_SteersAnEscalatedForkBranchWhileASiblingHoldsAGate(t *testing.T) {
+	store := forkLedgerStore("C-Orders", projectstate.TaskSTP)
+	// VERIFY THE SEED FIRST: a row that does not name stp would make this pass for the wrong
+	// reason, since the op's whole claim is that it asks escalatedTaskOf.
+	if task, ok := escalatedTaskOf(store.execution("C-Orders")); !ok || task != projectstate.TaskSTP {
+		t.Fatalf("the seeded fork ledger names (%q, %v) as escalated, want (%q, true)", task, ok, projectstate.TaskSTP)
+	}
+	// The session reports the DESIGN branch's approval gate — the other branch's stage, which
+	// is the only stage a single-valued field can carry.
+	mc := b13Mock(awaitingAt(shapeDesignReviewTask), nil, true)
+	if err := newFacadeConstructionManager(mc, store).
+		OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{
+			Kind: OverrideRetry, Notes: "the test rig's credentials expired mid-run"}); err != nil {
+		t.Fatalf("an override on the ESCALATED branch of a fork must be accepted even though the "+
+			"session view reports the SIBLING's approval gate: %v", err)
+	}
+	// THE DELIVERY, not the nil: an override that reached the wrong inbox, or none, is
+	// indistinguishable from a refusal to the operator waiting on it.
+	mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+	for _, c := range mc.Calls {
+		if c.Method != "SignalWorkflow" {
+			continue
+		}
+		if got, want := c.Arguments.String(1), deliveryActivityWorkflowID("proj-1", "C-Orders"); got != want {
+			t.Errorf("the override addressed workflow %q, want the generic child %q", got, want)
+		}
+		if got := c.Arguments.String(3); got != signalOperatorOverride {
+			t.Errorf("the override was sent as signal %q, want %q", got, signalOperatorOverride)
+		}
+		sig, ok := c.Arguments.Get(4).(operatorOverrideSignal)
+		if !ok {
+			t.Fatalf("the override's payload is %T, want operatorOverrideSignal", c.Arguments.Get(4))
+		}
+		if sig.TaskID != string(projectstate.TaskSTP) {
+			t.Fatalf("the override named task %q, want %q — the router forwards by TaskID and a "+
+				"signal naming the gated sibling (or nothing) never reaches the escalation",
+				sig.TaskID, projectstate.TaskSTP)
+		}
+	}
+}
+
+// Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask pins the other half:
+// the re-order must not turn the precheck into an accept-everything. An activity with a
+// LIVE child and no failed attempt on any task is not escalated, and the refusal sentence
+// is the operator's only explanation.
+//
+// It sweeps the stages the retired precheck used to refuse BY NAME, plus the takeover stage
+// it used to admit, over one row on which nothing failed: the verdict is the same at every
+// one of them, which is the re-order's actual claim — the stage is not the discriminator in
+// either direction.
+func Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask(t *testing.T) {
+	retry := ActivityOverride{Kind: OverrideRetry, Notes: "the server was down"}
+	for name, view := range map[string]ConstructionSessionView{
+		"a phase gate":       awaitingAt("detailed_design"),
+		"the merge hold":     awaitingAt(mergeGateKey),
+		"a running pipeline": {Stage: StagePipelineRunning},
+		"an exited activity": {Stage: StageExited},
+		"a takeover":         {Stage: StageAwaitingTakeover, AwaitingGate: ptrTo(takeoverGateKey)},
+	} {
+		mc := b13Mock(view, nil, false)
+		err := newFacadeConstructionManager(mc, forkLedgerStore("C-Orders", "")).
+			OverrideActivity(testCtx(), "proj-1", "C-Orders", retry)
+		if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+			!strings.Contains(e.Detail, "no task on its ledger holds a failed attempt") {
+			t.Errorf("%s: want FailedPrecondition naming the empty ledger, got %s %q", name, e.Kind, e.Detail)
+		}
+		mc.AssertNotCalled(t, "SignalWorkflow", mock.Anything, mock.Anything, mock.Anything, mock.Anything, mock.Anything)
 	}
 }
 
@@ -14343,10 +14456,10 @@ func TestOverrideActivity_Precheck_OnlyAtATakeover(t *testing.T) {
 // is a measurement: csFakePipeline reports a failing job FAILED on its FIRST observe
 // (observedPhase checks failTask before any running budget), so the escalation is already open
 // at t=0 and there is no window in which this walk is NOT awaiting a takeover. That claim is
-// asserted where it can be: TestOverrideActivity_Precheck_OnlyAtATakeover refuses an override
-// at a gate, at a running pipeline and at an exited activity AND asserts nothing was
-// signalled — and with nothing signalled there is nothing left for a later escalation to
-// consume, which is the whole of what G7 was about.
+// asserted where it can be: Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask
+// refuses an override at a gate, at a running pipeline and at an exited activity AND asserts
+// nothing was signalled — and with nothing signalled there is nothing left for a later
+// escalation to consume, which is the whole of what G7 was about.
 func Test_Facade_OverrideAtATakeover_ReachesTheEscalatedTasksInbox(t *testing.T) {
 	rig := varianceRig(t, intervention.VarianceEscalate, 0)
 	rig.pipe.failTask[projectstate.TaskDetailedDesign] = true
