@@ -560,7 +560,8 @@ func (wf *csWorkflows) readBackCritique(
 // The BRANCH is activityBranchName for BOTH rails (R12): spec §5.3 unifies on
 // activity/{activityId}, which is the branch openActivityRow already opened when the PR rail
 // is live, and which the design job creates on a local venue exactly as a construction job
-// does. projectstate.DesignBranch survives unused for one release.
+// does. The per-artifact design-branch resolver that used to name the other branch is DELETED
+// (stage 4b2) — that was the one release it survived unused for.
 //
 // An unresolvable project answers ("", "") — the dormant path: the RA falls back to its
 // configured repo and the read-back/stage ride main, which is byte-for-byte the retired

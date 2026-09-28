@@ -898,7 +898,6 @@ var encapsulationAllowlistData = map[string][]string{
 		// (a normal RA→Manager layer edge, same category as the codec above).
 		"AmendmentIndexFor",
 		"AmendmentNoChangeReason",
-		"DesignBranch",
 		"OpenReviewCommentIDs",
 		"ReadBackDecodeFailedReason",
 		"SameArtifactModel",

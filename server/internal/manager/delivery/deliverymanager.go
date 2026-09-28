@@ -787,19 +787,24 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
-	// Resolve the branch the ledger lives on: a live drafting/review session keeps the
-	// thread on its session branch; a committed (or absent) session keeps it on main ("").
-	branch := m.resolveQuestionBranch(rc, projectID, kind)
+	// MAIN, BESIDE THE SLOT (ratified 4b2; 4b1 Q6). A question's thread OUTLIVES the draft
+	// it is about: activity/{activityId} is squashed away at merge, while the slot's thread
+	// on main is what the SPA reads, what the answer job answers, and what a reader finds
+	// six months later. The resolver that used to ask for a session branch was dead BY TYPE
+	// — isLiveSessionStage's true-set and committedSessionView's output-set are disjoint —
+	// so main was already the only reachable answer; this is the answer stated rather than
+	// arrived at. The join to the draft survives without the branch: the comment names its
+	// round.
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
-	key := askQuestionsIdempotencyKey(projectID, kind, branch, qs, replies)
+	key := askQuestionsIdempotencyKey(projectID, kind, "", qs, replies)
 
 	// Sync-path optimistic-concurrency loop (mirrors SetResearchInput): read the head
-	// version on the resolved branch, compute a fresh question round from the live thread
-	// so the minted ids never collide with prior entries, and append. Re-read on Conflict.
+	// version on main, compute a fresh question round from the live thread so the minted
+	// ids never collide with prior entries, and append. Re-read on Conflict.
 	var lastErr error
 	for range askQuestionsMaxAttempts {
-		proj, err := m.readProjectMaybeBranch(ctx, psID, branch)
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return mapReadProjectError(err)
 		}
@@ -817,7 +822,7 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, replies, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, "", psKind, round, qs, replies, key)
 		if err == nil {
 			// Best-effort dispatch of the answer job. A dispatch failure is logged by the
 			// pipeline access; the questions are already durably recorded, so we do not fail
@@ -839,7 +844,7 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 					"op", "systemdesign.AskQuestions", "projectID", string(projectID),
 					"artifactKind", artifactKindString(kind), "dispatchedTo", dispatchTo)
 			}
-			m.dispatchAnswerJob(ctx, projectID, kind, branch, dispatchTo, minted)
+			m.dispatchAnswerJob(ctx, projectID, kind, "", dispatchTo, minted)
 			return nil
 		}
 		if isRAConflict(err) {
@@ -851,57 +856,14 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
 }
 
-// resolveQuestionBranch returns the branch the artifact's review ledger currently lives on:
-// the session branch when a GENUINELY ACTIVE session exists (so questions land beside the
-// draft under review), else "" (main) for a committed or session-less artifact. It is
-// best-effort — any read/query miss falls back to main, the safe default.
-//
-// F73: an ACTIVE session means the co-author Temporal workflow is OPEN and in a non-terminal
-// (live) stage. Resolution reuses the P0-2 Describe-first machinery via GetSessionState —
-// NOT a bare sessionState Query. A bare query REPLAYS a CLOSED run's last in-memory stage,
-// which for a completed/committed (or abandoned) amendment is a stale mid-flight LIVE stage.
-// Trusting it wrongly resolved a DEAD amendment's leftover branch (e.g. .../2-amend-1) — and
-// because amendmentIndexFor returns >=1 for any committed slot, that branch gets synthesized
-// and the seeded questions land where nothing ever merges. GetSessionState synthesizes an
-// honest terminal for every closed run (StageCommitted / StageWithdrawn / StageDraftFailed)
-// and errors NotFound when there is no workflow — all of which fall back to main here.
-func (m *deliveryManager) resolveQuestionBranch(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) string {
-	view, err := m.designCompletedSessionView(rc, projectID, kind)
-	if err != nil || !isLiveSessionStage(view.Stage) {
-		return ""
-	}
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: rc.Context}, projectstate.ProjectID(projectID))
-	if err != nil {
-		return ""
-	}
-	return projectstate.DesignBranch(projectstate.ProjectID(projectID), toPSKind(kind), projectstate.AmendmentIndexFor(slotFor(proj, kind)))
-}
-
-// readProjectMaybeBranch reads the head-state aggregate from the given branch. The
-// on-branch read moved onto the designSessionAccess facet (Wave 1 reconciliation), which
-// ships the aggregate as a ProjectEnvelope across the Manager-Temporal boundary; decode it
-// back to the concrete Project here. branch=="" reads main exactly as ReadProject.
-func (m *deliveryManager) readProjectMaybeBranch(ctx context.Context, psID projectstate.ProjectID, branch string) (projectstate.Project, error) {
-	env, err := m.designSession.ReadProjectOnBranch(fwra.Context{Context: ctx}, psID, branch)
-	if err != nil {
-		return projectstate.Project{}, err
-	}
-	return env.Decode()
-}
-
-// isLiveSessionStage reports whether a co-author session is live (its ledger lives on the
-// session branch, not main). SessionStageUnknown (no execution) and StageDraftFailed mean
-// there is no live branch to append to → main.
-func isLiveSessionStage(stage SessionStage) bool {
-	switch stage {
-	case StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused:
-		return true
-	case SessionStageUnknown, StageCommitted, StageWithdrawn, StageDraftFailed:
-		return false
-	default:
-		return false
-	}
-}
+// resolveQuestionBranch, isLiveSessionStage and readProjectMaybeBranch are DELETED (stage
+// 4b2): the resolver asked isLiveSessionStage — true only for {Drafting, AwaitingReview,
+// Redrafting, Refused} — of a view committedSessionView produces, and that producer emits
+// only {Committed, Withdrawn, DraftFailed}. Disjoint sets, so the session-branch arm was
+// false for every possible input and every question already resolved to main; the branch-
+// taking read collapsed onto ReadProject with it. Both callers now say main out loud, with
+// the ratification at the site.
+// Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint keeps the argument.
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
@@ -3438,8 +3400,8 @@ const (
 	jobModeAnswer = "answer"
 )
 
-// designBranch PROMOTED to projectstate.DesignBranch (code-health-phase-bd task D3) —
-// byte-identical pure resolver, no longer duplicated with projectdesign's twin.
+// designBranch and the projectstate resolver it was promoted into are both GONE (stage 4b2):
+// the design-branch scheme is retired — there is one activity branch per activity now.
 
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
@@ -4481,14 +4443,17 @@ func (m *deliveryManager) askPlanQuestions(rc fwmanager.Context, projectID Proje
 		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
 	}
 
-	branch := m.resolveQuestionBranch(rc, projectID, kind)
+	// MAIN, BESIDE THE SLOT (ratified 4b2; 4b1 Q6) — see the Phase-1 twin above for the whole
+	// argument. In short: the resolver that used to ask for a session branch was dead BY TYPE,
+	// and main is also the RIGHT answer, because a question's thread outlives the draft it is
+	// about.
 	psID := projectstate.ProjectID(projectID)
 	psKind := toPSKind(kind)
-	key := pdAskQuestionsIdempotencyKey(projectID, kind, branch, qs)
+	key := pdAskQuestionsIdempotencyKey(projectID, kind, "", qs)
 
 	var lastErr error
 	for range askQuestionsMaxAttempts {
-		proj, err := m.readProjectMaybeBranch(ctx, psID, branch)
+		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
 		if err != nil {
 			return pdMapReadProjectError(err)
 		}
@@ -4500,14 +4465,14 @@ func (m *deliveryManager) askPlanQuestions(rc fwmanager.Context, projectID Proje
 			// ledger entries, and the re-fired answer job answers the right comments.
 			round = r
 		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, branch, psKind, round, qs, nil, key)
+		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, "", psKind, round, qs, nil, key)
 		if err == nil {
 			minted := make([]projectstate.ReviewComment, len(qs))
 			for i := range qs {
 				minted[i] = qs[i]
 				minted[i].ID = projectstate.ReviewCommentID(round, i)
 			}
-			m.dispatchAnswerJob(ctx, projectID, kind, branch, addressee, minted)
+			m.dispatchAnswerJob(ctx, projectID, kind, "", addressee, minted)
 			return nil
 		}
 		if isRAConflict(err) {
@@ -4654,8 +4619,8 @@ func (w pdAnswerEpisodeWatch) answerRecord(obs agenticjob.PipelineObservation, t
 // (coauthorphase2artifact.go) and the answer-job watch above.
 // ---------------------------------------------------------------------------
 
-// designBranch PROMOTED to projectstate.DesignBranch (code-health-phase-bd task D3) —
-// byte-identical pure resolver, no longer duplicated with systemdesign's twin.
+// designBranch and the projectstate resolver it was promoted into are both GONE (stage 4b2):
+// the design-branch scheme is retired — there is one activity branch per activity now.
 
 // ===========================================================================
 // Dispatch inputs (C-WF-DESIGN workflow_dispatch schema). These exact key names are
@@ -6326,6 +6291,16 @@ func csIsRAConflict(err error) bool {
 // check-then-act window is milliseconds, and draining a stale buffered override inside the
 // workflow is a command change that is EARMARKED behind its own GetVersion.
 //
+// ONE WINDOW THE HONESTY NO LONGER COVERS, stated rather than implied (4b2 Task 2 review, F1).
+// On intervention.VarianceRetry / VarianceTakeover the child auto-re-dispatches WITHOUT
+// entering StageAwaitingTakeover (deliveryactivity.go's variance arm), so between the FAILED
+// attempt landing on the row and the retry's own attempt landing, escalatedTaskOf names the
+// task while the child is at StageDispatching / StagePipelineRunning. The override is
+// ACCEPTED, routed (awaitRoutedOverride applies no filter) and consumed by an unrelated later
+// escalation: the operator gets a 200 for a steer with no visible effect. The old stage check
+// did not cover this window either (it refused the whole fork case to catch it), and closing
+// it for real is the earmarked in-workflow drain, not a second façade guess.
+//
 // It was the session's single-valued `stage` that answered this until 4b2; see the precheck
 // itself for why a FORK made that wrong.
 func (m *constructionManager) OverrideActivity(rc fwmanager.Context, projectID ProjectID, activityID ActivityID, override ActivityOverride) error {
@@ -6999,6 +6974,18 @@ func (m *constructionManager) SubmitTaskDecision(
 	if err := precheckTaskDecision(view, activityID, taskID, decision); err != nil {
 		return err
 	}
+	// THE PER-TASK HALF. The merge hold opens no round (see requireOpenRound), so it — and only
+	// it — keeps the view check the rest of the gates gave up: after the join there is exactly
+	// one human stage live, so the single-valued pair names it correctly.
+	if taskID == mergeGateKey {
+		if view.Stage != StageAwaitingApproval || gateNameOf(view) != mergeGateKey {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s is at %s/%s, not holding for a merge approval",
+				activityID, sessionStageName(view.Stage), gateNameOf(view)))
+		}
+	} else if err := m.requireOpenRound(ctx, projectID, activityID, taskID, kind); err != nil {
+		return err
+	}
 	// THE APPROVE'S THREAD SETTLEMENT: an open CHANGE REQUEST refuses it, and every ANSWERED
 	// thread is swept resolved. Both halves read ONE round, which is why they are one call —
 	// see settleThreadsBeforeApprove.
@@ -7127,10 +7114,17 @@ func (m *constructionManager) RedraftTask(
 	if err != nil {
 		return "", err
 	}
-	if gate := deliveryDerefString(view.AwaitingGate); view.Stage != StageAwaitingApproval || gate != taskID {
-		return "", newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-			"activity %s is at %s/%s, not awaiting a decision at %s — a re-dispatch answers an open gate; a task already running re-dispatches itself under the variance loop",
-			activityID, sessionStageName(view.Stage), gateNameOf(view), taskID))
+	// THE SAME TWO-HALF PRECHECK SubmitTaskDecision RUNS, and for the same reason: a
+	// re-dispatch answers an OPEN GATE, and which gate is open is a per-TASK fact the
+	// single-valued session stage cannot report on a fork. A redraft names no artifact kind,
+	// so the round resolves kindless — the same resolution DispatchActivityTask uses.
+	// `merge` needs no special case here: a merge hold has no draft to re-dispatch, and the
+	// missing round refuses it in exactly those terms.
+	if err := precheckTaskDecision(view, activityID, taskID, ReviewDecisionUnknown); err != nil {
+		return "", err
+	}
+	if err := m.requireOpenRound(ctx, projectID, activityID, taskID, nil); err != nil {
+		return "", err
 	}
 	sig := redraftSignal{TaskID: taskID, Feedback: feedback}
 	if err := m.signalActivity(ctx, projectID, activityID, lSignalRedraft, sig); err != nil {
@@ -7200,18 +7194,124 @@ func validateTaskDecision(taskID string, decision ReviewDecision) error {
 	return newError(fwmanager.ContractMisuse, fmt.Sprintf("unknown decision %d", int(decision)))
 }
 
-// precheckTaskDecision is SubmitTaskDecision's FailedPrecondition gate over the activity's
-// session view — precheckPhaseDecision's successor, keyed by TASK.
+// precheckTaskDecision is SubmitTaskDecision's and RedraftTask's FailedPrecondition gate over
+// the activity's session view — precheckPhaseDecision's successor, keyed by TASK.
+//
+// IT NO LONGER ASKS WHICH GATE THE SESSION IS AT, and that is the whole point (stage 4b2,
+// ride-along to Task 3; the same class of defect Task 2 fixed on the steer path, one step
+// wider). It used to require `v.Stage == StageAwaitingApproval && gateNameOf(v) == taskID`,
+// both read off constructState's SINGLE-VALUED `stage`/`awaitingGate` pair. enterHumanStage
+// OVERWRITES that pair on every gate entry and leaveHumanStage clears it, so on an ordinary
+// `service` fork — `stp`'s review and `designReview` open at once — only the gate entered
+// SECOND was addressable and a decision on its sibling was refused with "activity X is at
+// awaitingApproval/designReview, not awaiting stp". That is the ROUTINE approval path, not
+// just an override: the operator could not approve one of two gates the screen showed them.
+//
+// THE DISCRIMINATOR IS THE ROUND (requireOpenRound below), because the round is per TASK and
+// the stage is per ACTIVITY. What survives here is only what the stage answers HONESTLY for
+// the whole activity rather than for one branch of it:
+//
+//   - StageExited / StagePaused are WHOLE-ACTIVITY facts (the walk is over, or the operator
+//     paused the project). Neither is written by a branch, so neither can name the wrong one.
+//   - RedraftExhausted is NOT such a fact — enterPhaseGate writes it per gate entry — and it
+//     is left in place only because it narrows the reject path and removing it needs the
+//     per-round budget the ledger does not carry. EARMARKED with the per-task session view.
+//
+// WHAT IS GIVEN UP, said out loud: a decision can now arrive between openRound and the gate
+// actually opening (the critic's window), where the stage check used to refuse it. The child
+// is built for exactly that — newWalkState seeds walkTaskPending "precisely so an early
+// approve survives" and decideTaskGate re-checks the refusal before it decides the round — and
+// the view cannot tell that window apart from a sibling branch running, so refusing it here
+// meant refusing the fork case too. A guard that cannot distinguish the two must not pretend.
 func precheckTaskDecision(v ConstructionSessionView, activityID ActivityID, taskID string, decision ReviewDecision) error {
-	if v.Stage != StageAwaitingApproval || gateNameOf(v) != taskID {
-		return newError(fwmanager.FailedPrecondition, fmt.Sprintf("activity %s is at %s/%s, not awaiting %s",
-			activityID, sessionStageName(v.Stage), gateNameOf(v), taskID))
+	switch v.Stage {
+	case StageExited:
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"activity %s has exited: there is no walk left to take a decision at %s — re-open the activity with an override",
+			activityID, taskID))
+	case StagePaused:
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"activity %s is paused: resume the project before deciding %s, or the decision waits where nobody can see it",
+			activityID, taskID))
+	case ConstructionStageUnknown, StageDispatching, StagePipelineRunning, StageReviewing,
+		StageAwaitingTakeover, StageAwaitingApproval:
+		// Every one of these is a stage a LIVE fork can report while another of its branches
+		// holds the gate being decided. None of them is the answer to "is THIS task's gate
+		// open" — requireOpenRound is.
 	}
 	if decision == ReviewReject && v.RedraftExhausted {
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
 			"the redraft budget for %s of activity %s is spent — approve it or steer the activity with an override", taskID, activityID))
 	}
 	return nil
+}
+
+// requireOpenRound is the PER-TASK half of the decision precheck: the task must hold a review
+// round that is still awaiting a verdict. It is the ledger question the stage could not answer
+// (see precheckTaskDecision) and it is the same question the three other construction writes
+// already ask — WithdrawReviewRound, AskTaskQuestions and SetTaskCommentStatus all resolve
+// latestRoundFor and refuse a non-pending outcome, in those words.
+//
+// THE MERGE HOLD IS THE ONE GATE IT CANNOT ANSWER FOR, and that is data rather than an
+// oversight: holdForMergeApproval enters its human stage directly and opens NO round, so the
+// ledger holds nothing for `merge`. Its caller keeps the view check for that key alone, which
+// is sound there because the merge hold runs AFTER the join — every branch gate is decided by
+// then, so the single-valued pair has only one occupant to name.
+func (m *constructionManager) requireOpenRound(
+	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
+) error {
+	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx},
+		projectstate.ProjectID(projectID), string(activityID))
+	if err != nil {
+		if isRANotFound(err) {
+			return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+				"activity %s has no execution row: nothing has been dispatched, so %s has no round to decide", activityID, taskID))
+		}
+		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
+	}
+	row.ActivityID = string(activityID)
+	rounds := roundsAtTask(row, taskID, kind)
+	if len(rounds) == 0 {
+		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+			"task %s of activity %s has no review round: there is no gate open to decide", taskID, activityID))
+	}
+	var latest projectstate.ReviewRound
+	for _, r := range rounds {
+		if r.Outcome == projectstate.RoundPending {
+			return nil
+		}
+		if r.Round >= latest.Round {
+			latest = r
+		}
+	}
+	return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
+		"round %d of %s is already decided %q by %s — there is no open gate left to answer",
+		latest.Round, taskID, latest.Outcome, latest.DecidedBy))
+}
+
+// roundsAtTask is the PRECHECK's round resolver, and it is deliberately NOT latestRoundFor.
+// latestRoundFor answers "which round must this WRITE land on", so it keys through
+// roundGateKey and a caller that names no artifact kind resolves only KINDLESS rounds — which
+// is right for a write and wrong for a liveness question: `sdpReview` is the one review task
+// in method-assets v0.9.0 that carries a kind of its own, so an M0 approve sent without one
+// would find no round and be refused at a gate that is plainly open.
+//
+// So: kind-matched when the caller named a kind, across EVERY kind at that task when it did
+// not. Two kinds can share one gate task (stage 4b1 Task 3) and the signal router forwards by
+// TaskID alone, so "is any round at this task still open" is exactly the question the child
+// will answer when the signal arrives.
+func roundsAtTask(row projectstate.ActivityExecution, taskID string, kind *projectstate.ArtifactKind) []projectstate.ReviewRound {
+	var out []projectstate.ReviewRound
+	for _, r := range row.Reviews {
+		if string(r.TaskID) != taskID {
+			continue
+		}
+		if kind != nil && roundGateKey(r.TaskID, r.ArtifactKind) != roundGateKey(projectstate.MethodTask(taskID), kind) {
+			continue
+		}
+		out = append(out, r)
+	}
+	return out
 }
 
 // maxOperatorNoteRunes caps one operator note — its text plus its anchored comments'

@@ -1208,17 +1208,142 @@ func TestNextQuestionRound(t *testing.T) {
 	}
 }
 
-func TestIsLiveSessionStage(t *testing.T) {
+// Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint is the deletion's
+// ARGUMENT, executable. resolveQuestionBranch asked isLiveSessionStage of a view only
+// committedSessionView produces, and the two vocabularies do not intersect — so the
+// branch arm was unreachable for every possible input, not merely unused in practice.
+//
+// It survives the deletion as the pin on the RATIFIED answer: design questions are
+// seeded on MAIN, beside the slot, because a question's thread outlives the activity
+// branch that is squashed at merge.
+//
+// It replaces TestIsLiveSessionStage, which pinned the predicate by itself. The predicate
+// was never wrong about its own vocabulary; what was wrong was asking it about a view that
+// speaks the other one, and only a test that names BOTH sets can say that.
+func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T) {
 	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused}
-	for _, s := range live {
-		if !isLiveSessionStage(s) {
-			t.Errorf("stage %v must be live", s)
+	derived := []SessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	for _, d := range derived {
+		for _, l := range live {
+			if d == l {
+				t.Fatalf("stage %v is in both sets — resolveQuestionBranch's branch arm was reachable after all", d)
+			}
 		}
 	}
-	for _, s := range []SessionStage{SessionStageUnknown, StageDraftFailed} {
-		if isLiveSessionStage(s) {
-			t.Errorf("stage %v must NOT be live", s)
+	// And the producer's OUTPUT set is exactly `derived`, DRIVEN rather than asserted: every
+	// one of ArtifactReviewStatus's five members (contract.gen.go: None, AwaitingReview,
+	// Committed, Rejected, Withdrawn) is fed through committedSessionView, and every answer
+	// must land in `derived`. A sixth status that renders a LIVE stage would break this — and
+	// that is exactly the change that would have made the deleted arm reachable.
+	all := []projectstate.ArtifactReviewStatus{
+		projectstate.ReviewCommitted, projectstate.ReviewWithdrawn,
+		projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected,
+	}
+	for _, st := range all {
+		view, err := committedSessionView("p", KindMission, projectstate.ArtifactSlot{Status: st})
+		if err != nil {
+			t.Fatalf("committedSessionView(status %d): %v", st, err)
 		}
+		if !slices.Contains(derived, view.Stage) {
+			t.Errorf("committedSessionView(status %d).Stage = %v, which is outside the derived set %v — the deleted branch arm would be reachable again", st, view.Stage, derived)
+		}
+		for _, l := range live {
+			if view.Stage == l {
+				t.Errorf("committedSessionView(status %d) produced the LIVE stage %v", st, view.Stage)
+			}
+		}
+	}
+}
+
+// Test_AskDesignQuestions_SeedsOnMain pins the RATIFIED answer (4b1 Q6, closed in 4b2).
+// Before this task the target was main by accident — through a guard that could not be
+// true. After it, main is the only thing the code can express, and this test is what
+// says so out loud.
+//
+// The DesignSessionAccess double leaves ReadProjectOnBranchFn UNSET on purpose: the
+// generated fake panics on an unset Fn, so the double itself asserts that the branch-taking
+// read (readProjectMaybeBranch) is gone and the head-state read is the plain ReadProject.
+func Test_AskDesignQuestions_SeedsOnMain(t *testing.T) {
+	ask := []AnchoredComment{{JSONPath: "$.vision", Text: "why is it worded this way?"}}
+	for _, tc := range []struct {
+		name   string
+		status projectstate.ArtifactReviewStatus
+	}{
+		{"a committed slot", projectstate.ReviewCommitted},
+		{"a withdrawn slot", projectstate.ReviewWithdrawn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			// Revisions 3 makes AmendmentIndexFor answer 3 for the committed row — the datum the
+			// deleted resolver used to name `…-amend-3` with. It must change nothing now.
+			slot := projectstate.ArtifactSlot{Status: tc.status, Revisions: 3}
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, id projectstate.ProjectID) (projectstate.Project, error) {
+					return projectstate.Project{ID: id, Version: 4, Mission: slot}, nil
+				},
+			}
+			var branches []string
+			ds := &projectstatefake.FakeDesignSessionAccess{
+				SeedReviewCommentsOnBranchFn: func(_ fwra.Context, _ projectstate.ProjectID, ver projectstate.Version, branch string, kind projectstate.ArtifactKind, _ int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+					branches = append(branches, branch)
+					if ver != 4 {
+						t.Errorf("the seed must CAS on the version the main read returned, got %d", ver)
+					}
+					if kind != projectstate.KindMission || len(comments) != 1 {
+						t.Errorf("seed = kind %d with %d comments, want the one mission question", kind, len(comments))
+					}
+					return ver + 1, nil
+				},
+			}
+			m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
+			if err := m.askDesignQuestions(bgRC(), "p", KindMission, projectstate.ReviewAddresseeArchitect, ask); err != nil {
+				t.Fatalf("the ask must land: %v", err)
+			}
+			if len(branches) != 1 || branches[0] != "" {
+				t.Fatalf("the question must be seeded on MAIN; branches = %q", branches)
+			}
+		})
+	}
+}
+
+// Test_AskPlanQuestions_SeedsOnMain is the Phase-2 twin. Same ratification, same shape —
+// and the same unset ReadProjectOnBranchFn standing in for the deleted branch read.
+func Test_AskPlanQuestions_SeedsOnMain(t *testing.T) {
+	ask := []AnchoredComment{{JSONPath: "$.resources[0]", Text: "where does this rate come from?"}}
+	for _, tc := range []struct {
+		name   string
+		status projectstate.ArtifactReviewStatus
+	}{
+		{"a committed slot", projectstate.ReviewCommitted},
+		{"a withdrawn slot", projectstate.ReviewWithdrawn},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			slot := projectstate.ArtifactSlot{Status: tc.status, Revisions: 3}
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, id projectstate.ProjectID) (projectstate.Project, error) {
+					return projectstate.Project{ID: id, Version: 9, PlanningAssumptions: slot}, nil
+				},
+			}
+			var branches []string
+			ds := &projectstatefake.FakeDesignSessionAccess{
+				SeedReviewCommentsOnBranchFn: func(_ fwra.Context, _ projectstate.ProjectID, ver projectstate.Version, branch string, kind projectstate.ArtifactKind, _ int64, comments []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+					branches = append(branches, branch)
+					if ver != 9 {
+						t.Errorf("the seed must CAS on the version the main read returned, got %d", ver)
+					}
+					if kind != projectstate.KindPlanningAssumptions || len(comments) != 1 {
+						t.Errorf("seed = kind %d with %d comments, want the one planning-assumptions question", kind, len(comments))
+					}
+					return ver + 1, nil
+				},
+			}
+			m := newPlanFacade(nil, ps, nil, nil, nil, nil, nil, ds, nil, nil, nil)
+			if err := m.askPlanQuestions(bgRC(), "p", KindPlanningAssumptions, projectstate.ReviewAddresseePM, ask); err != nil {
+				t.Fatalf("the ask must land: %v", err)
+			}
+			if len(branches) != 1 || branches[0] != "" {
+				t.Fatalf("the question must be seeded on MAIN; branches = %q", branches)
+			}
+		})
 	}
 }
 
@@ -14414,6 +14539,43 @@ func Test_OverrideActivity_SteersAnEscalatedForkBranchWhileASiblingHoldsAGate(t 
 	}
 }
 
+// Test_OverrideActivity_SteersAnEscalationAtEveryLiveStage closes the coverage gap the
+// precheck's re-pointing left (4b2 Task 2 review, finding C). The reversal is asserted at the
+// approval-gate stage above; these two were ACCEPTED with no test in either direction, and an
+// untested accept is how the next refactor silently restores the refusal.
+//
+// It pins what the code DOES, and one of the two rows is a known wart rather than a
+// ratification: `StageExited` is accepted because the child is still QUERYABLE for a while
+// after the walk sets it, so the operator's steer is sent to a workflow that is about to have
+// no inbox — a dropped signal (or a mapSignalError) one moment before the NotFound reopen arm
+// would have served them properly. EARMARKED (F2); the honest fix is for the precheck to ask
+// whether the child is still RUNNING rather than whether it answers, which is a liveness
+// question the session Query cannot express today.
+func Test_OverrideActivity_SteersAnEscalationAtEveryLiveStage(t *testing.T) {
+	for name, view := range map[string]ConstructionSessionView{
+		"a running pipeline on the sibling branch": {Stage: StagePipelineRunning},
+		"an exited walk the child still answers":   {Stage: StageExited},
+	} {
+		mc := b13Mock(view, nil, true)
+		err := newFacadeConstructionManager(mc, forkLedgerStore("C-Orders", projectstate.TaskSTP)).
+			OverrideActivity(testCtx(), "proj-1", "C-Orders", ActivityOverride{
+				Kind: OverrideRetry, Notes: "the test rig's credentials expired mid-run"})
+		if err != nil {
+			t.Fatalf("%s: the ledger names stp as escalated, so the steer must be accepted: %v", name, err)
+		}
+		mc.AssertNumberOfCalls(t, "SignalWorkflow", 1)
+		for _, c := range mc.Calls {
+			if c.Method != "SignalWorkflow" {
+				continue
+			}
+			sig, ok := c.Arguments.Get(4).(operatorOverrideSignal)
+			if !ok || sig.TaskID != string(projectstate.TaskSTP) {
+				t.Fatalf("%s: the override named %v, want the escalated task %q", name, c.Arguments.Get(4), projectstate.TaskSTP)
+			}
+		}
+	}
+}
+
 // Test_OverrideActivity_RefusesWhenTheLedgerNamesNoEscalatedTask pins the other half:
 // the re-order must not turn the precheck into an accept-everything. An activity with a
 // LIVE child and no failed attempt on any task is not escalated, and the refusal sentence
@@ -20182,18 +20344,38 @@ func Test_Facade_ConstructionSignalsNameTheGenericChildAndItsTask(t *testing.T) 
 	}
 }
 
-// AWAY FROM A GATE, BOTH SIGNALS REFUSE rather than presenting as success: a redraft delivered
-// to a task that is mid-dispatch is re-offered when it retires (i.e. does nothing), and a task
-// whose activity has exited has no inbox at all.
+// AWAY FROM A GATE, BOTH SIGNALS REFUSE rather than presenting as success — and since stage
+// 4b2 the discriminator is THE ROUND, not the session's single-valued stage. The three
+// refusals below are the ones that survive that change, and each names a fact about the TASK
+// or about the WHOLE activity, never about which branch of a fork was entered last.
+//
+// WHAT LEFT THIS TEST, recorded here because a deleted assertion is invisible otherwise: the
+// case "a running pipeline" WITH a pending round on the very task being decided used to refuse.
+// It cannot any more, and it must not: that view is INDISTINGUISHABLE from a fork whose
+// sibling branch is dispatching while this task's gate is open (see
+// Test_Facade_ConstructionSignalsReachASiblingBranchesOpenGate), which is the defect the
+// change fixes. The early-decision window it also admits is one the child is built for — it
+// buffers a decision that arrives before its gate and applies it there.
 func Test_Facade_ConstructionSignalsRefuseAwayFromTheirGate(t *testing.T) {
-	for name, view := range map[string]ConstructionSessionView{
-		"a running pipeline":  {Stage: StagePipelineRunning},
-		"another task's gate": awaitingAt("codeReview"),
-		"an exited activity":  {Stage: StageExited},
+	for name, tc := range map[string]struct {
+		view ConstructionSessionView
+		ps   *csFakeProjectState
+	}{
+		// WHOLE-ACTIVITY stages. Neither is written by one branch of a fork, so neither can
+		// name the wrong one — an exited walk has no inbox at all, and a paused one puts the
+		// decision where nobody can see it.
+		"an exited activity": {ConstructionSessionView{Stage: StageExited},
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)},
+		"a paused activity": {ConstructionSessionView{Stage: StagePaused},
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)},
+		// PER-TASK ledger facts, at a view that would have admitted them before.
+		"a task whose round is already decided": {awaitingAt("designReview"),
+			task12RoundStore("designReview", "detailedDesign", projectstate.RoundPassed, nil)},
+		"a task with no round at all": {awaitingAt("codeReview"),
+			task12RoundStore("codeReview", "construction", projectstate.RoundPending, nil)},
 	} {
-		fc := &fakeTemporalClient{session: view}
-		ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
-		m := task12Manager(fc, ps)
+		fc := &fakeTemporalClient{session: tc.view}
+		m := task12Manager(fc, tc.ps)
 		if _, err := m.DispatchActivityTask(testCtx(), "p", "A", "designReview", nil); err == nil ||
 			asConstructionError(t, err).Kind != fwmanager.FailedPrecondition {
 			t.Errorf("%s: a re-dispatch must refuse, got %v", name, err)
@@ -20213,6 +20395,49 @@ func Test_Facade_ConstructionSignalsRefuseAwayFromTheirGate(t *testing.T) {
 		DispatchActivityTask(testCtx(), "p", "A", "designReview", nil)
 	if e := asConstructionError(t, err); e.Kind != fwmanager.NotFound {
 		t.Fatalf("want the session read's NotFound for a dormant activity, got %s %q", e.Kind, e.Detail)
+	}
+}
+
+// THE FORK DEFECT, at the façade (stage 4b2 ride-along to Task 3; the same class Task 2 fixed
+// on the steer path, one step wider).
+//
+// constructState carries ONE `stage` and ONE `awaitingGate`; enterHumanStage overwrites both
+// on every gate entry. An ordinary `service` fork opens `stp`'s review and `designReview` at
+// the same time, so whichever was entered SECOND is the only one the session view names — and
+// the precheck used to require `gateNameOf(view) == taskID`, refusing a decision on the
+// sibling with "activity A is at awaitingApproval/codeReview, not awaiting designReview". That
+// is the ROUTINE approval path, not an override: the operator could not approve one of the two
+// gates the screen was showing them.
+//
+// Both ops are asserted on DELIVERY rather than on a bare nil, because a precheck that stops
+// refusing but signals nothing is the same outage wearing a 200.
+func Test_Facade_ConstructionSignalsReachASiblingBranchesOpenGate(t *testing.T) {
+	for _, c := range []struct {
+		name   string
+		signal string
+		drive  func(*deliveryManager) error
+	}{
+		{"a decision", signalTaskDecision, func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewApprove}, nil)
+		}},
+		{"a re-dispatch", lSignalRedraft, func(m *deliveryManager) error {
+			_, err := m.DispatchActivityTask(testCtx(), "p", "A", "designReview", nil)
+			return err
+		}},
+	} {
+		t.Run(c.name, func(t *testing.T) {
+			// The view names the SIBLING's gate — the fork state, entered second.
+			fc := &fakeTemporalClient{session: awaitingAt("stpReview")}
+			ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
+			if err := c.drive(task12Manager(fc, ps)); err != nil {
+				t.Fatalf("%s on the branch whose round is OPEN must be accepted even though the "+
+					"session view names the sibling's gate: %v", c.name, err)
+			}
+			if want := deliveryActivityWorkflowID("p", "A"); fc.lastWorkflowID != want || fc.lastSignalName != c.signal {
+				t.Fatalf("%s signalled %q/%q, want %q/%q", c.name, fc.lastWorkflowID, fc.lastSignalName, want, c.signal)
+			}
+		})
 	}
 }
 
@@ -25523,7 +25748,7 @@ const pumpContinueAsNewPayloadBudget = 8 << 10
 // G-P10. The payload's BOUND, which nothing pinned — Test_Pump_ContinueAsNew_CarriesOperatorDriven
 // pins that the whole input rides across, and that is the other half.
 func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
-	tp := reflect.TypeOf(pumpInput{})
+	tp := reflect.TypeFor[pumpInput]()
 	if got, want := tp.NumField(), len(pumpContinueAsNewCarry); got != want {
 		t.Errorf("pumpInput has %d fields and pumpContinueAsNewCarry states %d bounds", got, want)
 	}

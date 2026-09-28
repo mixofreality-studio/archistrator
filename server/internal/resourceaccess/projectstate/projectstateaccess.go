@@ -3631,6 +3631,11 @@ func OpenReviewCommentIDs(thread []ReviewComment) []string {
 // (drafting/awaiting/rejected/withdrawn/none) returns 0 — the normal (non-amendment) path.
 //
 // PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
+//
+// The DESIGN BRANCH SCHEME that this index used to name is retired (stage 4b2): there is
+// one activity branch per activity now, and `-amend-N` goes with the amendment-UX
+// follow-up. The INDEX stays, because five commit-transition sites below reason from it
+// about why the commit bump is monotonic, and that argument is about commits, not branches.
 func AmendmentIndexFor(slot ArtifactSlot) int {
 	if slot.Status != ReviewCommitted {
 		return 0
@@ -3641,29 +3646,13 @@ func AmendmentIndexFor(slot ArtifactSlot) int {
 	return int(slot.Revisions)
 }
 
-// DesignBranch derives the ONE persistent design SESSION branch per artifact review
-// session (F40 founder ruling 2026-07-05: "we should be committing to the same branch,
-// and improving that, until it merges. not a pr per draft. i want the history of changes
-// in git."). ALL jobs of a session commit here sequentially — the initial draft, the
-// PM/architect critique, and every redraft — and ONE PR (opened once, idempotent on head)
-// merges it on approve. The name is deterministic from project + kind, so within a
-// session it is STABLE across every redraft/reject round (no per-attempt suffix — the F32
-// branch-per-attempt topology is unwound; the stale-base problem it solved is now handled
-// by the workflow template's refresh-from-main git step).
-//
-// amendment > 0 selects a FRESH branch for an AMENDMENT session (F38): reopening a
-// COMMITTED artifact starts session v2+ whose v1 branch/PR already merged (and may be
-// deleted), so it cannot be reused. The "-amend-N" suffix is the only place the attempt
-// counter survives, and only for amendments.
-//
-// PROMOTED CO-AUTHOR HELPER (code-health-phase-bd task D3): see SameArtifactModel above.
-func DesignBranch(projectID ProjectID, kind ArtifactKind, amendment int) string {
-	base := fmt.Sprintf("aiarch-design/%s/%d", projectID, int(kind))
-	if amendment > 0 {
-		return fmt.Sprintf("%s-amend-%d", base, amendment)
-	}
-	return base
-}
+// The per-artifact design SESSION branch resolver (`aiarch-design/{project}/{kind}`, plus the
+// F38 `-amend-N` suffix) is DELETED here (stage 4b2). Spec §5.3 unified on ONE branch per
+// ACTIVITY — activity/{activityId}, which openActivityRow already opens and which a design
+// job creates on a local venue exactly as a construction job does — and 4b1 left this
+// resolver with a single caller that was itself dead by type (the question-seed branch).
+// The last live design-session branch on this repo's remote,
+// refs/heads/aiarch-design/archistrator/0-amend-1, is NOT deleted by deleting this function.
 
 // SlotEnvelope is the wire form of one Project slot across a Temporal boundary: the
 // review status + the model envelope.
