@@ -480,12 +480,37 @@ func (s *GitStore) SetOperatingModel(ctx context.Context, projectID ProjectID, e
 
 // AdvancePhase moves the project to the next Method phase (system design →
 // project design → construction) in one atomic version-guarded commit.
+//
+// THE CEILING IS PART OF THE VERB, and its absence was the root defect behind the
+// M0 double-writer race. Phase is a THREE-member closed enum (PhaseSystemDesign 0,
+// PhaseProjectDesign 1, PhaseConstruction 2) and this body was a bare `p.Phase++`,
+// so a second caller arriving after the phase was already sealed pushed Phase to
+// the unnamed ordinal 3 — and BOTH construction dispatchers (nextEligibleActivity
+// and PumpSweepWorkflow) select on `Phase == PhaseConstruction` exactly, so the
+// project went permanently quiet with nothing written anywhere to say why. Two
+// writers reach this verb on an M0 approve (the child's own seal and the
+// deliveryManager façade the SPA calls), so a ceiling on the WRITE is the only
+// place the invariant holds no matter which of them wins the race.
+//
+// The refusal is ContractMisuse (terminal, non-retryable): asking for a phase
+// beyond the last member is not a conflict a retry can heal, and the Manager's
+// seal-side conflict loop must not spin on it.
 func (s *GitStore) AdvancePhase(ctx context.Context, projectID ProjectID, expectedVersion Version, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	return s.applyMutation(ctx, "AdvancePhase", projectID, expectedVersion, cred, idempotencyKey, modeUpsert, func(p *Project) error {
+		if p.Phase >= lastPhase {
+			return fwra.New(fwra.ContractMisuse, fmt.Sprintf(
+				"projectstate.AdvancePhase: project %s is already at the last Method phase (%d); there is no phase beyond construction",
+				projectID, int(p.Phase)))
+		}
 		p.Phase++
 		return nil
 	})
 }
+
+// lastPhase is the highest NAMED member of the Phase enum — the ceiling AdvancePhase
+// refuses to cross. It is spelled as the named constant rather than a literal so that
+// adding a phase (Operations is the documented next one) moves the ceiling with it.
+const lastPhase = PhaseConstruction
 
 // SetResearchInput takes the wire {Title, Content} corpus (unchanged) but persists it as
 // FILES (F42, founder ruling 2026-07-05): each source's Content is written to

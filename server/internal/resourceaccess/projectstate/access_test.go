@@ -3507,6 +3507,53 @@ func TestGitStore_RejectArtifactOnBranchWithComments_EmptyBranchIsMain(t *testin
 	}
 }
 
+// TestGitStore_AdvancePhase_RefusesPastTheLastPhase proves the ceiling on the phase
+// verb. Phase is a THREE-member closed enum and the body was a bare `p.Phase++`, so a
+// SECOND seal of an already-sealed project pushed Phase to the unnamed ordinal 3 — and
+// both construction dispatchers select on `Phase == PhaseConstruction` exactly, so the
+// project went permanently quiet with nothing logged. Two writers race on an M0 approve
+// (the child's own seal and the deliveryManager façade), which is why the invariant has
+// to hold on the WRITE and not only in each caller.
+func TestGitStore_AdvancePhase_RefusesPastTheLastPhase(t *testing.T) {
+	store, cred, ctx := newLocalGitStore(t)
+	id := ProjectID(uuid.NewString())
+	v, err := store.CreateProject(ctx, id, "alice", "Demo", cred, "wf:create")
+	if err != nil {
+		t.Fatalf("CreateProject: %v", err)
+	}
+	// Walk to the last named phase: system design → project design → construction.
+	for i, key := range []fwra.IdempotencyKey{"wf:advance-1", "wf:advance-2"} {
+		if v, err = store.AdvancePhase(ctx, id, v, cred, key); err != nil {
+			t.Fatalf("AdvancePhase %d: %v", i+1, err)
+		}
+	}
+	proj, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject: %v", err)
+	}
+	if proj.Phase != PhaseConstruction {
+		t.Fatalf("phase after two advances = %d, want PhaseConstruction (%d)", int(proj.Phase), int(PhaseConstruction))
+	}
+
+	// The third advance is the one the race issues, and it must be refused.
+	if _, err := store.AdvancePhase(ctx, id, v, cred, "wf:advance-3"); err == nil {
+		t.Fatal("AdvancePhase past the last phase must be refused, got nil error")
+	} else if k := kindOf(t, err); k != fwra.ContractMisuse {
+		t.Fatalf("advance past the last phase kind = %v, want ContractMisuse", k)
+	}
+
+	// And the refusal must leave the phase WHERE IT WAS — a phase that moved and then
+	// errored would be the same outage with an error message attached.
+	after, err := store.ReadProject(fwra.Context{Context: ctx}, id, cred)
+	if err != nil {
+		t.Fatalf("ReadProject after refusal: %v", err)
+	}
+	if after.Phase != PhaseConstruction {
+		t.Fatalf("phase after the refused advance = %d, want it unchanged at PhaseConstruction (%d)",
+			int(after.Phase), int(PhaseConstruction))
+	}
+}
+
 // TestGitStore_ReconcileBranchFromMain_EmptyBranchIsMisuse proves the F80c branch
 // reconciler refuses an empty branch: reconciliation only makes sense against a real
 // session branch (main never diverges from itself), so an empty branch is a ContractMisuse
