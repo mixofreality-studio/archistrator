@@ -239,7 +239,7 @@ Recorded because the pattern recurred five times in this wave and each instance 
 | Not restored | The implementer's reason |
 |---|---|
 | `Test_assembleSdpReview_FourRows_Deterministic`, `…MissingPrerequisite_Errors` | the join is covered by `Test_ComputeProjectPlanSlots_ReproducesTheCommittedPlan`, which runs the same `assembleSdpReviewOver` |
-| `Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt`, `TestSubmitRoutesReplyToAnExistingThread` | they drove the retired `SubmitReviewDecision`'s per-kind door |
+| ~~`Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt`~~ **RESTORED (final fix wave, G4)**, `TestSubmitRoutesReplyToAnExistingThread` | The second one drove the retired per-kind door and stays gone. The FIRST was not a door test at all — it pinned `checkNoReplyTo`, and dropping it dropped the guard: the successor doors (send-back, re-dispatch, override) validated note emptiness and size and never looked at `ReplyTo`, while all three funnel through `noteComments`, whose `NoteComment{JSONPath, Text}` has no `ReplyTo` member. A reviewer's threaded reply was SILENTLY re-filed as a detached flat note. Restored and retargeted at the three successor doors. |
 | `Test_DesignRoundID_*`, `Test_SubjectRef_*`, `Test_LedgerRoundBase_*` | their subjects (`designRoundID`, `designSubjectRef`, `ledgerRoundBase`) are deleted |
 | `Test_ResolveQuestionBranch_ClosedWorkflowLeftoverBranch_SeedsOnMain` | its premise was a dead co-author run's leftover branch |
 
@@ -291,6 +291,7 @@ Server-side facts Task 14 consumes, recorded here because they are the server's 
 - **The M0 defaulting sentence does NOT read the attempt `Detail`, because `Detail` is on no view.** `DeliveryTaskRevisionView` carries `attemptIds` only — the whole OAS-generated schema was grepped — so putting `defaultedDetail` in front of the founder is a server + OAS + regen change, not an SPA one. What ships instead reads the committed planning-assumptions slot: absent ⇒ one sentence, committed carrying `defaultPlanningAssumptionsNote`'s `"Derived defaults: "` prefix ⇒ a different one. **The consequence is the honest part: a PER-FAMILY default (`resolvePlanningAssumptions` filling an `Unknown` revenue share or an empty rate card on an otherwise committed slot) leaves no trace on any view, so the notice is SILENT for exactly the case Task 9's review called the same lie as refusing.** The founder can still approve a cost computed on numbers nobody showed them. Fix: carry the attempt's `Detail`, or a `defaultedFamilies []string`, on `DeliveryTaskRevisionView`, then re-point the notice at it and delete the slot-reading proxy. Ruled acceptable for 4b1 only because it is a wire change arriving after the code freeze, and it is recorded here rather than left to be discovered at an M0.
 - **"Escalated" is DERIVED in the client, not read.** `DeliveryActivityView` has no escalated member — a takeover and an approval gate both fold into `awaitingHuman` — so `overrideActionFor` reproduces the server's `escalatedTaskOf` rule client-side: a second copy of a server rule, the drift hazard this whole wave exists to remove. Terminal (`done|failed`) is exact and is checked first, so a Reopen is never mislabelled; only a Steer can be offered on an activity that is awaiting something else. Exit: read `ConstructionSessionView.stage === 'awaitingTakeover'`, or put the stage on the activity view.
 - **`openThreadCount` was loosened.** An ANSWERED change request no longer blocks approve — that is `ReviewCommentBlocksApprove` applied to the field, and it is the server's rule — but a reviewer who read the old count as "threads I have not finished with" will see a different number for the same board.
+- **The committed-slot arm of the notice could NEVER FIRE, and is now gone (final fix wave, F3).** The paragraph above describes TWO exits — absent slot 8, and a committed slot 8 carrying `defaultPlanningAssumptionsNote`'s `"Derived defaults: "` prefix. Only the first is reachable: `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the compute never commits slot 8 at all, and on this very repo slot 8 is committed with `revenueShare == Unknown` — the per-family case, for which the notice returns `''`. The second arm therefore read as coverage of the defaulted case while covering nothing, which is strictly worse than the silence recorded above. The arm, its copy (`defaultedCostBasis`), its constant, its node test and its preview assertion are deleted. **The per-family silence stands exactly as recorded** — it is still the gap, and the fix is still to carry the attempt's `Detail` on the view.
 - `reconcileStale: {kind:'dispatch'}` is wired on the construction arm and is **unreachable**: no construction gate judges a slot. It is honest rather than a refusal notice, and it costs nothing, but nobody should read its presence as coverage.
 - **The override bar's SUBMIT is not preview-covered** — the preview transport answers no `deliveryOverrideActivity` — so the labels, the mutual absence of Steer/Reopen and the required-note disable are pinned, and the round trip is not.
 - Surviving `"stage 4b"` strings in `webApp/` are prose naming the stage that landed a change (file headers, doc comments, fixture notes). No user-facing string and no `VerbTarget.reason` explains itself by a stage number; node tests assert that for both survivors.
@@ -306,3 +307,69 @@ Server-side facts Task 14 consumes, recorded here because they are the server's 
 - **The 4a construction approve could never have worked**, and now it can: `submitConstructionDecision` passed a TASK id into a validator admitting only `requirements|detailed_design|test_plan|construction|integration|merge`, so `approve` at `designReview` was a `ContractMisuse` before it left the Manager.
 - **`Test_DeliveryGate_ReceiverDrainsPastTheInboxCapacity` proves what it claims.** It used to count the double's call log for 76 comment ids no round holds; it now counts the router's own delivery hook, which is strictly closer to the claim.
 - **`SubmitPhaseDecision`, `validatePhaseDecision`, `precheckPhaseDecision`, `phaseDecisionSignal`, `constructActivityWorkflowID`** are gone, and the grep for them is literally zero in code AND comments.
+
+---
+
+## OPENED by the final fix wave (2026-09-28)
+
+The wave restored four guards that lived inside the deleted co-author bodies (G1 the
+approve-time credential re-mint, G2 the bounded rail 403 retry, G3 the merge guard's CI
+precondition + F80c reconcile, G4 the `replyTo` refusal) and closed the M0 double-writer
+phase race. What it could NOT close is recorded here rather than left to be found.
+
+### The F80c reconcile verb preserves ONE slot; a design walk can hold FOUR
+
+`designSessionAccess.reconcileBranchFromMain(projectID, expectedVersion, branch, kind)`
+overlays main's every slot but `kind` onto the branch tip. It was written for the RETIRED
+rail, where a session owned exactly one artifact kind. The generic child's design walk can
+hold FOUR in-flight kinds on ONE activity branch (`designSlotsOfLifecycle`), and reconciling
+that branch would overwrite three live drafts with main's older copies.
+
+So `reconcileTargetOf` offers the reconcile only where it is correct — zero in-flight kinds
+(every construction lifecycle; the ZERO `ArtifactKind` matches no slot-table entry, so main's
+every slot is adopted, which is exactly right) or exactly one (the retired rail's own case).
+A walk holding two or more logs `delivery.merge.reconcileUnavailable` and takes the honest
+`MergeBranchReconciled` refusal instead, so **F80c is still live for a multi-slot design
+activity on the gh venue**.
+
+**The contract delta this needs** (a `.aiarch/state/project.json` change, which is why it was
+not made here): `reconcileBranchFromMain` takes `kinds []ArtifactKind` rather than one `kind`,
+and the store's overlay skips every member of the set. Both the RA contract and the generated
+Activity/invoker/tool-catalog surfaces move with it.
+
+### The credential re-mint has no `GetVersion` gate
+
+`liveCred` decides from `workflow.Now(ctx)` and the `ExpiresAt` of a credential a recorded
+Activity result produced — BOTH from history — so a replay reaches the identical verdict and
+schedules the identical commands. What it does NOT cover is an execution STARTED under code
+that had no such check: replaying that history would mint where history recorded a rail call.
+**The drain stage 4b1 already mandates before this branch deploys is what makes the gate
+unnecessary.** If the drain is ever skipped, this is one of the things it was for.
+
+### `resolveQuestionBranch` has zero tests and two live callers
+
+`deliverymanager.go` ~792 and ~4430. Its only test
+(`Test_ResolveQuestionBranch_ClosedWorkflowLeftoverBranch_SeedsOnMain`) went with the retired
+rail because its PREMISE — a dead co-author run's leftover branch — went too. The function
+did not: it still decides where a question's thread is seeded, and its semantics were
+weakened in the same wave. Untested and load-bearing is the combination worth naming.
+
+### `constructionPumpNextActivity` and `constructionProjectSupervision` have NO live replay fixture
+
+The live set is 8 `deliveryActivity` fixtures. The four fixtures that replay the pump and the
+supervision workflow are all in `replay-archive/` — and BOTH workflow types are still
+registered and still on the frozen-names list. This branch changed `pumpnextactivity.go` (the
+`changeDesignActivitiesDispatchable` rung) and added `changeRowConflictReread`, which reaches
+both through `applyRecovering`. **Fresh captures against the current code are owed**, and
+until they exist a non-determinism introduced into either workflow is caught by nothing.
+
+### `OverrideActivity` refuses a steer the client correctly offers
+
+On a fork (`service`/`frontend`) with `stp` escalated and `designReview` at an approval gate,
+`constructState.stage` is single-valued, so `activitySession` reports whichever stage was
+entered LAST. `OverrideActivity`'s precheck demands `StageAwaitingTakeover`, so the operator
+cannot steer a genuinely escalated fork branch — and the client's `overrideActionFor` is right
+to offer it. **This is an OPEN 4b1 DEFECT, not a 4b2 nicety** (moved here from the 4b2 list).
+The fix is to precheck against the LEDGER — the task `escalatedTaskOf` resolves — rather than
+against the single-valued stage; doing it properly wants the per-task session view, which is
+why it is recorded rather than patched.

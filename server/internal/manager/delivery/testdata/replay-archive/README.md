@@ -48,7 +48,11 @@ record of what already ran.
 `pre-b1/pump-*` and `pre-d/pump-*` will meet them:
 
 - **A project could run activity N on the retired child and N+1 on the generic one.** The
-  pump continues-as-new PER TICK, so the `changeGenericActivityChild` fence Task 11 added
+  pump continues-as-new per tick — but "per tick" UNDERSTATES how old a live pump can be:
+  `ExecuteNextActivity` BLOCKS on `child.Get()` for the dispatched child's whole life before
+  it continues-as-new, and a child parks at human gates, so a parked pump execution can be
+  hours old. That is what makes the drain a real operation rather than a formality. The
+  `changeGenericActivityChild` fence Task 11 added
   resolved independently on each run: a pump whose recorded history predated the marker
   kept starting `constructionConstructActivity` for the activity it was already blocked
   on, and its NEXT tick — a fresh execution — recorded v1 and started
