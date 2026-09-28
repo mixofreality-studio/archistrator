@@ -6932,16 +6932,14 @@ func (m *constructionManager) SubmitTaskDecision(
 	if err := precheckTaskDecision(view, activityID, taskID, decision); err != nil {
 		return err
 	}
-	// AN OPEN CHANGE REQUEST REFUSES AN APPROVE (fix round 2, review finding F1), in the same
-	// words the design rail uses, because it is the same rule: the reviewer asked for something
-	// and approving over it would bury the ask. An open QUESTION does NOT block — doctrine says it
-	// is a soft warning at the approve gate (ReviewCommentBlocksApprove) — and the AUTOGATE is
-	// stricter than this on purpose, because there nobody is there to be warned (runGate).
+	// THE APPROVE'S THREAD SETTLEMENT: an open CHANGE REQUEST refuses it, and every ANSWERED
+	// thread is swept resolved. Both halves read ONE round, which is why they are one call —
+	// see settleThreadsBeforeApprove.
 	//
-	// The child re-checks before it decides the round: this is a fire-and-forget signal, so the
-	// window between the two is closed there (decideTaskGate) and not here.
+	// The child re-checks the refusal before it decides the round: this is a fire-and-forget
+	// signal, so the window between the two is closed there (decideTaskGate) and not here.
 	if decision == ReviewApprove {
-		if err := m.refuseApproveOverOpenComments(ctx, projectID, activityID, taskID, kind); err != nil {
+		if err := m.settleThreadsBeforeApprove(ctx, projectID, activityID, taskID, kind); err != nil {
 			return err
 		}
 	}
@@ -6953,10 +6951,28 @@ func (m *constructionManager) SubmitTaskDecision(
 	return m.signalActivity(ctx, projectID, activityID, signalTaskDecision, sig)
 }
 
-// refuseApproveOverOpenComments is the approve's ledger precondition: the task's latest round
-// carries no OPEN CHANGE REQUEST. A task with no round at all passes — there is nothing to have
-// left open, and refusing would block the first approve of every gate.
-func (m *constructionManager) refuseApproveOverOpenComments(
+// settleThreadsBeforeApprove SETTLES the task's latest round against the approve about to be
+// sent, and it does two things rather than one — which is what the name says and the old one
+// (refuseApproveOverOpenComments) did not:
+//
+//  1. an open CHANGE REQUEST REFUSES the approve, in the design rail's own words, because the
+//     reviewer asked for something and approving over it would bury the ask. An open QUESTION does
+//     NOT block — doctrine makes it a soft warning at the approve gate
+//     (ReviewCommentBlocksApprove) — and the AUTOGATE is deliberately stricter, because there is
+//     nobody there to be warned (runGate);
+//  2. every ANSWERED thread is SWEPT resolved (design §3.4), so accepting a redraft that answered
+//     eight change requests does not cost eight Resolve clicks.
+//
+// WHY ONE FUNCTION AND ONE ROUND READ, stated because a checker that writes is worth explaining
+// rather than splitting on reflex: both halves are statements about the SAME thread at the SAME
+// moment, and reading the round twice would let the refusal and the sweep see different threads —
+// a comment filed between the two reads would be refused by neither and swept by the second. The
+// order is load-bearing too: the sweep runs only AFTER the refusal has passed, because a blocked
+// reviewer must not come back to a tidied thread and a gate that is still closed.
+//
+// A task with no round at all passes both halves — there is nothing to have left open, and
+// refusing would block the first approve of every gate.
+func (m *constructionManager) settleThreadsBeforeApprove(
 	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
 ) error {
 	row, err := m.activityExecution.ReadActivityExecution(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID), string(activityID))
@@ -8472,8 +8488,11 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		"constructionTransitionAccess.recordActivityExited": recordActivityOptions(),
 		"constructionTransitionAccess.recordActivityFailed": recordActivityOptions(),
 		"constructionTransitionAccess.recordOperatorPaused": recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseStarted":   recordActivityOptions(),
-		"constructionTransitionAccess.recordPhaseCompleted": recordActivityOptions(),
+		// (recordPhaseStarted / recordPhaseCompleted went with the retired flat walk, stage 4b1
+		// review fix round 2: they were the only two presets in this map naming an activity NO
+		// surviving workflow invokes, which Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned
+		// found and now guards. The verbs themselves survive on the deprecated facet until 4b2;
+		// a preset for a call that cannot happen is configuration nobody can retire.)
 		// B1.4: the operator note and its delivery stamp are head-state Record verbs.
 		"constructionTransitionAccess.recordOperatorNote": recordActivityOptions(),
 		// The delivery stamp has its own bounded envelope (M4): it follows a submit that

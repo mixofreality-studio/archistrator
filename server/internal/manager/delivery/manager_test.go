@@ -34,6 +34,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"reflect"
+	"regexp"
 	"runtime"
 	"slices"
 	"sort"
@@ -24298,6 +24299,156 @@ func Test_AdvancePhase_NoStaleSlot_ProceedsUnchanged(t *testing.T) {
 	for _, k := range res.MissingArtifacts {
 		if k == KindScrubbedRequirements {
 			t.Error("a RETIRED kind must not appear in the seal's missing list")
+		}
+	}
+}
+
+// ===========================================================================
+// EVERY ACTIVITY THE SURVIVING WORKFLOWS INVOKE HAS A TUNED OPTION, or is on a NAMED list of
+// deliberate generated-defaults (stage 4b1 Task 13, review fix round 2).
+//
+// THE GATE GAP THIS CLOSES, and it is worth writing out because it cost a production defect that
+// every other gate in this repo was blind to. Task 13's Step 5 re-tuned the collapsed
+// ActivityOptions hook; the edit was written BEFORE the deletions, a corrupted collapse run was
+// recovered with `git checkout -- deliverymanager.go`, and that reverted the re-tune with it. On
+// the re-run the two preset FUNCTIONS (scaffoldSyncActivityOptions, mutateActivityOptions) then had
+// no caller, so the `unused` sweep removed them — and the whole-module test run, `make lint`, all
+// nine gen-checks, the eight replay fixtures and the ten lifecycle shapes stayed GREEN throughout.
+//
+// They had to stay green: a missing preset is not a compile error and not a behaviour a test
+// environment can see. The activity simply inherits genDefaultActivityOptions' 15 seconds, and
+// nothing fails until a real managed-scaffold sync expires mid-loop on a torn repo in production
+// and progresses only through retry-persisted writes (F-QA2-36's addendum). The review caught it by
+// READING the map, which is not a repeatable gate. This is.
+//
+// THE SET IS DERIVED MECHANICALLY, twice over, so it cannot drift with the code:
+//
+//   - the ACTIVITY NAMES come from invokers.gen.go's own per-method header
+//     (`// X invokes activity "y".`), which is the generator's mapping and not a copy of it. That
+//     file is the authoritative source rather than worker.gen.go's registration or activities.gen.go:
+//     registration proves an activity EXISTS on the worker, which is true of every activity on the
+//     contract whether a workflow calls it or not, and the invoker header is the only place the Go
+//     method name and the wire activity name appear together — which is exactly the join this gate
+//     needs, since the hook is keyed by the wire name and the call sites name the method;
+//   - WHICH of them are invoked comes from scanning every hand-written (non-.gen, non-_test) source
+//     in the package for `Acts.X(` call sites, with comments stripped — a doc mention is not a call,
+//     and the whole point of this gate is to distinguish the two.
+//
+// It also fails the OTHER way: a preset naming an activity NO surviving workflow invokes is
+// configuration nobody can retire, and it found two on its first run (the retired flat walk's
+// recordPhaseStarted / recordPhaseCompleted, now deleted).
+// ===========================================================================
+
+// deliveryInvokedActivityNames derives, from the generated invoker surface and the hand-written
+// workflow sources, the generated activity NAME of every activity a surviving workflow invokes.
+func deliveryInvokedActivityNames(t *testing.T) (invoked map[string]string, all map[string]string) {
+	t.Helper()
+	gen, err := os.ReadFile("invokers.gen.go")
+	if err != nil {
+		t.Fatalf("reading the generated invoker surface: %v", err)
+	}
+	all = map[string]string{}
+	for _, m := range regexp.MustCompile(`// (\w+) invokes activity "([^"]+)"\.`).FindAllStringSubmatch(string(gen), -1) {
+		all[m[1]] = m[2]
+	}
+	if len(all) == 0 {
+		t.Fatal("no invoker headers found; this gate reads the generator's own method→activity mapping")
+	}
+	// EVERY hand-written source in the package, found by glob rather than listed: a list would go
+	// stale the day a workflow moves into a new file, and a scan that silently misses a file
+	// reports its activities as uninvoked — which is the FALSE-GREEN direction, so the set has to
+	// be discovered, not maintained.
+	srcFiles, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatalf("globbing the package sources: %v", err)
+	}
+	var src strings.Builder
+	var scanned []string
+	for _, f := range srcFiles {
+		if strings.HasSuffix(f, ".gen.go") || strings.HasSuffix(f, "_test.go") {
+			continue
+		}
+		b, rerr := os.ReadFile(f)
+		if rerr != nil {
+			t.Fatalf("reading %s: %v", f, rerr)
+		}
+		src.Write(b)
+		src.WriteString("\n")
+		scanned = append(scanned, f)
+	}
+	if len(scanned) == 0 {
+		t.Fatal("no hand-written sources scanned; the glob is broken and every activity would read as uninvoked")
+	}
+	// Comments stripped: a doc comment naming an invoker is not a call site, and this whole gate
+	// turns on that difference.
+	body := regexp.MustCompile(`(?m)^\s*//.*$`).ReplaceAllString(src.String(), "")
+	body = regexp.MustCompile(`(?m)\s//[^\n]*$`).ReplaceAllString(body, "")
+	invoked = map[string]string{}
+	for method, name := range all {
+		if regexp.MustCompile(`Acts\.` + method + `\(`).MatchString(body) {
+			invoked[method] = name
+		}
+	}
+	return invoked, all
+}
+
+// deliveryDeliberateGeneratedDefaults are the invoked activities that ride
+// genDefaultActivityOptions ON PURPOSE. Each one is a decision with a reason, which is the only
+// thing that distinguishes it from the preset that went missing — so a name added here needs its
+// sentence, and a name that GAINS a preset must leave.
+var deliveryDeliberateGeneratedDefaults = map[string]string{
+	// The row read the Conflict arm makes (terminalAfterRowReread). A preset was considered and
+	// rejected: fwra carries Retryable PER ERROR, so the NotFound this arm maps to
+	// NoActivityVersionExpectation already returns on its first attempt with no
+	// NonRetryableErrorTypes entry, and adding one would change an existing call's envelope for no
+	// measured defect. EARMARK, unchanged from stage 3: a fwra.Transient row read retries unbounded
+	// under the default.
+	"activityExecutionAccess.readActivityExecution": "the row read's envelope is deliberate (stage 3); a Transient read retrying unbounded is a live earmark",
+	// The compute's slot staging (Task 9). One call per staged slot, each a small write on the
+	// activity row, so the default's 15 seconds is ample. EARMARK: every OTHER activityExecution
+	// write takes recordActivityOptions, and the inconsistency is an oversight rather than a
+	// decision — it is listed here so the next reader sees which it is.
+	"activityExecutionAccess.stageTaskOutput": "EARMARK: every other activityExecution write takes recordActivityOptions; this one's absence is an oversight, not a decision",
+	// The supervision relay's signal fan-out and the sweeps' project listing: neither is a
+	// head-state mutation and neither has ever had a tuned envelope on any rail.
+	"messageBus.deliverSignal":        "a signal relay, never a head-state mutation; no rail has ever tuned it",
+	"projectStateAccess.listProjects": "the sweeps' fan-out read; the generated default is its envelope on every rail",
+}
+
+func Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned(t *testing.T) {
+	invoked, all := deliveryInvokedActivityNames(t)
+	hook := deliveryActivityOptions()
+	if len(invoked) < 20 {
+		t.Fatalf("only %d invoked activities found across the surviving workflows; the scan is broken, "+
+			"and a broken scan makes this gate vacuous", len(invoked))
+	}
+	for method, name := range invoked {
+		_, tuned := hook(name)
+		reason, deliberate := deliveryDeliberateGeneratedDefaults[name]
+		switch {
+		case tuned && deliberate:
+			t.Errorf("%s (%s) has BOTH a preset and a deliberate-default entry; the list has rotted — remove the entry",
+				name, method)
+		case !tuned && !deliberate:
+			t.Errorf("activity %q is invoked (Acts.%s) but the ActivityOptions hook answers NOTHING for it, "+
+				"so it silently inherits genDefaultActivityOptions' 15s. Either key it to a preset or add it to "+
+				"deliveryDeliberateGeneratedDefaults with the reason. This is the exact shape of the defect that "+
+				"shipped once: a preset reverted by a recovery and swept as unused, with every other gate green.",
+				name, method)
+		case deliberate && strings.TrimSpace(reason) == "":
+			t.Errorf("%s is listed as a deliberate default with no reason; the reason is what distinguishes a "+
+				"decision from a preset that went missing", name)
+		}
+	}
+	// THE OTHER DIRECTION: a preset for an activity nothing invokes is configuration nobody can
+	// retire. It found the retired flat walk's two phase records on its first run.
+	for method, name := range all {
+		if _, isInvoked := invoked[method]; isInvoked {
+			continue
+		}
+		if _, tuned := hook(name); tuned {
+			t.Errorf("the hook carries a preset for %q, which NO surviving workflow invokes (Acts.%s has no call site) — "+
+				"a preset for a call that cannot happen is configuration nobody can retire", name, method)
 		}
 	}
 }
