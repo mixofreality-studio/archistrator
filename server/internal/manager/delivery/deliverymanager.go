@@ -3627,6 +3627,42 @@ var raConflictErrType = fwmanager.RAErrType(fwra.Conflict)
 // surfaces when the addressed aggregate has NO row yet — a brand-new project.
 var raNotFoundErrType = fwmanager.RAErrType(fwra.NotFound)
 
+// raAuthErrType is the canonical Temporal Type() a rail Activity surfaces for an Auth
+// fault. The platform github ClassifyStatus conflates GitHub secondary RATE-LIMIT 403s
+// with real permission denials — both become fwra.Auth — and marks the result
+// NON-RETRYABLE, so the bounded rail retry (QA F35 + F-QA2-49) has to run WORKFLOW-SIDE.
+var raAuthErrType = fwmanager.RAErrType(fwra.Auth)
+
+// isRailAuthFault reports whether err is a rail Auth fault — the rate-limit-403-as-Auth
+// that railWithAuthRetry absorbs within a bounded budget.
+func isRailAuthFault(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == raAuthErrType
+	}
+	return false
+}
+
+// railAuthRetry* bound the workflow-side rail retry (railWithAuthRetry).
+//
+// F-QA2-49: GitHub SECONDARY rate limits demand a >=60s cool-down before any retry can
+// succeed, so the original ~30s budget (5s → 10s → 15s) expired ENTIRELY INSIDE the
+// cool-down window after an API-heavy job — observed live as three openPR attempts across
+// 15s, all 403, then StageDraftFailed, with a manual retry 15 minutes later succeeding
+// first try. Four attempts over ~7 minutes outlast a secondary-rate-limit window and stay
+// bounded, so a GENUINE permission denial still reaches the caller's containment.
+const (
+	railAuthRetryMaxAttempts = 4
+	railAuthRetryBaseBackoff = 60 * time.Second
+	railAuthRetryMaxBackoff  = 240 * time.Second
+)
+
+// railCredRenewSkew is how far AHEAD of a credential's stated expiry liveCred re-mints.
+// A token that expires while a rail Activity is in flight 403s exactly as an expired one
+// does, and the mint is cheap next to the walk it protects, so the check buys a margin
+// rather than racing the clock.
+const railCredRenewSkew = 5 * time.Minute
+
 // Stage 4a: ONE copy now serves the systemDesign+projectDesign+construction rails (byte-identical
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 // isConflict reports whether err is a head-state mutation's stale-version Conflict.
@@ -4051,7 +4087,7 @@ func (m *deliveryManager) AdvanceToConstruction(rc fwmanager.Context, projectID 
 			}
 		}
 	}
-	return m.sealPhase(ctx, projectID, phase2SealGate)
+	return m.sealPhase(ctx, projectID, projectstate.PhaseConstruction, phase2SealGate)
 }
 
 // phase2SealGate is Phase 2's seal condition: every Phase2RequiredKinds() slot is committed
@@ -4122,7 +4158,7 @@ func (m *deliveryManager) sealSystemDesignPhase(rc fwmanager.Context, projectID 
 			}
 		}
 	}
-	return m.sealPhase(ctx, projectID, phase1SealGate)
+	return m.sealPhase(ctx, projectID, projectstate.PhaseProjectDesign, phase1SealGate)
 }
 
 // phase1SealGate is Phase 1's seal condition: every Phase1RequiredKinds() slot is committed.
@@ -4145,8 +4181,23 @@ func phase1SealGate(proj projectstate.Project) []ArtifactKind {
 //
 // A missing slot is NOT an error: it is the answer (Advanced=false plus the list), which is
 // what the SPA renders as "these artifacts still have to land". Only the write can fail.
+//
+// sealsInto NAMES THE PHASE THIS SEAL PRODUCES, and it is the guard, not decoration. A seal
+// is reachable CONCURRENTLY with the child's own seal of the same phase: the child's
+// gate-passed handler advances on an M0 approve (passRound → completeProjectDesign →
+// advanceToConstruction) while the SPA's approve returns and the façade is called on the same
+// decision. Without this read-back guard the façade's gate would pass a SECOND time over the
+// already-sealed project and issue a second AdvancePhase. The child guards itself the same
+// way (advanceToConstruction re-reads and early-returns on `Phase >= PhaseConstruction`); the
+// façade now does too, so whichever writer wins, the loser is an honest no-op rather than a
+// second increment. The RA's own ceiling (projectstate.AdvancePhase) is the backstop under
+// both, for the window between this read and that write.
+//
+// Already-sealed is Advanced=false with NO missing artifacts — "nothing was owed and nothing
+// was done" — which is the only answer that is neither a lie (Advanced=true claims a write
+// that did not happen) nor an error (there is nothing wrong with sealing twice).
 func (m *deliveryManager) sealPhase(
-	ctx context.Context, projectID ProjectID, gate func(projectstate.Project) []ArtifactKind,
+	ctx context.Context, projectID ProjectID, sealsInto projectstate.Phase, gate func(projectstate.Project) []ArtifactKind,
 ) (PhaseAdvanceResult, error) {
 	psID := projectstate.ProjectID(projectID)
 	var lastErr error
@@ -4158,6 +4209,9 @@ func (m *deliveryManager) sealPhase(
 				return PhaseAdvanceResult{Advanced: false, MissingArtifacts: gate(projectstate.Project{ID: psID})}, nil
 			}
 			return PhaseAdvanceResult{}, mapReadProjectError(err)
+		}
+		if proj.Phase >= sealsInto {
+			return PhaseAdvanceResult{Advanced: false}, nil
 		}
 		if missing := gate(proj); len(missing) > 0 {
 			return PhaseAdvanceResult{Advanced: false, MissingArtifacts: missing}, nil
@@ -7166,11 +7220,46 @@ func operatorNoteRunes(notes string, comments []AnchoredComment) int {
 // maxOperatorNoteRunes characters, and at most maxOperatorNoteBodyBytes once rendered, so
 // the note always reaches the agent whole (the 16 KiB block keeps the newest note whole).
 func checkOperatorNoteSize(what, notes string, comments []AnchoredComment) error {
+	if err := checkNoReplyTo(what, comments); err != nil {
+		return err
+	}
 	if operatorNoteRunes(notes, comments) > maxOperatorNoteRunes {
 		return newError(fwmanager.ContractMisuse, fmt.Sprintf("%s is at most %d characters, anchored comments and their paths included", what, maxOperatorNoteRunes))
 	}
 	if len(renderNoteBody(notes, noteComments(comments))) > maxOperatorNoteBodyBytes {
 		return newError(fwmanager.ContractMisuse, fmt.Sprintf("%s is at most %d bytes once rendered (anchored comments included); shorten it", what, maxOperatorNoteBodyBytes))
+	}
+	return nil
+}
+
+// checkNoReplyTo REFUSES a replyTo on a door that cannot route one — the surviving twin of
+// pdCheckNoReplyTo, restored for the three OPERATOR-NOTE doors (an override's notes, a
+// send-back note, a re-dispatch note). It lives in checkOperatorNoteSize because that is
+// the ONE function all three already share, so the refusal cannot drift between them.
+//
+// WHAT WAS SILENTLY LOST. Every one of those three doors funnels its comments through
+// noteComments, which builds projectstate.NoteComment{JSONPath, Text} — a shape with NO
+// ReplyTo member at all. A reviewer who replied inside a thread and sent it as a send-back
+// note therefore had their reply re-filed as a fresh, detached, flat note: the anchor
+// survived, the conversation it answered did not. That is exactly the loss design §3.7
+// exists to prevent, and it is worse than the Phase-2 case the surviving check refuses,
+// because here the reader sees a comment that LOOKS filed.
+//
+// REFUSE RATHER THAN ROUTE, and the reason is structural rather than a preference. These
+// doors write to the OPERATOR NOTE ledger, which is a flat delivery queue carried into the
+// next dispatch — it has no threads, so there is no thread for a reply to land in. Routing
+// would need NoteComment to gain a reply identity AND the note ledger to gain threads,
+// which is a contract change (.aiarch/state/project.json), not a guard. A loud
+// ContractMisuse naming the offending id is the honest answer until that exists; the
+// reviewer can fold the reply's text into the note, which is what the SPA already does for
+// the Phase-2 refusal.
+func checkNoReplyTo(what string, comments []AnchoredComment) error {
+	for _, c := range comments {
+		if c.ReplyTo != "" {
+			return newError(fwmanager.ContractMisuse,
+				what+" cannot carry a threaded reply: it is filed as an operator note, and the note ledger has no thread for a reply to land in — "+
+					"fold the reply's text into the comment instead (offending replyTo: "+c.ReplyTo+")")
+		}
 	}
 	return nil
 }
@@ -8156,6 +8245,21 @@ func isRAContractMisuse(err error) bool {
 	return false
 }
 
+// decodeFaultErrType names an IN-WORKFLOW envelope decode failure over committed state —
+// the other half of QA F36's decode class (isRAContractMisuse covers the one the Activity
+// raises). It is terminal by construction: the stored document does not type, and no retry
+// changes a stored document.
+const decodeFaultErrType = "ProjectEnvelopeDecodeFailed"
+
+// isDecodeFault reports whether err is that terminal.
+func isDecodeFault(err error) bool {
+	var appErr *temporal.ApplicationError
+	if errors.As(err, &appErr) {
+		return appErr.Type() == decodeFaultErrType
+	}
+	return false
+}
+
 // rowAdvanced records that ONE transition applied to the activity's execution row, which
 // is exactly what the store stamped on it: BOTH write paths onto a row — the facet's
 // (withActivityVersion) and the retired facets' (upsertActivityExecution) — advance the
@@ -8521,12 +8625,21 @@ func deliveryActivityOptions() func(activityName string) (workflow.ActivityOptio
 		// advance and the design slot commit — measured by grepping the generated invoker call
 		// sites after the deletion. The design hooks' other seven keys
 		// (stageArtifactForReviewOnBranch, rejectArtifactOnBranchWithComments,
-		// withdrawArtifactOnBranch, reconcileBranchFromMain, setReviewCommentStatusOnBranch,
-		// seedReviewCommentsOnBranch, activityExecutionAccess.setReviewCommentStatus) had their
-		// ONLY workflow-side callers in the retired co-author files, so an entry for them here
-		// would be a preset for a call that cannot happen.
+		// withdrawArtifactOnBranch, setReviewCommentStatusOnBranch, seedReviewCommentsOnBranch,
+		// activityExecutionAccess.setReviewCommentStatus) had their ONLY workflow-side callers in
+		// the retired co-author files, so an entry for them here would be a preset for a call
+		// that cannot happen.
+		//
+		// reconcileBranchFromMain LEFT THAT LIST in the final fix wave: restoring the F80c
+		// diverged-branch reconcile onto the child's merge guard gave it a workflow caller again
+		// (reconcileDivergedBranch), so it needs its preset back. It is a branch MUTATION like
+		// the other two, and for the same reason: ContractMisuse is terminal, Conflict is
+		// deliberately NOT, because applyRecoveringOnBranch's re-read→re-apply loop is what
+		// resolves a stale branch version — a Temporal retry would re-issue the same stale
+		// expectedVersion forever.
 		"projectStateAccess.advancePhase":                    mutateActivityOptions(),
 		"designSessionAccess.commitArtifactWithProvenance":   mutateActivityOptions(),
+		"designSessionAccess.reconcileBranchFromMain":        mutateActivityOptions(),
 		"gitActivityStatusAccess.recordActivityBranchOpened": recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityCIObserved":   recordActivityOptions(),
 		"gitActivityStatusAccess.recordActivityArchApproved": recordActivityOptions(),
@@ -13117,10 +13230,11 @@ const (
 	// Task 13: the child's runAgentReviewers records a critic's abstention under the reviewer's
 	// OWN workerClass, and a roster the engine cannot staff is logged and the gate held rather
 	// than given a synthetic role.)
-	// The two things that close a construction gate: a person answering it, or the
-	// committed review policy saying no person was needed here.
+	// A construction gate is closed by a person answering it. (Its twin, decidedByPolicy —
+	// "the committed review policy said no person was needed here" — is RETIRED in the final
+	// fix wave: it had zero callers repo-wide, because a policy-closed gate records the
+	// policy's own reason string rather than a fixed decidedBy word.)
 	decidedByOperator = "operator"
-	decidedByPolicy   = "reviewPolicy"
 )
 
 // resolvedPhaseCompletions is this package's name for projectstate.ResolvePhaseCompletions,

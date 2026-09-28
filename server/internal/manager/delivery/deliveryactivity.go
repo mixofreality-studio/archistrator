@@ -880,6 +880,19 @@ func (wf *csWorkflows) readBackDesignModelOn(
 ) (projectstate.ArtifactModel, projectstate.Version, error) {
 	proj, err := wf.readProjectOnBranch(ctx, projectID, branch)
 	if err != nil {
+		// QA F36, RE-WIRED: the committed draft READS BACK MALFORMED. CI validated it green
+		// (its Go mirror types the offending enum as a free string) and the server codec then
+		// refuses the value, so the fault is neither infrastructure nor a CI failure and must
+		// not read as either. projectstate.ReadBackDecodeFailedReason owns that wording and
+		// had NO production caller left after the co-author files went — the guard had
+		// degraded to a raw codec error on a failed walk. It is a walk terminal rather than a
+		// human gate here (the child has no gate at a dispatch task's read-back), but it is a
+		// NAMED one carrying the decode diagnostic, which is what a retry needs to be worth
+		// running.
+		if isRAContractMisuse(err) || isDecodeFault(err) {
+			return nil, 0, temporal.NewNonRetryableApplicationError(
+				projectstate.ReadBackDecodeFailedReason(err.Error()), "ReadBackDecodeFailed", nil)
+		}
 		return nil, 0, err
 	}
 	slot := slotForKind(proj, kind)
@@ -900,7 +913,17 @@ func (wf *csWorkflows) readProjectOnBranch(
 	if err != nil {
 		return projectstate.Project{}, err
 	}
-	return env.Decode()
+	proj, derr := env.Decode()
+	if derr != nil {
+		// A DECODE IS A NAMED TERMINAL, not an anonymous one. The envelope came off committed
+		// state, so a decode failure means the STORED document does not type — a retry cannot
+		// change that, and the caller needs to be able to tell this apart from an
+		// infrastructure read fault (QA F36). Naming it is what lets readBackDesignModelOn
+		// render the human "why" for it.
+		return projectstate.Project{}, temporal.NewNonRetryableApplicationError(
+			"the committed project state did not decode: "+derr.Error(), decodeFaultErrType, nil)
+	}
+	return proj, nil
 }
 
 // stageDesignOutput stages one design task's read-back model as the task's output and returns
@@ -3299,7 +3322,8 @@ func (wf *csWorkflows) finalizeWalk(
 		// landed.
 		return nil
 	}
-	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred); err != nil {
+	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
+		reconcileTargetOf(lc)); err != nil {
 		return err
 	}
 	return wf.commitDesignArtifacts(ctx, in, lc, ws, state)
@@ -3895,24 +3919,33 @@ func (wf *csWorkflows) openActivityBranchAndPR(
 	// if the slice is dormant — and then gitEnabled is false above and we never get
 	// here.)
 	gf.cred = preMintedCred
-	cred := preMintedCred
 
-	// Rail: cut the per-activity branch (GENERATED invoker).
-	br, err := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(gf.branch), cred.toRail())
-	if err != nil {
+	// Rail: cut the per-activity branch (GENERATED invoker). The openPR pair is the
+	// API-heaviest moment of the whole lifecycle and the one the secondary rate limit
+	// actually hit in the field, so both calls ride the bounded workflow-side retry.
+	var br sourcecontrol.BranchRef
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		b, e := wf.Acts.RailOpenBranch(ctx, repoRef, sourcecontrol.BranchName(gf.branch), gf.cred.toRail())
+		br = b
+		return e
+	}); err != nil {
 		return gitForward{}, err
 	}
 	gf.branchRef = sourcecontrol.BranchRefString(br)
 
 	// Rail: open the PR (base = main; cr-NN label rides in Hints) (GENERATED invoker).
-	pr, err := wf.Acts.RailOpenPullRequest(ctx, repoRef, sourcecontrol.PullRequestSpec{
-		Head:  sourcecontrol.BranchName(gf.branch),
-		Base:  sourcecontrol.BranchName(mainBranch),
-		Title: prTitle(in.ActivityID),
-		Body:  prBody(in.Activity),
-		Hints: crLabelHints(gf.crLabel),
-	}, cred.toRail())
-	if err != nil {
+	var pr sourcecontrol.PullRequestRef
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		p, e := wf.Acts.RailOpenPullRequest(ctx, repoRef, sourcecontrol.PullRequestSpec{
+			Head:  sourcecontrol.BranchName(gf.branch),
+			Base:  sourcecontrol.BranchName(mainBranch),
+			Title: prTitle(in.ActivityID),
+			Body:  prBody(in.Activity),
+			Hints: crLabelHints(gf.crLabel),
+		}, gf.cred.toRail())
+		pr = p
+		return e
+	}); err != nil {
 		return gitForward{}, err
 	}
 	gf.prRef = sourcecontrol.PullRequestRefString(pr)
@@ -3920,7 +3953,7 @@ func (wf *csWorkflows) openActivityBranchAndPR(
 	// Mirror: birth the per-activity git head-state row (PR-tolerant fused upsert).
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
 		return wf.Acts.GitStatusRecordActivityBranchOpened(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
-			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, cred.toProjectState())
+			gf.branch, gf.branchRef, gf.prRef, gf.crLabel, gf.isRevert, gf.cred.toProjectState())
 	})
 	if err != nil {
 		return gitForward{}, err
@@ -3943,14 +3976,9 @@ func (wf *csWorkflows) observeCIAndRecord(
 		return csPullRequestStatusView{CheckRollup: projectstate.CICheckPending}, nil
 	}
 
-	prStatus, err := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	st, err := wf.readPRStatus(ctx, gf)
 	if err != nil {
 		return csPullRequestStatusView{}, err
-	}
-	st := csPullRequestStatusView{
-		CheckRollup:   mapCheckState(prStatus.CheckRollup),
-		ApprovalCount: int(prStatus.ApprovalCount),
-		Mergeable:     prStatus.Mergeable,
 	}
 
 	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
@@ -3964,10 +3992,39 @@ func (wf *csWorkflows) observeCIAndRecord(
 	return st, nil
 }
 
+// readPRStatus is the ONE read of the PR's rollup + mergeability, shared by the CI
+// observer and the approve-time merge guard so the two cannot disagree about what the
+// rail said. Credential-fresh and 403-bounded like every other rail verb.
+func (wf *csWorkflows) readPRStatus(ctx workflow.Context, gf *gitForward) (csPullRequestStatusView, error) {
+	cred, err := wf.liveCred(ctx, gf)
+	if err != nil {
+		return csPullRequestStatusView{}, err
+	}
+	var st csPullRequestStatusView
+	if rerr := wf.railWithAuthRetry(ctx, func() error {
+		prStatus, e := wf.Acts.RailGetPullRequestStatus(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), cred.toRail())
+		if e != nil {
+			return e
+		}
+		st = csPullRequestStatusView{
+			CheckRollup:   mapCheckState(prStatus.CheckRollup),
+			ApprovalCount: int(prStatus.ApprovalCount),
+			Mergeable:     prStatus.Mergeable,
+		}
+		return nil
+	}); rerr != nil {
+		return csPullRequestStatusView{}, rerr
+	}
+	return st, nil
+}
+
 // relayArchApprovalAndRecord relays the architecture +1 (PostReview Approve) to the PR
 // and records the audit-worthy ArchApproved fact (D-PA-GIT §5). Called once the
 // activity's review has passed (the architect's in-app sign-off). A dormant slice is a
 // no-op.
+//
+// This is a GATE-DECISION-TIME rail call: the human it waits for may have been away for
+// hours, so it re-mints an expired credential before it speaks to the rail (F-QA2-44).
 func (wf *csWorkflows) relayArchApprovalAndRecord(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -3978,9 +4035,15 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 		return nil
 	}
 
-	if err := wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
-		sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
-		gf.cred.toRail()); err != nil {
+	cred, err := wf.liveCred(ctx, gf)
+	if err != nil {
+		return err
+	}
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		return wf.Acts.RailPostReview(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef),
+			sourcecontrol.ReviewSubmission{Verdict: sourcecontrol.ReviewApprove, Body: archApprovalBody(in.ActivityID)},
+			cred.toRail())
+	}); err != nil {
 		return err
 	}
 
@@ -3996,24 +4059,60 @@ func (wf *csWorkflows) relayArchApprovalAndRecord(
 
 // mergeAndRecord PERFORMS the gated merge (the interventionEngine gate already
 // cleared in workflow code) and, on a Merged result, records the terminal git fact
-// (D-PA-GIT §5). A dormant slice is a no-op. A non-Merged result (e.g. not yet
-// mergeable) is surfaced as a non-retryable terminal so the spine does NOT record a
-// false merge — the activity's variance machinery handles the not-yet-mergeable case.
+// (D-PA-GIT §5). A dormant slice is a no-op.
+//
+// THE TWO PRECONDITIONS ARE THE GUARD, and neither survived the co-author files'
+// deletion. `RailMergePullRequest` was called bare, over a PR whose CI rollup this code
+// had never asked about and whose mergeability it had never checked:
+//
+//   - CI GREEN is the "blocks merge" trust boundary. The whole point of the required check
+//     is that nothing lands over a red build; mirrorCIRollup reads the rollup but only as
+//     DECORATION (it swallows its own error), so a red or still-pending PR reached the
+//     merge verb and the rail refused it — surfacing as the generic MergeNotCompleted,
+//     which says "not mergeable" for a PR that is simply not finished building.
+//
+//   - MERGEABLE (F80c) is the diverged-branch case. main advances under the activity
+//     branch — a staleness ack, a question seed, another activity's own commit — and their
+//     project.json (a server-owned, single-writer-per-slot document) conflicts, so
+//     GitHub's mergeable_state goes dirty. A merge attempt then fails, and re-approving
+//     fails IDENTICALLY, forever: the branch stays diverged, so the loop has no exit. The
+//     fix is to RECONCILE the branch from main and try once more.
+//
+// A red rollup is NOT retried here and NOT merged: it is mirrored onto the head state (so
+// the screen says what the rail said) and returned as a NAMED terminal the operator can
+// act on. Re-opening the activity is the documented repair (see commitDesignArtifacts),
+// and it is the right one — nothing this workflow can do makes a build go green.
 func (wf *csWorkflows) mergeAndRecord(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
+	rec branchReconcile,
 	headVersion *projectstate.Version,
 ) error {
 	if !gf.enabled {
 		return nil
 	}
 
-	mr, err := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), gf.cred.toRail())
+	if err := wf.guardMergePreconditions(ctx, in, gf, rec, headVersion); err != nil {
+		return err
+	}
+
+	cred, err := wf.liveCred(ctx, gf)
 	if err != nil {
 		return err
 	}
-	if !mr.Merged {
+	var merged bool
+	if err := wf.railWithAuthRetry(ctx, func() error {
+		mr, e := wf.Acts.RailMergePullRequest(ctx, gf.repoRef, sourcecontrol.PullRequestRefFromString(gf.prRef), cred.toRail())
+		if e != nil {
+			return e
+		}
+		merged = mr.Merged
+		return nil
+	}); err != nil {
+		return err
+	}
+	if !merged {
 		return temporal.NewNonRetryableApplicationError(
 			"gated merge did not complete (PR not mergeable)", "MergeNotCompleted", nil)
 	}
@@ -4025,6 +4124,150 @@ func (wf *csWorkflows) mergeAndRecord(
 		return err
 	}
 	*headVersion = v
+	return nil
+}
+
+// guardMergePreconditions is mergeAndRecord's two refusals, and it returns nil ONLY when the
+// PR may actually be merged. Split out from the merge body so each half reads as the one
+// question it asks.
+func (wf *csWorkflows) guardMergePreconditions(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	rec branchReconcile,
+	headVersion *projectstate.Version,
+) error {
+	st, err := wf.readPRStatus(ctx, gf)
+	if err != nil {
+		return err
+	}
+
+	// Precondition 1: the required check must be green. Mirror what the rail said before
+	// refusing, so the head state carries the reason rather than only the refusal.
+	if st.CheckRollup != projectstate.CICheckSuccess {
+		if verr := wf.mirrorObservedRollup(ctx, in, gf, st, headVersion); verr != nil {
+			return verr
+		}
+		return temporal.NewNonRetryableApplicationError(
+			"the activity PR was not merged because its required CI check is "+st.CheckRollup.String()+
+				" — nothing lands over a build that is not green; re-open the activity once CI passes",
+			"MergeBlockedByCI", nil)
+	}
+
+	// Precondition 2 (F80c): green but DIVERGED. Reconcile from main — which pushes a commit
+	// and therefore re-triggers CI — then ask ONCE more. Exactly once: a loop here would be
+	// the infinite re-approve wearing a different hat.
+	if st.Mergeable {
+		return nil
+	}
+	if rerr := wf.reconcileDivergedBranch(ctx, in, gf, rec, headVersion); rerr != nil {
+		return rerr
+	}
+	if st, err = wf.readPRStatus(ctx, gf); err != nil {
+		return err
+	}
+	if st.CheckRollup == projectstate.CICheckSuccess && st.Mergeable {
+		return nil
+	}
+	if verr := wf.mirrorObservedRollup(ctx, in, gf, st, headVersion); verr != nil {
+		return verr
+	}
+	return temporal.NewNonRetryableApplicationError(
+		"the activity PR had diverged from main; the branch was reconciled and CI is re-validating — "+
+			"re-open the activity once the check is green",
+		"MergeBranchReconciled", nil)
+}
+
+// mirrorObservedRollup records a refused merge's OBSERVED rollup onto the per-activity git
+// head state. Unlike mirrorCIRollup, which is decoration on the poll path and swallows its
+// error, this write is load-bearing: it is the only place the reason a merge was refused
+// becomes readable off the project state, so its failure is the caller's failure.
+func (wf *csWorkflows) mirrorObservedRollup(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	st csPullRequestStatusView,
+	headVersion *projectstate.Version,
+) error {
+	v, err := wf.applyRecovering(ctx, in.ProjectID, *headVersion, func(expected projectstate.Version) (projectstate.Version, error) {
+		return wf.Acts.GitStatusRecordActivityCIObserved(ctx, projectstate.ProjectID(in.ProjectID), expected, string(in.ActivityID),
+			st.CheckRollup, gf.cred.toProjectState())
+	})
+	if err != nil {
+		return err
+	}
+	*headVersion = v
+	return nil
+}
+
+// branchReconcile says whether a diverged activity branch may be reconciled from main, and
+// which slot the reconcile must PRESERVE on the branch.
+//
+// The RA verb (designSessionAccess.reconcileBranchFromMain) overlays main's every slot but
+// ONE onto the branch tip — it was written for the retired rail, where a session owned
+// exactly one artifact kind. The generic child's design walk can hold FOUR in-flight kinds
+// on ONE branch, and reconciling that branch would overwrite three live drafts with main's
+// older copies. So the reconcile is offered only where it is correct:
+//
+//   - zero in-flight kinds (every construction lifecycle): the branch owns no slot, so the
+//     ZERO ArtifactKind — which matches no slot-table entry — adopts main's every slot,
+//     which is exactly right.
+//   - exactly one in-flight kind: the retired rail's own case, unchanged.
+//   - two or more: NOT reconcilable with today's contract. The merge surfaces the honest
+//     refusal instead, and the contract delta this would need is recorded in the earmarks.
+type branchReconcile struct {
+	ok   bool
+	kind projectstate.ArtifactKind
+}
+
+// reconcileTargetOf reads the reconcilable-ness off the LIFECYCLE's own slots, so a
+// lifecycle that gains or loses a design task moves this answer with it.
+func reconcileTargetOf(lc methodassets.Lifecycle) branchReconcile {
+	kinds := designSlotsOfLifecycle(lc)
+	switch len(kinds) {
+	case 0:
+		return branchReconcile{ok: true}
+	case 1:
+		return branchReconcile{ok: true, kind: kinds[0]}
+	}
+	return branchReconcile{}
+}
+
+// reconcileDivergedBranch overlays main's slots onto the activity branch tip so a
+// MERGEABLE=false PR becomes mergeable again (F80c). It runs through
+// applyRecoveringOnBranch so a stale-version Conflict re-reads the BRANCH version and
+// retries within bounded attempts; seeding expectedVersion 0 is safe because an existing
+// branch row trips the version guard → Conflict → the loop re-reads the real one.
+//
+// This is the ONLY workflow caller of designSessionAccess.reconcileBranchFromMain. The verb
+// has been registered and implemented with none since the co-author files went, which is
+// why F80c came back.
+func (wf *csWorkflows) reconcileDivergedBranch(
+	ctx workflow.Context,
+	in constructActivityInput,
+	gf *gitForward,
+	rec branchReconcile,
+	headVersion *projectstate.Version,
+) error {
+	if !rec.ok {
+		workflow.GetLogger(ctx).Warn("delivery.merge.reconcileUnavailable",
+			"activityId", string(in.ActivityID), "branch", gf.branch,
+			"reason", "this lifecycle holds more than one in-flight design slot on one branch, and the reconcile verb preserves only one")
+		return nil
+	}
+	if gf.branch == "" {
+		return nil
+	}
+	if _, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, gf.branch, 0,
+		func(expected projectstate.Version) (projectstate.Version, error) {
+			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, rec.kind)
+		}); err != nil {
+		return err
+	}
+	// The branch write does NOT advance main's version token, so headVersion is left alone
+	// deliberately — feeding a branch-scoped version into a main-scoped CAS is the exact
+	// mistake applyRecoveringOnBranch's own comment warns about.
+	_ = headVersion
 	return nil
 }
 
@@ -4129,6 +4372,98 @@ func (wf *csWorkflows) mintCred(ctx workflow.Context, repoRef sourcecontrol.Repo
 		return railCredEnvelope{}, err
 	}
 	return railCredEnvelope{Bytes: cred.Bytes, ExpiresAt: cred.ExpiresAt}, nil
+}
+
+// liveCred RE-MINTS THE INSTALLATION TOKEN WHEN THE ONE IN HAND HAS RUN OUT, and it is
+// the whole of F-QA2-44 expressed on the child's shape.
+//
+// The child mints ONE token at openActivityRow and threads it through the entire walk.
+// A walk is not a burst: it parks at human gates. A GitHub App installation token lives
+// about an hour; a founder who approves two hours after the gate opened is the ORDINARY
+// case, not the pathological one (observed live on the retired rail: an approve 8+ hours
+// after the dispatch, every merge-window verb 403ing forever). The platform's github
+// ClassifyStatus renders that 403 as a NON-RETRYABLE Auth ApplicationError, so neither
+// the Activity RetryPolicy nor railWithAuthRetry can heal it — the walk simply fails at
+// the merge, and re-approving fails the same way. railCredEnvelope has carried ExpiresAt
+// since it was written; nothing ever read it.
+//
+// LAZY WITH AN EXPIRY CHECK rather than a re-mint bolted onto each gate-decision site:
+// the child reaches its rail verbs from several places and the question every one of them
+// asks is the same one — "is this token still good?" — so it is asked ONCE, here, and a
+// call site that never runs long never pays for a mint.
+//
+// The credential is refreshed ON gf, so the head-state record that follows each rail verb
+// (which threads the same credential into the git store) gets the fresh token too.
+//
+// REPLAY SAFETY without a version gate. The decision reads workflow.Now(ctx) and the
+// ExpiresAt of a credential that a recorded Activity result produced — BOTH from history
+// — so a replay reaches the identical verdict and schedules the identical commands. What
+// it cannot cover is an execution STARTED under code that had no such check: replaying
+// that history with this code would mint where history recorded a rail call. Stage 4b1
+// already mandates a drain before this branch deploys (docs/bugs/…-stage4b1-earmarks.md),
+// and that drain is what makes the gate unnecessary here.
+func (wf *csWorkflows) liveCred(ctx workflow.Context, gf *gitForward) (railCredEnvelope, error) {
+	// A dormant rail threads a ZERO credential the local git store ignores entirely
+	// (GitAuth{Local:true}); its zero ExpiresAt must not read as "expired".
+	if !gf.enabled {
+		return gf.cred, nil
+	}
+	if !workflow.Now(ctx).Add(railCredRenewSkew).After(gf.cred.ExpiresAt) {
+		return gf.cred, nil
+	}
+	cred, err := wf.mintCred(ctx, gf.repoRef)
+	if err != nil {
+		return railCredEnvelope{}, err
+	}
+	gf.cred = cred
+	return cred, nil
+}
+
+// railWithAuthRetry runs ANY rail call with a BOUNDED WORKFLOW-SIDE retry on a
+// transient-403-as-Auth fault (QA F35 + F-QA2-49). Restored onto the generic child, where
+// all seven rail call sites were left bare by the co-author files' deletion.
+//
+// WHY THE RETRY CANNOT LIVE IN THE ACTIVITY RETRY POLICY, which is the whole reason this
+// helper exists: the platform github ClassifyStatus CONFLATES GitHub's secondary
+// rate-limit 403 with a real permission denial — both become fwra.Auth, which the
+// generated invokers mark NON-RETRYABLE. So the one fault an API-heavy draft job is most
+// likely to hit is the one the RetryPolicy refuses to retry, and the first blip fails the
+// whole walk terminally. That is a logged incident, not a hypothetical: three openPR
+// attempts inside 15s, all 403, StageDraftFailed — and a manual retry 15 minutes later
+// succeeded on the first try.
+//
+// The budget is the long one by default (60s → 120s → 240s, four attempts, ~7 min):
+// secondary rate limits demand a >=60s cool-down, so the original ~30s budget expired
+// ENTIRELY INSIDE the cool-down window and retried three times for nothing. It stays
+// BOUNDED so a GENUINE permission denial still reaches the caller, which contains it.
+// workflow.Sleep gives deterministic backoff; cancellation propagates immediately;
+// transport blips (Transient) are still retried INSIDE the Activity by its own options.
+//
+// The old two-budget/GetVersion arrangement is deliberately NOT restored: it existed to
+// keep pre-F-QA2-49 histories on the short schedule, and those histories belong to
+// workflow types this branch deleted.
+func (wf *csWorkflows) railWithAuthRetry(ctx workflow.Context, call func() error) error {
+	backoff := railAuthRetryBaseBackoff
+	for attempt := 1; ; attempt++ {
+		err := call()
+		if err == nil {
+			return nil
+		}
+		if temporal.IsCanceledError(err) || !isRailAuthFault(err) {
+			return err
+		}
+		if attempt >= railAuthRetryMaxAttempts {
+			return err
+		}
+		workflow.GetLogger(ctx).Warn("rail 403 (auth or secondary rate limit); bounded workflow-side retry",
+			"attempt", attempt, "ofAttempts", railAuthRetryMaxAttempts)
+		if serr := workflow.Sleep(ctx, backoff); serr != nil {
+			return serr
+		}
+		if backoff *= 2; backoff > railAuthRetryMaxBackoff {
+			backoff = railAuthRetryMaxBackoff
+		}
+	}
 }
 
 // gitnaming.go holds the Manager's provider-NEUTRAL, DETERMINISTIC naming + the git
@@ -4239,6 +4574,7 @@ func (wf *csWorkflows) finalizeActivity(
 	state *constructState,
 	gitOn bool,
 	startedCred railCredEnvelope,
+	rec branchReconcile,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
 	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
@@ -4253,7 +4589,7 @@ func (wf *csWorkflows) finalizeActivity(
 	*headVersion = v
 
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
-	if err := wf.mergeAndRecord(ctx, in, gf, headVersion); err != nil {
+	if err := wf.mergeAndRecord(ctx, in, gf, rec, headVersion); err != nil {
 		return err
 	}
 
@@ -4790,7 +5126,21 @@ func (wf *csWorkflows) syncScaffoldBeforeDispatch(ctx workflow.Context, in const
 	if !gf.enabled {
 		return csPipelineObservation{}, true
 	}
-	changed, err := wf.Acts.RailSyncManagedScaffold(ctx, gf.repoRef, gf.cred.toRail())
+	cred, cerr := wf.liveCred(ctx, gf)
+	if cerr != nil {
+		workflow.GetLogger(ctx).Error("the installation token could not be re-minted; nothing was dispatched",
+			"activityId", string(in.ActivityID), "error", cerr.Error())
+		return csPipelineObservation{
+			Phase:      PipelineFailed,
+			Diagnostic: "the rail credential could not be minted, so nothing was dispatched: " + cerr.Error(),
+		}, false
+	}
+	var changed bool
+	err := wf.railWithAuthRetry(ctx, func() error {
+		c, e := wf.Acts.RailSyncManagedScaffold(ctx, gf.repoRef, cred.toRail())
+		changed = c
+		return e
+	})
 	if err != nil {
 		workflow.GetLogger(ctx).Error("managed-scaffold sync failed; nothing was dispatched",
 			"activityId", string(in.ActivityID), "error", err.Error())

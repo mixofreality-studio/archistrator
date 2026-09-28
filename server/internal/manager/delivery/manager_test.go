@@ -8760,13 +8760,68 @@ type stubRail struct {
 	syncs   int
 	syncErr error
 	order   *callLog
+
+	// ---- final fix wave: the three scripted faults the restored guards need ----
+
+	// openPRAuthFailsRemaining, when >0, makes OpenPullRequest return an fwra.Auth error
+	// (the platform's rate-limit-403-as-Auth) and decrement. This is the LOGGED incident G2
+	// restores the bounded workflow-side retry for: an API-heavy job trips GitHub's
+	// secondary rate limit, the classifier reports a NON-RETRYABLE Auth fault, and the
+	// Activity RetryPolicy cannot touch it.
+	openPRAuthFailsRemaining int
+
+	// notMergeableUntilReconciled models F80c: GetPullRequestStatus reports Mergeable=false
+	// (main advanced under the activity branch) until the branch is reconciled from main.
+	// reconciled is flipped by the test's reconcile stub.
+	notMergeableUntilReconciled bool
+	reconciled                  bool
+
+	// tokenLifetime is how long each minted installation token claims to live. The zero
+	// value means one hour (GitHub's own). A NEGATIVE lifetime is the compressed form of a
+	// human gate that outlived the token: the credential minted at openActivityRow is
+	// already past its expiry by the time any gate-decision verb runs (F-QA2-44).
+	tokenLifetime time.Duration
+	// enforceTokenValidity makes every verb but the mint 403 on any credential that is not
+	// the CURRENT token — the live fault an expired token produces.
+	enforceTokenValidity bool
+	validToken           string
+	// credsSeen records, per verb, the credential bytes each call presented, so a test can
+	// assert WHICH minted token a gate-decision call rode.
+	credsSeen map[string][]string
+}
+
+// seeCred records the credential a verb was presented with and reports whether it must be
+// refused (validity enforcement armed AND the credential is not the current token).
+func (r *stubRail) seeCred(verb string, cred sourcecontrol.RepoCredential) bool {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.credsSeen == nil {
+		r.credsSeen = map[string][]string{}
+	}
+	r.credsSeen[verb] = append(r.credsSeen[verb], string(cred.Bytes))
+	return r.enforceTokenValidity && string(cred.Bytes) != r.validToken
+}
+
+// expiredTokenFault is the 403 GitHub returns for an expired installation token, as the
+// platform classifier renders it: a NON-RETRYABLE fwra.Auth.
+func expiredTokenFault(verb string) error {
+	return fwra.New(fwra.Auth, verb+": github auth/permission denied (expired installation token)")
 }
 
 func (r *stubRail) GetInstallationToken(_ fwra.Context, _ sourcecontrol.RepoRef) (sourcecontrol.RepoCredential, error) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.credMints++
-	return sourcecontrol.RepoCredential{Bytes: []byte("tok")}, nil
+	// Each mint issues a DISTINCT token and makes it the one currently-valid one (tok-1 for
+	// the dispatch-time mint at openActivityRow, tok-2 for a gate-decision re-mint, …), so a
+	// test can assert WHICH token a late call rode (F-QA2-44).
+	tok := fmt.Sprintf("tok-%d", r.credMints)
+	r.validToken = tok
+	life := r.tokenLifetime
+	if life == 0 {
+		life = time.Hour // GitHub's own installation-token lifetime
+	}
+	return sourcecontrol.RepoCredential{Bytes: []byte(tok), ExpiresAt: time.Now().Add(life)}, nil
 }
 
 // OpenBranch returns the ZERO BranchRef: the frozen rail surface exposes
@@ -8783,28 +8838,47 @@ func (r *stubRail) OpenBranch(_ fwra.Context, _ sourcecontrol.RepoRef, branch so
 	return sourcecontrol.BranchRef(""), nil
 }
 
-func (r *stubRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+func (r *stubRail) OpenPullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, spec sourcecontrol.PullRequestSpec, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestRef, error) {
+	if r.seeCred("OpenPullRequest", cred) {
+		return sourcecontrol.PullRequestRefFromString(""), expiredTokenFault("openPullRequest")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.openPRAuthFailsRemaining > 0 {
+		r.openPRAuthFailsRemaining--
+		// The logged incident: a secondary rate-limit 403 the platform classifier reports as
+		// a NON-RETRYABLE Auth fault. railWithAuthRetry absorbs it within its budget.
+		return sourcecontrol.PullRequestRefFromString(""), fwra.New(fwra.Auth, "openPullRequest: github auth/permission denied")
+	}
 	r.prOpened = append(r.prOpened, spec)
 	return sourcecontrol.PullRequestRefFromString(r.prRef), nil
 }
 
-func (r *stubRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+func (r *stubRail) GetPullRequestStatus(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.PullRequestStatus, error) {
+	if r.seeCred("GetPullRequestStatus", cred) {
+		return sourcecontrol.PullRequestStatus{}, expiredTokenFault("getPullRequest")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.statuses++
-	return sourcecontrol.PullRequestStatus{CheckRollup: r.ciRollup, ApprovalCount: 1, Mergeable: true}, nil
+	mergeable := !r.notMergeableUntilReconciled || r.reconciled
+	return sourcecontrol.PullRequestStatus{CheckRollup: r.ciRollup, ApprovalCount: 1, Mergeable: mergeable}, nil
 }
 
-func (r *stubRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, _ sourcecontrol.RepoCredential) error {
+func (r *stubRail) PostReview(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, review sourcecontrol.ReviewSubmission, cred sourcecontrol.RepoCredential) error {
+	if r.seeCred("PostReview", cred) {
+		return expiredTokenFault("postReview")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.reviews = append(r.reviews, review)
 	return nil
 }
 
-func (r *stubRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, _ sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+func (r *stubRail) MergePullRequest(_ fwra.Context, _ sourcecontrol.RepoRef, _ sourcecontrol.PullRequestRef, cred sourcecontrol.RepoCredential) (sourcecontrol.MergeResult, error) {
+	if r.seeCred("MergePullRequest", cred) {
+		return sourcecontrol.MergeResult{}, expiredTokenFault("mergePullRequest")
+	}
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.merges++
@@ -10242,6 +10316,13 @@ type csFakeProjectState struct {
 	// resumed counts RecordOperatorResumed calls (B1.7).
 	resumed int
 
+	// reconciles counts designSessionAccess.reconcileBranchFromMain calls and records the
+	// branch + preserved kind each one carried — the F80c verb the child's restored merge
+	// guard reaches (final fix wave, G3). onReconcile, when set, runs on each call, which is
+	// how a test models "the reconcile made the PR mergeable again".
+	reconciles  []reconcileCall
+	onReconcile func()
+
 	// rec, when set, is the lifecycle-shape oracle's observation side (stage 4b1 Task 1).
 	// nil for every other test, and every call site is guarded, so a shape case and a
 	// replay fixture exercise the SAME store semantics rather than two that drift.
@@ -11188,8 +11269,23 @@ func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstat
 	return 0, nil
 }
 
-func (fakeFullProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
-	return 0, nil
+// reconcileCall is one observed F80c reconcile: which branch, and which slot it preserved.
+type reconcileCall struct {
+	branch string
+	kind   projectstate.ArtifactKind
+}
+
+func (f fakeFullProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kind projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+	f.mu.Lock()
+	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kind: kind})
+	hook := f.onReconcile
+	f.version++
+	v := f.version
+	f.mu.Unlock()
+	if hook != nil {
+		hook()
+	}
+	return v, nil
 }
 
 func (fakeFullProjectState) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -11635,6 +11731,11 @@ func registerGenGitStatus(env *testsuite.TestWorkflowEnvironment, gs projectstat
 func registerGenDesignSessionRead(env *testsuite.TestWorkflowEnvironment, ps *csFakeProjectState) {
 	acts := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
 	env.RegisterActivityWithOptions(acts.DesignSessionReadProjectOnBranch, activity.RegisterOptions{Name: "designSessionAccess.readProjectOnBranch"})
+	// The F80c reconcile is registered beside the read because the restored merge guard
+	// reaches it on the SAME rail path (final fix wave, G3): an unregistered activity would
+	// fail as "not registered" rather than exercising the guard.
+	env.RegisterActivityWithOptions(acts.DesignSessionReconcileBranchFromMain,
+		activity.RegisterOptions{Name: "designSessionAccess.reconcileBranchFromMain"})
 }
 
 // registerGenDesignSessionSlotWrites registers the TWO slot-writing designSessionAccess
@@ -16261,6 +16362,67 @@ func Test_ConstructRepoTarget_CatalogRefIsTheVenue(t *testing.T) {
 // railWired is the RailEnabled a test rig hands a WIRED PR-rail slice: enabled for every
 // project, which is what the boot-level derivation answers for a catalog resolver.
 func railWired(ProjectID) bool { return true }
+
+// THE DRAIN CONTRACT IS A SET OF LITERAL STRINGS, RE-PINNED (final fix wave, B3). The
+// deleted Test_WorkflowIDDerivation was the only assertion over them, and after it went
+// neither replanSweepWorkflowID (in EITHER form) nor pauseTargetWorkflowID had a single test
+// reference — the literals appeared in no assertion anywhere.
+//
+// These are not internal details: they are what the drain note TELLS AN OPERATOR TO DRAIN
+// before this branch deploys, and what the pause signal is addressed to. A rename is invisible
+// to every other gate in the repo — the code would keep compiling, the drain would silently
+// cover nothing, and an in-flight sweep would survive a deploy it was supposed to be drained
+// for. So the shapes are written out here as strings rather than derived, which is the only
+// way a pin can fail when the deriver changes.
+func Test_WorkflowIDDerivation(t *testing.T) {
+	const pid = ProjectID("proj-1")
+	scoped := pid
+	for _, c := range []struct{ name, got, want string }{
+		{"pump (tick-invariant)", pumpWorkflowID(pid), "proj-1:nextActivity"},
+		{"pause / supervision target", pauseTargetWorkflowID(pid), "proj-1:construction"},
+		{"replan sweep, per project", replanSweepWorkflowID(&scoped, "t7"), "proj-1:replanSweep:t7"},
+		{"replan sweep, all projects", replanSweepWorkflowID(nil, "t7"), ":all:replanSweep:t7"},
+		{"round sweep", roundSweepWorkflowID(pid, "t7"), "proj-1:roundSweep:t7"},
+		{"generic activity child", deliveryActivityWorkflowID(pid, "C-MST"), "proj-1:activity:C-MST"},
+	} {
+		if c.got != c.want {
+			t.Errorf("%s: id = %q, want %q — this string is in the drain note; changing it silently strands in-flight executions", c.name, c.got, c.want)
+		}
+	}
+}
+
+// THE LOCAL ARM, RESTORED (final fix wave, B2). It was the one assertion of the retired
+// Test_DeliveryManager_LocalProfile_ConstructionRailDormant_DesignRailsResolveGitLocal that
+// did NOT get retargeted, and it is the one that pins the CONSEQUENCE the stage-4a defect
+// was made of: with railEnabled true on a local profile, csWorkflows.gitEnabled answers
+// true, startedCred takes the CLOUD arm and mints a rail credential — a durable
+// sourceControlAccess.getInstallationToken command the construction history never had — and
+// runWalkMerge skips, so no local activity branch ever merges.
+//
+// It also guards the final fix wave's own work: liveCred re-mints on expiry and
+// railWithAuthRetry bounds 403s, and BOTH are reached through gitEnabled. A local profile
+// that answered true here would start minting and retrying against a rail that is not there.
+func Test_DeliveryManager_LocalProfile_ConstructionRailDormant(t *testing.T) {
+	m := fullyWiredDeliveryManager()
+	m.cs.repo = func(pid ProjectID) (sourcecontrol.RepoRef, bool) {
+		return sourcecontrol.GitLocalRepoRefForProject(sourcecontrol.ProjectID(pid)), true
+	}
+	if m.cs.railEnabled()("proj-1") {
+		t.Fatal("a GitLocal ref is not a PR-rail venue; the construction rail must stay dormant")
+	}
+	// And the reader that matters: the workflow's own gate. gitEnabled is what every rail
+	// verb and every credential mint routes through.
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		RailEnabled:  m.cs.railEnabled(),
+		GitStatus:    newStubGitStatus(0),
+		Repo:         m.cs.repo,
+	})
+	if _, ok := wf.gitEnabled("proj-1"); ok {
+		t.Fatal("csWorkflows.gitEnabled must be false on the local profile — a true here mints a rail credential the local venue has no use for and skips the local merge")
+	}
+}
 
 // The cloud arm of the same boot-level question: a catalog-resolved repo still lights
 // the construction PR rail, so the recognition above narrows nothing but the GitLocal
@@ -21786,10 +21948,233 @@ func Test_Construction_StartedThenCompleted_RecordedOnHeadState(t *testing.T) {
 	}
 }
 
-// A CI failure is mirrored as Failure (the dumb reflection); the lifecycle still
-// proceeds to record the rest (CI is NOT a gate at this seam — the gate is
-// interventionEngine, modeled by the merge mergeable flag, not CI).
-func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
+// ===========================================================================
+// THE FOUR GUARDS THE GENERIC CHILD LOST WITH THE CO-AUTHOR FILES (final fix wave).
+//
+// Each one lived inside a body stage 4b1 deleted and was not re-asserted on the child. All
+// four are on the gh-venue production path, and none of them was visible to any test — the
+// fake MODELLED token expiry and scripted 403s, and no case armed either.
+// ===========================================================================
+
+// G1 — THE APPROVE-TIME CREDENTIAL RE-MINT (F-QA2-44). The child mints ONE installation
+// token at openActivityRow and threaded it through the whole walk; railCredEnvelope has
+// carried ExpiresAt since it was written and NOTHING read it. A walk parks at human gates,
+// so the ordinary case is a founder approving hours after the token's ~1h life ran out:
+// every gate-decision rail verb then 403s, the platform classifies that as a NON-RETRYABLE
+// Auth fault, and the merge fails forever — re-approving fails identically.
+//
+// The fake's negative tokenLifetime is the compressed form of that wait: the dispatch-time
+// token is already past expiry when the merge window opens, and enforceTokenValidity makes
+// the rail behave as GitHub does about it.
+func Test_Guard_ExpiredCredentialIsReMintedBeforeTheMergeWindow(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess,
+		tokenLifetime:        -time.Minute, // already expired by the time the gate is decided
+		enforceTokenValidity: true,
+	}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
+	registerConstructGit(env, wf, ps, git, rail)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a gate decided after the token expired must still merge, on a FRESH token: %v", err)
+	}
+	// THE MERGE LANDED. This is the fact the defect destroyed.
+	if rail.merges != 1 {
+		t.Fatalf("want one MergePullRequest, got %d", rail.merges)
+	}
+	// AND IT RODE A LATER TOKEN THAN THE DISPATCH ONE. One mint would mean the walk reused
+	// the expired credential and the rail happened not to care.
+	if rail.credMints < 2 {
+		t.Fatalf("want at least two mints (dispatch, then a re-mint for the merge window), got %d", rail.credMints)
+	}
+	merged := rail.credsSeen["MergePullRequest"]
+	if len(merged) != 1 || merged[0] == "tok-1" {
+		t.Fatalf("the merge must present a token minted AFTER the dispatch-time tok-1, got %v", merged)
+	}
+}
+
+// G2 — THE BOUNDED WORKFLOW-SIDE 403 RETRY (QA F35 + F-QA2-49). The platform's github
+// ClassifyStatus conflates GitHub's SECONDARY RATE-LIMIT 403 with a real permission denial:
+// both become fwra.Auth, which the generated invokers mark NON-RETRYABLE. So the one fault
+// an API-heavy job is most likely to hit is the one the Activity RetryPolicy refuses to
+// retry — and after the co-author files went, all seven of the child's rail calls were
+// bare, so the FIRST such blip failed the whole walk terminally.
+//
+// This is the logged incident: three openPR attempts inside 15s, all 403, then
+// StageDraftFailed, with a manual retry 15 minutes later succeeding on the first try.
+func Test_Guard_TransientRail403sAreAbsorbedAndTheWalkProceeds(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	// One FEWER fault than the budget: the last attempt succeeds, so the walk proceeds.
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess,
+		openPRAuthFailsRemaining: railAuthRetryMaxAttempts - 1,
+	}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
+	registerConstructGit(env, wf, ps, git, rail)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("%d transient 403s are inside the budget and must be absorbed: %v", railAuthRetryMaxAttempts-1, err)
+	}
+	if len(rail.prOpened) != 1 {
+		t.Fatalf("the PR must be opened exactly once, by the attempt that succeeded; got %d", len(rail.prOpened))
+	}
+	if rail.merges != 1 {
+		t.Fatalf("the walk must reach its merge, got %d merges", rail.merges)
+	}
+}
+
+// The OTHER half of the same budget: EXHAUSTED means the fault reaches the caller and the
+// walk fails LOUDLY rather than retrying forever. A genuine permission denial must not be
+// absorbed into silence.
+func Test_Guard_ExhaustedRail403BudgetFailsLoudly(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	// One MORE fault than the budget can absorb.
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess,
+		openPRAuthFailsRemaining: railAuthRetryMaxAttempts + 1,
+	}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
+	registerConstructGit(env, wf, ps, git, rail)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+
+	if env.GetWorkflowError() == nil {
+		t.Fatal("a 403 that outlasts the budget is a real denial and must surface, not be swallowed")
+	}
+	if len(rail.prOpened) != 0 {
+		t.Fatalf("no PR can have been opened, got %d", len(rail.prOpened))
+	}
+	if rail.merges != 0 {
+		t.Fatalf("nothing may merge after a failed openPR, got %d merges", rail.merges)
+	}
+}
+
+// G3, SECOND HALF — THE F80c DIVERGED-BRANCH RECONCILE, and the infinite re-approve it
+// exists to break. main advances under the activity branch (a staleness ack, a question
+// seed) and their project.json — a server-owned, single-writer-per-slot document — conflicts,
+// so GitHub's mergeable_state goes dirty. The merge then fails, and RE-APPROVING fails
+// IDENTICALLY, forever: nothing in the loop makes the branch stop diverging.
+//
+// designSessionAccess.reconcileBranchFromMain stayed registered and implemented through
+// stage 4b1 with ZERO workflow callers, which is exactly how F80c came back.
+func Test_Guard_DivergedBranchIsReconciledRatherThanLoopingForever(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess,
+		notMergeableUntilReconciled: true,
+	}
+	// The reconcile is what makes the PR mergeable again — that is the whole point of the
+	// verb, and modelling it is what turns "the loop never ends" into "the loop ends".
+	ps.onReconcile = func() {
+		rail.mu.Lock()
+		rail.reconciled = true
+		rail.mu.Unlock()
+	}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
+	registerConstructGit(env, wf, ps, git, rail)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a diverged branch must be reconciled and the merge retried, not fail: %v", err)
+	}
+	if len(ps.reconciles) != 1 {
+		t.Fatalf("want exactly one reconcile of the diverged branch, got %v", ps.reconciles)
+	}
+	if got := ps.reconciles[0].branch; got != "activity/C-MST" {
+		t.Fatalf("the reconcile must name the ACTIVITY branch, got %q", got)
+	}
+	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves
+	// NONE and adopts main's every slot — the zero kind. Preserving a real one would leave a
+	// slot diverged and the PR dirty.
+	if got := ps.reconciles[0].kind; got != projectstate.ArtifactKind(0) {
+		t.Fatalf("a construction branch owns no slot, so the reconcile preserves none; got kind %v", got)
+	}
+	if rail.merges != 1 {
+		t.Fatalf("the reconciled PR must merge, got %d merges", rail.merges)
+	}
+}
+
+// AND THE LOOP STILL ENDS WHEN THE RECONCILE DOES NOT HELP: a branch that stays diverged
+// after one reconcile is a NAMED terminal, not a second reconcile and not a retry. The
+// bound is what keeps "re-approve forever" from coming back through the other door.
+func Test_Guard_DivergedBranchThatStaysDirtyIsANamedTerminal(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 5, Phase: 2}, version: 5}
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess,
+		notMergeableUntilReconciled: true, // and nothing flips `reconciled`
+	}
+	git := newStubGitStatus(0)
+	wf := gitWiredWorkflows(ps, rail, git, true /*mergeable*/)
+	registerConstructGit(env, wf, ps, git, rail)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: pid, ActivityID: "C-MST", Activity: gitSampleActivity(),
+	})
+
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("a branch that will not reconcile must surface, not merge")
+	}
+	if !strings.Contains(err.Error(), "MergeBranchReconciled") {
+		t.Fatalf("the refusal must NAME the reconcile so the operator knows what happened, got %v", err)
+	}
+	if len(ps.reconciles) != 1 {
+		t.Fatalf("exactly ONE reconcile attempt — a loop here is the defect; got %v", ps.reconciles)
+	}
+	if rail.merges != 0 {
+		t.Fatalf("nothing may merge over a still-dirty branch, got %d merges", rail.merges)
+	}
+}
+
+// A CI FAILURE IS A MERGE GUARD, not a decoration, and this case is RETARGETED to say so
+// (final fix wave, G3). It used to assert the opposite — "the lifecycle still proceeds …
+// CI is NOT a gate at this seam" — and that sentence WAS the defect: the required check
+// exists precisely so nothing lands over a red build, and the child called
+// RailMergePullRequest having never asked what the rollup said. A red PR reached the merge
+// verb and the rail refused it, surfacing as the generic "not mergeable" for a PR that had
+// simply failed its build.
+//
+// What must hold now: the rollup is still mirrored (the screen has to say WHY), the merge
+// is NOT attempted, and the refusal is NAMED so the operator knows what to fix.
+func Test_GitForward_CIFailure_RefusesTheMergeAndSaysWhy(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -21804,15 +22189,24 @@ func Test_GitForward_CIFailure_MirroredNotGated(t *testing.T) {
 		ProjectID: pid, ActivityID: "C-CI", Activity: constructionActivity{ActivityID: "C-CI", Kind: activityKindConstruction, ComponentID: "c"},
 	})
 
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("workflow error: %v", err)
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("a red CI rollup must refuse the merge, not proceed to one")
+	}
+	if !strings.Contains(err.Error(), "MergeBlockedByCI") {
+		t.Fatalf("the refusal must NAME the CI precondition, got %v", err)
+	}
+	// THE MERGE WAS NEVER ATTEMPTED. This is the assertion the guard is made of: the old
+	// code reached the rail's merge verb over a failed build.
+	if rail.merges != 0 {
+		t.Fatalf("MergePullRequest was called %d time(s) over a red build", rail.merges)
 	}
 	g, ok := git.row("C-CI")
 	if !ok {
 		t.Fatal("row never recorded")
 	}
 	if g.CICheck != projectstate.CICheckFailure {
-		t.Fatalf("CICheck = %v, want Failure mirrored", g.CICheck)
+		t.Fatalf("CICheck = %v, want Failure mirrored so the screen can say why the merge was refused", g.CICheck)
 	}
 }
 
@@ -23748,8 +24142,14 @@ func Test_NoteDelivery_FailedSyncDispatchesNothing(t *testing.T) {
 	if n := len(submittedSpecs(pipe)); n != 0 {
 		t.Fatalf("a failed sync must dispatch nothing, got %d submits", n)
 	}
-	if rail.syncs != maxVarianceAttempts {
-		t.Fatalf("one sync per variance attempt, got %d of %d", rail.syncs, maxVarianceAttempts)
+	// ONE SYNC ATTEMPT PER VARIANCE ATTEMPT, TIMES THE BOUNDED 403 BUDGET (final fix wave,
+	// G2). The scripted syncErr is an fwra.Auth — the platform's rate-limit-403-as-Auth
+	// classification — so railWithAuthRetry absorbs it up to railAuthRetryMaxAttempts before
+	// giving the caller the fault. That is the restored guard doing its job on the scaffold
+	// sync, and it is also this case's other half: a budget that EXHAUSTS still fails loudly
+	// (nothing dispatched, the variance path runs, the terminal is recorded).
+	if want := maxVarianceAttempts * railAuthRetryMaxAttempts; rail.syncs != want {
+		t.Fatalf("one bounded 403 budget per variance attempt, got %d of %d", rail.syncs, want)
 	}
 	row := ps.execution("C-MST")
 	if row.FailureReason != projectstate.VarianceExhausted {
@@ -24088,6 +24488,106 @@ func TestFacade_OperatorNoteIsCappedAt4000Characters(t *testing.T) {
 			t.Errorf("%s with a 3,000-character anchor path: want ContractMisuse, got %v", name, e.Kind)
 		}
 	}
+
+	// THE RULED CAP IS 4,000 CHARACTERS — restored (B4). The number is a founder ruling, not
+	// an implementation detail, so the pin is on the CONSTANT and not only on the behaviour:
+	// a silent widening would let a note through that the ruling refuses.
+	if maxOperatorNoteRunes != 4000 {
+		t.Fatalf("maxOperatorNoteRunes = %d, want the ruled 4000", maxOperatorNoteRunes)
+	}
+
+	// AND THE RENDERED-BYTES GUARD IS THE OTHER HALF — also restored (B4). The rune cap
+	// counts what the reviewer TYPED; this one counts what the note BECOMES once rendered
+	// with its anchors and framing, which is what the dispatch actually carries. A note can
+	// sit under 4,000 runes and still blow the rendered budget, and the live check
+	// (checkOperatorNoteSize's second arm) is the only thing between that and a dispatch
+	// that cannot be built.
+	// Four-byte runes are what separate the two caps: 3,900 of them are well under the rune
+	// cap and four times over it in BYTES, which is exactly the note that renders into a
+	// dispatch body nothing can carry.
+	wide := strings.Repeat("\U0001F600", 3900)
+	if operatorNoteRunes(wide, nil) > maxOperatorNoteRunes {
+		t.Fatal("this fixture must pass the RUNE cap, or it proves nothing about the byte cap")
+	}
+	if len(renderNoteBody(wide, nil)) <= maxOperatorNoteBodyBytes {
+		t.Fatalf("this fixture must exceed the rendered-byte cap (%d) to exercise it", maxOperatorNoteBodyBytes)
+	}
+	fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+	err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+		ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: wide})
+	if e := asConstructionError(t, err); e.Kind != fwmanager.ContractMisuse {
+		t.Fatalf("a note under the rune cap but over the RENDERED-BYTE cap must be refused, got %v", e.Kind)
+	}
+	if fc.lastSignalName != "" {
+		t.Errorf("a refused note must not signal, got %q", fc.lastSignalName)
+	}
+}
+
+// G4 — A replyTo IS REFUSED ON A DOOR THAT CANNOT ROUTE ONE. Restored from the deleted
+// Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt and RETARGETED onto the successor doors:
+// systemDesignManager.RequestArtifactDraft (which checkNoReplyTo guarded) is gone, and the
+// three doors that inherited its note-carrying payload — the send-back, the re-dispatch and
+// the operator override — validated note emptiness and size but never looked at ReplyTo.
+//
+// WHAT THAT COST, silently: all three funnel their comments through noteComments, which
+// builds projectstate.NoteComment{JSONPath, Text} — a shape with NO ReplyTo member. So a
+// reviewer who replied inside a thread and sent it as a send-back note had the reply
+// re-filed as a fresh, detached, flat note. The anchor survived; the conversation did not.
+// Worse than the Phase-2 case the surviving pdCheckNoReplyTo refuses, because here the
+// reader sees a comment that LOOKS filed.
+//
+// Refusing rather than routing is a structural call, not a preference: these doors write to
+// the operator-note ledger, which is a flat delivery queue with no threads at all. Routing
+// would need a contract change (NoteComment gaining a reply identity, the ledger gaining
+// threads), so a loud ContractMisuse naming the offending id is the honest answer.
+func Test_ReplyTo_RefusedOnDoorsThatCannotRouteIt(t *testing.T) {
+	ps := task12RoundStore("designReview", "detailedDesign", projectstate.RoundPending, nil)
+	reply := []AnchoredComment{{JSONPath: "$.ops[0]", Text: "Yes — minor units throughout.", ReplyTo: "r1c1"}}
+
+	for name, call := range map[string]func(m *deliveryManager) error{
+		"send-back": func(m *deliveryManager) error {
+			return m.SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+				ReviewDecisionInput{Decision: ReviewReject}, &ReviewFeedback{Notes: "see the thread", Comments: reply})
+		},
+		"re-dispatch": func(m *deliveryManager) error {
+			_, err := m.cs.RedraftTask(testCtx(), "p", "A", "designReview",
+				&ReviewFeedback{Notes: "see the thread", Comments: reply})
+			return err
+		},
+		"override": func(m *deliveryManager) error {
+			return m.OverrideActivity(testCtx(), "p", "A",
+				ActivityOverride{Kind: OverrideRetry, Notes: "see the thread", Comments: reply})
+		},
+	} {
+		fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+		err := call(task12Manager(fc, ps))
+		e := asConstructionError(t, err)
+		if e.Kind != fwmanager.ContractMisuse {
+			t.Errorf("%s carrying a replyTo: want ContractMisuse, got %v %q", name, e.Kind, e.Detail)
+		}
+		// THE REFUSAL NAMES THE OFFENDING ID, so the caller can find the reply it has to fold.
+		if !strings.Contains(e.Detail, "r1c1") {
+			t.Errorf("%s: the refusal must name the offending replyTo, got %q", name, e.Detail)
+		}
+		// AND NOTHING WAS SIGNALLED. A refusal that still delivered the note would be the
+		// silent detachment with an error message on top.
+		if fc.lastSignalName != "" {
+			t.Errorf("%s: a refused reply must not signal, got %q", name, fc.lastSignalName)
+		}
+	}
+
+	// THE SAME PAYLOAD WITHOUT A replyTo GOES THROUGH. The guard refuses one field, not the
+	// door.
+	fc := &fakeTemporalClient{session: awaitingAt("designReview")}
+	flat := []AnchoredComment{{JSONPath: "$.ops[0]", Text: "Use minor units throughout."}}
+	if err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), "p", "A", "designReview",
+		ReviewDecisionInput{Decision: ReviewReject},
+		&ReviewFeedback{Notes: "see the thread", Comments: flat}); err != nil {
+		t.Fatalf("an anchored comment with no replyTo is ordinary feedback: %v", err)
+	}
+	if fc.lastSignalName == "" {
+		t.Error("the accepted send-back must reach the child")
+	}
 }
 
 // A REPLY IS ROUTED INTO THE THREAD IT NAMES, not re-filed as a fresh question (review fix
@@ -24216,6 +24716,118 @@ func committedProject(pid ProjectID, committed ...ArtifactKind) projectstate.Pro
 // "passed" is a real answer rather than a mocked start error, so the cases read the
 // MissingArtifacts list instead.
 // ===========================================================================
+
+// ===========================================================================
+// THE M0 DOUBLE-WRITER RACE (final fix wave, F1).
+//
+// An M0 approve has TWO phase writers. The CHILD seals itself (passRound →
+// completeProjectDesign → advanceToConstruction) and the deliveryManager façade is
+// called on the same decision. The child guarded itself on the read-back phase; the
+// façade did not, and projectStateAccess.AdvancePhase was a bare `p.Phase++` over a
+// THREE-member enum — so whichever writer lost the race pushed Phase to the unnamed
+// ordinal 3, and both construction dispatchers select on `Phase == PhaseConstruction`
+// EXACTLY. The project then went permanently quiet with nothing logged to say why.
+// ===========================================================================
+
+// sealRaceFakeProjectState is renderFakeProjectState with a COUNTING AdvancePhase — the
+// base panics on it, and this race is precisely about whether the write happens at all,
+// so the assertion has to be a count rather than the absence of a panic.
+type sealRaceFakeProjectState struct {
+	renderFakeProjectState
+	advanced int
+}
+
+func (f *sealRaceFakeProjectState) AdvancePhase(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version) (projectstate.Version, error) {
+	f.advanced++
+	return f.project.Version + 1, nil
+}
+
+// phase2SealedProject builds a head-state whose Phase-2 seal gate PASSES: every
+// Phase2RequiredKinds() slot committed and the SDP review binding an option. The gate has
+// to pass or the race test proves nothing — a project that still owes artifacts answers
+// "not advanced" whether or not the read-back guard exists.
+func phase2SealedProject(pid ProjectID) projectstate.Project {
+	p := projectstate.Project{ID: projectstate.ProjectID(pid)}
+	for _, slot := range []*projectstate.ArtifactSlot{
+		&p.PlanningAssumptions, &p.ActivityList, &p.Network,
+		&p.NormalSolution, &p.DecompressedSolution, &p.SubcriticalSolution,
+		&p.CompressedSolution, &p.RiskModel, &p.SdpReview,
+	} {
+		slot.Status = projectstate.ReviewCommitted
+	}
+	p.SdpReview.Model = &projectstate.SdpReview{Recommendation: projectstate.OptionID("normal")}
+	return p
+}
+
+// The race, from the façade's side: the CHILD already sealed (Phase is at construction),
+// and the façade call the SPA issues on the same approve must be a NO-OP. Without the
+// read-back guard the gate passes a second time and a second AdvancePhase is issued —
+// which is the write that produced the unnamed ordinal.
+func Test_AdvanceToConstruction_ChildAlreadySealed_IsANoOp(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := phase2SealedProject(pid)
+	proj.Phase = projectstate.PhaseConstruction // the child won the race
+	ps := &sealRaceFakeProjectState{renderFakeProjectState: renderFakeProjectState{project: proj}}
+	m := &deliveryManager{projectState: ps}
+
+	res, err := m.AdvanceToConstruction(bgRC(), pid, false)
+	if err != nil {
+		t.Fatalf("a second seal of an already-sealed project is not an error: %v", err)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("AdvancePhase was issued %d time(s) over an already-sealed project; the second write is what pushed Phase past construction", ps.advanced)
+	}
+	if res.Advanced {
+		t.Error("Advanced=true would claim a write that did not happen")
+	}
+	if len(res.MissingArtifacts) != 0 {
+		t.Errorf("an already-sealed project owes nothing, got %v", res.MissingArtifacts)
+	}
+}
+
+// The same guard on the Phase-1 seal, where the ceiling alone would NOT catch it: a
+// project already at PhaseProjectDesign that re-seals Phase 1 would advance into
+// CONSTRUCTION — a named phase, so the RA ceiling stays silent and only the read-back
+// guard refuses.
+func Test_SealSystemDesignPhase_AlreadySealed_IsANoOp(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := committedProject(pid, phase1RequiredKinds()...)
+	proj.Phase = projectstate.PhaseProjectDesign
+	ps := &sealRaceFakeProjectState{renderFakeProjectState: renderFakeProjectState{project: proj}}
+	m := &deliveryManager{projectState: ps}
+
+	res, err := m.sealSystemDesignPhase(bgRC(), pid, false)
+	if err != nil {
+		t.Fatalf("re-sealing an already-sealed Phase 1 is not an error: %v", err)
+	}
+	if ps.advanced != 0 {
+		t.Fatalf("AdvancePhase was issued %d time(s); re-sealing Phase 1 would have skipped the project into construction", ps.advanced)
+	}
+	if res.Advanced {
+		t.Error("Advanced=true would claim a write that did not happen")
+	}
+}
+
+// The seal still WORKS: an unsealed project whose gate passes advances exactly once. The
+// guard must refuse the second write without swallowing the first.
+func Test_AdvanceToConstruction_NotYetSealed_AdvancesOnce(t *testing.T) {
+	pid := ProjectID(uuid.NewString())
+	proj := phase2SealedProject(pid)
+	proj.Phase = projectstate.PhaseProjectDesign
+	ps := &sealRaceFakeProjectState{renderFakeProjectState: renderFakeProjectState{project: proj}}
+	m := &deliveryManager{projectState: ps}
+
+	res, err := m.AdvanceToConstruction(bgRC(), pid, false)
+	if err != nil {
+		t.Fatalf("AdvanceToConstruction: %v", err)
+	}
+	if ps.advanced != 1 {
+		t.Fatalf("AdvancePhase issued %d time(s), want exactly 1", ps.advanced)
+	}
+	if !res.Advanced {
+		t.Error("the gate passed and the write landed, so the answer is Advanced")
+	}
+}
 
 func Test_AdvancePhase_EmptyProjectID(t *testing.T) {
 	m := &deliveryManager{}
