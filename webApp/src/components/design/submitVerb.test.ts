@@ -7,7 +7,11 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { questionsNotSent, resolveSubmitVerb } from './submitVerb.ts';
+import {
+  approveRefusedOverOpenThreads,
+  questionsNotSent,
+  resolveSubmitVerb,
+} from './submitVerb.ts';
 
 const base = {
   committed: false,
@@ -36,11 +40,28 @@ void test('nothing staged and nothing open approves', () => {
   assert.equal(v.disabled, false);
 });
 
-void test('open threads block approve and say so', () => {
+void test('open threads block approve and say so IN THE SERVER’S WORDS', () => {
   const v = resolveSubmitVerb({ ...base, openThreads: 3 });
   assert.equal(v.action, 'approve');
   assert.equal(v.disabled, true);
   assert.equal(v.label, 'Resolve 3 threads to approve');
+  // The consequence is the refusal `deliveryManager` would answer with, so the
+  // disabled button and the 409 a race produces read as one sentence.
+  assert.equal(
+    v.consequence,
+    'Cannot approve: 3 review threads still open — send them back or resolve them first'
+  );
+});
+
+void test('the approve refusal is singular at one thread, and it is the same sentence the server sends', () => {
+  assert.equal(
+    approveRefusedOverOpenThreads(1),
+    'Cannot approve: 1 review thread still open — send it back or resolve it first'
+  );
+  assert.equal(
+    resolveSubmitVerb({ ...base, openThreads: 1 }).consequence,
+    approveRefusedOverOpenThreads(1)
+  );
 });
 
 void test('a committed slot amends', () => {

@@ -73,12 +73,16 @@ void test('replies ride through in order, with every member carried', () => {
   ]);
 });
 
-void test('openThreadCount counts unresolved change requests only — questions never block approve', () => {
+void test('openThreadCount counts OPEN change requests only — the server rule, to the field', () => {
+  // `projectstate.ReviewCommentBlocksApprove`: status == open && not a question.
+  // An ANSWERED change request does NOT block (the agent replied; only the
+  // reviewer's own resolve moves it, and the server's approve precondition lets it
+  // through), and a question never blocks at all.
   const thread = [
     { type: 'changeRequest', status: 'open' },
     { type: 'changeRequest', status: 'answered' },
     { type: 'changeRequest', status: 'resolved' },
     { type: 'question', status: 'open' },
   ] as unknown as ReviewCommentView[];
-  assert.equal(openThreadCount(thread), 2);
+  assert.equal(openThreadCount(thread), 1);
 });

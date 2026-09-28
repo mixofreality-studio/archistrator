@@ -172,6 +172,24 @@ export interface SystemDesignViewProps {
   decisionPending: boolean;
   /** A failed gate decision's message, surfaced inline until the next attempt. */
   gateError?: string | undefined;
+  /**
+   * THE LIVE DESIGN-HEALTH FINDINGS for this project, from
+   * `QueryProjectView{designHealth}` — the gate's machine validation.
+   *
+   * They are the SERVER'S, and that is the point: the thirteen rules the co-author
+   * session used to serve were moved into the `designhealth` engine, so
+   * `SessionStateView.findings` now carries only the session's own
+   * critique-unresolved warning. Both are shown at the gate, health first, because
+   * they are two different kinds of fact about one draft — a rule the platform checks,
+   * and a critic the platform ran. Omitted where a host has no design-health read; the
+   * session's own findings then stand alone, as they did before.
+   *
+   * They are PROJECT-scoped, not per-slot: the view carries no artifact-kind
+   * attribution (a finding's `location.section` is free text), so the gate shows the
+   * project's live health rather than a filtered subset that would silently drop the
+   * rules whose section nobody mapped.
+   */
+  designHealthFindings?: readonly Finding[] | undefined;
   onAcknowledgeStale: (note: string) => void;
   acknowledgeStalePending: boolean;
   acknowledgeStaleError?: string | undefined;
@@ -233,6 +251,7 @@ export function SystemDesignView({
   amendPending,
   decisionPending,
   gateError,
+  designHealthFindings,
   onAcknowledgeStale,
   acknowledgeStalePending,
   acknowledgeStaleError,
@@ -274,7 +293,10 @@ export function SystemDesignView({
   const committedStale = committedSlot?.staleBasis === true;
   const committedStaleCause = committedSlot?.staleCause;
   const hasDraft = view?.draft.model !== undefined;
-  const findings = view?.findings ?? [];
+  // The gate's machine validation: the server's live design-health findings first,
+  // then the session's own (which since Task 2 is only the critique-unresolved
+  // warning). One list, in the order a reader should meet them.
+  const findings = [...(designHealthFindings ?? []), ...(view?.findings ?? [])];
   const reviewThread = view?.reviewThread ?? [];
   const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
   const generating = stage === 'drafting' || stage === 'redrafting';

@@ -428,6 +428,15 @@ export function McpSystemDesignContainer({
                 },
               }}
               decisionPending={submitReview.isPending}
+              // THE GATE'S MACHINE VALIDATION IS THE SERVER'S (Task 2 moved the
+              // thirteen rules the co-author session used to serve into the
+              // `designhealth` engine, and `SessionStateView.Findings` has served
+              // only its own critique warning since). Reading them from
+              // `QueryProjectView{designHealth}` — the same view the diagram
+              // overlays above already read — is what stops the gate panel saying
+              // "all machine checks passed" on a draft the engine has findings for;
+              // a client-side copy of the rules is what the move existed to prevent.
+              designHealthFindings={designHealth?.findings}
               gateError={gateError}
               needsResearch={false}
               project={project}

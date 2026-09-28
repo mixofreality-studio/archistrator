@@ -9,8 +9,17 @@
  * anchored comment — is accumulated, so the redraft always carries guidance. That
  * accumulation happens client-side (SPA: CommentContext's pending-comment count;
  * MCP: there is no such client-side accumulator — see `allowEmptySendBack`).
- * Findings are the real engine.Finding[] from the
- * session view; an empty findings list reads as "all checks passed".
+ *
+ * WHERE THE FINDINGS COME FROM, and why it changed (stage 4b1): they used to be the
+ * session view's own `findings`, and the thirteen method rules that filled them moved
+ * into the `designhealth` engine — so this panel would have read "all checks passed"
+ * on a draft the engine had findings for. The caller now hands it the LIVE
+ * design-health findings (`QueryProjectView{designHealth}`, recomputed on every read
+ * and never committed) followed by the session's own critique warning; a client-side
+ * copy of the rules is exactly what the move existed to prevent. They are
+ * project-scoped, because the view carries no per-slot attribution, so an empty list
+ * reads as "the project's design health is clean" — which is what the empty state
+ * says.
  *
  * `actions` is OMITTED by System Design (Phase 1, SystemDesignView.tsx): Task
  * 10's SubmitBar owns the commit-authority verbs there instead, so this panel
@@ -171,7 +180,7 @@ export function GatePanel({
         >
           {findings.length === 0 ? (
             <Alert severity="success" sx={{ alignItems: 'flex-start' }}>
-              All machine checks passed — no findings on this draft.
+              All machine checks passed — no live design-health findings on this project.
             </Alert>
           ) : (
             findings.map((f, i) => (

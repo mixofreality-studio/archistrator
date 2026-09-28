@@ -44,7 +44,24 @@ export function toReviewThread(thread: readonly ThreadWire[] | undefined): Revie
   return (thread ?? []).map(toReviewCommentView);
 }
 
-/** Threads still owed an answer — what blocks approve (`submitVerb.openThreads`). */
+/**
+ * The threads that BLOCK APPROVE (`submitVerb.openThreads`) — the client half of
+ * `projectstate.ReviewCommentBlocksApprove`, which is the rule the server enforces:
+ * `status == open && !question`.
+ *
+ * TWO facts, and both are the server's, not this module's opinion:
+ *
+ *   - a QUESTION never blocks. Doctrine makes an open question "a soft warning at
+ *     the approve gate, never a hard block", and `OpenReviewCommentIDs` excludes
+ *     them, so counting one here would grey out an Approve the server accepts.
+ *   - an ANSWERED change request does not block either. It used to (`!== 'resolved'`),
+ *     which was the mirror of the defect stage 4b1 is fixing: the reviewer saw
+ *     "Resolve 2 threads to approve" on a gate `deliveryManager` would have taken,
+ *     with no way to clear it — the answered thread is the AGENT's reply, and only
+ *     the reviewer's own resolve moves it, so the bar demanded work of itself. The
+ *     server's precondition (`refuseApproveOverOpenComments`) is what this mirrors,
+ *     to the field.
+ */
 export function openThreadCount(thread: readonly ReviewCommentView[]): number {
-  return thread.filter((c) => c.type === 'changeRequest' && c.status !== 'resolved').length;
+  return thread.filter((c) => c.type === 'changeRequest' && c.status === 'open').length;
 }

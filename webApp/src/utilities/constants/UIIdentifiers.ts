@@ -857,6 +857,17 @@ export const UI_IDENTIFIERS = {
     ARTIFACT_PANEL: 'activity-artifact-panel',
     ARTIFACT_UNAVAILABLE: 'activity-artifact-unavailable',
     AMEND_ARCHITECTURE: 'activity-amend-architecture',
+    // What the M0 gate's cost was computed on, when part of it was ASSUMED
+    // (m0CostBasis.ts). Absent whenever nothing was.
+    COST_BASIS: 'activity-cost-basis',
+    // The operator's two overrides (Task 14, ruling 3). ONE of STEER / REOPEN is
+    // rendered, never both and never a disabled one: the two mean different things
+    // and only the activity's liveness says which is possible.
+    OVERRIDE_BAR: 'activity-override-bar',
+    OVERRIDE_NOTE: 'activity-override-note',
+    OVERRIDE_ERROR: 'activity-override-error',
+    STEER: 'activity-steer',
+    REOPEN: 'activity-reopen',
     reviewerChip: (role: string) => `activity-reviewer-${role}`,
   },
   // The PLAN (`/project/$projectId/plan?lens=list|graph|tasks`), stage 5 — the one

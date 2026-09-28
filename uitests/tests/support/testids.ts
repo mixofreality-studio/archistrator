@@ -222,9 +222,11 @@ export const TESTID = {
   marginToggle: UI_IDENTIFIERS.Chat.TOGGLE,
   marginComposerInput: UI_IDENTIFIERS.Chat.INPUT,
   marginComposerSubmit: UI_IDENTIFIERS.Chat.SEND,
-  // The draft card's two type toggles. The QUESTION one is absent on a rail with
-  // no AskQuestions op (every construction activity type — R2/GAP-6), which is
-  // how "a question cannot be staged where it cannot be sent" is observed.
+  // The draft card's two type toggles. The QUESTION one is absent on a surface with
+  // no AskQuestions op, which is how "a question cannot be staged where it cannot be
+  // sent" is observed. Since stage 4b1 gave the construction rail `AskTaskQuestions`
+  // every rail has the op, so what is left without it is a design gate whose artifact
+  // kind the SPA cannot resolve; the guard stays for the next surface that lacks one.
   marginComposerChangeRequest: UI_IDENTIFIERS.Chat.TYPE_CHANGE_REQUEST,
   marginComposerQuestion: UI_IDENTIFIERS.Chat.TYPE_QUESTION,
   // The margin proper (UI_IDENTIFIERS.Margin): the column, the unanchored group,
@@ -537,6 +539,18 @@ export const TESTID = {
   activityArtifactUnavailable: UI_IDENTIFIERS.Activity.ARTIFACT_UNAVAILABLE,
   activityAmendArchitecture: UI_IDENTIFIERS.Activity.AMEND_ARCHITECTURE,
   activityReviewerChip: UI_IDENTIFIERS.Activity.reviewerChip,
+  // What the M0 gate's cost was computed on, when part of it was ASSUMED. Absent
+  // whenever nothing was — a notice that always shows is a notice nobody reads.
+  activityCostBasis: UI_IDENTIFIERS.Activity.COST_BASIS,
+  // The operator's TWO overrides, as two actions (stage 4b1 Task 14): Steer a live
+  // escalation, Reopen a terminal activity. Exactly one is rendered and the other is
+  // ABSENT, never disabled — they mean different things and only the activity's
+  // liveness says which is possible.
+  activityOverrideBar: UI_IDENTIFIERS.Activity.OVERRIDE_BAR,
+  activityOverrideNote: UI_IDENTIFIERS.Activity.OVERRIDE_NOTE,
+  activityOverrideError: UI_IDENTIFIERS.Activity.OVERRIDE_ERROR,
+  activitySteer: UI_IDENTIFIERS.Activity.STEER,
+  activityReopen: UI_IDENTIFIERS.Activity.REOPEN,
 
   // The branching lifecycle stepper in the experience's spine bar, its per-node
   // revision menu (right-click / Shift+F10 / the active pill's caret) and the

@@ -20,11 +20,12 @@ export interface SubmitVerb {
   consequence: string;
   /**
    * A second line beneath the consequence, for what the verb will NOT do. Empty
-   * whenever there is nothing to warn about — today it is written by exactly one
-   * situation: questions staged on a rail with no question op (`allowAsk: false`),
-   * which no batch verb carries, because `toWireEntries` and `freeformNotesFrom`
-   * both exclude questions. Kept OUT of `consequence` so an `approveCopy` that
-   * replaces the consequence cannot swallow the warning with it.
+   * whenever there is nothing to warn about — it is written by exactly one
+   * situation: questions staged on a surface with no question op (`allowAsk: false`,
+   * which since stage 4b1 is only a design gate whose artifact kind will not
+   * resolve), which no batch verb carries, because `toWireEntries` and
+   * `freeformNotesFrom` both exclude questions. Kept OUT of `consequence` so an
+   * `approveCopy` that replaces the consequence cannot swallow the warning with it.
    */
   notice: string;
   disabled: boolean;
@@ -67,13 +68,18 @@ export function resolveSubmitVerb(input: {
    */
   allowSendBack?: boolean;
   /**
-   * False on a rail with NO question op — every construction activity type, where
-   * `constructionManager` has neither `AskQuestions` nor `SetReviewCommentStatus`
-   * (R2/GAP-6). The ask branch is then skipped entirely and the verb resolves as
-   * if no question had been staged, so one staged question can never leave the
-   * reviewer with a dead Ask button and no Approve or Send back at all. What the
-   * questions will NOT do is said in {@link SubmitVerb.notice} rather than
-   * silently dropped. Default true — every existing caller is unchanged.
+   * False on a surface with NO question op. Stage 4b1 gave the construction rail
+   * `AskTaskQuestions`, so the ~30 construction gates that used to pass false now
+   * pass true (their `verbs.ask.kind` flipped and this flag is driven from it); what
+   * is LEFT is a design gate whose artifact kind the SPA cannot resolve, which loses
+   * every verb including this one.
+   *
+   * The mechanism STAYS, and deliberately: it is the right guard for the next rail
+   * that lacks a question op, and deleting it would re-open the C1 defect — a single
+   * staged question replacing Approve AND Send back with an Ask the container returns
+   * early from. The ask branch is skipped entirely when false and the verb resolves as
+   * if no question had been staged, with what the questions will NOT do said in
+   * {@link SubmitVerb.notice} rather than silently dropped. Default true.
    */
   allowAsk?: boolean;
   /** Overrides the approve verb's wording where the consequence is bigger than "commits and advances". */
@@ -171,7 +177,7 @@ export function resolveSubmitVerb(input: {
     return {
       action: 'approve',
       label: `Resolve ${String(openThreads)} thread${openThreads === 1 ? '' : 's'} to approve`,
-      consequence: 'Open change requests block approval',
+      consequence: approveRefusedOverOpenThreads(openThreads),
       notice,
       disabled: true,
       secondaryActions,
@@ -185,6 +191,20 @@ export function resolveSubmitVerb(input: {
     disabled: false,
     secondaryActions,
   };
+}
+
+/**
+ * Why the approve is disabled, in the SERVER'S OWN WORDS — `deliveryManager`'s
+ * `refuseApproveOverOpenComments` answers FailedPrecondition with "cannot approve: N
+ * review thread(s) still open …" on every rail (the construction gate included, since
+ * stage 4b1), and a bar that said something else would be paraphrasing a refusal the
+ * reviewer may still meet if a comment is filed between the render and the click.
+ *
+ * Open QUESTIONS are not in this count: they are a soft warning at the gate, never a
+ * block (see `openThreadCount`, which is the count this takes).
+ */
+export function approveRefusedOverOpenThreads(openThreads: number): string {
+  return `Cannot approve: ${String(openThreads)} review thread${openThreads === 1 ? '' : 's'} still open — send ${openThreads === 1 ? 'it' : 'them'} back or resolve ${openThreads === 1 ? 'it' : 'them'} first`;
 }
 
 /**
