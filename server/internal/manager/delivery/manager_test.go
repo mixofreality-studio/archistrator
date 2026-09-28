@@ -25064,3 +25064,767 @@ func Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned(t *testing.T) {
 		}
 	}
 }
+
+// ===========================================================================
+// THE PUMP GUARD CENSUS (stage 4b2 Task 1).
+//
+// Stage 4b1 lost EIGHT preconditions inside bodies it deleted — a precondition that
+// lived in a deleted body and was not re-asserted in the body that replaced it — and
+// EVERY ONE was invisible to this suite. The fakes still modelled them; no test armed
+// them. They were found by a reviewer reading the retired rail's guards against the new
+// one, by hand, after the fact, one of them a live `vibes` autogate regression that had
+// been shipping for two waves.
+//
+// Stage 4b2 rewrites PumpNextActivityWorkflow (Task 12) and deletes ReplanSweepWorkflow
+// (Task 11). The pump is this wave's deleted body. So its guards come out of it FIRST,
+// as docs/bugs/2026-09-28-pump-guard-census.md and as the assertions below, and Task 16
+// walks that list rather than re-deriving it.
+//
+// WHERE THIS LIVES, and why it is not its own file: the 4b2 plan's Task 1 asks for
+// pumpguards_test.go. That file cannot exist — arch.CheckFileLayout's
+// testFileNameViolations rule (framework-go arch/filelayout.go) flags every *_test.go in
+// a component package whose name is not the package's ONE allowed test file, which here
+// is manager_test.go (see this file's header). A second test file is a red TestFileLayout
+// in internal/arch_test.go, and no gate is weakened to accommodate a doc.
+// ===========================================================================
+
+// pumpGuard is one row of the census: a guard-shaped line in the pump's neighbourhood,
+// what it protects, how its absence shows up, and the test that re-runs it. PinnedBy is
+// the load-bearing member — a guard nobody re-runs is a comment.
+type pumpGuard struct{ ID, Site, Protects, BreaksAs, PinnedBy string }
+
+// pumpGuardCensusDoc is the written twin, relative to this package directory. The two
+// halves are kept in agreement by Test_PumpGuardCensus_TheDocAndTheCodeAgree, because a
+// list Task 16 walks and a list the suite enforces must not be two different lists.
+const pumpGuardCensusDoc = "../../../../docs/bugs/2026-09-28-pump-guard-census.md"
+
+// pumpGuardCensus is the machine-readable census. Sites are line numbers at c5851e90;
+// Task 12 MOVES them, so the ID is the stable handle and the line is provenance.
+func pumpGuardCensus() []pumpGuard {
+	out := pumpGuardCensusPump()
+	out = append(out, pumpGuardCensusReplanSweep()...)
+	out = append(out, pumpGuardCensusPumpSweep()...)
+	return append(out, pumpGuardCensusSupervision()...)
+}
+
+// pumpGuardCensusPump is the 22 guards of pumpnextactivity.go — the body Task 12 deletes.
+func pumpGuardCensusPump() []pumpGuard {
+	return []pumpGuard{
+		{"G-P1", "pumpnextactivity.go:61-66", "the dispatch Query handler is registered BEFORE any blocking call",
+			"the facade's awaitDispatchDecision polls a run that cannot serve it and falls through to terminalPumpResult — a slow dispatch reported as a closed pump",
+			"Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall"},
+		{"G-P2", "pumpnextactivity.go:92-98", "a pause signal at run start goes quiet with NO ContinueAsNew",
+			"a paused pump continues-as-new, re-enters and dispatches on the next run",
+			"Test_Pump_PauseSignal_HaltsCascade_NoDispatch"},
+		{"G-P3", "pumpnextactivity.go:100-108", "a project with no state yet is a quiet tick, not an error; every other read error still fails the run",
+			"the Schedule's child start fails and logs a platform-wide sweep error every 30s",
+			"Test_Pump_ProjectNotFound_QuietTick"},
+		{"G-P4", "pumpnextactivity.go:116-121", "the RECORDED-pause gate sits BEFORE nextEligible",
+			"a pump the sweep restarts inside the relay window acts on the frontier — dispatching, or writing a durable failure record, while the operator has construction paused",
+			"Test_Pump_SweepStarted_RecordedPause_BlockedFrontier_NoFailureRecord"},
+		{"G-P5", "pumpnextactivity.go:133-168", "verdictBlocked writes a LOUD, DURABLE, APP-VISIBLE failure record and returns quiet",
+			"a plan defect becomes a silent quiescent pump: a project with 29 activities to build looks finished",
+			"Test_Pump_BlockedActivity_RecordsTerminalFailure"},
+		{"G-P6", "pumpnextactivity.go:169-172", "verdictQuiescent returns WITHOUT ContinueAsNew",
+			"an infinite pump: one run per second, per project, forever",
+			"Test_Pump_DrainedNetwork_QuietNoContinueAsNew"},
+		{"G-P7", "pumpnextactivity.go:187-192", "the pre-dispatch pause gate, between readProject (an Activity) and the child start",
+			"a pause that lands mid-read still dispatches one more activity, with nothing able to cancel it",
+			"Test_Pump_PauseDuringReadProject_NoNewDispatch"},
+		{"G-P8", "pumpnextactivity.go:219-220", "the dispatch decision is recorded BEFORE the blocking Get",
+			"every Begin blocks for the whole cascade drain and then times out at pumpDispatchWaitBudget",
+			"Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains"},
+		{"G-P9", "pumpnextactivity.go:252-256", "the drain gate before ContinueAsNew: a signal buffered on a run that ends in ContinueAsNew is NOT carried into the next run",
+			"a pause that lands while the run is parked is discarded and the next run dispatches",
+			"Test_Pump_PauseDuringChildGet_StopsCascadeAfterCurrentActivity"},
+		{"G-P10", "pumpnextactivity.go:259", "ContinueAsNew carries ONLY pumpInput — and the WHOLE of it",
+			"Task 12 grows the payload; an unbounded carry across a per-activity ContinueAsNew chain is unbounded history and an eventual payload failure that wedges the project's one pump",
+			"Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan"},
+		{"G-P11", "pumpnextactivity.go:327-345", "an UNDECODABLE pause still counts as a pause (fail safe, not open)",
+			"an operator halt is ignored because a byte payload did not parse",
+			"Test_Pump_UndecodablePauseSignal_StillPauses"},
+		{"G-P12", "pumpnextactivity.go:230-232", "child.Get's error arm: a FAILED CHILD FAILS THE PUMP RUN — this is how a cascade stops",
+			"a failing activity is re-dispatched by the next tick forever, or the cascade walks past it and builds on a broken dependency",
+			"Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade"},
+		{"G-P13", "pumpnextactivity.go:221-230", "ORDERING: the pump cannot re-select while the child runs, so nextEligible reads SETTLED state",
+			"the same still-Running activity is selected twice, or two children race one dependency frontier",
+			"Test_Pump_TheNextSelectionWaitsForTheChildsTerminal"},
+		{"G-P14", "pumpnextactivity.go:242-244", "the 1s durable pace between cascade iterations",
+			"an unpaced pump busy-spins ContinueAsNew, burning a workflow task per iteration",
+			"Test_Pump_TheCascadeIsPacedBetweenIterations"},
+		{"G-P15", "pumpnextactivity.go:164-166", "the failure record's OWN error arm — a record that cannot land fails the run",
+			"G-P5's loudness becomes best-effort and a blocked frontier goes silent again",
+			"Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun"},
+		{"G-P16", "pumpnextactivity.go:386", "the child is addressed by deliveryActivityWorkflowID — idempotent on its id, so a redundant tick collapses",
+			"two executions for one activity, both writing the same row; and the facade signals an id the pump never started",
+			"Test_Pump_StartsOneChildAndNamesNoActivityType"},
+		{"G-P17", "pumpnextactivity.go:387", "PARENT_CLOSE_POLICY_ABANDON on the child start",
+			"the pump's own close — every ContinueAsNew, every failure — terminates every in-flight activity",
+			"Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt"},
+		{"G-P18", "pumpnextactivity.go:268-273", "pumpPausedBehindGate's GetVersion fence, TWO change ids through one func; Default skips the check entirely",
+			"a pump parked across the deploy replays a recorded command sequence into a new arm — a non-determinism panic on the project's ONE pump",
+			"Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch"},
+		{"G-P19", "pumpnextactivity.go:284-293", "changePumpHonorsRecordedPause's THREE arms (no gate / operator-driven exempt / binds every pump)",
+			"the same replay wedge, plus a resumed project that will not pump",
+			"Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches"},
+		{"G-P20", "pumpnextactivity.go:301-310", "the pump-pause-decode-any fence: Default keeps the old struct decode",
+			"replaying a pre-change history takes the quiet branch where the history recorded a dispatch",
+			"Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode"},
+		{"G-P21", "pumpnextactivity.go:362-370", "the eligibility ladder: two fences, three CUMULATIVE arms",
+			"non-determinism on replay, or a dropped rung that silently un-dispatches the three design activities",
+			"Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule"},
+		{"G-P22", "pumpnextactivity.go:398-403", "a nil NextEligibleActivity helper is a quiet tick, never a dispatch",
+			"a wiring regression becomes a nil-deref inside the project's one pump",
+			"Test_Pump_NoEligibleActivity_QuietTick"},
+	}
+}
+
+// pumpGuardCensusReplanSweep is replansweep.go's two guards. Task 11 deletes the
+// workflow, so both rows exist to be SHOWN to protect nothing that survives.
+func pumpGuardCensusReplanSweep() []pumpGuard {
+	return []pumpGuard{
+		{"G-R1", "replansweep.go:25-27", "a nil ProjectID returns an empty result immediately",
+			"nothing — the all-projects arm has no reachable caller over either transport, which is Task 11's case for deleting it",
+			"Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep"},
+		{"G-R2", "replansweep.go:29-35", "isReadNotFound is a quiet sweep, not an error (G-P3's shape)",
+			"a platform-wide Schedule error every 300s for every state-less project",
+			"Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep"},
+	}
+}
+
+// pumpGuardCensusPumpSweep is pumpsweep.go's six guards. Task 4 changes G-S2 and must
+// not touch G-S1, which is the line directly below it.
+func pumpGuardCensusPumpSweep() []pumpGuard {
+	return []pumpGuard{
+		{"G-S1", "pumpsweep.go:94-96", "an OperatorPaused project is excluded from the fan-out",
+			"PauseProject stops the cascade for at most 30 seconds",
+			"Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused"},
+		{"G-S2", "pumpsweep.go:88-90", "the construction-phase filter (WRONG for the three design activities since 4b1 — Task 4's item)",
+			"widened carelessly: a child pump per project per 30s platform-wide; left as is: design walks never self-start",
+			"Test_PumpSweep_FiltersToConstructionPhaseOnly"},
+		{"G-S3", "pumpsweep.go:94", "a nil OperatorPaused pointer is NOT paused",
+			"an envelope that omits the flag stops every project on the platform",
+			"Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused"},
+		{"G-S4", "pumpsweep.go:106-116", "wait for the START ack only, and swallow AlreadyStarted as the desired outcome",
+			"the platform fan-out blocks behind one project's drain, or every tick fails on every healthy cascading project",
+			"Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst"},
+		{"G-S5", "pumpsweep.go:77-80", "a failed enumeration fails the whole tick — no partial fan-out",
+			"a catalog fault silently pumps a subset of the platform and the rest look drained",
+			"Test_PumpSweep_AFailedListProjects_FailsTheWholeTick"},
+		{"G-S6", "pumpsweep.go:65", "the sweep's OwnerScope is non-empty",
+			"ListProjects answers ContractMisuse and every sweep tick fails platform-wide, with a Schedule log as the only symptom",
+			"Test_PumpSweep_TheOwnerScopeIsNeverEmpty"},
+	}
+}
+
+// pumpGuardCensusSupervision is projectsupervision.go's seven guards. It is in the census
+// because relayPauseToPump is the ONE existing example of an out-of-band signal reaching
+// the pump — the shape a react-by-signal pump copies, G-V5 hole included.
+func pumpGuardCensusSupervision() []pumpGuard {
+	return []pumpGuard{
+		{"G-V1", "projectsupervision.go:40-44", "the sessionState Query handler is registered BEFORE the blocking Receive",
+			"a project-scope GetSessionState fails for every unpaused project",
+			"Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause"},
+		{"G-V2", "projectsupervision.go:74", "the pause-relays-to-pump fence: Default keeps cancel-then-record with no relay",
+			"non-determinism on a supervision run already inside the branch at deploy",
+			"Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay"},
+		{"G-V3", "projectsupervision.go:84-92", "RECORD then RELAY then CANCEL, in that order",
+			"a pump started inside the relay window dispatches through an operator halt",
+			"Test_Pause_RecordsBeforeRelayingToPump"},
+		{"G-V4", "projectsupervision.go:84-92", "each step's error arm aborts the rest, and the pause STAYS recorded",
+			"a half-applied pause the next sweep tick overrides",
+			"Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails"},
+		{"G-V5", "projectsupervision.go:152-155", "only a NotFound signal target is tolerated; every other delivery failure propagates",
+			"a pause lost with no trace — and, generalised to completions, the react-by-signal pump's dropped-signal hole",
+			"Test_Pause_NoRunningPump_NotFoundTolerated"},
+		{"G-V6", "projectsupervision.go:125-127", "a plan that does not ask for the record writes NO head state",
+			"a project paused in head-state that the engine never paused",
+			"Test_Pause_APlanThatDoesNotRecord_WritesNoPause"},
+		{"G-V7", "projectsupervision.go:66", "the intervention policy is threaded into ApplyPausePolicy",
+			"the real engine rejects every pause with \"unknown policy mode\"",
+			"Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug"},
+	}
+}
+
+// Test_PumpGuardCensus_EveryGuardIsPinned is the 4b1 lesson made executable. Stage 4b1
+// lost EIGHT preconditions inside bodies it deleted, and every one was invisible to the
+// suite: the reviewer found them by reading the retired rail's guards against the new one.
+// 4b2 rewrites the pump, so the guards come out of the body BEFORE the body moves, and
+// this test refuses a census row that names no test.
+//
+// It does NOT assert the guards still hold — the named tests do that. It asserts that the
+// LIST and the SUITE agree, which is the property a census has and a comment does not.
+func Test_PumpGuardCensus_EveryGuardIsPinned(t *testing.T) {
+	names := testFuncNamesInPackage(t)
+	seen := map[string]bool{}
+	for _, g := range pumpGuardCensus() {
+		if seen[g.ID] {
+			t.Errorf("guard %s is listed twice — one id, one guard", g.ID)
+		}
+		seen[g.ID] = true
+		if g.PinnedBy == "" {
+			t.Errorf("guard %s (%s) names no test — a guard nobody re-runs is a comment", g.ID, g.Site)
+			continue
+		}
+		if !names[g.PinnedBy] {
+			t.Errorf("guard %s names %s, which does not exist in this package", g.ID, g.PinnedBy)
+		}
+	}
+}
+
+// pumpGuardIDPattern matches an id as the written census BOLDS it in a table row. Bolding
+// is the discriminator: prose that mentions a guard in passing is not a row.
+var pumpGuardIDPattern = regexp.MustCompile(`\*\*(G-[A-Z]+[0-9]+)\*\*`)
+
+// Test_PumpGuardCensus_TheDocAndTheCodeAgree keeps the two halves one census. Task 16
+// walks docs/bugs/2026-09-28-pump-guard-census.md row by row; this suite enforces
+// pumpGuardCensus(). A row in one and not the other is how the written list quietly stops
+// being the list that is checked — which is exactly how the 4b1 guards were lost.
+func Test_PumpGuardCensus_TheDocAndTheCodeAgree(t *testing.T) {
+	raw, err := os.ReadFile(pumpGuardCensusDoc)
+	if err != nil {
+		t.Fatalf("reading the written census: %v", err)
+	}
+	inDoc := map[string]bool{}
+	for _, m := range pumpGuardIDPattern.FindAllStringSubmatch(string(raw), -1) {
+		inDoc[m[1]] = true
+	}
+	inCode := map[string]bool{}
+	for _, g := range pumpGuardCensus() {
+		inCode[g.ID] = true
+		if !inDoc[g.ID] {
+			t.Errorf("guard %s is in pumpGuardCensus() but has no row in %s", g.ID, pumpGuardCensusDoc)
+		}
+	}
+	for id := range inDoc {
+		if !inCode[id] {
+			t.Errorf("guard %s has a row in %s but is not in pumpGuardCensus() — the list Task 16 walks must be the list the suite enforces", id, pumpGuardCensusDoc)
+		}
+	}
+}
+
+// testFuncNamesInPackage parses every *_test.go in this directory and returns the set of
+// top-level Test* func names. Precedent for the technique: paramguard_arch_test.go keys
+// bodies by receiver + name, and internal/arch_test.go's TestBuildStatusVocabulariesAgree
+// parses two switches.
+func testFuncNamesInPackage(t *testing.T) map[string]bool {
+	t.Helper()
+	fset := token.NewFileSet()
+	out := map[string]bool{}
+	entries, err := filepath.Glob("*_test.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range entries {
+		f, perr := parser.ParseFile(fset, e, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", e, perr)
+		}
+		for _, d := range f.Decls {
+			fn, ok := d.(*ast.FuncDecl)
+			if ok && fn.Recv == nil && strings.HasPrefix(fn.Name.Name, "Test") {
+				out[fn.Name.Name] = true
+			}
+		}
+	}
+	return out
+}
+
+// ---- The guards nothing armed before this task -----------------------------
+
+// queryPumpDispatchAt reads the pump's dispatch Query at workflow time `at`, WHILE the run
+// is still going, and reports what it answered. The mid-run read is the whole point: every
+// pre-existing query in this file runs after the run closed, which cannot tell a handler
+// registered first from one registered last.
+func queryPumpDispatchAt(rig cascadingPumpRig, at time.Duration) (*pumpDispatch, *error) {
+	var answer pumpDispatch
+	var qerr error
+	rig.env.RegisterDelayedCallback(func() {
+		enc, err := rig.env.QueryWorkflow(queryPumpDispatch)
+		if err != nil {
+			qerr = err
+			return
+		}
+		qerr = enc.Get(&answer)
+	}, at)
+	return &answer, &qerr
+}
+
+// G-P1. The Query handler is registered before ANY blocking call, so a facade that joined
+// the run can read it while the pump is still inside its first Activity. readProject is
+// held for two minutes and the Query runs at one: it must be SERVED (the handler exists)
+// and must answer "not decided" (the run has not reached its decision point).
+func Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
+	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
+
+	if _, err := rig.run(t); !isContinueAsNew(err) {
+		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	}
+	if *qerr != nil {
+		t.Fatalf("G-P1: the pump must serve queryPumpDispatch while parked in readProject, its FIRST blocking call: %v", *qerr)
+	}
+	if answer.Decided {
+		t.Fatalf("G-P1: the run had not reached its decision point; want an undecided answer, got %+v", *answer)
+	}
+}
+
+// G-P8. THE ORDER, not the value: the dispatch decision is recorded after the child-start
+// command is queued and BEFORE the blocking Get, so the facade's synchronous
+// ExecuteNextActivity returns this tick's answer while the cascade drains in the
+// background. The child is held for ten minutes and the Query runs at one, so an
+// assignment moved below child.Get answers "not decided" here and fails — the existing
+// facade tests observe the Query's VALUE and could never see this.
+func Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 0)
+	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
+
+	if _, err := rig.run(t); !isContinueAsNew(err) {
+		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	}
+	if *qerr != nil {
+		t.Fatalf("query the in-flight pump: %v", *qerr)
+	}
+	if !answer.Decided || !answer.Dispatched || answer.ActivityID == nil || *answer.ActivityID != "C-XYZ" {
+		t.Fatalf("G-P8: the dispatch must be readable while the pump is parked in child.Get; got %+v", *answer)
+	}
+}
+
+// pumpContinueAsNewCarry declares, per pumpInput field, the bound that keeps the
+// ContinueAsNew payload finite. A field this table does not name is a test failure, which
+// is the point: stage 4b2 Task 12 GROWS this payload (the started set), and the bound is
+// stated here once rather than argued twice. A slice/map/array field must say what bounds
+// it — "bounded by the plan's activity count" is the answer the plan expects.
+var pumpContinueAsNewCarry = map[string]string{
+	"ProjectID":      "one id per run, O(1)",
+	"OperatorDriven": "one bool per run, O(1)",
+}
+
+// pumpContinueAsNewPayloadBudget is the self-imposed ceiling on the ContinueAsNew payload,
+// measured in bytes of encoded input. It is far under Temporal's own limit deliberately:
+// the pump continues-as-new once per dispatched activity, so the payload is paid on every
+// iteration, and a carry that needs more than this is carrying state that belongs in
+// head-state. This repo's plan has 30 activities; 8 KiB holds their ids many times over.
+const pumpContinueAsNewPayloadBudget = 8 << 10
+
+// G-P10. The payload's BOUND, which nothing pinned — Test_Pump_ContinueAsNew_CarriesOperatorDriven
+// pins that the whole input rides across, and that is the other half.
+func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
+	tp := reflect.TypeOf(pumpInput{})
+	if got, want := tp.NumField(), len(pumpContinueAsNewCarry); got != want {
+		t.Errorf("pumpInput has %d fields and pumpContinueAsNewCarry states %d bounds", got, want)
+	}
+	for i := 0; i < tp.NumField(); i++ {
+		f := tp.Field(i)
+		bound, declared := pumpContinueAsNewCarry[f.Name]
+		if !declared {
+			t.Errorf("G-P10: pumpInput.%s (%s) rides ContinueAsNew and pumpContinueAsNewCarry states no bound for it — Task 12 grows this payload and OWES the bound here", f.Name, f.Type)
+			continue
+		}
+		if k := f.Type.Kind(); k == reflect.Slice || k == reflect.Map || k == reflect.Array {
+			if !strings.Contains(bound, "bounded by") {
+				t.Errorf("G-P10: pumpInput.%s is a %s, so its bound must name what bounds it (\"bounded by ...\"); got %q", f.Name, k, bound)
+			}
+		}
+	}
+	rig := newCascadingPumpRig(0, 0)
+	_, err := rig.run(t)
+	var canErr *workflow.ContinueAsNewError
+	if !errors.As(err, &canErr) {
+		t.Fatalf("want a ContinueAsNewError to measure, got %v", err)
+	}
+	size := 0
+	for _, p := range canErr.Input.GetPayloads() {
+		size += len(p.GetData())
+	}
+	if size > pumpContinueAsNewPayloadBudget {
+		t.Fatalf("G-P10: the ContinueAsNew payload is %d bytes, over the %d-byte budget it is paid once per dispatched activity", size, pumpContinueAsNewPayloadBudget)
+	}
+}
+
+// G-P12. A FAILED CHILD FAILS THE PUMP RUN, and that is how a cascade stops on a broken
+// activity instead of marching down the frontier. NOTHING armed this: both existing
+// OnWorkflow(executionKindDeliveryActivity) mocks in this file Return(nil), so no test has
+// ever failed a child. It is also one of the four things child.Get gives that a signal
+// does not — a signal carries no error channel, and deliveryActivity has no
+// failure-signal producer — so Task 12 owes this guard a replacement, not a re-assertion.
+func Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { starts++ }).
+		Return(errors.New("the activity child failed"))
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("G-P12: a failed child must FAIL the pump run; a clean completion is a cascade that silently walked past a broken activity")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("G-P12: a failed child must STOP the cascade, not continue it: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("want the one child, got %d", starts)
+	}
+}
+
+// pumpFlightCounts counts head-state reads and child starts, so a test can ask what the
+// pump had done AT A MOMENT rather than only at the end.
+type pumpFlightCounts struct {
+	mu       sync.Mutex
+	reads    int
+	children int
+}
+
+func (c *pumpFlightCounts) watch(env *testsuite.TestWorkflowEnvironment) {
+	env.SetOnActivityStartedListener(func(info *activity.Info, _ context.Context, _ converter.EncodedValues) {
+		if info.ActivityType.Name != "designSessionAccess.readProjectOnBranch" {
+			return
+		}
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.reads++
+	})
+	env.SetOnChildWorkflowStartedListener(func(*workflow.Info, workflow.Context, converter.EncodedValues) {
+		c.mu.Lock()
+		defer c.mu.Unlock()
+		c.children++
+	})
+}
+
+func (c *pumpFlightCounts) read() (int, int) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.reads, c.children
+}
+
+// G-P13. THE ORDERING child.Get buys, stated as the property that survives the rewrite:
+// THE PUMP DOES NOT REACH ITS NEXT SELECTION UNTIL THE CHILD'S TERMINAL HAS LANDED. That is
+// what lets nextEligible's PumpWroteRow / ledger derivation read SETTLED state; without it
+// the next selection re-picks the same still-Running activity.
+//
+// TWO EARLIER DRAFTS OF THIS TEST ASSERTED THE WRONG THING, and they are recorded here
+// because the mistake IS the census's own failure mode — a guard that looks armed and is
+// not. Draft 1 sampled the read/child counters at one minute and asserted 1/1; draft 2
+// compared env.Now() before and after the run. BOTH stay true with child.Get DELETED,
+// because the test environment goes on skipping time for the abandoned child's pending
+// timer after the pump has already continued-as-new — so the env's clock reaches ten
+// minutes either way, and a delayed callback still fires. Only the RUN's own liveness
+// distinguishes the two: mid-flight, the pump must still be RUNNING. Verified by mutation
+// (delete child.Get, exactly what Task 12 does: this form fails, the other two pass).
+func Test_Pump_TheNextSelectionWaitsForTheChildsTerminal(t *testing.T) {
+	const childRun = 10 * time.Minute
+	rig := newCascadingPumpRig(childRun, 0)
+	counts := &pumpFlightCounts{}
+	counts.watch(rig.env)
+	stillRunningMidFlight := false
+	rig.env.RegisterDelayedCallback(func() {
+		stillRunningMidFlight = !rig.env.IsWorkflowCompleted()
+	}, childRun/2)
+
+	if _, err := rig.run(t); !isContinueAsNew(err) {
+		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	}
+	if !stillRunningMidFlight {
+		t.Fatalf("G-P13: the pump must not hand off to its next selection until the child's terminal has landed; it had already ended %s into a child that takes %s, so the next selection would read unsettled state and re-pick the same still-Running activity", childRun/2, childRun)
+	}
+	if reads, children := counts.read(); reads != 1 || children != 1 {
+		t.Fatalf("G-P13: one run reads head-state once and selects once: got %d read(s), %d child(ren)", reads, children)
+	}
+}
+
+// G-P14. The cascade paces itself. pumpPaceInterval appeared in NO test file before this
+// one: an unpaced pump busy-spins ContinueAsNew, one workflow task per iteration, and
+// nothing would have said so.
+func Test_Pump_TheCascadeIsPacedBetweenIterations(t *testing.T) {
+	rig := newCascadingPumpRig(0, 0)
+	start := rig.env.Now()
+
+	if _, err := rig.run(t); !isContinueAsNew(err) {
+		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	}
+	if elapsed := rig.env.Now().Sub(start); elapsed < pumpPaceInterval {
+		t.Fatalf("G-P14: the cascade must wait at least %s before handing off to the next iteration; the run took %s of workflow time", pumpPaceInterval, elapsed)
+	}
+}
+
+// G-P15. G-P5's loudness is not best-effort. If the durable ActivityConstructionFailed
+// record CANNOT land, the run must fail rather than report a clean quiet tick — otherwise
+// the blocked frontier is invisible again, which is the whole defect G-P5 exists to end.
+// Every write conflicts, so applyRecovering exhausts its bound and the error propagates.
+func Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun(t *testing.T) {
+	rig := newPumpRig(pumpSelection{
+		Verdict:              verdictBlocked,
+		BlockedActivityID:    "C-TLM",
+		BlockedFailureReason: projectstate.ComponentUnresolved,
+		BlockedReason:        "activity C-TLM names a component not in the committed systemDesign",
+	}, 0, 0)
+	rig.ps.conflictFirst = maxMutateConflictAttempts
+
+	_, err := rig.run(t)
+	if err == nil {
+		t.Fatal("G-P15: a failure record that cannot land must FAIL the pump run; a clean quiet tick is how a blocked frontier goes silent")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("G-P15: the blocked verdict never continues the cascade: %v", err)
+	}
+	if len(rig.ps.failed) != 0 {
+		t.Fatalf("no record landed, so none may be reported: got %v", rig.ps.failed)
+	}
+}
+
+// G-P17. PARENT_CLOSE_POLICY_ABANDON: the activity is its own durable execution,
+// independent of this pump tick's continue-as-new chain. Drop it and the pump's own close
+// terminates every in-flight activity — silent, and catastrophic. PARENT_CLOSE appeared in
+// NO test file in this package before this one. Asserted at the SOURCE, the same way
+// Test_Pump_StartsOneChildAndNamesNoActivityType asserts the child's id, because the test
+// environment does not surface a child's parent-close policy.
+func Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt(t *testing.T) {
+	src, err := os.ReadFile("pumpnextactivity.go")
+	if err != nil {
+		t.Fatalf("reading the pump: %v", err)
+	}
+	if !strings.Contains(string(src), "ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON") {
+		t.Error("G-P17: the pump must start its child ABANDON; without it every ContinueAsNew and every pump failure terminates the in-flight activity")
+	}
+}
+
+// G-P21. The eligibility ladder, ARM BY ARM. Rung 1 had a DefaultVersion test; rung 2
+// (design-activities-dispatchable) had none, and a dropped rung silently un-dispatches the
+// three design activities. The rule the pump passed is captured from the selection helper,
+// which is the only place it is observable.
+func Test_Pump_EligibilityRuleLadder_EachFenceArmSelectsItsRule(t *testing.T) {
+	cases := []struct {
+		name string
+		arm  func(*testsuite.TestWorkflowEnvironment)
+		want eligibilityRule
+	}{
+		{"no ledger marker: the pre-D1 rule", func(env *testsuite.TestWorkflowEnvironment) {
+			env.OnGetVersion(changeLedgerPartialResume, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+		}, eligibleNotStarted},
+		{"ledger v1, no design marker", func(env *testsuite.TestWorkflowEnvironment) {
+			env.OnGetVersion(changeDesignActivitiesDispatchable, workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+		}, eligibleDispatchable},
+		{"a new run records both markers", nil, eligibleWithDesign},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got, err := pumpRuleUnder(tc.arm)
+			if err != nil {
+				t.Fatalf("pump error: %v", err)
+			}
+			if got != tc.want {
+				t.Fatalf("G-P21: %s must select rule %d, got %d", tc.name, tc.want, got)
+			}
+		})
+	}
+}
+
+// pumpRuleUnder runs one quiescent pump tick under `arm` and reports the eligibilityRule
+// the pump handed its selection helper.
+func pumpRuleUnder(arm func(*testsuite.TestWorkflowEnvironment)) (eligibilityRule, error) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	got := eligibilityRule(-1)
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{}, Review: &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, rule eligibilityRule) pumpSelection {
+			got = rule
+			return pumpSelection{Verdict: verdictQuiescent}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	if arm != nil {
+		arm(env)
+	}
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+	return got, env.GetWorkflowError()
+}
+
+// G-R1. ReplanSweepWorkflow's all-projects arm returns an empty result immediately. No
+// test ever ran the workflow with a nil project — every caller passes one. The row exists
+// so Task 11 can DELETE the arm having shown what it does, rather than assuming.
+func Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &csFakeProjectState{project: projectstate.Project{ID: "p", Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerReplanSweep(env, wf, ps)
+
+	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("G-R1: the all-projects arm is quiet, not an error: %v", err)
+	}
+	var res ReplanSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode sweep result: %v", err)
+	}
+	if len(res.FlaggedVariances) != 0 {
+		t.Fatalf("G-R1: want an empty result, got %v", res.FlaggedVariances)
+	}
+}
+
+// G-R2. G-P3's shape on the replan sweep: a project with no state is a quiet sweep, not a
+// Schedule error every 300s.
+func Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{notFound: true}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerReplanSweep(env, wf, ps)
+
+	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("G-R2: a state-less project is a quiet sweep, not an error: %v", err)
+	}
+	var res ReplanSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode sweep result: %v", err)
+	}
+	if len(res.FlaggedVariances) != 0 {
+		t.Fatalf("G-R2: want an empty result, got %v", res.FlaggedVariances)
+	}
+}
+
+// failingProjectLister answers ListProjects with a non-retryable fault. ContractMisuse
+// because it is non-retryable under the default Activity options (a Transient error would
+// retry indefinitely) — the same choice Test_Pause_RelayFailsAfterRecord makes.
+type failingProjectLister struct{ fakeProjectLister }
+
+func (failingProjectLister) ListProjects(fwra.Context, projectstate.OwnerScope) ([]projectstate.ProjectSummary, error) {
+	return nil, fwra.New(fwra.ContractMisuse, "project catalog unreachable")
+}
+
+// G-S5. A failed enumeration fails the WHOLE tick. The lister fake could not fail before
+// this test, so nothing said what a catalog fault does — and the dangerous answer, a
+// partial fan-out reported as a complete one, looks identical in the result type.
+func Test_PumpSweep_AFailedListProjects_FailsTheWholeTick(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	ps := &csFakeProjectState{project: projectstate.Project{ID: "p", Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	env.RegisterWorkflowWithOptions(wf.PumpSweepWorkflow, workflow.RegisterOptions{Name: executionKindPumpSweep})
+	acts := &genActivities{ProjectState: failingProjectLister{fakeProjectLister{fakeFullProjectState: fakeFullProjectState{ps}}}}
+	env.RegisterActivityWithOptions(acts.ProjectStateListProjects, activity.RegisterOptions{Name: "projectStateAccess.listProjects"})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump sweep did not complete")
+	}
+	if env.GetWorkflowError() == nil {
+		t.Fatal("G-S5: a failed enumeration must fail the tick; a swallowed error is a sweep that silently pumps a subset of the platform")
+	}
+}
+
+// G-S6. The sweep's OwnerScope must be non-empty: projectStateAccess.ListProjects answers
+// ContractMisuse otherwise, and both real catalog implementations then discard the value
+// entirely — so the constant's ONLY contract is that it is not blank.
+func Test_PumpSweep_TheOwnerScopeIsNeverEmpty(t *testing.T) {
+	if strings.TrimSpace(string(pumpSweepOwnerScope)) == "" {
+		t.Fatal("G-S6: an empty OwnerScope is ContractMisuse at the RA — every sweep tick fails platform-wide with a Schedule log as the only symptom")
+	}
+}
+
+// G-V1. The supervision workflow spends its life parked in pauseCh.Receive, so its
+// sessionState Query handler must be registered BEFORE that block. Read at one
+// millisecond, while it waits; the pause arrives after.
+func Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Review:       &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{RecordPaused: true}},
+	})
+	registerSupervisionWithBus(env, wf, ps, &csFakePipeline{}, &recordingSignalBus{})
+
+	var view ConstructionSessionView
+	var qerr error
+	env.RegisterDelayedCallback(func() {
+		enc, err := env.QueryWorkflow(querySessionState)
+		if err != nil {
+			qerr = err
+			return
+		}
+		qerr = enc.Get(&view)
+	}, time.Millisecond)
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, 2*time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if qerr != nil {
+		t.Fatalf("G-V1: the sessionState Query must be served while supervision waits for the pause: %v", qerr)
+	}
+	if view.ProjectID != pid || view.Stage != StageDispatching {
+		t.Fatalf("G-V1: want the waiting project's dispatching stage, got %+v", view)
+	}
+}
+
+// G-V6. The engine's DECIDE step owns whether the pause is RECORDED; the Manager executes
+// the plan and must not record on its own initiative. Every other pause test in this file
+// set RecordPaused true, so the false arm was never honoured under test.
+func Test_Pause_APlanThatDoesNotRecord_WritesNoPause(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 2, Phase: 2}}
+	pipe := &csFakePipeline{}
+	bus := &recordingSignalBus{}
+	wf := csNewWorkflows(wfDeps{
+		Review: &fakeReview{},
+		Intervention: &fakeIntervention{plan: intervention.PausePlan{
+			PipelinesToCancel: []intervention.PipelineRef{"wf-C-1"}, RecordPaused: false,
+		}},
+	})
+	registerSupervisionWithBus(env, wf, ps, pipe, bus)
+
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("supervision error: %v", err)
+	}
+	if len(ps.paused) != 0 {
+		t.Fatalf("G-V6: a plan that does not ask for the record must write none, got %v", ps.paused)
+	}
+	if len(bus.targets) != 1 || len(pipe.cancelled) != 1 {
+		t.Fatalf("G-V6: the rest of the branch still runs; got %d relay(s), %d cancel(s)", len(bus.targets), len(pipe.cancelled))
+	}
+}
