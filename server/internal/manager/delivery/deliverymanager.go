@@ -5718,21 +5718,28 @@ const pumpDispatchPollInterval = 25 * time.Millisecond
 // pumpDispatchWaitBudget bounds the poll, so a run that never reaches its decision point
 // cannot hold the caller forever. A var (not a const) only so tests can shorten it.
 //
-// OPEN (fix round 3, pending a contract ruling): when this budget expires while the run
-// is still RUNNING and undecided, the honest answer is "still deciding — the pump is
-// running", which is not a failure. PumpResult has no such outcome and fwmanager has no
-// non-failure Kind, so saying it on the wire needs a contract change
-// (project.json .serviceContracts), which this branch must not make while D9 rewrites
-// project.json. Until then the façade returns promptly with a DISTINGUISHABLE
-// Infrastructure Detail (pumpStillDecidingDetail) instead of waiting out the terminal
-// budget into a generic timeout.
-var pumpDispatchWaitBudget = 30 * time.Second
+// IT WAS 30s BECAUSE THE PUMP PARKED IN child.Get (stage 4b2). The old pump recorded its
+// decision and then blocked on a child's whole terminal, so a slow project could take most
+// of a tick to reach the decision point at all. The lease pump starts its whole frontier
+// and records the decision within a workflow task of start, so the budget drops to 5s —
+// still an order of magnitude above the observed path, and low enough that a genuinely
+// wedged pump is reported while a human is still looking at the screen that asked for it.
+//
+// THE POLL STAYS, and PumpResult does NOT grow a stillDeciding outcome. The start is still
+// ASYNCHRONOUS — ExecuteWorkflow returns before the workflow's first task runs, so there is
+// still a window in which the Query has no answer — and the OPEN note that used to live
+// here asked for a contract change to distinguish a slow pump from a failed one. The new
+// shape makes that distinction uninteresting: a pump that has not decided within five
+// seconds of start is failed, and pumpStillDecidingDetail already says so distinguishably.
+var pumpDispatchWaitBudget = 5 * time.Second
 
 // pumpQueryFailureBudget is how long the dispatch-decision Query may KEEP failing (e.g.
 // no worker polling during a rolling restart) before the façade stops retrying it and
 // falls back to the bounded terminal wait. A single failed Query is retried, never read
-// as "the run is gone". A var only so tests can shorten it.
-var pumpQueryFailureBudget = 10 * time.Second
+// as "the run is gone". Dropped 10s → 5s with pumpDispatchWaitBudget, and for the same
+// reason: a failure budget above the wait budget can never be reached, so leaving it at 10
+// would have made it dead code that reads like a policy. A var only so tests can shorten it.
+var pumpQueryFailureBudget = 5 * time.Second
 
 // pumpClosureCheckInterval paces the DescribeWorkflowExecution check that detects a run
 // which CLOSED without deciding (it failed before its decision point). Queries against a
@@ -5766,6 +5773,13 @@ func (m *constructionManager) awaitDispatchDecision(ctx context.Context, we clie
 			return PumpResult{}, fatal
 		}
 		if qerr == nil && d.Decided {
+			// THE WHOLE FRONTIER IS IN d.ActivityIDs AND ONLY THE FIRST FITS HERE. The lease
+			// pump starts every eligible activity, so one tick's answer is a LIST; PumpResult
+			// carries one id, and growing it is the additive contract delta
+			// deliveryManager.$defs.PumpResult.activityIds that stage 4b2 did not spend its one
+			// model edit on. Until that lands the rest is observable on queryPumpDispatch and in
+			// the pump's own log line, and nothing in the SPA reads activityId at all (the
+			// response body is narrowed to {dispatched?: boolean}).
 			return PumpResult{Dispatched: d.Dispatched, ActivityID: d.ActivityID}, nil
 		}
 		now := time.Now()
@@ -13143,6 +13157,24 @@ const (
 	// synchronous dispatch outcome ExecuteNextActivity returns WITHOUT awaiting the
 	// background self-cascade drain (constructionManager.md §2.1).
 	queryPumpDispatch = "pumpDispatchDecision"
+	// THE MAIN-WRITE LEASE (stage 4b2). Three signals, all of them Manager-internal
+	// plumbing between the project's ONE pump and its per-activity children, all of them
+	// delivered by the EXISTING messageBus.deliverSignal — no new ResourceAccess producer
+	// and no contract change. The pump grants ADMISSION, never does the merge.
+	//
+	// signalActivityLeaseRequested is child → pump (activityLeaseRequest): "I am about to
+	// write main". Sent immediately before the merge tail and nowhere else.
+	signalActivityLeaseRequested = "activityLeaseRequested"
+	// signalActivityLeaseGranted is pump → child (activityLeaseGrant), carrying the EPOCH
+	// so a child can refuse a grant issued to a successor after the pump decided it was
+	// gone. It doubles as the liveness probe: a delivery that answers RA NotFound is how
+	// the pump learns a holder's execution has closed (pumpCheckLease).
+	signalActivityLeaseGranted = "activityLeaseGranted"
+	// signalActivityFinished is child → pump (activityFinishedSignal): the walk reached a
+	// terminal the platform RECORDED, so the lease — if this activity held one — is free.
+	// failWalk deliberately does NOT send it; see pumpReconcile for why that asymmetry is
+	// what keeps G-P12 alive for a child whose future the pump no longer holds.
+	signalActivityFinished = "activityFinished"
 )
 
 // ExecutionKinds — the registered workflow names (constructionManager.md §6.2).

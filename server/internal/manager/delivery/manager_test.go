@@ -12230,6 +12230,17 @@ func isContinueAsNew(err error) bool {
 	return errors.As(err, &canErr)
 }
 
+// atItsHistoryBudget puts the run one event over the pump's ceiling, which since stage 4b2
+// is the ONLY reason the pump continues as new: the lease pump PARKS on its selector
+// instead of continuing once per dispatched activity, so a continue is now a history fact
+// rather than a cascade step. The SDK's test environment serves this as the workflow's
+// history length, so the boundary runs against the PRODUCTION const rather than a smaller
+// budget substituted for it.
+func (r cascadingPumpRig) atItsHistoryBudget() cascadingPumpRig {
+	r.env.SetCurrentHistoryLength(pumpHistoryBudget + 1)
+	return r
+}
+
 // M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
 // pre-change supervision execution keeps main's sequence EXACTLY: cancel, then record,
 // and no relay.
@@ -17249,6 +17260,34 @@ func newShapeRig(t *testing.T, typeKey string) *shapeRig {
 		wf.Deliveries = rig.rec
 		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
 		rig.register = func(env *testsuite.TestWorkflowEnvironment) { registerDeliveryActivity(env, wf, ps, pipe) }
+	case "pump":
+		// THE ONE ARM THAT IS NOT A LIFECYCLE. continue-as-new-loses-no-signal is a shape of
+		// the PUMP, not of a walk, and it is in this table rather than beside the other
+		// Test_Pump cases for the reason the table exists: it is the wave's riskiest failure
+		// and the only one that fails SILENTLY, so it belongs with the cases a reader runs to
+		// ask "does this commit still hold the shapes". The rig is a two-activity frontier
+		// with both children held open, which is what lets the run reach a continue-as-new
+		// boundary with work still outstanding.
+		ps := &csFakeProjectState{project: projectstate.Project{
+			ID: "shape-p", Version: 1, Phase: 2,
+			ActivityExecution: map[string]projectstate.ActivityExecution{},
+		}}
+		ps.rec = rig.rec
+		pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary(), rec: rig.rec}
+		deps := gateDeps(ps)
+		deps.Review = review.NewReviewEngine()
+		deps.NextEligibleActivity = twoActivityFrontier
+		wf := csNewWorkflows(deps)
+		wf.Deliveries = rig.rec
+		rig.cs, rig.cswf, rig.pipe = ps, wf, pipe
+		rig.register = func(env *testsuite.TestWorkflowEnvironment) {
+			registerPumpWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+			env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+				After(90 * time.Minute).Return(nil)
+			read := &genActivities{DesignSession: projectstate.NewDesignSessionAccess(fakeFullProjectState{ps})}
+			env.OnActivity("designSessionAccess.readProjectOnBranch", mock.Anything, mock.Anything, mock.Anything).
+				After(2 * time.Minute).Return(read.DesignSessionReadProjectOnBranch)
+		}
 	default:
 		t.Fatalf("newShapeRig: no rail is wired for lifecycle %q — add its arm rather than defaulting it, "+
 			"because a shape case silently driving the wrong child would pass for the wrong reason", typeKey)
@@ -17345,6 +17384,22 @@ func lifecycleShapeCases() []lifecycleShapeCase {
 			// (reviewengine.go:432). One case, both halves.
 			name: "human-floor-under-vibes", typeKey: "requirements",
 			drive: driveVibesFloor, wantToday: shapePassesToday,
+		},
+		{
+			// CONTINUE-AS-NEW LOSES NO SIGNAL. The ELEVENTH case, and it exists because this
+			// wave's riskiest failure is the only one that fails SILENTLY. A lease request or a
+			// finish buffered on a run that continues-as-new is DISCARDED by the SDK; the next
+			// run has no record of it; the project's one pump then waits out a lease deadline
+			// for an activity that already finished, or never re-selects an activity whose
+			// finish was the thing lost. pump-singular-per-project means there is no second
+			// pump to cover it — the blast radius is that the project stops.
+			//
+			// The case buffers BOTH a finish and a lease request across a CAN boundary and
+			// asserts both survive into the next run's input. It is MUTATION-CHECKED: remove
+			// the drain-and-carry and this case goes red, which is the discipline every case in
+			// this table was written with.
+			name: "continue-as-new-loses-no-signal", typeKey: "pump",
+			drive: driveContinueAsNewLosesNoSignal, wantToday: shapePassesToday,
 		},
 	}
 }
@@ -17512,6 +17567,49 @@ func driveVibesFloor(t *testing.T, rig *shapeRig) shapeOutcome {
 	return got
 }
 
+// driveContinueAsNewLosesNoSignal drives ONE pump run to a ContinueAsNew boundary with a
+// finish AND a lease request buffered on it, and reports what the boundary carried.
+//
+// THE TIMING IS THE CASE, so it is spelled out. The pump's head-state read is held for two
+// minutes and both signals are delivered at one, so they land while the run is inside an
+// Activity: they are BUFFERED and the selector has not seen either of them. The history
+// length is over the pump's budget from the start, so the first frontier pass is followed
+// straight away by the continue-as-new decision — which is exactly the window in which the
+// SDK would throw both messages away. What the carry catches is asserted off the next
+// run's own input, not off a hook, because the input is the only thing that actually
+// survives the boundary.
+func driveContinueAsNewLosesNoSignal(t *testing.T, rig *shapeRig) shapeOutcome {
+	t.Helper()
+	rig.register(rig.env)
+	rig.env.SetCurrentHistoryLength(pumpHistoryBudget + 1)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+			ActivityID: "C-ONE", Outcome: projectstate.ActivityOutcomeCompleted})
+		rig.env.SignalWorkflow(signalActivityLeaseRequested, activityLeaseRequest{ActivityID: "C-TWO"})
+	}, time.Minute)
+
+	rig.env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: "shape-p"})
+	if !rig.env.IsWorkflowCompleted() {
+		t.Fatal("the shape driver did not reach a terminal")
+	}
+	var canErr *workflow.ContinueAsNewError
+	if err := rig.env.GetWorkflowError(); !errors.As(err, &canErr) {
+		t.Fatalf("the case needs a continue-as-new to measure; got %v", err)
+	}
+	var next pumpInput
+	if err := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &next); err != nil {
+		t.Fatalf("decode the continued input: %v", err)
+	}
+	for _, c := range next.Carried {
+		rig.rec.signalDelivered(string(c.ActivityID), c.Kind)
+	}
+	// The started set rides across as well; without it the next run re-dispatches both.
+	for _, id := range next.Started {
+		rig.rec.taskStarted(string(id))
+	}
+	return rig.rec.outcome(nil, false)
+}
+
 // ---- shared driver plumbing ------------------------------------------------
 
 // shapeRequireCompleted is the precondition every case shares: a driver that did not
@@ -17611,9 +17709,23 @@ func assertShape(t *testing.T, name string, got shapeOutcome) {
 		assertShapeInboxOverflow(t, name, got)
 	case "human-floor-under-vibes":
 		assertShapeVibesFloor(t, name, got)
+	case "continue-as-new-loses-no-signal":
+		assertShapeContinueAsNewLosesNoSignal(t, name, got)
 	default:
 		t.Fatalf("no assertion is written for shape case %q; a case without one would pass by saying nothing", name)
 	}
+}
+
+// assertShapeContinueAsNewLosesNoSignal is the drain-and-carry's oracle. BOTH messages
+// must be in the continued input, and the assertion names them individually rather than
+// counting, because a carry that kept only the finish is the exact half-fix that would
+// look like a pass: the finish is the one a reader thinks of first, and the lost lease
+// request is the one that leaves a project waiting on an admission nobody will answer.
+func assertShapeContinueAsNewLosesNoSignal(t *testing.T, name string, got shapeOutcome) {
+	t.Helper()
+	shapeWantOrder(t, name, "SignalsDelivered", got.SignalsDelivered,
+		[]string{"C-ONE:" + pumpCarriedFinish, "C-TWO:" + pumpCarriedLeaseRequest})
+	shapeWantOrder(t, name, "TaskOrder", got.TaskOrder, []string{"C-ONE", "C-TWO"})
 }
 
 // assertShapeLinearDeployment pins the shape the flat walk and the DAG walk must agree
@@ -18197,6 +18309,16 @@ func shapeSDPEngines() sdpEngines {
 // (the round comment status its gate applies, and the operator note an override at a gate
 // records).
 func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess) {
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+}
+
+// registerDeliveryActivityWithBus is registerDeliveryActivity with the
+// messageBus.deliverSignal Activity backed by a caller-supplied bus — the transport the
+// child's MAIN-WRITE LEASE request and its terminal report ride (stage 4b2).
+func registerDeliveryActivityWithBus(
+	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState,
+	pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus,
+) {
 	env.RegisterWorkflowWithOptions(wf.DeliveryActivityWorkflow, workflow.RegisterOptions{Name: executionKindDeliveryActivity})
 	registerGenPipeline(env, pipe)
 	registerGenEpisodes(env, nil)
@@ -18211,11 +18333,16 @@ func registerDeliveryActivity(env *testsuite.TestWorkflowEnvironment, wf *csWork
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
-	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
 		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
 		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	// The delivery child asks the pump for the main-write lease through
+	// messageBus.deliverSignal (stage 4b2), so the transport is registered for every
+	// delivery-child case, not only the ones that exercise the lease — the production
+	// worker registers one set per queue.
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 // shapeApprove / shapeReject are the generic child's gate signals: keyed by TASK, which is
@@ -22988,9 +23115,24 @@ func registerConstruct(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, 
 	// Phase-gate + per-activity construction-status records (fire only when gitOn;
 	// the gate tests wire GitStatus so these must be registered).
 	registerGenGitStatus(env, ps)
+	// The child's merge tail asks the pump for the main-write lease over this transport
+	// (stage 4b2); with no pump running it answers and the tail proceeds unleased.
+	env.RegisterActivityWithOptions((&genActivities{MessageBus: &recordingSignalBus{}}).MessageBusDeliverSignal,
+		activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 func registerPump(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState, pipe agenticjob.AgenticJobAccess, eps ...*fakeEpisodes) {
+	registerPumpWithBus(env, wf, ps, pipe, &recordingSignalBus{}, eps...)
+}
+
+// registerPumpWithBus is registerPump with the messageBus.deliverSignal Activity backed by
+// a caller-supplied bus — the transport the MAIN-WRITE LEASE rides (stage 4b2). The pump
+// grants over it, the child asks over it, and its NotFound answer is how the pump learns a
+// holder's execution has closed, so a lease case wires its own bus to see all three.
+func registerPumpWithBus(
+	env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState,
+	pipe agenticjob.AgenticJobAccess, bus messagebus.MessageBus, eps ...*fakeEpisodes,
+) {
 	env.RegisterWorkflowWithOptions(wf.PumpNextActivityWorkflow, workflow.RegisterOptions{Name: executionKindPump})
 	// ONE CHILD. The pump starts the generic DAG child for every activity, and since stage 4b1
 	// Task 13 there is no other type to register: the retired per-kind children and the version
@@ -23007,11 +23149,16 @@ func registerPump(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *c
 	registerGenConstructionTransition(env, ps)
 	csRegisterGenActivityExecution(env, ps)
 	registerGenGitStatus(env, ps)
-	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}}
+	acts := &genActivities{ActivityExecution: csFakeActivityExecution{ps}, MessageBus: bus}
 	env.RegisterActivityWithOptions(acts.ActivityExecutionSetReviewCommentStatus,
 		activity.RegisterOptions{Name: "activityExecutionAccess.setReviewCommentStatus"})
 	env.RegisterActivityWithOptions(acts.ActivityExecutionRecordOperatorNote,
 		activity.RegisterOptions{Name: "activityExecutionAccess.recordOperatorNote"})
+	// THE LEASE'S TRANSPORT (stage 4b2). The pump grants through messageBus.deliverSignal
+	// and the child asks through it, both on the SAME generated invoker relayPauseToPump
+	// uses — so every rig that runs a pump or a delivery child must register it, exactly as
+	// the production worker does once per queue.
+	env.RegisterActivityWithOptions(acts.MessageBusDeliverSignal, activity.RegisterOptions{Name: "messageBus.deliverSignal"})
 }
 
 // registerPumpSweep registers PumpSweepWorkflow + projectStateAccess.listProjects
@@ -23335,11 +23482,16 @@ func Test_Pump_ProjectNotFound_QuietTick(t *testing.T) {
 	}
 }
 
-// An eligible activity ⇒ the pump runs the per-activity child to COMPLETION, then
-// SELF-CASCADES via ContinueAsNew (Task 3). The test env surfaces ContinueAsNew as a
-// *workflow.ContinueAsNewError carrying the next pumpInput. The child's spine ran
-// end-to-end (one reviewed + one completed exit recorded).
-func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
+// An eligible activity ⇒ the pump runs the per-activity child to its TERMINAL and then
+// drains to quiet.
+//
+// IT USED TO ASSERT A ContinueAsNew HERE, and the change is the wave's whole shape. The
+// old pump continued once per DISPATCHED activity, so "it dispatched" and "it continued as
+// new" were the same fact. The lease pump parks on a selector instead, learns the child's
+// terminal from its future, finds nothing new on the frontier and RETURNS — so a continue
+// is now a HISTORY fact (pumpHistoryBudget) and never a cascade step, and the cascade's own
+// drain-to-quiet is what ends the run. The child's spine still ran end-to-end.
+func Test_Pump_EligibleActivity_RunsChildToTerminal_ThenDrainsQuiet(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -23359,14 +23511,19 @@ func Test_Pump_EligibleActivity_RunsChild_ThenContinueAsNew(t *testing.T) {
 	if !env.IsWorkflowCompleted() {
 		t.Fatal("pump did not complete")
 	}
-	// A successful eligible dispatch self-cascades: the terminal "error" is a
-	// ContinueAsNewError carrying the next tick's pumpInput (NOT a real failure).
-	err := env.GetWorkflowError()
-	var canErr *workflow.ContinueAsNewError
-	if !errors.As(err, &canErr) {
-		t.Fatalf("want a ContinueAsNewError (self-cascade), got %v", err)
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a drained cascade is a clean return, not an error: %v", err)
 	}
-	// The child ran end-to-end exactly once.
+	var res PumpResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump result: %v", err)
+	}
+	if !res.Dispatched || res.ActivityID == nil || *res.ActivityID != "C-XYZ" {
+		t.Fatalf("want the run to report the activity it dispatched, got %+v", res)
+	}
+	// The child ran end-to-end exactly once — and ONCE is the claim that matters now that
+	// the pump re-computes the frontier on every wake-up: pumpState.Started is what stops a
+	// finished activity being dispatched a second time by the same pump chain.
 	if len(ps.exited) != 1 || ps.exited[0].activityID != "C-XYZ" {
 		t.Fatalf("want the child to have recorded one exit for C-XYZ, got %v", ps.exited)
 	}
@@ -23539,7 +23696,7 @@ func Test_Pump_BlockedActivity_RecordsTerminalFailure(t *testing.T) {
 	if err := enc.Get(&d); err != nil {
 		t.Fatalf("decode pump dispatch decision: %v", err)
 	}
-	if d != (pumpDispatch{Decided: true}) {
+	if !d.Decided || d.Dispatched || d.ActivityID != nil || len(d.ActivityIDs) != 0 {
 		t.Fatalf("want a decided non-dispatch decision, got %+v", d)
 	}
 }
@@ -23798,9 +23955,20 @@ func Test_Pump_PreDispatchGate_DefaultVersion_KeepsOldDispatch(t *testing.T) {
 }
 
 // M1 (version gate "pump-drain-pause-before-continue-as-new", DefaultVersion branch). A
-// pre-change execution continues-as-new straight after the Sleep, as it always did.
+// pre-change execution SKIPS the pre-ContinueAsNew pause drain entirely and continues as
+// new with the pause still buffered, exactly as its history recorded.
+//
+// THE RIG CHANGED WITH THE PUMP'S SHAPE, and it is worth saying how. The old pump reached
+// this gate once per dispatched activity, so a 10-minute child and a pause at one minute
+// were enough to sit on it. The lease pump continues as new only at its HISTORY BUDGET, so
+// the budget is what puts the run on the boundary; and the pause has to survive to the
+// boundary, which means it must land after the run-start check (readDelay holds the read)
+// and past the pre-dispatch gate (pinned to its own DefaultVersion arm here). What is
+// asserted is unchanged: with this gate at DefaultVersion the buffered pause is NOT
+// consumed and the run continues.
 func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
+	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.env.OnGetVersion("pump-drain-pause-before-continue-as-new", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.pauseAt(t, time.Minute)
 
@@ -23813,6 +23981,23 @@ func Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew(t *testing.T) {
 	}
 }
 
+// THE OTHER ARM, and it is the one the gate exists for: at v1 the pre-ContinueAsNew drain
+// DOES see the buffered pause and the run goes quiet instead of continuing. Same rig, one
+// GetVersion stub fewer — so the two cases differ in exactly the fact under test.
+func Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing(t *testing.T) {
+	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute).atItsHistoryBudget()
+	rig.env.OnGetVersion("pump-pause-before-dispatch", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
+	rig.pauseAt(t, time.Minute)
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a pause drained at the continue-as-new boundary must end the run quietly, got %v", err)
+	}
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("the run dispatched before the pause and must report it, got %+v with %d child start(s)", res, *rig.childStarts)
+	}
+}
+
 // M1/M2 (version gate "pump-pause-decode-any", DefaultVersion branch). A pre-change
 // execution keeps the OLD struct decode at run start, which drops a binary/plain
 // (relayed) pause — ReceiveAsync consumes it as corrupted — so the run dispatches and
@@ -23822,12 +24007,15 @@ func Test_Pump_DecodeGate_DefaultVersion_KeepsOldStructDecode(t *testing.T) {
 	rig.env.OnGetVersion("pump-pause-decode-any", workflow.DefaultVersion, 1).Return(workflow.DefaultVersion)
 	rig.pauseAt(t, 0)
 
-	_, err := rig.run(t)
-	if !isContinueAsNew(err) {
+	res, err := rig.run(t)
+	if err != nil {
 		t.Fatalf("a pre-change execution must not see the byte pause (old struct decode), got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	// The consequence the gate buys: the run DISPATCHES, where the new decode would have
+	// quieted it at run start. (It no longer continues as new to prove that — the lease pump
+	// drains to quiet instead — so the dispatch itself is the observable.)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -23895,12 +24083,12 @@ func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
 	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.Version(1))
 
-	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
-	if !isContinueAsNew(err) {
-		t.Fatalf("an operator-driven pump must dispatch and self-cascade through a recorded pause, got %v", err)
+	res, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
+	if err != nil {
+		t.Fatalf("an operator-driven pump must dispatch through a recorded pause, got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the one dispatched child, got %d", *rig.childStarts)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the one dispatched child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -23908,7 +24096,7 @@ func Test_Pump_OperatorDriven_RecordedPause_StillDispatches(t *testing.T) {
 // dropped OperatorDriven would honour the recorded pause on its second iteration and
 // stop after one activity.
 func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
-	rig := newCascadingPumpRig(10*time.Minute, 0)
+	rig := newCascadingPumpRig(10*time.Minute, 0).atItsHistoryBudget()
 
 	_, err := rig.runInput(t, pumpInput{ProjectID: rig.pid, OperatorDriven: true})
 	var canErr *workflow.ContinueAsNewError
@@ -23922,6 +24110,12 @@ func Test_Pump_ContinueAsNew_CarriesOperatorDriven(t *testing.T) {
 	if next.ProjectID != rig.pid || !next.OperatorDriven {
 		t.Fatalf("ContinueAsNew must carry the whole input (OperatorDriven true), got %+v", next)
 	}
+	// AND THE STARTED SET RIDES ACROSS TOO (stage 4b2). Without it the next run would
+	// re-dispatch the child this run started: one pump chain dispatches one activity at
+	// most once, and Started is where that is remembered.
+	if len(next.Started) != 1 || next.Started[0] != "C-XYZ" {
+		t.Fatalf("ContinueAsNew must carry the started set, got %v", next.Started)
+	}
 }
 
 // I2 test 8 (version gate "pump-honors-recorded-pause", DefaultVersion branch). A
@@ -23931,12 +24125,12 @@ func Test_Pump_RecordedPauseGate_DefaultVersion_StillDispatches(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0, recordedPause)
 	rig.env.OnGetVersion(changePumpHonorsRecordedPause, workflow.DefaultVersion, 2).Return(workflow.DefaultVersion)
 
-	_, err := rig.run(t)
-	if !isContinueAsNew(err) {
+	res, err := rig.run(t)
+	if err != nil {
 		t.Fatalf("a pre-change pump must dispatch as it always did, got %v", err)
 	}
-	if *rig.childStarts != 1 {
-		t.Fatalf("want the old-sequence dispatch of one child, got %d", *rig.childStarts)
+	if !res.Dispatched || *rig.childStarts != 1 {
+		t.Fatalf("want the old-sequence dispatch of one child, got %+v with %d start(s)", res, *rig.childStarts)
 	}
 }
 
@@ -24273,11 +24467,32 @@ func Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst(t *test
 // ---- Tests: RegisterSchedules (Task 7c) -------------------------------------
 
 // End to end: the pump picks the integration-pending P (its dependency is Done) and its
-// child dispatches P's Integration phase only.
+// child dispatches P's Integration phase ONLY — it resumes the ledger-partial row at its
+// first incomplete phase instead of re-walking it.
+//
+// THE COUNT MOVED FROM 1 TO THE WHOLE FRONTIER (stage 4b2) and that is the wave, not a
+// regression: the pump starts EVERY eligible activity, so O's own walk runs alongside P's
+// resumed integration. What this case is about is P, and P's single dispatch is asserted
+// exactly; O's presence is asserted too, because "the frontier went out in parallel" is
+// the property that replaced the serial cascade and an assertion that ignored it would
+// pass a pump that had quietly gone back to one-at-a-time.
 func Test_Pump_IntegrationPendingRow_DispatchesOnlyItsIntegration(t *testing.T) {
 	got := d1PumpRun(t, nil)
-	if len(got) != 1 || got[0].ActivityID != "P" || got[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
-		t.Fatalf("want one dispatch, P's integration; got %v", got)
+	var forP []agenticjob.PipelineSpec
+	sawO := false
+	for _, s := range got {
+		switch s.ActivityID {
+		case "P":
+			forP = append(forP, s)
+		case "O":
+			sawO = true
+		}
+	}
+	if len(forP) != 1 || forP[0].DispatchInputs["phase"] != string(projectstate.MethodPhaseIntegration) {
+		t.Fatalf("want exactly one dispatch for P, its integration; got %v", forP)
+	}
+	if !sawO {
+		t.Fatalf("the pump starts the WHOLE frontier: O is eligible and must have been dispatched too; got %v", got)
 	}
 }
 
@@ -24321,8 +24536,9 @@ func Test_Pump_PauseThenResumeThenTheNextTickDispatches(t *testing.T) {
 		t.Fatalf("resume: %v", err)
 	}
 	next := newCascadingPumpRig(10*time.Minute, 0, func(p *projectstate.Project) { *p = paused.ps.project })
-	if _, err := next.run(t); !isContinueAsNew(err) || *next.childStarts != 1 {
-		t.Fatalf("after the resume the next tick must dispatch, got err=%v starts=%d", err, *next.childStarts)
+	res, err := next.run(t)
+	if err != nil || !res.Dispatched || *next.childStarts != 1 {
+		t.Fatalf("after the resume the next tick must dispatch, got %+v err=%v starts=%d", res, err, *next.childStarts)
 	}
 }
 
@@ -26278,8 +26494,8 @@ func Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 2*time.Minute)
 	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
 
-	if _, err := rig.run(t); !isContinueAsNew(err) {
-		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
 	}
 	if *qerr != nil {
 		t.Fatalf("G-P1: the pump must serve queryPumpDispatch while parked in readProject, its FIRST blocking call: %v", *qerr)
@@ -26295,18 +26511,28 @@ func Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall(t *testing.T) {
 // background. The child is held for ten minutes and the Query runs at one, so an
 // assignment moved below child.Get answers "not decided" here and fails — the existing
 // facade tests observe the Query's VALUE and could never see this.
+//
+// THE BLOCK IT IS READ IN FRONT OF IS NOW THE SELECTOR PARK, not child.Get, and the guard
+// is stronger for it: the decision is recorded after the WHOLE frontier is started and
+// before the park, so a Begin that joined a run dispatching five activities still returns
+// within a workflow task instead of waiting out five cascades.
 func Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains(t *testing.T) {
 	rig := newCascadingPumpRig(10*time.Minute, 0)
 	answer, qerr := queryPumpDispatchAt(rig, time.Minute)
 
-	if _, err := rig.run(t); !isContinueAsNew(err) {
-		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
 	}
 	if *qerr != nil {
 		t.Fatalf("query the in-flight pump: %v", *qerr)
 	}
 	if !answer.Decided || !answer.Dispatched || answer.ActivityID == nil || *answer.ActivityID != "C-XYZ" {
-		t.Fatalf("G-P8: the dispatch must be readable while the pump is parked in child.Get; got %+v", *answer)
+		t.Fatalf("G-P8: the dispatch must be readable while the pump is still parked; got %+v", *answer)
+	}
+	// And the WHOLE frontier is on the Query, which is where it lives until PumpResult
+	// grows activityIds (see pumpDispatchedResult's BLOCKED note).
+	if len(answer.ActivityIDs) != 1 || answer.ActivityIDs[0] != "C-XYZ" {
+		t.Fatalf("G-P8: the frontier must be readable as a list, got %v", answer.ActivityIDs)
 	}
 }
 
@@ -26318,6 +26544,12 @@ func Test_Pump_DispatchDecisionIsReadableBeforeTheCascadeDrains(t *testing.T) {
 var pumpContinueAsNewCarry = map[string]string{
 	"ProjectID":      "one id per run, O(1)",
 	"OperatorDriven": "one bool per run, O(1)",
+	"Started":        "bounded by the plan's activity count — one id per activity this pump chain ever dispatched",
+	"Finished":       "bounded by the plan's activity count — a subset of Started",
+	"LeaseHolder":    "at most one activity, ever — the invariant, O(1)",
+	"LeaseEpoch":     "one int64 per run, O(1)",
+	"LeaseGrantedAt": "one timestamp per run, O(1)",
+	"Carried":        "bounded by the plan's activity count — at most one finish and one lease request per activity, drained at the boundary and replayed at once",
 }
 
 // pumpContinueAsNewPayloadBudget is the self-imposed ceiling on the ContinueAsNew payload,
@@ -26347,7 +26579,7 @@ func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
 			}
 		}
 	}
-	rig := newCascadingPumpRig(0, 0)
+	rig := newCascadingPumpRig(10*time.Minute, 0).atItsHistoryBudget()
 	_, err := rig.run(t)
 	var canErr *workflow.ContinueAsNewError
 	if !errors.As(err, &canErr) {
@@ -26434,20 +26666,37 @@ func (c *pumpFlightCounts) read() (int, int) {
 	return c.reads, c.children
 }
 
-// G-P13. THE ORDERING child.Get buys, stated as the property that survives the rewrite:
-// THE PUMP DOES NOT REACH ITS NEXT SELECTION UNTIL THE CHILD'S TERMINAL HAS LANDED. That is
-// what lets nextEligible's PumpWroteRow / ledger derivation read SETTLED state; without it
-// the next selection re-picks the same still-Running activity.
+// G-P13, REPLACED RATHER THAN DELETED — which it had to be, because this test's whole
+// subject, child.Get, is what stage 4b2 removed. The old guard read: THE PUMP CANNOT
+// RE-SELECT WHILE THE CHILD RUNS, so nextEligible's PumpWroteRow / ledger derivation reads
+// SETTLED state. Two halves of it are now three different things, and saying which is
+// which is the point of this comment.
 //
-// TWO EARLIER DRAFTS OF THIS TEST ASSERTED THE WRONG THING, and they are recorded here
-// because the mistake IS the census's own failure mode — a guard that looks armed and is
-// not. Draft 1 sampled the read/child counters at one minute and asserted 1/1; draft 2
-// compared env.Now() before and after the run. BOTH stay true with child.Get DELETED,
-// because the test environment goes on skipping time for the abandoned child's pending
-// timer after the pump has already continued-as-new — so the env's clock reaches ten
-// minutes either way, and a delayed callback still fires. Only the RUN's own liveness
-// distinguishes the two: mid-flight, the pump must still be RUNNING. Verified by mutation
-// (delete child.Get, exactly what Task 12 does: this form fails, the other two pass).
+//  1. STILL TRUE, AND STILL THE FIRST ASSERTION: the pump does not END while a child it
+//     started is in flight. It parks on a selector instead of blocking on a Get, so
+//     PumpStatus.open keeps meaning "the cascade is alive", which awaitDispatchDecision and
+//     the SPA both assume.
+//
+//  2. DELIBERATELY ABANDONED: "one run selects once". The lease pump dispatches the WHOLE
+//     frontier in parallel — that is the wave's purpose — so the SECOND assertion below,
+//     which used to read `children == 1`, silently changes meaning the moment a run
+//     dispatches more than one child. It survives here ONLY because this rig's selection
+//     double hands back the same activity forever, and it is kept as the pin on the OTHER
+//     property that replaced ordering: one pump chain dispatches one activity AT MOST ONCE
+//     (pumpState.Started). What replaces the exclusion ordering used to buy is LEASE
+//     EXCLUSIVITY — at most one activity writes main at a time — pinned by
+//     Test_Pump_GrantsAtMostOneLease, not here.
+//
+//  3. INVERTED: "one run reads head-state once" is now FALSE BY DESIGN and the opposite is
+//     asserted. The pump must RE-READ AND RE-DERIVE ON EVERY WAKE-UP, because the child
+//     writes head-state and the frontier genuinely moves; a pump that carried its frontier
+//     in memory would be stale by construction.
+//
+// TWO EARLIER DRAFTS OF THE FIRST ASSERTION WERE WRONG, and they stay recorded because the
+// mistake IS the census's own failure mode. Draft 1 sampled counters at one minute; draft 2
+// compared env.Now() before and after. BOTH stay true with child.Get deleted, because the
+// test environment goes on skipping time for the abandoned child's pending timer. Only the
+// RUN's own liveness distinguishes them.
 func Test_Pump_TheNextSelectionWaitsForTheChildsTerminal(t *testing.T) {
 	const childRun = 10 * time.Minute
 	rig := newCascadingPumpRig(childRun, 0)
@@ -26458,26 +26707,33 @@ func Test_Pump_TheNextSelectionWaitsForTheChildsTerminal(t *testing.T) {
 		stillRunningMidFlight = !rig.env.IsWorkflowCompleted()
 	}, childRun/2)
 
-	if _, err := rig.run(t); !isContinueAsNew(err) {
-		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
 	}
 	if !stillRunningMidFlight {
-		t.Fatalf("G-P13: the pump must not hand off to its next selection until the child's terminal has landed; it had already ended %s into a child that takes %s, so the next selection would read unsettled state and re-pick the same still-Running activity", childRun/2, childRun)
+		t.Fatalf("G-P13 (1): the pump must still be RUNNING while a child it started is in flight; it had already ended %s into a child that takes %s, so PumpStatus.open would stop meaning the cascade is alive", childRun/2, childRun)
 	}
-	if reads, children := counts.read(); reads != 1 || children != 1 {
-		t.Fatalf("G-P13: one run reads head-state once and selects once: got %d read(s), %d child(ren)", reads, children)
+	reads, children := counts.read()
+	if children != 1 {
+		t.Fatalf("G-P13 (2): one pump chain dispatches one activity at most once; got %d child start(s)", children)
+	}
+	if reads < 2 {
+		t.Fatalf("G-P13 (3): the pump must RE-READ head-state on every wake-up — the child writes it and the frontier moves — got %d read(s) across a run that woke at least twice", reads)
 	}
 }
 
-// G-P14. The cascade paces itself. pumpPaceInterval appeared in NO test file before this
-// one: an unpaced pump busy-spins ContinueAsNew, one workflow task per iteration, and
-// nothing would have said so.
+// G-P14. The cascade paces itself. pumpPaceInterval appeared in NO test file before the
+// census: an unpaced pump busy-spins, one workflow task per iteration, and nothing would
+// have said so. What it paces changed with the shape — it used to sit between
+// continue-as-new iterations and now sits between WAKE-UPS — but the failure it prevents
+// is the same one, and it is worse in the new shape: each iteration also builds a durable
+// head-state read and a fresh timer.
 func Test_Pump_TheCascadeIsPacedBetweenIterations(t *testing.T) {
 	rig := newCascadingPumpRig(0, 0)
 	start := rig.env.Now()
 
-	if _, err := rig.run(t); !isContinueAsNew(err) {
-		t.Fatalf("the rig dispatches and self-cascades; got %v", err)
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("the rig dispatches and drains; got %v", err)
 	}
 	if elapsed := rig.env.Now().Sub(start); elapsed < pumpPaceInterval {
 		t.Fatalf("G-P14: the cascade must wait at least %s before handing off to the next iteration; the run took %s of workflow time", pumpPaceInterval, elapsed)
@@ -26510,18 +26766,24 @@ func Test_Pump_BlockedActivity_AFailedFailureRecordFailsTheRun(t *testing.T) {
 }
 
 // G-P17. PARENT_CLOSE_POLICY_ABANDON: the activity is its own durable execution,
-// independent of this pump tick's continue-as-new chain. Drop it and the pump's own close
+// independent of this pump's continue-as-new chain. Drop it and the pump's own close
 // terminates every in-flight activity — silent, and catastrophic. PARENT_CLOSE appeared in
-// NO test file in this package before this one. Asserted at the SOURCE, the same way
-// Test_Pump_StartsOneChildAndNamesNoActivityType asserts the child's id, because the test
-// environment does not surface a child's parent-close policy.
+// NO test file in this package before the census.
+//
+// RE-ASSERTED STRUCTURALLY BY TASK 12, because the census's own reviewer flagged this pin
+// as weak and stage 4b2 then made the weakness real: the guard now carries a comment that
+// NAMES the policy constant, so the substring check this test used to be would stay GREEN
+// with the assignment deleted. It walks the AST to the ParentClosePolicy key instead —
+// exactly what pumpSweepChildOptionsField does for G-S7 — because the test environment does
+// not surface a child's parent-close policy and the source is the only observer there is.
 func Test_Pump_TheChildIsAbandonedSoThePumpsOwnCloseNeverKillsIt(t *testing.T) {
-	src, err := os.ReadFile("pumpnextactivity.go")
-	if err != nil {
-		t.Fatalf("reading the pump: %v", err)
+	got, found := pumpChildOptionsField(t, "ParentClosePolicy")
+	if !found {
+		t.Fatal("G-P17: the pump's child start sets NO ParentClosePolicy — the default is TERMINATE, " +
+			"so every ContinueAsNew and every pump failure kills the in-flight activity it started")
 	}
-	if !strings.Contains(string(src), "ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON") {
-		t.Error("G-P17: the pump must start its child ABANDON; without it every ContinueAsNew and every pump failure terminates the in-flight activity")
+	if got != "enumspb.PARENT_CLOSE_POLICY_ABANDON" {
+		t.Fatalf("G-P17: the pump must start its child ABANDON; got %s", got)
 	}
 }
 
@@ -26773,5 +27035,378 @@ func Test_Pause_APlanThatDoesNotRecord_WritesNoPause(t *testing.T) {
 	}
 	if len(bus.targets) != 1 || len(pipe.cancelled) != 1 {
 		t.Fatalf("G-V6: the rest of the branch still runs; got %d relay(s), %d cancel(s)", len(bus.targets), len(pipe.cancelled))
+	}
+}
+
+// ===========================================================================
+// THE LEASE PUMP (stage 4b2 Task 12). The guards this body OWES, beyond the census
+// rows it re-asserts in place.
+// ===========================================================================
+
+// leaseProbeBus is recordingSignalBus with a scripted NotFound after N deliveries, so a
+// case can make an execution "close" underneath the pump between one signal and the next.
+// A single err field could not: the lease cases turn on the DIFFERENCE between a delivery
+// that lands and one that answers NotFound.
+type leaseProbeBus struct {
+	recordingSignalBus
+	notFoundAfter int
+}
+
+func (b *leaseProbeBus) DeliverSignal(rc fwra.Context, target messagebus.ExecutionID, name messagebus.SignalName, payload messagebus.ExecutionPayload) error {
+	_ = b.recordingSignalBus.DeliverSignal(rc, target, name, payload)
+	b.mu.Lock()
+	n := len(b.targets)
+	b.mu.Unlock()
+	if b.notFoundAfter > 0 && n > b.notFoundAfter {
+		return fwra.New(fwra.NotFound, "messagebus: no execution with that id")
+	}
+	return nil
+}
+
+// grants returns the decoded activityLeaseGrant of every grant this bus carried, in order.
+func (b *recordingSignalBus) grants(t *testing.T) []activityLeaseGrant {
+	t.Helper()
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var out []activityLeaseGrant
+	for i, n := range b.names {
+		if string(n) != signalActivityLeaseGranted {
+			continue
+		}
+		var g activityLeaseGrant
+		if err := json.Unmarshal(b.payloads[i].Bytes, &g); err != nil {
+			t.Fatalf("decode a lease grant off the bus: %v", err)
+		}
+		out = append(out, g)
+	}
+	return out
+}
+
+// twoActivityFrontier is a selection helper with a REAL frontier: it hands back C-ONE
+// until the project snapshot says a pump has opened its row, then C-TWO, then nothing. It
+// reads proj.ActivityExecution deliberately — that is the same fact isActivityDispatchable's
+// PumpWroteRow arm reads, so the frontier loop's local row-marking is exercised rather than
+// substituted for.
+func twoActivityFrontier(proj projectstate.Project, _ eligibilityRule) pumpSelection {
+	for _, id := range []string{"C-ONE", "C-TWO"} {
+		if row, ok := proj.ActivityExecution[id]; ok && row.StartedAt != nil {
+			continue
+		}
+		act := sampleActivity()
+		act.ActivityID = id
+		return pumpSelection{Verdict: verdictDispatch, Activity: act}
+	}
+	return pumpSelection{Verdict: verdictQuiescent}
+}
+
+// newLeasePumpRig is a pump with a two-activity frontier, both children held open, and a
+// bus the case can read the grants off.
+func newLeasePumpRig(bus messagebus.MessageBus, childRun time.Duration) cascadingPumpRig {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{}, NextEligibleActivity: twoActivityFrontier,
+	})
+	registerPumpWithBus(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded}, bus)
+	starts := new(int)
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Run(func(mock.Arguments) { *starts++ }).
+		Return(nil)
+	return cascadingPumpRig{env: env, pid: pid, ps: ps, childStarts: starts}
+}
+
+// requestLeaseAt sends a child's lease ask to the pump at workflow time `at`.
+func (r cascadingPumpRig) requestLeaseAt(at time.Duration, id ActivityID) {
+	r.env.RegisterDelayedCallback(func() {
+		r.env.SignalWorkflow(signalActivityLeaseRequested, activityLeaseRequest{ActivityID: id})
+	}, at)
+}
+
+// THE INVARIANT, and the only reason the queue exists: at most one activity of a project
+// holds the main-write lease at a time. Both children are in flight and both ask; exactly
+// one grant goes out, and the second waits.
+//
+// This is what REPLACED the ordering child.Get used to buy (see G-P13's note): the pump
+// deliberately dispatches N children at once, so "the pump cannot re-select while a child
+// runs" is gone on purpose, and lease exclusivity is what stands in its place.
+func Test_Pump_GrantsAtMostOneLease(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	if *rig.childStarts != 2 {
+		t.Fatalf("the frontier is two activities and both must have been started, got %d", *rig.childStarts)
+	}
+	got := bus.grants(t)
+	if len(got) != 1 {
+		t.Fatalf("at most ONE lease may be outstanding; the pump handed out %d: %+v", len(got), got)
+	}
+	if got[0].ActivityID != "C-ONE" || got[0].Epoch != 1 {
+		t.Fatalf("want the first asker granted at epoch 1, got %+v", got[0])
+	}
+}
+
+// VALIDATION, because Temporal does not authenticate a signaler. An id this pump never
+// started is a CLAIM, not a fact: it is logged and dropped, never granted. Without this a
+// stray signal — a replayed message, a mis-addressed relay, a bug in a sibling Manager —
+// would take a project's one main-write lease and hold it until its deadline.
+func Test_Pump_DropsALeaseRequestForAnUnknownActivity(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-NOBODY-STARTED-THIS")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("an unknown lease request must be dropped quietly, not fail the run: %v", err)
+	}
+	if got := bus.grants(t); len(got) != 0 {
+		t.Fatalf("an id this pump never started must never be granted, got %+v", got)
+	}
+}
+
+// THE DEADLINE DOES NOT REVOKE. A holder that is still ALIVE past pumpLeaseDeadline is
+// RENEWED — the re-delivery is at the SAME epoch and to the SAME holder — because the
+// merge tail it is holding the lease for contains a HUMAN approval gate, so "held for more
+// than ten minutes" is completely ordinary. A naive timeout would revoke exactly the thing
+// the lease exists to protect and produce the second concurrent main-writer as the direct
+// consequence of the mechanism meant to prevent it.
+func Test_Pump_RenewsALiveHoldersExpiredLease(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 90*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) < 2 {
+		t.Fatalf("a lease held past %s must be RENEWED at least once, got %d grant(s): %+v", pumpLeaseDeadline, len(got), got)
+	}
+	for i, g := range got {
+		if g.ActivityID != "C-ONE" || g.Epoch != 1 {
+			t.Fatalf("renewal %d must re-deliver the SAME holder's SAME epoch — a live holder never loses its lease mid-merge; got %+v", i, g)
+		}
+	}
+}
+
+// AND A DEAD HOLDER IS REAPED. The reconcile's liveness probe is the grant's own delivery:
+// a signal to an execution that has CLOSED answers RA NotFound, which is the one fact
+// Temporal gives the pump about a child whose future it no longer holds. The lease is then
+// free and the next asker gets it AT epoch+1 — which is what the epoch is for, since a
+// child revoked underneath itself must be able to refuse the grant it was holding.
+func Test_Pump_ReconcileReleasesALeaseHeldByAClosedExecution(t *testing.T) {
+	// The FIRST delivery lands (C-ONE takes the lease); every one after it answers NotFound,
+	// so the renewal at the deadline finds the holder gone.
+	bus := &leaseProbeBus{notFoundAfter: 1}
+	rig := newLeasePumpRig(bus, 90*time.Minute)
+	rig.requestLeaseAt(time.Minute, "C-ONE")
+	rig.requestLeaseAt(2*time.Minute, "C-TWO")
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("a closed lease holder is reaped, not an error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) < 2 {
+		t.Fatalf("want the grant, then the renewal that finds the holder closed, then the re-grant; got %+v", got)
+	}
+	last := got[len(got)-1]
+	if last.ActivityID != "C-TWO" || last.Epoch != 2 {
+		t.Fatalf("the lease must be re-granted to the waiting asker at epoch+1 once the holder is found closed, got %+v", last)
+	}
+}
+
+// G-P6's other half, as its own case: the pump ends when there is nothing in flight, no
+// lease held, no request waiting and nothing eligible. It RETURNS — it does not
+// continue-as-new, which would be an infinite pump — and it does so even though the
+// history budget is crossed, because quiescence is asked BEFORE the continue.
+func Test_Pump_QuiescesWhenNothingIsStartedAndNothingIsEligible(t *testing.T) {
+	rig := newPumpRig(pumpSelection{Verdict: verdictQuiescent}, 0, 0).atItsHistoryBudget()
+
+	res, err := rig.run(t)
+	if err != nil {
+		t.Fatalf("a quiescent pump returns; got %v", err)
+	}
+	if res.Dispatched || *rig.childStarts != 0 {
+		t.Fatalf("nothing eligible means nothing dispatched, got %+v with %d start(s)", res, *rig.childStarts)
+	}
+}
+
+// ONE PLAN DEFECT NO LONGER TAKES THE WHOLE FRONTIER DOWN WITH IT. The serial pump
+// RETURNED on verdictBlocked, so a single unresolvable activity stopped every other
+// dispatchable one until the next tick; the frontier loop records the failure and CARRIES
+// ON. The blocked activity is still recorded LOUDLY and DURABLY (G-P5) and still exactly
+// once (the run's own blocked set — this run holds a snapshot taken before its own write).
+func Test_Pump_OneBlockedActivityDoesNotStopTheFrontier(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 2,
+		ActivityExecution: map[string]projectstate.ActivityExecution{},
+	}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry}, Review: &fakeReview{},
+		NextEligibleActivity: func(proj projectstate.Project, _ eligibilityRule) pumpSelection {
+			if row, ok := proj.ActivityExecution["C-BAD"]; !ok || row.FailureReason == projectstate.FailureReasonUnknown {
+				return pumpSelection{
+					Verdict:              verdictBlocked,
+					BlockedActivityID:    "C-BAD",
+					BlockedFailureReason: projectstate.ComponentUnresolved,
+					BlockedReason:        "activity C-BAD names a component not in the committed systemDesign",
+				}
+			}
+			if row, ok := proj.ActivityExecution["C-GOOD"]; ok && row.StartedAt != nil {
+				return pumpSelection{Verdict: verdictQuiescent}
+			}
+			act := sampleActivity()
+			act.ActivityID = "C-GOOD"
+			return pumpSelection{Verdict: verdictDispatch, Activity: act}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		Run(func(mock.Arguments) { starts++ }).Return(nil)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("a blocked activity is recorded, not raised: %v", err)
+	}
+	if len(ps.failed) != 1 || ps.failed[0].activityID != "C-BAD" {
+		t.Fatalf("want exactly one durable failure record for C-BAD, got %v", ps.failed)
+	}
+	if starts != 1 {
+		t.Fatalf("the rest of the frontier must still go out: want C-GOOD started once, got %d start(s)", starts)
+	}
+}
+
+// pumpChildOptionsField reads one field of the workflow.ChildWorkflowOptions literal the
+// PUMP starts its activity child with — STRUCTURALLY, by walking the AST, the same way
+// pumpSweepChildOptionsField pins G-S7.
+//
+// THE OLD PIN WAS A SUBSTRING CHECK AND THAT IS NOW A HOLE. G-P17's test used to search
+// pumpnextactivity.go for the text "ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON";
+// stage 4b2 gave the line the COMMENT it never had, and that comment names the constant —
+// so the substring test would stay green with the assignment itself deleted. Parsing is
+// what makes "the comment says ABANDON" and "the child start says ABANDON" two different
+// claims.
+func pumpChildOptionsField(t *testing.T, field string) (string, bool) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "pumpnextactivity.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing the pump: %v", err)
+	}
+	var got string
+	var found bool
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || selectorName(lit.Type) != "workflow.ChildWorkflowOptions" {
+			return true
+		}
+		for _, el := range lit.Elts {
+			kv, isKV := el.(*ast.KeyValueExpr)
+			if !isKV {
+				continue
+			}
+			if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == field {
+				got, found = selectorName(kv.Value), true
+			}
+		}
+		return true
+	})
+	return got, found
+}
+
+// ---- The child side of the lease -------------------------------------------
+
+// THE MERGE TAIL ASKS FOR THE LEASE, AND IT ASKS THE PUMP. The request goes out on
+// messageBus.deliverSignal addressed to {projectId}:nextActivity — the project's ONE pump
+// — and it goes out BEFORE the tail, which is the whole placement argument: everything
+// above it writes the activity branch or the activity's own row (both already serialised),
+// and everything below it writes MAIN.
+func Test_DeliveryActivity_TheMergeTailAsksThePumpForTheMainWriteLease(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	bus := &recordingSignalBus{}
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, bus)
+	// The grant arrives while the walk is still working, so it is BUFFERED by the SDK and
+	// waiting when the tail asks — which is also the ordering a real pump produces, since
+	// the pump answers within a workflow task of the request.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityLeaseGranted, activityLeaseGrant{ActivityID: "C-Orders", Epoch: 7})
+	}, time.Millisecond)
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	var asked, reported bool
+	bus.mu.Lock()
+	for i, n := range bus.names {
+		if bus.targets[i] != messagebus.ExecutionID(pumpWorkflowID("shape-p")) {
+			t.Errorf("the lease is asked of the project's ONE pump; this went to %q", bus.targets[i])
+		}
+		switch string(n) {
+		case signalActivityLeaseRequested:
+			asked = true
+		case signalActivityFinished:
+			reported = true
+		}
+	}
+	bus.mu.Unlock()
+	if !asked {
+		t.Error("the merge tail must ask the pump for the main-write lease before it writes main")
+	}
+	if !reported {
+		t.Error("the walk's terminal must be reported to the pump, or the lease is held by a finished activity until its deadline")
+	}
+}
+
+// AND IT FAILS OPEN, DELIBERATELY. With NO pump running the request answers RA NotFound —
+// the ordinary state of a project an operator started by hand — and the tail RUNS ANYWAY.
+// Failing an activity that did all of its work because the admission queue is unreachable
+// would be strictly worse than the state this wave started from, which had no lease at
+// all; and the row CAS plus the branch-file version guard still serialise per row, which
+// is the mechanism the lease sits ON TOP of rather than replaces.
+func Test_DeliveryActivity_NoPumpToLease_TheMergeTailStillRuns(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	registerDeliveryActivityWithBus(env, wf, ps, pipe,
+		&recordingSignalBus{err: fwra.New(fwra.NotFound, "messagebus: no execution with that id")})
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("an unreachable admission queue must not fail a completed activity: %v", err)
+	}
+	if !shapeExitedCompleted(ps, "C-Orders") {
+		t.Fatal("the walk must still reach its binary exit unleased")
 	}
 }
