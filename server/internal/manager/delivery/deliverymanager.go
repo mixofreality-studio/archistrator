@@ -9652,6 +9652,14 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 		for _, a := range gate {
 			if attemptGateKey(a) == join {
 				rev.AttemptIDs = []string{a.AttemptID}
+				// The contract says detail is PRESENT where the revision cites a GATE
+				// attempt, and this is the other path that cites one (reviewRevision is
+				// the first). It carries the M0 cost basis: projectDesign's only task IS
+				// its review task, so the compute's own sentence — which planning
+				// assumptions it had to assume — lands on a gate attempt and reaches the
+				// founder through here once the round is persisted. Joining the attempt
+				// and dropping its sentence is how that disclosure went missing before.
+				rev.Detail = a.Detail
 				break
 			}
 		}

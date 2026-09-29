@@ -12518,6 +12518,58 @@ func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
 	}
 }
 
+// Test_ReplanSweep_SurfacesNothingForAnyProject is the deletion's argument, executable and
+// then deleted with its subject. flagVariances returns nil unconditionally, so the sweep is
+// a Schedule firing every five minutes to produce an empty result — which is worse than no
+// sweep, because an operator reading the Schedule list sees variance coverage.
+//
+// The seed is the loudest variance the head-state can hold: an activity that exhausted its
+// retry budget (FailureReason VarianceExhausted), terminal, with four failed gate attempts
+// behind it. If ANY project could make this sweep say something, this one would. Expected:
+// GREEN — an empty result — which is the finding.
+func Test_ReplanSweep_SurfacesNothingForAnyProject(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ended := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
+	row := projectstate.ActivityExecution{
+		ActivityID:    "C-X",
+		Type:          projectstate.ActivityTypeService,
+		CompletedAt:   &ended,
+		FailureReason: projectstate.VarianceExhausted,
+		FailureDetail: "four rejected code reviews — the retry budget is spent",
+		Attempts: []projectstate.TaskAttempt{
+			ledgerAttempt("C-X", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
+			ledgerAttempt("C-X", projectstate.TaskCodeReview, 2, projectstate.OutcomeRejected),
+			ledgerAttempt("C-X", projectstate.TaskCodeReview, 3, projectstate.OutcomeRejected),
+			ledgerAttempt("C-X", projectstate.TaskCodeReview, 4, projectstate.OutcomeFailed),
+		},
+	}
+	ps := &csFakeProjectState{project: projectstate.Project{
+		ID: projectstate.ProjectID(pid), Version: 1, Phase: 3,
+		ActivityExecution: map[string]projectstate.ActivityExecution{"C-X": row},
+	}}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerReplanSweep(env, wf, ps)
+
+	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("sweep error: %v", err)
+	}
+	var res ReplanSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode sweep result: %v", err)
+	}
+	if len(res.FlaggedVariances) != 0 {
+		t.Fatalf("the sweep surfaced something — the deletion's argument is wrong: %v", res.FlaggedVariances)
+	}
+	t.Logf("THE FINDING: an exhausted-variance, terminally-failed activity with four rejected "+
+		"gate attempts produced %d flagged variances. The 5m Schedule reads as coverage and is not.",
+		len(res.FlaggedVariances))
+}
+
 // ---- Tests: pump sweep (PumpSweepWorkflow, Task 7c) -------------------------
 
 // fakeScheduleBus records every RegisterSchedule call. Satisfies messagebus.MessageBus.
@@ -16590,6 +16642,52 @@ func TestRevisionViews_AReconstructedRevisionShipsNoRoundMembers(t *testing.T) {
 	below.Attempt = 0
 	if r := revisionViews(reconstructedReviewRevisions([]projectstate.TaskAttempt{below}, nil, "detailed_design", false))[0].Round; r != nil {
 		t.Fatalf("an attempt placed beneath the ledger has no round number to give; got %v", *r)
+	}
+}
+
+// Test_RoundRevisions_CarryTheJoinedGateAttemptsDetail is roundRevisions' half of the
+// contract Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail pins on the other path:
+// detail is PRESENT where the revision cites a GATE attempt. Both paths cite one; only
+// one of them used to copy the sentence.
+//
+// What rides on it is the M0 cost basis. The projectDesign lifecycle's ONE task IS its
+// review task, so the compute's own sentence — which planning assumptions it had to
+// assume, and therefore what the founder is approving a price on — is recorded on a GATE
+// attempt. Before a round is persisted the reviewRevision path carries it; the moment a
+// round exists past splitAtLowestRound's cut, THIS path answers instead. Joining the
+// attempt and dropping its sentence made the disclosure vanish exactly when the gate
+// became real, and no fixture could catch it because the fixtures carry no persisted
+// round at that gate.
+func Test_RoundRevisions_CarryTheJoinedGateAttemptsDetail(t *testing.T) {
+	const assumed = "Cost computed on assumed terms, rateCard — no planning assumptions are committed"
+
+	gate := projectstate.TaskDesignReview
+	round := avRound(gate, 1, projectstate.RoundPassed)
+	attempt := avObserved(gate, 1, projectstate.OutcomePassed)
+	attempt.Detail = assumed
+
+	revs := roundRevisions([]projectstate.ReviewRound{round}, []projectstate.TaskAttempt{attempt}, false)
+	if len(revs) != 1 || len(revs[0].AttemptIDs) != 1 {
+		t.Fatalf("the round must cite its gate attempt before detail can ride it; got %d revisions, attempts %v", len(revs), revs[0].AttemptIDs)
+	}
+	if revs[0].Detail != assumed {
+		t.Errorf("the joined revision carries %q, want the gate attempt's own sentence %q — the founder reads the M0 cost basis through this field and no other", revs[0].Detail, assumed)
+	}
+
+	// The wire keeps the same rule the dispatch side keeps: a pointer to the sentence,
+	// and ABSENT rather than an empty string where the attempt said nothing.
+	if wire := revisionViews(revs); len(wire) != 1 || wire[0].Detail == nil || *wire[0].Detail != assumed {
+		t.Fatalf("the wire revision's detail = %v, want a pointer to %q", wire[0].Detail, assumed)
+	}
+	quiet := avObserved(gate, 1, projectstate.OutcomePassed)
+	quietRevs := roundRevisions([]projectstate.ReviewRound{avRound(gate, 1, projectstate.RoundPassed)}, []projectstate.TaskAttempt{quiet}, false)
+	if got := revisionViews(quietRevs); got[0].Detail != nil {
+		t.Errorf("a gate attempt that said nothing must OMIT detail, got %q", *got[0].Detail)
+	}
+
+	// A round that cites NO attempt has no sentence to carry, and must not invent one.
+	if got := roundRevisions([]projectstate.ReviewRound{avRound(gate, 2, projectstate.RoundPending)}, nil, false); got[0].Detail != "" {
+		t.Errorf("a round citing no gate attempt carries detail %q; there is none to carry", got[0].Detail)
 	}
 }
 
