@@ -371,9 +371,9 @@ func (i genInvokers) DesignSessionReadProjectOnBranch(ctx workflow.Context, proj
 }
 
 // DesignSessionReconcileBranchFromMain invokes activity "designSessionAccess.reconcileBranchFromMain".
-func (i genInvokers) DesignSessionReconcileBranchFromMain(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
+func (i genInvokers) DesignSessionReconcileBranchFromMain(ctx workflow.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kinds []projectstate.ArtifactKind) (projectstate.Version, error) {
 	var out projectstate.Version
-	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.reconcileBranchFromMain"), "designSessionAccess.reconcileBranchFromMain", projectID, expectedVersion, branch, kind).Get(ctx, &out)
+	err := workflow.ExecuteActivity(i.options(ctx, "designSessionAccess.reconcileBranchFromMain"), "designSessionAccess.reconcileBranchFromMain", projectID, expectedVersion, branch, kinds).Get(ctx, &out)
 	return out, err
 }
 

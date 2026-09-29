@@ -370,8 +370,8 @@ func (a *genActivities) DesignSessionReadProjectOnBranch(ctx context.Context, pr
 
 // DesignSessionReconcileBranchFromMain wraps designSessionAccess.reconcileBranchFromMain.
 // Registered as "designSessionAccess.reconcileBranchFromMain".
-func (a *genActivities) DesignSessionReconcileBranchFromMain(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kind projectstate.ArtifactKind) (projectstate.Version, error) {
-	v, err := a.DesignSession.ReconcileBranchFromMain(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kind, genActivityIdempotencyKey(ctx))
+func (a *genActivities) DesignSessionReconcileBranchFromMain(ctx context.Context, projectID projectstate.ProjectID, expectedVersion projectstate.Version, branch string, kinds []projectstate.ArtifactKind) (projectstate.Version, error) {
+	v, err := a.DesignSession.ReconcileBranchFromMain(fwra.Context{Context: ctx, IdempotencyKey: genActivityIdempotencyKey(ctx)}, projectID, expectedVersion, branch, kinds, genActivityIdempotencyKey(ctx))
 	return v, fwmanager.MapError(err)
 }
 

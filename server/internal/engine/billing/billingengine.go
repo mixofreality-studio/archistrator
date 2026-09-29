@@ -47,27 +47,35 @@ const computeCostCentsPerComputeUnitSecond int64 = 1
 // BillingEngineImpl and NewBillingEngine are generated (contract.gen.go); the
 // behaviour below is hand-written on that generated struct.
 
-// termsKnown reports whether both pivot regimes are registered. An unknown regime is
-// a deploy/config hazard — settling real money under an unregistered revenue-share or
-// compute-cost regime is forbidden, so callers turn a false here into an
-// InvalidInput "unknown terms" error rather than a silent default.
+// termsKnown reports whether the pivot regime is registered. An unknown regime is a
+// deploy/config hazard — settling real money under an unregistered compute-cost regime is
+// forbidden, so callers turn a false here into an InvalidInput "unknown terms" error rather
+// than a silent default.
+//
+// IT USED TO CHECK TWO. The revenue-share disjunct went with the concept (stage 4b2, founder
+// ruling): a guard cannot refuse a vocabulary that no longer exists. What it was refusing on
+// this repo was `terms.revenueShare == 0` on a committed slot 8 that meant "no revenue share"
+// — the merchant-of-record reversal of 2026-06-09 — so every option was rejected and slots
+// 11-16 carried staleBasis for months. The compute-cost half is UNCHANGED and still
+// load-bearing: that regime is a real choice, its zero value is a real absence, and a
+// silently-defaulted markup is real money.
 func termsKnown(terms BillingTerms) bool {
-	return terms.RevenueShare != RevenueShareUnknown &&
-		terms.ComputeCost != ComputeCostUnknown
+	return terms.ComputeCost != ComputeCostUnknown
 }
 
-// ProjectCommitTimeRevenueShareAndComputeCost echoes the committed option's
-// billing-terms regime kinds and percents as a projection (no actuals) — NOT the
-// operation-side cost forecast (that is operationEstimationEngine). Unknown
-// terms ⇒ InvalidInput "unknown terms" — never a silent default (money safety).
-func (BillingEngineImpl) ProjectCommitTimeRevenueShareAndComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
+// ProjectCommitTimeComputeCost echoes the committed option's compute-cost regime kind and
+// markup as a projection (no actuals) — NOT the operation-side cost forecast (that is
+// operationEstimationEngine). Unknown terms ⇒ InvalidInput "unknown terms" — never a silent
+// default (money safety).
+//
+// It was projectCommitTimeRevenueShareAndComputeCost until stage 4b2. The name named two
+// things and it now does one.
+func (BillingEngineImpl) ProjectCommitTimeComputeCost(_ fweng.Context, option ProjectOption) (Projection, error) {
 	terms := option.Terms
 	if !termsKnown(terms) {
 		return Projection{}, fweng.New(fweng.InvalidInput, "unknown terms")
 	}
 	return Projection{
-		RevenueShareKind:     terms.RevenueShare,
-		RevenueSharePercent:  terms.RevenueSharePercent,
 		ComputeCostKind:      terms.ComputeCost,
 		ComputeMarkupPercent: terms.ComputeMarkupPercent,
 	}, nil
@@ -92,11 +100,14 @@ func (BillingEngineImpl) RecomputeNet(_ fweng.Context, affectedCycle ReBillingIn
 //
 // Money math is exact integer minor units throughout:
 //
-//	revenueShareApplied = GrossInbound × RevenueSharePercent / 100
-//	      computed as int64(GrossInbound × round(pct×100)) / 10000 to avoid float drift
 //	computeCostApplied  = computeUnitSeconds × centsPerUnit, then ×(1 + markup/100)
 //	      base and markup folded into one integer ×/÷ to keep it exact
-//	signedNet           = GrossInbound − revenueShareApplied − computeCostApplied
+//	signedNet           = GrossInbound − computeCostApplied
+//
+// THE REVENUE-SHARE TERM IS GONE, not zeroed (stage 4b2, founder ruling): the platform bills
+// a usage-based hosting fee for operating a delivered system and nothing else, so there is no
+// cut to subtract and no RevenueShareApplied to report. GrossInbound stays exactly what it
+// was — it is a TOTAL that happened to have a share taken out of it, not the share.
 //
 // RoutingDirective follows the sign of signedNet (charge-only: <0 Charge, >=0 NoAction).
 func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (BillingResult, error) {
@@ -117,12 +128,6 @@ func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (Bil
 	currency := revenue.GrossInbound.Currency
 	gross := revenue.GrossInbound.MinorUnits
 
-	// Revenue share: GrossInbound × pct/100, exact integer arithmetic. pctTimes100
-	// is the percent scaled by 100 (so 10.0% → 1000), giving a /10000 divisor and
-	// keeping two decimal places of percent precision without float money.
-	pctTimes100 := roundToInt64(terms.RevenueSharePercent * 100)
-	revenueShareUnits := gross * pctTimes100 / 10000
-
 	// Compute cost: base = computeUnitSeconds × centsPerUnit, then × (1 + markup/100).
 	// computeUnitSeconds is a usage quantity (not money); it is converted to integer
 	// minor units exactly once, here, and never carried as float money thereafter.
@@ -131,20 +136,15 @@ func computeNet(revenue CycleRevenue, usage CycleUsage, terms BillingTerms) (Bil
 	// base × (1 + markup/100) == base × (10000 + markupTimes100) / 10000, exact.
 	computeCostUnits := baseComputeUnits * (10000 + markupTimes100) / 10000
 
-	signedNetUnits := gross - revenueShareUnits - computeCostUnits
+	signedNetUnits := gross - computeCostUnits
 
 	result := BillingResult{
-		SignedNet:           Money{MinorUnits: signedNetUnits, Currency: currency},
-		RoutingDirective:    directiveFor(signedNetUnits),
-		RevenueShareApplied: Money{MinorUnits: revenueShareUnits, Currency: currency},
-		ComputeCostApplied:  Money{MinorUnits: computeCostUnits, Currency: currency},
+		SignedNet:          Money{MinorUnits: signedNetUnits, Currency: currency},
+		RoutingDirective:   directiveFor(signedNetUnits),
+		ComputeCostApplied: Money{MinorUnits: computeCostUnits, Currency: currency},
 	}
 
 	// Internal-invariant guards (Engine bugs, not domain outcomes).
-	if revenueShareUnits > gross {
-		return BillingResult{}, fweng.New(fweng.InternalInvariant,
-			"computeNet: revenue share exceeds gross inbound")
-	}
 	if computeCostUnits < 0 {
 		return BillingResult{}, fweng.New(fweng.InternalInvariant,
 			"computeNet: compute cost is negative")

@@ -1054,10 +1054,6 @@ var encapsulationAllowlistData = map[string][]string{
 		"RepoCredential.IsZero",
 		"RepoLocator",
 		"Requirement",
-		"RevenueShareKind",
-		"RevenueShareLaunchFlat10",
-		"RevenueShareNegotiatedRate",
-		"RevenueShareUnknown",
 		// REVIEW-LEDGER status vocabulary — the closed wire values of a durable ReviewComment's
 		// status (the CritiqueVerdictApprove/Revise precedent above). Plain-string consts owned
 		// here; the ReviewComment type itself is generated contract surface. The LIVE

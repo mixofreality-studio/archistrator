@@ -116,22 +116,6 @@ export interface paths {
     patch?: never;
     trace?: never;
   };
-  '/api/v1/delivery/replan-project/{projectID}': {
-    parameters: {
-      query?: never;
-      header?: never;
-      path?: never;
-      cookie?: never;
-    };
-    get?: never;
-    put?: never;
-    post: operations['ReplanProject'];
-    delete?: never;
-    options?: never;
-    head?: never;
-    patch?: never;
-    trace?: never;
-  };
   '/api/v1/delivery/set-project-execution-policy/{projectID}': {
     parameters: {
       query?: never;
@@ -567,17 +551,25 @@ export interface components {
       Fields: null | components['schemas']['DeliveryGoField'][];
       Name: string;
     };
-    DeliveryCritiqueView: {
-      role: string;
-      round: number;
-      summary: string;
-      verdict: string;
-    };
     DeliveryDefectView: {
       id: string;
       note: string;
       severity: string;
       title: string;
+    };
+    /**
+     * @description The stages the DERIVED design-artifact session view can report, and all of them. This is a REPLACEMENT of the eight-member SessionStage, not a renumbering of it: the door is committedSessionView, a projection of one durable ArtifactSlot, so a committed slot reads committed, a withdrawn one withdrawn, and every other terminal-but-uncommitted status reads an honest draftFailed. Drafting, awaitingReview, redrafting and refused had no producer left once stage 4b1 retired the live design rail, and StageDrafting in particular is the value an SPA wedges a spinner on. SessionStageUnknown stays at 0 deliberately: a three-member enum would make the ZERO VALUE mean committed, and a zero-valued view reading as a committed artifact is the same defect class as ArtifactKind's KindMission == 0.
+     * @enum {integer}
+     */
+    DeliveryDesignArtifactSessionStage: 0 | 1 | 2 | 3;
+    /** @description The ONE derived session view, for all seventeen artifact kinds (stage 4b2). It is a projection of the durable slot, NOT a live session: its subject is what the slot says now, and the live execution's view is constructionSession, a different subject with a different lifetime. Eight members were pruned with the type's rename because nothing in the server could set them once 4b1 retired the live design rail — they were decoded by the SPA and always absent. */
+    DeliveryDesignArtifactSessionView: {
+      artifactKind: components['schemas']['DeliveryArtifactKind'];
+      draft: components['schemas']['DeliveryDraftModel'];
+      failureReason?: null | string;
+      projectId: components['schemas']['DeliveryProjectID'];
+      reviewThread?: null | components['schemas']['DeliveryReviewCommentView'][];
+      stage: components['schemas']['DeliveryDesignArtifactSessionStage'];
     };
     DeliveryDesignHealth: {
       attestations: components['schemas']['DeliveryCheckItem'][];
@@ -775,21 +767,6 @@ export interface components {
     DeliveryProjectID: string;
     /** @enum {string} */
     DeliveryProjectRunState: 'running' | 'paused';
-    /** @enum {integer} */
-    DeliveryProjectSessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
-    DeliveryProjectSessionStateView: {
-      activeRole: components['schemas']['DeliveryActiveRole'];
-      activeStep: components['schemas']['DeliveryActiveStep'];
-      artifactKind: components['schemas']['DeliveryArtifactKind'];
-      draft: components['schemas']['DeliveryDraftModel'];
-      failureReason?: null | string;
-      findings?: null | components['schemas']['DeliveryFinding'][];
-      projectId: components['schemas']['DeliveryProjectID'];
-      reviewThread?: null | components['schemas']['DeliveryReviewCommentView'][];
-      round: number;
-      stage: components['schemas']['DeliveryProjectSessionStage'];
-      stageName: string;
-    };
     DeliveryProjectState: {
       GitRows: {
         [key: string]: components['schemas']['DeliveryActivityGitStatus'];
@@ -839,10 +816,9 @@ export interface components {
       designHealth?: components['schemas']['DeliveryDesignHealth'];
       episodes?: null | components['schemas']['DeliveryEpisodeRecordView'][];
       kind: components['schemas']['DeliveryProjectViewKind'];
-      projectSession?: components['schemas']['DeliveryProjectSessionStateView'];
       projects?: null | components['schemas']['DeliveryProjectSummary'][];
       pump?: components['schemas']['DeliveryPumpStatus'];
-      session?: components['schemas']['DeliverySessionStateView'];
+      session?: components['schemas']['DeliveryDesignArtifactSessionView'];
       summary?: components['schemas']['DeliveryProjectState'];
       timeline?: components['schemas']['DeliveryEpisodeTimeline'];
     };
@@ -949,7 +925,7 @@ export interface components {
     };
     DeliveryReviewSubjectRef: {
       /**
-       * @description What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Today's two writers mint only pullRequest (the rail is live) and artifact (it is not), so commit is the one a future subject-by-sha writer will use.
+       * @description What the ref names — the ledger's own closed vocabulary (projectstate.SubjectKind), carried through unchanged. Both live rails mint commit (the staged model's sha on the design rail, the pushed work's sha on the construction rail) as of 38fd7f9c; pullRequest is what a reviewer's PR is recorded as, and artifact is the ref of an artifact judged outside either rail.
        * @enum {string}
        */
       kind: 'commit' | 'artifact' | 'pullRequest';
@@ -1025,24 +1001,6 @@ export interface components {
       Volatility: string;
     };
     DeliverySessionRef: string;
-    /** @enum {integer} */
-    DeliverySessionStage: 0 | 1 | 2 | 3 | 4 | 5 | 6 | 7;
-    DeliverySessionStateView: {
-      activeRole: components['schemas']['DeliveryActiveRole'];
-      activeStep: components['schemas']['DeliveryActiveStep'];
-      artifactKind: components['schemas']['DeliveryArtifactKind'];
-      critique?: components['schemas']['DeliveryCritiqueView'];
-      draft: components['schemas']['DeliveryDraftModel'];
-      failureReason?: null | string;
-      failureRunUrl?: null | string;
-      findings?: null | components['schemas']['DeliveryFinding'][];
-      projectId: components['schemas']['DeliveryProjectID'];
-      reviewThread?: null | components['schemas']['DeliveryReviewCommentView'][];
-      round: number;
-      runUrl?: null | string;
-      stage: components['schemas']['DeliverySessionStage'];
-      stageName: string;
-    };
     /** @enum {string} */
     DeliverySeverity: 'info' | 'warning' | 'error';
     DeliveryStartProjectResult: {
@@ -1064,6 +1022,8 @@ export interface components {
       actor?: string;
       attempt: number;
       attemptId: string;
+      /** @description The attempt's own render-ready sentence, verbatim. Absent where the attempt recorded none. */
+      detail?: null | string;
       /** Format: date-time */
       endedAt?: null | string;
       evidence: components['schemas']['DeliveryEvidenceRef'];
@@ -1105,6 +1065,8 @@ export interface components {
       decidedAt?: string;
       /** @description Who decided the round. Omitted while it is undecided and on a reconstructed revision. */
       decidedBy?: string;
+      /** @description The attempt's own render-ready sentence, verbatim — 'drafted <kind> on <branch>', 'dispatched <command> for <phase>', 'asked N question(s) of <role>', or a failed venue's whole sentence including its run URL. PRESENT where the revision cites a gate attempt; absent on a reconstructed revision and where no attempt was captured. It exists because the M0 review is a SPEND APPROVAL and the per-family planning-assumption defaulting left no trace on any view: a founder could approve a cost computed on numbers nobody showed them. This is the field that shows them. */
+      detail?: null | string;
       /**
        * Format: date-time
        * @description Omitted while any attempt of the revision is unresolved.
@@ -1545,7 +1507,6 @@ export interface components {
       expectedPerCycleNet: components['schemas']['ModelMoney'];
       optionId: string;
       projectedMonthlyCost: components['schemas']['ModelMoney'];
-      revenueSharePercent: number;
       /** @enum {string} */
       solutionKind:
         | 'mission'
@@ -1574,8 +1535,6 @@ export interface components {
     ModelSettlementTerms: {
       computeCost: number;
       computeMarkupPercent: number;
-      revenueShare: number;
-      revenueSharePercent: number;
       schedule: number;
     };
     ModelSoftwareSystemInstance: {
@@ -2361,97 +2320,6 @@ export interface operations {
         };
         content: {
           'application/json': components['schemas']['DeliveryProjectView'];
-        };
-      };
-      /** @description contract misuse */
-      400: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description unauthenticated */
-      401: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description forbidden */
-      403: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description not found */
-      404: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description failed precondition */
-      409: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description internal error */
-      500: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-      /** @description infrastructure unavailable */
-      503: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryErrorResponse'];
-        };
-      };
-    };
-  };
-  ReplanProject: {
-    parameters: {
-      query?: never;
-      header?: never;
-      path: {
-        projectID: components['schemas']['DeliveryProjectID'];
-      };
-      cookie?: never;
-    };
-    requestBody: {
-      content: {
-        'application/json': {
-          tickID: string;
-        };
-      };
-    };
-    responses: {
-      /** @description success */
-      200: {
-        headers: {
-          [name: string]: unknown;
-        };
-        content: {
-          'application/json': components['schemas']['DeliveryReplanSweepResult'];
         };
       };
       /** @description contract misuse */

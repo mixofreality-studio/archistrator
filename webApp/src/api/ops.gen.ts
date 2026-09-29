@@ -85,11 +85,6 @@ export const OP_BINDINGS = {
     path: '/api/v1/delivery/query-project-view',
     tool: 'deliveryQueryProjectView',
   },
-  deliveryReplanProject: {
-    method: 'POST',
-    path: '/api/v1/delivery/replan-project/{projectID}',
-    tool: 'deliveryReplanProject',
-  },
   deliverySetProjectExecutionPolicy: {
     method: 'POST',
     path: '/api/v1/delivery/set-project-execution-policy/{projectID}',

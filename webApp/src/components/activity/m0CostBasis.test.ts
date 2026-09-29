@@ -26,8 +26,6 @@ function planningAssumptions(notes: string): ArtifactSlotView {
         terms: {
           computeCost: 1,
           computeMarkupPercent: 0,
-          revenueShare: 2,
-          revenueSharePercent: 0,
           schedule: 1,
         },
       },

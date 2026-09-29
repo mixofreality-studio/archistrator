@@ -3261,6 +3261,12 @@ func (wf *csWorkflows) recordTaskAttempt(
 			Outcome:      produced.Outcome,
 			EvidenceKind: kind,
 			EvidenceRef:  ref,
+			// The strategy's own sentence, DURABLY (stage 4b2). It was produced and dropped:
+			// sdpComputeStrategy has recorded which planning-assumption families the compute
+			// had to default since 4b1, the ledger had nowhere to put it, and the M0 review —
+			// a SPEND APPROVAL — showed the founder a cost with no trace of the numbers it
+			// was computed on.
+			Detail: produced.Detail,
 		})
 }
 
@@ -4211,34 +4217,6 @@ func reconcileTargetOf(lc methodassets.Lifecycle) []projectstate.ArtifactKind {
 	return designSlotsOfLifecycle(lc)
 }
 
-// reconcileWireKind is THE ONE-KIND WIRE ADAPTER, and stage 4b2 Task 7 deletes it whole. The
-// RA speaks the PRESERVE SET end to end now — GitStore, the git adapter and designSessionBase
-// all take `kinds []ArtifactKind` — but the REGISTERED ACTIVITY's parameter list is generated
-// from .serviceContracts.designSessionAccess, and this wave has exactly one model edit and one
-// regen (Task 7). So between the two commits the workflow can put at most one kind on the wire,
-// and this function is the only place that knows it.
-//
-// It returns expressible=false for a set of two or more, and the caller then takes the honest
-// refusal it took before rather than sending preserveKinds[0]: sending the first of four WOULD
-// BE F80c — three live drafts replaced by main's older copies, in the path whose whole job is
-// to rescue the branch.
-//
-// WHAT THE ZERO VALUE ACTUALLY MEANS, written down because the comment this replaces claimed
-// the opposite for a whole wave: the empty set has no one-kind spelling, so the zero
-// ArtifactKind goes over — and KindMission IS ZERO. A construction reconcile has therefore
-// always PRESERVED the branch's mission slot, not "matched no slot-table entry". Harmless,
-// because a construction branch holds no mission draft, so preserving that slot preserves
-// nothing. Task 7 sends the explicit empty set the store already understands.
-func reconcileWireKind(preserveKinds []projectstate.ArtifactKind) (projectstate.ArtifactKind, bool) {
-	if len(preserveKinds) > 1 {
-		return 0, false
-	}
-	if len(preserveKinds) == 1 {
-		return preserveKinds[0], true
-	}
-	return 0, true
-}
-
 // reconcileDivergedBranch overlays main's slots onto the activity branch tip so a
 // MERGEABLE=false PR becomes mergeable again (F80c). It runs through
 // applyRecoveringOnBranch so a stale-version Conflict re-reads the BRANCH version and
@@ -4248,6 +4226,16 @@ func reconcileWireKind(preserveKinds []projectstate.ArtifactKind) (projectstate.
 // This is the ONLY workflow caller of designSessionAccess.reconcileBranchFromMain. The verb
 // has been registered and implemented with none since the co-author files went, which is
 // why F80c came back.
+//
+// THE WHOLE PRESERVE SET NOW CROSSES THE WIRE (stage 4b2 Task 7). Task 6 widened the store
+// while the generated Activity still took one kind, so a lifecycle with two or more in-flight
+// design slots took a refusal here — `reconcileWireKind`, the `!expressible` arm and the
+// `delivery.merge.reconcileUnavailable` log key — because sending preserveKinds[0] of four IS
+// F80c: three live drafts replaced by main's older copies, in the path whose whole job is to
+// rescue the branch. All three are gone with the `kinds` param. An EMPTY set is passed
+// verbatim and means "preserve nothing, adopt main entirely", which is the construction case;
+// it is no longer spelled as the zero ArtifactKind, which was KindMission and had been
+// quietly preserving the branch's mission slot.
 func (wf *csWorkflows) reconcileDivergedBranch(
 	ctx workflow.Context,
 	in constructActivityInput,
@@ -4255,19 +4243,12 @@ func (wf *csWorkflows) reconcileDivergedBranch(
 	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
-	wireKind, expressible := reconcileWireKind(preserveKinds)
-	if !expressible {
-		workflow.GetLogger(ctx).Warn("delivery.merge.reconcileUnavailable",
-			"activityId", string(in.ActivityID), "branch", gf.branch,
-			"reason", "this lifecycle holds more than one in-flight design slot on one branch, and the generated reconcile Activity still carries a single kind")
-		return nil
-	}
 	if gf.branch == "" {
 		return nil
 	}
 	if _, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, gf.branch, 0,
 		func(expected projectstate.Version) (projectstate.Version, error) {
-			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, wireKind)
+			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, preserveKinds)
 		}); err != nil {
 		return err
 	}

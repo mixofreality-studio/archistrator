@@ -62,14 +62,12 @@ import { StageChip } from '../StageChip';
 import { headerChipStage } from './headerChipStage';
 import { ExperienceChrome } from './ExperienceChrome';
 import { SlimSpine, type SpineStep } from './SlimSpine';
-import { GeneratingScene } from './GeneratingScene';
 import { DraftFailedPanel } from './DraftFailedPanel';
 import { GatePanel } from './GatePanel';
 import { SubmitBar } from './SubmitBar';
 import { CommittedArtifactPanel, CommittedChip } from './CommittedArtifactPanel';
 import { StaleBasisHeaderChip } from './StaleBasisChip';
 import { ResearchInputPanel } from './ResearchInputPanel';
-import { CommentProvider } from '../comments/CommentContext';
 import { SkeletonContentCard } from './DesignSkeleton';
 
 import { useTokens } from '../../utilities/theme/ThemeContext';
@@ -293,17 +291,21 @@ export function SystemDesignView({
   const committedStale = committedSlot?.staleBasis === true;
   const committedStaleCause = committedSlot?.staleCause;
   const hasDraft = view?.draft.model !== undefined;
-  // The gate's machine validation: the server's live design-health findings first,
-  // then the session's own (which since Task 2 is only the critique-unresolved
-  // warning). One list, in the order a reader should meet them.
-  const findings = [...(designHealthFindings ?? []), ...(view?.findings ?? [])];
+  // The gate's machine validation: the server's live design-health findings. The session
+  // used to contribute its own half here; `SessionStateView.findings` had zero producers
+  // and left the wire at stage 4b2, so the merge was an append of an always-empty list.
+  const findings = [...(designHealthFindings ?? [])];
   const reviewThread = view?.reviewThread ?? [];
   const openCommentCount = reviewThread.filter((c) => c.status === 'open').length;
-  const generating = stage === 'drafting' || stage === 'redrafting';
-  const asyncFailed = stage === 'draftFailed';
-  const draftFailed = stage === 'refused' || asyncFailed;
+  // `drafting` / `redrafting` / `refused` are NOT tested here any more, and their branches
+  // are gone with them (stage 4b2). The door this screen reads is the DERIVED session view:
+  // a projection of one durable slot, whose whole stage vocabulary is
+  // {committed, withdrawn, draftFailed}. The live stages had no producer once 4b1 retired
+  // the co-author workflow, so the generating scene and the `refused` arm of the failure
+  // panel could not render for anyone. `awaitingReview` below is deliberately untouched:
+  // that one is the MCP design widget's approve/reject gate and it gets a live source back.
+  const draftFailed = stage === 'draftFailed';
   const failureReason = view?.failureReason;
-  const failureRunUrl = view?.failureRunUrl;
   const activeCommitted = spine[safeIndex]?.committed === true;
   const stagedChangeRequests = commentSurface?.changeRequestCount ?? 0;
   const stagedQuestions = commentSurface?.questionCount ?? 0;
@@ -316,7 +318,6 @@ export function SystemDesignView({
   const showsCommittedPanel =
     !needsResearch &&
     !draftFailed &&
-    !generating &&
     !(sessionLoading && view === undefined) &&
     (sessionMissing || stage === 'committed') &&
     activeCommitted &&
@@ -447,18 +448,14 @@ export function SystemDesignView({
           activeKind={activeKind}
           amendOpen={amendOpen}
           amendPending={amendPending}
-          asyncFailed={asyncFailed}
           beginPending={beginPending}
           blurb={meta.blurb}
           committed={activeCommitted}
           committedEnvelope={committedEnvelope}
-          committedRevisions={committedRevisions}
           draftFailed={draftFailed}
           failureReason={failureReason}
-          failureRunUrl={failureRunUrl}
           findings={findings}
           gateError={gateError}
-          generating={generating}
           hasDraft={hasDraft}
           loading={sessionLoading}
           needsResearch={needsResearch}
@@ -527,16 +524,12 @@ function StepBody({
   amendOpen,
   committed,
   committedEnvelope,
-  committedRevisions,
   useCasesEnvelope,
   systemEnvelope,
   loading,
-  generating,
   needsResearch,
   draftFailed,
-  asyncFailed,
   failureReason,
-  failureRunUrl,
   hasDraft,
   sessionMissing,
   stage,
@@ -564,18 +557,14 @@ function StepBody({
   amendOpen: boolean;
   committed: boolean;
   committedEnvelope: ArtifactModelEnvelope | undefined;
-  committedRevisions: number | undefined;
   /** The committed coreUseCases envelope (F-QA2-51 dynamic-view label fallback). */
   useCasesEnvelope: ArtifactModelEnvelope | undefined;
   /** The committed System envelope (the carousel's "View call chain" join). */
   systemEnvelope: ArtifactModelEnvelope | undefined;
   loading: boolean;
-  generating: boolean;
   needsResearch: boolean;
   draftFailed: boolean;
-  asyncFailed: boolean;
   failureReason: string | undefined;
-  failureRunUrl: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
   stage: string | undefined;
@@ -600,105 +589,34 @@ function StepBody({
   if (needsResearch) {
     return <ResearchInputPanel pending={researchPending} onSubmit={onSubmitResearch} />;
   }
-  // Terminal failure takes precedence over the generating loader so a failed
-  // session surfaces an error + Retry/Withdraw instead of an infinite generating
-  // screen. The async `draftFailed` variant frames it as a CI-job failure and
-  // offers Withdraw alongside Retry.
+  // The terminal-failure panel. `draftFailed` is the ONLY failure stage this door can
+  // report since stage 4b2 — its `refused` sibling had no producer — so the panel is
+  // always the async, CI-job framing and always offers Withdraw alongside Retry. It also
+  // no longer deep-links the failed run: `failureRunUrl` was a wire field nothing set.
   if (draftFailed) {
     return (
       <DraftFailedPanel
+        async
         artifact={title}
-        async={asyncFailed}
         // A failed Retry/Withdraw decision surfaces inline here too (2026-07-16
         // incident: dead-session decisions 503'd with zero feedback rendered).
         gateError={gateError}
         pending={retryPending}
         reason={failureReason}
-        runUrl={failureRunUrl}
         withdrawPending={withdrawPending}
         onRetry={onRetry}
-        onWithdraw={asyncFailed ? onWithdraw : undefined}
+        onWithdraw={onWithdraw}
       />
     );
   }
-  if (generating) {
-    // A committed slot that is generating is an amendment-in-flight: frame it so the
-    // committed header + this scene read honestly (the committed revision stays current).
-    const scene = (
-      <GeneratingScene
-        // F-GTD-6: the server surfaces the LIVE run's URL while the design job is in
-        // flight, so the CI-job notice deep-links the actual GitHub Actions run.
-        // Absent (older server / URL not yet resolved) → the notice renders unlinked.
-        actionsUrl={view?.runUrl}
-        activeRole={view?.activeRole}
-        activeStep={view?.activeStep}
-        amendingRevision={committed ? (committedRevisions ?? 0) : undefined}
-        artifact={title}
-        phrase={METHOD_METADATA[activeKind].phrase}
-        round={view?.round}
-      />
-    );
-    // Reviewers must be able to READ the committed revision while its amendment
-    // drafts — don't blank the pane. Render the committed model read-only (dimmed,
-    // labeled "current") above the generating scene, in a disabled comment context
-    // so it carries zero comment affordances.
-    if (committed && committedEnvelope !== undefined) {
-      const revN = committedRevisions ?? 0;
-      return (
-        <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-          <Box>
-            <Box
-              data-testid={UI_IDENTIFIERS.DesignExperience.AMEND_CURRENT_LABEL}
-              sx={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: 1,
-                px: 2,
-                py: 1,
-                bgcolor: t.committedBg,
-                border: `1.5px solid ${t.line}`,
-                borderBottom: 'none',
-              }}
-            >
-              <Typography
-                sx={{
-                  fontFamily: t.mono,
-                  fontWeight: 700,
-                  fontSize: 12,
-                  letterSpacing: '0.08em',
-                  color: t.committedFg,
-                }}
-              >
-                COMMITTED{revN > 1 ? ` · revision ${String(revN)}` : ''} — current
-              </Typography>
-              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-                stays live until the amendment is approved
-              </Typography>
-            </Box>
-            <Box
-              aria-hidden
-              sx={{ opacity: 0.6, pointerEvents: 'none', border: `1.5px solid ${t.line}`, p: 1 }}
-            >
-              <CommentProvider enabled={false}>
-                {proseSurface(
-                  committedEnvelope.kind,
-                  <ArtifactRenderer
-                    envelope={committedEnvelope}
-                    height={480}
-                    systemEnvelope={systemEnvelope}
-                    title={title}
-                    useCasesEnvelope={useCasesEnvelope}
-                  />
-                )}
-              </CommentProvider>
-            </Box>
-          </Box>
-          {scene}
-        </Box>
-      );
-    }
-    return scene;
-  }
+  // The `generating` branch stood here and is DELETED (stage 4b2). It rendered the
+  // GeneratingScene — with the server-reported activeRole / activeStep / round and the
+  // live run URL — for stage `drafting` or `redrafting`, and it framed an
+  // amendment-in-flight by showing the committed revision above it. None of those stages
+  // and none of those fields survive on the derived door, so the branch was unreachable
+  // and the scene never painted here. GeneratingScene itself is alive and in use on the
+  // ACTIVITY rail (DispatchBody), which passes its own role line.
+
   // The project head-state has resolved by now (the container renders the
   // full-screen skeleton while it is in flight, before this screen mounts at
   // all), so the surrounding header/chip/spine are already truthful. Only the
@@ -811,12 +729,7 @@ function StepBody({
         <ApproveFaultBanner key={failureReason} reason={failureReason} />
       ) : null}
       {gateOpen ? (
-        <GatePanel
-          critique={view?.critique}
-          findings={findings}
-          gateError={gateError}
-          openCommentCount={openCommentCount}
-        />
+        <GatePanel findings={findings} gateError={gateError} openCommentCount={openCommentCount} />
       ) : null}
     </>
   );

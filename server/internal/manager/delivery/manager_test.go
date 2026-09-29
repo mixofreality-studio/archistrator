@@ -173,7 +173,7 @@ func Test_DesignArtifactSessionView_IsTotalOverEveryKind(t *testing.T) {
 	if len(slotWriters) != len(kinds) {
 		t.Fatalf("slotWriters covers %d kinds, AllArtifactKinds has %d — the table drifted", len(slotWriters), len(kinds))
 	}
-	expressible := []SessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	expressible := []DesignArtifactSessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
 	for _, k := range kinds {
 		write, ok := slotWriters[k]
 		if !ok {
@@ -202,8 +202,8 @@ func Test_DesignArtifactSessionView_IsTotalOverEveryKind(t *testing.T) {
 				t.Errorf("kind %s / status %d: stage %v is outside the three a slot can express %v",
 					k.WireName(), st, view.Stage, expressible)
 			}
-			if view.Stage == StageDrafting {
-				t.Errorf("kind %s / status %d produced the LIVE StageDrafting — the anti-wedge rule", k.WireName(), st)
+			if view.Stage == SessionStageUnknown {
+				t.Errorf("kind %s / status %d produced the ZERO stage — every answer must be a named one", k.WireName(), st)
 			}
 		}
 	}
@@ -213,7 +213,9 @@ func Test_DesignArtifactSessionView_IsTotalOverEveryKind(t *testing.T) {
 // Phase-2 kind must reach the SAME producer a Phase-1 kind reaches, and must come back on the
 // SAME wire member. Two doors to one question is how the two enums drifted in the first
 // place, and `projectSession` is what the second door filled — so a Phase-2 answer landing
-// anywhere but `session`, or `projectSession` being non-nil at all, is the fold undone.
+// anywhere but `session` is the fold undone. `projectSession` itself is no longer a field to
+// check: stage 4b2's model edit deleted it from ProjectView, so the second door is now gone
+// from the CONTRACT and not merely unfilled.
 func Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor(t *testing.T) {
 	for _, k := range projectstate.AllArtifactKinds() {
 		proj := projectstate.Project{ID: "p", Version: 1}
@@ -234,9 +236,6 @@ func Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor(t *test
 		}
 		if out.Session == nil {
 			t.Fatalf("kind %s: the answer must land on `session` — the ONE derived member", k.WireName())
-		}
-		if out.ProjectSession != nil {
-			t.Fatalf("kind %s: `projectSession` must never be set again; the second door is gone", k.WireName())
 		}
 		if out.Session.Stage != StageCommitted {
 			t.Errorf("kind %s: a committed slot must render StageCommitted, got %v", k.WireName(), out.Session.Stage)
@@ -348,8 +347,8 @@ func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projec
 	panic("renderFakeProjectState.SeedReviewCommentsOnBranch must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) ReconcileBranchFromMainKinds(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("renderFakeProjectState.ReconcileBranchFromMainKinds must not be called by these façade-precondition tests")
+func (f *renderFakeProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.ReconcileBranchFromMain must not be called by these façade-precondition tests")
 }
 
 // AcknowledgeStaleBasis is a real (if trivial) success implementation: the C2 fold
@@ -585,7 +584,7 @@ func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -1203,17 +1202,16 @@ func Test_EngineReviewPolicy_CarriesTheStoredDocument(t *testing.T) {
 	}
 }
 
-// The live set is exactly the non-terminal stages: drafting / awaitingReview /
-// redrafting / draftFailed (the recovery gate keeps the branch+PR).
+// The live set is exactly ONE stage since stage 4b2 narrowed the vocabulary: draftFailed,
+// the recovery gate that keeps the branch+PR. drafting / awaitingReview / redrafting were
+// the other three and they left with the members — the derived door projects a durable slot
+// and cannot report a live draft — so this walks the WHOLE enum rather than two hand lists,
+// which is what stops a future member from being silently non-live.
 func Test_SessionStageIsLive(t *testing.T) {
-	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageDraftFailed}
-	for _, s := range live {
-		if !sessionStageIsLive(s) {
-			t.Errorf("stage %s must be live", sessionStageLabel(s))
-		}
+	if !sessionStageIsLive(StageDraftFailed) {
+		t.Error("draft failed must be live — the session is suspended there with its branch and PR intact")
 	}
-	terminal := []SessionStage{SessionStageUnknown, StageCommitted, StageWithdrawn, StageRefused}
-	for _, s := range terminal {
+	for _, s := range []DesignArtifactSessionStage{SessionStageUnknown, StageCommitted, StageWithdrawn} {
 		if sessionStageIsLive(s) {
 			t.Errorf("stage %s must NOT be live", sessionStageLabel(s))
 		}
@@ -1329,17 +1327,14 @@ func TestNextQuestionRound(t *testing.T) {
 // It replaces TestIsLiveSessionStage, which pinned the predicate by itself. The predicate
 // was never wrong about its own vocabulary; what was wrong was asking it about a view that
 // speaks the other one, and only a test that names BOTH sets can say that.
+//
+// Stage 4b2 settled the disjointness STRUCTURALLY: the four live stages are no longer
+// members of DesignArtifactSessionStage at all, so the two sets cannot intersect because one
+// of them is empty. What remains worth driving is the half that can still move — the
+// producer's output set — so that is all this now does.
 func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T) {
-	live := []SessionStage{StageDrafting, StageAwaitingReview, StageRedrafting, StageRefused}
-	derived := []SessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
-	for _, d := range derived {
-		for _, l := range live {
-			if d == l {
-				t.Fatalf("stage %v is in both sets — resolveQuestionBranch's branch arm was reachable after all", d)
-			}
-		}
-	}
-	// And the producer's OUTPUT set is exactly `derived`, DRIVEN rather than asserted: every
+	derived := []DesignArtifactSessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	// The producer's OUTPUT set is exactly `derived`, DRIVEN rather than asserted: every
 	// one of ArtifactReviewStatus's five members (contract.gen.go: None, AwaitingReview,
 	// Committed, Rejected, Withdrawn) is fed through committedSessionView, and every answer
 	// must land in `derived`. A sixth status that renders a LIVE stage would break this — and
@@ -1355,11 +1350,6 @@ func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T
 		}
 		if !slices.Contains(derived, view.Stage) {
 			t.Errorf("committedSessionView(status %d).Stage = %v, which is outside the derived set %v — the deleted branch arm would be reachable again", st, view.Stage, derived)
-		}
-		for _, l := range live {
-			if view.Stage == l {
-				t.Errorf("committedSessionView(status %d) produced the LIVE stage %v", st, view.Stage)
-			}
 		}
 	}
 }
@@ -1680,7 +1670,7 @@ func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, 
 func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
-func (f *fakeProjectStateAccess) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -2817,8 +2807,8 @@ func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projects
 	panic("setResearchFakeState.SeedReviewCommentsOnBranch must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) ReconcileBranchFromMainKinds(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("setResearchFakeState.ReconcileBranchFromMainKinds must not be called by SetResearchInput")
+func (f *setResearchFakeState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.ReconcileBranchFromMain must not be called by SetResearchInput")
 }
 
 func (f *setResearchFakeState) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -3055,14 +3045,10 @@ var _ projectstate.ProjectStateAccess = (*setResearchNotFoundOnWrite)(nil)
 // alongside it. sessionStageLabel is the single authoritative map; withStageName stamps it.
 
 func TestSessionStageLabel_Map(t *testing.T) {
-	cases := map[SessionStage]string{
+	cases := map[DesignArtifactSessionStage]string{
 		SessionStageUnknown: "not started",
-		StageDrafting:       "drafting",
-		StageAwaitingReview: "awaiting review",
-		StageRedrafting:     "redrafting",
 		StageCommitted:      "committed",
 		StageWithdrawn:      "withdrawn",
-		StageRefused:        "refused",
 		StageDraftFailed:    "draft failed",
 	}
 	for stage, want := range cases {
@@ -4841,7 +4827,7 @@ func (f *pdFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projec
 	return f.bump(), nil
 }
 
-func (f *pdFakeProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *pdFakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -6594,14 +6580,24 @@ func Test_ComputeProjectPlanSlots_ReproducesTheCommittedPlan(t *testing.T) {
 	if err != nil {
 		t.Fatalf("computeProjectPlanSlots over the committed state: %v", err)
 	}
-	// MEASURED, and it is a finding rather than an expectation: this repo's committed slot 8
-	// names NO revenue-share regime (revenueShare: 0 is RevenueShareUnknown), which
-	// billingEngine refuses outright on money-safety grounds — so the compute defaults the
-	// billing TERMS and records it. That single unusable field is why slots 11-16 have carried
-	// staleBasis since the billing reversal: nothing could re-derive them. Everything the
-	// founder actually authored is kept, which the calendar half below asserts.
-	if !slices.Equal(defaulted, []string{assumedTerms}) {
-		t.Fatalf("the committed slot 8 names no revenue-share regime, so the TERMS and nothing else may be defaulted; got %v", defaulted)
+	// MEASURED, AND IT MOVED — this is the state finding stage 4b2 closed. Until the wave's
+	// model edit, this repo's committed slot 8 carried `revenueShare: 0`, which IS
+	// RevenueShareUnknown, which billingEngine refused outright on money-safety grounds; the
+	// compute therefore had to default the whole billing TERMS family on every run, and that
+	// single unusable field is why slots 11-16 carried staleBasis from the 2026-06-09 billing
+	// reversal onward. Revenue share is now gone from the vocabulary rather than defaulted
+	// around, slot 8's remaining terms (computeCost tieredFloors, monthly) are ALL AUTHORED,
+	// and the compute defaults NOTHING. An empty list is the strongest form of this
+	// assertion: every number the M0 screen shows a founder for this project is one they
+	// authored.
+	if len(defaulted) != 0 {
+		t.Fatalf("the committed slot 8 is fully authored since the revenue-share removal, so "+
+			"NOTHING may be defaulted; got %v", defaulted)
+	}
+	// And the attempt's sentence agrees: nothing defaulted means no sentence, because a note
+	// saying "nothing was assumed" is noise on every well-formed project.
+	if got := defaultedDetail(defaulted); got != "" {
+		t.Fatalf("defaultedDetail over an empty family list = %q, want the empty string", got)
 	}
 	var kinds []projectstate.ArtifactKind
 	byKind := map[projectstate.ArtifactKind]projectstate.ArtifactModel{}
@@ -11478,7 +11474,7 @@ type reconcileCall struct {
 	kinds  []projectstate.ArtifactKind
 }
 
-func (f fakeFullProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kinds []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f fakeFullProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kinds []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kinds: kinds})
 	hook := f.onReconcile
@@ -15480,6 +15476,52 @@ func TestDeriveTaskViews_RevisionMembersNoteAndProvenance(t *testing.T) {
 	avCheckGateRevisions(t, avTask(t, views, "codeReview").Revisions)
 }
 
+// Test_Revision_CarriesTheDecisiveAttemptsDetail is the M0 SPEND-APPROVAL pin (stage 4b2).
+//
+// The Project-Design compute has recorded which planning-assumption families it had to
+// default since 4b1 — `Detail: defaultedDetail(defaulted)` on the produced subject — and
+// nothing persisted it: TaskAttempt had no Detail, so the sentence was minted and dropped
+// on every run and the M0 screen showed a founder a cost with no trace of the numbers it
+// was computed on. This walks the whole path now: the attempt carries it, the revision
+// derivation takes it from the DECISIVE attempt (not the last member), and the wire view
+// omits it rather than sending an empty string.
+func Test_Revision_CarriesTheDecisiveAttemptsDetail(t *testing.T) {
+	const sentence = "the plan's cost was computed on ASSUMED values for calendar — the " +
+		"founder authored none, so these are the platform's documented defaults and not decisions"
+
+	first := avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomeFailed)
+	first.Detail = "a retry that says something else"
+	decisive := avObserved(projectstate.TaskConstruction, 2, projectstate.OutcomePassed)
+	decisive.Detail = sentence
+	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
+
+	views := deriveTaskViews(avServiceLifecycle(), []projectstate.TaskAttempt{first, decisive, quiet}, nil, nil, "")
+
+	work := avTask(t, views, "construction").Revisions
+	if len(work) != 1 {
+		t.Fatalf("construction revisions = %d, want 1 (the failed retry folds in)", len(work))
+	}
+	if work[0].Detail != sentence {
+		t.Errorf("the revision carries %q, want the DECISIVE attempt's sentence %q — a retry's "+
+			"account is not what explains the outcome the revision reports", work[0].Detail, sentence)
+	}
+
+	gate := avTask(t, views, "codeReview").Revisions
+	if len(gate) != 1 || gate[0].Detail != "" {
+		t.Errorf("a gate attempt that recorded no sentence must carry none, got %+v", gate)
+	}
+
+	// On the wire: present as a string, or ABSENT — never an empty string, because "this
+	// attempt said nothing" and "this attempt said the empty sentence" are different facts.
+	wire := revisionViews(work)
+	if len(wire) != 1 || wire[0].Detail == nil || *wire[0].Detail != sentence {
+		t.Errorf("the wire revision's detail = %v, want a pointer to the sentence", wire[0].Detail)
+	}
+	if got := revisionViews(gate); got[0].Detail != nil {
+		t.Errorf("a revision with no sentence must OMIT detail, got %q", *got[0].Detail)
+	}
+}
+
 // avCheckWorkRevisions asserts the dispatch side of the run above: two revisions, the
 // failed retry and the tandem test client folded into the first, the episode of the
 // attempt that reached the gate, worst-origin contagion, and the revision's span.
@@ -19125,30 +19167,6 @@ func Test_ReconcileTargetOf_IsTheLifecyclesWholeInFlightSet(t *testing.T) {
 	}
 }
 
-// THE ONE-KIND WIRE, pinned while it exists (stage 4b2 Task 6; Task 7 deletes reconcileWireKind
-// and this test with it). Two things must hold for the commit that widens the RA but not yet
-// the generated Activity: a set of two or more is NOT expressible and takes the refusal — not
-// its first element, which would be F80c itself — and the empty set goes over as the ZERO
-// ArtifactKind, which is KindMission, not an absence.
-func Test_ReconcileWireKind_RefusesWhatTheOneKindWireCannotSay(t *testing.T) {
-	if got, ok := reconcileWireKind(nil); !ok || got != projectstate.KindMission {
-		t.Errorf("the empty preserve set = (%v, %v), want (KindMission, true) — the zero "+
-			"ArtifactKind is what crosses today's wire and it names a real slot", got, ok)
-	}
-	if got, ok := reconcileWireKind([]projectstate.ArtifactKind{projectstate.KindSystem}); !ok || got != projectstate.KindSystem {
-		t.Errorf("a one-kind set = (%v, %v), want (KindSystem, true)", got, ok)
-	}
-	req, ok := methodassets.LifecycleFor("requirements")
-	if !ok {
-		t.Fatal("the platform carries no requirements lifecycle")
-	}
-	four := reconcileTargetOf(req)
-	if _, ok := reconcileWireKind(four); ok {
-		t.Fatalf("the four-slot requirements set %v must NOT be expressible on a one-kind wire — "+
-			"sending its first element is exactly the F80c loss this task exists to stop", four)
-	}
-}
-
 // The command each design task runs is the LIFECYCLE'S, and DesignCommandFor must still agree
 // with it — two answers to one question is how a platform release silently re-points a job.
 func Test_DesignCommands_MatchTheLifecycleData(t *testing.T) {
@@ -22655,16 +22673,14 @@ func Test_Guard_DivergedBranchIsReconciledRatherThanLoopingForever(t *testing.T)
 		t.Fatalf("the reconcile must name the ACTIVITY branch, got %q", got)
 	}
 	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves NONE
-	// and adopts main's every slot. WHAT ACTUALLY CROSSES THE WIRE TODAY is the zero
-	// ArtifactKind — and KindMission IS ZERO — so the RA is handed the one-element set
-	// {KindMission}, not the empty one. That is harmless (a construction branch holds no
-	// mission draft, so preserving that slot preserves nothing) and it is asserted as what it
-	// IS rather than as an absence, because the retired branchReconcile's comment claimed the
-	// absence for a whole wave and was wrong. Stage 4b2 Task 7 widens the generated Activity to
-	// carry the set, and this becomes the EMPTY set.
-	if got := ps.reconciles[0].kinds; !slices.Equal(got, []projectstate.ArtifactKind{projectstate.KindMission}) {
-		t.Fatalf("a construction branch owns no slot, so the reconcile preserves none — over "+
-			"today's one-kind wire that is the zero ArtifactKind, i.e. []{KindMission}; got %v", got)
+	// and adopts main's every slot — and the EMPTY SET is now what crosses the wire, verbatim.
+	// It used to be the zero ArtifactKind, which is KindMission, so every construction
+	// reconcile quietly preserved the branch's mission slot; harmless (a construction branch
+	// holds no mission draft) but not what the retired comment claimed. Stage 4b2 Task 7's
+	// `kinds` param is what lets the absence be spelled as an absence.
+	if got := ps.reconciles[0].kinds; len(got) != 0 {
+		t.Fatalf("a construction branch owns no slot, so the reconcile must preserve NONE — "+
+			"the empty set, not a stand-in for it; got %v", got)
 	}
 	if rail.merges != 1 {
 		t.Fatalf("the reconciled PR must merge, got %d merges", rail.merges)

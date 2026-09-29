@@ -137,29 +137,21 @@ func isResearchReadNotFound(err error) bool {
 // the signal that gates the amendment path (fresh -amend-N branch, amendment prompt, and
 // review-ledger SEED of the reopening feedback).
 
-// sessionStageLabel renders a SessionStage as a short human label for the precondition
-// messages.
-func sessionStageLabel(s SessionStage) string {
+// sessionStageLabel renders a DesignArtifactSessionStage as a short human label for the
+// precondition messages.
+func sessionStageLabel(s DesignArtifactSessionStage) string {
 	switch s {
 	case SessionStageUnknown:
 		return "not started"
-	case StageDrafting:
-		return "drafting"
-	case StageAwaitingReview:
-		return "awaiting review"
-	case StageRedrafting:
-		return "redrafting"
 	case StageCommitted:
 		return "committed"
 	case StageWithdrawn:
 		return "withdrawn"
-	case StageRefused:
-		return "refused"
 	case StageDraftFailed:
 		return "draft failed"
 	}
-	// Unreachable for the eight defined SessionStage values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
+	// Unreachable for the four defined DesignArtifactSessionStage values above (the
+	// exhaustive linter enforces that every real variant has its own case); kept as a
 	// defensive fallback for an out-of-range ordinal.
 	return "unknown"
 }
@@ -238,29 +230,29 @@ func standardCheckFailItems(proj projectstate.Project) []string {
 // Phase-1-only slotFor it replaced is what made the second door necessary at all. The read
 // error mapper is the finer of the two twins' (mapReadProjectError also surfaces the RA's
 // ContractMisuse as ContractMisuse instead of folding it into Infrastructure).
-func (m *deliveryManager) designArtifactSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+func (m *deliveryManager) designArtifactSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (DesignArtifactSessionView, error) {
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
-		return SessionStateView{}, mapReadProjectError(err)
+		return DesignArtifactSessionView{}, mapReadProjectError(err)
 	}
 	return committedSessionView(projectID, kind, pdSlotFor(proj, toPSKind(kind)))
 }
 
 // committedSessionView projects the durable slot of a COMPLETED session onto a
-// SessionStateView. A committed slot renders the committed view (StageCommitted + the
+// DesignArtifactSessionView. A committed slot renders the committed view (StageCommitted + the
 // committed model + the durable review thread) — the same {kind, model} shape the SPA
 // consumes for a live session. A withdrawn slot renders StageWithdrawn. Any other
 // terminal-but-uncommitted state (the run completed without landing a commit) renders an
 // honest StageDraftFailed terminal carrying a neutral reason — NEVER StageDrafting, so
 // the SPA never wedges on an infinite "GENERATING" spinner for a dead session.
-func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (SessionStateView, error) {
+func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (DesignArtifactSessionView, error) {
 	switch slot.Status {
 	case projectstate.ReviewCommitted:
 		draft, err := draftModelFor(kind, slot.Model)
 		if err != nil {
-			return SessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
+			return DesignArtifactSessionView{}, newError(fwmanager.Infrastructure, err.Error())
 		}
-		return SessionStateView{
+		return DesignArtifactSessionView{
 			ProjectID:    projectID,
 			ArtifactKind: kind,
 			Stage:        StageCommitted,
@@ -268,7 +260,7 @@ func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectst
 			ReviewThread: reviewThreadToView(slot.ReviewThread),
 		}, nil
 	case projectstate.ReviewWithdrawn:
-		return SessionStateView{
+		return DesignArtifactSessionView{
 			ProjectID:    projectID,
 			ArtifactKind: kind,
 			Stage:        StageWithdrawn,
@@ -280,7 +272,7 @@ func committedSessionView(projectID ProjectID, kind ArtifactKind, slot projectst
 		fallthrough
 	default:
 		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
-		return SessionStateView{
+		return DesignArtifactSessionView{
 			ProjectID:     projectID,
 			ArtifactKind:  kind,
 			Stage:         StageDraftFailed,
@@ -482,7 +474,7 @@ func isNotFound(err error) bool {
 // PhaseAdvanceResult is the gating outcome of AdvancePhase: a non-Advanced result
 // is the NORMAL "you still owe artifacts X, Y" answer, not an error.
 
-// DraftModel (the staged-draft envelope on SessionStateView) is IDENTICAL on the
+// DraftModel (the staged-draft envelope on DesignArtifactSessionView) is IDENTICAL on the
 // wire to the project ArtifactSlotModel envelope, so the SPA decodes a draft the
 // same way regardless of which read produced it.
 
@@ -604,7 +596,7 @@ func toPSResearch(r ResearchInput) projectstate.ResearchInput {
 }
 
 // findings.go owns the SESSION-TRANSIENT validation-finding value types this Manager
-// surfaces on its getSessionState read (SessionStateView.Findings). The SPA renders
+// surfaces on its getSessionState read (DesignArtifactSessionView.Findings). The SPA renders
 // findings[] to explain "why it's being redrafted" (the PM-critique-unresolved
 // warning is one). They are part of this component's OWN generated contract surface
 // (registered in cmd/schemagen) — pure data, no methods.
@@ -789,16 +781,20 @@ func (m *deliveryManager) refuseArtifactAckDuringLiveSession(rc fwmanager.Contex
 		sessionStageLabel(view.Stage)))
 }
 
-// sessionStageIsLive reports whether a co-author session stage means the session still
-// OWNS the slot (its branch/PR is open or recoverable): drafting / awaiting review /
-// redrafting, plus the StageDraftFailed recovery gate (the session is suspended there
-// with its branch and PR intact — a Retry resumes it). The terminal stages (committed /
-// withdrawn / refused) and the unknown zero value are NOT live.
-func sessionStageIsLive(s SessionStage) bool {
+// sessionStageIsLive reports whether a derived session stage means the session still OWNS
+// the slot (its branch/PR is open or recoverable). Only the StageDraftFailed recovery gate
+// does: the session is suspended there with its branch and PR intact, and a Retry resumes
+// it. Committed and withdrawn are terminal, and the unknown zero value is not a session.
+//
+// It used to also answer true for drafting / awaitingReview / redrafting. Those stages left
+// the vocabulary with stage 4b2's narrowing — the derived door projects a durable SLOT and
+// cannot report a live draft — so the question this asks is now answered by ONE member, and
+// the switch says so rather than listing three values nothing can produce.
+func sessionStageIsLive(s DesignArtifactSessionStage) bool {
 	switch s {
-	case StageDrafting, StageAwaitingReview, StageRedrafting, StageDraftFailed:
+	case StageDraftFailed:
 		return true
-	case SessionStageUnknown, StageCommitted, StageWithdrawn, StageRefused:
+	case SessionStageUnknown, StageCommitted, StageWithdrawn:
 		return false
 	default:
 		return false
@@ -2912,6 +2908,7 @@ func attemptsToContract(attempts []projectstate.TaskAttempt) []TaskAttempt {
 			EndedAt:   a.EndedAt,
 			Outcome:   string(a.Outcome),
 			Evidence:  EvidenceRef{Kind: string(a.Evidence.Kind), Ref: a.Evidence.Ref},
+			Detail:    strPtrOrNil(a.Detail),
 			Provenance: AttemptProvenance{
 				Origin:      string(a.Provenance.Origin),
 				Generator:   strPtrOrNil(a.Provenance.Generator),
@@ -5127,9 +5124,9 @@ const (
 //	                     load that is not zero, because a zero-load option has no
 //	                     operating cost to compare and the operating half of the M0
 //	                     headline would read $0.
-//	Terms                RevenueShare 0 / ComputeCost tieredFloors / Schedule monthly —
-//	                     the platform's shipped billing posture (docs/billing-setup.md;
-//	                     the 2026-06-09 MoR reversal), not a per-project choice.
+//	Terms                ComputeCost tieredFloors / Schedule monthly — the platform's
+//	                     shipped billing posture (docs/billing-setup.md; the 2026-06-09
+//	                     MoR reversal), not a per-project choice.
 //
 // It returns the ASSUMPTIONS and the family names it filled, so the M0 screen can say
 // "cost computed on an assumed calendar and rate card" rather than presenting an
@@ -5174,28 +5171,20 @@ func defaultDeclaredUsage() projectstate.UsageAssumption {
 	}
 }
 
-// defaultSettlementTerms is the platform's shipped billing posture: NO revenue share, a
-// tiered-floors compute cost, billed monthly (docs/billing-setup.md; the 2026-06-09
-// merchant-of-record reversal).
+// defaultSettlementTerms is the platform's shipped billing posture: a tiered-floors compute
+// cost, billed monthly (docs/billing-setup.md; the 2026-06-09 merchant-of-record reversal).
 //
-// RevenueShareNegotiatedRate at ZERO PERCENT, and this needs its reason stated because the
-// obvious encoding is wrong: "no revenue share" has NO member of its own in the
-// RevenueShareKind vocabulary — the zero value is RevenueShareUnknown, and billingEngine's
-// money-safety guard REFUSES it outright ("settling real money under an unregistered
-// revenue-share regime is a financial-correctness hazard… the Engine NEVER silently falls
-// back"). That guard is right, and it is why this cannot be the zero value. A negotiated
-// rate of 0% is the vocabulary's only truthful way to say "a share was agreed and it is
-// nothing"; the projection echoes 0% either way.
-//
-// EARMARKED: the vocabulary wants a RevenueShareNone member, which is a project.json edit
-// plus codegen. Until it exists this is the encoding, and it is written down HERE rather
-// than guessed at each call site.
+// IT USED TO CARRY A WORKAROUND, and its disappearance is the point. Stage 4b1 recorded
+// RevenueShareNegotiatedRate at ZERO PERCENT here, because "no revenue share" had no member
+// of its own — the zero value was RevenueShareUnknown and billingEngine refused it outright
+// — and it earmarked a RevenueShareNone member as the fix. Stage 4b2 took the other road on
+// the founder's ruling: the truthful encoding of a concept the business does not have is NO
+// CONCEPT, not a fourth member. The workaround was correct behaviour resting on a false
+// statement — the ledger would have said a rate was agreed when none was.
 func defaultSettlementTerms() projectstate.SettlementTerms {
 	return projectstate.SettlementTerms{
-		RevenueShare:        projectstate.RevenueShareNegotiatedRate,
-		RevenueSharePercent: 0,
-		ComputeCost:         projectstate.ComputeCostTieredFloors,
-		Schedule:            projectstate.ScheduleMonthly,
+		ComputeCost: projectstate.ComputeCostTieredFloors,
+		Schedule:    projectstate.ScheduleMonthly,
 	}
 }
 
@@ -5206,11 +5195,13 @@ func defaultSettlementTerms() projectstate.SettlementTerms {
 // "Defaults when absent" is not "defaults when the slot is missing": a field whose value is
 // its vocabulary's UNKNOWN member is absent in the only sense that matters, because no
 // Engine can price it. MEASURED on this repo's own state, which is why this function exists
-// at all: slot 8 is committed and its `terms.revenueShare` is 0 — RevenueShareUnknown — so
-// billingEngine refuses every option and the SDP assembly cannot run at all. That is why
-// slots 11-16 have carried staleBasis since the billing reversal: nothing could re-derive
-// them. Refusing at M0 over a field that is zero BY DESIGN is exactly the failure R-E
-// removes.
+// at all: slot 8 was committed with `terms.revenueShare` at 0 — RevenueShareUnknown — so
+// billingEngine refused every option and the SDP assembly could not run at all, which is why
+// slots 11-16 carried staleBasis from the 2026-06-09 billing reversal onward. Stage 4b2
+// removed revenue share from the vocabulary entirely, so that particular hole is closed at
+// the source rather than defaulted around; the remaining trigger is ComputeCostUnknown, which
+// is a real absence of a real choice. Refusing at M0 over a field that is zero BY DESIGN is
+// exactly the failure R-E removes.
 //
 // It NEVER replaces a NAMED value. A committed calendar of two days a week stays two days a
 // week; a committed FlatMarkup regime stays FlatMarkup. Only the unknown members and the
@@ -5224,8 +5215,8 @@ func resolvePlanningAssumptions(
 		return defaultPlanningAssumptions(al)
 	}
 	var defaulted []string
-	if pa.Terms.RevenueShare == projectstate.RevenueShareUnknown || pa.Terms.ComputeCost == projectstate.ComputeCostUnknown {
-		// The percents ride with the regime: a percent kept from an unregistered regime would
+	if pa.Terms.ComputeCost == projectstate.ComputeCostUnknown {
+		// The percent rides with the regime: a markup kept from an unregistered regime would
 		// be a number with no rule behind it.
 		pa.Terms = defaultSettlementTerms()
 		defaulted = append(defaulted, assumedTerms)
@@ -8982,6 +8973,10 @@ type taskRevision struct {
 	EndedAt    *time.Time
 	AttemptIDs []string
 	EpisodeID  string
+	// Detail is the decisive attempt's own render-ready sentence, carried verbatim and
+	// EMPTY where the attempt recorded none. It is what lets the M0 spend gate say which
+	// planning assumptions the cost was computed on.
+	Detail     string
 	Note       string
 	Comments   []projectstate.NoteComment
 	Provenance projectstate.RecordOrigin
@@ -9844,6 +9839,9 @@ func dispatchRevision(n int, seg phaseSegment) taskRevision {
 			break
 		}
 	}
+	// The DECISIVE attempt's sentence, not the last member's: the decisive attempt is the
+	// one whose outcome the revision reports, so its account is the one that explains it.
+	rev.Detail = decisive.Detail
 	rev.StartedAt, rev.EndedAt = attemptSpan(members)
 	return rev
 }
@@ -9880,6 +9878,7 @@ func reviewRevision(n int, g projectstate.TaskAttempt, live bool) taskRevision {
 	case projectstate.OutcomeSkipped:
 		rev.Outcome = revSkipped
 	}
+	rev.Detail = g.Detail
 	rev.StartedAt, rev.EndedAt = attemptSpan([]projectstate.TaskAttempt{g})
 	return rev
 }
@@ -10061,6 +10060,7 @@ func revisionViews(revs []taskRevision) []TaskRevisionView {
 		out = append(out, TaskRevisionView{
 			N: int64(r.N), Outcome: TaskRevisionOutcome(r.Outcome), StartedAt: r.StartedAt, EndedAt: r.EndedAt,
 			AttemptIDs: append([]string{}, r.AttemptIDs...), EpisodeID: strPtrOrNil(r.EpisodeID),
+			Detail:       strPtrOrNil(r.Detail),
 			CommentCount: int64(len(r.Comments)), Comments: comments, Note: strPtrOrNil(r.Note),
 			Verdicts: verdictViews(r.Verdicts), Thread: threadViews(r.Thread), Reviewers: rosterViews(r.Reviewers),
 			SubjectRef: subjectRefView(r.SubjectRef), Round: roundNumberOrNil(r.Round),
@@ -10881,8 +10881,10 @@ func (m *deliveryManager) queryTimelineView(rc fwmanager.Context, query ProjectV
 	return out, nil
 }
 
-// querySessionView answers the `session` kind: an artifactKind selects the Phase-1 or
-// Phase-2 design session by its phase, an activityId selects the construction session.
+// querySessionView answers the `session` kind: an artifactKind selects THAT KIND's derived
+// design-artifact session — it no longer selects a Phase-1 or Phase-2 rail by the kind's
+// phase, because there is one door for all seventeen — and an activityId selects the
+// construction session.
 //
 // AND THE TWO DESIGN MEMBERS ARE NOW ONE (stage 4b2 Task 5). `session` answers every one of
 // the seventeen artifact kinds; `projectSession` is never set again, and its $defs entry goes
@@ -11075,8 +11077,12 @@ func assembleSdpReviewOver(
 		if oErr != nil {
 			return nil, nil, escalateEngine("operationEstimationEngine", kind, oErr)
 		}
-		proj2, pErr := eng.Settlement.ProjectCommitTimeRevenueShareAndComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt))
-		if pErr != nil {
+		// The projection's VALUE is no longer read — the SDP row carried only its
+		// revenueSharePercent, and revenue share left the vocabulary (stage 4b2). The CALL
+		// stays because its refusal is the money-safety gate: an option whose compute-cost
+		// regime is unregistered must not be priced into a plan a founder approves, and
+		// this is the one place that says so.
+		if _, pErr := eng.Settlement.ProjectCommitTimeComputeCost(fweng.Context{Context: context.Background()}, toSettlementOption(opt)); pErr != nil {
 			return nil, nil, escalateEngine("settlementEngine", kind, pErr)
 		}
 
@@ -11089,7 +11095,6 @@ func assembleSdpReviewOver(
 			CompositeRisk:        ce.Risk.Composite,
 			ProjectedMonthlyCost: monthlyCostAtDeclaredLoad(of.UsageCostCurve),
 			ExpectedPerCycleNet:  toProjectStateMoney(of.CostSensitivityForecast.ExpectedPerCycleCharge),
-			RevenueSharePercent:  proj2.RevenueSharePercent,
 		})
 	}
 
@@ -11110,8 +11115,6 @@ func toSettlementOption(opt projectstate.ProjectOption) billing.ProjectOption {
 	return billing.ProjectOption{
 		OptionID: billing.OptionID(opt.OptionID),
 		Terms: billing.BillingTerms{
-			RevenueShare:         billing.RevenueShareKind(t.RevenueShare),
-			RevenueSharePercent:  t.RevenueSharePercent,
 			ComputeCost:          billing.ComputeCostKind(t.ComputeCost),
 			ComputeMarkupPercent: t.ComputeMarkupPercent,
 			Schedule:             billing.ScheduleKind(t.Schedule),
@@ -11130,8 +11133,6 @@ func toOperationOption(opt projectstate.ProjectOption) operationestimation.Proje
 	return operationestimation.ProjectOption{
 		OptionID: operationestimation.OptionID(opt.OptionID),
 		Terms: operationestimation.SettlementTerms{
-			RevenueShare:         operationestimation.RevenueShareKind(t.RevenueShare),
-			RevenueSharePercent:  t.RevenueSharePercent,
 			ComputeCost:          operationestimation.ComputeCostKind(t.ComputeCost),
 			ComputeMarkupPercent: t.ComputeMarkupPercent,
 			Schedule:             operationestimation.ScheduleKind(t.Schedule),
@@ -13134,7 +13135,7 @@ const (
 	lSignalRedraft = "redraft"
 	// Stage 4a: ONE copy now serves the systemDesign+construction rails (byte-identical
 	// twins, collapsed by the package merge).
-	// querySessionState returns a SessionStateView; backs getSessionState.
+	// querySessionState returns a DesignArtifactSessionView; backs getSessionState.
 	querySessionState = "sessionState"
 	// signalSetCommentStatus resumes a CoAuthorArtifactWorkflow suspended at the
 	// AwaitingReview gate to apply a durable review-ledger status transition

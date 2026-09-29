@@ -110,17 +110,6 @@ func (c *MCPClient) DeliveryOverrideActivity(ctx context.Context, projectID Proj
 	return c.callTool(ctx, "deliveryOverrideActivity", DeliveryOverrideActivityInput{ProjectID: projectID, ActivityID: activityID, Override: override}, nil)
 }
 
-// DeliveryReplanProjectInput is the MCP tool-call argument object for deliveryReplanProject.
-type DeliveryReplanProjectInput struct {
-	ProjectID ProjectID `json:"projectID"`
-	TickID    string    `json:"tickID"`
-}
-
-// DeliveryReplanProject calls the deliveryReplanProject tool on the Delivery manager over MCP.
-func (c *MCPClient) DeliveryReplanProject(ctx context.Context, projectID ProjectID, tickID string) (ReplanSweepResult, error) {
-	return mcpCallResult[ReplanSweepResult](c, ctx, "deliveryReplanProject", DeliveryReplanProjectInput{ProjectID: projectID, TickID: tickID})
-}
-
 // DeliverySetProjectExecutionPolicyInput is the MCP tool-call argument object for deliverySetProjectExecutionPolicy.
 type DeliverySetProjectExecutionPolicyInput struct {
 	ProjectID ProjectID            `json:"projectID"`

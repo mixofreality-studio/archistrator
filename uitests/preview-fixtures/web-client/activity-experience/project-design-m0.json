@@ -1050,8 +1050,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-subcritical",
@@ -1069,8 +1068,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-compressed",
@@ -1088,8 +1086,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       },
                       {
                         "optionId": "opt-decompressed",
@@ -1107,8 +1104,7 @@
                         "expectedPerCycleNet": {
                           "minorUnits": 120000,
                           "currency": "USD"
-                        },
-                        "revenueSharePercent": 0
+                        }
                       }
                     ],
                     "recommendation": "opt-decompressed",
@@ -8836,16 +8832,6 @@
                         "Name": "BillingTerms",
                         "Fields": [
                           {
-                            "Name": "revenueShare",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "revenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
-                          {
                             "Name": "computeCost",
                             "Type": "ComputeCostKind",
                             "Note": ""
@@ -8878,11 +8864,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -8902,7 +8883,7 @@
                     ]
                   },
                   {
-                    "Signature": "ProjectCommitTimeRevenueShareAndComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
+                    "Signature": "ProjectCommitTimeComputeCost(option: ProjectOption) → (Projection, fweng.Error)",
                     "Stereotype": "",
                     "Note": "",
                     "Inputs": [
@@ -8926,16 +8907,6 @@
                       {
                         "Name": "Projection",
                         "Fields": [
-                          {
-                            "Name": "RevenueShareKind",
-                            "Type": "RevenueShareKind",
-                            "Note": ""
-                          },
-                          {
-                            "Name": "RevenueSharePercent",
-                            "Type": "float64",
-                            "Note": ""
-                          },
                           {
                             "Name": "ComputeCostKind",
                             "Type": "ComputeCostKind",
@@ -9006,11 +8977,6 @@
                             "Note": ""
                           },
                           {
-                            "Name": "RevenueShareApplied",
-                            "Type": "Money",
-                            "Note": ""
-                          },
-                          {
                             "Name": "ComputeCostApplied",
                             "Type": "Money",
                             "Note": ""
@@ -9041,7 +9007,6 @@
                   "ProjectOption",
                   "Projection",
                   "ReBillingInput",
-                  "RevenueShareKind",
                   "RoutingDirective",
                   "ScheduleKind"
                 ],
@@ -15436,7 +15401,6 @@
                   "OperationForecast",
                   "OptionID",
                   "ProjectOption",
-                  "RevenueShareKind",
                   "ScalePoint",
                   "ScheduleKind",
                   "SettlementTerms",
@@ -17253,7 +17217,6 @@
                   "Requirement",
                   "ResearchInput",
                   "ResearchSource",
-                  "RevenueShareKind",
                   "ReviewComment",
                   "ReviewCommentReply",
                   "ReviewPolicy",

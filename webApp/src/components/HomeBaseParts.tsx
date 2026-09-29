@@ -17,7 +17,6 @@ import Typography from '@mui/material/Typography';
 import Chip from '@mui/material/Chip';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import type { ArtifactMeta } from '../contracts/adapters';
-import type { ProjectState, PlanningAssumptionsModel } from '../contracts/types';
 import type { Tokens } from '../utilities/theme/themes';
 import { useTokens } from '../utilities/theme/ThemeContext';
 import { UI_IDENTIFIERS } from '../utilities/constants/UIIdentifiers';
@@ -81,19 +80,14 @@ export function TocRow({
   );
 }
 
-/** Extract revenueSharePercent from the committed planningAssumptions slot, if present. */
-function revenueShareValue(project: ProjectState): string {
-  const slot = project.slots.find((s) => s.kind === 'planningAssumptions');
-  const pa = slot?.model.model as PlanningAssumptionsModel | undefined;
-  if (pa === undefined) return '—';
-  const pct = pa.terms.revenueSharePercent;
-  if (pct === 0) return '—';
-  return `${String(pct)}%`;
-}
-
-export function EconomicsStrip({ project }: { project: ProjectState }): ReactNode {
+/**
+ * The ECONOMICS strip. It used to carry a third metric, "revenue share", read off the
+ * committed planningAssumptions slot. Revenue share left the vocabulary with stage 4b2
+ * (founder ruling) — the platform bills a usage-based hosting fee for operating a
+ * delivered system and nothing else — so the metric is gone rather than rendering 0%.
+ */
+export function EconomicsStrip(): ReactNode {
   const t = useTokens();
-  const revenueShare = revenueShareValue(project);
   return (
     <Paper
       data-testid={UI_IDENTIFIERS.HomeBase.ECONOMICS_STRIP}
@@ -111,7 +105,6 @@ export function EconomicsStrip({ project }: { project: ProjectState }): ReactNod
         ECONOMICS
       </Typography>
       <Metric hint="set at SDP review" label="build cost" t={t} value="—" />
-      <Metric hint="from planning assumptions" label="revenue share" t={t} value={revenueShare} />
       <Metric hint="after first deploy" label="operated net" t={t} value="—" />
       <Box sx={{ flexGrow: 1 }} />
       <Chip

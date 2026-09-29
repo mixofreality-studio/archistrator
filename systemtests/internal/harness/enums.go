@@ -151,42 +151,20 @@ func patchKind(name string) sdk.PatchKind { return patchKindByWire[name] }
 
 // --- stage decoders (response-only) ------------------------------------------
 
-var systemStageWire = map[sdk.SessionStage]string{
+// ONE stage table for both design halves (stage 4b2). There were two: a Phase-1
+// SessionStage and a Phase-2 ProjectSessionStage whose only structural difference was
+// assemblingSdp, emitted by the SDP-assembly workflow 4b1 deleted. The surviving enum is
+// DesignArtifactSessionStage and it carries FOUR members, because the door is a projection
+// of a durable slot — drafting / awaitingReview / redrafting / refused had no producer left.
+var systemStageWire = map[sdk.DesignArtifactSessionStage]string{
 	sdk.SessionStageUnknown: "unknown",
-	sdk.StageDrafting:       "drafting",
-	sdk.StageAwaitingReview: "awaitingReview",
-	sdk.StageRedrafting:     "redrafting",
 	sdk.StageCommitted:      "committed",
 	sdk.StageWithdrawn:      "withdrawn",
-	sdk.StageRefused:        "refused",
 	sdk.StageDraftFailed:    "draftFailed",
 }
 
-func systemStageName(s sdk.SessionStage) string {
+func systemStageName(s sdk.DesignArtifactSessionStage) string {
 	if name, ok := systemStageWire[s]; ok {
-		return name
-	}
-	return "unknown"
-}
-
-// projectStageWire has ONE more stage than the system-design enum
-// (assemblingSdp at ordinal 2). ProjectDesignStageAssemblingSDP is HAND-MAPPED
-// to "assemblingSdp" — the mechanical lower-first of the SDK varname would give
-// "assemblingSDP" (mirrors webApp/scripts/gen-enums.mjs NON_MECHANICAL).
-var projectStageWire = map[sdk.ProjectSessionStage]string{
-	sdk.ProjectSessionStageUnknown: "unknown",
-	sdk.ProjectStageDrafting:       "drafting",
-	sdk.ProjectStageAssemblingSDP:  "assemblingSdp",
-	sdk.ProjectStageAwaitingReview: "awaitingReview",
-	sdk.ProjectStageRedrafting:     "redrafting",
-	sdk.ProjectStageCommitted:      "committed",
-	sdk.ProjectStageWithdrawn:      "withdrawn",
-	sdk.ProjectStageRefused:        "refused",
-	sdk.ProjectStageDraftFailed:    "draftFailed",
-}
-
-func projectStageName(s sdk.ProjectSessionStage) string {
-	if name, ok := projectStageWire[s]; ok {
 		return name
 	}
 	return "unknown"

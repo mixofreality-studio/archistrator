@@ -173,7 +173,7 @@ const (
 	// co-author session (coauthorartifact.go's view()-appended kind checks and its
 	// stateValidationFindingGenerators table). They were Method rules in a Manager
 	// — the Manager computed them inline over the DRAFT it held and surfaced them
-	// as SessionStateView.Findings. They need no new surface here: EvaluateRaw
+	// as DesignArtifactSessionView.Findings. They need no new surface here: EvaluateRaw
 	// reads slots[n].model with NO status filter, and the design rail stages a
 	// draft into its slot before the gate opens, so as ordinary engine rules they
 	// see the same staged draft the session showed and surface through the

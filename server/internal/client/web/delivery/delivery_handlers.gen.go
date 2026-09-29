@@ -29,7 +29,6 @@ func (h *Handler) Register(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/v1/delivery/acknowledge-stale-basis/{projectID}/{activityID}", h.handleAcknowledgeStaleBasis)
 	mux.HandleFunc("POST /api/v1/delivery/set-project-run-state/{projectID}", h.handleSetProjectRunState)
 	mux.HandleFunc("POST /api/v1/delivery/override-activity/{projectID}/{activityID}", h.handleOverrideActivity)
-	mux.HandleFunc("POST /api/v1/delivery/replan-project/{projectID}", h.handleReplanProject)
 	mux.HandleFunc("POST /api/v1/delivery/set-project-execution-policy/{projectID}", h.handleSetProjectExecutionPolicy)
 	mux.HandleFunc("POST /api/v1/delivery/query-project-view", h.handleQueryProjectView)
 	mux.HandleFunc("GET /api/v1/delivery/query-activity-view/{projectID}/{activityID}", h.handleQueryActivityView)
@@ -77,10 +76,6 @@ type setProjectRunStateRequest struct {
 
 type overrideActivityRequest struct {
 	Override mgr.ActivityOverride `json:"override"`
-}
-
-type replanProjectRequest struct {
-	TickID string `json:"tickID"`
 }
 
 type setProjectExecutionPolicyRequest struct {
@@ -312,35 +307,6 @@ func (h *Handler) handleOverrideActivity(w http.ResponseWriter, r *http.Request)
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
-}
-
-// handleReplanProject binds POST /api/v1/delivery/replan-project/{projectID} -> mgr.ReplanProject.
-func (h *Handler) handleReplanProject(w http.ResponseWriter, r *http.Request) {
-	projectIDVal := mgr.ProjectID(r.PathValue("projectID"))
-	projectID := &projectIDVal
-	var req replanProjectRequest
-	if !decodeJSON(w, r, &req) {
-		return
-	}
-	principal, ok := security.PrincipalFrom(r.Context())
-	if !ok {
-		writeError(w, http.StatusUnauthorized, "unauthenticated", "authentication required")
-		return
-	}
-	decision, err := h.Security.Authorize(r.Context(), principal,
-		security.Action{Verb: "replan-project"},
-		security.ResourceRef{Kind: "project", ID: string(*projectID)})
-	if err != nil || !decision.Permit {
-		writeError(w, http.StatusForbidden, "forbidden", "not permitted")
-		return
-	}
-	rc := fwmanager.Context{Context: r.Context(), Principal: principal}
-	result, err := h.Manager.ReplanProject(rc, projectID, req.TickID)
-	if err != nil {
-		writeManagerError(w, err)
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
 }
 
 // handleSetProjectExecutionPolicy binds POST /api/v1/delivery/set-project-execution-policy/{projectID} -> mgr.SetProjectExecutionPolicy.

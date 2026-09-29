@@ -570,30 +570,11 @@ export function useOverrideActivity(
   });
 }
 
-// ── op 9: ReplanProject ──────────────────────────────────────────────────────
+// ReplanProject was op 9 and is DELETED (stage 4b2): the contract is eleven ops, and this
+// client had no caller — the variance surface that would have pressed it is unbuilt, and
+// the stub sweep behind it goes in the same wave.
 
-/**
- * Run the re-plan sweep that detects scope or variance drift and re-derives the
- * project network. No caller today — the variance surface that will press it is
- * unbuilt — but it is one of the twelve and this is its client.
- */
-export function useReplanProject(
-  projectId: string
-): UseMutationResult<OpResult<'deliveryReplanProject'>, Error, string> {
-  const client = useQueryClient();
-  const { ops } = useOpsClient();
-  return useMutation<OpResult<'deliveryReplanProject'>, Error, string>({
-    mutationFn: async (tickID) => {
-      return ops.callForBody<OpResult<'deliveryReplanProject'>>('deliveryReplanProject', {
-        path: { projectID: projectId },
-        body: { tickID } satisfies OpBody<'deliveryReplanProject'>,
-      });
-    },
-    onSuccess: () => client.invalidateQueries({ queryKey: projectKey(projectId) }),
-  });
-}
-
-// ── op 10: SetProjectExecutionPolicy ─────────────────────────────────────────
+// ── op 9: SetProjectExecutionPolicy ──────────────────────────────────────────
 
 /**
  * Set the project's review-policy PRESET (the sophistication dial: vibes /

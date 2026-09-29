@@ -14,8 +14,6 @@
  */
 import type { components } from './schema';
 import type {
-  ActiveRole,
-  ActiveStep,
   ARTIFACT_STAGE_GO_VARNAMES,
   EpisodeKind,
   EpisodeOutcome,
@@ -475,53 +473,27 @@ export interface ProjectState {
  * emitted by a workflow stage 4b1 deleted. There is no discriminator, because the artifact
  * kind is already a field here and nothing branches on the phase.
  */
+/**
+ * The derived design-artifact session view: a projection of one durable ArtifactSlot, and
+ * everything it can honestly carry.
+ *
+ * EIGHT MEMBERS WERE REMOVED at stage 4b2 — activeRole, activeStep, round, findings,
+ * stageName, failureRunUrl, runUrl and critique. They were declared here, decoded in
+ * wire.ts and read by SystemDesignView and GatePanel, and NOTHING in the server could set
+ * any of them: their producer was the live per-kind co-author workflow that 4b1 deleted.
+ * The UI paths that read them therefore never rendered, so their deletion removes dead
+ * code and not a feature. If a live design session comes back it brings its own producer,
+ * and the fields with it.
+ */
 export interface DesignArtifactSessionView {
   projectId: string;
   artifactKind: ArtifactKind;
   /** Integer SessionStage ordinal on the inner view; the SPA reads the outer string stage. */
   stage: number;
-  /**
-   * The role/step/round the server set at the current drafting dispatch boundary
-   * (cleared to none/none/0 on observed completion). Drives the honest role line
-   * on the generating scene. `none` (the zero value, incl. old servers) → fallback.
-   */
-  activeRole: ActiveRole;
-  activeStep: ActiveStep;
-  round: number;
   draft: ArtifactModelEnvelope;
-  findings?: Finding[];
   failureReason?: string;
-  /** URL of the failed CI run, when the failure came from a job that actually ran. */
-  failureRunUrl?: string;
-  /**
-   * URL of the LIVE GitHub Actions run while the design job is drafting
-   * (drafting/redrafting stages only) — the generating scene's "view the run"
-   * deep-link. Absent when no run is in flight or the server could not resolve it.
-   */
-  runUrl?: string;
   /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
   reviewThread?: ReviewCommentView[];
-  /**
-   * The last PM-critique conclusion the server observed for this session (F-QA2-7):
-   * what the PM concluded about the draft under review — verdict, rationale, and the
-   * redraft round it judged. Absent for architect-owned kinds (no PM critic), before
-   * the first critique completes, and on older servers.
-   */
-  critique?: PmCritiqueView;
-}
-
-/** The PM's closed verdict set ('approve' includes approve-with-reservation notes). */
-export type PmCritiqueVerdict = 'approve' | 'revise';
-
-/** The surfaced PM-critique conclusion for the draft under review (F-QA2-7). */
-export interface PmCritiqueView {
-  /** Wire role label of the critic — 'productManager' today. */
-  role: string;
-  verdict: PmCritiqueVerdict;
-  /** The PM's rationale verbatim (may be empty on a clean approve). */
-  summary: string;
-  /** The redraft round the critique judged (0 = the first draft). */
-  round: number;
 }
 
 /** The Phase-1 session-state poll result (outer string stage drives the machine). */

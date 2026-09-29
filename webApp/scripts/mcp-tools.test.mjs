@@ -31,11 +31,12 @@ const tools = loadMcpTools();
 
 test('the server registers tools, and every bound tool is one of them', () => {
   // Stage 4a: three design/construction managers became one delivery manager, so
-  // the floor moved from 40 to 20 — 12 delivery tools + 8 operations tools, the
-  // EXACT count, because a blind read that returns nothing must fail here (the
-  // last test in this file pins that loadMcpTools throws rather than answering an
-  // empty table).
-  assert.equal(tools.size, 20, `read ${String(tools.size)} tools`);
+  // the floor moved from 40 to 20 — 12 delivery tools + 8 operations tools. Stage 4b2
+  // took deliveryManager to eleven ops (ReplanProject left the contract), so 19. The
+  // EXACT count, because a blind read that returns nothing must fail here (the last
+  // test in this file pins that loadMcpTools throws rather than answering an empty
+  // table).
+  assert.equal(tools.size, 19, `read ${String(tools.size)} tools`);
   for (const [opId, binding] of Object.entries(opBindings(doc))) {
     if (binding.tool !== null) assert.ok(tools.has(binding.tool), `${opId} → ${binding.tool}`);
   }

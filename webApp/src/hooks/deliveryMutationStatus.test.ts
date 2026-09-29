@@ -10,13 +10,13 @@
  *
  * Since preview P1b every one rides the OpsClient — `ops.call`, whose REST transport
  * applies throwUnlessOk, or `ops.callForBody`, which also refuses a 2xx that owes a
- * body and carries none (ops.test.ts pins both). So this requires each of the TEN
+ * body and carries none (ops.test.ts pins both). So this requires each of the NINE
  * delivery writes to be called exactly once, and nothing to hold a raw response it
  * could misread.
  *
  * It was `constructionMutationStatus.test.ts` and pinned six `construction*` ops.
- * Stage 4a's one Manager publishes ten writes for all three rails, so the subject
- * of the test is the write surface, not one rail of it.
+ * Stage 4a's one Manager published ten writes for all three rails; stage 4b2 left nine.
+ * The subject of the test is the write surface, not one rail of it.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -24,7 +24,8 @@ import { readFileSync } from 'node:fs';
 
 const source = readFileSync(new URL('./useDeliveryMutations.ts', import.meta.url), 'utf8');
 
-/** The ten writes of the twelve-op contract, in contract order. */
+/** The nine writes of the eleven-op contract, in contract order. ReplanProject was the
+ * tenth and left with stage 4b2's model edit: no caller, and a stub sweep behind it. */
 const DELIVERY_WRITES = [
   'deliveryStartProject',
   'deliveryExecuteNextActivity',
@@ -34,7 +35,6 @@ const DELIVERY_WRITES = [
   'deliveryAcknowledgeStaleBasis',
   'deliverySetProjectRunState',
   'deliveryOverrideActivity',
-  'deliveryReplanProject',
   'deliverySetProjectExecutionPolicy',
 ] as const;
 
@@ -46,7 +46,7 @@ void test('each delivery mutation goes through the OpsClient, whose transport ch
   const calls = [
     ...source.matchAll(/\bops\.(?:call|callForBody)(?:<[\s\S]*?>)?\(\s*'([A-Za-z]+)'/g),
   ].map((m) => m[1]);
-  assert.deepEqual([...calls].sort(), [...DELIVERY_WRITES].sort(), 'the ten delivery writes');
+  assert.deepEqual([...calls].sort(), [...DELIVERY_WRITES].sort(), 'the nine delivery writes');
   assert.doesNotMatch(source, /\bapiClient\b/, 'no raw client');
   assert.doesNotMatch(source, /\bresponse\b\s*[,}]/, 'no raw response destructured');
   assert.doesNotMatch(source, /error !== undefined/);

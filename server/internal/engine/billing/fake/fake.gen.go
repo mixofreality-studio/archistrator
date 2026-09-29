@@ -11,9 +11,9 @@ import (
 // FakeBillingEngine is a generated test double for billing.BillingEngine: set the Fn field(s)
 // a test needs; calling a method whose Fn is unset panics.
 type FakeBillingEngine struct {
-	ComputeNetFn                                  func(rc fweng.Context, revenue billing.CycleRevenue, usage billing.CycleUsage, terms billing.BillingTerms) (billing.BillingResult, error)
-	ProjectCommitTimeRevenueShareAndComputeCostFn func(rc fweng.Context, option billing.ProjectOption) (billing.Projection, error)
-	RecomputeNetFn                                func(rc fweng.Context, affectedCycle billing.ReBillingInput) (billing.BillingResult, error)
+	ComputeNetFn                   func(rc fweng.Context, revenue billing.CycleRevenue, usage billing.CycleUsage, terms billing.BillingTerms) (billing.BillingResult, error)
+	ProjectCommitTimeComputeCostFn func(rc fweng.Context, option billing.ProjectOption) (billing.Projection, error)
+	RecomputeNetFn                 func(rc fweng.Context, affectedCycle billing.ReBillingInput) (billing.BillingResult, error)
 }
 
 func (f *FakeBillingEngine) ComputeNet(rc fweng.Context, revenue billing.CycleRevenue, usage billing.CycleUsage, terms billing.BillingTerms) (billing.BillingResult, error) {
@@ -23,11 +23,11 @@ func (f *FakeBillingEngine) ComputeNet(rc fweng.Context, revenue billing.CycleRe
 	return f.ComputeNetFn(rc, revenue, usage, terms)
 }
 
-func (f *FakeBillingEngine) ProjectCommitTimeRevenueShareAndComputeCost(rc fweng.Context, option billing.ProjectOption) (billing.Projection, error) {
-	if f.ProjectCommitTimeRevenueShareAndComputeCostFn == nil {
-		panic("FakeBillingEngine.ProjectCommitTimeRevenueShareAndComputeCostFn not set")
+func (f *FakeBillingEngine) ProjectCommitTimeComputeCost(rc fweng.Context, option billing.ProjectOption) (billing.Projection, error) {
+	if f.ProjectCommitTimeComputeCostFn == nil {
+		panic("FakeBillingEngine.ProjectCommitTimeComputeCostFn not set")
 	}
-	return f.ProjectCommitTimeRevenueShareAndComputeCostFn(rc, option)
+	return f.ProjectCommitTimeComputeCostFn(rc, option)
 }
 
 func (f *FakeBillingEngine) RecomputeNet(rc fweng.Context, affectedCycle billing.ReBillingInput) (billing.BillingResult, error) {

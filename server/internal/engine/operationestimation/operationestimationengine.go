@@ -139,11 +139,6 @@ func (goTemporalPostgresCostModel) monthlyComputeCostFromObserved(o ObservedUsag
 // Sorted ascending; includes the 1.0 declared-usage point.
 var designLoadMultipliers = []float64{0.5, 1.0, 2.0, 5.0, 10.0}
 
-// arpuCentsPerDAUPerMonth is the notional average monthly revenue per daily-active
-// user used to derive the customer's gross revenue for the payout-vs-shortfall
-// forecast. Deterministic constant — no external lookup.
-const arpuCentsPerDAUPerMonth = 300.0
-
 // defaultCurrency is used unless the option's settlement terms imply otherwise.
 const defaultCurrency = "USD"
 
@@ -197,21 +192,24 @@ func (OperationEstimationEngineImpl) EstimateForOption(
 			"EstimateForOption: usage cost curve is non-monotonic")
 	}
 
-	// Notional monthly gross revenue from the declared DAU.
-	grossRevenueCents := float64(declaredUsage.ExpectedDailyActiveUsers) * arpuCentsPerDAUPerMonth
-	// aiarch's revenue-share cut (the platform's take) per the option's settlement terms.
-	aiarchCutCents := grossRevenueCents * (option.Terms.RevenueSharePercent / 100.0)
-
-	// Net = aiarch's cut minus the projected compute cost. Computed at three load
-	// points so the band is a deterministic ± around the declared assumption.
+	// Net = the platform's per-cycle position, computed at three load points so the band
+	// is a deterministic ± around the declared assumption.
+	//
+	// THERE IS NO REVENUE-SHARE TERM (stage 4b2, founder ruling). What stood here was
+	// `aiarchCut − cost`, where the cut was a notional ARPU per daily-active user times
+	// the option's revenueSharePercent. The platform takes no share of a customer's
+	// revenue, so the term is not zeroed — it is gone, along with the ARPU constant that
+	// existed only to feed it. The arithmetic is unchanged for every project this repo
+	// has ever priced (the percent has been 0 since the 2026-06-09 reversal); what changes
+	// is that the number no longer claims to net a revenue share against a cost.
 	costAt := func(load float64) float64 {
 		return float64(model.monthlyComputeCostMinorUnits(requestsPerMonth, load))
 	}
-	expectedNetCents := aiarchCutCents - costAt(1.0)
+	expectedNetCents := -costAt(1.0)
 	// Lower cost edge (0.5×) → costs less → larger net; higher cost edge (2×) →
 	// costs more → smaller net.
-	netLowCostCents := aiarchCutCents - costAt(0.5)
-	netHighCostCents := aiarchCutCents - costAt(2.0)
+	netLowCostCents := -costAt(0.5)
+	netHighCostCents := -costAt(2.0)
 
 	forecast := OperationForecast{
 		UsageCostCurve: curve,

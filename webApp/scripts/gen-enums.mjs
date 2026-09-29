@@ -38,17 +38,21 @@ const MANAGER_PREFIXES = ['Delivery', 'Operations'];
  * one exists, for minimal import churn in Task 3. */
 const OUTPUT_NAMES = {
   // Stage 4a: ONE Manager namespace, so each logical name has ONE source schema.
-  // The two session-stage enums keep the names the SPA already uses — the merged
-  // contract carries BOTH ordinal shapes (the projectDesign one inserts
-  // StageAssemblingSDP at 2), so DeliverySessionStage is the Phase-1 enum and
-  // DeliveryProjectSessionStage the Phase-2 one, exactly as before the merge.
+  //
+  // Stage 4b2: ONE session-stage enum, and the SPA keeps calling it SessionStage. The
+  // contract type is DesignArtifactSessionStage — the derived design-artifact view's own
+  // four-member vocabulary (unknown / committed / withdrawn / draftFailed) — and it is
+  // mapped onto the SPA's existing name so nothing downstream churns. Its Phase-2 twin,
+  // DeliveryProjectSessionStage, is gone with the fold: the two rails were one rail, and
+  // the only member that made the enums differ (StageAssemblingSDP) lost its producer in
+  // 4b1. The derivation strips "Stage" (a whole-word run of "SessionStage") off each
+  // varname, so the app strings stay committed/withdrawn/draftFailed as they were.
   DeliveryArtifactKind: 'ArtifactKind',
   DeliveryReviewDecision: 'ReviewDecision',
   DeliverySeverity: 'Severity',
   DeliveryActiveRole: 'ActiveRole',
   DeliveryActiveStep: 'ActiveStep',
-  DeliverySessionStage: 'SessionStage',
-  DeliveryProjectSessionStage: 'ProjectSessionStage',
+  DeliveryDesignArtifactSessionStage: 'SessionStage',
   DeliverySDPDecision: 'SDPDecision',
   DeliveryPhase: 'ProjectPhase',
   DeliveryArtifactStage: 'ArtifactStage',

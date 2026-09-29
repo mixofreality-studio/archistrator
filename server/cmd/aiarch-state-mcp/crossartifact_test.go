@@ -205,9 +205,8 @@ func TestPAEnumHoles(t *testing.T) {
 		Resources:          []string{"Architect"},
 		InfrastructureKind: projectstate.InfrastructureKindUnknown,
 		Terms: projectstate.SettlementTerms{
-			RevenueSharePercent:  15,
 			ComputeMarkupPercent: 20,
-			// all three regime enums left at Unknown
+			// both regime enums left at Unknown
 		},
 	}
 	proj := projectstate.Project{}
@@ -222,22 +221,22 @@ func TestPAEnumHoles(t *testing.T) {
 	if byRule["PA-INFRA-KIND"] != 1 {
 		t.Errorf("PA-INFRA-KIND findings = %d, want 1 (got %+v)", byRule["PA-INFRA-KIND"], got)
 	}
-	// revenueShare hole + computeCost hole; schedule hole needs an AUTHORED regime,
-	// which Unknown regimes don't provide — so exactly 2 PA-TERMS-REGIME here.
-	if byRule["PA-TERMS-REGIME"] != 2 {
-		t.Errorf("PA-TERMS-REGIME findings = %d, want 2 (got %+v)", byRule["PA-TERMS-REGIME"], got)
+	// The computeCost hole, and only it: the schedule hole needs an AUTHORED regime,
+	// which an Unknown regime does not provide, and the revenueShare hole this rule used
+	// to also raise went with the concept (stage 4b2) — so exactly 1 PA-TERMS-REGIME here.
+	if byRule["PA-TERMS-REGIME"] != 1 {
+		t.Errorf("PA-TERMS-REGIME findings = %d, want 1 (got %+v)", byRule["PA-TERMS-REGIME"], got)
 	}
 
 	// Healthy shape (gtdapp's repaired PA): no findings.
 	pa.InfrastructureKind = projectstate.InfrastructureKindGoTemporalPostgres
-	pa.Terms.RevenueShare = projectstate.RevenueShareNegotiatedRate
 	pa.Terms.ComputeCost = projectstate.ComputeCostFlatMarkup
 	pa.Terms.Schedule = projectstate.ScheduleMonthly
 	if got := paEnumHoleFindings(proj); len(got) != 0 {
 		t.Errorf("healthy PA produced findings: %+v", got)
 	}
 
-	// Regimes authored but schedule unknown → exactly the schedule finding.
+	// The regime is authored but schedule is unknown → exactly the schedule finding.
 	pa.Terms.Schedule = projectstate.ScheduleUnknown
 	got = paEnumHoleFindings(proj)
 	if len(got) != 1 || got[0].RuleID != "PA-TERMS-REGIME" {

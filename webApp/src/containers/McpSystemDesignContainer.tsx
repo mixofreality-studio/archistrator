@@ -190,7 +190,7 @@ export function McpSystemDesignContainer({
       const detail = (event as CustomEvent<McpUiToolResultNotification['params']>).detail;
       const structured = detail.structuredContent;
       if (structured === undefined) return;
-      const mapped = mapSessionState(structured as Schemas['DeliverySessionStateView']);
+      const mapped = mapSessionState(structured as Schemas['DeliveryDesignArtifactSessionView']);
       queryClient.setQueryData(sessionStateKey(projectId, mapped.artifactKind), mapped);
     };
     window.addEventListener('mcp-tool-result', handler);
@@ -223,7 +223,7 @@ export function McpSystemDesignContainer({
     if (seededResult !== undefined) {
       queryClient.setQueryData(
         sessionStateKey(projectId, initialKind),
-        mapSessionState(seededResult as Schemas['DeliverySessionStateView'])
+        mapSessionState(seededResult as Schemas['DeliveryDesignArtifactSessionView'])
       );
     }
     return Math.max(0, PHASE1_KINDS.indexOf(initialKind));

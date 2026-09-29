@@ -11,10 +11,10 @@ import (
 func sampleOption() ProjectOption {
 	return ProjectOption{
 		OptionID: "opt-normal",
-		Terms: SettlementTerms{
-			RevenueShare:        RevenueShareLaunchFlat10,
-			RevenueSharePercent: 10.0,
-		},
+		// The terms carry no revenue share since stage 4b2 (founder ruling). This Engine
+		// reads only ComputeCost/ComputeMarkupPercent/Schedule off them, and the
+		// design-time forecast reads none of the three — it prices the DECLARED USAGE.
+		Terms: SettlementTerms{},
 	}
 }
 

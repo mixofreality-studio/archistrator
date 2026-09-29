@@ -726,14 +726,6 @@ type ResearchSource struct {
 	Content string `json:"Content"`
 }
 
-type RevenueShareKind int
-
-const (
-	RevenueShareUnknown        RevenueShareKind = 0
-	RevenueShareLaunchFlat10   RevenueShareKind = 1
-	RevenueShareNegotiatedRate RevenueShareKind = 2
-)
-
 type ReviewComment struct {
 	ID         string               `json:"id"`
 	Anchor     string               `json:"anchor"`
@@ -874,7 +866,6 @@ type SdpOptionRow struct {
 	CompositeRisk        float64      `json:"compositeRisk"`
 	ProjectedMonthlyCost Money        `json:"projectedMonthlyCost"`
 	ExpectedPerCycleNet  Money        `json:"expectedPerCycleNet"`
-	RevenueSharePercent  float64      `json:"revenueSharePercent"`
 }
 
 type SdpReview struct {
@@ -884,11 +875,9 @@ type SdpReview struct {
 }
 
 type SettlementTerms struct {
-	RevenueShare         RevenueShareKind `json:"revenueShare"`
-	RevenueSharePercent  float64          `json:"revenueSharePercent"`
-	ComputeCost          ComputeCostKind  `json:"computeCost"`
-	ComputeMarkupPercent float64          `json:"computeMarkupPercent"`
-	Schedule             ScheduleKind     `json:"schedule"`
+	ComputeCost          ComputeCostKind `json:"computeCost"`
+	ComputeMarkupPercent float64         `json:"computeMarkupPercent"`
+	Schedule             ScheduleKind    `json:"schedule"`
 }
 
 type SoftwareSystemInstance struct {
@@ -949,6 +938,7 @@ type TaskAttemptInput struct {
 	Outcome      TaskOutcome  `json:"outcome"`
 	EvidenceKind EvidenceKind `json:"evidenceKind"`
 	EvidenceRef  string       `json:"evidenceRef"`
+	Detail       string       `json:"detail"`
 }
 
 type TestPlanRecord struct {
@@ -1088,7 +1078,7 @@ type DesignSessionAccess interface {
 	CommitArtifactWithProvenance(rc fwra.Context, projectID ProjectID, expectedVersion Version, kind ArtifactKind, approvedBy string, draftedBy string) (Version, error)
 	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }

@@ -22,11 +22,13 @@
  *
  * WHAT THIS CANNOT SEE, stated where it matters rather than in a report only: the
  * PER-FAMILY fills (`resolvePlanningAssumptions` — an authored slot whose
- * `terms.revenueShare` or `declaredUsage` is its vocabulary's unknown member) leave no
- * trace on any view. The attempt `Detail` is their only record, and until the wire
- * carries it this notice is silent for them. It NEVER guesses: re-deriving the
- * server's per-field default rules here would be a second copy of a rule the Manager
- * owns, which is the defect the design-health move exists to prevent.
+ * `terms.computeCost` or `declaredUsage` is its vocabulary's unknown member) leave no
+ * trace HERE. The attempt `Detail` is their record, and as of stage 4b2 it is on the
+ * wire (`DeliveryTaskRevisionView.detail`) for the M0 surface to render — which is a
+ * read of what the SERVER said it defaulted, not a second derivation. This notice
+ * NEVER guesses: re-deriving the server's per-field default rules here would be a
+ * second copy of a rule the Manager owns, which is the defect the design-health move
+ * exists to prevent.
  *
  * Pure and React-free so `node --test` loads it directly.
  */

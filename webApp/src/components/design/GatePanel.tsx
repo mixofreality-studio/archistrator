@@ -39,12 +39,11 @@ import CheckIcon from '@mui/icons-material/Check';
 import ReplayIcon from '@mui/icons-material/Replay';
 import UndoIcon from '@mui/icons-material/Undo';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
-import type { Finding, PmCritiqueView } from '../../contracts/types';
+import type { Finding } from '../../contracts/types';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
 import { sendBackDisabled } from './sendBackLogic';
-import { pmReviewPresentation } from './pmReviewLogic';
 
 export interface GateActionsProps {
   /** Number of accumulated (client-side, unsent) anchored send-back comments. */
@@ -69,20 +68,11 @@ export interface GateActionsProps {
 
 export function GatePanel({
   findings,
-  critique,
   openCommentCount = 0,
   gateError,
   actions,
 }: {
   findings: Finding[];
-  /**
-   * The surfaced PM-critique conclusion for the draft under review (F-QA2-7):
-   * rendered as the "PM REVIEW" section so the founder never approves a
-   * PM-reviewed artifact blind to what the PM concluded. Absent for
-   * architect-owned kinds (no PM critic) and on Phase-2/construction gates —
-   * the section simply does not render.
-   */
-  critique?: PmCritiqueView | undefined;
   /**
    * Open entries on the SERVER review thread. While > 0 the server rejects Approve
    * (FailedPrecondition), so we disable it here and name the count. Each must be
@@ -100,9 +90,6 @@ export function GatePanel({
   const t = useTokens();
   const [showFindings, setShowFindings] = useState(true);
   const findingsRegionId = useId();
-  const [showPmReview, setShowPmReview] = useState(true);
-  const pmReviewRegionId = useId();
-  const pmReview = critique !== undefined ? pmReviewPresentation(critique) : undefined;
   const approveBlocked = openCommentCount > 0;
   const errors = findings.filter((f) => f.severity === 'error').length;
   const warnings = findings.filter((f) => f.severity === 'warning').length;
@@ -204,77 +191,12 @@ export function GatePanel({
         </Box>
       </Collapse>
 
-      {/* PM REVIEW (F-QA2-7): the PM critique's actual conclusion — verdict badge +
-          rationale — rendered as its own disclosure, visually distinct from the
-          deterministic MACHINE VALIDATION above (pm-tinted header, agent-review
-          framing). Mirrors the findings disclosure's a11y pattern: a real <button>
-          with aria-expanded/aria-controls. */}
-      {pmReview !== undefined ? (
-        <>
-          <Box
-            aria-controls={pmReviewRegionId}
-            aria-expanded={showPmReview}
-            component="button"
-            sx={{
-              display: 'flex',
-              alignItems: 'center',
-              gap: 1,
-              px: 2.5,
-              py: 1.5,
-              cursor: 'pointer',
-              width: '100%',
-              textAlign: 'left',
-              font: 'inherit',
-              color: 'inherit',
-              border: 'none',
-              bgcolor: t.chatPmBg,
-              borderTop: `1.5px solid ${t.line}`,
-              borderBottom: showPmReview ? `1.5px solid ${t.line}` : 'none',
-            }}
-            type="button"
-            onClick={() => {
-              setShowPmReview((v) => !v);
-            }}
-          >
-            <Typography
-              sx={{ fontFamily: t.mono, fontWeight: 700, letterSpacing: '0.1em', fontSize: 12 }}
-            >
-              {pmReview.heading}
-            </Typography>
-            <Typography
-              data-testid={UI_IDENTIFIERS.GatePanel.PM_REVIEW_BADGE}
-              sx={{
-                fontFamily: t.mono,
-                fontSize: 11,
-                fontWeight: 700,
-                color: pmReview.approved ? t.committedFg : t.awaitingFg,
-                border: `1.5px solid ${t.line}`,
-                borderRadius: 1,
-                px: 0.75,
-              }}
-            >
-              {pmReview.badge}
-            </Typography>
-            <Box sx={{ flexGrow: 1 }} />
-            <ExpandMoreIcon
-              sx={{ transform: showPmReview ? 'rotate(180deg)' : 'none', transition: '120ms' }}
-            />
-          </Box>
-          <Collapse id={pmReviewRegionId} in={showPmReview}>
-            <Box
-              data-testid={UI_IDENTIFIERS.GatePanel.PM_REVIEW}
-              sx={{ p: 2.5, pt: 2, display: 'flex', flexDirection: 'column', gap: 0.75 }}
-            >
-              <Typography sx={{ fontFamily: t.mono, fontSize: 11, color: t.muted }}>
-                {pmReview.caption}
-              </Typography>
-              <Typography sx={{ color: t.ink, whiteSpace: 'pre-wrap' }} variant="body2">
-                {pmReview.summary}
-              </Typography>
-            </Box>
-          </Collapse>
-        </>
-      ) : null}
+      {/* The PM REVIEW disclosure (F-QA2-7) stood here and is DELETED (stage 4b2). It
+          rendered SessionStateView.critique, a wire field with zero producers anywhere in
+          the server since 4b1 retired the live design rail — so this section never
+          rendered for anyone. Its presentation mapping (pmReviewLogic.ts) went with it.
+          A critique surface that shows what an agent critic concluded is worth having; it
+          needs a producer first, and it will bring its own view when it has one. */}
 
       {/* Open server-thread entries block approve until answered or resolved. */}
       {approveBlocked ? (
