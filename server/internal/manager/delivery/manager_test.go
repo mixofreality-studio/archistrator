@@ -135,6 +135,115 @@ func Test_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 	}
 }
 
+// slotWriters is the test-side inverse of the production slotAccessors map: it PUTS a slot
+// onto a Project by kind, so a table test can seed any one of the seventeen without a
+// seventeen-arm switch per case. Keyed rather than switched on purpose — the length assertion
+// in Test_DesignArtifactSessionView_IsTotalOverEveryKind is what keeps it from drifting,
+// which a switch's exhaustiveness check could not do for a map-driven producer.
+var slotWriters = map[projectstate.ArtifactKind]func(*projectstate.Project, projectstate.ArtifactSlot){
+	projectstate.KindMission:              func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Mission = s },
+	projectstate.KindGlossary:             func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Glossary = s },
+	projectstate.KindScrubbedRequirements: func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.ScrubbedRequirements = s },
+	projectstate.KindVolatilities:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Volatilities = s },
+	projectstate.KindCoreUseCases:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.CoreUseCases = s },
+	projectstate.KindSystem:               func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SystemDesign = s },
+	projectstate.KindOperationalConcepts:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.OperationalConcepts = s },
+	projectstate.KindStandardCheck:        func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.StandardCheck = s },
+	projectstate.KindPlanningAssumptions:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.PlanningAssumptions = s },
+	projectstate.KindActivityList:         func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.ActivityList = s },
+	projectstate.KindNetwork:              func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.Network = s },
+	projectstate.KindNormalSolution:       func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.NormalSolution = s },
+	projectstate.KindSubcriticalSolution:  func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SubcriticalSolution = s },
+	projectstate.KindCompressedSolution:   func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.CompressedSolution = s },
+	projectstate.KindDecompressedSolution: func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.DecompressedSolution = s },
+	projectstate.KindRiskModel:            func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.RiskModel = s },
+	projectstate.KindSdpReview:            func(p *projectstate.Project, s projectstate.ArtifactSlot) { p.SdpReview = s },
+}
+
+// Test_DesignArtifactSessionView_IsTotalOverEveryKind is the fold's premise, executable.
+//
+// Before it, TWO producers answered the same question for disjoint kind sets and returned two
+// wire types whose enums diverged at exactly one member — ProjectStageAssemblingSDP, whose
+// producer stage 4b1 deleted. After it there is ONE producer, and the assertion is that it is
+// TOTAL: every one of the seventeen artifact kinds resolves through it, against every one of
+// ArtifactReviewStatus's five members, and every answer is one of the THREE stages a durable
+// slot can actually express. A fourth reachable stage here would mean the fold lost something.
+func Test_DesignArtifactSessionView_IsTotalOverEveryKind(t *testing.T) {
+	kinds := projectstate.AllArtifactKinds()
+	if len(slotWriters) != len(kinds) {
+		t.Fatalf("slotWriters covers %d kinds, AllArtifactKinds has %d — the table drifted", len(slotWriters), len(kinds))
+	}
+	expressible := []SessionStage{StageCommitted, StageWithdrawn, StageDraftFailed}
+	for _, k := range kinds {
+		write, ok := slotWriters[k]
+		if !ok {
+			t.Fatalf("no slot writer for kind %s", k.WireName())
+		}
+		for _, st := range []projectstate.ArtifactReviewStatus{
+			projectstate.ReviewCommitted, projectstate.ReviewWithdrawn,
+			projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected,
+		} {
+			proj := projectstate.Project{ID: "p", Version: 1}
+			write(&proj, projectstate.ArtifactSlot{Status: st})
+			ps := &projectstatefake.FakeProjectStateAccess{
+				ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+					return proj, nil
+				},
+			}
+			m := &deliveryManager{projectState: ps}
+			view, err := m.designArtifactSessionView(context.Background(), "p", fromPSKind(k))
+			if err != nil {
+				t.Fatalf("kind %s / status %d must resolve, got %v", k.WireName(), st, err)
+			}
+			if view.ArtifactKind != fromPSKind(k) {
+				t.Errorf("kind %s / status %d: the view must carry its own kind, got %d", k.WireName(), st, view.ArtifactKind)
+			}
+			if !slices.Contains(expressible, view.Stage) {
+				t.Errorf("kind %s / status %d: stage %v is outside the three a slot can express %v",
+					k.WireName(), st, view.Stage, expressible)
+			}
+			if view.Stage == StageDrafting {
+				t.Errorf("kind %s / status %d produced the LIVE StageDrafting — the anti-wedge rule", k.WireName(), st)
+			}
+		}
+	}
+}
+
+// Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor pins the deletion: a
+// Phase-2 kind must reach the SAME producer a Phase-1 kind reaches, and must come back on the
+// SAME wire member. Two doors to one question is how the two enums drifted in the first
+// place, and `projectSession` is what the second door filled — so a Phase-2 answer landing
+// anywhere but `session`, or `projectSession` being non-nil at all, is the fold undone.
+func Test_DesignArtifactSessionView_PhaseTwoKindsNoLongerTakeASecondDoor(t *testing.T) {
+	for _, k := range projectstate.AllArtifactKinds() {
+		proj := projectstate.Project{ID: "p", Version: 1}
+		slotWriters[k](&proj, projectstate.ArtifactSlot{Status: projectstate.ReviewCommitted})
+		ps := &projectstatefake.FakeProjectStateAccess{
+			ReadProjectFn: func(_ fwra.Context, _ projectstate.ProjectID) (projectstate.Project, error) {
+				return proj, nil
+			},
+		}
+		m := &deliveryManager{projectState: ps}
+		kind := fromPSKind(k)
+		pid := "p"
+		out, err := m.QueryProjectView(bgRC(), ProjectViewQuery{
+			Kind: ProjectViewSession, ProjectID: &pid, ArtifactKind: &kind,
+		})
+		if err != nil {
+			t.Fatalf("kind %s: the session view must resolve, got %v", k.WireName(), err)
+		}
+		if out.Session == nil {
+			t.Fatalf("kind %s: the answer must land on `session` — the ONE derived member", k.WireName())
+		}
+		if out.ProjectSession != nil {
+			t.Fatalf("kind %s: `projectSession` must never be set again; the second door is gone", k.WireName())
+		}
+		if out.Session.Stage != StageCommitted {
+			t.Errorf("kind %s: a committed slot must render StageCommitted, got %v", k.WireName(), out.Session.Stage)
+		}
+	}
+}
+
 // SessionRef is opaque: it round-trips and compares by value, never parsed.
 func Test_SessionRef_OpaqueValueSemantics(t *testing.T) {
 	a := newSessionRef("proj-1:1")
@@ -1255,7 +1364,7 @@ func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T
 	}
 }
 
-// Test_AskDesignQuestions_SeedsOnMain pins the RATIFIED answer (4b1 Q6, closed in 4b2).
+// Test_AskArtifactQuestions_Phase1_SeedsOnMain pins the RATIFIED answer (4b1 Q6, closed in 4b2).
 // Before this task the target was main by accident — through a guard that could not be
 // true. After it, main is the only thing the code can express, and this test is what
 // says so out loud.
@@ -1263,7 +1372,7 @@ func Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint(t *testing.T
 // The DesignSessionAccess double leaves ReadProjectOnBranchFn UNSET on purpose: the
 // generated fake panics on an unset Fn, so the double itself asserts that the branch-taking
 // read (readProjectMaybeBranch) is gone and the head-state read is the plain ReadProject.
-func Test_AskDesignQuestions_SeedsOnMain(t *testing.T) {
+func Test_AskArtifactQuestions_Phase1_SeedsOnMain(t *testing.T) {
 	ask := []AnchoredComment{{JSONPath: "$.vision", Text: "why is it worded this way?"}}
 	for _, tc := range []struct {
 		name   string
@@ -1295,7 +1404,7 @@ func Test_AskDesignQuestions_SeedsOnMain(t *testing.T) {
 				},
 			}
 			m := newDesignFacade(nil, ps, nil, nil, nil, nil, ds, nil, nil, "")
-			if err := m.askDesignQuestions(bgRC(), "p", KindMission, projectstate.ReviewAddresseeArchitect, ask); err != nil {
+			if err := m.askArtifactQuestions(bgRC(), "p", KindMission, projectstate.ReviewAddresseeArchitect, ask); err != nil {
 				t.Fatalf("the ask must land: %v", err)
 			}
 			if len(branches) != 1 || branches[0] != "" {
@@ -1305,9 +1414,10 @@ func Test_AskDesignQuestions_SeedsOnMain(t *testing.T) {
 	}
 }
 
-// Test_AskPlanQuestions_SeedsOnMain is the Phase-2 twin. Same ratification, same shape —
-// and the same unset ReadProjectOnBranchFn standing in for the deleted branch read.
-func Test_AskPlanQuestions_SeedsOnMain(t *testing.T) {
+// Test_AskArtifactQuestions_Phase2_SeedsOnMain is the Phase-2 half, through the SAME door
+// (stage 4b2 Task 5 merged the two twin bodies). Same ratification, same shape — and the same
+// unset ReadProjectOnBranchFn standing in for the deleted branch read.
+func Test_AskArtifactQuestions_Phase2_SeedsOnMain(t *testing.T) {
 	ask := []AnchoredComment{{JSONPath: "$.resources[0]", Text: "where does this rate come from?"}}
 	for _, tc := range []struct {
 		name   string
@@ -1337,7 +1447,7 @@ func Test_AskPlanQuestions_SeedsOnMain(t *testing.T) {
 				},
 			}
 			m := newPlanFacade(nil, ps, nil, nil, nil, nil, nil, ds, nil, nil, nil)
-			if err := m.askPlanQuestions(bgRC(), "p", KindPlanningAssumptions, projectstate.ReviewAddresseePM, ask); err != nil {
+			if err := m.askArtifactQuestions(bgRC(), "p", KindPlanningAssumptions, projectstate.ReviewAddresseePM, ask); err != nil {
 				t.Fatalf("the ask must land: %v", err)
 			}
 			if len(branches) != 1 || branches[0] != "" {
@@ -4538,9 +4648,11 @@ func Test_AdvanceToConstruction_StaleSlot_FailedPreconditionNamingSlot(t *testin
 	}
 }
 
-// F73 (part 2, Phase-2 twin). The committed view must carry the slot's durable reviewThread so
-// questions seeded on a COMMITTED Phase-2 artifact render on it.
-func Test_PD_CommittedSessionView_CarriesReviewThread(t *testing.T) {
+// F73 (part 2, Phase-2 half). The committed view must carry the slot's durable reviewThread so
+// questions seeded on a COMMITTED Phase-2 artifact render on it — now through the SAME
+// producer the Phase-1 half uses (stage 4b2 Task 5 deleted pdCommittedSessionView, which was
+// this same switch over the same slot into a second wire type).
+func Test_CommittedSessionView_Phase2Kind_CarriesReviewThread(t *testing.T) {
 	id := ProjectID(uuid.NewString())
 	slot := projectstate.ArtifactSlot{
 		Status: projectstate.ReviewCommitted,
@@ -4553,11 +4665,11 @@ func Test_PD_CommittedSessionView_CarriesReviewThread(t *testing.T) {
 			AuthorRole: reviewAuthorRole,
 		}},
 	}
-	view, err := pdCommittedSessionView(id, KindPlanningAssumptions, slot)
+	view, err := committedSessionView(id, KindPlanningAssumptions, slot)
 	if err != nil {
 		t.Fatalf("committedSessionView on a committed slot must not error: %v", err)
 	}
-	if view.Stage != ProjectStageCommitted {
+	if view.Stage != StageCommitted {
 		t.Fatalf("committed slot must render StageCommitted, got %d", view.Stage)
 	}
 	if len(view.ReviewThread) != 1 || view.ReviewThread[0].Text != "which resources are assumed?" {
@@ -5620,23 +5732,6 @@ func (f *ledgerThreadFake) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 	return expectedVersion, nil
 }
 
-// The live set is exactly the non-terminal stages: drafting / assemblingSdp /
-// awaitingReview / redrafting / draftFailed (the recovery gate keeps the branch+PR).
-func Test_PD_SessionStageIsLive(t *testing.T) {
-	live := []ProjectSessionStage{ProjectStageDrafting, ProjectStageAssemblingSDP, ProjectStageAwaitingReview, ProjectStageRedrafting, ProjectStageDraftFailed}
-	for _, s := range live {
-		if !pdSessionStageIsLive(s) {
-			t.Errorf("stage %s must be live", pdSessionStageLabel(s))
-		}
-	}
-	terminal := []ProjectSessionStage{ProjectSessionStageUnknown, ProjectStageCommitted, ProjectStageWithdrawn, ProjectStageRefused}
-	for _, s := range terminal {
-		if pdSessionStageIsLive(s) {
-			t.Errorf("stage %s must NOT be live", pdSessionStageLabel(s))
-		}
-	}
-}
-
 // TestDeriveClassRates_FromModelTier checks the AI $/day derivation (F11b) against the
 // hand-computed price list × the default throughput (2 MTok in / 0.5 MTok out per day):
 //
@@ -5742,25 +5837,6 @@ func TestExistingQuestionRound(t *testing.T) {
 	// A never-seeded question is not found.
 	if _, ok := existingQuestionRound(nil, qs); ok {
 		t.Fatal("existingQuestionRound must report not-found for an empty thread")
-	}
-}
-
-func Test_PD_SessionStageLabel_Map(t *testing.T) {
-	cases := map[ProjectSessionStage]string{
-		ProjectSessionStageUnknown: "not started",
-		ProjectStageDrafting:       "drafting",
-		ProjectStageAssemblingSDP:  "assembling SDP",
-		ProjectStageAwaitingReview: "awaiting review",
-		ProjectStageRedrafting:     "redrafting",
-		ProjectStageCommitted:      "committed",
-		ProjectStageWithdrawn:      "withdrawn",
-		ProjectStageRefused:        "refused",
-		ProjectStageDraftFailed:    "draft failed",
-	}
-	for stage, want := range cases {
-		if got := pdSessionStageLabel(stage); got != want {
-			t.Errorf("sessionStageLabel(%d) = %q, want %q", int(stage), got, want)
-		}
 	}
 }
 

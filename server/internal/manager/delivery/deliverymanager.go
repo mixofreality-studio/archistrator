@@ -215,16 +215,35 @@ func standardCheckFailItems(proj projectstate.Project) []string {
 	return fails
 }
 
-// completedSessionView derives the honest session view for a CoAuthor run that closed
-// NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run
-// (it can return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an
-// already-committed artifact), so the view is rebuilt from the DURABLE slot on main.
-func (m *deliveryManager) designCompletedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
+// designArtifactSessionView projects the durable SLOT of one artifact kind onto the view the
+// SPA reads. ONE producer for all seventeen kinds (stage 4b2 Task 5).
+//
+// WHY THERE WERE TWO, AND WHY THAT IS OVER. Phase 1 and Phase 2 each had a rail, so each had
+// a session type and a stage enum; the enums diverged at exactly one member,
+// ProjectStageAssemblingSDP, emitted by the SDP-assembly workflow that stage 4b1 deleted.
+// What was left was the same function twice, projecting the same slot through the same
+// switch, into two types whose only remaining difference was two optional members neither
+// producer ever set. The kind is a FIELD on the view, so one type serves both halves and no
+// discriminator is needed — a discriminator nothing branches on documents a distinction the
+// code does not make.
+//
+// THE THREE STAGES ARE ALL A SLOT CAN SAY, and that is a property of the door, not a
+// simplification: a committed slot is Committed, a withdrawn one is Withdrawn, and any other
+// terminal-but-uncommitted status is an honest DraftFailed — NEVER StageDrafting, so the SPA
+// cannot wedge on a spinner for a session that is over. A MID-WALK activity reports its
+// SLOT's stage through this door; the live view is constructionSession, which is a different
+// subject with a different lifetime and does NOT fold in here.
+//
+// The slot read is pdSlotFor, which is TOTAL over the seventeen kinds (slotAccessors); the
+// Phase-1-only slotFor it replaced is what made the second door necessary at all. The read
+// error mapper is the finer of the two twins' (mapReadProjectError also surfaces the RA's
+// ContractMisuse as ContractMisuse instead of folding it into Infrastructure).
+func (m *deliveryManager) designArtifactSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (SessionStateView, error) {
 	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
 	if err != nil {
 		return SessionStateView{}, mapReadProjectError(err)
 	}
-	return committedSessionView(projectID, kind, slotFor(proj, kind))
+	return committedSessionView(projectID, kind, pdSlotFor(proj, toPSKind(kind)))
 }
 
 // committedSessionView projects the durable slot of a COMPLETED session onto a
@@ -637,9 +656,24 @@ func draftModelFor(kind ArtifactKind, model projectstate.ArtifactModel) (DraftMo
 // twins, collapsed by the package merge — arch.CheckFileLayout allows one impl file and one test file).
 const acknowledgeStaleMaxAttempts = 5
 
-// AcknowledgeStaleBasis clears the committed slot's StaleBasis and records the reviewer's
-// note as a staleAck audit entry. Synchronous OCC write (mirrors SetResearchInput).
-func (m *deliveryManager) ackDesignStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
+// ackArtifactStaleBasis clears the committed slot's StaleBasis and records the reviewer's
+// note as a staleAck audit entry. Synchronous OCC write (mirrors SetResearchInput). ONE copy
+// for all seventeen kinds (stage 4b2 Task 5): the Phase-1 and Phase-2 bodies differed by the
+// kind SET they admitted and by which of two equivalent error mappers they called, and
+// nothing else — the OCC loop, the idempotency key and the RA verb were already shared.
+//
+// THE KIND GUARD IS STILL A GUARD, widened rather than dropped: an ordinal outside the
+// seventeen is refused here, because pdSlotFor answers the ZERO slot for an unknown kind and
+// a silent zero slot would read as "nothing to acknowledge" instead of "that is not a kind".
+//
+// THE ERROR MAPPER IS mapStaleAckError, which is the Phase-2 twin's, chosen because it is the
+// honestly-named one: the Phase-1 twin called mapSetResearchInputError, whose Infrastructure
+// arm wraps every fault with the message "projectStateAccess.SetResearchInput" — a different
+// RA verb than the one that actually failed. The mapped Kind set is IDENTICAL across the two
+// (NotFound → NotFound, ContractMisuse → ContractMisuse, else Infrastructure); what a Phase-1
+// caller loses is the wrong verb name in the detail and the Retryable passthrough on the
+// Infrastructure arm, which no caller of this door reads (the SPA renders the Kind).
+func (m *deliveryManager) ackArtifactStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
 	ctx := rc.Context
 	if projectID == "" {
 		return newError(fwmanager.ContractMisuse, "empty projectId")
@@ -647,8 +681,8 @@ func (m *deliveryManager) ackDesignStaleBasis(rc fwmanager.Context, projectID Pr
 	if strings.TrimSpace(note) == "" {
 		return newError(fwmanager.ContractMisuse, "an acknowledgement requires a non-empty note — it is the reviewer's durable justification, and it also keys the idempotency of the ack")
 	}
-	if !artifactKindIsPhase1(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
+	if err := requireDesignArtifactKind(kind); err != nil {
+		return err
 	}
 	// F-GTD-12: an acknowledge is a MAIN-branch write (the StaleBasis clear + the staleAck
 	// entry commit on main). While a co-author session is LIVE for this slot — on a committed
@@ -656,7 +690,7 @@ func (m *deliveryManager) ackDesignStaleBasis(rc fwmanager.Context, projectID Pr
 	// review PR merge-DIRTY, so the eventual approve's merge fails with a Conflict and the
 	// workflow bounces back to AwaitingReview looking like a silent no-op to the reviewer.
 	// Refuse up front: reconcile RIDES the amendment (its merge clears the staleness).
-	if err := m.refuseDesignAckDuringLiveSession(rc, projectID, kind); err != nil {
+	if err := m.refuseArtifactAckDuringLiveSession(rc, projectID, kind); err != nil {
 		return err
 	}
 	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
@@ -677,20 +711,69 @@ func (m *deliveryManager) ackDesignStaleBasis(rc fwmanager.Context, projectID Pr
 			lastErr = err
 			continue
 		}
-		return mapSetResearchInputError(err) // shares the ContractMisuse/NotFound/else mapping
+		return mapStaleAckError(err)
 	}
 	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AcknowledgeStaleBasis: exhausted conflict retries")
 }
 
-// refuseAckDuringLiveSession is the F-GTD-12 guard (Phase-1 twin of the projectdesign
-// impl): while the target kind has a LIVE co-author (amendment) session, the acknowledge
-// is refused with a FailedPrecondition (the wire's 409/"failed_precondition" conflict
-// shape). Liveness is read through GetSessionState — the SAME Describe-then-Query path
-// the review gate and the SPA trust (a dead run synthesizes StageDraftFailed; a COMPLETED
-// run is rebuilt from the durable slot) — so ack gating always agrees with what the
-// reviewer sees on screen. A NotFound (no session ever ran for this slot) passes.
-func (m *deliveryManager) refuseDesignAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.designCompletedSessionView(rc, projectID, kind)
+// checkArtifactAskArguments is askArtifactQuestions' whole argument gate: the identity, the
+// kind's membership, the addressee's closed set, and the ONE rule that is still kind-scoped.
+//
+// THE PHASE-2 replyTo REFUSAL STAYS, AND IT STAYS KIND-SCOPED (plan ruling, stage 4b2 Task 5).
+// RULING P13 + design §3.7: on a Phase-2 kind a question OPENS its own thread, because
+// neither this Manager nor its co-author workflow can route an utterance into an existing
+// Phase-2 thread, so a replyTo that arrived could only be re-filed as a fresh unanchored
+// comment — the silent detachment pdCheckNoReplyTo exists to refuse. Widening the refusal to
+// every kind would be a BEHAVIOUR CHANGE, not a fold: the Phase-1 rails have accepted threaded
+// replies since stage 3, and the client's askEntriesFor (foldReplies: true) fold is keyed off
+// exactly that asymmetry. So this is the one line in the merged door that still reads the phase.
+func checkArtifactAskArguments(projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+	if projectID == "" {
+		return newError(fwmanager.ContractMisuse, "empty projectId")
+	}
+	if err := requireDesignArtifactKind(kind); err != nil {
+		return err
+	}
+	switch addressee {
+	case projectstate.ReviewAddresseePM, projectstate.ReviewAddresseeArchitect:
+		// ok
+	default:
+		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
+	}
+	if artifactKindIsPhase2(kind) {
+		return pdCheckNoReplyTo(questions)
+	}
+	return nil
+}
+
+// requireDesignArtifactKind refuses an ArtifactKind that is neither Phase-1 nor Phase-2 — an
+// ordinal outside The Method's seventeen design kinds. It is what the two twins'
+// "artifactKind is not a Phase-N kind" refusals became when the folded doors started admitting
+// both halves (stage 4b2 Task 5): the PHASE split stopped being the thing worth refusing, the
+// MEMBERSHIP did not.
+func requireDesignArtifactKind(kind ArtifactKind) error {
+	if artifactKindIsPhase1(kind) || artifactKindIsPhase2(kind) {
+		return nil
+	}
+	return newError(fwmanager.FailedPrecondition,
+		"artifactKind is not one of The Method's seventeen design artifact kinds")
+}
+
+// refuseArtifactAckDuringLiveSession is the F-GTD-12 guard, ONE copy for both halves (stage
+// 4b2 Task 5 — the two twins differed only in which view type they read and which of two
+// identical liveness predicates they asked). While the target kind has a LIVE co-author
+// (amendment) session, the acknowledge is refused with a FailedPrecondition (the wire's
+// 409/"failed_precondition" conflict shape). Liveness is read through the derived session
+// view — the SAME durable-slot projection the review gate and the SPA trust — so ack gating
+// always agrees with what the reviewer sees on screen. A NotFound (no project) passes.
+//
+// The predicate is asked of a view whose stage set is {Committed, Withdrawn, DraftFailed}, so
+// today only the DraftFailed recovery gate can make this refuse; that disjointness is pinned
+// by Test_QuestionBranch_TheLiveStageAndTheDerivedStagesAreDisjoint and the guard is kept
+// rather than folded away because it is the one place that would have to be re-derived if a
+// live stage ever reached this door again.
+func (m *deliveryManager) refuseArtifactAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
+	view, err := m.designArtifactSessionView(rc, projectID, kind)
 	if err != nil {
 		var me *fwmanager.Error
 		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
@@ -756,19 +839,15 @@ const askQuestionsMaxAttempts = 5
 // with the same questions: the seed is idempotent on its content key, so NO ledger entry is
 // duplicated (the existing entries' round is reused so the minted ids still match), while the
 // answer-job dispatch RE-FIRES via a per-call-unique key.
-func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
+//
+// ONE COPY FOR ALL SEVENTEEN KINDS (stage 4b2 Task 5). The Phase-2 twin was this body with a
+// Phase-2 kind gate, a Phase-2 slot accessor, a second error mapper, and pdCheckNoReplyTo. The
+// first three fold away (pdSlotFor is total; mapReadProjectError is the finer mapper); the
+// fourth STAYS, KIND-SCOPED — see checkArtifactAskArguments.
+func (m *deliveryManager) askArtifactQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
 	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase1(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-1 kind")
-	}
-	switch addressee {
-	case projectstate.ReviewAddresseePM, projectstate.ReviewAddresseeArchitect:
-		// ok
-	default:
-		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
+	if err := checkArtifactAskArguments(projectID, kind, addressee, questions); err != nil {
+		return err
 	}
 	// A QUESTION THREAD IS A CONVERSATION (comment-margin task 5b). An ask carrying a
 	// replyTo is a FOLLOW-UP on a thread the agent already answered, not a new question — so
@@ -808,7 +887,7 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 		if err != nil {
 			return mapReadProjectError(err)
 		}
-		thread := slotFor(proj, kind).ReviewThread
+		thread := pdSlotFor(proj, psKind).ReviewThread
 		// A replyTo naming no thread on this artifact is a hard refusal, never a silent new
 		// thread — the same rule the change-request door applies, run here against the thread
 		// just read (the RA would surface a bare NotFound from deep inside the append).
@@ -841,7 +920,7 @@ func (m *deliveryManager) askDesignQuestions(rc fwmanager.Context, projectID Pro
 			dispatchTo, mixed := answerJobAddressee(thread, addressee, len(qs), replies)
 			if mixed {
 				slog.Default().Warn("askQuestions: this batch needs BOTH answer roles (a fresh question for one, a reply on the other's thread) — only one answer job is dispatched, so the other half stays unanswered until it is re-asked on its own",
-					"op", "systemdesign.AskQuestions", "projectID", string(projectID),
+					"op", "delivery.AskQuestions", "projectID", string(projectID),
 					"artifactKind", artifactKindString(kind), "dispatchedTo", dispatchTo)
 			}
 			m.dispatchAnswerJob(ctx, projectID, kind, "", dispatchTo, minted)
@@ -3997,35 +4076,6 @@ func pdCheckNoReplyTo(incoming []AnchoredComment) error {
 	return nil
 }
 
-// pdSessionStageLabel renders a ProjectSessionStage as a short human label for the precondition
-// messages.
-func pdSessionStageLabel(s ProjectSessionStage) string {
-	switch s {
-	case ProjectSessionStageUnknown:
-		return "not started"
-	case ProjectStageDrafting:
-		return "drafting"
-	case ProjectStageAssemblingSDP:
-		return "assembling SDP"
-	case ProjectStageAwaitingReview:
-		return "awaiting review"
-	case ProjectStageRedrafting:
-		return "redrafting"
-	case ProjectStageCommitted:
-		return "committed"
-	case ProjectStageWithdrawn:
-		return "withdrawn"
-	case ProjectStageRefused:
-		return "refused"
-	case ProjectStageDraftFailed:
-		return "draft failed"
-	}
-	// Unreachable for the nine defined ProjectSessionStage values above (the exhaustive
-	// linter enforces that every real variant has its own case); kept as a
-	// defensive fallback for an out-of-range ordinal.
-	return "unknown"
-}
-
 // AdvanceToConstruction — op 2.4. Temporal Workflow (entry; StartWorkflow,
 // workflow id {projectId}:phaseAdvance:projectDesign). Returns the gating outcome.
 //
@@ -4205,80 +4255,9 @@ func staleCommittedPhase2Kinds(proj projectstate.Project) []string {
 	return stale
 }
 
-// completedSessionView derives the honest session view for a CoAuthor/SDP run that closed
-// NORMALLY (COMPLETED). The replayed sessionState query is NOT trusted for such a run (it can
-// return a stale mid-flight stage — the P0-2 "GENERATING forever" wedge on an already-committed
-// artifact), so the view is rebuilt from the DURABLE slot on main.
-func (m *deliveryManager) planCompletedSessionView(ctx context.Context, projectID ProjectID, kind ArtifactKind) (ProjectSessionStateView, error) {
-	proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, projectstate.ProjectID(projectID))
-	if err != nil {
-		return ProjectSessionStateView{}, pdMapReadProjectError(err)
-	}
-	return pdCommittedSessionView(projectID, kind, pdSlotFor(proj, toPSKind(kind)))
-}
-
-// pdCommittedSessionView projects the durable slot of a COMPLETED session onto a
-// ProjectSessionStateView. A committed slot renders the committed view (ProjectStageCommitted + the committed
-// model + the durable review thread). A withdrawn slot renders ProjectStageWithdrawn. Any other
-// terminal-but-uncommitted state renders an honest ProjectStageDraftFailed terminal carrying a neutral
-// reason — NEVER ProjectStageDrafting, so the SPA never wedges on an infinite "GENERATING" spinner.
-func pdCommittedSessionView(projectID ProjectID, kind ArtifactKind, slot projectstate.ArtifactSlot) (ProjectSessionStateView, error) {
-	switch slot.Status {
-	case projectstate.ReviewCommitted:
-		draft, err := draftModelFor(kind, slot.Model)
-		if err != nil {
-			return ProjectSessionStateView{}, newError(fwmanager.Infrastructure, err.Error())
-		}
-		return ProjectSessionStateView{
-			ProjectID:    projectID,
-			ArtifactKind: kind,
-			Stage:        ProjectStageCommitted,
-			Draft:        draft,
-			ReviewThread: reviewThreadToView(slot.ReviewThread),
-		}, nil
-	case projectstate.ReviewWithdrawn:
-		return ProjectSessionStateView{
-			ProjectID:    projectID,
-			ArtifactKind: kind,
-			Stage:        ProjectStageWithdrawn,
-			Draft:        DraftModel{Kind: artifactKindWireName(kind)},
-		}, nil
-	case projectstate.ReviewNone, projectstate.ReviewAwaitingReview, projectstate.ReviewRejected:
-		// Any non-committed / non-withdrawn terminal status renders the honest
-		// ProjectStageDraftFailed view (never ProjectStageDrafting — the anti-wedge rule).
-		fallthrough
-	default:
-		reason := "the design session ended without committing an artifact. Retry to start a fresh draft."
-		return ProjectSessionStateView{
-			ProjectID:     projectID,
-			ArtifactKind:  kind,
-			Stage:         ProjectStageDraftFailed,
-			Draft:         DraftModel{Kind: artifactKindWireName(kind)},
-			FailureReason: &reason,
-		}, nil
-	}
-}
-
-// isRAReadNotFound reports whether err is a RAW projectStateAccess fwra.NotFound
-// (a brand-new / unknown project) returned DIRECTLY on the sync façade read path —
-// distinct from workflow.go's isReadNotFound, which inspects the Temporal-wrapped
-// ApplicationError on the replayed Activity path.
-func isRAReadNotFound(err error) bool {
-	var raErr *fwra.Error
-	return errors.As(err, &raErr) && raErr.Kind == fwra.NotFound
-}
-
-// pdMapReadProjectError converts a projectStateAccess.ReadProject error on the sync
-// spine-ordering-gate read path into a fwmanager.Error: fwra.NotFound → NotFound
-// (unknown project), everything else → Infrastructure. (fwra.NotFound is handled
-// specially by the RequestArtifactDraft caller as an uncommitted predecessor; this
-// mapper covers the non-NotFound faults.)
-func pdMapReadProjectError(err error) error {
-	if isRAReadNotFound(err) {
-		return newError(fwmanager.NotFound, err.Error())
-	}
-	return newError(fwmanager.Infrastructure, err.Error())
-}
+// isRAReadNotFound is DELETED (stage 4b2 Task 5): its only caller was
+// pdMapReadProjectError, the Phase-2 read mapper that went with the second session view.
+// mapReadProjectError, the one that survives, classifies with its own errors.As switch.
 
 // fromPSKind converts a canonical projectstate.ArtifactKind to projectdesign's OWN
 // ArtifactKind (ordinal-preserving) at the read boundary.
@@ -4286,89 +4265,6 @@ func fromPSKind(k projectstate.ArtifactKind) ArtifactKind { return ArtifactKind(
 
 // artifactKindIsPhase2 reports whether the kind belongs to The Method's Phase 2.
 func artifactKindIsPhase2(k ArtifactKind) bool { return toPSKind(k).IsPhase2() }
-
-func (m *deliveryManager) ackPlanStaleBasis(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, note string) error {
-	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if strings.TrimSpace(note) == "" {
-		return newError(fwmanager.ContractMisuse, "an acknowledgement requires a non-empty note — it is the reviewer's durable justification, and it also keys the idempotency of the ack")
-	}
-	if !artifactKindIsPhase2(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
-	}
-	// F-GTD-12: an acknowledge is a MAIN-branch write (the StaleBasis clear + the staleAck
-	// entry commit on main). While a co-author session is LIVE for this slot — on a committed
-	// slot that is by definition an in-flight AMENDMENT — that main write turns the session's
-	// review PR merge-DIRTY, so the eventual approve's merge fails with a Conflict and the
-	// workflow bounces back to AwaitingReview looking like a silent no-op to the reviewer.
-	// Refuse up front: reconcile RIDES the amendment (its merge clears the staleness).
-	if err := m.refusePlanAckDuringLiveSession(rc, projectID, kind); err != nil {
-		return err
-	}
-	key := acknowledgeStaleIdempotencyKey(projectID, kind, note)
-	psID := projectstate.ProjectID(projectID)
-	psKind := toPSKind(kind)
-
-	var lastErr error
-	for range acknowledgeStaleMaxAttempts {
-		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
-		if err != nil {
-			return pdMapReadProjectError(err)
-		}
-		_, err = m.projectState.AcknowledgeStaleBasis(fwra.Context{Context: ctx}, psID, proj.Version, psKind, note, key)
-		if err == nil {
-			return nil
-		}
-		if isRAConflict(err) {
-			lastErr = err
-			continue
-		}
-		return mapStaleAckError(err)
-	}
-	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AcknowledgeStaleBasis: exhausted conflict retries")
-}
-
-// refuseAckDuringLiveSession is the F-GTD-12 guard: while the target kind has a LIVE
-// co-author (amendment) session, the acknowledge is refused with a FailedPrecondition
-// (the wire's 409/"failed_precondition" conflict shape). Liveness is read through
-// GetSessionState — the SAME Describe-then-Query path the review gate and the SPA trust
-// (a dead run synthesizes ProjectStageDraftFailed; a COMPLETED run is rebuilt from the durable
-// slot) — so ack gating always agrees with what the reviewer sees on screen. A NotFound
-// (no session ever ran for this slot) passes.
-func (m *deliveryManager) refusePlanAckDuringLiveSession(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind) error {
-	view, err := m.planCompletedSessionView(rc, projectID, kind)
-	if err != nil {
-		var me *fwmanager.Error
-		if errors.As(err, &me) && me.Kind == fwmanager.NotFound {
-			return nil
-		}
-		return err
-	}
-	if !pdSessionStageIsLive(view.Stage) {
-		return nil
-	}
-	return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
-		"cannot mark this artifact reviewed: its amendment session is still open (currently %s). Reconcile rides the amendment — acknowledging now would commit to main and merge-conflict the amendment's review PR. Approve or withdraw the session first.",
-		pdSessionStageLabel(view.Stage)))
-}
-
-// pdSessionStageIsLive reports whether a co-author session stage means the session still
-// OWNS the slot (its branch/PR is open or recoverable): drafting / assembling /
-// awaiting review / redrafting, plus the ProjectStageDraftFailed recovery gate (the session is
-// suspended there with its branch and PR intact — a Retry resumes it). The terminal
-// stages (committed / withdrawn / refused) and the unknown zero value are NOT live.
-func pdSessionStageIsLive(s ProjectSessionStage) bool {
-	switch s {
-	case ProjectStageDrafting, ProjectStageAssemblingSDP, ProjectStageAwaitingReview, ProjectStageRedrafting, ProjectStageDraftFailed:
-		return true
-	case ProjectSessionStageUnknown, ProjectStageCommitted, ProjectStageWithdrawn, ProjectStageRefused:
-		return false
-	default:
-		return false
-	}
-}
 
 // mapStaleAckError surfaces the RA's ContractMisuse (uncommitted / unknown kind) and NotFound
 // (unknown project) as their manager equivalents; everything else is Infrastructure.
@@ -4391,12 +4287,6 @@ func mapStaleAckError(err error) error {
 	return newError(fwmanager.Infrastructure, err.Error())
 }
 
-// askquestions.go implements the question-comments op for Project Design (twin of the
-// systemdesign implementation; founder-ratified 2026-07-05): AskQuestions appends clarifying
-// QUESTIONS to a Phase-2 artifact's review ledger WITHOUT a redraft and dispatches a
-// lightweight ANSWER job so the addressed role answers each in place. Open questions do NOT
-// block approve; asking works on a committed artifact (main) and on a live session (branch).
-
 // Dispatch inputs for the design jobs. Project Design has no PM-critique, so its dispatch
 // path historically carried no job_mode; under thin dispatch the MCP scopes its ambient
 // mode on this input, so BOTH the draft and answer jobs now set it — pdJobModeDraft on the
@@ -4406,98 +4296,6 @@ const (
 	pdJobModeDraft         = "draft"
 	pdJobModeAnswer        = "answer"
 )
-
-// AskQuestions — the Project-Design question-comments op. See the systemdesign twin for the
-// full contract; the only differences are the Phase-2 kind gate and the Phase-2 pdSlotFor.
-//
-// DISPATCH RECOVERY (F82): the answer job is BEST-EFFORT — the questions are seeded durably
-// first, then a lightweight answer job is dispatched. A dispatch MISS (pipeline/repo not
-// configured, repo unresolved, or a workflow_dispatch fault) is now LOGGED LOUDLY server-side
-// (it was previously discarded, and the construction-pipeline RA has no logger, so a miss
-// vanished — an open question that would never be answered with zero operator signal). To
-// RECOVER a dropped dispatch, simply CALL AskQuestions AGAIN with the same questions: the seed
-// is idempotent on its content key, so NO ledger entry is duplicated (the existing entries'
-// round is reused so the minted ids still match), while the answer-job dispatch RE-FIRES via a
-// per-call-unique key.
-func (m *deliveryManager) askPlanQuestions(rc fwmanager.Context, projectID ProjectID, kind ArtifactKind, addressee string, questions []AnchoredComment) error {
-	ctx := rc.Context
-	if projectID == "" {
-		return newError(fwmanager.ContractMisuse, "empty projectId")
-	}
-	if !artifactKindIsPhase2(kind) {
-		return newError(fwmanager.FailedPrecondition, "artifactKind is not a Phase-2 kind")
-	}
-	switch addressee {
-	case projectstate.ReviewAddresseePM, projectstate.ReviewAddresseeArchitect:
-		// ok
-	default:
-		return newError(fwmanager.ContractMisuse, "addressee must be \"pm\" or \"architect\"")
-	}
-	// RULING P13 + design §3.7: a question OPENS its own thread, so a replyTo has no meaning
-	// here and questionsToLedger would drop it. See pdCheckNoReplyTo.
-	if perr := pdCheckNoReplyTo(questions); perr != nil {
-		return perr
-	}
-	qs := questionsToLedger(addressee, questions)
-	if len(qs) == 0 {
-		return newError(fwmanager.ContractMisuse, "no questions to ask (every question needs text)")
-	}
-
-	// MAIN, BESIDE THE SLOT (ratified 4b2; 4b1 Q6) — see the Phase-1 twin above for the whole
-	// argument. In short: the resolver that used to ask for a session branch was dead BY TYPE,
-	// and main is also the RIGHT answer, because a question's thread outlives the draft it is
-	// about.
-	psID := projectstate.ProjectID(projectID)
-	psKind := toPSKind(kind)
-	key := pdAskQuestionsIdempotencyKey(projectID, kind, "", qs)
-
-	var lastErr error
-	for range askQuestionsMaxAttempts {
-		proj, err := m.projectState.ReadProject(fwra.Context{Context: ctx}, psID)
-		if err != nil {
-			return pdMapReadProjectError(err)
-		}
-		thread := pdSlotFor(proj, psKind).ReviewThread
-		round := nextQuestionRound(thread)
-		if r, ok := existingQuestionRound(thread, qs); ok {
-			// A prior ask already seeded these exact questions (its answer-job dispatch may
-			// have been dropped — F82). Reuse their round so the minted ids match the EXISTING
-			// ledger entries, and the re-fired answer job answers the right comments.
-			round = r
-		}
-		_, err = m.designSession.SeedReviewCommentsOnBranch(fwra.Context{Context: ctx}, psID, proj.Version, "", psKind, round, qs, nil, key)
-		if err == nil {
-			minted := make([]projectstate.ReviewComment, len(qs))
-			for i := range qs {
-				minted[i] = qs[i]
-				minted[i].ID = projectstate.ReviewCommentID(round, i)
-			}
-			m.dispatchAnswerJob(ctx, projectID, kind, "", addressee, minted)
-			return nil
-		}
-		if isRAConflict(err) {
-			lastErr = err
-			continue
-		}
-		return pdMapReadProjectError(err)
-	}
-	return fwmanager.Wrap(fwmanager.Infrastructure, lastErr, "AskQuestions: exhausted conflict retries")
-}
-
-func pdAskQuestionsIdempotencyKey(projectID ProjectID, kind ArtifactKind, branch string, qs []projectstate.ReviewComment) fwra.IdempotencyKey {
-	h := fnv.New64a()
-	_, _ = h.Write([]byte(branch))
-	_, _ = h.Write([]byte{0})
-	for _, q := range qs {
-		_, _ = h.Write([]byte(q.Addressee))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(q.Anchor))
-		_, _ = h.Write([]byte{0})
-		_, _ = h.Write([]byte(q.Text))
-		_, _ = h.Write([]byte{0})
-	}
-	return fwra.IdempotencyKey(fmt.Sprintf("%s:%d:askQuestions:%x", projectID, int(kind), h.Sum64()))
-}
 
 // pdAnswerEpisodeWatch is the bounded observe-then-append loop behind watchAnswerEpisode,
 // broken out with its timings injected so it can be exercised deterministically in tests.
@@ -10871,10 +10669,10 @@ func (m *deliveryManager) AskQuestions(rc fwmanager.Context, projectID ProjectID
 	if !ok {
 		return m.cs.AskTaskQuestions(rc, projectID, activityID, taskID, addressee, nil, questions)
 	}
-	if phase1Kind(kind) {
-		return m.askDesignQuestions(rc, projectID, kind, addressee, questions)
-	}
-	return m.askPlanQuestions(rc, projectID, kind, addressee, questions)
+	// ONE DOOR FOR BOTH HALVES (stage 4b2 Task 5): the phase split that used to route here was
+	// the two twin bodies' only real difference, and it lives on inside askArtifactQuestions as
+	// the kind-scoped Phase-2 replyTo refusal — the one place the two halves genuinely differ.
+	return m.askArtifactQuestions(rc, projectID, kind, addressee, questions)
 }
 
 // ---- op 6: AcknowledgeStaleBasis -------------------------------------------
@@ -10915,10 +10713,7 @@ func (m *deliveryManager) AcknowledgeStaleBasis(rc fwmanager.Context, projectID 
 			"deliveryManager.AcknowledgeStaleBasis: task "+taskID+" of activity "+string(activityID)+
 				" produces no committed artifact slot, so it has no stale basis to acknowledge — a stale BASIS is a property of a design slot")
 	}
-	if phase1Kind(kind) {
-		return m.ackDesignStaleBasis(rc, projectID, kind, note)
-	}
-	return m.ackPlanStaleBasis(rc, projectID, kind, note)
+	return m.ackArtifactStaleBasis(rc, projectID, kind, note)
 }
 
 // ---- op 7: SetProjectRunState ----------------------------------------------
@@ -11089,7 +10884,14 @@ func (m *deliveryManager) queryTimelineView(rc fwmanager.Context, query ProjectV
 // querySessionView answers the `session` kind: an artifactKind selects the Phase-1 or
 // Phase-2 design session by its phase, an activityId selects the construction session.
 //
-// THE TWO DESIGN MEMBERS ARE NOW DERIVED (stage 4b1 Task 13, R-J). They used to be a
+// AND THE TWO DESIGN MEMBERS ARE NOW ONE (stage 4b2 Task 5). `session` answers every one of
+// the seventeen artifact kinds; `projectSession` is never set again, and its $defs entry goes
+// with the wave's one model edit. There is no discriminator, because there is nothing to
+// discriminate: the artifact kind is already a field on the view, and the two types' only
+// remaining structural difference was an enum member (ProjectStageAssemblingSDP) whose
+// producer stage 4b1 deleted plus two optional members neither producer ever set.
+//
+// THE DESIGN MEMBER IS DERIVED (stage 4b1 Task 13, R-J). It used to be a
 // Temporal QUERY against the per-kind co-author workflow, with a Describe-first dance to
 // synthesize an honest terminal for a run that had closed. That workflow is gone, so there is
 // nothing to query — and nothing is lost, because the facts the view carries are durable: the
@@ -11100,26 +10902,21 @@ func (m *deliveryManager) queryTimelineView(rc fwmanager.Context, query ProjectV
 //
 // `constructionSession` still comes from the CHILD's live sessionState query, because that
 // one is genuinely held in the running workflow: the walk's current stage, its reviewer set
-// and its pipeline phase are not written to head state until they are decided.
+// and its pipeline phase are not written to head state until they are decided. It does NOT
+// fold into the derived view either: different subject (an ACTIVITY, not an artifact kind),
+// different lifetime (a live execution), twelve members with no overlap — and one type whose
+// every consumer branches on a discriminator immediately is two types wearing one name.
 func (m *deliveryManager) querySessionView(rc fwmanager.Context, query ProjectViewQuery, out ProjectView) (ProjectView, error) {
 	id, err := requireProjectID(query, "session")
 	if err != nil {
 		return out, err
 	}
 	if query.ArtifactKind != nil {
-		if phase1Kind(*query.ArtifactKind) {
-			v, err := m.designCompletedSessionView(rc.Context, id, *query.ArtifactKind)
-			if err != nil {
-				return out, err
-			}
-			out.Session = &v
-			return out, nil
-		}
-		v, err := m.planCompletedSessionView(rc.Context, id, *query.ArtifactKind)
+		v, err := m.designArtifactSessionView(rc.Context, id, *query.ArtifactKind)
 		if err != nil {
 			return out, err
 		}
-		out.ProjectSession = &v
+		out.Session = &v
 		return out, nil
 	}
 	if query.ActivityID != nil {

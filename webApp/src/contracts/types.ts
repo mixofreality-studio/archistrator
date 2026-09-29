@@ -462,8 +462,20 @@ export interface ProjectState {
   slots: ArtifactSlotView[];
 }
 
-/** Point-in-time view of one Phase-1 co-authoring session. */
-export interface SessionStateView {
+/**
+ * The DERIVED view of one design artifact's slot — the ONE session type for all seventeen
+ * artifact kinds (stage 4b2 Task 5). It is not a live session: the stage is projected from
+ * the slot's own durable review status, so it can only ever be `committed`, `withdrawn` or
+ * `draftFailed`. A MID-WALK activity reports its SLOT's stage here; the live view is
+ * ConstructionSessionState, which is a different subject with a different lifetime and does
+ * NOT fold in.
+ *
+ * It replaces ProjectSessionStateView, which was this same shape minus two optional members,
+ * carrying a nine-member stage enum whose only structural difference — `assemblingSdp` — was
+ * emitted by a workflow stage 4b1 deleted. There is no discriminator, because the artifact
+ * kind is already a field here and nothing branches on the phase.
+ */
+export interface DesignArtifactSessionView {
   projectId: string;
   artifactKind: ArtifactKind;
   /** Integer SessionStage ordinal on the inner view; the SPA reads the outer string stage. */
@@ -517,7 +529,7 @@ export interface SessionStateResponse {
   projectId: string;
   artifactKind: ArtifactKind;
   stage: SessionStage;
-  view: SessionStateView;
+  view: DesignArtifactSessionView;
 }
 
 export interface PhaseAdvanceResponse {
@@ -569,17 +581,6 @@ export type ProjectArtifactKind =
   | 'riskModel'
   | 'sdpReview';
 
-export type ProjectSessionStage =
-  | 'drafting'
-  | 'assemblingSdp'
-  | 'awaitingReview'
-  | 'redrafting'
-  | 'committed'
-  | 'withdrawn'
-  | 'refused'
-  | 'draftFailed'
-  | 'unknown';
-
 export type SDPDecision = 'commit' | 'rejectAll';
 
 /** Optional rationale woven into an SDP decision. */
@@ -588,29 +589,9 @@ export interface SDPDecisionDetail {
   feedback?: string;
 }
 
-/** The decoded Phase-2 session-state view. */
-export interface ProjectSessionStateView {
-  projectId: string;
-  artifactKind: ProjectArtifactKind;
-  stage: number;
-  /** See {@link SessionStateView} — same drafting sub-step, Phase-2 side. */
-  activeRole: ActiveRole;
-  activeStep: ActiveStep;
-  round: number;
-  draft: ProjectArtifactModelEnvelope;
-  findings?: Finding[];
-  failureReason?: string;
-  /** The durable review-ledger thread for this slot (open/addressed/waived entries). */
-  reviewThread?: ReviewCommentView[];
-}
-
-/** The decoded Phase-2 session-state poll result. */
-export interface ProjectSessionState {
-  projectId: string;
-  artifactKind: ProjectArtifactKind;
-  stage: ProjectSessionStage;
-  view: ProjectSessionStateView;
-}
+// ProjectSessionStateView / ProjectSessionState / ProjectSessionStage are DELETED (stage 4b2
+// Task 5). The server answers every artifact kind on the ONE `session` member now, so the
+// Phase-2 half reads SessionStateResponse + DesignArtifactSessionView like the Phase-1 half.
 
 export interface ProjectPhaseAdvanceResponse {
   advanced: boolean;
@@ -623,15 +604,6 @@ export interface ProjectPhaseAdvanceResponse {
 // is handled inline where it matters (ProjectDesignExperience's `isSdpStep`).
 
 export const SDP_REVIEW_KIND: ProjectArtifactKind = 'sdpReview';
-
-export const PROJECT_REVIEWABLE_STAGE: ProjectSessionStage = 'awaitingReview';
-
-export const PROJECT_TERMINAL_STAGES: readonly ProjectSessionStage[] = [
-  'committed',
-  'withdrawn',
-  'refused',
-  'draftFailed',
-];
 
 /** Human-readable labels for the four solution options, keyed by slot kind. */
 export const SOLUTION_LABELS: Partial<Record<ProjectArtifactKind, string>> = {

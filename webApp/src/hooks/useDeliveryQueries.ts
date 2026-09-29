@@ -41,7 +41,6 @@ import {
   mapDesignHealth,
   mapEpisodeRecordView,
   mapEpisodeTimeline,
-  mapProjectSessionState,
   mapProjectState,
   mapProjectSummary,
   mapSessionState,
@@ -54,22 +53,14 @@ import type {
   DesignHealth,
   EpisodeRecordView,
   EpisodeTimeline,
-  ProjectArtifactKind,
-  ProjectSessionState,
   ProjectStateWithGit,
   ProjectSummary,
   SessionStateResponse,
   TimelineEvent,
 } from '../contracts/types';
-import { PROJECT_TERMINAL_STAGES } from '../contracts/types';
 import { useUser } from '../utilities/auth/UserContext';
 import { activityViewPollIntervalMs } from './activityViewPolling';
-import {
-  DEGRADED_POLL_INTERVAL_MS,
-  isNoSessionError,
-  sessionPollIntervalMs,
-  sessionProbeQueryFn,
-} from './sessionPolling';
+import { isNoSessionError, sessionPollIntervalMs, sessionProbeQueryFn } from './sessionPolling';
 import {
   erroredProbeBackoffMs,
   erroredProbesFor,
@@ -205,7 +196,8 @@ export function sessionStateProjectKey(projectId: string): readonly unknown[] {
 }
 
 /**
- * Polls one Phase-1 co-authoring session's state. Polling runs every 2s while the
+ * Polls one design artifact's session state — ANY of the seventeen kinds since stage 4b2
+ * Task 5 folded the Phase-2 probe into this one. Polling runs every 2s while the
  * session is live (drafting / redrafting), watches the review gate AND the human
  * failure gates (refused / draftFailed) at the slow 8s gate cadence (awaitingReview
  * is NOT terminal — F-QA2-48; the failure gates move IN PLACE on Retry — F-QA2-50),
@@ -263,71 +255,11 @@ export function useSessionState(
   });
 }
 
-// ── Phase-2 design session probe ─────────────────────────────────────────────
-
-export function projectSessionStateKey(
-  projectId: string,
-  kind: ProjectArtifactKind
-): readonly unknown[] {
-  return ['projectSessionState', projectId, kind];
-}
-
-const PROJECT_POLL_INTERVAL_MS = 2000;
-
-/**
- * Polls one Phase-2 co-authoring (or SDP-review) session's state. Polling runs
- * every 2s while the session is live (drafting / assemblingSdp / awaitingReview /
- * redrafting) and stops at a terminal stage (committed / withdrawn / refused).
- *
- * The probe value: a live session view, or `null` for ESTABLISHED absence.
- */
-export function useProjectSessionState(
-  projectId: string,
-  kind: ProjectArtifactKind,
-  enabled: boolean
-): UseQueryResult<ProjectSessionState | null> {
-  const queryClient = useQueryClient();
-  const { ops } = useOpsClient();
-  const key = projectSessionStateKey(projectId, kind);
-  return useQuery<ProjectSessionState | null>({
-    queryKey: key,
-    queryFn: sessionProbeQueryFn<ProjectSessionState>({
-      fetch: async () => {
-        const view = await queryProjectView(ops, {
-          kind: 'session',
-          projectId,
-          artifactKind: artifactKindToOrdinal(kind),
-        });
-        // `projectSession` is the PHASE-2 member, typed
-        // DeliveryProjectSessionStateView — a DIFFERENT schema from `session`'s
-        // DeliverySessionStateView, whose only structural difference is an
-        // optional `critique?` and whose `stage` ordinals diverge at
-        // AssemblingSDP. Reading the wrong one typechecks and mis-stages the
-        // gate (Task 7 finding).
-        return mapProjectSessionState(member(view, 'projectSession', 'session'));
-      },
-      getCached: () => queryClient.getQueryData<ProjectSessionState | null>(key),
-    }),
-    enabled: enabled && projectId.length > 0,
-    // The no-session 404 resolves to null inside the probe (never throws), so
-    // retry only ever sees real faults: one retry, no storms.
-    retry: (count) => count < 1,
-    // Poll only while a live session exists. Established absence (null) or a
-    // terminal stage stops the poll. F-QA2-28: any NON-404 error must never stop
-    // the poll — one no-poll decision is permanent until a mutation invalidates,
-    // so a transient fault froze a stale live view forever. Degrade to 5s instead.
-    refetchInterval: (query) => {
-      const { data } = query.state;
-      if (data === null) return false;
-      const stage = data?.stage;
-      if (stage !== undefined && PROJECT_TERMINAL_STAGES.includes(stage)) return false;
-      const { error } = query.state;
-      if (error !== null && !isNoSessionError(error)) return DEGRADED_POLL_INTERVAL_MS;
-      if (stage === undefined) return false;
-      return PROJECT_POLL_INTERVAL_MS;
-    },
-  });
-}
+// The Phase-2 design session probe is DELETED (stage 4b2 Task 5). There was never a second
+// question: the server projected the SAME durable slot through the SAME status switch into a
+// second wire type, and useSessionState above now answers for all seventeen artifact kinds.
+// It had zero callers when it was removed — the Phase-2 screens read the slot through the
+// project view — so nothing changed shape on screen.
 
 // ── construction session probe (single + fan-out) ────────────────────────────
 

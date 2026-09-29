@@ -55,7 +55,6 @@ import {
   buildStatusRowFromOrdinal,
   ciStatusFromOrdinal,
   pipelinePhaseFromOrdinal,
-  projectSessionStageFromOrdinal,
   runtimePhaseFromOrdinal,
   autoscalerModeFromOrdinal,
   testingVariantFromOrdinal,
@@ -84,7 +83,6 @@ import type {
   ProducedArtifactRow,
   ProjectArtifactKind,
   ProjectPhase,
-  ProjectSessionState,
   ProjectState,
   ProjectStateWithGit,
   ProjectSummary,
@@ -293,15 +291,10 @@ function mapEnvelope(w: { kind: string; model?: unknown }): ArtifactModelEnvelop
   return env;
 }
 
-/** Decode the {kind, model} envelope into the typed Phase-2 envelope — same honest
- *  boundary casts as {@link mapEnvelope}, narrowed to the Phase-2 kind/model unions. */
-function mapProjectEnvelope(w: { kind: string; model?: unknown }): ProjectArtifactModelEnvelope {
-  const env: ProjectArtifactModelEnvelope = { kind: w.kind as ProjectArtifactKind };
-  if (w.model !== undefined && w.model !== null) {
-    env.model = w.model as NonNullable<ProjectArtifactModelEnvelope['model']>;
-  }
-  return env;
-}
+// mapProjectEnvelope is DELETED with the Phase-2 session mapper it decoded for (stage 4b2
+// Task 5): mapEnvelope is the one envelope decoder now, because there is one session view.
+// ProjectArtifactModelEnvelope itself STAYS — the Phase-2 slot renderers read it off the
+// project view (see toRiskModelView and friends in projectAdapters.ts).
 
 // --- project catalog + head-state ------------------------------------------
 
@@ -833,6 +826,11 @@ function mapCritique(
   return { role: w.role, verdict: w.verdict, summary: w.summary, round: w.round };
 }
 
+/**
+ * Decode the ONE derived session view. It serves BOTH design halves since stage 4b2 Task 5:
+ * `artifactKindFullFromOrdinal` is one table for all seventeen kinds, and the stage vocabulary
+ * the server can emit through this door is {committed, withdrawn, draftFailed}.
+ */
 export function mapSessionState(w: Schemas['DeliverySessionStateView']): SessionStateResponse {
   const artifactKind = systemArtifactKindFromOrdinal(w.artifactKind);
   const critique = mapCritique(w.critique);
@@ -866,36 +864,10 @@ export function mapSessionState(w: Schemas['DeliverySessionStateView']): Session
   };
 }
 
-// --- project-design session ------------------------------------------------
-
-export function mapProjectSessionState(
-  w: Schemas['DeliveryProjectSessionStateView']
-): ProjectSessionState {
-  const artifactKind = projectArtifactKindFromOrdinal(w.artifactKind);
-  return {
-    projectId: w.projectId,
-    artifactKind,
-    stage: projectSessionStageFromOrdinal(w.stage),
-    view: {
-      projectId: w.projectId,
-      artifactKind,
-      stage: w.stage,
-      activeRole: activeRoleFromOrdinal(w.activeRole),
-      activeStep: activeStepFromOrdinal(w.activeStep),
-      round: w.round,
-      draft: mapProjectEnvelope(w.draft),
-      ...(w.findings !== undefined && w.findings !== null
-        ? { findings: w.findings.map(mapFinding) }
-        : {}),
-      ...(w.failureReason !== undefined && w.failureReason !== null
-        ? { failureReason: w.failureReason }
-        : {}),
-      ...(w.reviewThread !== undefined && w.reviewThread !== null
-        ? { reviewThread: w.reviewThread.map(mapReviewComment) }
-        : {}),
-    },
-  };
-}
+// The project-design session mapper is DELETED (stage 4b2 Task 5). `projectSession` is never
+// set on the wire again: mapSessionState answers for all seventeen artifact kinds, because
+// the two derived views were the same projection of the same slot into two types. schema.ts
+// still generates DeliveryProjectSessionStateView; the wave's one model edit removes it.
 
 // --- construction session --------------------------------------------------
 
