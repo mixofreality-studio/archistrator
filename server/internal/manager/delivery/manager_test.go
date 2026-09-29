@@ -23615,21 +23615,30 @@ func Test_PumpSweep_NoProjects_EmptyResult(t *testing.T) {
 	}
 }
 
-// Only construction-phase projects are pumped; system-design/project-design-phase
-// projects are skipped WITHOUT starting a child pump for them (the eligibility
-// filter mirrors nextEligibleActivity's own Phase gate).
-func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
+// Test_PumpSweep_SweepsAProjectInDesignPhases pins G-S2 in the shape stage 4b2 Task 4
+// gave it, and it is a LIVE DEFECT caught after the fact. Stage 4b1 made the three
+// design activities dispatchable (admissibleInPhase plus the eligibleWithDesign rung)
+// and re-pointed the pump at the generic child, but the SWEEP kept the pre-4b1 blanket
+// `s.Phase != PhaseConstruction` filter — so a project at phase 1 or 2 was skipped every
+// 30 seconds and only a manual Begin ever started its design walk. Its predecessor,
+// Test_PumpSweep_FiltersToConstructionPhaseOnly, asserted exactly the defect.
+//
+// The assertion is on the sweep's RESULT (PumpedProjects), not on a log line: a sweep
+// that silently skips is exactly the failure this catches.
+func Test_PumpSweep_SweepsAProjectInDesignPhases(t *testing.T) {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
-	constructionProjectID := projectstate.ProjectID(uuid.NewString())
+	systemDesignID := projectstate.ProjectID(uuid.NewString())
+	projectDesignID := projectstate.ProjectID(uuid.NewString())
+	constructionID := projectstate.ProjectID(uuid.NewString())
 	ps := &csFakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
 	lister := fakeProjectLister{
 		fakeFullProjectState: fakeFullProjectState{ps},
 		summaries: []projectstate.ProjectSummary{
-			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseSystemDesign},
-			{ProjectID: projectstate.ProjectID(uuid.NewString()), Phase: projectstate.PhaseProjectDesign},
-			{ProjectID: constructionProjectID, Phase: projectstate.PhaseConstruction},
+			{ProjectID: systemDesignID, Phase: projectstate.PhaseSystemDesign},
+			{ProjectID: projectDesignID, Phase: projectstate.PhaseProjectDesign},
+			{ProjectID: constructionID, Phase: projectstate.PhaseConstruction},
 		},
 	}
 	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
@@ -23644,8 +23653,54 @@ func Test_PumpSweep_FiltersToConstructionPhaseOnly(t *testing.T) {
 	if err := env.GetWorkflowResult(&res); err != nil {
 		t.Fatalf("decode pump sweep result: %v", err)
 	}
-	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(constructionProjectID) {
-		t.Fatalf("want exactly the one construction-phase project pumped, got %v", res.PumpedProjects)
+	want := []ProjectID{ProjectID(systemDesignID), ProjectID(projectDesignID), ProjectID(constructionID)}
+	if !slices.Equal(res.PumpedProjects, want) {
+		t.Fatalf("G-S2: every non-paused project is swept whatever its phase — a design-phase project's "+
+			"walk is the pump's job since 4b1. want %v, got %v", want, res.PumpedProjects)
+	}
+}
+
+// Test_PumpSweep_StillSkipsAPausedProject pins G-S1 while Task 4 deletes the line
+// directly ABOVE it. The phase filter moved; this one must not. The sweep must never
+// silently override an operator pause every 30 seconds — and now that no phase narrows
+// the fan-out, the pause is the ONLY thing that takes a project out of it.
+//
+// It is deliberately not a duplicate of Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused:
+// that case pauses a CONSTRUCTION-phase project, which the deleted filter would have
+// admitted anyway. This one pauses a PROJECT-DESIGN-phase project — a project the old
+// filter skipped for the wrong reason and the new sweep must skip for the right one. It is
+// GREEN both before and after the deletion on purpose (before, for the wrong reason), so
+// the deletion is proved by Test_PumpSweep_SweepsAProjectInDesignPhases alone and this one
+// only ever moves if the PAUSE moves.
+func Test_PumpSweep_StillSkipsAPausedProject(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pausedID := projectstate.ProjectID(uuid.NewString())
+	activeID := projectstate.ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{Version: 1, Phase: 2}}
+	lister := fakeProjectLister{
+		fakeFullProjectState: fakeFullProjectState{ps},
+		summaries: []projectstate.ProjectSummary{
+			{ProjectID: pausedID, Phase: projectstate.PhaseProjectDesign, OperatorPaused: boolPtr(true)},
+			{ProjectID: activeID, Phase: projectstate.PhaseConstruction},
+		},
+	}
+	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
+	registerPumpSweep(env, wf, lister, ps, &csFakePipeline{phase: PipelineSucceeded})
+
+	env.ExecuteWorkflow(executionKindPumpSweep, pumpSweepInput{})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("pump sweep error: %v", err)
+	}
+	var res pumpSweepResult
+	if err := env.GetWorkflowResult(&res); err != nil {
+		t.Fatalf("decode pump sweep result: %v", err)
+	}
+	if len(res.PumpedProjects) != 1 || res.PumpedProjects[0] != ProjectID(activeID) {
+		t.Fatalf("G-S1: an operator pause survives the phase filter's deletion — want only the "+
+			"unpaused project pumped, got %v", res.PumpedProjects)
 	}
 }
 
@@ -25537,9 +25592,9 @@ func pumpGuardCensusPumpSweep() []pumpGuard {
 		{"G-S1", "pumpsweep.go:94-96", "an OperatorPaused project is excluded from the fan-out",
 			"PauseProject stops the cascade for at most 30 seconds",
 			"Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused"},
-		{"G-S2", "pumpsweep.go:88-90", "the construction-phase filter (WRONG for the three design activities since 4b1 — Task 4's item)",
-			"widened carelessly: a child pump per project per 30s platform-wide; left as is: design walks never self-start",
-			"Test_PumpSweep_FiltersToConstructionPhaseOnly"},
+		{"G-S2", "pumpsweep.go:83-99", "NO phase filter: every non-paused project is swept, whatever its phase (Task 4 DELETED the construction-only filter, which had been wrong for the three design activities since 4b1)",
+			"the filter back, in any form: a project at phase 1 or 2 is swept never and its design walk starts only when an operator presses Begin",
+			"Test_PumpSweep_SweepsAProjectInDesignPhases"},
 		{"G-S3", "pumpsweep.go:94", "a nil OperatorPaused pointer is NOT paused",
 			"an envelope that omits the flag stops every project on the platform",
 			"Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused"},
