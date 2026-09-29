@@ -25672,33 +25672,114 @@ func Test_PumpGuardCensus_EveryGuardIsPinned(t *testing.T) {
 	}
 }
 
-// pumpGuardIDPattern matches an id as the written census BOLDS it in a table row. Bolding
-// is the discriminator: prose that mentions a guard in passing is not a row.
-var pumpGuardIDPattern = regexp.MustCompile(`\*\*(G-[A-Z]+[0-9]+)\*\*`)
+// pumpGuardDocRowPattern matches an id where the written census puts a ROW and nowhere
+// else: **bolded**, in the FIRST cell, at the START of a line. The anchor is the whole
+// point — `\*\*(G-…)\*\*` anywhere in the document (which is what this pattern used to be)
+// counts a passing mention in prose as a row, and then a row can be DELETED from a table
+// and the mention keeps the census green.
+var pumpGuardDocRowPattern = regexp.MustCompile(`^\|\s*\*\*(G-[A-Z]+[0-9]+)\*\*\s*\|`)
+
+// pumpGuardDocTestPattern pulls each backticked Test* identifier out of a PinnedBy cell. A
+// cell may name several — G-P18's two change ids, G-P19's three arms — so the rule is
+// containment, not equality: the code's PinnedBy must be AMONG them, and every one of them
+// must exist.
+var pumpGuardDocTestPattern = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
+
+// pumpGuardDocRowCells is the width of a per-file census row: ID | Line | Guard | What it
+// protects | BreaksAs | PinnedBy. THE UNARMED LIST's rows are three cells wide and are
+// deliberately NOT rows by this rule — all sixteen of its guards are bolded there as well
+// as in their file's table, so counting its rows is exactly what let a real row be deleted
+// unnoticed.
+const pumpGuardDocRowCells = 6
+
+// markdownRowCells splits one pipe table row into its trimmed cells. A cell carrying a
+// literal `|` would split into more and the row would stop being a row — which fails the
+// census RED, the safe direction, with the count in the message.
+func markdownRowCells(line string) []string {
+	body := strings.TrimSuffix(strings.TrimPrefix(strings.TrimSpace(line), "|"), "|")
+	cells := strings.Split(body, "|")
+	for i, c := range cells {
+		cells[i] = strings.TrimSpace(c)
+	}
+	return cells
+}
 
 // Test_PumpGuardCensus_TheDocAndTheCodeAgree keeps the two halves one census. Task 16
-// walks docs/bugs/2026-09-28-pump-guard-census.md row by row; this suite enforces
+// walks docs/bugs/2026-09-28-pump-guard-census.md ROW BY ROW; this suite enforces
 // pumpGuardCensus(). A row in one and not the other is how the written list quietly stops
 // being the list that is checked — which is exactly how the 4b1 guards were lost.
+//
+// IT USED TO BE AN ID-SET TEST OVER THE WHOLE DOCUMENT, and it was weaker than it read.
+// Measured at e4015c76, all three of these were GREEN:
+//
+//   - de-bolding a per-file table row's id (for any of the sixteen guards the UNARMED LIST
+//     also bolds, the other mention covered it);
+//   - DELETING a per-file table row outright, for the same sixteen and the same reason —
+//     and Task 16 walks rows, so a deleted row is work that silently stops being owed;
+//   - naming a DIFFERENT pinning test in the doc than the code names. The document could
+//     send Task 16 to a test that pins something else entirely.
+//
+// So it is re-keyed on the row's SHAPE (bolded id, first cell, line start, six cells) and
+// it reads the PinnedBy column rather than only the id. Every id bolded in a first cell
+// anywhere — the unarmed list included — must still be a guard the code knows, so an id
+// invented in that list is caught too.
 func Test_PumpGuardCensus_TheDocAndTheCodeAgree(t *testing.T) {
 	raw, err := os.ReadFile(pumpGuardCensusDoc)
 	if err != nil {
 		t.Fatalf("reading the written census: %v", err)
 	}
-	inDoc := map[string]bool{}
-	for _, m := range pumpGuardIDPattern.FindAllStringSubmatch(string(raw), -1) {
-		inDoc[m[1]] = true
+	names := testFuncNamesInPackage(t)
+	rows := map[string][]string{}
+	bolded := map[string]bool{}
+	for n, line := range strings.Split(string(raw), "\n") {
+		m := pumpGuardDocRowPattern.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		bolded[m[1]] = true
+		cells := markdownRowCells(line)
+		if len(cells) != pumpGuardDocRowCells {
+			continue // the unarmed list's three-cell rows, which are a summary and not the census
+		}
+		if _, dup := rows[m[1]]; dup {
+			t.Errorf("guard %s has TWO census rows (the second at %s:%d) — one id, one row", m[1], pumpGuardCensusDoc, n+1)
+		}
+		rows[m[1]] = cells
 	}
+
 	inCode := map[string]bool{}
 	for _, g := range pumpGuardCensus() {
 		inCode[g.ID] = true
-		if !inDoc[g.ID] {
-			t.Errorf("guard %s is in pumpGuardCensus() but has no row in %s", g.ID, pumpGuardCensusDoc)
+		cells, ok := rows[g.ID]
+		if !ok {
+			t.Errorf("guard %s is in pumpGuardCensus() but has no ROW in %s — a mention in prose, or a bold in "+
+				"the unarmed list, is not a row: a row is %d cells with the id bolded in the first",
+				g.ID, pumpGuardCensusDoc, pumpGuardDocRowCells)
+			continue
+		}
+		var named []string
+		for _, m := range pumpGuardDocTestPattern.FindAllStringSubmatch(cells[pumpGuardDocRowCells-1], -1) {
+			named = append(named, m[1])
+		}
+		if len(named) == 0 {
+			t.Errorf("guard %s's PinnedBy cell names no test — the code says %s, and a row that does not "+
+				"repeat it is a row Task 16 cannot walk", g.ID, g.PinnedBy)
+			continue
+		}
+		if !slices.Contains(named, g.PinnedBy) {
+			t.Errorf("guard %s is pinned by %s in pumpGuardCensus() and by %v in %s — the doc must name the "+
+				"test the suite enforces, or the two halves send a reader to different places",
+				g.ID, g.PinnedBy, named, pumpGuardCensusDoc)
+		}
+		for _, name := range named {
+			if !names[name] {
+				t.Errorf("guard %s's PinnedBy cell names %s, which does not exist in this package", g.ID, name)
+			}
 		}
 	}
-	for id := range inDoc {
+	for id := range bolded {
 		if !inCode[id] {
-			t.Errorf("guard %s has a row in %s but is not in pumpGuardCensus() — the list Task 16 walks must be the list the suite enforces", id, pumpGuardCensusDoc)
+			t.Errorf("guard %s is bolded as a row id in %s but is not in pumpGuardCensus() — the list Task 16 walks must be the list the suite enforces", id, pumpGuardCensusDoc)
 		}
 	}
 }

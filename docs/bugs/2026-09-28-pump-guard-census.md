@@ -28,11 +28,16 @@ census disagree about the ID set, so the two halves cannot drift.
 
 | column | meaning |
 |---|---|
-| **Guard** | the line, and what it refuses / gates / orders / versions |
+| **ID** | the stable handle. **Bolded, in the first cell, at the start of the line** — that shape is what `Test_PumpGuardCensus_TheDocAndTheCodeAgree` reads as a ROW, so a mention in prose is not one. |
 | **Line** | at `c5851e90`. Task 12 moves these; the ID is the stable handle, not the number. |
+| **Guard** | the line, and what it refuses / gates / orders / versions |
 | **What it protects** | the concrete failure it prevents — never a restatement of the code |
 | **BreaksAs** | the observable symptom if the new pump does not re-assert it |
-| **PinnedBy** | the Go test that re-runs it. **"a fake models it" is not coverage.** |
+| **PinnedBy** | the Go test that re-runs it. **"a fake models it" is not coverage.** The meta-test compares this cell against `pumpGuardCensus()`'s own `PinnedBy` and requires every test it names to exist, so the doc cannot name a different test — or a deleted one — and stay green. A cell may name MORE tests than the code does (an arm apiece); it may not name fewer or other. |
+
+**Six columns, and they used to be five.** The header declared five while every row carried
+six, so Markdown DROPPED the last one: `PinnedBy` — the census's whole point — did not
+render at all. Fixed by stage 4b2 Task 4 with the meta-test that now walks these cells.
 
 ## Headline counts
 
@@ -85,8 +90,8 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 
 ## `pumpnextactivity.go` — 22 guards
 
-| Guard | Line | What it protects | BreaksAs | PinnedBy |
-|---|---|---|---|---|
+| ID | Line | Guard | What it protects | BreaksAs | PinnedBy |
+|---|---|---|---|---|---|
 | **G-P1** | `:61-66` | `SetQueryHandler(queryPumpDispatch)` registered BEFORE any blocking call; its own `err` arm fails the run rather than running blind | The façade's synchronous `ExecuteNextActivity` reads this Query. Registered late, `awaitDispatchDecision` polls a run that cannot serve it. | A `Begin` on a healthy project returns an Infrastructure error or `terminalPumpResult`'s answer — a slow dispatch reported as a closed pump. | `Test_Pump_DispatchQueryIsServedBeforeTheFirstBlockingCall` |
 | **G-P2** | `:92-98` | `pumpPausedAtRunStart` ⇒ quiet return, **and NO ContinueAsNew** | An operator pause at run start stops the cascade. *The no-ContinueAsNew half is the guard*: a paused pump that continues-as-new re-enters and dispatches on the next run. | PauseProject appears to work, then the project keeps building. | `Test_Pump_PauseSignal_HaltsCascade_NoDispatch` |
 | **G-P3** | `:100-108` | `isReadNotFound(err)` ⇒ quiet `PumpResult{}`, not an error; every OTHER read error still fails the run | A project with no state yet is a normal quiet tick. | Returned as an error it fails the Schedule's child start and logs a platform-wide sweep error every 30 s. | `Test_Pump_ProjectNotFound_QuietTick` |
@@ -117,8 +122,8 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 Both rows exist to be shown to protect nothing that survives. **Task 11 must confirm that
 before deleting them, not assume it.**
 
-| Guard | Line | What it protects | BreaksAs | PinnedBy |
-|---|---|---|---|---|
+| ID | Line | Guard | What it protects | BreaksAs | PinnedBy |
+|---|---|---|---|---|---|
 | **G-R1** | `:25-27` | `in.ProjectID == nil` ⇒ empty result, immediately | The all-projects fan-out was never built. **Protects nothing that survives:** the arm has no reachable caller over either transport (spec §4 earmark). | Nothing — but only because nothing reaches it. Deleting the workflow deletes the arm and this test with it. | `Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep` |
 | **G-R2** | `:29-35` | `isReadNotFound` ⇒ empty result, not an error | Same shape as G-P3: a project with no state is a quiet sweep, not a 5-minute error log. | A platform-wide Schedule error every 300 s for every state-less project. | `Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep` |
 
@@ -126,8 +131,8 @@ before deleting them, not assume it.**
 
 ## `pumpsweep.go` — 7 guards (Task 4 deleted the phase filter, G-S2, and added G-S7)
 
-| Guard | Line | What it protects | BreaksAs | PinnedBy |
-|---|---|---|---|---|
+| ID | Line | Guard | What it protects | BreaksAs | PinnedBy |
+|---|---|---|---|---|---|
 | **G-S1** | `:94-96` | `s.OperatorPaused` ⇒ skip the project | The sweep must not silently override an operator pause every 30 s. **Task 4 deleted the line ABOVE it (G-S2) and did not touch this one** — which makes the pause the ONLY thing that takes a project out of the fan-out. | PauseProject stops the cascade for at most 30 seconds. | `Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused` + `Test_PumpSweep_StillSkipsAPausedProject` |
 | **G-S2** | `:83-99` | **NO phase filter.** Task 4 DELETED `s.Phase != PhaseConstruction` and put nothing in its place | The filter had been wrong for the three design activities since 4b1: it mirrored the blanket gate `nextEligibleActivity` replaced with `admissibleInPhase`, so a Phase-1/2 project was swept never and only a manual `Begin` started its design walk. Nothing replaces it because the per-project pump is already a quiet no-op (`verdictQuiescent` returns with no write and no continue-as-new), so the filter only ever saved a child start — and re-deriving the admission rule here would be a second copy of the rule that just drifted. | The filter back, in any form: a project at phase 1 or 2 self-starts never. | `Test_PumpSweep_SweepsAProjectInDesignPhases` |
 | **G-S3** | `:94` | `s.OperatorPaused != nil` — a nil pointer is NOT paused | A summary that omits the flag must not be read as paused; that would silently stop every project on an older envelope. | The whole platform stops sweeping after an envelope change. | `Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused` |
@@ -144,8 +149,8 @@ This file is in the census because `relayPauseToPump` is **the one existing exam
 out-of-band signal reaching the pump** — it is the shape a react-by-signal pump copies, and
 G-V5 is precisely the "guaranteed delivery" hole that shape inherits.
 
-| Guard | Line | What it protects | BreaksAs | PinnedBy |
-|---|---|---|---|---|
+| ID | Line | Guard | What it protects | BreaksAs | PinnedBy |
+|---|---|---|---|---|---|
 | **G-V1** | `:40-44` | `SetQueryHandler(querySessionState)` registered BEFORE the blocking `pauseCh.Receive`; its `err` arm returns | The project-level session Query must be answerable for the whole life of a long-lived workflow that spends it parked. | A project-scope `GetSessionState` fails for every unpaused project. | `Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause` |
 | **G-V2** | `:74` | `GetVersion("pause-relays-to-pump")` — Default keeps main's cancel→record with NO relay | A supervision run already inside this branch at deploy replays its recorded sequence. | Non-determinism on the project's supervision workflow. | `Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay` |
 | **G-V3** | `:84-92` | **RECORD → RELAY → CANCEL**, in that order | RECORD FIRST makes the pause durable before anything else, so a pump the 30 s sweep restarts *inside the relay window* reads it at G-P4 and goes quiet. | A pump started in the relay window dispatches through an operator halt. | `Test_Pause_RecordsBeforeRelayingToPump` |
