@@ -179,25 +179,14 @@ export function verdictLine(verdict: {
   return parts.join(' · ');
 }
 
-/**
- * THE M0 COST BASIS, said out loud (stage 4b1 Step 3a).
- *
- * The Project-Design compute DEFAULTS any planning-assumption family the founder
- * never authored and proceeds — a project that cannot reach its own cost-approval
- * gate cannot be told what it would cost. Approving that gate binds the plan of
- * record and starts spending, so a cost computed on numbers nobody showed the
- * founder is the one way this screen can mislead: the defaulting is recorded, and
- * without this line it would be recorded and INVISIBLE, which is the same lie as
- * refusing.
- *
- * ONE sentence, not two. Its twin (`defaultedCostBasis` — "what is committed is the
- * platform's own document") is retired in the final fix wave with the unreachable arm
- * that was its only caller: the compute never commits slot 8, so that state has no run
- * that produces it.
- */
-export function assumedCostBasis(families: string): string {
-  return `Cost computed on assumed ${families} — no planning assumptions are committed for this project yet`;
-}
+// THE M0 COST BASIS SENTENCE IS THE SERVER'S NOW (stage 4b2 Task 9). `assumedCostBasis`
+// stood here and composed the line from a family list this screen inferred from the
+// committed slots. The compute records what it actually defaulted, in its own words, on
+// the attempt, and that sentence reaches the client on the revision the gate is about
+// (`DeliveryTaskRevisionView.detail`) — so `m0CostBasis.ts` now RENDERS the server's
+// sentence rather than authoring a second one from a proxy that could only ever see the
+// whole-document case. Its already-retired twin (`defaultedCostBasis`) went in the final
+// fix wave with the unreachable arm that was its only caller.
 
 /**
  * THE TWO OVERRIDES, said as two actions (stage 4b1 Task 14, controller ruling 3).

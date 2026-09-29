@@ -3,6 +3,16 @@
   "title": "Activity Experience — a LIVE activity escalated at a failed Detailed Design: the operator is owed a Steer, not a Reopen",
   "note": "The STEER half of `OverrideActivity`'s two meanings (stage 4b1 Task 14, controller ruling 3). It is `failed.json` with ONE datum changed — the activity's own state is `running`, not `failed` — and that one datum is the whole discriminator: the dispatch that failed has not been re-dispatched and the activity has not exited, so a child is holding at a takeover gate and the operator's override is fed through the same decide→execute machinery the automatic variance path uses. On `failed.json`, the same failed attempt under a TERMINAL activity means the opposite thing: there is no child to steer and the override RE-OPENS the row (`RecordOperatorNote{requeue}`), keeping every task that passed.\n\nThe two are labelled as two actions and never one button whose meaning the server infers: a reader owed one and given the other has been lied to. Liveness is read the way the Manager reads it — terminal is `done | failed` exactly; escalated is derived by `escalatedTaskOf`'s own rule (the last task whose highest-numbered attempt FAILED) on an activity that has not exited, because `DeliveryActivityView.state` folds a takeover gate and an approval gate into one `awaitingHuman` and carries no 'escalated' member. Where the derivation and the server disagree — a failure the walk re-dispatched inside the same poll window — the façade's own precheck refuses the steer and names the stage the activity is actually at.\n\nEverything else is `failed.json` verbatim, its note included below.\n\nC-AutoscalerEngine exhausted its supervision budget in Detailed Design. The three shapes nothing else exercises live here: a revision whose outcome is `failed` (the work never reached its gate, so the gate below it is locked and the activity itself reads failed), a revision whose outcome is `skipped` on the parallel test-plan branch (the STP was waived, which is a pass by rule 7 and NOT a phase completion — its gate never ran), and a `synthesized` provenance, the worst of the three origins: at least one attempt behind that revision was fabricated rather than observed or reconstructed from evidence. A reader must be able to tell those apart at a glance, which is the whole point of carrying provenance on the wire. The detailedDesign attempt's episode timeline (the timeline project view) — the default task's episode, so the dispatch body opens with a real episode instead of a fixture miss. Its events carry no `raw`: the OAS types json.RawMessage as null-only, so a fixture holds the turn SEQUENCE but not its content; the episode facts strip above it is where the substance is (stage-5 task 8). Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity → component → contract JOIN resolves — so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

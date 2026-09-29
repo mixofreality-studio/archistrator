@@ -11,14 +11,14 @@
  * That fabrication is gone for good — this scene shows only what the server
  * actually reports. The drafting-desk illustration stays as clearly-decorative chrome.
  *
- * What the server DOES now report (Plan-3 C1/C2) is the current drafting SUB-STEP —
- * who is working the slot and what they are doing — as real workflow state SET AT THE
- * DISPATCH BOUNDARY and CLEARED on observed completion/terminal: activeRole /
- * activeStep / round. The role line below renders exactly that via the pure
- * roleLineFor mapping — still no timers and no inference, just an honest restatement
- * of the reported sub-step. When the server reports none (the zero value, incl. old
- * servers predating the field) the line falls back to the plain indeterminate
- * "DRAFTING…" pill — today's UI, byte-for-byte.
+ * The role line beside the spinner — who is working and on what — is the CALLER's
+ * sentence, not this component's derivation (stage 4b2 Task 9). The design rail used
+ * to report a live sub-step (activeRole / activeStep / round) that this file mapped
+ * through `roleLineFor`; that reporting left with the co-author workflow at 4b1 and
+ * the branch that read it was deleted at 4b2, so the mapper had no feeder left. What
+ * remains is the same honesty rule under one source: no timers, no inference, and
+ * nothing at all when the caller has nothing to say — the line then falls back to the
+ * plain indeterminate "DRAFTING…" pill, today's UI byte-for-byte.
  *
  * Drafting is ASYNC: the draft is produced by a GitHub Action running in the USER's CI
  * (minutes per draft), not an inline server call. The standing affordance (+ optional
@@ -33,18 +33,12 @@ import OpenInNewIcon from '@mui/icons-material/OpenInNew';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { Tokens } from '../../utilities/theme/themes';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
-import type { ActiveRole, ActiveStep } from '../../contracts/enums.gen';
 import { RoleAvatar } from '../RoleAvatar';
-import { roleLineFor } from './roleLine';
 
 export function GeneratingScene({
   artifact,
   actionsUrl,
   amendingRevision,
-  activeRole,
-  activeStep,
-  round,
-  phrase,
   roleLine,
   footerNote,
 }: {
@@ -64,29 +58,21 @@ export function GeneratingScene({
    */
   amendingRevision?: number | undefined;
   /**
-   * The current drafting sub-step the server set at its last dispatch boundary
-   * (real workflow state — see the honesty note above). Together with {@link phrase}
-   * these drive the honest role line that replaces the plain "DRAFTING…" text.
-   * Absent, or role/step = none (the zero value, incl. old servers), falls back to
-   * today's pill byte-for-byte.
-   */
-  activeRole?: ActiveRole | undefined;
-  activeStep?: ActiveStep | undefined;
-  round?: number | undefined;
-  /** The artifact's noun phrase (METHOD_METADATA[kind].phrase) for the role line. */
-  phrase?: string | undefined;
-  /**
-   * Overrides the `activeRole`/`activeStep`-derived role line with a caller-supplied
-   * one. The design rail's honest sub-step reporting (`activeRole`/`activeStep`) is
-   * design-only — the wire enums `ActiveRole`/`ActiveStep` carry no construction
-   * worker class — so a construction caller that already knows its worker class (from
-   * `lifecycles.gen.ts`) says the line itself instead. `seed` is a `RoleAvatar` seed;
-   * `PROP_FOR` (`components/RoleAvatar.tsx:224`) already carries every construction
-   * role (`senior-developer`, `junior-developer`, `test-engineer`, `software-tester`,
-   * `ux-reviewer`, `qa-engineer`, `ui-designer`, `project-manager`) alongside the
-   * design roles, so this renders a correct avatar with no change to `RoleAvatar`.
-   * Omitted (the default), the design rail's own `roleLineFor` computation applies
-   * unchanged.
+   * The role line to show beside the spinner: WHO is working and on what. `seed` is a
+   * `RoleAvatar` seed; `PROP_FOR` (`components/RoleAvatar.tsx:224`) carries every
+   * construction role (`senior-developer`, `junior-developer`, `test-engineer`,
+   * `software-tester`, `ux-reviewer`, `qa-engineer`, `ui-designer`,
+   * `project-manager`) alongside the design roles, so a caller that knows its worker
+   * class renders a correct avatar with no change to `RoleAvatar`.
+   *
+   * THE CALLER SAYS IT — this component derives nothing (stage 4b2 Task 9). It used
+   * to compute the line itself from server-reported `activeRole`/`activeStep`/`round`
+   * via `roleLineFor`, but the only surface that ever passed those three was
+   * `SystemDesignView`'s `generating` branch, which 4b2 deleted as unreachable: the
+   * derived design-session door reports no live sub-step and never will. `roleLineFor`
+   * and its nine tests went with the last thing that could feed them. `DispatchBody`
+   * (the activity rail) has always passed this line directly from
+   * `lifecycles.gen.ts`' worker class, and is unaffected.
    */
   roleLine?: { seed: string; text: string } | undefined;
   /**
@@ -100,14 +86,9 @@ export function GeneratingScene({
 }): ReactNode {
   const t = useTokens();
 
-  // The honest role line: a caller-supplied override, or the one derived from the
-  // server-reported live sub-step; undefined → fall back to the plain indeterminate
-  // "DRAFTING…" pill (today's UI, unchanged).
-  const line =
-    roleLine ??
-    (activeRole !== undefined && phrase !== undefined
-      ? roleLineFor(activeRole, activeStep ?? 'none', round ?? 0, phrase)
-      : undefined);
+  // The caller's role line, or nothing — in which case the plain indeterminate
+  // "DRAFTING…" pill renders, exactly as it always has.
+  const line = roleLine;
 
   return (
     <Box

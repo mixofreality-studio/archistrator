@@ -75,6 +75,9 @@ import { useNavigate } from '@tanstack/react-router';
 import { ExperienceChrome } from '../components/design/ExperienceChrome';
 import { CommentMargin } from '../components/design/CommentMargin';
 import { CommentProvider, useComments } from '../components/comments/CommentContext';
+import { CommittedSlotsProvider } from '../components/CommittedSlotsContext';
+import { StructureFindingsProvider } from '../components/flow/StructureFindingsContext';
+import { DeploymentHealthProvider } from '../components/flow/DeploymentHealthContext';
 import { ActivityOverrideBar } from '../components/activity/ActivityOverrideBar';
 import { DispatchBody } from '../components/activity/DispatchBody';
 import { HistoryBanner } from '../components/activity/HistoryBanner';
@@ -119,7 +122,16 @@ import { contractJoinFor } from '../contracts/serviceContracts';
 import type { ProjectArtifactModelEnvelope } from '../contracts/types';
 import type { AnchoredComment, ArtifactKind } from '../contracts/types';
 import { ACTIVITY_PATH, PLAN_PATH, activitySearch, planSearch } from '../contracts/routePaths.ts';
-import { useActivityView, useEpisodeTimeline, useProject } from '../hooks/useDeliveryQueries';
+import {
+  useActivityView,
+  useDesignHealth,
+  useEpisodeTimeline,
+  useProject,
+} from '../hooks/useDeliveryQueries';
+import { useCapabilities } from '../hooks/useCapabilities';
+import { useDeploymentHealth } from '../hooks/useDeploymentHealth';
+import { useOperatedAppId } from '../hooks/useOperatedAppId';
+import { operationsEnabled } from '../utilities/capabilities';
 import { isNoSessionError } from '../hooks/sessionPolling';
 import {
   useAcknowledgeStaleBasis,
@@ -175,6 +187,23 @@ export function ActivityExperienceContainer({
   const { data: view, error, isLoading } = useActivityView(projectId, activityId);
   // The ARTIFACT read. No refetchInterval: see the file header.
   const { data: project } = useProject(projectId);
+  // THE TWO READS THE THREE CROSS-SLOT PROVIDERS NEED (stage 4b2 Task 9) — see the
+  // provider stack at the bottom of this function for why they are mounted here.
+  //
+  // Live Design-Health findings for the architecture diagram's structure overlays
+  // and the use-case carousel's findings. Loading / error → undefined → the
+  // diagram renders overlay-free, which is the same degradation both prior mount
+  // points relied on.
+  const { data: designHealth } = useDesignHealth(projectId);
+  // The Deployment lens' live health tint — the same dormant-by-default
+  // arrangement the two design containers use: nothing fires unless the
+  // operations capability is on (D9) and the derived operated-app id has landed,
+  // and an absent overlay renders the diagram untinted, never red.
+  const operatedAppId = useOperatedAppId(projectId);
+  const { data: deploymentHealth } = useDeploymentHealth(
+    operatedAppId ?? '',
+    operationsEnabled(useCapabilities())
+  );
 
   const graph = view === undefined ? undefined : activityViewToGraph(view);
   const nodes = graph?.nodes ?? [];
@@ -495,15 +524,17 @@ export function ActivityExperienceContainer({
   const staleSlot =
     artifact.kind === 'slot' ? slots.find((s) => s.kind === artifact.artifactKind) : undefined;
 
-  // ── What the M0 cost was computed on (Step 3a) ────────────────────────────
+  // ── What the M0 cost was computed on (Step 3a; re-pointed at stage 4b2 Task 9) ──
   // The Project-Design compute defaults any planning-assumption family the founder
   // never authored and proceeds; approving this gate binds that cost and starts
-  // spending. The line renders on the M0 gate only — `advanceAfterApprove` is what
-  // names it, the same discriminator the amend-Architecture link uses — and is empty
-  // whenever nothing was assumed. Never on a read-only history: it is a warning about
-  // a decision this reader is about to make.
+  // spending. The compute records what it defaulted, in its own words, on the
+  // attempt — and the revision on screen carries that sentence (`detail`). The line
+  // renders on the M0 gate only — `advanceAfterApprove` is what names it, the same
+  // discriminator the amend-Architecture link uses — and is empty whenever nothing
+  // was assumed. Never on a read-only history: it is a warning about a decision this
+  // reader is about to make.
   const costBasis =
-    verbs.advanceAfterApprove === true && !historical ? m0CostBasisNotice(slots) : '';
+    verbs.advanceAfterApprove === true && !historical ? m0CostBasisNotice(revisionWire) : '';
 
   /** Reconcile by AMENDING: a redraft on the design rails, the Architecture on M0. */
   const reconcileStale = (): void => {
@@ -801,5 +832,33 @@ export function ActivityExperienceContainer({
   // around the body alone would leave the margin live. The container's own
   // `useComments()` above still reads the route's provider, which is what keeps
   // the pending-comment slot bound while the reader is away in the past.
-  return historical ? <CommentProvider enabled={false}>{screen}</CommentProvider> : screen;
+  const commentScoped = historical ? (
+    <CommentProvider enabled={false}>{screen}</CommentProvider>
+  ) : (
+    screen
+  );
+
+  // THE THREE CROSS-SLOT PROVIDERS (stage 4b2 Task 9). ArtifactRenderer's views read
+  // the project's OTHER committed slots and the live design-health findings through
+  // context, because the components layer may not reach src/hooks. Both prior mount
+  // points — the HomeBase route and the MCP widget container — are screens this
+  // experience replaced, and the providers did not move with the body. Every consumer
+  // degrades to undefined SILENTLY by design, so nothing failed: the Deployment lens
+  // simply stayed disabled over a COMMITTED operationalConcepts slot, the architecture
+  // diagram lost its design-health tint, the use-case carousel lost its findings, and
+  // the Glossary's four cross-slot term-usage joins rendered nothing.
+  //
+  // Same nesting as the two existing mounts, and fed from the head-state this
+  // container ALREADY holds — a provider that fetched its own copy would re-read a
+  // 1.17 MB aggregate on every render of a screen that polls.
+  //
+  // OUTSIDE the history CommentProvider, deliberately: a read-only revision is still
+  // entitled to its lenses. Only the comment affordances are suppressed in the past.
+  return (
+    <StructureFindingsProvider findings={designHealth?.findings}>
+      <DeploymentHealthProvider healthByKey={deploymentHealth}>
+        <CommittedSlotsProvider slots={project?.slots}>{commentScoped}</CommittedSlotsProvider>
+      </DeploymentHealthProvider>
+    </StructureFindingsProvider>
+  );
 }

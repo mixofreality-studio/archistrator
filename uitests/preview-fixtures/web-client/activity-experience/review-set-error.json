@@ -3,6 +3,16 @@
   "title": "Activity Experience — a live gate whose reviewer set the engine refused to propose",
   "note": "C-ReviewEngine is suspended at its Detailed Design gate and the reviewers strip has nothing to draw: `reviewSet` is ABSENT and `reviewSetError` says why. The contract is explicit that this is a defect in the Manager's call or in the engine and never an operator error, and that the gate itself is unaffected — Approve and SendBack still work — so the strip must render the failure without disabling the decision. The round was still opened (the store stamps openedAt before anyone is asked), so the revision is a persisted, undecided round: a subject, an EMPTY roster because the engine never produced one, no verdicts, no decision stamp, and no gate attempt, because the rail writes that only when the round is decided. Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

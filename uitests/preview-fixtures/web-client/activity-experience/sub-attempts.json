@@ -3,6 +3,16 @@
   "title": "Activity Experience — one revision, three attempts, judged over a commit",
   "note": "C-EstimationEngine is at its Code Review gate. Construction revision 1 took THREE attempts to reach that gate — a variance retry and an operator Retry before the run that landed — so this is the one fixture where §7.2's sub-attempt list has anything to list: a revision with a single attempt shows none, and only a revision with more than one earns the disclosure. The open round names its subject as a `commit`, the third of the subject vocabulary's kinds and the one a subject-by-sha writer mints; the other fixtures all name artifacts. The architect has already voted and the round is still undecided, so it carries a verdict, no decision stamp and no gate attempt. Carries the THIRD attempt's episode timeline (the timeline project view) — the one revision 1 points at, the attempt that reached the gate — so the sub-attempt line and the episode beneath it agree. Its events carry no `raw`: the OAS types json.RawMessage as null-only (stage-5 task 8). Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object). The route opens the CONSTRUCTION dispatch task, not its code review: the three attemptIds belong to the work that reached the gate, and the sub-attempt line is a dispatch-body fact \u2014 codeReview's own revision cites none (the rail writes a gate attempt only when the round is decided).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

@@ -130,6 +130,14 @@ export const TESTID = {
   glossaryChip: UI_IDENTIFIERS.Glossary.chip,
   glossarySection: UI_IDENTIFIERS.Glossary.section,
   glossaryEmpty: UI_IDENTIFIERS.Glossary.EMPTY,
+  // The per-term cross-artifact usage chip row. It renders ONLY when the
+  // CommittedSlotsContext hands GlossaryView the four downstream committed slots
+  // (scrubbedRequirements / volatilities / coreUseCases / system), so it is the
+  // observable that says the provider is mounted above this renderer.
+  glossaryUsage: UI_IDENTIFIERS.Glossary.usage,
+  // ANY term's usage row. Derived from the keyed id rather than spelled out, so a
+  // rename of the identifier moves this with it.
+  glossaryUsageAny: new RegExp(`^${UI_IDENTIFIERS.Glossary.usage(0).replace(/0$/, '')}\\d+$`),
 
   // CommentableList (the shared item-granular commenting primitive): a row and
   // its per-item "Comment on this item" button, keyed by the caller's item key

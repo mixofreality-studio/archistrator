@@ -93,4 +93,60 @@ test.describe('activity experience: the kept artifact renderers still mount', ()
     expect(await incidents(page)).toEqual([]);
     expect(offBundle).toEqual([]);
   });
+
+  /**
+   * THE THREE CROSS-SLOT PROVIDERS, asserted where their absence was invisible
+   * (stage 4b2 Task 9).
+   *
+   * Mounting the right renderer is not enough: the renderers above join against the
+   * project's OTHER committed slots through `CommittedSlotsContext`, and the
+   * Activity Experience mounted NO provider at all. Every consumer degrades to
+   * undefined silently by construction, so the five cases above passed for a whole
+   * wave while the Deployment lens sat disabled over a committed slot and the
+   * Glossary's four term-usage joins rendered nothing.
+   *
+   * Both cases below reuse a fixture that already shipped — no 24th fixture state.
+   * Both FAIL with the providers unmounted, which is the point.
+   */
+  test('the Deployment toggle is ENABLED on an architecture round whose project carries a committed operationalConcepts slot', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'architecture-round');
+    await expect(page.getByTestId(TESTID.architectureRoot)).toBeVisible();
+
+    // `ArchitectureView` derives the lens' topology from
+    // useCommittedSlotEnvelope('operationalConcepts') and disables the toggle when
+    // the envelope is undefined. This fixture's slot is committed (stage 2) and
+    // carries three environments, so ENABLED is the only honest state — and
+    // DISABLED is exactly what the founder saw.
+    const deployment = page
+      .getByTestId(TESTID.archViewSwitch)
+      .getByRole('button', { name: 'Deployment' });
+    await expect(deployment).toBeEnabled();
+
+    // And it is a lens, not a label: pressing it swaps the diagram.
+    await deployment.click();
+    await expect(deployment).toHaveAttribute('aria-pressed', 'true');
+
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test("the Glossary's cross-slot term-usage joins render on the Activity Experience", async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'requirements-backfilled');
+    await page.getByTestId(TESTID.lifecycleNode('glossaryReview')).click();
+    await expect(page.getByTestId(TESTID.glossaryRoot)).toBeVisible();
+
+    // The usage row exists only where the corpus does, and the corpus is built from
+    // FOUR committed slots delivered by CommittedSlotsContext. With no provider the
+    // corpus is empty and not one row renders.
+    expect(await page.getByTestId(TESTID.glossaryUsageAny).count()).toBeGreaterThan(0);
+
+    await expect(page.getByTestId(TESTID.previewAlarm)).toHaveCount(0);
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
 });

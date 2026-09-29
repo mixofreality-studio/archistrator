@@ -1,59 +1,61 @@
 /**
  * WHETHER THE M0 GATE'S COST RODE ON ASSUMED NUMBERS, and the sentence that says so.
  *
- * ── WHAT THE SERVER RECORDS, AND WHERE (measured, stage 4b1 Task 14) ────────
- * The compute records the families it had to default in the sdpReview task's ATTEMPT
- * `Detail` (`defaultedDetail`, written by `sdpComputeStrategy.Produce`). That field is
- * NOT ON THE WIRE: `DeliveryTaskRevisionView` carries `attemptIds` and nothing else of
- * an attempt, and no view in the OAS carries an attempt's Detail — grepped across the
- * delivery contract. So this module reads the defaulting from the one place a client
- * CAN see it, the committed planning-assumptions slot itself:
+ * ── The server says it; this module only decides whether to show it ─────────
+ * The Project-Design compute defaults any planning-assumption family the founder
+ * never authored and proceeds — a project that cannot reach its own cost-approval
+ * gate cannot be told what it would cost. Approving M0 binds the plan of record and
+ * starts spending, so a cost computed on numbers nobody showed the founder is the
+ * one way this screen can mislead.
  *
- *   - NO slot 8 at all ⇒ `defaultPlanningAssumptions` filled every family, which is
- *     the whole-slot default and the case the compute's `defaulted` list reports as
- *     seven families at once.
+ * The compute records what it defaulted, in its own words, on the sdpReview task's
+ * ATTEMPT `Detail` (`defaultedDetail`, written by `sdpComputeStrategy.Produce`), and
+ * as of stage 4b2 that field reaches the client on the revision the gate is about
+ * (`DeliveryTaskRevisionView.detail`, carried from the DECISIVE attempt). So the
+ * notice is a READ of what the server said, rendered verbatim — never a second
+ * derivation of the Manager's defaulting rules, which is the copy the design-health
+ * move exists to prevent.
  *
- * THERE USED TO BE A SECOND ARM, and it could never fire (final fix wave, F3). It read a
- * COMMITTED slot 8 whose `notes` began with the compute's own `Derived defaults:` prefix —
- * "the platform wrote this document on a previous run". Nothing writes that:
- * `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
- * compute never commits slot 8 at all. The arm read as coverage of the defaulted case while
- * covering nothing, which is worse than the silence below, so it is gone.
+ * ── THE SLOT-READING PROXY IS GONE, and what it could never see ─────────────
+ * Until now this module inferred the defaulting from the committed planning-
+ * assumptions slot: no slot 8 at all ⇒ the whole document was defaulted. That proxy
+ * answered exactly one of the two real cases and was SILENT for the other — the
+ * PER-FAMILY fills (`resolvePlanningAssumptions`, on an authored slot whose
+ * `terms.computeCost` or `declaredUsage` is its vocabulary's unknown member), which
+ * is the case that actually ran on this repo. A notice that is silent on the live
+ * case is the defect it was written to close.
  *
- * WHAT THIS CANNOT SEE, stated where it matters rather than in a report only: the
- * PER-FAMILY fills (`resolvePlanningAssumptions` — an authored slot whose
- * `terms.computeCost` or `declaredUsage` is its vocabulary's unknown member) leave no
- * trace HERE. The attempt `Detail` is their record, and as of stage 4b2 it is on the
- * wire (`DeliveryTaskRevisionView.detail`) for the M0 surface to render — which is a
- * read of what the SERVER said it defaulted, not a second derivation. This notice
- * NEVER guesses: re-deriving the server's per-field default rules here would be a
- * second copy of a rule the Manager owns, which is the defect the design-health move
- * exists to prevent.
+ * ── AN ABSENT DETAIL IS "NOTHING WAS ASSUMED" ───────────────────────────────
+ * It is not a missing value and it is not broken plumbing. `defaultedDetail` returns
+ * the EMPTY STRING when the defaulted list is empty, and the wire omits an empty
+ * detail rather than sending one. On this repo today the detail is legitimately
+ * absent, because removing revenue share (stage 4b2 Task 7) made slot 8 fully
+ * authored and the compute now defaults nothing — that emptiness is the measured
+ * proof the uncomputable-SDP finding is closed at its source. Silence is also the
+ * right rendering on its own terms: a notice that always shows is a notice nobody
+ * reads.
  *
  * Pure and React-free so `node --test` loads it directly.
  */
-import type { ArtifactSlotView } from '../../contracts/types.ts';
-import { assumedCostBasis } from './activityCopy.ts';
 
-/** The slot the M0 cost is priced from. */
-const PLANNING_ASSUMPTIONS = 'planningAssumptions';
-
-/**
- * The families the notice names. Not a list of field names: the two cases this can
- * distinguish are both whole-document, and the compute's own word for that case is
- * "every planning assumption".
- */
-const EVERY_FAMILY = 'every planning assumption';
+/** Just enough of the revision the M0 gate is about. */
+export interface M0Revision {
+  /** `DeliveryTaskRevisionOutcome`'s wire string. */
+  outcome: string;
+  /** The decisive attempt's own sentence, verbatim. Omitted, never empty. */
+  detail?: string | null | undefined;
+}
 
 /**
- * The line the M0 review body renders, or the EMPTY STRING when nothing was assumed.
- *
- * Empty is the common answer and it must stay empty: a notice that always shows is a
- * notice nobody reads, and "nothing was assumed" is noise on every project whose
- * founder authored their own numbers.
+ * The line the M0 review body renders, or the EMPTY STRING when there is nothing to
+ * say. The caller decides WHERE this belongs (the M0 gate only, never a read-only
+ * history); this decides WHETHER there is a basis to name.
  */
-export function m0CostBasisNotice(slots: readonly ArtifactSlotView[]): string {
-  const slot = slots.find((s) => s.kind === PLANNING_ASSUMPTIONS);
-  if (slot === undefined) return assumedCostBasis(EVERY_FAMILY);
-  return '';
+export function m0CostBasisNotice(revision: M0Revision | undefined): string {
+  if (revision === undefined) return '';
+  // A FAILED revision's detail is the failure's own message, not a cost basis. The
+  // lifecycle already says the compute failed, loudly; repeating its error text under
+  // a heading that promises "what your cost was computed on" would misfile it.
+  if (revision.outcome === 'failed') return '';
+  return revision.detail ?? '';
 }

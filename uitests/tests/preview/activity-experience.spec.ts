@@ -611,14 +611,21 @@ test.describe('activity experience: the operator’s two overrides', () => {
  * recorded and INVISIBLE, which is the same lie as refusing.
  */
 test.describe('activity experience: what the M0 cost was computed on', () => {
-  test('nothing committed: the line names the assumption and the exit, beside the gate’s own copy', async ({
+  // THE SENTENCE IS THE SERVER'S (stage 4b2 Task 9). The line used to be composed here
+  // from a proxy — "is slot 8 committed at all?" — which answered the whole-document
+  // case and was SILENT for the PER-FAMILY fills, the case that actually ran on this
+  // repo. The compute records what it defaulted in its own words on the attempt, and
+  // that sentence now reaches the revision the gate is about
+  // (`DeliveryTaskRevisionView.detail`), so the screen READS it instead of re-deriving
+  // a rule the Manager owns.
+  test('the defaulted revision renders the compute’s own sentence, beside the gate’s copy', async ({
     page,
   }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0');
     await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
 
-    await expect(page.getByTestId(TESTID.activityCostBasis)).toHaveText(
-      'Cost computed on assumed every planning assumption — no planning assumptions are committed for this project yet'
+    await expect(page.getByTestId(TESTID.activityCostBasis)).toContainText(
+      "the plan's cost was computed on ASSUMED values for the resources, the working calendar"
     );
     // It stands BESIDE the approve, not instead of it: the founder may still commit
     // a cost they have been told the basis of.
@@ -628,14 +635,14 @@ test.describe('activity experience: what the M0 cost was computed on', () => {
     expect(offBundle).toEqual([]);
   });
 
-  // A COMMITTED SLOT 8 IS SILENCE, and that is the honest reading (final fix wave, F3).
-  // This case used to assert a second sentence for "the document in slot 8 is the compute's
-  // own, signed with `defaultPlanningAssumptionsNote`" — a state no run produces:
-  // `projectDesignComputedKinds()` deliberately EXCLUDES `KindPlanningAssumptions`, so the
-  // compute never commits slot 8 at all. The arm that rendered it, its copy and its assertion
-  // are gone; what is left is the fact the screen can actually tell, which is that a
-  // committed slot 8 says nothing about PER-FAMILY defaults because no view carries them.
-  test('a committed slot 8 says nothing — the per-family defaults are not on the wire', async ({
+  // AN ABSENT DETAIL IS "NOTHING WAS ASSUMED", not a missing value. `defaultedDetail`
+  // returns the empty string when the compute defaulted nothing and the wire omits it.
+  // That is the LIVE state of this repo since stage 4b2 removed revenue share: slot 8
+  // is fully authored and the compute defaults nothing, which is the measured proof the
+  // uncomputable-SDP finding is closed at its source. (The fixture's `-defaulted` suffix
+  // is a legacy misnomer from the retired "the platform wrote slot 8" arm; what it
+  // actually carries is an AUTHORED slot 8 and no detail.)
+  test('a revision with no detail says nothing — the compute assumed nothing', async ({
     page,
   }) => {
     const offBundle = await openState(page, 'activity-experience', 'project-design-m0-defaulted');

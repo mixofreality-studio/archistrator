@@ -3,6 +3,16 @@
   "title": "Activity Experience — Requirements, the design prefix's 8-task linear lifecycle, wholly reconstructed",
   "note": "The first of the three design-prefix activities (spec §7.2): Requirements is an ACTIVITY now, with four lifecycle phases of its own — Mission, Glossary, Volatilities, Core Use Cases — and a task DAG that is a straight line, each draft gated before the next draft may start. It ran long before the round ledger existed, so EVERY revision here is `backfilled`: reconstructed from the committed artifact slots and the stored phase completions, with no round to read. That is what a reconstruction looks like end to end — no roster, no verdicts, no subject, no decision stamp, and on this row not even a span, because nothing recorded one. Shape captured from the live local server's query-activity-view for `requirements`. Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

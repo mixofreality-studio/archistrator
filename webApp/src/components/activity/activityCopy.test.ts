@@ -11,7 +11,6 @@ import {
   AMEND_ARCHITECTURE,
   artifactNotOfThisPhase,
   artifactUnavailable,
-  assumedCostBasis,
   CONTRACT_BY_DESIGN,
   CONTRACT_MISSING,
   CONTRACT_UNRESOLVED,
@@ -79,7 +78,6 @@ void test('the standing sentences say the thing they exist to say', () => {
   assert.match(STEER_CONSEQUENCE, /Re-dispatches the task whose last attempt failed/);
   assert.match(REOPEN_CONSEQUENCE, /Every task that passed is kept/);
   assert.match(OVERRIDE_NOTE_REQUIRED, /not an audit entry/);
-  assert.match(assumedCostBasis('the working calendar'), /^Cost computed on assumed the working/);
   assert.match(ACTIVITY_NOT_IN_PLAN, /committed activity list/);
   assert.match(ACTIVITY_LOADING, /Reading this activity/);
   assert.match(NO_EPISODE_CAPTURED, /No episode was captured/);

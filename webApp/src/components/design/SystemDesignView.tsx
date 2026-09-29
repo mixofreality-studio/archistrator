@@ -156,6 +156,21 @@ export interface SystemDesignViewProps {
   sessionLoading: boolean;
   /** The active step has no co-author session yet (404) — distinct from loading. */
   sessionMissing: boolean;
+  /**
+   * WHETHER THIS ARTIFACT ACTUALLY AWAITS A HUMAN, from the LIVE authority
+   * (`liveDesignGate.ts` over `QueryActivityView`). It opens the approve/reject
+   * gate. It is a PROP and not a stage read because the derived session door cannot
+   * answer it: its whole vocabulary is {unknown, committed, withdrawn, draftFailed},
+   * so the `stage === 'awaitingReview'` this replaces had no producer left and the
+   * gate could never open for anyone.
+   */
+  awaitingHuman: boolean;
+  /**
+   * The failed design job's run URL, read off the failed dispatch attempt's own
+   * sentence (`liveDesignGate.ts`). Replaces `SessionStateView.failureRunUrl`, a
+   * wire field nothing ever set. Absent → DraftFailedPanel simply omits the link.
+   */
+  failedRunUrl?: string | undefined;
   /** The first step's Request-draft failed a 409 precondition (no ResearchInput yet). */
   needsResearch: boolean;
   onSubmitResearch: (research: ResearchInput) => void;
@@ -241,6 +256,8 @@ export function SystemDesignView({
   onClose,
   sessionLoading,
   sessionMissing,
+  awaitingHuman,
+  failedRunUrl,
   needsResearch,
   onSubmitResearch,
   researchPending,
@@ -302,8 +319,13 @@ export function SystemDesignView({
   // a projection of one durable slot, whose whole stage vocabulary is
   // {committed, withdrawn, draftFailed}. The live stages had no producer once 4b1 retired
   // the co-author workflow, so the generating scene and the `refused` arm of the failure
-  // panel could not render for anyone. `awaitingReview` below is deliberately untouched:
-  // that one is the MCP design widget's approve/reject gate and it gets a live source back.
+  // panel could not render for anyone.
+  //
+  // `awaitingReview` was the LAST of them, and it is gone from this file too — but as a
+  // RE-POINT, not a deletion (Task 9, controller ruling 1): the gate now opens on the
+  // `awaitingHuman` prop, which the container reads from `QueryActivityView`, the live
+  // authority 4b1 made canonical for design activities. A stage vocabulary that cannot
+  // say "a human is owed a decision" is not the place to ask.
   const draftFailed = stage === 'draftFailed';
   const failureReason = view?.failureReason;
   const activeCommitted = spine[safeIndex]?.committed === true;
@@ -327,7 +349,7 @@ export function SystemDesignView({
   // Amend affordance would otherwise be the review surface: a draft under review
   // (gateOpen), or a committed slot with nothing else showing. It renders nothing
   // itself once mounted with nothing to do (see SubmitBar's own doc comment).
-  const gateOpen = stage === 'awaitingReview';
+  const gateOpen = awaitingHuman;
   const showSubmitBar = gateOpen || showsCommittedPanel;
   const submitStage: 'drafted' | 'awaitingReview' | 'other' = gateOpen ? 'awaitingReview' : 'other';
   // Withdraw only applies while a draft sits under review — a clean committed
@@ -344,11 +366,11 @@ export function SystemDesignView({
   // flight — a committed slot can only host an amendment), the ack would commit to
   // main and merge-conflict the amendment's review PR. Gate the popover action too
   // so the refusal is explained instead of discovered.
-  const sessionLive =
-    stage === 'drafting' ||
-    stage === 'awaitingReview' ||
-    stage === 'redrafting' ||
-    stage === 'draftFailed';
+  // The three live stages in the old disjunct (`drafting`/`awaitingReview`/`redrafting`)
+  // had no producer left on the derived door, so this read as `draftFailed` alone — and
+  // the one state that MOST needs the refusal, a draft sitting at its gate, was the one it
+  // stopped catching. `awaitingHuman` restores it from the live authority.
+  const sessionLive = awaitingHuman || stage === 'draftFailed';
   const ackDisabledReason = sessionLive
     ? 'An amendment is already in flight for this artifact — reconcile rides it. Approve or withdraw the amendment first.'
     : undefined;
@@ -448,11 +470,13 @@ export function SystemDesignView({
           activeKind={activeKind}
           amendOpen={amendOpen}
           amendPending={amendPending}
+          awaitingHuman={awaitingHuman}
           beginPending={beginPending}
           blurb={meta.blurb}
           committed={activeCommitted}
           committedEnvelope={committedEnvelope}
           draftFailed={draftFailed}
+          failedRunUrl={failedRunUrl}
           failureReason={failureReason}
           findings={findings}
           gateError={gateError}
@@ -529,9 +553,11 @@ function StepBody({
   loading,
   needsResearch,
   draftFailed,
+  failedRunUrl,
   failureReason,
   hasDraft,
   sessionMissing,
+  awaitingHuman,
   stage,
   title,
   blurb,
@@ -564,9 +590,13 @@ function StepBody({
   loading: boolean;
   needsResearch: boolean;
   draftFailed: boolean;
+  /** The failed design job's run URL, from the failed attempt's own sentence. */
+  failedRunUrl: string | undefined;
   failureReason: string | undefined;
   hasDraft: boolean;
   sessionMissing: boolean;
+  /** A human decision is owed on this artifact right now (the LIVE authority). */
+  awaitingHuman: boolean;
   stage: string | undefined;
   title: string;
   blurb: string;
@@ -591,8 +621,11 @@ function StepBody({
   }
   // The terminal-failure panel. `draftFailed` is the ONLY failure stage this door can
   // report since stage 4b2 — its `refused` sibling had no producer — so the panel is
-  // always the async, CI-job framing and always offers Withdraw alongside Retry. It also
-  // no longer deep-links the failed run: `failureRunUrl` was a wire field nothing set.
+  // always the async, CI-job framing and always offers Withdraw alongside Retry. Its
+  // deep-link to the failed run is BACK (Task 9): `SessionStateView.failureRunUrl` was a
+  // wire field nothing ever set, but the failed dispatch attempt's own sentence carries
+  // the URL, and `liveDesignGate` reads it out of the activity view. No URL in the
+  // sentence, no link — nothing is fabricated.
   if (draftFailed) {
     return (
       <DraftFailedPanel
@@ -603,6 +636,7 @@ function StepBody({
         gateError={gateError}
         pending={retryPending}
         reason={failureReason}
+        runUrl={failedRunUrl}
         withdrawPending={withdrawPending}
         onRetry={onRetry}
         onWithdraw={onWithdraw}
@@ -683,7 +717,7 @@ function StepBody({
     );
   }
 
-  const gateOpen = stage === 'awaitingReview';
+  const gateOpen = awaitingHuman;
   const draftKind = view?.draft.kind ?? activeKind;
   // Self-scrolling cards (today only the glossary) FILL the available height so the
   // committed/draft glossary grows to the bottom of the scroll area instead of a

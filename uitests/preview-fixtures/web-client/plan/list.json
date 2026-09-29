@@ -3,6 +3,16 @@
   "title": "Plan · LIST",
   "note": "Captured from the live local server against this repo own state. Regenerate with the curl+node recipe in the stage-5 plan, Task 6 Step 3. Task 12 added deliveryQueryActivityView and the timeline project view (N-STP's, reused verbatim from activity-experience/done.json) so the plan→activity→✕ round trip answers from this one fixture instead of raising the alarm: a preview fixture is one screen's data, and that trip spans two. The fixture transport keys the activity view by its op id alone, so whichever tile or row is opened renders N-STP's lifecycle — the round trip is about the navigation, not about which activity.",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

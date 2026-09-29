@@ -1,69 +1,46 @@
 /// <reference types="node" />
 /**
- * `m0CostBasisNotice` — the M0 gate's defaulted-assumptions line (stage 4b1 Task 14
- * Step 3a). Approving M0 binds the plan of record and starts spending, so a cost
- * computed on assumed numbers must say so; and it must say NOTHING when nothing was
- * assumed, because a notice that always shows is a notice nobody reads.
+ * `m0CostBasisNotice` — the M0 gate's defaulted-assumptions line, re-pointed at the
+ * attempt `Detail` (stage 4b2 Task 9 Step 5). Approving M0 binds the plan of record
+ * and starts spending, so a cost computed on assumed numbers must say so IN THE
+ * SERVER'S OWN WORDS; and it must say NOTHING when nothing was assumed, because an
+ * absent detail means the compute defaulted nothing, not that the wire broke.
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { m0CostBasisNotice } from './m0CostBasis.ts';
-import type { ArtifactSlotView } from '../../contracts/types.ts';
 
-function planningAssumptions(notes: string): ArtifactSlotView {
-  return {
-    kind: 'planningAssumptions',
-    stage: 4,
-    model: {
-      kind: 'planningAssumptions',
-      model: {
-        calendarDaysPerWeek: 5,
-        declaredUsage: { expectedDailyActiveUsers: 1, requestsPerMinute: 1, avgPayloadBytes: 4096 },
-        indirectDailyRate: { minorUnits: 0, currency: 'USD' },
-        infrastructureKind: 1,
-        notes,
-        resources: ['senior-developer'],
-        terms: {
-          computeCost: 1,
-          computeMarkupPercent: 0,
-          schedule: 1,
-        },
-      },
-    },
-  } as unknown as ArtifactSlotView;
-}
+/** `defaultedDetail`'s sentence, verbatim (deliverymanager.go). */
+const DEFAULTED =
+  "the plan's cost was computed on ASSUMED values for the settlement terms, the declared usage — " +
+  "the founder authored none, so these are the platform's documented defaults and not decisions";
 
-const sdpReview = { kind: 'sdpReview', stage: 4, model: { kind: 'sdpReview' } } as ArtifactSlotView;
-
-void test('no planning-assumptions slot at all: the cost rode on every family, and the line says which', () => {
-  assert.equal(
-    m0CostBasisNotice([sdpReview]),
-    'Cost computed on assumed every planning assumption — no planning assumptions are committed for this project yet'
-  );
+void test('the defaulted revision renders the server’s own sentence, verbatim', () => {
+  // Verbatim, not re-worded: the client must not hold a second copy of the rule that
+  // decided WHICH families were defaulted.
+  assert.equal(m0CostBasisNotice({ outcome: 'awaitingHuman', detail: DEFAULTED }), DEFAULTED);
 });
 
-// (The 'a slot the platform wrote itself' case is GONE with the arm it exercised: the
-// compute never commits slot 8, so a committed slot 8 carrying the platform's own
-// `Derived defaults:` note is a state no run can reach — see m0CostBasis.ts. The case
-// asserted coverage that covered nothing.)
+void test('a revision with no detail renders NOTHING — "nothing was assumed", not a missing value', () => {
+  // THE LIVE CASE ON THIS REPO. Removing revenue share made slot 8 fully authored, so
+  // the compute defaults nothing and `defaultedDetail` returns ''; the wire then omits
+  // the field. That is the fix working. It must not render an empty bullet, an
+  // ellipsis, or a reassurance nobody reads.
+  assert.equal(m0CostBasisNotice({ outcome: 'awaitingHuman' }), '');
+  assert.equal(m0CostBasisNotice({ outcome: 'awaitingHuman', detail: null }), '');
+  assert.equal(m0CostBasisNotice({ outcome: 'awaitingHuman', detail: '' }), '');
+});
 
-void test('an AUTHORED slot says nothing — ABSENT, not a reassurance nobody reads', () => {
+void test('no revision at all answers nothing rather than throwing', () => {
+  assert.equal(m0CostBasisNotice(undefined), '');
+});
+
+void test('a FAILED revision’s detail is its error, and is never filed as a cost basis', () => {
+  // `sdpComputeStrategy` records `err.Error()` as the detail of a failed attempt. The
+  // lifecycle already says the compute failed; repeating that text under "what your
+  // cost was computed on" would misfile a failure as a pricing assumption.
   assert.equal(
-    m0CostBasisNotice([
-      sdpReview,
-      planningAssumptions('Two developers, four days a week, our own negotiated rate card.'),
-    ]),
+    m0CostBasisNotice({ outcome: 'failed', detail: 'estimation engine refused: no rate card' }),
     ''
   );
-  // Empty notes are not the platform's signature either: nothing claims a default.
-  assert.equal(m0CostBasisNotice([planningAssumptions('')]), '');
-});
-
-void test('a slot whose envelope does not hold the model answers nothing rather than throwing', () => {
-  const broken = {
-    kind: 'planningAssumptions',
-    stage: 4,
-    model: { kind: 'network' },
-  } as ArtifactSlotView;
-  assert.equal(m0CostBasisNotice([broken]), '');
 });

@@ -3,6 +3,16 @@
   "title": "Activity Experience — a construction gate at round 3, over a WITHDRAWN round 2, with one open change request and one open question",
   "note": "Stage 4b1 Task 14's construction-rail state: the rail that used to answer a guaranteed 400 on every thread verb now answers all of them, and this fixture is where the SPA is held to what the server actually does.\n\nTHE WITHDRAWN ROUND. Revision 2 is the FIRST `withdrawn` outcome any fixture carries — a round pulled back before anyone decided it (`WithdrawReviewRound`, Task 12), which is deliberate and so is not `failed`. It has no verdicts and no decision because nobody judged it, and the revision menu must say the word: a round that vanished from the history would be the record lying about what happened.\n\nTHE OPEN CHANGE REQUEST, and the QUESTION beside it. Round 3's thread carries one of each, both `open`. Only the change request blocks: `deliveryManager` refuses an approve over open change requests (\"cannot approve: N review thread(s) still open\") and a question is a soft warning at the gate, never a block, so the bar must count ONE and say the server's own sentence. Both are open and unanswered, which is also what puts the construction thread's Resolve/Reopen controls on screen for the first time.\n\nRound 1 is `service-fork-sent-back`'s, unchanged: its r1c1 is `resolved` and its r1c2 `answered`, which is the control — an ANSWERED change request does not block approve either, because the reply is the agent's and only the reviewer's own resolve moves it. The dispatch task gains the third attempt round 3 judges; everything else is `service-fork-sent-back` verbatim, including its committed project read.",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

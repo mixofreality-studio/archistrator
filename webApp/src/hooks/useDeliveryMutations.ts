@@ -528,12 +528,14 @@ export interface OverrideActivityVars {
  * ONE op, TWO meanings, keyed by liveness — and the caller must know which one it is
  * pressing, because the server can only tell it which one is POSSIBLE:
  *
- *   - a LIVE activity awaiting a takeover is STEERED. The override reaches the
- *     escalated task's own inbox (the Manager recovers the task from the attempt
- *     ledger) and is fed through the same decide→execute machinery the automatic
- *     variance path uses. Anywhere else the façade refuses: *"activity X is at
- *     <stage>, not awaiting a takeover — an override steers an escalation; decide a
- *     gate with SubmitTaskDecision"*.
+ *   - a LIVE activity whose ledger holds a failed attempt is STEERED. The override
+ *     reaches the escalated task's own inbox (the Manager recovers the task from the
+ *     attempt ledger) and is fed through the same decide→execute machinery the
+ *     automatic variance path uses. Anywhere else the façade refuses, and since stage
+ *     4b2 Task 2 it refuses on the LEDGER rather than on a single-valued session
+ *     stage: *"activity X is in flight but no task on its ledger holds a failed
+ *     attempt, so it is not escalated and there is nothing an override could name —
+ *     decide a gate with SubmitTaskDecision, or re-read the activity"*.
  *   - a TERMINAL activity with no live child is RE-OPENED (stage 4b1): the row is
  *     re-armed through `RecordOperatorNote{requeue}`, the pump selects it on its next
  *     tick, and the re-run seeds every task that PASSED from the ledger. The override

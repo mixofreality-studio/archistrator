@@ -3,6 +3,16 @@
   "title": "Activity Experience — done activity (system test plan)",
   "note": "N-STP, signed off 2026-09-12. Every task passed at revision 1; every lifecycle phase is completed; no review set, no polling. A row a real run wrote end to end: every revision is `observed`, each dispatch attempt carries the span and the episode the run burned, and each of the three gates is read from its own PASSED round — roster, verdicts, subject and decision included (stage-3 tasks 5 and 7). A round's span is the round's own: startedAt is when it opened, endedAt is the moment it was decided. Nothing here is reconstructed, which is what the whole ledger is for. Carries the Plan Authoring episode's timeline (the timeline project view) so opening a dispatch task shows a real episode rather than raising the preview alarm. Its events carry no `raw` — the OAS types json.RawMessage as null-only — so the turn SEQUENCE is fixturable and its content is not (stage-5 task 8). Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",

@@ -3,6 +3,16 @@
   "title": "Activity Experience — Architecture, one phase, a reconstruction beneath a persisted round",
   "note": "The design prefix's second activity (spec §7.2): Architecture & Call Chains is ONE lifecycle phase carrying the whole weight, gated by one review. Its two revisions are the two halves of the read — revision 1 predates the ledger and reconstructs (`backfilled`, no roster, no subject, no decision), while revision 2 is a round the rail actually wrote (`observed`) and carries everything a round owns: the number, the subject it judged, the roster it was opened with, the verdicts it collected, and a thread of all three comment types. The thread is what a design-rail round looks like on this screen: a QUESTION the architect answered, a STALEACK that an amendment elsewhere left this artifact unaffected, and a RESOLVED change request with its replies. `comments` is the thread's flat projection — same anchors, same texts — so a reader that never learned about threads still shows something true. Carries revision 2's episode timeline through the timeline project view. Stage 4a retired the per-activity-type op choice (activityEpisodesManager.ts is gone): one read serves every rail, and the SELECTOR — an artifactKind for a design artifact, an activityId for a construction one — is what routes it. Its events carry no `raw`: the OAS types json.RawMessage as null-only (stage-5 task 8). Task 9 (the review body) reads the committed project as well as the lifecycle — the slots a design review judges, the construction row a renderer draws from, the contracts the activity \u2192 component \u2192 contract JOIN resolves \u2014 so this fixture now answers the summary project view with a live capture of the archistrator project, verbatim apart from GitRows (the server marshals a nil Go map as JSON null; the generated schema types it as a plain object).",
   "ops": {
+    "compositionGetCapabilities": {
+      "result": {
+        "operations": false
+      }
+    },
+    "compositionGetOperatedAppId": {
+      "result": {
+        "operatedAppId": "3f2a6b1e-0c4d-5e6f-8a9b-0c1d2e3f4a5b"
+      }
+    },
     "compositionGetUserinfo": {
       "result": {
         "kind": "user",
@@ -15,6 +25,17 @@
       }
     },
     "deliveryQueryProjectView": {
+      "designHealth": {
+        "result": {
+          "kind": "designHealth",
+          "designHealth": {
+            "findings": [],
+            "waivers": [],
+            "attestations": [],
+            "evaluatedAtRevision": 0
+          }
+        }
+      },
       "summary": {
         "result": {
           "kind": "summary",
