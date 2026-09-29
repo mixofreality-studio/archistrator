@@ -9606,22 +9606,51 @@ func roundRevisions(rounds []projectstate.ReviewRound, gate []projectstate.TaskA
 		}
 		join := roundJoinKey(r)
 		for _, a := range gate {
-			if attemptGateKey(a) == join {
-				rev.AttemptIDs = []string{a.AttemptID}
-				// The contract says detail is PRESENT where the revision cites a GATE
-				// attempt, and this is the other path that cites one (reviewRevision is
-				// the first). It carries the M0 cost basis: projectDesign's only task IS
-				// its review task, so the compute's own sentence — which planning
-				// assumptions it had to assume — lands on a gate attempt and reaches the
-				// founder through here once the round is persisted. Joining the attempt
-				// and dropping its sentence is how that disclosure went missing before.
-				rev.Detail = a.Detail
-				break
+			if attemptGateKey(a) != join && !soleKindClaims(a, r, rounds) {
+				continue
 			}
+			rev.AttemptIDs = []string{a.AttemptID}
+			// The contract says detail is PRESENT where the revision cites a GATE
+			// attempt, and this is the other path that cites one (reviewRevision is
+			// the first). It carries the M0 cost basis: projectDesign's only task IS
+			// its review task, so the compute's own sentence — which planning
+			// assumptions it had to assume — lands on a gate attempt and reaches the
+			// founder through here once the round is persisted.
+			rev.Detail = a.Detail
+			break
 		}
 		out = append(out, rev)
 	}
 	return out
+}
+
+// soleKindClaims says whether a KINDED round may claim a kindless gate attempt of its own
+// number. It may, when it is the only kind holding that number at that gate.
+//
+// attemptGateKey is deliberately kindless: no attempt carries an artifact kind, and that
+// asymmetry is the stage-3 fix for "two kinds' round 1 would both bind gate attempt 1".
+// Keeping it as an equality test alone, though, refuses a join that has no rival — and
+// `sdpReview` is the ONE review task in all fourteen lifecycles carrying a kind of its
+// own, so the M0 round is ALWAYS kinded and its attempt never is. The equality could
+// therefore never hold at M0: the revision cited no attempt and carried no sentence, and
+// the founder's cost basis vanished the moment the round was persisted. roundsAtTask
+// already resolves the same asymmetry for the write path, for the same reason.
+//
+// The rule keeps the stage-3 guarantee exactly: a second kind at the same (task, number)
+// means neither claims, because the attempt cannot say which of them it settled.
+func soleKindClaims(a projectstate.TaskAttempt, r projectstate.ReviewRound, rounds []projectstate.ReviewRound) bool {
+	if r.ArtifactKind == nil || a.Task != r.TaskID || int64(a.Attempt) != r.Round {
+		return false
+	}
+	for _, other := range rounds {
+		if other.TaskID != r.TaskID || other.Round != r.Round {
+			continue
+		}
+		if roundGateKey(other.TaskID, other.ArtifactKind) != roundGateKey(r.TaskID, r.ArtifactKind) {
+			return false
+		}
+	}
+	return true
 }
 
 // roundOutcome renders a stored round outcome as a revision outcome. Total over the

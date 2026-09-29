@@ -16586,6 +16586,38 @@ func Test_RoundRevisions_CarryTheJoinedGateAttemptsDetail(t *testing.T) {
 	if got := roundRevisions([]projectstate.ReviewRound{avRound(gate, 2, projectstate.RoundPending)}, nil, false); got[0].Detail != "" {
 		t.Errorf("a round citing no gate attempt carries detail %q; there is none to carry", got[0].Detail)
 	}
+
+	// THE M0 SHAPE, and the case the first cut of this fix could not reach. `sdpReview` is
+	// the one review task in all fourteen lifecycles carrying an artifactKind of its own, so
+	// the M0 round is ALWAYS kinded while its gate attempt — like every attempt — is not.
+	// A join that tested key equality alone could never hold here, so the revision cited no
+	// attempt and carried no sentence, and the founder's cost basis vanished the moment the
+	// round was persisted. That is the defect this test exists to hold shut.
+	m0 := avRound(projectstate.MethodTask(sdpReviewTaskID), 1, projectstate.RoundPassed)
+	m0.ArtifactKind = kindPtr(projectstate.KindSdpReview)
+	m0Attempt := avObserved(projectstate.MethodTask(sdpReviewTaskID), 1, projectstate.OutcomePassed)
+	m0Attempt.Detail = assumed
+
+	m0Revs := roundRevisions([]projectstate.ReviewRound{m0}, []projectstate.TaskAttempt{m0Attempt}, false)
+	if len(m0Revs[0].AttemptIDs) != 1 {
+		t.Fatalf("the kinded M0 round cites %v gate attempts, want its own — a kinded round with no rival may claim the kindless attempt of its number", m0Revs[0].AttemptIDs)
+	}
+	if m0Revs[0].Detail != assumed {
+		t.Errorf("the M0 revision carries %q, want the compute's own sentence %q — this is the cost basis the founder approves a price on", m0Revs[0].Detail, assumed)
+	}
+
+	// And the stage-3 guarantee is untouched: TWO kinds at one (task, number) means neither
+	// claims, because the attempt cannot say which of them it settled.
+	rivalA := avRound(gate, 1, projectstate.RoundPassed)
+	rivalA.ArtifactKind = kindPtr(projectstate.KindSystem)
+	rivalB := avRound(gate, 1, projectstate.RoundSentBack)
+	rivalB.ArtifactKind = kindPtr(projectstate.KindOperationalConcepts)
+	rivals := roundRevisions([]projectstate.ReviewRound{rivalA, rivalB}, []projectstate.TaskAttempt{attempt}, false)
+	for i, rev := range rivals {
+		if len(rev.AttemptIDs) != 0 || rev.Detail != "" {
+			t.Errorf("rival revision %d claims attempt %v / detail %q; two kinds sharing a number may bind neither", i+1, rev.AttemptIDs, rev.Detail)
+		}
+	}
 }
 
 // Test_ReviewRounds_TwoKindsOnOneGateDoNotBindOneAttempt is the stage-3 entry criterion
