@@ -26945,12 +26945,18 @@ var pumpGuardDocRowPattern = regexp.MustCompile(`^\|\s*\*\*(G-[A-Z]+[0-9]+)\*\*\
 // must exist.
 var pumpGuardDocTestPattern = regexp.MustCompile("`(Test[A-Za-z0-9_]*)`")
 
-// pumpGuardDocRowCells is the width of a per-file census row: ID | Line | Guard | What it
-// protects | BreaksAs | PinnedBy. THE UNARMED LIST's rows are three cells wide and are
-// deliberately NOT rows by this rule — all sixteen of its guards are bolded there as well
-// as in their file's table, so counting its rows is exactly what let a real row be deleted
-// unnoticed.
-const pumpGuardDocRowCells = 6
+// pumpGuardDocRowCells is the width of a per-file census row: ID | Line | Verdict | Guard |
+// What it protects | BreaksAs | PinnedBy. THE UNARMED LIST's rows are three cells wide and
+// are deliberately NOT rows by this rule — all fourteen of its guards are bolded there as
+// well as in their file's table, so counting its rows is exactly what let a real row be
+// deleted unnoticed. (Task 16 added the Verdict column and moved this 6 → 7; PinnedBy stays
+// LAST, which is what the index below relies on.)
+const pumpGuardDocRowCells = 7
+
+// pumpGuardDocUnarmedRowCells is the width of a row in THE UNARMED LIST: ID | the guard
+// nothing armed | why the silence is dangerous. Named rather than spelled 3 because the
+// two widths are the whole reason that list's rows are not counted as census rows.
+const pumpGuardDocUnarmedRowCells = 3
 
 // markdownRowCells splits one pipe table row into its trimmed cells. A cell carrying a
 // literal `|` would split into more and the row would stop being a row — which fails the
@@ -27042,6 +27048,286 @@ func Test_PumpGuardCensus_TheDocAndTheCodeAgree(t *testing.T) {
 			t.Errorf("guard %s is bolded as a row id in %s but is not in pumpGuardCensus() — the list Task 16 walks must be the list the suite enforces", id, pumpGuardCensusDoc)
 		}
 	}
+}
+
+// pumpGuardDocHeadingPattern matches a per-file census heading and pulls its declared
+// guard count: "## `pumpnextactivity.go` — 22 guards", and also the discharged file's
+// "## `replansweep.go` — DISCHARGED, 0 guards".
+var pumpGuardDocHeadingPattern = regexp.MustCompile("^##\\s+`([A-Za-z0-9_]+\\.go)`\\D*?(\\d+)\\s+guards")
+
+// pumpGuardVerdictCell is the index of the Verdict column in a per-file census row:
+// ID | Line | Verdict | … . It is Task 16's answer for the row, and every row carries one.
+const pumpGuardVerdictCell = 2
+
+// pumpGuardVerdictWords is the CLOSED vocabulary a Verdict cell may open with. The brief
+// specified three. The fourth exists because exactly one row — G-P13 — is neither: its
+// successor is real and named, so it is not LOST (which is a blocker, not a note), and its
+// successor covers one of its two halves at reduced scope, so a plain RE-ASSERTED would
+// claim a parity the row itself spends a paragraph denying. Longest-first, because
+// "**RE-ASSERTED**" would otherwise never be reached past its own prefix — it is not one,
+// the closing `**` sees to that, but the order makes the rule independent of that luck.
+var pumpGuardVerdictWords = []string{
+	"**RE-ASSERTED IN REDUCED FORM**",
+	"**RE-ASSERTED**",
+	"**DELETED WITH ITS SUBJECT**",
+	"**LOST**",
+}
+
+// pumpGuardVerdictWordOf reports which verdict a Verdict cell opens with.
+func pumpGuardVerdictWordOf(cell string) (string, bool) {
+	for _, w := range pumpGuardVerdictWords {
+		if strings.HasPrefix(cell, w) {
+			return w, true
+		}
+	}
+	return "", false
+}
+
+// pumpGuardDocFileOfSite pulls the file name out of a census Site ("pumpsweep.go:94-96").
+func pumpGuardDocFileOfSite(site string) string {
+	if before, _, ok := strings.Cut(site, ":"); ok {
+		return before
+	}
+	return site
+}
+
+// pumpGuardDocHeadlineCounts reads every TWO-cell "| label | number |" row in the written
+// census and returns label → number, with ** ** and backticks stripped off the label. That
+// shape is the Headline counts table and nothing else in the document: every other table
+// is three cells or more.
+func pumpGuardDocHeadlineCounts(t *testing.T, doc string) map[string]int {
+	t.Helper()
+	out := map[string]int{}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if !strings.HasPrefix(strings.TrimSpace(line), "|") {
+			continue
+		}
+		cells := markdownRowCells(line)
+		if len(cells) != 2 {
+			continue
+		}
+		n, err := strconv.Atoi(strings.Trim(cells[1], "* "))
+		if err != nil {
+			continue
+		}
+		out[strings.Trim(cells[0], "*` ")] = n
+	}
+	return out
+}
+
+// Test_PumpGuardCensus_TheHeadlineCountsAreTrue is the hole stage 4b2 Task 4's review
+// found and Task 16 closes.
+//
+// The other two meta-tests check the row SET and the PinnedBy column. Neither reads a
+// NUMBER, so "| Guard rows total | **38** |" and "## `pumpnextactivity.go` — 22 guards"
+// both stayed green while wrong — and the total was in fact wrong for two tasks (Task 1's
+// report and progress.md still say 37; the truth is 36 = 38 − 2 after Task 11 discharged
+// the two replansweep.go rows). THAT IS THE ONE FIGURE A READER USES TO NOTICE A MISSING
+// ROW: a reader who is told 36 and counts 35 goes looking, and a reader who is told nothing
+// trustworthy does not. Both halves are checked against pumpGuardCensus() itself, so the
+// document cannot describe a census the code does not have.
+func Test_PumpGuardCensus_TheHeadlineCountsAreTrue(t *testing.T) {
+	raw, err := os.ReadFile(pumpGuardCensusDoc)
+	if err != nil {
+		t.Fatalf("reading the written census: %v", err)
+	}
+	doc := string(raw)
+	census := pumpGuardCensus()
+
+	perFile := map[string]int{}
+	unpinned := 0
+	for _, g := range census {
+		perFile[pumpGuardDocFileOfSite(g.Site)]++
+		if g.PinnedBy == "" {
+			unpinned++
+		}
+	}
+
+	counts := pumpGuardDocHeadlineCounts(t, doc)
+	want := map[string]int{"Guard rows total": len(census), "Rows with no pin": unpinned}
+	maps.Copy(want, perFile)
+	scan := scanPumpGuardDoc(t, doc)
+	want["Rows NOTHING armed before the census"] = scan.unarmed
+	want["Verdict rows total"] = len(census)
+	for _, word := range pumpGuardVerdictWords {
+		want[strings.Trim(word, "* ")] = scan.verdicts[word]
+	}
+	assertPumpGuardCounts(t, counts, want)
+
+	// The per-file HEADINGS, which are the second place the same number is written and the
+	// place a reader meets it while walking the table.
+	for file, n := range scan.headings {
+		if perFile[file] != n {
+			t.Errorf("the heading for %s declares %d guards; pumpGuardCensus() holds %d for that file",
+				file, n, perFile[file])
+		}
+	}
+	for file, n := range perFile {
+		if _, ok := scan.headings[file]; !ok {
+			t.Errorf("pumpGuardCensus() holds %d guards in %s and the written census has no \"## `%s` — N guards\" "+
+				"section for them", n, file, file)
+		}
+	}
+}
+
+// assertPumpGuardCounts compares every number the written census declares against the
+// number pumpGuardCensus() (or the document's own rows) actually holds. A MISSING label is
+// an error too: a count a reader cannot find is a count nobody checks against.
+func assertPumpGuardCounts(t *testing.T, counts, want map[string]int) {
+	t.Helper()
+	for label, n := range want {
+		got, ok := counts[label]
+		if !ok {
+			t.Errorf("the written census has no headline count for %q — it should read %d", label, n)
+			continue
+		}
+		if got != n {
+			t.Errorf("the written census's headline says %s = %d; the census actually holds %d", label, got, n)
+		}
+	}
+}
+
+// pumpGuardDocScanResult is what one pass over the written census counts for itself: the
+// per-file section headings, THE UNARMED LIST's three-cell rows, and the verdict carried by
+// every full row. Split out of the test for the complexity budget, along a real seam — this
+// is everything that is read out of the DOCUMENT, and the test is everything that is
+// compared against the CODE.
+type pumpGuardDocScanResult struct {
+	unarmed  int
+	headings map[string]int
+	verdicts map[string]int
+}
+
+// scanPumpGuardDoc walks the written census once. It also enforces the verdict VOCABULARY:
+// a row whose Verdict cell opens with none of the four words is a row Task 16 did not walk,
+// and an empty one is worse.
+func scanPumpGuardDoc(t *testing.T, doc string) pumpGuardDocScanResult {
+	t.Helper()
+	out := pumpGuardDocScanResult{headings: map[string]int{}, verdicts: map[string]int{}}
+	for line := range strings.SplitSeq(doc, "\n") {
+		if h := pumpGuardDocHeadingPattern.FindStringSubmatch(line); h != nil {
+			n, cerr := strconv.Atoi(h[2])
+			if cerr != nil {
+				t.Fatalf("unreadable guard count in heading %q: %v", line, cerr)
+			}
+			out.headings[h[1]] = n
+			continue
+		}
+		m := pumpGuardDocRowPattern.FindStringSubmatch(line)
+		if m == nil {
+			continue
+		}
+		cells := markdownRowCells(line)
+		switch len(cells) {
+		case pumpGuardDocUnarmedRowCells:
+			out.unarmed++
+		case pumpGuardDocRowCells:
+			word, ok := pumpGuardVerdictWordOf(cells[pumpGuardVerdictCell])
+			if !ok {
+				t.Errorf("guard %s's Verdict cell opens with none of %v — a verdict Task 16 did not define is a "+
+					"row nobody walked, and an empty one is worse: %q",
+					m[1], pumpGuardVerdictWords, cells[pumpGuardVerdictCell])
+				continue
+			}
+			out.verdicts[word]++
+		}
+	}
+	return out
+}
+
+// deliverSignalWireFormProducers is the closed list of signal names this package delivers
+// through messageBus.deliverSignal. Anything on it crosses the bus as RAW BYTES.
+var deliverSignalWireFormProducers = []string{
+	"signalActivityFinished",
+	"signalActivityLeaseGranted",
+	"signalActivityLeaseRequested",
+	"signalOperatorPauseRequested",
+}
+
+// Test_DeliverSignal_TheWireFormProducersAreAClosedList is the census's SIBLING, and it is
+// here because stage 4b2 shipped the defect it describes.
+//
+// THE RULE, measured in Task 14 and not enforced anywhere: messageBus.deliverSignal hands
+// the Temporal client a []byte, the default data converter tags it binary/plain, and
+// ByteSlicePayloadConverter can assign such a payload to nothing but a *[]byte. So a
+// workflow that RECEIVES one of these signals into a concrete struct gets nothing: the SDK
+// logs "Corrupted signal received on channel …" and moves on, and a failed signal assign is
+// INVISIBLE to the workflow. All three lease channels did exactly that, so the whole
+// stage-4b2 main-write lease was inert in production — no request reached the pump, no grant
+// reached a child, every merge tail waited out its two-hour budget and then ran unleased.
+// Nothing failed. Silence was the entire symptom. Only the pause path had it right, and it
+// said so at the site (pumpPauseRequested) without the lesson being inherited.
+//
+// WHAT THIS TEST DOES, AND WHAT IT DOES NOT. It does NOT enforce the decode — that needs
+// dataflow from a GetSignalChannel call to a Receive target across struct fields, closure
+// params and helper funcs, which is an arch gate (framework-go arch/) and not a package
+// test; it is carried as such. What it does is make the PRODUCER side a closed list that
+// cannot grow in silence, because a fifth producer is the only way a fifth channel gets this
+// wire form, and this is the door its author walks through. The error message is the rule.
+func Test_DeliverSignal_TheWireFormProducersAreAClosedList(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := filepath.Glob("*.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var found []string
+	for _, e := range entries {
+		if strings.HasSuffix(e, "_test.go") || strings.HasSuffix(e, ".gen.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, e, nil, 0)
+		if perr != nil {
+			t.Fatalf("parse %s: %v", e, perr)
+		}
+		ast.Inspect(f, func(n ast.Node) bool {
+			call, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			sel, ok := call.Fun.(*ast.SelectorExpr)
+			if !ok || sel.Sel.Name != "MessageBusDeliverSignal" || len(call.Args) < 3 {
+				return true
+			}
+			// (ctx, targetExecutionID, signalName, payload) — the NAME is the third argument.
+			where := e + ":" + strconv.Itoa(fset.Position(call.Pos()).Line)
+			name, ok := deliverSignalNameArg(call.Args[2])
+			if !ok {
+				t.Errorf("%s delivers a signal whose NAME is not messagebus.SignalName(<const>) — the wire-form "+
+					"rule is keyed on the name, so a computed name is a channel nobody can check", where)
+				return true
+			}
+			found = append(found, name)
+			return true
+		})
+	}
+	slices.Sort(found)
+	found = slices.Compact(found)
+	if !slices.Equal(found, deliverSignalWireFormProducers) {
+		t.Errorf("messageBus.deliverSignal is called with %v; the closed list is %v.\n"+
+			"A signal delivered this way crosses the bus as binary/plain RAW BYTES, and a workflow that receives "+
+			"it into a concrete struct DROPS IT SILENTLY (the SDK logs \"Corrupted signal\" and moves on). If this "+
+			"list grew, the new channel's RECEIVER must decode into `any` first — see pumpReceiveSignal and "+
+			"pumpPauseRequested — and the name belongs in deliverSignalWireFormProducers. If it shrank, take the "+
+			"name out. Measured: all three lease channels got this wrong and the whole main-write lease was inert "+
+			"in production until stage 4b2 Task 14.", found, deliverSignalWireFormProducers)
+	}
+}
+
+// deliverSignalNameArg reads messagebus.SignalName(<ident>) and reports the ident.
+func deliverSignalNameArg(arg ast.Expr) (string, bool) {
+	conv, ok := arg.(*ast.CallExpr)
+	if !ok || len(conv.Args) != 1 {
+		return "", false
+	}
+	sel, ok := conv.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "SignalName" {
+		return "", false
+	}
+	id, ok := conv.Args[0].(*ast.Ident)
+	if !ok {
+		return "", false
+	}
+	return id.Name, true
 }
 
 // testFuncNamesInPackage parses every *_test.go in this directory and returns the set of
