@@ -6945,11 +6945,27 @@ func askSummary(questions, replies int, addressee string) string {
 // gate key is now a lifecycle TASK id, which the old five-phase vocabulary rejected — so an
 // approve at `designReview` was a ContractMisuse before it ever left the Manager.
 //
-// The PRECHECK is the retired op's, verbatim in shape (B1.3): the session must be awaiting a
-// human at exactly this task, and a send-back past the redraft budget is refused rather than
-// silently ignored. It is honesty and not safety — the child matches decisions by task id
-// either way — and during a rolling deploy a view from an old worker carries no gate, so the
-// refusal is transient and fails safe.
+// THE PRECHECK IS NO LONGER THE RETIRED OP'S (stage 4b2 Task 3; this paragraph said it was,
+// and had been wrong since). It stopped being "the session must be awaiting a human at
+// exactly this task" because the session view is SINGLE-VALUED and a fork is not: with two
+// branches live, the one pair (stage, gate) names one of them, so the other branch's plainly
+// open gate was refused. It is now two questions asked of two different things:
+//
+//   - precheckTaskDecision asks the VIEW only what is true of the WHOLE ACTIVITY — exited,
+//     paused, redraft budget spent — none of which a sibling branch can make ambiguous;
+//   - requireOpenRound asks the LEDGER the per-task question: does THIS task hold a round
+//     still awaiting a verdict. That is the same question WithdrawReviewRound, AskTaskQuestions
+//     and SetTaskCommentStatus already ask, in their words.
+//
+// `merge` is the ONE gate still answered from the view, and that is data rather than an
+// oversight: holdForMergeApproval enters its human stage directly and opens NO round, so the
+// ledger holds nothing for it. The view check is sound there precisely because the merge hold
+// runs AFTER the join — every branch gate is decided by then, so the single-valued pair has
+// only one occupant to name.
+//
+// A send-back past the redraft budget is still refused rather than silently ignored, and the
+// whole precheck is still honesty rather than safety: the child matches decisions by task id
+// either way, and it re-checks the open-comment refusal at consumption time (decideTaskGate).
 func (m *constructionManager) SubmitTaskDecision(
 	rc fwmanager.Context, projectID ProjectID, activityID ActivityID, taskID string,
 	kind *projectstate.ArtifactKind, decision ReviewDecision, option *OptionID, feedback *ReviewFeedback,
@@ -7026,6 +7042,9 @@ func (m *constructionManager) SubmitTaskDecision(
 //
 // A task with no round at all passes both halves — there is nothing to have left open, and
 // refusing would block the first approve of every gate.
+//
+// THE ROUND IS RESOLVED THROUGH roundToSettle, NOT latestRoundFor, and that is a fix rather
+// than a refactor — see roundToSettle for the divergence it closes.
 func (m *constructionManager) settleThreadsBeforeApprove(
 	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
 ) error {
@@ -7036,9 +7055,9 @@ func (m *constructionManager) settleThreadsBeforeApprove(
 		}
 		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
 	}
-	round, rerr := latestRoundFor(row, taskID, kind)
-	if rerr != nil {
-		return nil // no round yet: the first approve of this gate has nothing to be blocked by
+	round, ok := roundToSettle(row, taskID, kind)
+	if !ok {
+		return nil // no round at all: the first approve of this gate has nothing to be blocked by
 	}
 	if open := projectstate.OpenReviewCommentIDs(round.Thread); len(open) > 0 {
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
@@ -7257,6 +7276,11 @@ func precheckTaskDecision(v ConstructionSessionView, activityID ActivityID, task
 // ledger holds nothing for `merge`. Its caller keeps the view check for that key alone, which
 // is sound there because the merge hold runs AFTER the join — every branch gate is decided by
 // then, so the single-valued pair has only one occupant to name.
+//
+// EARMARK (4b3): an approve now reads this row TWICE — here, and again a few lines later in
+// settleThreadsBeforeApprove — which is two git reads on the product's hottest write. The fix
+// is to READ ONCE and pass the row through; it is recorded rather than taken because it
+// changes both functions' signatures, and stage 4b2 Task 4 was already changing one of them.
 func (m *constructionManager) requireOpenRound(
 	ctx context.Context, projectID ProjectID, activityID ActivityID, taskID string, kind *projectstate.ArtifactKind,
 ) error {
@@ -7269,7 +7293,6 @@ func (m *constructionManager) requireOpenRound(
 		}
 		return mapRAError(err, "activityExecutionAccess.ReadActivityExecution")
 	}
-	row.ActivityID = string(activityID)
 	rounds := roundsAtTask(row, taskID, kind)
 	if len(rounds) == 0 {
 		return newError(fwmanager.FailedPrecondition, fmt.Sprintf(
@@ -7312,6 +7335,45 @@ func roundsAtTask(row projectstate.ActivityExecution, taskID string, kind *proje
 		out = append(out, r)
 	}
 	return out
+}
+
+// roundToSettle resolves the round an approve SETTLES against, and it is deliberately the
+// SAME round requireOpenRound just judged open: the first PENDING round at the task in
+// ledger order, and — when none is pending, which only an already-decided or round-less
+// gate reaches — the highest-numbered one, which is latestRoundFor's own rule.
+//
+// IT RESOLVES THROUGH roundsAtTask, AND THAT IS THE FIX, not a tidy-up. latestRoundFor
+// answers "which round must this WRITE land on", so it keys through roundGateKey and a
+// caller naming NO artifact kind resolves only KINDLESS rounds. `sdpReview`'s round is
+// KINDED — it is the one review task in method-assets v0.9.0 carrying a kind of its own. So
+// whenever the caller's kind did not match the round's, settleThreadsBeforeApprove found
+// nothing, read the miss as its own "no round yet" arm — the arm that exists so the FIRST
+// approve of a gate is not refused — and BOTH halves silently did nothing: the
+// open-change-request refusal stage 4b1 added to close the open-comment regression, and the
+// answered-thread sweep. Meanwhile requireOpenRound, which Task 3 moved onto roundsAtTask
+// for exactly this reason, had just declared that same gate OPEN. Two resolvers, one
+// question, opposite answers — and the disagreement failed OPEN, at M0, the one gate where a
+// founder approves money.
+//
+// MEASURED, and stated precisely because the scope matters: the skip needs the caller's kind
+// to differ from the round's, so the repo's real `projectDesign` activity — whose id is one
+// of the three reserved design ids, so ClassifyActivity types it and roundKindOfTask
+// resolves `SdpReview` — does reach the guard today. An activity that classifies any other
+// way does not, which is what the two façade M0 tests drive. The point of the fix is that
+// the settlement must not depend on that resolution agreeing: the precheck's answer and the
+// settlement's must be the same round, by construction.
+func roundToSettle(row projectstate.ActivityExecution, taskID string, kind *projectstate.ArtifactKind) (projectstate.ReviewRound, bool) {
+	var best projectstate.ReviewRound
+	found := false
+	for _, r := range roundsAtTask(row, taskID, kind) {
+		if r.Outcome == projectstate.RoundPending {
+			return r, true
+		}
+		if !found || r.Round >= best.Round {
+			best, found = r, true
+		}
+	}
+	return best, found
 }
 
 // maxOperatorNoteRunes caps one operator note — its text plus its anchored comments'

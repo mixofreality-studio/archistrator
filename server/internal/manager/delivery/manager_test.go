@@ -24172,6 +24172,82 @@ func Test_Facade_M0Approve_ReachesTheGenericChildCommitsTheEightSlotsAndAdvances
 	}
 }
 
+// m0RoundStore is the projectDesign fixture plus ONE round at `sdpReview`, pending, carrying
+// the artifact kind the lifecycle gives that task (`SdpReview` — it is the one review task in
+// method-assets v0.9.0 that carries a kind of its own, and that is the whole reason these two
+// cases exist). thread is the round's review thread as the founder's screen shows it.
+func m0RoundStore(t *testing.T, thread []projectstate.ReviewComment) *csFakeProjectState {
+	t.Helper()
+	proj := projectDesignFixtureProject(t)
+	kind := projectstate.KindSdpReview
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{
+		shapeSDPActivity: {
+			ActivityID: shapeSDPActivity,
+			StartedAt:  &testLedgerClock,
+			Reviews: []projectstate.ReviewRound{{
+				RoundID: projectstate.AttemptID(shapeSDPActivity, sdpReviewTaskID, 1),
+				TaskID:  sdpReviewTaskID, ArtifactKind: &kind, Round: 1,
+				Outcome: projectstate.RoundPending, SubjectRef: projectstate.SubjectRef{Ref: "sha"},
+				Thread: thread,
+			}},
+		},
+	}
+	ps := &csFakeProjectState{project: proj}
+	seedCommittedPlanRow(ps, shapeSDPActivity)
+	return ps
+}
+
+// THE M0 GATE IS THE ONE WHERE A FOUNDER APPROVES MONEY, AND ITS OPEN-COMMENT REFUSAL HAD
+// NEVER RUN. settleThreadsBeforeApprove resolved its round through latestRoundFor, which keys
+// through roundGateKey, so a caller naming no artifact kind saw only KINDLESS rounds — and it
+// returns nil on a miss, by design, because the first approve of a gate must not be blocked
+// by a round that does not exist yet. `sdpReview`'s round is KINDED. So at M0 the resolver
+// found nothing, the miss read as "nothing to settle", and BOTH halves — the refusal stage
+// 4b1 added to close the open-comment regression, and the answered-thread sweep — silently
+// did nothing. Measured by Task 3 and carried; fixed here with roundsAtTask, the resolver
+// Task 3 built for precisely this reason at requireOpenRound.
+func Test_Facade_M0Approve_IsRefusedWhileAChangeRequestIsOpen(t *testing.T) {
+	ps := m0RoundStore(t, []projectstate.ReviewComment{task12Comment("m0c1", "price the compressed option again")})
+	fc := &fakeTemporalClient{session: awaitingAt(sdpReviewTaskID)}
+	chosen := "normalSolution"
+	err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), shapeProjectID, shapeSDPActivity,
+		sdpReviewTaskID, ReviewDecisionInput{Decision: ReviewApprove, OptionID: &chosen}, nil)
+	if e := asConstructionError(t, err); e.Kind != fwmanager.FailedPrecondition ||
+		!strings.Contains(e.Detail, "cannot approve: 1 review thread(s) still open") {
+		t.Fatalf("M0 must refuse an approve over an open change request in the design rail's own words; got %v", err)
+	}
+	if fc.lastSignalName != "" {
+		t.Fatalf("a refused M0 approve must not signal, got %q", fc.lastSignalName)
+	}
+}
+
+// THE OTHER HALF OF THE SAME MISS: approve resolves every ANSWERED thread in one gesture
+// (design §3.4). At M0 it had never swept, so a founder accepting a plan whose eight asks had
+// all been answered was left with eight threads still shown outstanding on the Activity
+// Experience and eight Resolve clicks to make. An OPEN thread alongside them would refuse the
+// approve outright (the case above), so this one's threads are all answered.
+func Test_Facade_M0Approve_SweepsTheAnsweredThreads(t *testing.T) {
+	answered := task12Comment("m0c1", "why decompressed and not normal?")
+	answered.Status = projectstate.ReviewCommentAnswered
+	ps := m0RoundStore(t, []projectstate.ReviewComment{answered})
+	fc := &fakeTemporalClient{session: awaitingAt(sdpReviewTaskID)}
+	chosen := "decompressedSolution"
+	if err := task12Manager(fc, ps).SubmitReviewDecision(testCtx(), shapeProjectID, shapeSDPActivity,
+		sdpReviewTaskID, ReviewDecisionInput{Decision: ReviewApprove, OptionID: &chosen}, nil); err != nil {
+		t.Fatalf("an M0 approve over an ANSWERED thread must be accepted: %v", err)
+	}
+	round := latestRoundAt(ps.execution(shapeSDPActivity), sdpReviewTaskID)
+	for _, c := range round.Thread {
+		if c.Status != projectstate.ReviewCommentResolved {
+			t.Fatalf("the approve must sweep every answered thread resolved (design §3.4); comment %s is %q",
+				c.ID, c.Status)
+		}
+	}
+	if fc.lastSignalName != signalTaskDecision {
+		t.Fatalf("the accepted M0 approve must still reach the child, got %q", fc.lastSignalName)
+	}
+}
+
 // A SEND-BACK AT M0 IS REFUSED BY THE FAÇADE and reaches no child at all — the same sentence
 // the SPA shows (NO_SDP_SEND_BACK), so the screen and the API cannot disagree about why.
 func Test_Facade_M0SendBack_IsRefusedBeforeItReachesTheChild(t *testing.T) {
