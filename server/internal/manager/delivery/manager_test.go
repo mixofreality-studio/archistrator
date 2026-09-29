@@ -10555,6 +10555,39 @@ type csFakeProjectState struct {
 	// commentStatuses is every comment id SetReviewCommentStatus was called with, in order
 	// (stage 4b1 Task 10). It is the drain-past-capacity case's whole assertion.
 	commentStatuses []string
+
+	// failDelay holds RecordActivityFailed open for this long AFTER it has appended to
+	// `failed` and released the lock (stage 4b2 Task 14). It exists for exactly ONE
+	// consumer and it is a CAPTURE knob, not a behaviour knob: the pump's pause check at
+	// dispatch gate 2 (pump-pause-before-dispatch) consumes a pause that was buffered
+	// while the run was inside some Activity, and on a real dev server the only way to
+	// deliver a signal INTO that window is to make the Activity slow. verdictBlocked's
+	// record is the right Activity to widen, because it is the one blocking call that sits
+	// INSIDE pumpStartFrontier's loop — after readProject and before the first dispatch's
+	// gate — which is precisely the window gate 2 covers. Widening readProject instead
+	// would also delay every other reader of this double, including the child's.
+	failDelay time.Duration
+}
+
+// setOperatorPaused records the project's pause the way the real store's
+// RecordOperatorPaused does, from OUTSIDE a workflow — the capture driver's way of making
+// a pump that is already cascading meet a RECORDED pause on its next wake-up
+// (changePumpHonorsRecordedPause v2). It is a store write, not a signal, which is the
+// whole distinction that gate tells apart.
+func (f *csFakeProjectState) setOperatorPaused(reason string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.project.OperatorPaused = true
+	f.project.PauseReason = reason
+	f.bump()
+}
+
+// failedCount reports how many RecordActivityFailed calls have landed. A capture driver
+// polls it to learn that the pump is INSIDE the next one (see failDelay).
+func (f *csFakeProjectState) failedCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.failed)
 }
 
 // noteCall is one RecordOperatorNote; deliveredCall one RecordOperatorNoteDelivered.
@@ -10647,13 +10680,22 @@ func (f *csFakeProjectState) RecordActivityExited(_ fwra.Context, _ projectstate
 
 func (f *csFakeProjectState) RecordActivityFailed(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, activityID string, reason projectstate.FailureReason, detail string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
-	defer f.mu.Unlock()
 	if err := f.maybeConflict(); err != nil {
+		f.mu.Unlock()
 		return 0, err
 	}
 	f.failed = append(f.failed, failCall{activityID: activityID, reason: reason, detail: detail})
 	f.stampRow(activityID)
-	return f.bump(), nil
+	v, delay := f.bump(), f.failDelay
+	f.mu.Unlock()
+	// The hold is OUTSIDE the lock and AFTER the append, so a capture driver polling
+	// failedCount() observes the call and can deliver a signal while the pump is still
+	// waiting on this Activity. Zero for every other test, which is every other test's
+	// behaviour unchanged.
+	if delay > 0 {
+		time.Sleep(delay)
+	}
+	return v, nil
 }
 
 func (f *csFakeProjectState) RecordOperatorPaused(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, reason string, _ projectstate.RepoCredential, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -13857,10 +13899,17 @@ type deliveryReplayRig struct {
 	wf   *csWorkflows
 	ps   *csFakeProjectState
 	pipe agenticjob.AgenticJobAccess
+	// bus backs messageBus.deliverSignal. It is nil for every child-only case (replayRig
+	// then serves a recordingSignalBus, which answers "delivered" and routes nothing), and
+	// the REAL Temporal-client-backed bus for a PUMP capture — because the pump's lease
+	// grant, the child's lease request and the child's finish report all ride that one
+	// invoker, and a recording double would leave all three unrouted. A capture that cannot
+	// route them records a park, not a shape.
+	bus messagebus.MessageBus
 }
 
 func (r deliveryReplayRig) activities() genActivities {
-	return replayRig{wf: r.wf, ps: r.ps, pipe: r.pipe}.activities()
+	return replayRig{wf: r.wf, ps: r.ps, pipe: r.pipe, bus: r.bus}.activities()
 }
 
 // deliveryReplayRegistrations is the ONE workflow a post-4b1 fixture can belong to. The
@@ -14223,15 +14272,34 @@ func Test_Replay_DeliveryHistories(t *testing.T) {
 			}
 		})
 	}
+	replayAssertNoOrphanFixtures(t, covered)
+}
+
+// replayAssertNoOrphanFixtures is both halves of the orphan guard, and it is a function
+// rather than the tail of Test_Replay_DeliveryHistories only because adding the second case
+// list pushed that test over the gocyclo budget. The guard itself is unchanged.
+//
+// THE FILE-LEVEL SWEEP UNIONS BOTH CASE LISTS, exactly as the retired
+// Test_Replay_EveryFixtureDirectoryIsNamed unioned the three per-rail ones. It has to:
+// deliveryReplayDirs() names post-4b2-pump as well (stage 4b2 Task 14), so a sweep that knew
+// only the generic child's cases would report every pump fixture as an orphan. Splitting it
+// into a per-test sweep over each test's own directory would leave the CROSS case uncovered
+// — a fixture dropped into the wrong directory — which is why there is one sweep and not
+// two.
+//
+// THE DIRECTORY-LEVEL HALF was folded in when stage 4b1 Task 13 deleted the three per-rail
+// case lists. The file-level sweep cannot state it: a whole directory no case list names is
+// globbed by nobody, so its fixtures are never even enumerated and nothing replays them.
+func replayAssertNoOrphanFixtures(t *testing.T, covered map[string]bool) {
+	t.Helper()
+	for _, sc := range pumpReplayCases() {
+		covered[pumpReplayFixturePath(sc)] = true
+	}
 	for _, f := range replayFixtureFiles(t, deliveryReplayDirs()) {
 		if !covered[f] {
 			t.Errorf("fixture %s has no replay case, so nothing replays it", f)
 		}
 	}
-	// THE DIRECTORY-LEVEL HALF OF THE ORPHAN GUARD, folded in here when stage 4b1 Task 13 deleted
-	// the three per-rail case lists that Test_Replay_EveryFixtureDirectoryIsNamed used to union.
-	// The file-level sweep above cannot state it: a whole directory no case list names is globbed
-	// by nobody, so its fixtures are never even enumerated and nothing replays them.
 	named := map[string]bool{}
 	for _, d := range deliveryReplayDirs() {
 		named[d] = true
@@ -14271,10 +14339,547 @@ func deliveryReplayEventCount(t *testing.T, path string) int {
 	return len(h.Events)
 }
 
-// deliveryReplayDirs is the set of fixture directories the generic child's cases name. It is
-// a LIST of one rather than the constant, so the orphan sweep keeps the same shape it had when
-// three per-rail case lists were unioned, and a second directory needs no new plumbing.
-func deliveryReplayDirs() []string { return []string{deliveryReplayDir} }
+// deliveryReplayDirs is the set of fixture directories the replay case lists name — BOTH of
+// them since stage 4b2 Task 14. It was a LIST of one rather than the constant precisely so
+// that a second directory would need no new plumbing, and this is the second directory.
+//
+// The directory-level orphan guard folded into Test_Replay_DeliveryHistories reads this, and
+// it fails on a directory no case list names. So this line and pumpReplayCases() are ONE
+// commit: the directory alone is an orphan, and the cases alone make replayFixtureFiles
+// t.Fatalf on an empty directory.
+func deliveryReplayDirs() []string { return []string{deliveryReplayDir, pumpReplayDir} }
+
+// ===========================================================================
+// THE PUMP'S REPLAY FIXTURES (stage 4b2 Task 14).
+//
+// constructionPumpNextActivity and constructionProjectSupervision are both in the
+// registered-names golden and both on the frozen list, and every fixture that used to
+// replay them has been in replay-archive/ since stage 4b1. 4b1 CHANGED the pump; 4b2
+// REWROTE it. In between, a non-determinism introduced into either workflow was caught by
+// nothing.
+//
+// WHY THESE WERE CAPTURED AFTER THE REWRITE AND NOT BEFORE, and what that costs. A rig that
+// registers only the pump parks forever on the old child.Get, and a fixture captured against
+// the old pump would replay a command sequence (ExecuteChildWorkflow → child.Get → Sleep →
+// ContinueAsNew) that no longer exists — worthless the moment the rewrite landed. So nothing
+// pins the TRANSITION itself. The drain this wave already requires is what makes that
+// acceptable, and it is stated here rather than hidden.
+//
+// A FRESH CAPTURE CAN ONLY RECORD THE HIGHEST ARM OF EVERY FENCE. GetVersion on a new
+// execution returns maxSupported, so no capture can ever produce a DefaultVersion history —
+// those arms exist for the histories already in flight and are pinned by the census's
+// DefaultVersion tests, not by a fixture. "One driver per fence arm" therefore means: one
+// driver per fence's CURRENT arm, and per BRANCH TAKEN inside it, because two runs at the
+// same version that take different branches record different command sequences. What is NOT
+// covered is named at pumpReplayCases.
+// ===========================================================================
+
+// pumpReplayDir is the pump's own fixture directory. It is a SECOND directory rather than
+// more files in post-4b1/ because that directory's contract is "one workflow type, one
+// commit", and these are two more types captured a wave later.
+//
+// It also holds the ONE deliveryActivity history captured at stage 4b2, and that is not a
+// stray: it is the CHILD HALF of the pump's lease handshake — the only fixture that records
+// changeActivityMainWriteLease at v1 — so it belongs with the pump and not with the eight
+// pre-lease child histories it would silently contradict.
+const pumpReplayDir = "post-4b2-pump"
+
+// pumpReplayRegistrations is the SECOND registration list, and it is second rather than an
+// extension of deliveryReplayRegistrations on purpose. That one names exactly one workflow
+// and its doc comment says that is the whole point of stage 4b1; widening it would register
+// three workflows for every deliveryActivity replay — harmless for replay, wrong for
+// CAPTURE, because RegisterWorker would make the worker poll for three types on one queue
+// and a driver mis-start would silently capture the wrong one.
+//
+// deliveryActivity IS in this list, and that is not a contradiction: the pump starts children
+// and no longer awaits them, so a pump fixture needs a worker that can actually RUN one —
+// otherwise the started children never reach a terminal, never report, and the pump's history
+// records a park rather than a shape.
+func pumpReplayRegistrations(wf *csWorkflows) []genRegisteredWorkflow {
+	return []genRegisteredWorkflow{
+		{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
+		{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
+		{Name: executionKindDeliveryActivity, Fn: wf.DeliveryActivityWorkflow},
+	}
+}
+
+// pumpReplayCase is one captured pump-or-supervision history. Its rig takes the dev-server
+// CLIENT, which the generic-child cases do not need: the pump's three lease messages ride
+// messageBus.deliverSignal, and that invoker needs the REAL Temporal-backed bus to route
+// them. On the REPLAY side the client is nil — no Activity runs during a replay — and the
+// bus is then never called.
+type pumpReplayCase struct {
+	name  string
+	rig   func(t *testing.T, c client.Client) deliveryReplayRig
+	drive func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (wfID, runID string, open bool)
+}
+
+func pumpReplayFixturePath(c pumpReplayCase) string {
+	return filepath.Join("testdata", "replay", pumpReplayDir, c.name+".json")
+}
+
+// pumpReplayBus is the lease's transport for a capture: the PRODUCTION
+// Temporal-client-backed MessageBus, with an empty kind table because DeliverSignal resolves
+// no kind (only RegisterSchedule does). nil on the replay side.
+func pumpReplayBus(c client.Client) messagebus.MessageBus {
+	if c == nil {
+		return nil
+	}
+	return messagebus.NewTemporalMessageBus(c, nil)
+}
+
+// pumpReplayActivity is one coding row of a pump fixture's plan. componentID is the knob the
+// blocked cases turn: an id that is not in the committed systemDesign is what
+// nextEligibleActivity classifies as ComponentUnresolved.
+func pumpReplayActivity(name, componentID string) projectstate.ActivityItem {
+	return projectstate.ActivityItem{
+		Name: name, Title: name, WorkerClass: "junior-developer", Coding: true, ComponentID: componentID,
+	}
+}
+
+// pumpReplayProject is a committed plan whose rows have NO dependencies, so the frontier is
+// every row at once — which is the property stage 4b2 exists to produce and the serial pump
+// could not.
+func pumpReplayProject(items ...projectstate.ActivityItem) projectstate.Project {
+	deps := make([]projectstate.NetworkDependency, 0, len(items))
+	for _, it := range items {
+		deps = append(deps, projectstate.NetworkDependency{Activity: it.Name, DependsOn: []string{}})
+	}
+	proj := projWithActivities(items, deps)
+	proj.ID = projectstate.ProjectID(shapeProjectID)
+	proj.Version = 1
+	proj.ActivityExecution = map[string]projectstate.ActivityExecution{}
+	return proj
+}
+
+// pumpReplayPumpRig is the receiver every PUMP case shares: the REAL selection rule, the real
+// review engine and the real SDP engines, the plan as head-state, and the real lease
+// transport. The pipeline double is the fast one by default — a job terminal on its first
+// observe burns no durable timer — and tune is how a case that needs the child to still be
+// running when the pump wakes up slows it down on the PRODUCTION observe ladder rather than
+// on a substituted sleep.
+//
+// NextEligibleActivity IS WIRED EXPLICITLY, and it is the one line a capture cannot omit:
+// wf.nextEligible answers verdictQuiescent for a NIL dep (deliberately — the seam is
+// injected, not defaulted), so a rig that leaves it unset captures a pump that reads
+// head-state and then goes quiet. MEASURED: the first attempt at this fixture recorded 19
+// events, three version markers and `{"dispatched":false}`, with no child start anywhere in
+// it. It cleared no event floor, which is exactly what the floor is for.
+func pumpReplayPumpRig(c client.Client, proj projectstate.Project, tune func(*csFakePipeline)) deliveryReplayRig {
+	ps := &csFakeProjectState{project: proj}
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	if tune != nil {
+		tune(pipe)
+	}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	deps.SDPEngines = shapeSDPEngines()
+	deps.NextEligibleActivity = nextEligibleActivity
+	// THE REAL INTERVENTION ENGINE AND THE MANAGER'S OWN POLICY — the exact production
+	// wiring (constructionInterventionPolicy is the builder WorkerManifest uses). It is
+	// unreached on the pump cases' happy path (no job fails, so no variance directive is
+	// asked for) and load-bearing on the supervision one: ApplyPausePolicy dispatches on
+	// Policy.Mode and the ZERO value has no registered strategy, so a supervision fixture
+	// captured against fakeIntervention would record a PausePlan production cannot produce.
+	deps.Intervention = intervention.NewInterventionEngine()
+	deps.InterventionPolicy = constructionInterventionPolicy("")
+	return deliveryReplayRig{wf: replayWorkflows(deps), ps: ps, pipe: pipe, bus: pumpReplayBus(c)}
+}
+
+// pumpReplayStartPump starts the project's ONE pump under its PRODUCTION id. The id is
+// load-bearing for a lease fixture and not decoration: the child addresses its lease request
+// at pumpWorkflowID(projectID), so a pump started under any other id is a pump the child
+// cannot reach.
+func pumpReplayStartPump(ctx context.Context, t *testing.T, c client.Client, tq string) client.WorkflowRun {
+	t.Helper()
+	run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+		ID: pumpWorkflowID(shapeProjectID), TaskQueue: tq,
+	}, executionKindPump, pumpInput{ProjectID: shapeProjectID})
+	if err != nil {
+		t.Fatalf("start the pump: %v", err)
+	}
+	return run
+}
+
+// pumpReplayAwaitDispatch waits until the pump has recorded its dispatch decision — the
+// Query the façade reads synchronously (G-P8), which is the earliest point at which the
+// whole frontier is known to have gone out. A driver that mutates head-state before this
+// would race the frontier it is trying to affect.
+func pumpReplayAwaitDispatch(ctx context.Context, t *testing.T, c client.Client, wfID string) pumpDispatch {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		if enc, err := c.QueryWorkflow(ctx, wfID, "", queryPumpDispatch); err == nil {
+			var d pumpDispatch
+			if enc.Get(&d) == nil && d.Decided {
+				return d
+			}
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	t.Fatalf("%s never recorded a dispatch decision", wfID)
+	return pumpDispatch{}
+}
+
+// pumpReplayAwaitFailures waits until n verdictBlocked records have landed in the store. The
+// nth call is still INSIDE its Activity when this returns (failDelay holds it open after the
+// append), which is the window a driver delivers a pause into.
+func pumpReplayAwaitFailures(t *testing.T, ps *csFakeProjectState, n int) {
+	t.Helper()
+	deadline := time.Now().Add(3 * time.Minute)
+	for time.Now().Before(deadline) {
+		if ps.failedCount() >= n {
+			return
+		}
+		time.Sleep(50 * time.Millisecond)
+	}
+	t.Fatalf("the pump never recorded %d blocked activities (got %d)", n, ps.failedCount())
+}
+
+// pumpReplaySignalPause delivers an operator pause to a pump BY WORKFLOW ID, as a struct —
+// which is the JSON arm of pumpPauseRequested's two. (The relayed arm is raw bytes; the pump
+// decodes into `any` so that both land, and the supervision fixture is what records the
+// relay.)
+func pumpReplaySignalPause(ctx context.Context, t *testing.T, c client.Client, wfID, reason string) {
+	t.Helper()
+	replaySignal(ctx, t, c, wfID, signalOperatorPauseRequested,
+		operatorPauseSignal{ProjectID: shapeProjectID, Reason: reason})
+}
+
+// pumpReplayAwaitChildDone waits for one activity child the PUMP started to reach its own
+// terminal, and exports it by an EXPLICIT run id.
+//
+// THE EMPTY RUN ID IS A TRAP HERE, measured: c.GetWorkflow(ctx, id, "") resolves to
+// whatever run the server currently holds for that id, and a capture case runs after the
+// previous case's leftovers were terminated under the SAME id — so the resolution raced the
+// pump's fresh child start and the first attempt exported a run that had been TERMINATED
+// (0.14 s, "workflow execution error: terminated"). Waiting for a RUNNING execution and
+// then pinning its run id is what makes "the child this pump just started" a fact rather
+// than a resolution order.
+func pumpReplayAwaitChildDone(
+	ctx context.Context, t *testing.T, c client.Client, id ActivityID,
+) client.WorkflowRun {
+	t.Helper()
+	wfID := deliveryActivityWorkflowID(shapeProjectID, id)
+	var runID string
+	deadline := time.Now().Add(2 * time.Minute)
+	for time.Now().Before(deadline) && runID == "" {
+		if d, derr := c.DescribeWorkflowExecution(ctx, wfID, ""); derr == nil &&
+			d.GetWorkflowExecutionInfo().GetStatus() == enumspb.WORKFLOW_EXECUTION_STATUS_RUNNING {
+			runID = d.GetWorkflowExecutionInfo().GetExecution().GetRunId()
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if runID == "" {
+		t.Fatalf("the pump never started a RUNNING child at %s", wfID)
+	}
+	run := c.GetWorkflow(ctx, wfID, runID)
+	wctx, cancel := context.WithTimeout(ctx, 10*time.Minute)
+	defer cancel()
+	if err := run.Get(wctx, nil); err != nil {
+		t.Fatalf("the activity child %s did not complete cleanly: %v", id, err)
+	}
+	return run
+}
+
+// pumpReplayCases is every captured pump/supervision history, one per fence arm the pump can
+// still record plus the supervision branch plus the child half of the lease.
+//
+// WHAT IS NOT COVERED, stated rather than implied:
+//
+//   - "pump-drain-pause-before-continue-as-new" v1. Its GetVersion is called only once
+//     pumpShouldContinueAsNew is already true, i.e. past pumpHistoryBudget (4000 events). No
+//     capture can reach it — 4000 events is hours of cascade — so that fence is pinned by
+//     Test_Pump_DrainGate_DefaultVersion_ContinuesAsNew and
+//     Test_Pump_DrainPause_StopsTheCascadeInsteadOfContinuing and by nothing here. The whole
+//     ContinueAsNew boundary is therefore unfixtured, which is the shape's riskiest ten
+//     lines: carry for Task 16.
+//   - Every fence's DefaultVersion arm, for the reason in the section header.
+func pumpReplayCases() []pumpReplayCase {
+	return []pumpReplayCase{
+		{
+			// THE WHOLE FRONTIER, THEN QUIESCENCE. Two independent rows go out in ONE pass (the
+			// property that replaced the serial cascade), both children run their merge tail
+			// through the lease, and the pump reconciles both off their FUTURES and returns
+			// quiet. It records: the eligibility ladder at changeLedgerPartialResume v1 +
+			// changeDesignActivitiesDispatchable v1, changePumpHonorsRecordedPause v2 on its
+			// FALSE arm, pump-pause-decode-any v1 and pump-pause-before-dispatch v1 both with
+			// nothing pending, the selector park, the reconcile, and the lease granted → released
+			// → re-granted. It is the only fixture that records the lease invariant at all.
+			name: "pump-dispatch-then-quiesce",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+					pumpReplayActivity("C-TWO", "todo-list-manager"),
+				), nil)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// A RECORDED PAUSE MET BY A PUMP THAT IS ALREADY CASCADING —
+			// changePumpHonorsRecordedPause v2's TRUE arm. The pause is a STORE write, not a
+			// signal, which is exactly the distinction that gate tells apart from the other
+			// three pause checks.
+			//
+			// THE 20-EVENT FLOOR IS WHY IT IS DRIVEN THIS WAY. A pump that meets a recorded
+			// pause on its FIRST wake-up records ~10 events and would fail the floor, so this
+			// driver lets it dispatch the whole frontier first and records the pause underneath
+			// it. The child is held on the production observe ladder (runningPolls) so that it
+			// is still in flight when the pump's 30s reconcile brings it back to the gate — the
+			// cascade is stopped while work is in the air, which is the state an operator halt
+			// actually produces.
+			name: "pump-recorded-pause-quiet-return",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+					pumpReplayActivity("C-TWO", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, run.GetID())
+				r.ps.setOperatorPaused("operator halt with the cascade in flight")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// A PAUSE SIGNAL CONSUMED AT DISPATCH GATE 2 — pump-pause-before-dispatch v1's TRUE
+			// arm, the one arm no other fixture takes. The pause is delivered while the pump is
+			// inside a verdictBlocked record, i.e. after readProject and INSIDE the frontier
+			// loop, which is precisely the window that gate covers: "a pause DELIVERED BEFORE
+			// the dispatching workflow task starts". NO child is started, and that absence is
+			// the assertion — the history records two durable failure records and then a quiet
+			// return, with no StartChildWorkflowExecutionInitiated anywhere in it.
+			name: "pump-signal-pause-at-gate-two",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				r := pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-BAD-ONE", "todo-list-managr"),
+					pumpReplayActivity("C-BAD-TWO", "todo-lst-manager"),
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), nil)
+				// THE HOLD MUST BE SHORTER THAN THE ACTIVITY'S OWN TIMEOUT, and the first
+				// attempt at this fixture proved it the hard way: 20 s against
+				// recordActivityOptions' 10 s StartToClose made the record time out, retry, and
+				// sleep again — nine attempts and six minutes with no terminal in sight. Four
+				// seconds leaves the driver a wide window and the Activity six seconds of head
+				// room.
+				r.ps.failDelay = 4 * time.Second
+				return r
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitFailures(t, r.ps, 2)
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt between the read and the frontier")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// G-P5's DURABLE RECORD, AND THE FRONTIER CONTINUING PAST IT. The serial pump
+			// RETURNED on verdictBlocked, so one plan defect took the whole frontier down with
+			// it; this history records the failure write and then the child start for the row
+			// BEHIND the defect. It ends on the fourth and last pause path — the selector's own
+			// pause arm, a pause that lands while the pump is PARKED — which no other fixture
+			// records either.
+			name: "pump-blocked-writes-sticky-failure",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-BAD", "todo-list-managr"),
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, r deliveryReplayRig) (string, string, bool) {
+				run := pumpReplayStartPump(ctx, t, c, tq)
+				d := pumpReplayAwaitDispatch(ctx, t, c, run.GetID())
+				if !d.Dispatched {
+					t.Fatalf("the frontier must continue past the blocked row; the pump dispatched nothing: %+v", d)
+				}
+				pumpReplayAwaitFailures(t, r.ps, 1)
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt while the pump is parked")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// THE SUPERVISION WORKFLOW, which has been on the frozen list and in the golden with
+			// no fixture at all since 4b1. RECORD → RELAY → CANCEL behind its one GetVersion
+			// ("pause-relays-to-pump" v1), against the REAL intervention engine and the
+			// Manager's real policy.
+			//
+			// A REAL PUMP IS STARTED FIRST, and that is what makes this the interesting arm. The
+			// relay's whole purpose is the case the branch documents — "a pump already cascading
+			// holds a head-state snapshot from before the record, so the relayed signal is what
+			// stops it" — and a relay into an empty namespace records RA NotFound and the
+			// tolerated arm instead. So the pump is put where production has one, its child is
+			// held on the observe ladder so it is still cascading when the pause lands, and the
+			// history records deliverSignal COMPLETING. (The pump's own history is not exported
+			// here; pump-recorded-pause-quiet-return is the fixture for what it does next.)
+			name: "supervision-pause-record-relay-cancel",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-ONE", "todo-list-manager"),
+				), func(p *csFakePipeline) { p.runningPolls = 4 })
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				pump := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, pump.GetID())
+				run, err := c.ExecuteWorkflow(ctx, client.StartWorkflowOptions{
+					ID: pauseTargetWorkflowID(shapeProjectID), TaskQueue: tq,
+				}, executionKindProjectSupervision, projectSupervisionInput{ProjectID: shapeProjectID})
+				if err != nil {
+					t.Fatalf("start the supervision workflow: %v", err)
+				}
+				pumpReplaySignalPause(ctx, t, c, run.GetID(), "operator halt")
+				deliveryReplayAwaitDone(ctx, t, run)
+				return run.GetID(), run.GetRunID(), false
+			},
+		},
+		{
+			// THE CHILD HALF OF THE LEASE, at changeActivityMainWriteLease v1 — the fence the
+			// pump commit added, whose DefaultVersion arm is what kept the eight post-4b1
+			// fixtures green and whose v1 arm therefore guarded a path NO fixture exercised.
+			// This is that fixture: a child started BY A REAL PUMP, which asks for the lease,
+			// is granted it, runs its merge tail and reports its terminal. Both v1 sites
+			// (requestMainWriteLease and signalActivityFinished) are Activity commands in a
+			// recorded position, which is exactly what a non-determinism failure is made of.
+			// Its activity id is UNIQUE to this case (C-LEASE, not C-ONE) so that no other
+			// case's leftover can ever occupy the workflow id this one exports.
+			name: "child-lease-granted-and-released",
+			rig: func(_ *testing.T, c client.Client) deliveryReplayRig {
+				return pumpReplayPumpRig(c, pumpReplayProject(
+					pumpReplayActivity("C-LEASE", "todo-list-manager"),
+				), nil)
+			},
+			drive: func(ctx context.Context, t *testing.T, c client.Client, tq string, _ deliveryReplayRig) (string, string, bool) {
+				pump := pumpReplayStartPump(ctx, t, c, tq)
+				pumpReplayAwaitDispatch(ctx, t, c, pump.GetID())
+				child := pumpReplayAwaitChildDone(ctx, t, c, "C-LEASE")
+				// The PUMP is left to drain on its own; this fixture is the child's history.
+				deliveryReplayAwaitDone(ctx, t, pump)
+				return child.GetID(), child.GetRunID(), false
+			},
+		},
+	}
+}
+
+// Test_Capture_PumpHistories is the CAPTURE TOOL behind the post-4b2-pump fixtures
+// (env-gated, exactly like Test_Capture_DeliveryHistories).
+//
+//	CONSTRUCT_HISTORY_CAPTURE=1 GOWORK=off go test ./internal/manager/delivery/ \
+//	    -run Test_Capture_PumpHistories -count=1 -v -timeout 40m
+//
+// IT NEEDS THE `temporal` CLI ON PATH and that requirement is stated in NO README and no
+// Makefile target — only in the t.Fatalf below, so a fresh checkout discovers it by failing.
+// Earmarked for Task 17.
+func Test_Capture_PumpHistories(t *testing.T) {
+	if os.Getenv("CONSTRUCT_HISTORY_CAPTURE") != "1" {
+		t.Skip("capture tool: set CONSTRUCT_HISTORY_CAPTURE=1 to (re)write testdata/replay/post-4b2-pump/ fixtures")
+	}
+	bin, err := exec.LookPath("temporal")
+	if err != nil {
+		t.Fatalf("the capture needs the temporal CLI on PATH: %v", err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 40*time.Minute)
+	defer cancel()
+	srv, err := testsuite.StartDevServer(ctx, testsuite.DevServerOptions{
+		ExistingPath:  bin,
+		ClientOptions: &client.Options{Namespace: "pump-replay-capture"},
+		LogLevel:      "error",
+	})
+	if err != nil {
+		t.Fatalf("start dev server: %v", err)
+	}
+	defer func() { _ = srv.Stop() }()
+	c := srv.Client()
+
+	only := os.Getenv("CONSTRUCT_HISTORY_CAPTURE_CASE")
+	for i, sc := range pumpReplayCases() {
+		if only != "" && only != sc.name {
+			continue
+		}
+		t.Run(sc.name, func(t *testing.T) {
+			r := sc.rig(t, c)
+			// ONE TASK QUEUE PER CASE, and one worker on it. The pump, the supervision workflow
+			// and the child all live on the SAME queue here because they do in production too
+			// (one Manager, one queue) — and because the pump's children inherit its queue.
+			tq := fmt.Sprintf("pump-replay-capture-%d", i)
+			w := worker.New(c, tq, worker.Options{})
+			RegisterWorker(w, genWorkerManifest{
+				Workflows:       pumpReplayRegistrations(r.wf),
+				ActivityOptions: deliveryActivityOptions(),
+				Activities:      r.activities(),
+			})
+			if err := w.Start(); err != nil {
+				t.Fatalf("start worker: %v", err)
+			}
+			defer w.Stop()
+			// THE CLEANUP IS A DEFER AND IT RUNS ON FAILURE TOO, which the first full capture
+			// run proved is the whole point: every case reuses the FIXED workflow ids
+			// (pumpWorkflowID/deliveryActivityWorkflowID over one project id, because the child
+			// addresses its lease request at the pump's production id and cannot be given a
+			// per-case one), a case that t.Fatalf'd left its pump RUNNING, and the next case's
+			// start collided with it and timed out waiting for a dispatch decision that
+			// belonged to the previous case. Terminating BEFORE the drive as well covers a
+			// leftover from a previous invocation of the tool.
+			pumpReplayTerminateLeftovers(ctx, c)
+			defer pumpReplayTerminateLeftovers(ctx, c)
+			wfID, runID, open := sc.drive(ctx, t, c, tq, r)
+			if err := replayExportHistory(ctx, c, wfID, runID, pumpReplayFixturePath(sc)); err != nil {
+				t.Fatalf("export %s: %v", pumpReplayFixturePath(sc), err)
+			}
+			if open {
+				_ = c.TerminateWorkflow(ctx, wfID, "", "replay capture done")
+			}
+		})
+	}
+}
+
+// pumpReplayTerminateLeftovers terminates the pump, the supervision workflow and every
+// activity child of the fixed project id, ignoring "not found". A capture case that ends
+// while a child is deliberately still in flight (three of the six do) would otherwise leave
+// that child polling into the NEXT case's worker — and a case that FAILED would leave its
+// pump holding the id the next case needs.
+func pumpReplayTerminateLeftovers(ctx context.Context, c client.Client) {
+	ids := []string{pumpWorkflowID(shapeProjectID), pauseTargetWorkflowID(shapeProjectID)}
+	for _, it := range []ActivityID{"C-ONE", "C-TWO", "C-BAD", "C-BAD-ONE", "C-BAD-TWO", "C-LEASE"} {
+		ids = append(ids, deliveryActivityWorkflowID(shapeProjectID, it))
+	}
+	for _, id := range ids {
+		_ = c.TerminateWorkflow(ctx, id, "", "replay capture done")
+	}
+}
+
+// Test_Replay_PumpHistories replays every captured pump/supervision history against the
+// current code. It mirrors Test_Replay_DeliveryHistories exactly: a missing fixture FAILS (it
+// never skips), a fixture too thin to be a shape fails, and the orphan sweep that fails on a
+// fixture no case names lives in that test, which unions both case lists.
+func Test_Replay_PumpHistories(t *testing.T) {
+	for _, sc := range pumpReplayCases() {
+		path := pumpReplayFixturePath(sc)
+		t.Run(sc.name, func(t *testing.T) {
+			if _, err := os.Stat(path); err != nil {
+				t.Fatalf("fixture %s is missing (capture it with CONSTRUCT_HISTORY_CAPTURE=1): %v", path, err)
+			}
+			if n := deliveryReplayEventCount(t, path); n < deliveryReplayMinEvents {
+				t.Errorf("fixture %s holds %d events; a run that reached a terminal has more than %d, "+
+					"so this history records a park rather than a shape", path, n, deliveryReplayMinEvents)
+			}
+			rep := worker.NewWorkflowReplayer()
+			for _, reg := range pumpReplayRegistrations(sc.rig(t, nil).wf) {
+				rep.RegisterWorkflowWithOptions(reg.Fn, workflow.RegisterOptions{Name: reg.Name})
+			}
+			if err := rep.ReplayWorkflowHistoryFromJSONFile(nil, path); err != nil {
+				t.Fatalf("replaying %s against the current code: %v", path, err)
+			}
+		})
+	}
+}
 
 // ===========================================================================
 // D1 — INTEGRATION-PENDING ROWS, THE PUMP HALF (architect (D), D.1 / D.2 / D.4).
@@ -27242,6 +27847,57 @@ func Test_Pump_GrantsAtMostOneLease(t *testing.T) {
 	}
 }
 
+// pumpLeaseWireBytes is a lease message in the form messageBus.deliverSignal ACTUALLY puts
+// on the wire: raw JSON bytes, which the Temporal data converter tags binary/plain. Every
+// other lease test in this file signals a STRUCT, which the converter tags json/plain — and
+// that difference is not cosmetic, it is the difference between the lease working and the
+// lease being inert. See the two tests below.
+func pumpLeaseWireBytes(t *testing.T, v any) []byte {
+	t.Helper()
+	b, err := json.Marshal(v)
+	if err != nil {
+		t.Fatalf("encode the wire form: %v", err)
+	}
+	return b
+}
+
+// THE LEASE MUST SURVIVE THE TRANSPORT IT ACTUALLY RIDES, and before stage 4b2 Task 14 it
+// did not — this test is RED against the committed pump and it is the defect the first
+// capture run found.
+//
+// Every lease test above signals a struct, so the payload is json/plain and Receive into
+// activityLeaseRequest works. PRODUCTION does not do that: the child marshals to []byte and
+// hands it to messageBus.deliverSignal, the client encodes it binary/plain, and the SDK's
+// ByteSlicePayloadConverter can only assign such a payload to a *[]byte. A struct target
+// therefore FAILS to deserialise, and a failed signal assign is invisible to the workflow —
+// the SDK logs "Corrupted signal received on channel activityLeaseRequested" and drops the
+// message. Measured on a real dev server: no request reached the pump, no grant reached a
+// child, every merge tail armed activityLeaseGrantWaitBudget and sat there for two hours of
+// workflow time before running unleased.
+//
+// It failed OPEN, which is why nothing else caught it: the tails ran on the row-level CAS
+// exactly as the documented restart path says they would. Silence was the whole symptom.
+func Test_Pump_ALeaseRequestInTheWireFormTheBusProducesIsNotDropped(t *testing.T) {
+	bus := &recordingSignalBus{}
+	rig := newLeasePumpRig(bus, 10*time.Minute)
+	rig.env.RegisterDelayedCallback(func() {
+		rig.env.SignalWorkflow(signalActivityLeaseRequested,
+			pumpLeaseWireBytes(t, activityLeaseRequest{ActivityID: "C-ONE"}))
+	}, time.Minute)
+
+	if _, err := rig.run(t); err != nil {
+		t.Fatalf("pump error: %v", err)
+	}
+	got := bus.grants(t)
+	if len(got) != 1 {
+		t.Fatalf("a lease request delivered in messageBus.deliverSignal's OWN wire form (binary/plain) "+
+			"must be read: the pump answered %d grant(s), so the whole main-write lease is inert in production", len(got))
+	}
+	if got[0].ActivityID != "C-ONE" || got[0].Epoch != 1 {
+		t.Fatalf("want C-ONE granted at epoch 1, got %+v", got[0])
+	}
+}
+
 // VALIDATION, because Temporal does not authenticate a signaler. An id this pump never
 // started is a CLAIM, not a fact: it is logged and dropped, never granted. Without this a
 // stray signal — a replayed message, a mis-addressed relay, a bug in a sibling Manager —
@@ -27464,6 +28120,45 @@ func Test_DeliveryActivity_TheMergeTailAsksThePumpForTheMainWriteLease(t *testin
 	}
 	if !reported {
 		t.Error("the walk's terminal must be reported to the pump, or the lease is held by a finished activity until its deadline")
+	}
+}
+
+// AND THE GRANT MUST SURVIVE IT TOO — the child half of the same defect (stage 4b2 Task 14).
+// The pump marshals activityLeaseGrant to bytes and delivers them through
+// messageBus.deliverSignal, so the child's grant channel carries binary/plain; receiving
+// into the struct dropped it, and the tail then waited out the WHOLE
+// activityLeaseGrantWaitBudget before running unleased.
+//
+// THE ASSERTION IS THE CLOCK, because it is the only observable: a dropped grant does not
+// fail anything — the tail eventually runs and the walk completes green, which is exactly
+// how this shipped. The test environment skips time, so two hours of WORKFLOW time pass in
+// milliseconds of wall clock and only env.Now() says so.
+func Test_DeliveryActivity_AGrantInTheWireFormThePumpProducesIsNotDropped(t *testing.T) {
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+	ps := newFakeProjectStateWithPolicy(projectstate.ReviewPolicy{})
+	pipe := &csFakePipeline{phase: PipelineSucceeded, episode: csCaptureSeamSummary()}
+	deps := gateDeps(ps)
+	deps.Review = review.NewReviewEngine()
+	wf := csNewWorkflows(deps)
+	registerDeliveryActivityWithBus(env, wf, ps, pipe, &recordingSignalBus{})
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityLeaseGranted,
+			pumpLeaseWireBytes(t, activityLeaseGrant{ActivityID: "C-Orders", Epoch: 7}))
+	}, time.Millisecond)
+	start := env.Now()
+
+	env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID: "shape-p", ActivityID: "C-Orders", Activity: sampleActivity(),
+	})
+
+	if err := env.GetWorkflowError(); err != nil {
+		t.Fatalf("workflow error: %v", err)
+	}
+	if elapsed := env.Now().Sub(start); elapsed >= activityLeaseGrantWaitBudget {
+		t.Fatalf("a grant delivered in the pump's OWN wire form (binary/plain) must be read: the walk spent %s, "+
+			"i.e. it waited out the whole %s budget and ran UNLEASED, which is the lease being inert in production",
+			elapsed, activityLeaseGrantWaitBudget)
 	}
 }
 

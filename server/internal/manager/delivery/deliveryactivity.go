@@ -3456,7 +3456,13 @@ func (wf *csWorkflows) requestMainWriteLease(
 		var grant activityLeaseGrant
 		timedOut := false
 		sel := workflow.NewSelector(ctx)
-		sel.AddReceive(grants, func(c workflow.ReceiveChannel, _ bool) { c.Receive(ctx, &grant) })
+		// DECODED THROUGH pumpReceiveSignalBlocking, not straight into the struct. The grant
+		// arrives over messageBus.deliverSignal as binary/plain bytes, and a struct target
+		// makes the SDK log "Corrupted signal" and DROP it — measured, stage 4b2 Task 14. This
+		// child then waited out the whole two-hour budget and ran unleased, every time.
+		sel.AddReceive(grants, func(c workflow.ReceiveChannel, _ bool) {
+			_ = pumpReceiveSignalBlocking(ctx, c, &grant)
+		})
 		sel.AddFuture(timeout, func(workflow.Future) { timedOut = true })
 		sel.Select(ctx)
 		switch {

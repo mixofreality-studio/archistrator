@@ -160,6 +160,95 @@ type activityFinishedSignal struct {
 	Outcome    projectstate.ActivityOutcome `json:"outcome,omitempty"`
 }
 
+// pumpLeaseSignal is the constraint pumpReceiveSignal decodes into: the three lease-channel
+// payloads and nothing else. It is a closed union rather than `any` so that a fourth signal
+// kind cannot be routed through this decoder without being named here.
+type pumpLeaseSignal interface {
+	activityLeaseRequest | activityLeaseGrant | activityFinishedSignal
+}
+
+// pumpReceiveSignal decodes one message off a lease channel, and it exists because the
+// obvious code was WRONG ON THE WIRE — measured on a real dev server, not reasoned about.
+//
+// THE DEFECT IT FIXES (stage 4b2 Task 14). All three lease messages are delivered through
+// messageBus.deliverSignal, which hands the Temporal client raw []byte and therefore encodes
+// them as binary/plain. The SDK's ByteSlicePayloadConverter can only assign such a payload to
+// a *[]byte, so ReceiveChannel.Receive into a STRUCT fails, and a failed assign is not an
+// error a workflow can see: the SDK logs "Corrupted signal received on channel X" and DROPS
+// the message. The first capture of pump-dispatch-then-quiesce recorded exactly that —
+//
+//	ERROR Deserialization error. Corrupted signal received on channel activityLeaseRequested.
+//	  WorkflowType constructionPumpNextActivity
+//	  Error payload item 0: type *delivery.activityLeaseRequest: type is not *[]byte
+//	DEBUG NewTimer WorkflowID shape-p:activity:C-ONE Duration 2h0m0s
+//
+// — every child arming activityLeaseGrantWaitBudget and the pump never seeing a request. The
+// whole main-write lease was INERT end to end: no request reached the pump, no grant reached
+// a child, no finish reached the pump. It failed open every time (which is why nothing else
+// caught it: the tails ran unleased on the row-level mechanism, exactly as the restart path
+// is documented to), and it cost two hours of workflow time per activity.
+//
+// THIS FILE ALREADY KNEW. pumpPauseRequested decodes the pause channel into `any` for this
+// precise reason and says so — "a struct target would drop the former; `any` accepts both" —
+// and the lease channels were written against the same transport without inheriting it.
+//
+// SO: receive into `any` (which the converter serves for BOTH wire forms) and normalise.
+// json/plain — a struct signalled directly, which every test environment and no production
+// caller produces — arrives as map[string]any; binary/plain arrives as []byte. Both are
+// re-decoded into the typed message. Deterministic: json.Marshal sorts map keys, and a
+// receive-plus-decode emits no workflow command at all, which is why this change cannot move
+// a recorded command sequence and the eight post-4b1 child fixtures stay green.
+//
+// A PAYLOAD THAT DECODES INTO NEITHER IS DROPPED, and that is the opposite of the pause
+// channel's rule on purpose: an undecodable PAUSE still counts as a pause because the channel
+// NAME carries the operator's intent, whereas a lease message whose ACTIVITY ID cannot be
+// read names nobody — granting or releasing on it would be acting on a message the pump
+// cannot attribute. The caller logs the drop.
+// It reports (decoded, present). The two answers are SEPARATE because the drain loop needs
+// them to be: "nothing left on this channel" ends the loop, while "one message taken and
+// dropped" must not — a drain that stopped on an undecodable message would leave the
+// decodable ones behind it to be discarded at the ContinueAsNew boundary, which is the exact
+// loss rule 2 exists to prevent.
+func pumpReceiveSignal[T pumpLeaseSignal](ctx workflow.Context, ch workflow.ReceiveChannel, out *T) (decoded, present bool) {
+	var raw any
+	if !ch.ReceiveAsync(&raw) {
+		return false, false
+	}
+	return pumpDecodeSignal(ctx, raw, out), true
+}
+
+// pumpReceiveSignalBlocking is pumpReceiveSignal for a selector callback, where the message
+// is already known to be there and Receive is the required read. It reports false on a
+// payload it cannot attribute, having consumed it.
+func pumpReceiveSignalBlocking[T pumpLeaseSignal](ctx workflow.Context, ch workflow.ReceiveChannel, out *T) bool {
+	var raw any
+	ch.Receive(ctx, &raw)
+	return pumpDecodeSignal(ctx, raw, out)
+}
+
+func pumpDecodeSignal[T pumpLeaseSignal](ctx workflow.Context, raw any, out *T) bool {
+	var b []byte
+	switch v := raw.(type) {
+	case []byte:
+		b = v
+	case map[string]any:
+		m, err := json.Marshal(v)
+		if err != nil {
+			workflow.GetLogger(ctx).Error("pump: a lease-channel payload could not be re-encoded; dropping it", "err", err.Error())
+			return false
+		}
+		b = m
+	default:
+		workflow.GetLogger(ctx).Error("pump: a lease-channel payload arrived in an unreadable wire form; dropping it")
+		return false
+	}
+	if err := json.Unmarshal(b, out); err != nil {
+		workflow.GetLogger(ctx).Error("pump: a lease-channel payload could not be decoded; dropping it", "err", err.Error())
+		return false
+	}
+	return true
+}
+
 // pumpDispatch is THIS pump RUN's synchronous dispatch decision, surfaced to the
 // façade via the queryPumpDispatch Query so ExecuteNextActivity can return the run's
 // outcome (dispatched X, or quiescent) WITHOUT blocking on the background cascade. A
@@ -980,12 +1069,16 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 	})
 	sel.AddReceive(chans.lease, func(c workflow.ReceiveChannel, _ bool) {
 		var req activityLeaseRequest
-		c.Receive(ctx, &req)
+		if !pumpReceiveSignalBlocking(ctx, c, &req) {
+			return
+		}
 		st.requests = append(st.requests, req.ActivityID)
 	})
 	sel.AddReceive(chans.finish, func(c workflow.ReceiveChannel, _ bool) {
 		var fin activityFinishedSignal
-		c.Receive(ctx, &fin)
+		if !pumpReceiveSignalBlocking(ctx, c, &fin) {
+			return
+		}
 		st.applyFinish(ctx, in, fin)
 	})
 	// THE ARM ORDER IS DETERMINISTIC, and it was not (fix round 1, F3). This loop used to
@@ -1075,16 +1168,16 @@ func (st *pumpState) drainForContinue(ctx workflow.Context, in pumpInput, chans 
 	}
 	for {
 		var fin activityFinishedSignal
-		if chans.finish.ReceiveAsync(&fin) {
-			if !drop(pumpCarriedFinish, fin.ActivityID) {
+		if decoded, present := pumpReceiveSignal(ctx, chans.finish, &fin); present {
+			if decoded && !drop(pumpCarriedFinish, fin.ActivityID) {
 				st.Carried = append(st.Carried, pumpCarriedSignal{
 					Kind: pumpCarriedFinish, ActivityID: fin.ActivityID, Outcome: fin.Outcome})
 			}
 			continue
 		}
 		var req activityLeaseRequest
-		if chans.lease.ReceiveAsync(&req) {
-			if !drop(pumpCarriedLeaseRequest, req.ActivityID) {
+		if decoded, present := pumpReceiveSignal(ctx, chans.lease, &req); present {
+			if decoded && !drop(pumpCarriedLeaseRequest, req.ActivityID) {
 				st.Carried = append(st.Carried, pumpCarriedSignal{
 					Kind: pumpCarriedLeaseRequest, ActivityID: req.ActivityID})
 			}
