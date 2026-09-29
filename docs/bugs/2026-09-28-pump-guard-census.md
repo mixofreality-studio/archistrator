@@ -38,22 +38,29 @@ census disagree about the ID set, so the two halves cannot drift.
 
 | | |
 |---|---:|
-| Guard rows total | **37** |
+| Guard rows total | **38** |
 | `pumpnextactivity.go` | 22 |
 | `replansweep.go` | 2 |
-| `pumpsweep.go` | 6 |
+| `pumpsweep.go` | 7 |
 | `projectsupervision.go` | 7 |
 | Rows the 4b2 plan's brief names | 14 |
-| **Rows this census found that the brief does not name** | **23** |
-| **Rows NOTHING armed before this task** | **15** |
-| Rows armed by a test written in this task | 15 |
-| Rows with no pin after this task | **0** |
+| **Rows this census found that the brief does not name** | **24** |
+| **Rows NOTHING armed before the census** | **16** |
+| Rows armed by a test written for the census | 16 |
+| Rows with no pin | **0** |
+
+**One of the sixteen is not Task 1's.** `G-S7` — `PARENT_CLOSE_POLICY_ABANDON` on the
+SWEEP's child pump start — was missed by the census and found by its reviewer, who
+measured that deleting the policy leaves the **entire delivery package GREEN**. Stage 4b2
+Task 4 added the row, the pin and the code comment the line never had. A census that can
+miss a row is why the meta-tests exist; a census that cannot be added to after the fact
+would be worse.
 
 ## THE UNARMED LIST — the census's whole point
 
-These fifteen guards had **no test at all** before this task. Each is a line whose removal
-the entire suite would have accepted in silence — the exact shape of the eight 4b1 lost.
-Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
+These sixteen guards had **no test at all** before they were pinned. Each is a line whose
+removal the entire suite would have accepted in silence — the exact shape of the eight 4b1
+lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 
 | ID | The guard nothing armed | Why the silence is dangerous |
 |---|---|---|
@@ -65,6 +72,7 @@ Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 | **G-P15** | the failure RECORD's own error arm — a failed `RecordActivityFailed` fails the run | The loudness of G-P5 is not best-effort. Swallow this and a blocked frontier is invisible again, which is the defect G-P5 exists to end. |
 | **G-P14** | the 1 s pace between cascade iterations | An unpaced pump busy-spins ContinueAsNew. The constant appeared in **zero** test files. |
 | **G-P17** | `PARENT_CLOSE_POLICY_ABANDON` on the child start | `PARENT_CLOSE` appears in **no** test file in the package. The pump's own close (or ContinueAsNew) killing every in-flight activity is a silent, catastrophic regression. |
+| **G-S7** | `PARENT_CLOSE_POLICY_ABANDON` on the **SWEEP's** child pump start | **The row the census itself missed.** Measured by Task 1's reviewer: removing the policy leaves the entire delivery package GREEN. It is G-P17 one level up, and the level is what makes it worse — a sweep tick lives for *milliseconds* (it waits for the start ack alone, G-S4) and the pump it starts runs for hours, so the default TERMINATE kills **every pump the platform starts by itself** a moment after it is born. The platform's whole self-start path, with no symptom but pumps that vanish. |
 | **G-P21** | the eligibility ladder's **second** rung (`design-activities-dispatchable`) | Rung 1 has a DefaultVersion test; rung 2 has none. A dropped rung silently un-dispatches the three design activities. |
 | **G-R1** | `ReplanSweepWorkflow`'s `in.ProjectID == nil` arm | No test ever ran the workflow with a nil project. **Protects nothing that survives** — Task 11 shows the arm has no reachable caller. |
 | **G-R2** | `ReplanSweepWorkflow`'s `isReadNotFound` arm | Same shape as G-P3, same silence, and it dies with the workflow. |
@@ -116,16 +124,17 @@ before deleting them, not assume it.**
 
 ---
 
-## `pumpsweep.go` — 6 guards (Task 4 changes the phase filter, G-S2)
+## `pumpsweep.go` — 7 guards (Task 4 deleted the phase filter, G-S2, and added G-S7)
 
 | Guard | Line | What it protects | BreaksAs | PinnedBy |
 |---|---|---|---|---|
 | **G-S1** | `:94-96` | `s.OperatorPaused` ⇒ skip the project | The sweep must not silently override an operator pause every 30 s. **Task 4 deleted the line ABOVE it (G-S2) and did not touch this one** — which makes the pause the ONLY thing that takes a project out of the fan-out. | PauseProject stops the cascade for at most 30 seconds. | `Test_PumpSweep_ExcludesPausedProject_IncludesUnpaused` + `Test_PumpSweep_StillSkipsAPausedProject` |
-| **G-S2** | `:83-99` | **NO phase filter.** Task 4 DELETED `s.Phase != PhaseConstruction`, which had been wrong for the three design activities since 4b1 mirrored the old blanket gate that `nextEligibleActivity` replaced with `admissibleInPhase` — a Phase-1/2 project was swept never, and only a manual `Begin` started its design walk. Nothing replaces it: the per-project pump is already a quiet no-op (`verdictQuiescent` returns with no write and no continue-as-new), so the filter only ever saved a child start, and re-deriving the admission rule here would be a second copy of the rule that just drifted. | The filter back, in any form: a project at phase 1 or 2 self-starts never. | `Test_PumpSweep_SweepsAProjectInDesignPhases` |
+| **G-S2** | `:83-99` | **NO phase filter.** Task 4 DELETED `s.Phase != PhaseConstruction` and put nothing in its place | The filter had been wrong for the three design activities since 4b1: it mirrored the blanket gate `nextEligibleActivity` replaced with `admissibleInPhase`, so a Phase-1/2 project was swept never and only a manual `Begin` started its design walk. Nothing replaces it because the per-project pump is already a quiet no-op (`verdictQuiescent` returns with no write and no continue-as-new), so the filter only ever saved a child start — and re-deriving the admission rule here would be a second copy of the rule that just drifted. | The filter back, in any form: a project at phase 1 or 2 self-starts never. | `Test_PumpSweep_SweepsAProjectInDesignPhases` |
 | **G-S3** | `:94` | `s.OperatorPaused != nil` — a nil pointer is NOT paused | A summary that omits the flag must not be read as paused; that would silently stop every project on an older envelope. | The whole platform stops sweeping after an envelope change. | `Test_PumpSweep_NilOperatorPaused_TreatedAsNotPaused` |
 | **G-S4** | `:106-116` | wait for the **start ack only** (`GetChildWorkflowExecution().Get`), and swallow `WorkflowExecutionAlreadyStarted` as the DESIRED outcome | The sweep must stay short so the 30 s cadence is not blocked by a long cascade; and a still-cascading project must be left alone, not raced. | Awaiting completion blocks the whole platform fan-out behind one project's drain; treating AlreadyStarted as an error fails every tick on every healthy cascading project. | `Test_PumpSweep_DuplicateProjectIDInOneTick_SecondCollapsesOntoFirst` |
 | **G-S5** | `:77-80` | `ProjectStateListProjects`'s error arm — the whole tick FAILS | No partial fan-out: a truncated enumeration must not read as "these are all the projects". | A catalog fault silently pumps a subset of the platform and the rest look drained. | `Test_PumpSweep_AFailedListProjects_FailsTheWholeTick` |
 | **G-S6** | `:65` | `pumpSweepOwnerScope` is a **non-empty** constant | `projectStateAccess.ListProjects` answers `fwra.ContractMisuse` on an empty owner; both real catalog implementations then discard the value entirely. | Every sweep tick fails platform-wide, with a Schedule log as the only symptom. | `Test_PumpSweep_TheOwnerScopeIsNeverEmpty` |
+| **G-S7** | `:100` | `ParentClosePolicy: PARENT_CLOSE_POLICY_ABANDON` on the child pump start — **the row this census missed** | The pump is its own durable execution, outliving the millisecond-long tick that started it. The default policy is TERMINATE. | Every pump the 30 s Schedule starts is killed when its tick closes: nothing on the platform ever self-starts, and the only symptom is pumps that vanish. Removing the line left the whole delivery package GREEN. | `Test_PumpSweep_TheChildPumpIsAbandonedSoTheTickNeverKillsIt` |
 
 ---
 

@@ -25585,8 +25585,9 @@ func pumpGuardCensusReplanSweep() []pumpGuard {
 	}
 }
 
-// pumpGuardCensusPumpSweep is pumpsweep.go's six guards. Task 4 changes G-S2 and must
-// not touch G-S1, which is the line directly below it.
+// pumpGuardCensusPumpSweep is pumpsweep.go's seven guards. Task 4 deleted G-S2's filter
+// without touching G-S1, the line directly below it, and ADDED G-S7 — the row the census
+// missed, and the one whose removal the whole package accepted in silence.
 func pumpGuardCensusPumpSweep() []pumpGuard {
 	return []pumpGuard{
 		{"G-S1", "pumpsweep.go:94-96", "an OperatorPaused project is excluded from the fan-out",
@@ -25607,6 +25608,12 @@ func pumpGuardCensusPumpSweep() []pumpGuard {
 		{"G-S6", "pumpsweep.go:65", "the sweep's OwnerScope is non-empty",
 			"ListProjects answers ContractMisuse and every sweep tick fails platform-wide, with a Schedule log as the only symptom",
 			"Test_PumpSweep_TheOwnerScopeIsNeverEmpty"},
+		// G-S7 is the row the census MISSED. Task 1's reviewer found it and measured its
+		// removal as green across this entire package; stage 4b2 Task 4 added the row and
+		// the pin. It is G-P17's twin one level up.
+		{"G-S7", "pumpsweep.go:100", "PARENT_CLOSE_POLICY_ABANDON on the SWEEP's child pump start",
+			"the default policy is TERMINATE, so every pump the 30s Schedule starts is killed a moment later when its millisecond-long tick closes — the platform's whole self-start path, silently",
+			"Test_PumpSweep_TheChildPumpIsAbandonedSoTheTickNeverKillsIt"},
 	}
 }
 
@@ -26141,6 +26148,83 @@ func Test_PumpSweep_AFailedListProjects_FailsTheWholeTick(t *testing.T) {
 func Test_PumpSweep_TheOwnerScopeIsNeverEmpty(t *testing.T) {
 	if strings.TrimSpace(string(pumpSweepOwnerScope)) == "" {
 		t.Fatal("G-S6: an empty OwnerScope is ContractMisuse at the RA — every sweep tick fails platform-wide with a Schedule log as the only symptom")
+	}
+}
+
+// selectorName renders a `pkg.Name` qualified identifier from an AST expression, and ""
+// for anything else. It is the smallest thing that lets a source-shape assertion talk
+// about a named constant without pulling in go/types.
+func selectorName(e ast.Expr) string {
+	sel, ok := e.(*ast.SelectorExpr)
+	if !ok {
+		return ""
+	}
+	pkg, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return ""
+	}
+	return pkg.Name + "." + sel.Sel.Name
+}
+
+// pumpSweepChildOptionsField reads one field of the workflow.ChildWorkflowOptions literal
+// the sweep starts its child pump with — STRUCTURALLY, by parsing pumpsweep.go, rather
+// than by searching the file for a string.
+//
+// The distinction is load-bearing here in a way it was not for G-P17's substring check: the
+// guard now carries a comment that names the policy constant it sets, so a substring test
+// over this file would stay GREEN with the assignment itself deleted. Parsing is what makes
+// "the comment says ABANDON" and "the child start says ABANDON" two different claims.
+func pumpSweepChildOptionsField(t *testing.T, field string) (string, bool) {
+	t.Helper()
+	f, err := parser.ParseFile(token.NewFileSet(), "pumpsweep.go", nil, 0)
+	if err != nil {
+		t.Fatalf("parsing the sweep: %v", err)
+	}
+	var got string
+	var found bool
+	ast.Inspect(f, func(n ast.Node) bool {
+		lit, ok := n.(*ast.CompositeLit)
+		if !ok || selectorName(lit.Type) != "workflow.ChildWorkflowOptions" {
+			return true
+		}
+		for _, el := range lit.Elts {
+			kv, isKV := el.(*ast.KeyValueExpr)
+			if !isKV {
+				continue
+			}
+			if key, isIdent := kv.Key.(*ast.Ident); isIdent && key.Name == field {
+				got, found = selectorName(kv.Value), true
+			}
+		}
+		return true
+	})
+	return got, found
+}
+
+// G-S7. PARENT_CLOSE_POLICY_ABANDON on the SWEEP's child pump start — the row Task 1's
+// census missed, and the one its reviewer measured as the most dangerous of the misses:
+// deleting the policy left the ENTIRE delivery package green.
+//
+// It is G-P17 one level up, and the level matters. G-P17 keeps a pump's own
+// continue-as-new from killing the activity it started; G-S7 keeps a 30-second Schedule
+// TICK — which lives for milliseconds, because it waits for the start ack and nothing else
+// (G-S4) — from killing the hours-long cascade it just started. Under the default policy,
+// TERMINATE, every pump the platform starts by itself would die a moment after it was
+// born, and the only symptom would be projects that never move unless an operator presses
+// Begin. That is the platform's whole self-start path, silently.
+//
+// Asserted at the SOURCE because the test environment does not surface a child's
+// parent-close policy on workflow.Info, and there is no other observer of it. Structurally,
+// not by substring — see pumpSweepChildOptionsField.
+func Test_PumpSweep_TheChildPumpIsAbandonedSoTheTickNeverKillsIt(t *testing.T) {
+	got, found := pumpSweepChildOptionsField(t, "ParentClosePolicy")
+	if !found {
+		t.Fatal("G-S7: the sweep's child pump start sets NO ParentClosePolicy — the default is TERMINATE, " +
+			"so every pump the 30s Schedule starts dies when its tick closes and nothing self-starts on this platform")
+	}
+	if got != "enumspb.PARENT_CLOSE_POLICY_ABANDON" {
+		t.Fatalf("G-S7: the sweep must start its child pump ABANDON; got %s — a cascade that runs for hours "+
+			"cannot be a dependent of a tick that closes in milliseconds", got)
 	}
 }
 

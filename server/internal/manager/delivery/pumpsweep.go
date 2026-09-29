@@ -106,6 +106,15 @@ func (wf *csWorkflows) PumpSweepWorkflow(ctx workflow.Context, _ pumpSweepInput)
 			continue
 		}
 		projectID := ProjectID(s.ProjectID)
+		// THE ABANDON POLICY IS THE PLATFORM'S WHOLE SELF-START PATH (census G-S7, added by
+		// stage 4b2 Task 4 after Task 1's reviewer measured its removal as GREEN across the
+		// entire delivery package). A sweep tick lives for milliseconds: it starts each
+		// project's pump, waits for the START ack only, and closes. A pump is a cascade that
+		// runs for hours. Under the DEFAULT parent-close policy — TERMINATE — every pump this
+		// Schedule starts would be killed a moment later when its tick closed, so nothing the
+		// platform starts by itself would ever get past its first activity, and the only
+		// symptom would be pumps that vanish. It is G-P17's exact twin one level up: there the
+		// pump must not kill the activity it started, here the tick must not kill the pump.
 		cctx := workflow.WithChildOptions(ctx, workflow.ChildWorkflowOptions{
 			WorkflowID:        pumpWorkflowID(projectID),
 			ParentClosePolicy: enumspb.PARENT_CLOSE_POLICY_ABANDON,
