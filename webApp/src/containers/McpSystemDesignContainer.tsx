@@ -455,6 +455,9 @@ export function McpSystemDesignContainer({
               // "all machine checks passed" on a draft the engine has findings for;
               // a client-side copy of the rules is what the move existed to prevent.
               designHealthFindings={designHealth?.findings}
+              // The other half of the stale-basis ack's refusal: a draft or amendment
+              // actually RUNNING. It rides the same one read as the gate above.
+              dispatchRunning={gate.dispatchRunning}
               failedRunUrl={gate.failedRunUrl}
               gateError={gateError}
               needsResearch={false}

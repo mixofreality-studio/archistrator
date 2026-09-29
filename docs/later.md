@@ -55,8 +55,9 @@ log (session scratchpads; summarized in the final QA report).
 ## gtdapp Phase-2 completion (resume point)
 - Re-fire the PM economics answer (F58/F82: question r2c1 seeded on planningAssumptions;
   answer job never dispatched pre-fix) and the architect integrations answer (failed on
-  F80 pre-fix); founder inputs: DAU / revenue-share targets → planningAssumptions
-  amendment (economics currently all zeros).
+  F80 pre-fix); founder inputs: DAU + compute-cost terms → planningAssumptions
+  amendment (economics currently all zeros). Revenue share is NOT one of them any
+  more — the concept left the vocabulary in stage 4b2 by founder ruling.
 - Follow-up Architecture amendment: founder's two change-requests — add http + MCP
   clients (webapp + MCP entry points, agents capture/clarify/engage under an agent
   policy) and rename Persistence Access → Item Access. Comment texts preserved in the

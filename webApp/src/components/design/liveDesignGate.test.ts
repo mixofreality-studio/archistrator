@@ -12,7 +12,7 @@
  */
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { liveDesignGate } from './liveDesignGate.ts';
+import { designAmendmentInFlight, liveDesignGate } from './liveDesignGate.ts';
 import type { ActivityViewWire } from '../activity/activityViewToGraph.ts';
 
 type Revision = ActivityViewWire['tasks'][number]['revisions'][number];
@@ -134,4 +134,42 @@ void test('a sentence with no URL yields no link, and a PASSED attempt never yie
     ).failedRunUrl,
     undefined
   );
+});
+
+// ── The OTHER half of the ack refusal: a draft that is RUNNING (Task 9 review) ──
+// `sessionLive` had collapsed to `draftFailed` alone, so the stale-basis ack stayed
+// ENABLED over an amendment in flight — precisely the merge conflict the popover's own
+// sentence warns about. The predicate lives here, not in the .tsx, so it can be held.
+
+void test('a RUNNING dispatch is reported, and a settled one is not', () => {
+  const running = liveDesignGate(
+    view([{ id: 'missionDraft', revisions: [revision(1, 'passed'), revision(2, 'running')] }]),
+    REF
+  );
+  assert.equal(running.dispatchRunning, true);
+  assert.equal(
+    liveDesignGate(
+      view([{ id: 'missionDraft', revisions: [revision(1, 'running'), revision(2, 'passed')] }]),
+      REF
+    ).dispatchRunning,
+    false,
+    'the LATEST revision is the question here too'
+  );
+  // No view, no such task, no revisions: shut, never a throw.
+  assert.equal(liveDesignGate(undefined, REF).dispatchRunning, false);
+  assert.equal(liveDesignGate(view([]), REF).dispatchRunning, false);
+});
+
+void test('an amendment is in flight while a draft runs, while one awaits a human, or after it failed', () => {
+  const base = { awaitingHuman: false, dispatchRunning: false, stage: 'committed' };
+  assert.equal(
+    designAmendmentInFlight({ ...base, dispatchRunning: true }),
+    true,
+    'a running draft is the case the ack refusal names out loud, and it was the one uncovered'
+  );
+  assert.equal(designAmendmentInFlight({ ...base, awaitingHuman: true }), true);
+  assert.equal(designAmendmentInFlight({ ...base, stage: 'draftFailed' }), true);
+  // A clean committed slot is the ONE state the ack may proceed from.
+  assert.equal(designAmendmentInFlight(base), false);
+  assert.equal(designAmendmentInFlight({ ...base, stage: 'withdrawn' }), false);
 });

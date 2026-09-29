@@ -1,6 +1,7 @@
 // Package billing is the billingManager component of the archistrator
 // server's Manager layer — the use-case façade for the platform's money lifecycle
-// on operated customer apps (Objective 3 — revenue share + compute-cost recovery),
+// on operated customer apps (Objective 3 — a usage-based fee for operating delivered
+// systems, which is compute-cost recovery plus its markup and nothing else),
 // per the senior-frozen contract
 // designs/aiarch/implementation/contracts/billingManager.md (C-MST).
 //

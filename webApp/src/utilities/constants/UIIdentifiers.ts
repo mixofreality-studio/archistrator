@@ -310,9 +310,6 @@ export const UI_IDENTIFIERS = {
     SENDBACK: 'gate-sendback',
     WITHDRAW: 'gate-withdraw',
     FINDINGS: 'findings',
-    // The surfaced PM-critique conclusion (F-QA2-7): disclosure header + body.
-    PM_REVIEW: 'gate-pm-review',
-    PM_REVIEW_BADGE: 'gate-pm-review-badge',
     // Banner naming the open-comment count that blocks approve.
     OPEN_BLOCK: 'gate-open-block',
     // Graceful FailedPrecondition surface after an approve race.
@@ -355,6 +352,10 @@ export const UI_IDENTIFIERS = {
     reply: (id: string) => `margin-reply-${id}`,
     resolve: (id: string) => `margin-resolve-${id}`,
     reopen: (id: string) => `margin-reopen-${id}`,
+    // The line on a CONSTRUCTION round's open question saying a PERSON will answer it, and
+    // who (founder ruling 2026-09-28). Absent on a design round's thread, which an agent
+    // answer job does reach.
+    humanAnswer: (id: string) => `margin-human-answer-${id}`,
     // A STAGED (posted locally, not yet sent) note, keyed by its accumulator index.
     staged: (n: number) => `margin-staged-${String(n)}`,
     stagedDiscard: (n: number) => `margin-staged-discard-${String(n)}`,

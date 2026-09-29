@@ -250,6 +250,7 @@ export const TESTID = {
   marginReply: UI_IDENTIFIERS.Margin.reply,
   marginResolve: UI_IDENTIFIERS.Margin.resolve,
   marginReopen: UI_IDENTIFIERS.Margin.reopen,
+  marginHumanAnswer: UI_IDENTIFIERS.Margin.humanAnswer,
   marginStaged: UI_IDENTIFIERS.Margin.staged,
   marginStagedDiscard: UI_IDENTIFIERS.Margin.stagedDiscard,
   commentAnchor: UI_IDENTIFIERS.Chat.commentAnchor,

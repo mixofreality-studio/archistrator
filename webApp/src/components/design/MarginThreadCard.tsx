@@ -27,6 +27,7 @@ import SendIcon from '@mui/icons-material/ArrowUpward';
 import CloseIcon from '@mui/icons-material/Close';
 
 import { useComments } from '../comments/CommentContext';
+import { questionAnswerNotice } from '../activity/activityCopy.ts';
 import { useTokens } from '../../utilities/theme/ThemeContext';
 import type { ReviewCommentView } from '../../contracts/types';
 import { UI_IDENTIFIERS } from '../../utilities/constants/UIIdentifiers';
@@ -60,6 +61,7 @@ export function MarginThreadCard({
   stagedReplies,
   onDiscardStaged,
   expandResolved,
+  humanAnswered,
 }: {
   entry: ReviewCommentView;
   /** The margin's single expanded card. Inactive cards render compact. */
@@ -88,11 +90,27 @@ export function MarginThreadCard({
    * the history, not noise in it, so it stays expanded.
    */
   expandResolved?: boolean | undefined;
+  /**
+   * THIS ROUND'S QUESTIONS CAN ONLY BE ANSWERED BY A PERSON (founder ruling, 2026-09-28).
+   * True on a CONSTRUCTION round — it has no artifact kind and no slot, so no agent job can
+   * answer its thread — and false on a design round, whose thread the answer job does reach.
+   * The caller owns the fact because this card cannot see which rail it is drawn on; default
+   * `false` leaves every surface that has not thought about it silent rather than wrong.
+   * {@link questionAnswerNotice} owns what is said, and says nothing on anything but an open
+   * question.
+   */
+  humanAnswered?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const { post, enabled } = useComments();
   const [reply, setReply] = useState('');
   const resolved = entry.status === 'resolved';
+  const answerNotice = questionAnswerNotice({
+    humanAnswered: humanAnswered ?? false,
+    type: entry.type,
+    status: entry.status,
+    addressee: entry.addressee,
+  });
 
   // A resolved thread that is not the active card collapses to a single muted
   // line: the decision is made, so it should cost one line of margin, not a card —
@@ -210,6 +228,19 @@ export function MarginThreadCard({
           />
         ) : null}
       </Box>
+
+      {/* WHO ANSWERS THIS ONE. It sits under the `question → <role>` chip because it
+          qualifies it: the chip says who was asked, this says that the answer is theirs to
+          write and no job will write it for them. Empty on every other thread. */}
+      {answerNotice.length > 0 ? (
+        <Typography
+          data-testid={UI_IDENTIFIERS.Margin.humanAnswer(entry.id)}
+          role="status"
+          sx={{ fontSize: 11.5, lineHeight: 1.45, color: t.awaitingFg, mb: 0.5 }}
+        >
+          {answerNotice}
+        </Typography>
+      ) : null}
 
       <Typography sx={{ fontSize: 13, lineHeight: 1.45, color: t.ink }}>{entry.text}</Typography>
 

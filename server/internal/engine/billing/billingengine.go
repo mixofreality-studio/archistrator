@@ -1,8 +1,11 @@
 // Package billing is the billingEngine — the Engine that encapsulates
-// billing-terms volatility (revenue share, compute-cost pricing, schedule,
-// billing): how the signed net for a customer's cycle is computed from inbound
-// revenue and compute usage, and whether it routes a shortfall charge (charge-only:
-// a non-negative net routes NoAction — the platform never pays out).
+// billing-terms volatility (compute-cost pricing, schedule, billing): how the signed
+// net for a customer's cycle is computed from inbound revenue and compute usage, and
+// whether it routes a shortfall charge (charge-only: a non-negative net routes
+// NoAction — the platform never pays out). REVENUE SHARE IS NOT ONE OF ITS AXES any
+// more (stage 4b2, founder ruling): the platform bills a usage-based hosting fee for
+// operating a delivered system, so there is no cut to vary and nothing to encapsulate
+// about one — see computeNet below.
 //
 // Contract: designs/aiarch/implementation/contracts/billingEngine.md (FROZEN
 // 2026-05-29). Layer rules: [[the-method-layers]] / Löwy ch. 5 — the Engine layer.
@@ -16,10 +19,12 @@
 // the Managers' direct in-workflow calls replay-safe.
 //
 // Money safety (billingEngine.md §3, §6): money is NEVER a float — all money math
-// is exact int64 minor units. Settling real money under an unregistered
-// revenue-share / compute-cost regime is a financial-correctness hazard, so an
-// unknown-terms input returns an error (fweng.InvalidInput, "unknown terms"); the
-// Engine NEVER silently falls back to a default regime.
+// is exact int64 minor units. Settling real money under an unregistered COMPUTE-COST
+// regime is a financial-correctness hazard, so an unknown-terms input returns an error
+// (fweng.InvalidInput, "unknown terms"); the Engine NEVER silently falls back to a
+// default regime. That is now ONE regime and not two — the revenue-share disjunct went
+// with the concept, and termsKnown below says why the narrowing was load-bearing rather
+// than cosmetic.
 //
 // A FAILING COMPUTATION IS A DOMAIN RESULT, not an error: a zero-net cycle yields a
 // zero net + RoutingNoAction, a normal return value. The error channel is reserved

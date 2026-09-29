@@ -4585,7 +4585,6 @@ func (r *RiskModel) isArtifactModel() {}
 // estimationEngine: composite construction risk
 // operationEstimationEngine: operation cost at declared load
 // operationEstimationEngine: payout(+)/shortfall(-) forecast
-// settlementEngine: projected revenue-share regime rate
 
 // SdpReview holds the Phase-2 SDP review artifact — the options table (the four joined
 // rows) plus the architect's recommendation. This is the model surfaced at the

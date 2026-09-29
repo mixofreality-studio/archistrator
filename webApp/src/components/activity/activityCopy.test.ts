@@ -11,6 +11,8 @@ import {
   AMEND_ARCHITECTURE,
   artifactNotOfThisPhase,
   artifactUnavailable,
+  CONSTRUCTION_QUESTION_HUMAN_NO_ROLE,
+  constructionQuestionHuman,
   CONTRACT_BY_DESIGN,
   CONTRACT_MISSING,
   CONTRACT_UNRESOLVED,
@@ -25,6 +27,7 @@ import {
   notDispatchedYet,
   OVERRIDE_NOTE_REQUIRED,
   planIndexFor,
+  questionAnswerNotice,
   RECONCILE_RATIONALE,
   REOPEN_CONSEQUENCE,
   STEER_CONSEQUENCE,
@@ -194,4 +197,80 @@ void test('a reconcile amendment carries the same rationale as the design rail�
   // ProjectDesignExperience.tsx's reconcileRationale, verbatim — one reconcile
   // must not read differently in the ledger for being launched from here.
   assert.equal(RECONCILE_RATIONALE, 'Reconcile with amended upstream basis.');
+});
+
+// ── A construction question says a PERSON will answer it, and who (R-F4) ──────
+// The label is only worth having if it is TRUE, and what makes it true is the second
+// case: a design round's thread IS answerable by an agent, because its task names a
+// slot and `respondToReviewComment` is slot-scoped. Labelling both the same way would
+// be a new lie replacing an old silence.
+
+void test('a construction question is labelled as awaiting a HUMAN answer, naming the addressee', () => {
+  const notice = questionAnswerNotice({
+    humanAnswered: true,
+    type: 'question',
+    status: 'open',
+    addressee: 'architect',
+  });
+  assert.equal(
+    notice,
+    'Awaiting an answer from the architect — construction questions are answered by a person.'
+  );
+  // The addressee is rendered as a reader says it, not as the wire spells it.
+  assert.doesNotMatch(notice, /\bpm\b|architect'/);
+  assert.match(
+    questionAnswerNotice({
+      humanAnswered: true,
+      type: 'question',
+      status: 'open',
+      addressee: 'pm',
+    }),
+    /from the product manager/
+  );
+  // A role outside the server's two-value vocabulary is shown verbatim, never mangled.
+  assert.match(constructionQuestionHuman('seniorDeveloper'), /from seniorDeveloper — /);
+});
+
+void test('a DESIGN question is NOT labelled the same way — its thread has an answer job', () => {
+  assert.equal(
+    questionAnswerNotice({
+      humanAnswered: false,
+      type: 'question',
+      status: 'open',
+      addressee: 'architect',
+    }),
+    '',
+    'a design round names a slot, so respondToReviewComment can reach its thread'
+  );
+});
+
+void test('an ask that recorded no addressee says a person will answer, and names nobody', () => {
+  assert.equal(
+    questionAnswerNotice({ humanAnswered: true, type: 'question', status: 'open', addressee: '' }),
+    CONSTRUCTION_QUESTION_HUMAN_NO_ROLE
+  );
+  assert.doesNotMatch(CONSTRUCTION_QUESTION_HUMAN_NO_ROLE, /from /);
+});
+
+void test('nothing on this round is labelled but an OPEN question', () => {
+  // A change request is cleared by a redraft, not by an answer; a staleAck (which the
+  // thread adapter maps onto changeRequest) is an audit entry nobody waits on.
+  assert.equal(
+    questionAnswerNotice({
+      humanAnswered: true,
+      type: 'changeRequest',
+      status: 'open',
+      addressee: '',
+    }),
+    ''
+  );
+  // And "awaiting an answer" over a thread somebody already answered or resolved is the
+  // same untruth from the other direction.
+  for (const status of ['answered', 'resolved'] as const) {
+    assert.equal(
+      questionAnswerNotice({ humanAnswered: true, type: 'question', status, addressee: 'pm' }),
+      '',
+      `a ${status} question is not awaiting anyone`
+    );
+  }
 });

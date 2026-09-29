@@ -15522,6 +15522,63 @@ func Test_Revision_CarriesTheDecisiveAttemptsDetail(t *testing.T) {
 	}
 }
 
+// Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail is the OTHER half of the pin above,
+// and it was missing: deleting `rev.Detail = g.Detail` from reviewRevision left the WHOLE
+// delivery package green (measured, stage 4b2 Task 10). The test above walks the DISPATCH
+// side — dispatchRevision's decisive-attempt Detail — and its only word about a gate is
+// "a gate attempt that recorded no sentence must carry none", which a deleted assignment
+// satisfies perfectly.
+//
+// The field's own contract says what the gap costs: `detail` is "the attempt's own
+// render-ready sentence, verbatim — 'drafted <kind> on <branch>', 'dispatched <command> for
+// <phase>', 'asked N question(s) of <role>', or a failed venue's whole sentence including
+// its run URL. PRESENT where the revision cites a GATE attempt". Every one of those reaches
+// a reader through this line and no other, and the M0 SPEND GATE is on it: the
+// projectDesign lifecycle has exactly ONE task, the `sdpReview` REVIEW task, so
+// `sdpComputeStrategy.Produce`'s `defaultedDetail` lands on a GATE attempt — and
+// `m0CostBasisNotice` renders that revision's `detail`. Without this line the founder is
+// shown a cost with no trace of the assumed numbers it was computed on, which is the one
+// way that screen can mislead.
+func Test_ReviewRevision_CarriesTheGateAttemptsOwnDetail(t *testing.T) {
+	const failed = "the design job failed in your CI: https://github.com/acme/app/actions/runs/42"
+	const asked = "asked 2 question(s) of pm"
+
+	first := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomeFailed)
+	first.Detail = failed
+	second := avObserved(projectstate.TaskCodeReview, 2, projectstate.OutcomePending)
+	second.Detail = asked
+	// The work task has to reach its gate for the phase to hold any gate revision at all.
+	work := avObserved(projectstate.TaskConstruction, 1, projectstate.OutcomePassed)
+
+	views := deriveTaskViews(avServiceLifecycle(),
+		[]projectstate.TaskAttempt{work, first, second}, nil, nil, "")
+
+	gate := avTask(t, views, "codeReview").Revisions
+	if len(gate) != 2 {
+		t.Fatalf("codeReview revisions = %d, want 2 (one per gate attempt)", len(gate))
+	}
+	if gate[0].Detail != failed {
+		t.Errorf("revision 1 carries %q, want the failed venue's whole sentence %q — the run URL "+
+			"reaches a reader through this field and no other", gate[0].Detail, failed)
+	}
+	if gate[1].Detail != asked {
+		t.Errorf("revision 2 carries %q, want the ask's own sentence %q", gate[1].Detail, asked)
+	}
+
+	// On the wire, the same contract the dispatch side keeps: a pointer to the sentence,
+	// and ABSENT rather than an empty string where the attempt said nothing.
+	wire := revisionViews(gate)
+	if len(wire) != 2 || wire[0].Detail == nil || *wire[0].Detail != failed {
+		t.Fatalf("the wire gate revision's detail = %v, want a pointer to %q", wire[0].Detail, failed)
+	}
+	quiet := avObserved(projectstate.TaskCodeReview, 1, projectstate.OutcomePassed)
+	quietViews := deriveTaskViews(avServiceLifecycle(),
+		[]projectstate.TaskAttempt{work, quiet}, nil, nil, "")
+	if got := revisionViews(avTask(t, quietViews, "codeReview").Revisions); got[0].Detail != nil {
+		t.Errorf("a gate attempt that said nothing must OMIT detail, got %q", *got[0].Detail)
+	}
+}
+
 // avCheckWorkRevisions asserts the dispatch side of the run above: two revisions, the
 // failed retry and the tandem test client folded into the first, the episode of the
 // attempt that reached the gate, worst-origin contagion, and the revision's span.
@@ -22684,6 +22741,71 @@ func Test_Guard_DivergedBranchIsReconciledRatherThanLoopingForever(t *testing.T)
 	}
 	if rail.merges != 1 {
 		t.Fatalf("the reconciled PR must merge, got %d merges", rail.merges)
+	}
+}
+
+// THE WHOLE PRESERVE SET REACHES THE ACTIVITY, on the lifecycle that has more than one
+// slot to lose (stage 4b2 Task 10).
+//
+// The case above is the CONSTRUCTION one, and its only assertion about the set is
+// `len(kinds) == 0`. That is satisfied by every wrong answer a truncation can give: replacing
+// `preserveKinds` with `preserveKinds[:1]` at the Activity call site left `./internal/manager/
+// delivery` entirely GREEN (measured), and `preserveKinds[:1]` is VERBATIM the F80c defect
+// stage 4b2 Task 7 deleted — the wire took one kind while the store took a set, so a
+// `requirements` branch holding four in-flight drafts had three of them replaced by main's
+// older copies, in the path whose whole job is to rescue that branch.
+//
+// `Test_ReconcileTargetOf_IsTheLifecyclesWholeInFlightSet` pins what the SET is; nothing
+// pinned that the set survives the trip. This drives the four-slot `requirements` lifecycle
+// through the real merge guard, on the real rail, and reads back what the Activity was
+// handed.
+func Test_Guard_DivergedDesignBranchPreservesEveryInFlightSlot(t *testing.T) {
+	rig, _ := designShapeRigOn(t, projectstate.ReviewPresetVibes,
+		func(_ ProjectID) (sourcecontrol.RepoRef, bool) {
+			return sourcecontrol.RepoRefFromString("acct|owner/repo-1"), true
+		})
+	// The PR rail LIFECYCLE, lit: the repo resolver above and the GitStatus mirror the rig
+	// already wires are the other two thirds of gitEnabled.
+	rig.cswf.RailEnabled = railWired
+	rail := &stubRail{
+		prRef: "pr-7", ciRollup: sourcecontrol.CheckSuccess, merged: true,
+		notMergeableUntilReconciled: true,
+	}
+	rig.cs.onReconcile = func() {
+		rail.mu.Lock()
+		rail.reconciled = true
+		rail.mu.Unlock()
+	}
+	rig.register(rig.env)
+	registerGenRail(rig.env, rail)
+
+	rig.env.ExecuteWorkflow(executionKindDeliveryActivity, deliveryActivityInput{
+		ProjectID:  shapeProjectID,
+		ActivityID: "requirements",
+		Activity:   designActivity("requirements", projectstate.ActivityTypeRequirements),
+	})
+	shapeRequireCompleted(t, rig.env)
+
+	if len(rig.cs.reconciles) != 1 {
+		t.Fatalf("want exactly one reconcile of the diverged design branch, got %v", rig.cs.reconciles)
+	}
+	lc, ok := methodassets.LifecycleFor("requirements")
+	if !ok {
+		t.Fatal("the platform carries no requirements lifecycle")
+	}
+	want := designSlotsOfLifecycle(lc)
+	if len(want) < 2 {
+		t.Fatalf("this case is only a test while requirements holds MORE THAN ONE slot; it holds %v", want)
+	}
+	if got := rig.cs.reconciles[0].kinds; !slices.Equal(got, want) {
+		t.Fatalf("the reconcile preserved %v, want the lifecycle's whole in-flight set %v — every "+
+			"kind dropped here is a live draft replaced by main's older copy, which is F80c itself", got, want)
+	}
+	if got := rig.cs.reconciles[0].branch; got != "activity/requirements" {
+		t.Errorf("the reconcile must name the ACTIVITY branch, got %q", got)
+	}
+	if rail.merges != 1 {
+		t.Errorf("the reconciled PR must merge, got %d merges", rail.merges)
 	}
 }
 

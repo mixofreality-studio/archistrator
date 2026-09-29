@@ -601,6 +601,14 @@ export function ActivityExperienceContainer({
             // not noise in it, so resolved cards stay open instead of collapsing
             // to a one-liner nobody can act on anyway.
             expandResolved={historical}
+            // WHO ANSWERS A QUESTION ASKED HERE (founder ruling, 2026-09-28). The
+            // discriminator is the SERVER's own, to the field: `AskQuestions` routes on
+            // whether `artifactKindForTask` resolves a design SLOT for the task, and a task
+            // that names none lands on the construction round — where no answer job can
+            // reach it, because `respondToReviewComment` is slot-scoped and is not
+            // registered in the construction job mode. `artifact.kind === 'slot'` is that
+            // same question asked of `taskArtifactFor`, off the same lifecycle table.
+            humanAnswered={artifact.kind !== 'slot'}
             scrollRoot={scrollRoot}
             statusPending={statusPending}
             thread={thread}

@@ -130,6 +130,7 @@ export function CommentMargin({
   onCollapse,
   expandResolved,
   allowQuestions = true,
+  humanAnswered,
 }: {
   /** The durable server review-ledger thread for the active slot. */
   thread?: readonly ReviewCommentView[];
@@ -170,6 +171,14 @@ export function CommentMargin({
    * riding nothing.
    */
   allowQuestions?: boolean | undefined;
+  /**
+   * This round's questions are answered by a PERSON and by nothing else — passed straight
+   * through to every {@link MarginThreadCard}, which draws the line saying so. True on a
+   * construction round (no artifact kind, no slot, so no answer job can be dispatched at
+   * it); default `false` everywhere else, including every design surface, whose threads an
+   * agent answer job does reach.
+   */
+  humanAnswered?: boolean | undefined;
 }): ReactNode {
   const t = useTokens();
   const { comments, remove, anchor, setAnchor, enabled } = useComments();
@@ -338,6 +347,7 @@ export function CommentMargin({
         active={activeId === item.key}
         entry={item.entry}
         expandResolved={expandResolved}
+        humanAnswered={humanAnswered}
         stagedReplies={stagedReplies.get(item.entry.id) ?? []}
         statusPending={statusPending}
         onActivate={() => {

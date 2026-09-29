@@ -63,6 +63,7 @@ import { headerChipStage } from './headerChipStage';
 import { ExperienceChrome } from './ExperienceChrome';
 import { SlimSpine, type SpineStep } from './SlimSpine';
 import { DraftFailedPanel } from './DraftFailedPanel';
+import { designAmendmentInFlight } from './liveDesignGate.ts';
 import { GatePanel } from './GatePanel';
 import { SubmitBar } from './SubmitBar';
 import { CommittedArtifactPanel, CommittedChip } from './CommittedArtifactPanel';
@@ -166,6 +167,15 @@ export interface SystemDesignViewProps {
    */
   awaitingHuman: boolean;
   /**
+   * THIS ARTIFACT'S DRAFT/AMENDMENT IS RUNNING RIGHT NOW, from the same live read
+   * (`liveDesignGate.ts`). It is the other half of the stale-basis ack's refusal: the
+   * derived door's `drafting`/`redrafting` lost their producer with the co-author
+   * workflow, and without this the ack stayed ENABLED over an amendment in flight —
+   * exactly the merge conflict its own sentence warns about. Defaults false, which is
+   * what a surface with no activity read (and the loading tick) honestly knows.
+   */
+  dispatchRunning?: boolean | undefined;
+  /**
    * The failed design job's run URL, read off the failed dispatch attempt's own
    * sentence (`liveDesignGate.ts`). Replaces `SessionStateView.failureRunUrl`, a
    * wire field nothing ever set. Absent → DraftFailedPanel simply omits the link.
@@ -257,6 +267,7 @@ export function SystemDesignView({
   sessionLoading,
   sessionMissing,
   awaitingHuman,
+  dispatchRunning = false,
   failedRunUrl,
   needsResearch,
   onSubmitResearch,
@@ -362,15 +373,19 @@ export function SystemDesignView({
       }
     : undefined;
 
-  // F-GTD-12: while this artifact's own co-author session is LIVE (an amendment in
-  // flight — a committed slot can only host an amendment), the ack would commit to
-  // main and merge-conflict the amendment's review PR. Gate the popover action too
-  // so the refusal is explained instead of discovered.
+  // F-GTD-12: while this artifact's own session is LIVE (an amendment in flight — a
+  // committed slot can only host an amendment), the ack would commit to main and
+  // merge-conflict the amendment's review PR. Gate the popover action too so the refusal
+  // is explained instead of discovered.
+  //
   // The three live stages in the old disjunct (`drafting`/`awaitingReview`/`redrafting`)
-  // had no producer left on the derived door, so this read as `draftFailed` alone — and
-  // the one state that MOST needs the refusal, a draft sitting at its gate, was the one it
-  // stopped catching. `awaitingHuman` restores it from the live authority.
-  const sessionLive = awaitingHuman || stage === 'draftFailed';
+  // lost their producer on the derived door, so this had collapsed to `draftFailed` alone —
+  // the one member that needs the refusal LEAST. Both halves are restored from the live
+  // authority now: `awaitingHuman` (a draft sitting at its gate) and `dispatchRunning` (a
+  // draft or redraft actually running, which is the case the sentence below names). The
+  // predicate itself lives in `liveDesignGate.ts` so the node suite can hold it — a rule
+  // that only exists inside a .tsx is a rule that can collapse again with CI green.
+  const sessionLive = designAmendmentInFlight({ awaitingHuman, dispatchRunning, stage });
   const ackDisabledReason = sessionLive
     ? 'An amendment is already in flight for this artifact — reconcile rides it. Approve or withdraw the amendment first.'
     : undefined;

@@ -95,3 +95,18 @@ void test('nests the three in the SAME order as the mount point it copies, outsi
   );
   assert.match(container, /<CommittedSlotsProvider slots=\{project\?\.slots\}>\{commentScoped\}</);
 });
+
+// ── A construction question says a PERSON answers it (stage 4b2 Task 10, R-F4) ──
+// `MarginThreadCard` cannot see which rail it is drawn on, so the fact is the
+// container's. The rule it must mirror is the SERVER's own: `deliveryManager.AskQuestions`
+// routes on whether `artifactKindForTask` resolves a design SLOT, and a task that names
+// none lands on the construction round — which no answer job can reach, because
+// `respondToReviewComment` is slot-scoped and is not registered in the construction job
+// mode. Mis-wire it and a design thread would claim no agent will answer it, which is the
+// new lie the label exists not to tell.
+void test('the margin is told a construction round’s questions are human-answered, off the artifact’s own slot-ness', () => {
+  assert.match(container, /humanAnswered=\{artifact\.kind !== 'slot'\}/);
+  // And it is the SAME `taskArtifactFor` answer the artifact panel and the verb table
+  // read — a second derivation of "is this a design slot" is how the two would drift.
+  assert.equal((container.match(/const artifact = taskArtifactFor\(/g) ?? []).length, 1);
+});

@@ -417,6 +417,50 @@ test.describe('activity experience: what each body says', () => {
     expect(offBundle).toEqual([]);
   });
 
+  test('a construction question says a PERSON will answer it, and names them', async ({ page }) => {
+    const offBundle = await openState(page, 'activity-experience', 'construction-round-withdrawn');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    // R-F4 (founder, 2026-09-28). `AskTaskQuestions` records the question on the round
+    // and the SPA renders it — that is ALL it does, and all it can do: a construction
+    // round has no artifact kind and no slot, `respondToReviewComment` is slot-scoped,
+    // and it is not registered in the construction job mode. The screen has always been
+    // silent about that. It says it now, and names who is owed the answer.
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r3c2'))).toHaveText(
+      'Awaiting an answer from the product manager — construction questions are answered by a person.'
+    );
+    // And it is the QUESTION's line, not the thread's: the open change request beside it
+    // is cleared by a redraft, not by an answer.
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r3c1'))).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
+  test('…and a DESIGN round’s question is not labelled that way — its thread has an answer job', async ({
+    page,
+  }) => {
+    const offBundle = await openState(page, 'activity-experience', 'architecture-round');
+    await expect(page.getByTestId(TESTID.activityReviewBody)).toBeVisible();
+
+    // A design round names a committed slot, so `deliveryManager.AskQuestions` routes it
+    // to the slot's durable ledger and dispatches the answer job the addressed role
+    // answers in place. Saying "no agent will answer this" here would be a new lie
+    // replacing an old silence.
+    //
+    // WHAT THIS CASE CAN AND CANNOT PROVE, said plainly: no fixture carries an OPEN
+    // design question (r2c1 is `answered`), so this cannot isolate WHICH of the two
+    // reasons keeps the line off — the design rail, or the settled status. It proves what
+    // a preview is for: no design surface grew a stray line. The RAIL discrimination
+    // itself is held where it can be isolated — `activityCopy.test.ts`'s
+    // humanAnswered:false case, and the container pin on `artifact.kind !== 'slot'`.
+    await expect(page.getByTestId(TESTID.marginCard('r2c1'))).toBeVisible();
+    await expect(page.getByTestId(TESTID.marginHumanAnswer('r2c1'))).toHaveCount(0);
+
+    expect(await incidents(page)).toEqual([]);
+    expect(offBundle).toEqual([]);
+  });
+
   test('a WITHDRAWN round is in the history, saying the word — not missing from it', async ({
     page,
   }) => {
