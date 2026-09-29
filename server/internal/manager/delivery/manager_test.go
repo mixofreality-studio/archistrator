@@ -26581,6 +26581,89 @@ func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
 	}
 	rig := newCascadingPumpRig(10*time.Minute, 0).atItsHistoryBudget()
 	_, err := rig.run(t)
+	carried, size := pumpContinuedInput(t, err)
+	if size > pumpContinueAsNewPayloadBudget {
+		t.Fatalf("G-P10: the ContinueAsNew payload is %d bytes, over the %d-byte budget it is paid once per dispatched activity", size, pumpContinueAsNewPayloadBudget)
+	}
+	if len(carried.Started) != 1 || carried.Started[0] != "C-XYZ" {
+		t.Fatalf("the started set is what the bound is stated against; got %v", carried.Started)
+	}
+
+	// THE FABRICATION HALF (fix round 1, F2). The measurement above is one shot over a
+	// well-behaved cascade, and the reflection above it reads FIELD NAMES — so between them
+	// they could not see that the declared bound was false. "Finished … a subset of Started"
+	// and "Carried … at most one finish and one lease request per activity" are claims about
+	// ids THE PUMP STARTED, and nothing enforced that: pumpGrantLease validated a lease
+	// REQUEST because "Temporal does not authenticate a signaler", and the finish arm and the
+	// drain validated nothing at all. A reviewer fabricated fifty ids and the pump accepted
+	// and carried every one.
+	//
+	// THERE ARE TWO DOORS INTO THE PAYLOAD and the timing of each is spelled out, because a
+	// case that only reaches one of them would leave the other unarmed.
+	//
+	// DOOR 1, THE SELECTOR ARM (Finished). The pump is UNDER its history budget when it
+	// starts, so it parks; fifty finishes for activities it never started arrive at one
+	// minute and the parked selector consumes them one per wake-up; the budget is crossed at
+	// ten minutes, long after the last of them, so the run continues-as-new with whatever the
+	// arm let in.
+	selectorDoor, _ := pumpContinuedInput(t, pumpFabricatedFinishRun(t, fabricatedFinishes, 0, 10*time.Minute))
+	if len(selectorDoor.Finished) != 0 {
+		t.Errorf("G-P10/F2: Finished is declared %q; the finish ARM let in %d id(s) the pump never started: %v",
+			pumpContinueAsNewCarry["Finished"], len(selectorDoor.Finished), selectorDoor.Finished)
+	}
+
+	// DOOR 2, THE PRE-CONTINUE-AS-NEW DRAIN (Carried). The head-state read is held for two
+	// minutes and the budget is crossed from the start, so the fifty land while the run is
+	// inside an Activity: the selector never sees one, and the drain is what meets them.
+	drainDoor, dsize := pumpContinuedInput(t, pumpFabricatedFinishRun(t, fabricatedFinishes, 2*time.Minute, 0))
+	if len(drainDoor.Carried) != 0 {
+		t.Errorf("G-P10/F2: Carried is declared %q; the DRAIN carried %d fabricated message(s) across the boundary: %+v",
+			pumpContinueAsNewCarry["Carried"], len(drainDoor.Carried), drainDoor.Carried)
+	}
+	if dsize > pumpContinueAsNewPayloadBudget {
+		t.Errorf("G-P10/F2: %d fabricated finishes grew the payload to %d bytes, over the %d-byte budget — the declared bound was a bound on the sender's manners",
+			fabricatedFinishes, dsize, pumpContinueAsNewPayloadBudget)
+	}
+}
+
+// fabricatedFinishes is how many ids a case invents. Fifty is the reviewer's number, and it
+// is far enough over the plan's thirty activities that a payload built from them is a
+// payload nothing in the plan bounds.
+const fabricatedFinishes = 50
+
+// pumpFabricatedFinishRun runs one pump that is told, by a signaler Temporal did not
+// authenticate, that n activities it never started have finished, and returns the run's
+// terminal error for pumpContinuedInput to decode.
+//
+// readDelay holds the head-state read, which is how a case chooses whether the messages are
+// met by the SELECTOR (delay 0 — the pump is parked when they land) or by the DRAIN (a delay
+// longer than their arrival — they are buffered behind an Activity and the selector never
+// sees them). budgetAt crosses the history ceiling at a workflow time of the case's
+// choosing; zero crosses it before the run starts.
+func pumpFabricatedFinishRun(t *testing.T, n int, readDelay, budgetAt time.Duration) error {
+	t.Helper()
+	rig := newCascadingPumpRig(90*time.Minute, readDelay)
+	if budgetAt == 0 {
+		rig = rig.atItsHistoryBudget()
+	} else {
+		rig.env.RegisterDelayedCallback(func() { rig.env.SetCurrentHistoryLength(pumpHistoryBudget + 1) }, budgetAt)
+	}
+	rig.env.RegisterDelayedCallback(func() {
+		for i := range n {
+			rig.env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+				ActivityID: ActivityID(fmt.Sprintf("C-NOBODY-STARTED-THIS-%02d", i)),
+				Outcome:    projectstate.ActivityOutcomeCompleted,
+			})
+		}
+	}, time.Minute)
+	_, err := rig.run(t)
+	return err
+}
+
+// pumpContinuedInput decodes the payload a pump run handed its successor, and reports its
+// encoded size — the two things every bound claim in pumpContinueAsNewCarry is about.
+func pumpContinuedInput(t *testing.T, err error) (pumpInput, int) {
+	t.Helper()
 	var canErr *workflow.ContinueAsNewError
 	if !errors.As(err, &canErr) {
 		t.Fatalf("want a ContinueAsNewError to measure, got %v", err)
@@ -26589,9 +26672,11 @@ func Test_Pump_ContinueAsNewPayloadIsBoundedByThePlan(t *testing.T) {
 	for _, p := range canErr.Input.GetPayloads() {
 		size += len(p.GetData())
 	}
-	if size > pumpContinueAsNewPayloadBudget {
-		t.Fatalf("G-P10: the ContinueAsNew payload is %d bytes, over the %d-byte budget it is paid once per dispatched activity", size, pumpContinueAsNewPayloadBudget)
+	var in pumpInput
+	if derr := converter.GetDefaultDataConverter().FromPayloads(canErr.Input, &in); derr != nil {
+		t.Fatalf("decode the continued input: %v", derr)
 	}
+	return in, size
 }
 
 // G-P12. A FAILED CHILD FAILS THE PUMP RUN, and that is how a cascade stops on a broken
@@ -27408,5 +27493,99 @@ func Test_DeliveryActivity_NoPumpToLease_TheMergeTailStillRuns(t *testing.T) {
 	}
 	if !shapeExitedCompleted(ps, "C-Orders") {
 		t.Fatal("the walk must still reach its binary exit unleased")
+	}
+}
+
+// ===========================================================================
+// FIX ROUND 1 — THE FINISH SIGNAL IS NOT A COMPLETION
+// ===========================================================================
+
+// F1, THE BLOCKER, and it defeated the single most important row in the census.
+//
+// finalizeWalk releases the main-write lease from a DEFER, so the release fires on every
+// exit from the merge tail INCLUDING the two that then fail the execution. The release
+// rides activityFinished. So the real sequence on a broken merge tail is: the child
+// reports a finish, and a moment later the child FAILS — and the pump used to answer the
+// finish with markFinished, which DELETES the child's future. pumpReconcile then had
+// nothing to call f.Get on, never saw the error, and the run returned QUIESCENT: G-P12's
+// stated BreaksAs ("the cascade walks past it and builds on a broken dependency"), reached
+// through the one message that was supposed to be the guard's friend.
+//
+// Test_Pump_AFailedChildFailsTheRunAndStopsTheCascade cannot see this: it fails the child
+// with NO finish signal, which is the shape a merge tail never has.
+//
+// THE ORDERING IS DETERMINISTIC AND IS THE CASE: the finish lands at half the child's run
+// time, so it is strictly earlier in history than the child's failure, and the finish arm
+// is added to the selector before any future arm. Without the fix this test goes GREEN on
+// `err == nil` — a failing activity reported as a clean, drained cascade.
+func Test_Pump_AFinishReportFollowedByAChildFailureStillFailsTheRun(t *testing.T) {
+	const childRun = 10 * time.Minute
+	var ts testsuite.WorkflowTestSuite
+	env := ts.NewTestWorkflowEnvironment()
+
+	pid := ProjectID(uuid.NewString())
+	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
+	wf := csNewWorkflows(wfDeps{
+		Intervention: &fakeIntervention{directive: intervention.VarianceRetry},
+		Review:       &fakeReview{},
+		NextEligibleActivity: func(_ projectstate.Project, _ eligibilityRule) pumpSelection {
+			return pumpSelection{Verdict: verdictDispatch, Activity: sampleActivity()}
+		},
+	})
+	registerPump(env, wf, ps, &csFakePipeline{phase: PipelineSucceeded})
+	starts := 0
+	env.OnWorkflow(executionKindDeliveryActivity, mock.Anything, mock.Anything).
+		After(childRun).
+		Run(func(mock.Arguments) { starts++ }).
+		Return(errors.New("the merge tail broke after the deferred lease release had already reported a finish"))
+	// THE DEFERRED RELEASE, in the wire form the child sends it: Completed, because that is
+	// what the constant used to be — the case is armed against the OLD lie as well as the
+	// new honesty, so neither end alone can make it pass.
+	env.RegisterDelayedCallback(func() {
+		env.SignalWorkflow(signalActivityFinished, activityFinishedSignal{
+			ActivityID: ActivityID(sampleActivity().ActivityID),
+			Outcome:    projectstate.ActivityOutcomeCompleted,
+		})
+	}, childRun/2)
+
+	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
+
+	if !env.IsWorkflowCompleted() {
+		t.Fatal("pump did not complete")
+	}
+	err := env.GetWorkflowError()
+	if err == nil {
+		t.Fatal("F1/G-P12: a child that reported a finish and THEN failed must still fail the pump run — a clean completion here is a cascade that walked past a broken merge tail and will build on it")
+	}
+	if isContinueAsNew(err) {
+		t.Fatalf("F1/G-P12: the cascade must STOP, not continue: %v", err)
+	}
+	if starts != 1 {
+		t.Fatalf("want the one child, got %d", starts)
+	}
+}
+
+// AND THE HONEST HALF OF THE SAME WIRE (F5). releaseMainWriteLease was handed a literal
+// ActivityOutcomeCompleted at its one call site, so the `exited` return and every error
+// return reported a completion that had not happened. ActivityOutcome cannot express
+// "broken tail" — Unknown is also what a clean give-up reports — which is exactly why the
+// pump keys its stop-the-cascade rule on the child's FUTURE and not on this value; the
+// value's job is to stop lying in the ledger and the log.
+func Test_DeliveryActivity_TheMergeTailReportsTheOutcomeItReached(t *testing.T) {
+	for _, tc := range []struct {
+		name   string
+		exited bool
+		err    error
+		want   projectstate.ActivityOutcome
+	}{
+		{"a clean tail is the only completion", false, nil, projectstate.ActivityOutcomeCompleted},
+		{"a give-up is not a completion", true, nil, projectstate.ActivityOutcomeUnknown},
+		{"a broken tail is not a completion", false, errors.New("mergeAndRecord failed"), projectstate.ActivityOutcomeUnknown},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := mainWriteTailOutcome(tc.exited, tc.err); got != tc.want {
+				t.Fatalf("want %s, got %s", tc.want.String(), got.String())
+			}
+		})
 	}
 }

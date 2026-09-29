@@ -26,13 +26,34 @@ import (
 // signals, the pause channel, a reconcile timer}. Exactly ONE workflow, not two:
 // the queue is the pump.
 //
-// WHAT THE PUMP SERIALISES IS ADMISSION, NOT WORK. At most one activity of a
-// project holds the MAIN-WRITE LEASE at a time (R1's invariant). The child takes it
+// WHAT THE PUMP SERIALISES IS ADMISSION, NOT WORK — AND THE SCOPE IS ONE PUMP CHAIN,
+// NOT THE PROJECT. At most one activity holds the MAIN-WRITE LEASE at a time WITHIN a
+// single pump's continue-as-new chain. That is the true bound and it is narrower than
+// this header used to claim, because LeaseHolder lives in pumpState/pumpInput and a
+// ContinueAsNew payload is the only thing it survives. The child takes the lease
 // immediately before its merge tail and gives it up at its terminal; the pump never
-// learns what a merge is. Row-level serialisation is unchanged and is a DIFFERENT
-// mechanism — the per-activity CAS and applyMutationOnBranchFiles' dedup + version
-// guard + ref-CAS still serialise per ROW — and conflating the two is how an earlier
-// ruling put the merge in the pump, which spec §10 forbids.
+// learns what a merge is.
+//
+// WHAT HAPPENS AT A CHAIN BOUNDARY, stated plainly because it is the ORDINARY case and
+// not an exotic one. Any pump run that ENDS while a lease is held exits holding it: a
+// pause that lands while the run is parked (pumpPark → paused → pumpLoop returns), a
+// child failure stopping the cascade (G-P12), or any error return. Thirty seconds later
+// the sweep starts a FRESH chain with LeaseHolder == nil and an empty Started. Child A is
+// meanwhile still inside its merge tail — which holds a HUMAN approval gate, so "still
+// there an hour later" is normal — and the new chain knows nothing of it: it dispatches
+// D, D asks, D is granted, and A and D write main at once. NOTHING IN THIS FILE PREVENTS
+// THAT. What prevents DAMAGE there is the SECOND mechanism, unchanged and exactly the
+// state this wave started from: the per-activity CAS and applyMutationOnBranchFiles'
+// dedup + version guard + ref-CAS, which serialise per ROW. Row-level and main-level are
+// TWO mechanisms, and conflating them is how an earlier ruling put the merge in the pump,
+// which spec §10 forbids. Widening the lease past a chain would mean durable admission
+// state outside the pump — a different design, not a fix to this one.
+//
+// AND "THE LEASE FAILS OPEN" IS THE NORMAL STATE AFTER ANY PUMP RESTART, not a rare fault
+// path. A lease request from a child that predates the restart names an id the new chain
+// never started, so pumpGrantLease drops it — correctly, because Temporal does not
+// authenticate a signaler — and requestMainWriteLease's bounded wait expires into an
+// UNLEASED merge tail, held by the row-level mechanism alone.
 //
 // WHAT THE PUMP DOES NOT DO: the merge. The child's merge tail is three things — a
 // variance loop with a HUMAN hold (runWalkMerge), a credential re-mint with merge
@@ -183,11 +204,22 @@ const pumpLeaseDeadline = 10 * time.Minute
 // number the child uses (deliveryActivityHistoryBudget), for the same reason.
 const pumpHistoryBudget = 4000
 
-// pumpLivenessProbeEpoch is the epoch a LIVENESS PROBE grant carries, and it is 0 because
-// no real grant ever is: pumpState.grant bumps LeaseEpoch before it delivers, so every
-// genuine grant carries an epoch of at least 1 and a child that compares refuses this one
-// by construction. The probe is therefore provably inert at the child and its only
-// observable is the DELIVERY's own answer — NotFound means the execution is gone.
+// pumpLivenessProbeEpoch is the epoch at or below which a CHILD refuses a grant, and it is
+// 0 because no genuine grant can ever carry it: pumpDeliverGrant bumps LeaseEpoch before it
+// delivers, so every real grant carries at least 1.
+//
+// NO SIGNAL THE PUMP SENDS EVER CARRIES IT, and this comment used to say the opposite (fix
+// round 1, F4). The liveness probe in pumpCheckLease deliberately re-delivers the HOLDER'S
+// OWN grant at st.LeaseEpoch and never at 0, because the probe is a RENEWAL — a live holder
+// that reads it sees the grant it already has, which is the whole reason the deadline does
+// not revoke. The probe's only observable is the DELIVERY's answer (NotFound means the
+// execution is gone), and a grant at epoch 0 would be one the holder is required to ignore,
+// so sending one would buy nothing.
+//
+// What this constant IS, therefore: a child-side FLOOR, read at exactly one site —
+// requestMainWriteLease's `grant.Epoch <= pumpLivenessProbeEpoch` arm in deliveryactivity.go
+// — where it refuses a zero-valued or replayed grant envelope, which is the only way one can
+// arrive.
 const pumpLivenessProbeEpoch int64 = 0
 
 // pumpState is what a run of the pump knows. Everything in it rides ContinueAsNew through
@@ -277,17 +309,15 @@ func (st *pumpState) markStarted(id ActivityID) {
 	}
 }
 
-// markFinished records an activity as over and releases any lease it held.
+// releaseLease frees whatever MAIN-WRITE ADMISSION this activity holds — the lease itself
+// and any request of its own still queued — without declaring the activity over. It is the
+// half of markFinished that a finish signal is allowed to do on its own; see applyFinish.
 //
-// IDEMPOTENT, and that matters rather than being tidy: a finish is normally learned TWICE
-// — once from the signal and once from the reconcile — and a second release must not free
-// a lease a SUCCESSOR has since been granted, so the release is conditional on the holder
-// still being this activity.
-func (st *pumpState) markFinished(id ActivityID) {
-	if !st.isFinished(id) {
-		st.Finished = append(st.Finished, id)
-	}
-	delete(st.futures, id)
+// IDEMPOTENT, and that matters rather than being tidy: a release is normally learned TWICE
+// — once from the signal and once from the reconcile — and the second must not free a lease
+// a SUCCESSOR has since been granted, so it is conditional on the holder still being this
+// activity.
+func (st *pumpState) releaseLease(id ActivityID) {
 	if st.LeaseHolder != nil && *st.LeaseHolder == id {
 		st.LeaseHolder, st.LeaseGrantedAt = nil, nil
 	}
@@ -298,6 +328,68 @@ func (st *pumpState) markFinished(id ActivityID) {
 		}
 	}
 	st.requests = reqs
+}
+
+// markFinished records an activity as OVER: it leaves the in-flight set, its future is
+// discharged and any admission it held is released. Only a fact the pump established for
+// itself may call this — a resolved future, or the activity's own terminal ROW.
+func (st *pumpState) markFinished(id ActivityID) {
+	if !st.isFinished(id) {
+		st.Finished = append(st.Finished, id)
+	}
+	delete(st.futures, id)
+	st.releaseLease(id)
+}
+
+// applyFinish is the whole meaning of a finish signal, and it is deliberately NOT
+// markFinished — which is what it used to be, and which cost this file its most important
+// guard.
+//
+// THE DEFECT, MEASURED (fix round 1, F1). finalizeWalk releases the lease from a DEFER that
+// fires on EVERY exit from the merge tail, including the ones that then FAIL the execution,
+// and that release rides this signal. So a child whose merge tail broke reported a finish
+// FIRST and failed SECOND; markFinished deleted its future; pumpReconcile therefore never
+// called f.Get, never saw the error, and the run ended QUIESCENT with the cascade free to
+// build on a broken dependency. That is G-P12's stated BreaksAs, reached through the one
+// message that was supposed to be the guard's friend.
+//
+// SO A FINISH NEVER DISCHARGES A FUTURE THIS RUN HOLDS. That is not a special case bolted
+// on; it is this file's own doctrine finally obeyed — pumpReconcile's header already says
+// NO FACT COMES FROM A SIGNAL ALONE and calls the finish "an OPTIMISATION over this
+// function and never the source of truth". For a child of this run the FUTURE is the source
+// of truth: it carries the error and nothing else does. The signal still earns its place —
+// it WAKES the pump, so the lease is free within a workflow task instead of within a
+// reconcile tick, and it is the only fact available for a child that predates a
+// ContinueAsNew and has no future here.
+//
+// WHY THE RULE IS NOT KEYED ON THE OUTCOME. ActivityOutcome is {Unknown, Completed,
+// Skipped, TakenOver}, and it CANNOT tell a clean give-up (walkTasks' exited arm, which
+// reports Unknown and must let the cascade continue past it) from a broken tail (which now
+// also reports Unknown — fix round 1, F5). Keying on the outcome would either let the broken
+// tail through or stop the cascade on a clean give-up. Keying on "do I hold the future" keys
+// the rule to the thing that actually carries the error.
+//
+// VALIDATION, for pumpGrantLease's reason: Temporal does not authenticate a signaler. An id
+// this pump never started is a CLAIM and is logged and dropped. Without this drop
+// pumpContinueAsNewCarry's "Finished … a subset of Started" was simply false — a reviewer
+// fabricated fifty ids and the pump accepted and carried all fifty.
+func (st *pumpState) applyFinish(ctx workflow.Context, in pumpInput, fin activityFinishedSignal) {
+	logger := workflow.GetLogger(ctx)
+	if !st.isStarted(fin.ActivityID) {
+		logger.Error("pump: dropping a finish report for an activity this pump never started",
+			"projectId", string(in.ProjectID), "activityId", string(fin.ActivityID),
+			"consequence", "the report is ignored; Temporal does not authenticate a signaler, so an unknown id is a claim and not a fact")
+		return
+	}
+	logger.Info("pump: an activity reported its terminal",
+		"projectId", string(in.ProjectID), "activityId", string(fin.ActivityID), "outcome", fin.Outcome.String())
+	if _, held := st.futures[fin.ActivityID]; held {
+		st.releaseLease(fin.ActivityID)
+		logger.Info("pump: the main-write lease is free; the child's own future — not this report — is what says the activity is over",
+			"projectId", string(in.ProjectID), "activityId", string(fin.ActivityID))
+		return
+	}
+	st.markFinished(fin.ActivityID)
 }
 
 func (wf *csWorkflows) PumpNextActivityWorkflow(ctx workflow.Context, in pumpInput) (PumpResult, error) {
@@ -364,7 +456,11 @@ func (st *pumpState) replayCarried(ctx workflow.Context, in pumpInput) {
 		case pumpCarriedFinish:
 			logger.Info("pump: replaying a finish carried across continue-as-new",
 				"projectId", string(in.ProjectID), "activityId", string(c.ActivityID))
-			st.markFinished(c.ActivityID)
+			// Through applyFinish, not markFinished, so the unknown-id drop applies here too
+			// (fix round 1, F2). This run holds no futures yet — they do not survive a
+			// ContinueAsNew — so a carried finish for a started id marks it finished, which is
+			// the right answer: for a pre-CAN child the signal and the ROW are all there is.
+			st.applyFinish(ctx, in, activityFinishedSignal{ActivityID: c.ActivityID, Outcome: c.Outcome})
 		case pumpCarriedLeaseRequest:
 			logger.Info("pump: replaying a lease request carried across continue-as-new",
 				"projectId", string(in.ProjectID), "activityId", string(c.ActivityID))
@@ -658,7 +754,13 @@ func (wf *csWorkflows) pumpRecordBlocked(
 
 // pumpGrantLease answers at most one outstanding request.
 //
-// THE INVARIANT: at most one activity of a project holds the main-write lease at a time.
+// THE INVARIANT, AT ITS TRUE SCOPE: at most one activity holds the main-write lease at a
+// time WITHIN ONE PUMP CHAIN. LeaseHolder lives in pumpState/pumpInput and survives nothing
+// else, so a pump run that ends holding a lease — a pause while parked, G-P12 firing on
+// another child, any error return — hands the project to a fresh chain that starts with
+// LeaseHolder nil and an empty Started, while the old holder is still in its merge tail
+// behind a human gate. The module header spells that boundary out; the row-level mechanism
+// is what holds across it.
 //
 // WHY A LEASE AND NOT "LET THEM RACE". applyRecovering's bound is
 // maxMutateConflictAttempts, and stage 4b1 MEASURED that bound being exhausted by ONE
@@ -674,6 +776,14 @@ func (wf *csWorkflows) pumpRecordBlocked(
 // VALIDATION, because Temporal does not authenticate a signaler: an id is granted only if
 // it is in this pump's Started set AND in the committed plan this run already read. An id
 // in neither is LOGGED AND DROPPED, never granted.
+//
+// WHICH MAKES "THE LEASE FAILS OPEN" THE NORMAL STATE AFTER ANY PUMP RESTART, not a rare
+// fault path — the one consequence of that validation worth stating at the site it happens.
+// A child that predates the restart is an id THIS chain never started, so its request is
+// dropped here, its bounded wait in requestMainWriteLease expires, and its merge tail runs
+// UNLEASED with the per-row CAS and the branch-file version guard as its only serialisation.
+// That is the pre-wave state, deliberately, and it is strictly better than failing an
+// activity that did all of its work because the admission queue restarted underneath it.
 func (wf *csWorkflows) pumpGrantLease(ctx workflow.Context, in pumpInput, st *pumpState) error {
 	if err := wf.pumpCheckLease(ctx, in, st); err != nil {
 		return err
@@ -876,11 +986,20 @@ func (wf *csWorkflows) pumpPark(ctx workflow.Context, in pumpInput, st *pumpStat
 	sel.AddReceive(chans.finish, func(c workflow.ReceiveChannel, _ bool) {
 		var fin activityFinishedSignal
 		c.Receive(ctx, &fin)
-		workflow.GetLogger(ctx).Info("pump: an activity reported its terminal",
-			"projectId", string(in.ProjectID), "activityId", string(fin.ActivityID), "outcome", fin.Outcome.String())
-		st.markFinished(fin.ActivityID)
+		st.applyFinish(ctx, in, fin)
 	})
-	for id, f := range st.futures {
+	// THE ARM ORDER IS DETERMINISTIC, and it was not (fix round 1, F3). This loop used to
+	// range over st.futures, so which arm fired when two futures were ready in one workflow
+	// task depended on Go's randomised map iteration — and therefore varied between a run and
+	// its own REPLAY. It was benign only because these callbacks emit nothing but a log; the
+	// first line of state a callback ever mutates would turn it into a non-determinism panic
+	// on the project's ONE pump. st.inFlight() is Started minus Finished in DISPATCH order,
+	// which is the same order on every replay.
+	for _, id := range st.inFlight() {
+		f, ok := st.futures[id]
+		if !ok {
+			continue
+		}
 		sel.AddFuture(f, func(workflow.Future) {
 			workflow.GetLogger(ctx).Info("pump: a child future is ready", "activityId", string(id))
 		})
@@ -929,25 +1048,46 @@ func (wf *csWorkflows) pumpContinueAsNew(
 			"projectId", string(in.ProjectID), "reason", reason)
 		return pumpDispatchedResult(frontier), true, nil
 	}
-	st.drainForContinue(chans)
+	st.drainForContinue(ctx, in, chans)
 	return PumpResult{}, true, workflow.NewContinueAsNewError(ctx, executionKindPump, st.toInput(in))
 }
 
 // drainForContinue is rule 2. It is non-blocking (ReceiveAsync emits no command and is
 // replay-deterministic) and it runs until every channel is empty, because "drain one" is
 // the same defect with a smaller window.
-func (st *pumpState) drainForContinue(chans pumpChannels) {
+//
+// IT VALIDATES WHAT IT CARRIES (fix round 1, F2). The drain is the OTHER door into
+// pumpState.Carried — the selector arms are the first — and it is the door the declared
+// bound is paid at, because Carried is what crosses the ContinueAsNew boundary. An id this
+// pump never started is dropped here for applyFinish's reason: a signaler Temporal did not
+// authenticate is making a claim, and a claim must not be able to grow a payload whose stated
+// bound is "the plan's activity count".
+func (st *pumpState) drainForContinue(ctx workflow.Context, in pumpInput, chans pumpChannels) {
+	logger := workflow.GetLogger(ctx)
+	drop := func(kind string, id ActivityID) bool {
+		if st.isStarted(id) {
+			return false
+		}
+		logger.Error("pump: dropping a buffered message for an activity this pump never started",
+			"projectId", string(in.ProjectID), "activityId", string(id), "kind", kind,
+			"consequence", "it is not carried across the continue-as-new; an unknown id is a claim and not a fact")
+		return true
+	}
 	for {
 		var fin activityFinishedSignal
 		if chans.finish.ReceiveAsync(&fin) {
-			st.Carried = append(st.Carried, pumpCarriedSignal{
-				Kind: pumpCarriedFinish, ActivityID: fin.ActivityID, Outcome: fin.Outcome})
+			if !drop(pumpCarriedFinish, fin.ActivityID) {
+				st.Carried = append(st.Carried, pumpCarriedSignal{
+					Kind: pumpCarriedFinish, ActivityID: fin.ActivityID, Outcome: fin.Outcome})
+			}
 			continue
 		}
 		var req activityLeaseRequest
 		if chans.lease.ReceiveAsync(&req) {
-			st.Carried = append(st.Carried, pumpCarriedSignal{
-				Kind: pumpCarriedLeaseRequest, ActivityID: req.ActivityID})
+			if !drop(pumpCarriedLeaseRequest, req.ActivityID) {
+				st.Carried = append(st.Carried, pumpCarriedSignal{
+					Kind: pumpCarriedLeaseRequest, ActivityID: req.ActivityID})
+			}
 			continue
 		}
 		return

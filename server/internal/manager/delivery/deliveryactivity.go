@@ -3319,7 +3319,7 @@ func attemptEvidence(produced producedSubject) (projectstate.EvidenceKind, strin
 func (wf *csWorkflows) finalizeWalk(
 	ctx workflow.Context, in deliveryActivityInput, lc methodassets.Lifecycle,
 	ws *walkState, state *constructState,
-) error {
+) (err error) {
 	for _, t := range lc.Tasks {
 		if ws.byTask[t.ID] != walkTaskPassed {
 			return wf.failWalk(ctx, in, state, t.ID, temporal.NewNonRetryableApplicationError(
@@ -3339,11 +3339,22 @@ func (wf *csWorkflows) finalizeWalk(
 	// a returning error is a project that stops until the pump's deadline check reaps it.
 	// It carries the epoch, so a release cannot free a lease a successor was granted after
 	// the pump decided this execution was gone.
+	//
+	// AND IT REPORTS THE OUTCOME IT ACTUALLY REACHED (fix round 1, F5). It used to report
+	// ActivityOutcomeCompleted unconditionally, which was a LIE on two of the three exits —
+	// the `exited` return, where the variance loop gave the activity up, and every error
+	// return, where the tail BROKE. That lie was the blocker's other half: the pump's finish
+	// arm read it, marked the activity finished and deleted the child's future, so the
+	// failure that followed a microsecond later had no channel left to arrive on and the run
+	// reported a CLEAN, QUIESCENT cascade. The pump no longer trusts a signal over a future
+	// it holds (pumpnextactivity.go, applyFinish), and this end of the wire no longer says
+	// something it does not know.
+	var exited bool
 	epoch, leased := wf.requestMainWriteLease(ctx, in, state)
 	if leased {
-		defer wf.releaseMainWriteLease(ctx, in, epoch, projectstate.ActivityOutcomeCompleted)
+		defer func() { wf.releaseMainWriteLease(ctx, in, epoch, mainWriteTailOutcome(exited, err)) }()
 	}
-	exited, err := wf.runWalkMerge(ctx, in, lc, ws, state)
+	exited, err = wf.runWalkMerge(ctx, in, lc, ws, state)
 	if err != nil {
 		return err
 	}
@@ -3353,11 +3364,37 @@ func (wf *csWorkflows) finalizeWalk(
 		// landed.
 		return nil
 	}
+	// EARMARK, RECORDED RATHER THAN FIXED (fix round 1, F1's second half). An error from
+	// either call below returns straight through walkTasks WITHOUT passing through failWalk,
+	// so no terminal FAILURE row is written: the activity is left reading Running (or, if
+	// finalizeActivity already recorded the binary exit and only commitDesignArtifacts broke,
+	// Completed with uncommitted slots — the state the commitDesignArtifacts header already
+	// documents as heal-by-re-open). The pump now STOPS on this error via the child's future,
+	// which is the protection that was missing; what is still owed is the durable row, and
+	// with it pumpReconcile's pre-ContinueAsNew arm ("terminal failure row, no finish
+	// reported") for a child that outlives its pump run. Routing the tail through failWalk
+	// would write VarianceExhausted over an already-recorded Completed, so it is a decision
+	// about that heal path and not a line to add here in a fix round.
 	if err := wf.finalizeActivity(ctx, csIn, &state.walk.gf, &state.walk.headVersion, state, state.walk.gitOn, state.walk.cred,
 		reconcileTargetOf(lc)); err != nil {
 		return err
 	}
 	return wf.commitDesignArtifacts(ctx, in, lc, ws, state)
+}
+
+// mainWriteTailOutcome is what the merge tail tells the pump it reached. Completed is
+// reserved for the ONE exit that earned it — no error and no give-up — and the other two
+// report Unknown, which is what walkTasks' own exited arm has always reported.
+//
+// IT IS NOT WHAT STOPS THE CASCADE, and the distinction is worth keeping straight:
+// ActivityOutcome cannot tell a clean give-up from a broken tail (both are Unknown), so the
+// pump keys its stop-the-cascade rule on the child's FUTURE, not on this value. This makes
+// the message honest and the log readable; applyFinish is what makes it safe.
+func mainWriteTailOutcome(exited bool, err error) projectstate.ActivityOutcome {
+	if err != nil || exited {
+		return projectstate.ActivityOutcomeUnknown
+	}
+	return projectstate.ActivityOutcomeCompleted
 }
 
 // changeActivityMainWriteLease fences the child's lease request. Its DefaultVersion arm is
@@ -3440,10 +3477,16 @@ func (wf *csWorkflows) requestMainWriteLease(
 	}
 }
 
-// releaseMainWriteLease tells the pump this activity's walk has reached a terminal the
-// platform RECORDED, so the lease is free. Best-effort by design: the pump's reconcile tick
+// releaseMainWriteLease tells the pump this activity's merge tail is over, at whatever
+// outcome it reached, so the lease is free. Best-effort by design: the pump's reconcile tick
 // is the backstop, and an activity that finished must not fail because the pump it was
 // reporting to has closed.
+//
+// THE OUTCOME IS THE CALLER'S, NOT A CONSTANT (fix round 1, F5). This used to be handed
+// ActivityOutcomeCompleted at its one call site whatever had happened, including the give-up
+// and error exits, and the pump believed it. It now carries mainWriteTailOutcome's answer,
+// and the pump treats a finish as a lease release rather than as proof the activity is over
+// whenever it still holds the child's future.
 func (wf *csWorkflows) releaseMainWriteLease(
 	ctx workflow.Context, in deliveryActivityInput, epoch int64, outcome projectstate.ActivityOutcome,
 ) {
