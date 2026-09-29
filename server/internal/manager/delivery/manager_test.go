@@ -16743,12 +16743,19 @@ const (
 // shapeOutcome is what every shape case asserts on.
 //
 // TWO order fields, and the distinction is the whole reason the fork is testable.
-// TaskOrder is the order tasks were STARTED, and it is IDENTICAL in both branch-order
-// cases by construction: readyTasks fans out in lifecycle DECLARATION order, which is
-// deterministic, so once srsReview passes it always returns [detailedDesign, stp] in
-// that order. Branch order is not a walker variable and must never be asserted as one.
-// What a branch order actually changes is which branch's pipeline COMPLETES first, so
-// CompletedOrder is the discriminator.
+// TaskOrder is the order task starts were OBSERVED — at the fake pipeline's submit and at
+// the fake store's openReviewRound, both of which run inside ACTIVITIES. Along one branch
+// that is an order; BETWEEN two parallel branches it is a SAMPLE, and it must never be
+// asserted as one. Two forked branches' activities are scheduled in one workflow task and
+// run on concurrent goroutines, so which of them reaches the recorder first is a race the
+// row-version conflict retry amplifies — the ~8% flake diagnosed in assertShapeForkOverlap,
+// where the measurement is written down. Declaration order IS deterministic, but it is a
+// property of readyTasks, and Test_DeliveryWalk_ForkFansOutInDeclarationOrder asserts it
+// there, purely.
+//
+// What a branch order actually changes is which branch's pipeline COMPLETES first, and
+// that is separated by a whole 15-second poll cycle of workflow time rather than by
+// nothing, so CompletedOrder is the discriminator and is safe to order.
 //
 // Timeline is the THIRD field, and it is here because the fork's own claim — "both
 // branches were in flight at once" — cannot be stated on the other two at all. They are
@@ -17432,17 +17439,39 @@ func assertShapeLinearDeployment(t *testing.T, name string, got shapeOutcome) {
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
 }
 
-// assertShapeForkOverlap is the half both branch-order cases share: the fan-out STARTS
-// in lifecycle declaration order (asserted, so a data reorder in lifecycles.json is
-// caught rather than absorbed) and BOTH branches are in flight at once. The overlap is
-// read off the MERGED Timeline and nowhere else — the two starts must both precede the
-// first completion of either — because that is the one statement TaskOrder and
-// CompletedOrder cannot make between them (see shapeOutcome.Timeline). A walker that
-// serialises the branches satisfies the declaration-order half and fails this one, which
-// is the whole reason there are two fork cases instead of one.
+// assertShapeForkOverlap is the half both branch-order cases share: BOTH branches start,
+// each exactly once, and both are in flight at once. The overlap is read off the MERGED
+// Timeline and nowhere else — the two starts must both precede the first completion of
+// either — because that is the one statement TaskOrder and CompletedOrder cannot make
+// between them (see shapeOutcome.Timeline). A walker that serialises the branches fails
+// it, which is the whole reason there are two fork cases instead of one.
+//
+// IT USED TO ASSERT THE BRANCH START ORDER HERE, and that assertion flaked ~8% of runs
+// (measured 1 in 12 at 6ba40dd7 and 1 in 12 at the wave's base c5851e90, so it predates
+// this wave; reproduced 1 in 15 and 1 in 25 while diagnosing). The cause is not the
+// walker. Both branches' `recordAttemptOutcome` activities are scheduled in ONE workflow
+// task and execute on concurrent goroutines against a fake that checks the row version
+// optimistically; whichever lands first wins, and the LOSER re-reads, retries and so
+// reaches its submitAgenticJob — where the shape recorder records a task START — second.
+// Both orders were observed in the debug log, with the conflict swapping sides:
+//
+//	GREEN run: 15 recordAttemptOutcome ok, 16 CONFLICT, 17 submit(detailedDesign), 23 submit(stp)
+//	RED   run: 15 CONFLICT, 16 recordAttemptOutcome ok, 17 submit(stp), 23 submit(detailedDesign)
+//
+// So TaskOrder SAMPLES the fan-out order between two parallel branches; it does not
+// decide it, and no observation point inside an activity can. Declaration order is a
+// property of readyTasks, and that is where it is now asserted — deterministically,
+// against the real lifecycle data, by Test_DeliveryWalk_ForkFansOutInDeclarationOrder.
+// The claim this line used to make ("a data reorder in lifecycles.json is caught") is
+// kept there and is now caught 100% of the time instead of 92%.
 func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
 	t.Helper()
-	shapeWantBefore(t, name, "TaskOrder", got.TaskOrder, "detailedDesign", "stp")
+	for _, branch := range []string{"detailedDesign", "stp"} {
+		if n := shapeCount(got.TaskOrder, branch); n != 1 {
+			t.Fatalf("%s: both fork branches must start exactly once; %q started %d times. TaskOrder=%v",
+				name, branch, n, got.TaskOrder)
+		}
+	}
 	firstDone := shapeFirstIndexOf(got.Timeline,
 		shapeEventCompleted+"detailedDesign", shapeEventCompleted+"stp")
 	if firstDone < 0 {
@@ -17455,6 +17484,42 @@ func assertShapeForkOverlap(t *testing.T, name string, got shapeOutcome) {
 		}
 	}
 	shapeWantAdvanced(t, name, got.PhaseAdvanced)
+}
+
+// Test_DeliveryWalk_ForkFansOutInDeclarationOrder is where the fork's declaration-order
+// claim actually lives, and it is here because the shape oracle could only SAMPLE it (see
+// assertShapeForkOverlap). readyTasks is pure over the lifecycle and one walkState, so
+// this runs with no Temporal environment, no fakes, no goroutines and no flake — and it
+// runs against the REAL method-assets data rather than a hand-built fixture, which is the
+// half that makes it worth having: the failure it exists to catch is someone reordering
+// `detailedDesign` and `stp` in lifecycles.json.
+//
+// Declaration order is not cosmetic. ValidateLifecycle guarantees it is a topological
+// order, and readyTasks walking lc.Tasks in it is what makes the fan-out DETERMINISTIC
+// under replay: a map walk would be non-determinism and a sort by id would be a second
+// rule to keep in step with the data.
+func Test_DeliveryWalk_ForkFansOutInDeclarationOrder(t *testing.T) {
+	lc, ok := methodassets.LifecycleFor("service")
+	if !ok {
+		t.Fatal("the platform's method assets carry no `service` lifecycle")
+	}
+	ws := newWalkState(lc)
+	ws.byTask["srs"] = walkTaskPassed
+	ws.byTask["srsReview"] = walkTaskPassed
+
+	var got []string
+	for _, task := range readyTasks(lc, ws) {
+		got = append(got, task.ID)
+	}
+	if want := []string{"detailedDesign", "stp"}; !slices.Equal(got, want) {
+		t.Fatalf("with srsReview passed the fork must fan out in lifecycle declaration order %v; got %v — "+
+			"a reorder in lifecycles.json changes which child the pump starts first on every service activity", want, got)
+	}
+	// The JOIN is the other half of the same rule and costs one line here: `testing`
+	// dependsOn [integration, stpReview], so it must not be ready while either is unpassed.
+	if slices.Contains(got, "testing") {
+		t.Fatalf("the join must not be ready while its dependsOn are unpassed; got %v", got)
+	}
 }
 
 // assertShapeSendBackJudgedPair is the send-back's real claim, which is about what did
