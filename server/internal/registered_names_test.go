@@ -78,7 +78,9 @@ func (f *fakeRegistry) RegisterActivityWithOptions(_ any, options activity.Regis
 //
 // Drain the old task queues (system-design, project-design, construction) and
 // delete the old Schedules (construction:pumpSweep, construction:replanSweep)
-// BEFORE this deploys — see Task 10.
+// BEFORE this deploys — see Task 10. Stage 4b2 adds delivery:replanSweep to that
+// deletion list: the workflow behind it is gone, so the Schedule now fires into a
+// type no worker serves, and an unregistered Schedule is not a deleted one.
 var registeredTemporalNamesGolden = []string{
 	"activityExecutionAccess.acknowledgeStaleBasis",
 	"activityExecutionAccess.appendReviewVerdict",
@@ -114,7 +116,6 @@ var registeredTemporalNamesGolden = []string{
 	"constructionProjectSupervision",
 	"constructionPumpNextActivity",
 	"constructionPumpSweep",
-	"constructionReplanSweep",
 	"constructionTransitionAccess.recordActivityExited",
 	"constructionTransitionAccess.recordActivityFailed",
 	"constructionTransitionAccess.recordChangeReviewed",
@@ -295,9 +296,19 @@ func TestRegisteredTemporalNamesGolden(t *testing.T) {
 // outside. Frozen here from its FIRST commit, before the pump starts it (Task 9), because
 // the cheapest moment to freeze a name is before anything depends on it.
 //
-// EARMARK: constructionPumpSweep is a Schedule target too and is NOT in this list, which
-// is an omission by the same argument rather than a decision. Adding it belongs with the
-// frozen-list edit Task 13 already owns, not here.
+// STAGE 4b2 REMOVED constructionReplanSweep AND ADDED constructionPumpSweep, and the two
+// moves have the same justification read in opposite directions.
+//
+// This list exists so an externally-held workflow TYPE name cannot vanish silently: a
+// client or a SCHEDULE outside this codebase holds the name, and a rename or a deletion
+// leaves it starting a type no worker serves. constructionReplanSweep leaves it because the
+// workflow is GONE and its Schedule is deleted in the same drain this wave already
+// requires — there is no external starter left to protect. constructionPumpSweep joins it
+// because its Schedule (delivery:pumpSweep, 30s) has held its type name as live namespace
+// state since stage 4a and this list never said so; that was an omission by this list's own
+// argument, earmarked at stage 4b1 and closed here.
+//
+// The count is 15 - 1 + 1 = 15.
 func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 	frozen := []string{
 		"billingOnboardPayment",
@@ -305,7 +316,7 @@ func TestRegisteredTemporalNamesGolden_FrozenWorkflowNames(t *testing.T) {
 		"billingCloseCycle",
 		"billingShortfallSweep",
 		"constructionPumpNextActivity",
-		"constructionReplanSweep",
+		"constructionPumpSweep",
 		"constructionProjectSupervision",
 		"deliveryRoundSweep",
 		"deliveryActivity",

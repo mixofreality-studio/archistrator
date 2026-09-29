@@ -8498,25 +8498,6 @@ func Test_ExecuteNextActivity_StillDecidingAtBudget_ReturnsDistinguishableOutcom
 	}
 }
 
-// ---- RunReplanSweep (op 2.2) ------------------------------------------------
-
-func Test_RunReplanSweep_EmptyTickID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
-	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, nil, "")
-	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
-		t.Fatalf("want ContractMisuse, got %s", got)
-	}
-}
-
-func Test_RunReplanSweep_EmptyProjectID(t *testing.T) {
-	m := newConstructionManager(nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, nil, 0, "", nil, sdpEngines{})
-	nilID := ProjectID("")
-	_, err := m.RunReplanSweep(fwmanager.Context{Context: context.Background()}, &nilID, "tick-1")
-	if got := asConstructionError(t, err).Kind; got != fwmanager.ContractMisuse {
-		t.Fatalf("want ContractMisuse for an explicit nil projectId, got %s", got)
-	}
-}
-
 // ---- PauseProject (op 2.3) --------------------------------------------------
 
 func Test_PauseProject_EmptyProjectID(t *testing.T) {
@@ -12090,11 +12071,6 @@ func (b *recordingSignalBus) RegisterSchedule(fwra.Context, messagebus.ScheduleI
 
 var _ messagebus.MessageBus = (*recordingSignalBus)(nil)
 
-func registerReplanSweep(env *testsuite.TestWorkflowEnvironment, wf *csWorkflows, ps *csFakeProjectState) {
-	env.RegisterWorkflowWithOptions(wf.ReplanSweepWorkflow, workflow.RegisterOptions{Name: executionKindReplanSweep})
-	registerGenDesignSessionRead(env, ps)
-}
-
 // fakeProjectLister widens fakeFullProjectState with a SCRIPTED ListProjects — the
 // one surface PumpSweepWorkflow's enumeration depends on. Every other method falls
 // through to fakeFullProjectState's stubs (never exercised by the sweep itself).
@@ -12490,86 +12466,6 @@ func Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug(t *testing.T) {
 	}
 }
 
-// ---- Tests: replan sweep (ReplanSweepWorkflow) ------------------------------
-
-// A quiet sweep returns an empty result (no auto-replan).
-func Test_ReplanSweep_QuietSweep_EmptyResult(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	pid := ProjectID(uuid.NewString())
-	ps := &csFakeProjectState{project: projectstate.Project{ID: projectstate.ProjectID(pid), Version: 1, Phase: 2}}
-	wf := csNewWorkflows(wfDeps{
-		Intervention: &fakeIntervention{}, Review: &fakeReview{},
-	})
-	registerReplanSweep(env, wf, ps)
-
-	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("sweep error: %v", err)
-	}
-	var res ReplanSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode sweep result: %v", err)
-	}
-	if len(res.FlaggedVariances) != 0 {
-		t.Fatalf("want an empty quiet sweep, got %v", res.FlaggedVariances)
-	}
-}
-
-// Test_ReplanSweep_SurfacesNothingForAnyProject is the deletion's argument, executable and
-// then deleted with its subject. flagVariances returns nil unconditionally, so the sweep is
-// a Schedule firing every five minutes to produce an empty result — which is worse than no
-// sweep, because an operator reading the Schedule list sees variance coverage.
-//
-// The seed is the loudest variance the head-state can hold: an activity that exhausted its
-// retry budget (FailureReason VarianceExhausted), terminal, with four failed gate attempts
-// behind it. If ANY project could make this sweep say something, this one would. Expected:
-// GREEN — an empty result — which is the finding.
-func Test_ReplanSweep_SurfacesNothingForAnyProject(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	pid := ProjectID(uuid.NewString())
-	ended := time.Date(2026, 9, 28, 12, 0, 0, 0, time.UTC)
-	row := projectstate.ActivityExecution{
-		ActivityID:    "C-X",
-		Type:          projectstate.ActivityTypeService,
-		CompletedAt:   &ended,
-		FailureReason: projectstate.VarianceExhausted,
-		FailureDetail: "four rejected code reviews — the retry budget is spent",
-		Attempts: []projectstate.TaskAttempt{
-			ledgerAttempt("C-X", projectstate.TaskCodeReview, 1, projectstate.OutcomeRejected),
-			ledgerAttempt("C-X", projectstate.TaskCodeReview, 2, projectstate.OutcomeRejected),
-			ledgerAttempt("C-X", projectstate.TaskCodeReview, 3, projectstate.OutcomeRejected),
-			ledgerAttempt("C-X", projectstate.TaskCodeReview, 4, projectstate.OutcomeFailed),
-		},
-	}
-	ps := &csFakeProjectState{project: projectstate.Project{
-		ID: projectstate.ProjectID(pid), Version: 1, Phase: 3,
-		ActivityExecution: map[string]projectstate.ActivityExecution{"C-X": row},
-	}}
-	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
-	registerReplanSweep(env, wf, ps)
-
-	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("sweep error: %v", err)
-	}
-	var res ReplanSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode sweep result: %v", err)
-	}
-	if len(res.FlaggedVariances) != 0 {
-		t.Fatalf("the sweep surfaced something — the deletion's argument is wrong: %v", res.FlaggedVariances)
-	}
-	t.Logf("THE FINDING: an exhausted-variance, terminally-failed activity with four rejected "+
-		"gate attempts produced %d flagged variances. The 5m Schedule reads as coverage and is not.",
-		len(res.FlaggedVariances))
-}
-
 // ---- Tests: pump sweep (PumpSweepWorkflow, Task 7c) -------------------------
 
 // fakeScheduleBus records every RegisterSchedule call. Satisfies messagebus.MessageBus.
@@ -12593,27 +12489,28 @@ func (b *fakeScheduleBus) RegisterSchedule(_ fwra.Context, scheduleID messagebus
 
 var _ messagebus.MessageBus = (*fakeScheduleBus)(nil)
 
-// RegisterSchedules must register exactly the three platform-wide Schedules — the
-// pump sweep (30s, targeting PumpSweepWorkflow), the replan sweep (5m, targeting
-// ReplanSweepWorkflow) and, from stage 4b1, the round sweep (5m, targeting
-// RoundSweepWorkflow) — with the right ids/workflow-types/intervals.
+// RegisterSchedules must register exactly the two platform-wide Schedules — the
+// pump sweep (30s, targeting PumpSweepWorkflow) and, from stage 4b1, the round sweep
+// (5m, targeting RoundSweepWorkflow) — with the right ids/workflow-types/intervals.
+// The replan sweep was the third and went with its workflow at stage 4b2: it fired
+// every five minutes to produce an empty result, which reads as coverage and is not.
 //
-// The three ids are asserted as LITERALS as well as through the consts: a Schedule id is
+// The two ids are asserted as LITERALS as well as through the consts: a Schedule id is
 // live namespace state, not an internal name, so renaming one is a deploy step (delete
 // the old id by hand — it cannot be moved or adopted) and must never pass unnoticed
 // just because the test read the same const the code did. The COUNT is asserted for the
 // same reason in reverse: a Schedule nobody registers is a sweep that silently never
-// fires, and only the count catches a registration dropped in a merge.
-func Test_RegisterSchedules_RegistersPumpSweepAndReplanSweep(t *testing.T) {
-	// A table over the three, so a fourth Schedule is one row rather than another
-	// straight-line block — which is what took this test past the complexity gate when the
-	// round sweep made it three.
+// fires, and only the count catches a registration dropped in a merge — and, read the
+// other way, it is what fails if a deleted sweep's registration is left behind.
+func Test_RegisterSchedules_RegistersPumpSweepAndRoundSweep(t *testing.T) {
+	// A table, so a third Schedule is one row rather than another straight-line block —
+	// which is what took this test past the complexity gate when the round sweep made it
+	// three.
 	want := []struct {
 		name, id, wantLiteral, kind string
 		intervalSecs                int
 	}{
 		{"pump sweep", scheduleIDPumpSweep, "delivery:pumpSweep", executionKindPumpSweep, pumpSweepIntervalSecs},
-		{"replan sweep", scheduleIDReplanSweep, "delivery:replanSweep", executionKindReplanSweep, replanSweepIntervalSecs},
 		{"round sweep", scheduleIDRoundSweep, "delivery:roundSweep", executionKindRoundSweep, roundSweepIntervalSecs},
 	}
 
@@ -16915,8 +16812,9 @@ func railWired(ProjectID) bool { return true }
 
 // THE DRAIN CONTRACT IS A SET OF LITERAL STRINGS, RE-PINNED (final fix wave, B3). The
 // deleted Test_WorkflowIDDerivation was the only assertion over them, and after it went
-// neither replanSweepWorkflowID (in EITHER form) nor pauseTargetWorkflowID had a single test
-// reference — the literals appeared in no assertion anywhere.
+// neither replanSweepWorkflowID (in EITHER form, now gone with its workflow at stage 4b2)
+// nor pauseTargetWorkflowID had a single test reference — the literals appeared in no
+// assertion anywhere.
 //
 // These are not internal details: they are what the drain note TELLS AN OPERATOR TO DRAIN
 // before this branch deploys, and what the pause signal is addressed to. A rename is invisible
@@ -16930,9 +16828,7 @@ func Test_WorkflowIDDerivation(t *testing.T) {
 	for _, c := range []struct{ name, got, want string }{
 		{"pump (tick-invariant)", pumpWorkflowID(pid), "proj-1:nextActivity"},
 		{"pause / supervision target", pauseTargetWorkflowID(pid), "proj-1:construction"},
-		{"replan sweep, per project", replanSweepWorkflowID(&scoped, "t7"), "proj-1:replanSweep:t7"},
-		{"replan sweep, all projects", replanSweepWorkflowID(nil, "t7"), ":all:replanSweep:t7"},
-		{"round sweep", roundSweepWorkflowID(pid, "t7"), "proj-1:roundSweep:t7"},
+		{"round sweep", roundSweepWorkflowID(scoped, "t7"), "proj-1:roundSweep:t7"},
 		{"generic activity child", deliveryActivityWorkflowID(pid, "C-MST"), "proj-1:activity:C-MST"},
 	} {
 		if c.got != c.want {
@@ -25985,8 +25881,9 @@ func Test_DeliveryActivityOptions_EveryInvokedActivityIsTuned(t *testing.T) {
 // one, by hand, after the fact, one of them a live `vibes` autogate regression that had
 // been shipping for two waves.
 //
-// Stage 4b2 rewrites PumpNextActivityWorkflow (Task 12) and deletes ReplanSweepWorkflow
-// (Task 11). The pump is this wave's deleted body. So its guards come out of it FIRST,
+// Stage 4b2 rewrites PumpNextActivityWorkflow (Task 12), and Task 11 DELETED the replan
+// sweep — with its two rows discharged first, which is what this census is for. The pump
+// is this wave's deleted body. So its guards come out of it FIRST,
 // as docs/bugs/2026-09-28-pump-guard-census.md and as the assertions below, and Task 16
 // walks that list rather than re-deriving it.
 //
@@ -26012,7 +25909,6 @@ const pumpGuardCensusDoc = "../../../../docs/bugs/2026-09-28-pump-guard-census.m
 // Task 12 MOVES them, so the ID is the stable handle and the line is provenance.
 func pumpGuardCensus() []pumpGuard {
 	out := pumpGuardCensusPump()
-	out = append(out, pumpGuardCensusReplanSweep()...)
 	out = append(out, pumpGuardCensusPumpSweep()...)
 	return append(out, pumpGuardCensusSupervision()...)
 }
@@ -26089,18 +25985,12 @@ func pumpGuardCensusPump() []pumpGuard {
 	}
 }
 
-// pumpGuardCensusReplanSweep is replansweep.go's two guards. Task 11 deletes the
-// workflow, so both rows exist to be SHOWN to protect nothing that survives.
-func pumpGuardCensusReplanSweep() []pumpGuard {
-	return []pumpGuard{
-		{"G-R1", "replansweep.go:25-27", "a nil ProjectID returns an empty result immediately",
-			"nothing — the all-projects arm has no reachable caller over either transport, which is Task 11's case for deleting it",
-			"Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep"},
-		{"G-R2", "replansweep.go:29-35", "isReadNotFound is a quiet sweep, not an error (G-P3's shape)",
-			"a platform-wide Schedule error every 300s for every state-less project",
-			"Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep"},
-	}
-}
+// THE TWO REPLAN-SWEEP ROWS, G-R1 and G-R2, ARE DISCHARGED AND GONE (Task 11). They were
+// listed to be SHOWN to protect nothing that survives, and they were: both tests ran green,
+// the all-projects arm had no reachable caller over either transport, and the workflow they
+// guarded is deleted. A census row whose subject no longer exists is not a guard, so the
+// rows leave with it — the two meta-tests below are what make that a single edit rather
+// than a doc that quietly outlives its code.
 
 // pumpGuardCensusPumpSweep is pumpsweep.go's seven guards. Task 4 deleted G-S2's filter
 // without touching G-S1, the line directly below it, and ADDED G-S7 — the row the census
@@ -26655,56 +26545,6 @@ func pumpRuleUnder(arm func(*testsuite.TestWorkflowEnvironment)) (eligibilityRul
 	}
 	env.ExecuteWorkflow(executionKindPump, pumpInput{ProjectID: pid})
 	return got, env.GetWorkflowError()
-}
-
-// G-R1. ReplanSweepWorkflow's all-projects arm returns an empty result immediately. No
-// test ever ran the workflow with a nil project — every caller passes one. The row exists
-// so Task 11 can DELETE the arm having shown what it does, rather than assuming.
-func Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	ps := &csFakeProjectState{project: projectstate.Project{ID: "p", Version: 1, Phase: 2}}
-	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
-	registerReplanSweep(env, wf, ps)
-
-	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("G-R1: the all-projects arm is quiet, not an error: %v", err)
-	}
-	var res ReplanSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode sweep result: %v", err)
-	}
-	if len(res.FlaggedVariances) != 0 {
-		t.Fatalf("G-R1: want an empty result, got %v", res.FlaggedVariances)
-	}
-}
-
-// G-R2. G-P3's shape on the replan sweep: a project with no state is a quiet sweep, not a
-// Schedule error every 300s.
-func Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep(t *testing.T) {
-	var ts testsuite.WorkflowTestSuite
-	env := ts.NewTestWorkflowEnvironment()
-
-	pid := ProjectID(uuid.NewString())
-	ps := &csFakeProjectState{notFound: true}
-	wf := csNewWorkflows(wfDeps{Intervention: &fakeIntervention{}, Review: &fakeReview{}})
-	registerReplanSweep(env, wf, ps)
-
-	env.ExecuteWorkflow(executionKindReplanSweep, replanSweepInput{ProjectID: &pid})
-
-	if err := env.GetWorkflowError(); err != nil {
-		t.Fatalf("G-R2: a state-less project is a quiet sweep, not an error: %v", err)
-	}
-	var res ReplanSweepResult
-	if err := env.GetWorkflowResult(&res); err != nil {
-		t.Fatalf("decode sweep result: %v", err)
-	}
-	if len(res.FlaggedVariances) != 0 {
-		t.Fatalf("G-R2: want an empty result, got %v", res.FlaggedVariances)
-	}
 }
 
 // failingProjectLister answers ListProjects with a non-retryable fault. ContractMisuse

@@ -5483,7 +5483,6 @@ func solutionKindOfOption(rows []projectstate.SdpOptionRow, id projectstate.Opti
 // exposes the five public use-case ops (constructionManager.md §2) and OWNS Temporal.
 // The Temporal-backed ops:
 //   - ExecuteNextActivity — Workflow (entry; scheduler-triggered pump)
-//   - RunReplanSweep      — Workflow (entry; scheduler-triggered variance sweep)
 //   - PauseProject        — Signal (operatorPauseRequested)
 //   - OverrideActivity    — Signal (operatorOverride, to the per-activity child)
 //   - GetSessionState     — Query (sessionState, read-only)
@@ -5861,42 +5860,6 @@ func (m *constructionManager) terminalPumpResult(ctx context.Context, we client.
 	var result PumpResult
 	if err := we.Get(wctx, &result); err != nil {
 		return PumpResult{}, newError(fwmanager.Infrastructure, err.Error())
-	}
-	return result, nil
-}
-
-// RunReplanSweep — op 2.2. Temporal Workflow (entry; scheduler-triggered, short).
-// Reads in-flight construction state, flags over-threshold variances, surfaces
-// them to the operator dashboard — it does NOT auto-replan. An empty result is a
-// normal quiet sweep. A nil projectID sweeps all in-flight projects (workflow id
-// :all:replanSweep:{tickId}).
-func (m *constructionManager) RunReplanSweep(rc fwmanager.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
-	ctx := rc.Context
-	if tickID == "" {
-		return ReplanSweepResult{}, newError(fwmanager.ContractMisuse, "empty tickId")
-	}
-	var in replanSweepInput
-	if projectID != nil {
-		if *projectID == "" {
-			return ReplanSweepResult{}, newError(fwmanager.ContractMisuse, "empty projectId")
-		}
-		pid := *projectID
-		in.ProjectID = &pid
-	}
-
-	wfID := replanSweepWorkflowID(projectID, tickID)
-	opts := client.StartWorkflowOptions{
-		ID:                       wfID,
-		TaskQueue:                TaskQueue,
-		WorkflowIDConflictPolicy: enumspb.WORKFLOW_ID_CONFLICT_POLICY_USE_EXISTING,
-	}
-	we, err := m.client.ExecuteWorkflow(ctx, opts, executionKindReplanSweep, in)
-	if err != nil {
-		return ReplanSweepResult{}, csMapStartError(err)
-	}
-	var result ReplanSweepResult
-	if err := we.Get(ctx, &result); err != nil {
-		return ReplanSweepResult{}, newError(fwmanager.Infrastructure, err.Error())
 	}
 	return result, nil
 }
@@ -7340,15 +7303,6 @@ func pumpWorkflowID(projectID ProjectID) string {
 	return fmt.Sprintf("%s:nextActivity", projectID)
 }
 
-// replanSweepWorkflowID derives {projectId}:replanSweep:{tickId} or, for the
-// all-projects sweep, :all:replanSweep:{tickId}.
-func replanSweepWorkflowID(projectID *ProjectID, tickID string) string {
-	if projectID == nil {
-		return fmt.Sprintf(":all:replanSweep:%s", tickID)
-	}
-	return fmt.Sprintf("%s:replanSweep:%s", *projectID, tickID)
-}
-
 // roundSweepWorkflowID derives the per-project round-sweep child id
 // {projectId}:roundSweep:{tickId}. Deliberately TICK-BEARING, the opposite of
 // pumpWorkflowID's choice and for the opposite reason: two pumps over one frontier would
@@ -8506,16 +8460,19 @@ type operatorPauseSignal struct {
 // `temporal schedule delete --schedule-id construction:pumpSweep` (and
 // `construction:replanSweep`) BEFORE the release, then confirm with
 // `temporal schedule list` — see docs/bugs/2026-09-24-stage3-rail-earmarks.md.
+//
+// STAGE 4b2 DELETED ReplanSweepWorkflow, and the drain now owes THREE deletions, not
+// two. `delivery:replanSweep` is no longer registered by RegisterSchedules — but a
+// Schedule that stops being registered is not a Schedule that stops existing, and both
+// `construction:replanSweep` (the pre-4a id) and `delivery:replanSweep` (the 4a id) are
+// live namespace state whose action now targets a workflow type NO worker serves. Delete
+// BOTH by hand alongside `construction:pumpSweep`. The paragraph above is kept verbatim
+// for the same reason: a drain instruction is not discharged by deleting its workflow.
 const (
 	// scheduleIDPumpSweep is the platform-wide pump-sweep Schedule id.
 	scheduleIDPumpSweep = "delivery:pumpSweep"
 	// pumpSweepIntervalSecs is the pump-sweep cadence — the single tunable knob.
 	pumpSweepIntervalSecs = 30
-
-	// scheduleIDReplanSweep is the platform-wide replan-sweep Schedule id.
-	scheduleIDReplanSweep = "delivery:replanSweep"
-	// replanSweepIntervalSecs is the replan-sweep cadence (5m) — the single tunable knob.
-	replanSweepIntervalSecs = 5 * 60
 
 	// scheduleIDRoundSweep is the platform-wide round-sweep Schedule id (stage 4b1 Task
 	// 6). It carries the delivery: prefix from the start and has no older id of its own to
@@ -8711,7 +8668,6 @@ func (m *constructionManager) WorkerManifest() genWorkerManifest {
 	return genWorkerManifest{
 		Workflows: []genRegisteredWorkflow{
 			{Name: executionKindPump, Fn: wf.PumpNextActivityWorkflow},
-			{Name: executionKindReplanSweep, Fn: wf.ReplanSweepWorkflow},
 			{Name: executionKindProjectSupervision, Fn: wf.ProjectSupervisionWorkflow},
 			{Name: executionKindPumpSweep, Fn: wf.PumpSweepWorkflow},
 			{Name: executionKindRoundSweep, Fn: wf.RoundSweepWorkflow},
@@ -10760,17 +10716,7 @@ func (m *deliveryManager) OverrideActivity(rc fwmanager.Context, projectID Proje
 	return m.cs.OverrideActivity(rc, projectID, activityID, override)
 }
 
-// ---- op 9: ReplanProject ---------------------------------------------------
-
-// ReplanProject is the replan sweep's one tick, forwarded unchanged.
-func (m *deliveryManager) ReplanProject(rc fwmanager.Context, projectID *ProjectID, tickID string) (ReplanSweepResult, error) {
-	if strings.TrimSpace(tickID) == "" {
-		return ReplanSweepResult{}, newError(fwmanager.ContractMisuse, "empty tickId")
-	}
-	return m.cs.RunReplanSweep(rc, projectID, tickID)
-}
-
-// ---- op 10: SetProjectExecutionPolicy --------------------------------------
+// ---- op 9: SetProjectExecutionPolicy ---------------------------------------
 
 // SetProjectExecutionPolicy sets the project's review policy. A preset alone names one
 // of the shipped presets; an explicit policy overrides it field by field.
@@ -10787,7 +10733,7 @@ func (m *deliveryManager) SetProjectExecutionPolicy(rc fwmanager.Context, projec
 	return m.cs.UpdateReviewPolicy(rc, projectID, *policy.Policy)
 }
 
-// ---- op 11: QueryProjectView -----------------------------------------------
+// ---- op 10: QueryProjectView -----------------------------------------------
 
 // QueryProjectView is the ONE read of the twelve. Its kind selects which of the
 // thirteen former readers answers, and the query object carries the selector that kind
@@ -10984,7 +10930,7 @@ func missingSelector(kind, selector string) error {
 		"deliveryManager.QueryProjectView: the "+kind+" view needs "+selector)
 }
 
-// ---- op 12: QueryActivityView ----------------------------------------------
+// ---- op 11: QueryActivityView ----------------------------------------------
 
 // QueryActivityView is the Activity Experience's single read, forwarded unchanged.
 func (m *deliveryManager) QueryActivityView(rc fwmanager.Context, projectID ProjectID, activityID ActivityID) (ActivityView, error) {
@@ -12937,15 +12883,21 @@ func RegisterManagerWorker(w worker.Worker, m DeliveryManager) {
 	RegisterWorker(w, impl.WorkerManifest())
 }
 
-// RegisterSchedules registers (idempotently) the THREE platform-wide delivery
+// RegisterSchedules registers (idempotently) the TWO platform-wide delivery
 // Temporal Schedules at startup via the messageBus utility (constructionManager.md
 // §6.1; Task 7c): the pump sweep (30s — targets PumpSweepWorkflow, which fans out to
 // every construction-phase project's own PumpNextActivityWorkflow; see this file's
-// header + pumpsweep.go), the replan sweep (5m — targets ReplanSweepWorkflow with
-// no ProjectID, its existing "sweep all in-flight projects" scope) and, from stage 4b1,
-// the round sweep (5m — targets RoundSweepWorkflow with an EMPTY ProjectID, its fan-out
-// arm; roundsweep.go). Called once at process start; a re-registration with the same
-// id+spec is a harmless no-op (last-writer-wins Update, messagebus.go).
+// header + pumpsweep.go) and, from stage 4b1, the round sweep (5m — targets
+// RoundSweepWorkflow with an EMPTY ProjectID, its fan-out arm; roundsweep.go). Called
+// once at process start; a re-registration with the same id+spec is a harmless no-op
+// (last-writer-wins Update, messagebus.go).
+//
+// THE REPLAN SWEEP WAS THE THIRD AND IS GONE (stage 4b2). It fired every five minutes
+// into a workflow whose variance helper returned nil unconditionally, so it produced an
+// empty result every time — which is worse than no sweep, because an operator reading
+// `temporal schedule list` sees variance coverage that does not exist. Its Schedule is no
+// longer registered here; the already-created one still has to be DELETED by hand (see
+// the Schedule-id const block's drain note above).
 func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
 	adapter := messageBusAdapter{inner: bus}
 	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
@@ -12953,14 +12905,6 @@ func RegisterSchedules(ctx context.Context, bus messagebus.MessageBus) error {
 		WorkflowType: executionKindPumpSweep,
 		TaskQueue:    TaskQueue,
 		IntervalSecs: pumpSweepIntervalSecs,
-	}); err != nil {
-		return err
-	}
-	if err := adapter.RegisterSchedule(ctx, scheduleSpec{
-		ID:           scheduleIDReplanSweep,
-		WorkflowType: executionKindReplanSweep,
-		TaskQueue:    TaskQueue,
-		IntervalSecs: replanSweepIntervalSecs,
 	}); err != nil {
 		return err
 	}
@@ -13178,8 +13122,6 @@ const (
 	// {projectId}:nextActivity, started or joined by ExecuteNextActivity and by the
 	// 30s pump sweep (not one execution per tick).
 	executionKindPump = "constructionPumpNextActivity"
-	// executionKindReplanSweep is the per-tick ReplanSweepWorkflow (the 5m sweep).
-	executionKindReplanSweep = "constructionReplanSweep"
 	// executionKindProjectSupervision is the long-lived project-level supervision
 	// workflow that hosts the operator-pause branch + project-level session Query.
 	executionKindProjectSupervision = "constructionProjectSupervision"

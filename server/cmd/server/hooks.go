@@ -1134,11 +1134,12 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// operations: the startup operatedStateReconcile Schedule
 		// (operationsmanager.go's executionKindReconcile).
 		"operationsReconcile": {WorkflowType: "operationsReconcile", TaskQueue: operations.TaskQueue},
-		// delivery: the three startup Schedules (Task 7c + stage 4b1 Task 6;
-		// deliverymanager.go's executionKindPumpSweep / executionKindReplanSweep /
-		// executionKindRoundSweep). The first two WORKFLOW TYPE names are unchanged at stage
-		// 4a (R2 — nineteen replay fixtures replay against them); only the task queue and the
-		// Schedule ids moved to the delivery namespace.
+		// delivery: the two startup Schedules (Task 7c + stage 4b1 Task 6;
+		// deliverymanager.go's executionKindPumpSweep / executionKindRoundSweep). The pump
+		// sweep's WORKFLOW TYPE name is unchanged at stage 4a (R2 — nineteen replay fixtures
+		// replay against them); only the task queue and the Schedule ids moved to the
+		// delivery namespace. The replan sweep was a third entry here and went with its
+		// workflow at stage 4b2: it fired every five minutes to produce an empty result.
 		//
 		// A KIND MISSING FROM THIS TABLE IS A BOOT FAILURE, not a dormant Schedule:
 		// messagebus.RegisterSchedule rejects an unknown kind as ContractMisuse (U4) and
@@ -1146,15 +1147,14 @@ func (h *appHooks) MessageBusTemporalArgs(_ *Config) map[messagebus.ExecutionKin
 		// That is how the round sweep's absence here was found — by the boot test, not by any
 		// unit test, because nothing else compiler-links this hand-maintained table to the
 		// managers' unexported executionKind* constants.
-		"constructionPumpSweep":   {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
-		"constructionReplanSweep": {WorkflowType: "constructionReplanSweep", TaskQueue: delivery.TaskQueue},
-		"deliveryRoundSweep":      {WorkflowType: "deliveryRoundSweep", TaskQueue: delivery.TaskQueue},
+		"constructionPumpSweep": {WorkflowType: "constructionPumpSweep", TaskQueue: delivery.TaskQueue},
+		"deliveryRoundSweep":    {WorkflowType: "deliveryRoundSweep", TaskQueue: delivery.TaskQueue},
 	}
 }
 
 // FinalizeMessageBus is identity, EXCEPT when CONSTRUCTION_DRYRUN=true: it then
-// wraps messageBus so the two platform-wide construction Schedules (pump sweep
-// 30s / replan sweep 5m — registered via construction.RegisterSchedules at the
+// wraps messageBus so the two platform-wide delivery Schedules (pump sweep
+// 30s / round sweep 5m — registered via delivery.RegisterSchedules at the
 // generated main's RegisterConstructionManagerWorker gate, Task 7c) are never
 // actually created against the runtime. A dry-run boot's construction pipeline
 // is already the in-memory stub (FinalizeAgenticJobAccess above), so there is

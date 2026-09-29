@@ -350,18 +350,19 @@ func TestFinalizeMessageBus_DryRun_SkipsConstructionSchedules(t *testing.T) {
 
 	wrapped := h.FinalizeMessageBus(cfg, inner)
 
-	// The two construction kinds must be skipped (no delegation to inner). The gate
-	// matches the EXECUTION KIND, which keeps its construction* spelling (R2 — a
-	// workflow type rename would strand in-flight executions); the Schedule ids took
-	// the delivery: prefix at stage 4a and are passed here as the live ids.
+	// The two delivery kinds must be skipped (no delegation to inner). The gate
+	// matches the EXECUTION KIND, which keeps its construction* spelling for the pump
+	// sweep (R2 — a workflow type rename would strand in-flight executions); the
+	// Schedule ids took the delivery: prefix at stage 4a and are passed here as the
+	// live ids. The replan sweep was a third kind here until stage 4b2 deleted it.
 	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:pumpSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionPumpSweep"}); err != nil {
 		t.Fatalf("RegisterSchedule(pumpSweep): %v", err)
 	}
-	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:replanSweep", messagebus.ScheduleSpec{ExecutionKind: "constructionReplanSweep"}); err != nil {
-		t.Fatalf("RegisterSchedule(replanSweep): %v", err)
+	if err := wrapped.RegisterSchedule(fwra.Context{}, "delivery:roundSweep", messagebus.ScheduleSpec{ExecutionKind: "deliveryRoundSweep"}); err != nil {
+		t.Fatalf("RegisterSchedule(roundSweep): %v", err)
 	}
 	if len(inner.scheduleCalls) != 0 {
-		t.Fatalf("expected construction schedules NOT registered under DRYRUN=true, got %d calls: %v", len(inner.scheduleCalls), inner.scheduleCalls)
+		t.Fatalf("expected delivery schedules NOT registered under DRYRUN=true, got %d calls: %v", len(inner.scheduleCalls), inner.scheduleCalls)
 	}
 
 	// billing/operations kinds must still pass through.
@@ -401,20 +402,19 @@ func TestFinalizeMessageBus_NotDryRun_RegistersConstructionSchedules(t *testing.
 	}
 }
 
-// constructionExecutionKinds must resolve to exactly the three kinds bound to
+// constructionExecutionKinds must resolve to exactly the two kinds bound to
 // delivery.TaskQueue in MessageBusTemporalArgs's table, staying in sync
 // automatically as that table evolves. deliveryRoundSweep joined them in stage 4b1,
 // which is what makes the dry-run boot skip its Schedule too — a live 5m sweep writing
-// head state against a dry-run/demo boot is the same pure noise the other two are gated
-// for.
+// head state against a dry-run/demo boot is the same pure noise the other one is gated
+// for. constructionReplanSweep was the third and left with its workflow at stage 4b2.
 func TestConstructionExecutionKinds_MatchesConstructionTaskQueue(t *testing.T) {
 	h := &appHooks{}
 	kinds := h.constructionExecutionKinds(&Config{})
 
 	want := map[messagebus.ExecutionKind]bool{
-		"constructionPumpSweep":   true,
-		"constructionReplanSweep": true,
-		"deliveryRoundSweep":      true,
+		"constructionPumpSweep": true,
+		"deliveryRoundSweep":    true,
 	}
 	if len(kinds) != len(want) {
 		t.Fatalf("got %d construction kinds, want %d: %v", len(kinds), len(want), kinds)

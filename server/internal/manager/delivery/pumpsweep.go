@@ -19,9 +19,8 @@ import (
 // does. PumpSweepWorkflow is the thin fan-out this forces: enumerate every
 // project (projectStateAccess.listProjects), then start — or, if a prior tick's
 // cascade for that project is still running, leave alone — that project's own
-// PumpNextActivityWorkflow, unchanged. Mirrors ReplanSweepWorkflow's
-// structure (replansweep.go) and billingManager's ShortfallSweepWorkflow's
-// enumerate-then-fan-out shape (shortfallsweep.go).
+// PumpNextActivityWorkflow, unchanged. Mirrors billingManager's
+// ShortfallSweepWorkflow's enumerate-then-fan-out shape (shortfallsweep.go).
 //
 // OPERATOR PAUSE (fix round 1, Task 7c live-firing review): a project with
 // OperatorPaused=true is EXCLUDED from the fan-out — the sweep must not
@@ -34,15 +33,15 @@ import (
 // ===========================================================================
 
 // pumpSweepInput is the start payload for PumpSweepWorkflow — platform-wide, no
-// scope to carry (contrast replanSweepInput's optional *ProjectID narrowing: the
+// scope to carry (contrast roundSweepInput's ProjectID arm discriminator: the
 // pump sweep has no single-project mode, since the whole point is enumeration).
 type pumpSweepInput struct{}
 
 // pumpSweepResult is this tick's fan-out outcome. Deliberately UNEXPORTED:
 // PumpSweepWorkflow is not a façade op (nothing reads its result through
 // ConstructionManager — the Schedule fires it and no caller awaits it), so it
-// carries no service-contract entry, unlike the generated, exported PumpResult /
-// ReplanSweepResult the frozen façade ops return.
+// carries no service-contract entry, unlike the generated, exported PumpResult
+// the frozen façade ops return.
 type pumpSweepResult struct {
 	// PumpedProjects is every non-paused project this tick itself STARTED a NEW
 	// pump for — in ANY phase since stage 4b2 Task 4, because a design-phase

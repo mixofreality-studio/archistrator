@@ -43,18 +43,24 @@ render at all. Fixed by stage 4b2 Task 4 with the meta-test that now walks these
 
 | | |
 |---|---:|
-| Guard rows total | **38** |
+| Guard rows total | **36** |
 | `pumpnextactivity.go` | 22 |
-| `replansweep.go` | 2 |
 | `pumpsweep.go` | 7 |
 | `projectsupervision.go` | 7 |
-| Rows the 4b2 plan's brief names | 14 |
+| Rows the 4b2 plan's brief names | 12 |
 | **Rows this census found that the brief does not name** | **24** |
-| **Rows NOTHING armed before the census** | **16** |
-| Rows armed by a test written for the census | 16 |
+| **Rows NOTHING armed before the census** | **14** |
+| Rows armed by a test written for the census | 14 |
 | Rows with no pin | **0** |
 
-**One of the sixteen is not Task 1's.** `G-S7` — `PARENT_CLOSE_POLICY_ABANDON` on the
+**`replansweep.go`'s two rows, G-R1 and G-R2, are DISCHARGED and gone (Task 11).** They were
+listed to be shown to protect nothing that survives, and they were: both pinning tests ran
+green, the all-projects arm had no reachable caller over either transport, and the workflow
+they guarded is deleted. The counts above are the census's post-discharge shape — 38 - 2 —
+because a row whose subject no longer exists is not a guard, and `Test_PumpGuardCensus_-
+TheDocAndTheCodeAgree` fails a doc row the code no longer knows.
+
+**One of the fourteen is not Task 1's.** `G-S7` — `PARENT_CLOSE_POLICY_ABANDON` on the
 SWEEP's child pump start — was missed by the census and found by its reviewer, who
 measured that deleting the policy leaves the **entire delivery package GREEN**. Stage 4b2
 Task 4 added the row, the pin and the code comment the line never had. A census that can
@@ -63,7 +69,7 @@ would be worse.
 
 ## THE UNARMED LIST — the census's whole point
 
-These sixteen guards had **no test at all** before they were pinned. Each is a line whose
+These fourteen guards had **no test at all** before they were pinned. Each is a line whose
 removal the entire suite would have accepted in silence — the exact shape of the eight 4b1
 lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 
@@ -79,8 +85,6 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 | **G-P17** | `PARENT_CLOSE_POLICY_ABANDON` on the child start | `PARENT_CLOSE` appears in **no** test file in the package. The pump's own close (or ContinueAsNew) killing every in-flight activity is a silent, catastrophic regression. |
 | **G-S7** | `PARENT_CLOSE_POLICY_ABANDON` on the **SWEEP's** child pump start | **The row the census itself missed.** Measured by Task 1's reviewer: removing the policy leaves the entire delivery package GREEN. It is G-P17 one level up, and the level is what makes it worse — a sweep tick lives for *milliseconds* (it waits for the start ack alone, G-S4) and the pump it starts runs for hours, so the default TERMINATE kills **every pump the platform starts by itself** a moment after it is born. The platform's whole self-start path, with no symptom but pumps that vanish. |
 | **G-P21** | the eligibility ladder's **second** rung (`design-activities-dispatchable`) | Rung 1 has a DefaultVersion test; rung 2 has none. A dropped rung silently un-dispatches the three design activities. |
-| **G-R1** | `ReplanSweepWorkflow`'s `in.ProjectID == nil` arm | No test ever ran the workflow with a nil project. **Protects nothing that survives** — Task 11 shows the arm has no reachable caller. |
-| **G-R2** | `ReplanSweepWorkflow`'s `isReadNotFound` arm | Same shape as G-P3, same silence, and it dies with the workflow. |
 | **G-S5** | `ListProjects`'s error arm — the whole sweep tick fails, no partial fan-out | The lister fake could not fail. A swallowed enumeration error is a sweep that silently pumps a subset of the platform. |
 | **G-S6** | `pumpSweepOwnerScope` is non-empty | An empty scope is `fwra.ContractMisuse` at the RA: every sweep tick fails, platform-wide, and the only symptom is a Schedule log. |
 | **G-V1** | supervision's `querySessionState` handler is registered **before** the blocking `Receive` | Same class as G-P1, on the other long-lived workflow. |
@@ -117,15 +121,24 @@ lost. Nine of them live in `pumpnextactivity.go`, the body Task 12 rewrites.
 
 ---
 
-## `replansweep.go` — 2 guards (Task 11 DELETES this workflow)
+## `replansweep.go` — DISCHARGED, 0 guards (Task 11 DELETED this workflow)
 
-Both rows exist to be shown to protect nothing that survives. **Task 11 must confirm that
-before deleting them, not assume it.**
+The two rows this section held, **G-R1** (`in.ProjectID == nil` ⇒ empty result) and **G-R2**
+(`isReadNotFound` ⇒ empty, not an error), existed to be shown to protect nothing that
+survives. Task 11 confirmed it rather than assuming it: both pinning tests
+(`Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep`,
+`Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep`) ran GREEN, and so did the deletion's
+own argument, `Test_ReplanSweep_SurfacesNothingForAnyProject` — which seeded the loudest
+variance the head-state can hold (an activity terminally failed with `VarianceExhausted`
+behind four rejected gate attempts) and got **0** flagged variances back. `flagVariances`
+returned `nil` unconditionally, so the `delivery:replanSweep` Schedule fired every five
+minutes to produce an empty result: worse than no sweep, because an operator reading
+`temporal schedule list` sees variance coverage that does not exist.
 
-| ID | Line | Guard | What it protects | BreaksAs | PinnedBy |
-|---|---|---|---|---|---|
-| **G-R1** | `:25-27` | `in.ProjectID == nil` ⇒ empty result, immediately | The all-projects fan-out was never built. **Protects nothing that survives:** the arm has no reachable caller over either transport (spec §4 earmark). | Nothing — but only because nothing reaches it. Deleting the workflow deletes the arm and this test with it. | `Test_ReplanSweep_NoProjectNamed_IsAQuietEmptySweep` |
-| **G-R2** | `:29-35` | `isReadNotFound` ⇒ empty result, not an error | Same shape as G-P3: a project with no state is a quiet sweep, not a 5-minute error log. | A platform-wide Schedule error every 300 s for every state-less project. | `Test_ReplanSweep_ProjectNotFound_IsAQuietEmptySweep` |
+The workflow, its Schedule registration, its id helper, its frozen name, its golden entry
+and all four of those tests are gone. **The rows go with them** — a census row whose subject
+no longer exists is not a guard, and the two meta-tests are what make the doc and the code
+one edit instead of two.
 
 ---
 
@@ -182,8 +195,10 @@ in a new body. G-P9, G-P10 and G-P13 are the three rows that say so.
 
 ## Carries
 
-- **Task 11** — G-R1/G-R2 are the rows to discharge, not delete blind. Their two tests die
-  with `ReplanSweepWorkflow`; the golden moves 134 → 133 with it.
+- **Task 11** — DONE. G-R1/G-R2 were discharged, not deleted blind: both pins ran green and
+  so did the deletion's own argument. Their tests died with `ReplanSweepWorkflow`; the
+  golden moved 134 → 133 as predicted, and the frozen list stayed at 15 (−
+  `constructionReplanSweep`, + `constructionPumpSweep`, the 4b1 earmark closed).
 - **Task 12** — the nine `pumpnextactivity.go` rows in the unarmed list are the ones with no
   prior history of being checked. G-P12 and G-P13 have no obvious replacement in a
   signal-driven pump; G-P9's generalisation and G-P10's bound are the drain-and-carry.
