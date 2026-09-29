@@ -348,8 +348,8 @@ func (f *renderFakeProjectState) SeedReviewCommentsOnBranch(fwra.Context, projec
 	panic("renderFakeProjectState.SeedReviewCommentsOnBranch must not be called by these façade-precondition tests")
 }
 
-func (f *renderFakeProjectState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("renderFakeProjectState.ReconcileBranchFromMain must not be called by these façade-precondition tests")
+func (f *renderFakeProjectState) ReconcileBranchFromMainKinds(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("renderFakeProjectState.ReconcileBranchFromMainKinds must not be called by these façade-precondition tests")
 }
 
 // AcknowledgeStaleBasis is a real (if trivial) success implementation: the C2 fold
@@ -585,7 +585,7 @@ func (f *fakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projects
 	return f.bump(), nil
 }
 
-func (f *fakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -1680,7 +1680,7 @@ func (f *fakeProjectStateAccess) SetReviewCommentStatusOnBranch(_ fwra.Context, 
 func (f *fakeProjectStateAccess) SeedReviewCommentsOnBranch(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ int64, _ []projectstate.ReviewComment, _ []projectstate.ReviewReply, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
-func (f *fakeProjectStateAccess) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *fakeProjectStateAccess) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	return 0, nil
 }
 func (f *fakeProjectStateAccess) AcknowledgeStaleBasis(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ projectstate.ArtifactKind, _ string, _ fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -2817,8 +2817,8 @@ func (f *setResearchFakeState) SeedReviewCommentsOnBranch(fwra.Context, projects
 	panic("setResearchFakeState.SeedReviewCommentsOnBranch must not be called by SetResearchInput")
 }
 
-func (f *setResearchFakeState) ReconcileBranchFromMain(fwra.Context, projectstate.ProjectID, projectstate.Version, string, projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
-	panic("setResearchFakeState.ReconcileBranchFromMain must not be called by SetResearchInput")
+func (f *setResearchFakeState) ReconcileBranchFromMainKinds(fwra.Context, projectstate.ProjectID, projectstate.Version, string, []projectstate.ArtifactKind, fwra.IdempotencyKey) (projectstate.Version, error) {
+	panic("setResearchFakeState.ReconcileBranchFromMainKinds must not be called by SetResearchInput")
 }
 
 func (f *setResearchFakeState) AcknowledgeStaleBasis(fwra.Context, projectstate.ProjectID, projectstate.Version, projectstate.ArtifactKind, string, fwra.IdempotencyKey) (projectstate.Version, error) {
@@ -4841,7 +4841,7 @@ func (f *pdFakeProjectState) SeedReviewCommentsOnBranch(_ fwra.Context, _ projec
 	return f.bump(), nil
 }
 
-func (f *pdFakeProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f *pdFakeProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, _ string, _ []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	return f.bump(), nil
@@ -10518,7 +10518,7 @@ type csFakeProjectState struct {
 	resumed int
 
 	// reconciles counts designSessionAccess.reconcileBranchFromMain calls and records the
-	// branch + preserved kind each one carried — the F80c verb the child's restored merge
+	// branch + preserved kind SET each one carried — the F80c verb the child's restored merge
 	// guard reaches (final fix wave, G3). onReconcile, when set, runs on each call, which is
 	// how a test models "the reconcile made the PR mergeable again".
 	reconciles  []reconcileCall
@@ -11470,15 +11470,17 @@ func (fakeFullProjectState) SeedReviewCommentsOnBranch(fwra.Context, projectstat
 	return 0, nil
 }
 
-// reconcileCall is one observed F80c reconcile: which branch, and which slot it preserved.
+// reconcileCall is one observed F80c reconcile: which branch, and which SET of slots it
+// preserved (stage 4b2 Task 6 — the verb preserves a set, because one activity branch can
+// hold four in-flight design slots).
 type reconcileCall struct {
 	branch string
-	kind   projectstate.ArtifactKind
+	kinds  []projectstate.ArtifactKind
 }
 
-func (f fakeFullProjectState) ReconcileBranchFromMain(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kind projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
+func (f fakeFullProjectState) ReconcileBranchFromMainKinds(_ fwra.Context, _ projectstate.ProjectID, _ projectstate.Version, branch string, kinds []projectstate.ArtifactKind, _ fwra.IdempotencyKey) (projectstate.Version, error) {
 	f.mu.Lock()
-	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kind: kind})
+	f.reconciles = append(f.reconciles, reconcileCall{branch: branch, kinds: kinds})
 	hook := f.onReconcile
 	f.version++
 	v := f.version
@@ -19091,6 +19093,62 @@ func Test_Phase1RequiredKinds_AreExactlyTheTwoDesignLifecyclesOutput(t *testing.
 	}
 }
 
+// THE PRESERVE SET IS THE LIFECYCLE'S OWN SLOTS (stage 4b2 Task 6, F80c). reconcileBranchFromMain
+// overlays main's every slot onto a diverged activity branch EXCEPT the ones the branch is
+// drafting, so the set it must be handed is exactly what this activity holds in flight — four
+// for `requirements`, one for `architecture`, none for every construction lifecycle. Preserving
+// fewer than the activity holds replaces a live draft with main's older copy in the very path
+// that exists to rescue the branch.
+func Test_ReconcileTargetOf_IsTheLifecyclesWholeInFlightSet(t *testing.T) {
+	// The zero-value trap, pinned where the caller reasons about it: KindMission is ZERO, so
+	// "no kind" cannot be spelled as a zero ArtifactKind. The retired branchReconcile said it
+	// could, and was wrong for a whole wave — harmlessly, because a construction branch holds
+	// no mission draft, but the comment claimed the opposite of what the code did.
+	if projectstate.KindMission != 0 {
+		t.Fatalf("KindMission = %d, want 0 — reconcileDivergedBranch's wire-kind comment is "+
+			"written against that ordinal and must be re-read if it ever moves", int(projectstate.KindMission))
+	}
+	designSlots := map[string]int{"requirements": 4, "architecture": 1, "projectDesign": 0}
+	for _, lc := range methodassets.Lifecycles() {
+		got := reconcileTargetOf(lc)
+		if want, isDesign := designSlots[lc.Type]; isDesign {
+			if len(got) != want {
+				t.Errorf("%s preserves %v (%d kinds), want %d — the reconcile must preserve every "+
+					"slot the walk drafts on that one branch", lc.Type, got, len(got), want)
+			}
+			continue
+		}
+		if len(got) != 0 {
+			t.Errorf("construction lifecycle %s preserves %v, want the EMPTY set — a construction "+
+				"branch drafts no artifact slot, so the reconcile adopts main entirely", lc.Type, got)
+		}
+	}
+}
+
+// THE ONE-KIND WIRE, pinned while it exists (stage 4b2 Task 6; Task 7 deletes reconcileWireKind
+// and this test with it). Two things must hold for the commit that widens the RA but not yet
+// the generated Activity: a set of two or more is NOT expressible and takes the refusal — not
+// its first element, which would be F80c itself — and the empty set goes over as the ZERO
+// ArtifactKind, which is KindMission, not an absence.
+func Test_ReconcileWireKind_RefusesWhatTheOneKindWireCannotSay(t *testing.T) {
+	if got, ok := reconcileWireKind(nil); !ok || got != projectstate.KindMission {
+		t.Errorf("the empty preserve set = (%v, %v), want (KindMission, true) — the zero "+
+			"ArtifactKind is what crosses today's wire and it names a real slot", got, ok)
+	}
+	if got, ok := reconcileWireKind([]projectstate.ArtifactKind{projectstate.KindSystem}); !ok || got != projectstate.KindSystem {
+		t.Errorf("a one-kind set = (%v, %v), want (KindSystem, true)", got, ok)
+	}
+	req, ok := methodassets.LifecycleFor("requirements")
+	if !ok {
+		t.Fatal("the platform carries no requirements lifecycle")
+	}
+	four := reconcileTargetOf(req)
+	if _, ok := reconcileWireKind(four); ok {
+		t.Fatalf("the four-slot requirements set %v must NOT be expressible on a one-kind wire — "+
+			"sending its first element is exactly the F80c loss this task exists to stop", four)
+	}
+}
+
 // The command each design task runs is the LIFECYCLE'S, and DesignCommandFor must still agree
 // with it — two answers to one question is how a platform release silently re-points a job.
 func Test_DesignCommands_MatchTheLifecycleData(t *testing.T) {
@@ -22596,11 +22654,17 @@ func Test_Guard_DivergedBranchIsReconciledRatherThanLoopingForever(t *testing.T)
 	if got := ps.reconciles[0].branch; got != "activity/C-MST" {
 		t.Fatalf("the reconcile must name the ACTIVITY branch, got %q", got)
 	}
-	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves
-	// NONE and adopts main's every slot — the zero kind. Preserving a real one would leave a
-	// slot diverged and the PR dirty.
-	if got := ps.reconciles[0].kind; got != projectstate.ArtifactKind(0) {
-		t.Fatalf("a construction branch owns no slot, so the reconcile preserves none; got kind %v", got)
+	// A construction lifecycle holds no in-flight design slot, so the reconcile preserves NONE
+	// and adopts main's every slot. WHAT ACTUALLY CROSSES THE WIRE TODAY is the zero
+	// ArtifactKind — and KindMission IS ZERO — so the RA is handed the one-element set
+	// {KindMission}, not the empty one. That is harmless (a construction branch holds no
+	// mission draft, so preserving that slot preserves nothing) and it is asserted as what it
+	// IS rather than as an absence, because the retired branchReconcile's comment claimed the
+	// absence for a whole wave and was wrong. Stage 4b2 Task 7 widens the generated Activity to
+	// carry the set, and this becomes the EMPTY set.
+	if got := ps.reconciles[0].kinds; !slices.Equal(got, []projectstate.ArtifactKind{projectstate.KindMission}) {
+		t.Fatalf("a construction branch owns no slot, so the reconcile preserves none — over "+
+			"today's one-kind wire that is the zero ArtifactKind, i.e. []{KindMission}; got %v", got)
 	}
 	if rail.merges != 1 {
 		t.Fatalf("the reconciled PR must merge, got %d merges", rail.merges)

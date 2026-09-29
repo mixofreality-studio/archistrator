@@ -4087,14 +4087,14 @@ func (wf *csWorkflows) mergeAndRecord(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
 	if !gf.enabled {
 		return nil
 	}
 
-	if err := wf.guardMergePreconditions(ctx, in, gf, rec, headVersion); err != nil {
+	if err := wf.guardMergePreconditions(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 
@@ -4135,7 +4135,7 @@ func (wf *csWorkflows) guardMergePreconditions(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
 	st, err := wf.readPRStatus(ctx, gf)
@@ -4161,7 +4161,7 @@ func (wf *csWorkflows) guardMergePreconditions(
 	if st.Mergeable {
 		return nil
 	}
-	if rerr := wf.reconcileDivergedBranch(ctx, in, gf, rec, headVersion); rerr != nil {
+	if rerr := wf.reconcileDivergedBranch(ctx, in, gf, preserveKinds, headVersion); rerr != nil {
 		return rerr
 	}
 	if st, err = wf.readPRStatus(ctx, gf); err != nil {
@@ -4201,37 +4201,42 @@ func (wf *csWorkflows) mirrorObservedRollup(
 	return nil
 }
 
-// branchReconcile says whether a diverged activity branch may be reconciled from main, and
-// which slot the reconcile must PRESERVE on the branch.
-//
-// The RA verb (designSessionAccess.reconcileBranchFromMain) overlays main's every slot but
-// ONE onto the branch tip — it was written for the retired rail, where a session owned
-// exactly one artifact kind. The generic child's design walk can hold FOUR in-flight kinds
-// on ONE branch, and reconciling that branch would overwrite three live drafts with main's
-// older copies. So the reconcile is offered only where it is correct:
-//
-//   - zero in-flight kinds (every construction lifecycle): the branch owns no slot, so the
-//     ZERO ArtifactKind — which matches no slot-table entry — adopts main's every slot,
-//     which is exactly right.
-//   - exactly one in-flight kind: the retired rail's own case, unchanged.
-//   - two or more: NOT reconcilable with today's contract. The merge surfaces the honest
-//     refusal instead, and the contract delta this would need is recorded in the earmarks.
-type branchReconcile struct {
-	ok   bool
-	kind projectstate.ArtifactKind
+// reconcileTargetOf reads the PRESERVE SET off the LIFECYCLE's own slots, so a lifecycle that
+// gains or loses a design task moves this answer with it. Every kind the walk drafts on the
+// activity branch is preserved by the reconcile; every other slot is adopted from main. A
+// construction lifecycle drafts none, and the empty set adopts main's every slot — which is
+// exactly right, and now SAYS so rather than relying on a zero value (see
+// reconcileDivergedBranch, where the zero value's real meaning is written down).
+func reconcileTargetOf(lc methodassets.Lifecycle) []projectstate.ArtifactKind {
+	return designSlotsOfLifecycle(lc)
 }
 
-// reconcileTargetOf reads the reconcilable-ness off the LIFECYCLE's own slots, so a
-// lifecycle that gains or loses a design task moves this answer with it.
-func reconcileTargetOf(lc methodassets.Lifecycle) branchReconcile {
-	kinds := designSlotsOfLifecycle(lc)
-	switch len(kinds) {
-	case 0:
-		return branchReconcile{ok: true}
-	case 1:
-		return branchReconcile{ok: true, kind: kinds[0]}
+// reconcileWireKind is THE ONE-KIND WIRE ADAPTER, and stage 4b2 Task 7 deletes it whole. The
+// RA speaks the PRESERVE SET end to end now — GitStore, the git adapter and designSessionBase
+// all take `kinds []ArtifactKind` — but the REGISTERED ACTIVITY's parameter list is generated
+// from .serviceContracts.designSessionAccess, and this wave has exactly one model edit and one
+// regen (Task 7). So between the two commits the workflow can put at most one kind on the wire,
+// and this function is the only place that knows it.
+//
+// It returns expressible=false for a set of two or more, and the caller then takes the honest
+// refusal it took before rather than sending preserveKinds[0]: sending the first of four WOULD
+// BE F80c — three live drafts replaced by main's older copies, in the path whose whole job is
+// to rescue the branch.
+//
+// WHAT THE ZERO VALUE ACTUALLY MEANS, written down because the comment this replaces claimed
+// the opposite for a whole wave: the empty set has no one-kind spelling, so the zero
+// ArtifactKind goes over — and KindMission IS ZERO. A construction reconcile has therefore
+// always PRESERVED the branch's mission slot, not "matched no slot-table entry". Harmless,
+// because a construction branch holds no mission draft, so preserving that slot preserves
+// nothing. Task 7 sends the explicit empty set the store already understands.
+func reconcileWireKind(preserveKinds []projectstate.ArtifactKind) (projectstate.ArtifactKind, bool) {
+	if len(preserveKinds) > 1 {
+		return 0, false
 	}
-	return branchReconcile{}
+	if len(preserveKinds) == 1 {
+		return preserveKinds[0], true
+	}
+	return 0, true
 }
 
 // reconcileDivergedBranch overlays main's slots onto the activity branch tip so a
@@ -4247,13 +4252,14 @@ func (wf *csWorkflows) reconcileDivergedBranch(
 	ctx workflow.Context,
 	in constructActivityInput,
 	gf *gitForward,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 	headVersion *projectstate.Version,
 ) error {
-	if !rec.ok {
+	wireKind, expressible := reconcileWireKind(preserveKinds)
+	if !expressible {
 		workflow.GetLogger(ctx).Warn("delivery.merge.reconcileUnavailable",
 			"activityId", string(in.ActivityID), "branch", gf.branch,
-			"reason", "this lifecycle holds more than one in-flight design slot on one branch, and the reconcile verb preserves only one")
+			"reason", "this lifecycle holds more than one in-flight design slot on one branch, and the generated reconcile Activity still carries a single kind")
 		return nil
 	}
 	if gf.branch == "" {
@@ -4261,7 +4267,7 @@ func (wf *csWorkflows) reconcileDivergedBranch(
 	}
 	if _, err := wf.applyRecoveringOnBranch(ctx, in.ProjectID, gf.branch, 0,
 		func(expected projectstate.Version) (projectstate.Version, error) {
-			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, rec.kind)
+			return wf.Acts.DesignSessionReconcileBranchFromMain(ctx, projectstate.ProjectID(in.ProjectID), expected, gf.branch, wireKind)
 		}); err != nil {
 		return err
 	}
@@ -4575,7 +4581,7 @@ func (wf *csWorkflows) finalizeActivity(
 	state *constructState,
 	gitOn bool,
 	startedCred railCredEnvelope,
-	rec branchReconcile,
+	preserveKinds []projectstate.ArtifactKind,
 ) error {
 	// --- Step 5a: relay the architecture +1 and record it (git-forward). ---
 	if err := wf.relayArchApprovalAndRecord(ctx, in, gf, headVersion); err != nil {
@@ -4590,7 +4596,7 @@ func (wf *csWorkflows) finalizeActivity(
 	*headVersion = v
 
 	// --- Step 6a: perform the gated merge and record it (git-forward). ---
-	if err := wf.mergeAndRecord(ctx, in, gf, rec, headVersion); err != nil {
+	if err := wf.mergeAndRecord(ctx, in, gf, preserveKinds, headVersion); err != nil {
 		return err
 	}
 

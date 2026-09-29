@@ -263,29 +263,45 @@ func (s *GitStore) stageArtifactForReviewOnBranch(ctx context.Context, projectID
 	})
 }
 
-// ReconcileBranchFromMain resolves a diverged session branch server-side (F80c): it reads
-// main's committed aggregate and overlays every slot EXCEPT the session's OWN one (kind)
-// onto the session-branch tip, then commits that reconciliation to the branch. project.json
-// is a SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only
-// `kind`; adopting main's other slots makes the branch's project.json differ from main only
-// in `kind`, so the PR's 3-way merge (over the multi-line document) no longer conflicts and
-// the approve-time merge can complete. It is the branch-write twin of the workflow's
+// ReconcileBranchFromMainKinds resolves a diverged activity branch server-side (F80c): it
+// reads main's committed aggregate and overlays every slot the branch is NOT drafting onto
+// the branch tip, then commits that reconciliation to the branch. project.json is a
+// SERVER-OWNED, SINGLE-WRITER-PER-SLOT document, so the branch legitimately owns only the
+// slots in `kinds`; adopting main's other slots makes the branch's project.json differ from
+// main only there, so the PR's 3-way merge (over the multi-line document) no longer conflicts
+// and the approve-time merge can complete. It is the branch-write twin of the workflow's
 // aiarch-state-mcp reconcile (both call the same overlay semantics). An EMPTY branch is a
 // no-op error (reconciliation only makes sense against a real session branch).
-func (s *GitStore) ReconcileBranchFromMain(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+//
+// PRESERVE A SET, NOT A SLOT (stage 4b2 Task 6; F80c's real case). The overlay adopts main's
+// copy of every slot EXCEPT the ones this branch is actively drafting. That used to be
+// exactly one, because a co-author session owned one artifact kind; the generic child's
+// `requirements` walk owns FOUR on one branch, and preserving one of four means silently
+// replacing three live drafts with main's older copies at the moment a diverged PR is being
+// repaired — the worst possible moment for a quiet data loss. An EMPTY/nil `kinds` preserves
+// nothing and adopts main's every slot, which is exactly the construction case: a
+// construction branch drafts no artifact slot at all.
+func (s *GitStore) ReconcileBranchFromMainKinds(ctx context.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, cred RepoCredential, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	if branch == "" {
+		// The op name is the CONTRACT op's (reconcileBranchFromMain) — it names the verb a
+		// reader finds in the service contract and in the reconcile commit message, and it
+		// stays put across Task 7's rename so no dedup record or commit subject churns twice.
 		return 0, fwra.New(fwra.ContractMisuse, "projectstate.ReconcileBranchFromMain: empty branch (nothing to reconcile)")
 	}
-	// Read main's committed aggregate — the source of every OTHER slot's latest content.
+	// Read main's committed aggregate — the source of every OVERLAID slot's latest content.
 	mainProj, err := s.readProjectOnBranch(ctx, projectID, "", cred)
 	if err != nil {
 		return 0, err
 	}
+	preserve := make(map[ArtifactKind]bool, len(kinds))
+	for _, k := range kinds {
+		preserve[k] = true
+	}
 	return s.applyMutationOnBranch(ctx, "ReconcileBranchFromMain", projectID, expectedVersion, branch, cred, idempotencyKey, modeUpsert, func(p *Project) error {
-		// p is the session-branch tip; overlay main's slots for every kind but the
-		// session's own, leaving the in-flight draft (+ its review ledger) intact.
+		// p is the session-branch tip; overlay main's slots for every kind this branch is NOT
+		// drafting, leaving every in-flight draft (+ its review ledger) intact.
 		for _, e := range slotTable() {
-			if e.kind == kind {
+			if preserve[e.kind] {
 				continue
 			}
 			*e.ptr(p) = *e.ptr(&mainProj)
@@ -1934,16 +1950,17 @@ func (a *projectStateGitAdapter) AcknowledgeStaleBasis(rc fwra.Context, projectI
 	return a.store.AcknowledgeStaleBasis(ctx, projectID, expectedVersion, kind, note, cred, idempotencyKey)
 }
 
-// ReconcileBranchFromMain is the branch-reconcile verb (F80c): it overlays main's slots
-// (bar the session's own) onto the session-branch tip so a diverged PR becomes mergeable.
-// The cred is minted just-in-time.
-func (a *projectStateGitAdapter) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
+// ReconcileBranchFromMainKinds is the branch-reconcile verb (F80c): it overlays main's slots
+// (bar the ones the branch is drafting) onto the activity-branch tip so a diverged PR becomes
+// mergeable. `kinds` is the PRESERVE set — see the store method. The cred is minted
+// just-in-time.
+func (a *projectStateGitAdapter) ReconcileBranchFromMainKinds(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
 	ctx := rc.Context
 	cred, err := a.minter.CredentialFor(ctx, projectID)
 	if err != nil {
 		return 0, err
 	}
-	return a.store.ReconcileBranchFromMain(ctx, projectID, expectedVersion, branch, kind, cred, idempotencyKey)
+	return a.store.ReconcileBranchFromMainKinds(ctx, projectID, expectedVersion, branch, kinds, cred, idempotencyKey)
 }
 
 // ---------------------------------------------------------------------------
@@ -3201,7 +3218,7 @@ type designSessionBase interface {
 	StageArtifactForReviewOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, model ArtifactModel, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	RejectArtifactOnBranchWithComments(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	WithdrawArtifactOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, notes string, idempotencyKey fwra.IdempotencyKey) (Version, error)
-	ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
+	ReconcileBranchFromMainKinds(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kinds []ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SetReviewCommentStatusOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, commentID string, status string, idempotencyKey fwra.IdempotencyKey) (Version, error)
 	SeedReviewCommentsOnBranch(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, round int64, comments []ReviewComment, replies []ReviewReply, idempotencyKey fwra.IdempotencyKey) (Version, error)
 }
@@ -3309,14 +3326,23 @@ func (s *designSessionAccess) WithdrawArtifactOnBranch(rc fwra.Context, projectI
 	return s.base.WithdrawArtifactOnBranch(rc, projectID, expectedVersion, branch, kind, notes, idempotencyKey)
 }
 
-// ReconcileBranchFromMain overlays main's every slot except kind's own onto the
-// session-branch tip (F80c). Forwards straight to base; the "a non-empty branch is
-// required" invariant is now the CONCRETE substrate's business rule (GitStore rejects
-// branch=="" as fwra.ContractMisuse), not a capability the wrapper synthesizes — the
-// old NotFound-when-unsupported-or-empty fallback here was permanently dormant (every
-// production ProjectStateAccess supported reconcile unconditionally).
+// ReconcileBranchFromMain overlays main's every slot except the preserved ones onto the
+// activity-branch tip (F80c). The "a non-empty branch is required" invariant is the
+// CONCRETE substrate's business rule (GitStore rejects branch=="" as fwra.ContractMisuse),
+// not a capability the wrapper synthesizes — the old NotFound-when-unsupported-or-empty
+// fallback here was permanently dormant (every production ProjectStateAccess supported
+// reconcile unconditionally).
+//
+// THE ONE-ELEMENT SHIM, and it is deliberately the ONLY one in the chain (stage 4b2 Task 6).
+// The store, the git adapter and designSessionBase all speak the PRESERVE SET; this method's
+// parameter list is GENERATED from .serviceContracts.designSessionAccess and still says one
+// `kind`, because this wave has exactly one model edit and one regen. Task 7 Step 5 widens
+// the `$defs` param to `kinds` and deletes this shim, at which point the set the workflow
+// computes reaches the store whole. Until then a caller can express at most one preserved
+// slot here, and the workflow refuses the two-or-more case rather than losing drafts — see
+// reconcileDivergedBranch.
 func (s *designSessionAccess) ReconcileBranchFromMain(rc fwra.Context, projectID ProjectID, expectedVersion Version, branch string, kind ArtifactKind, idempotencyKey fwra.IdempotencyKey) (Version, error) {
-	return s.base.ReconcileBranchFromMain(rc, projectID, expectedVersion, branch, kind, idempotencyKey)
+	return s.base.ReconcileBranchFromMainKinds(rc, projectID, expectedVersion, branch, []ArtifactKind{kind}, idempotencyKey)
 }
 
 // SetReviewCommentStatusOnBranch applies a human review-ledger transition (waive/
