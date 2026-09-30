@@ -1326,18 +1326,43 @@ func pumpPauseRequested(ch workflow.ReceiveChannel) (reason string, paused bool)
 	if !ch.ReceiveAsync(&raw) {
 		return "", false
 	}
+	reason, _ = pauseSignalReason(raw)
+	return reason, true
+}
+
+// pauseSignalReason normalises ONE operatorPauseRequested payload, whichever wire form it
+// arrived in. It is the one decode of that signal name, shared by both of its consumers —
+// the pump's pumpPauseRequested above and ProjectSupervisionWorkflow — so the two cannot
+// drift apart the way the three lease channels drifted from this file's own pause rule
+// (stage 4b2 Task 14) and the way supervision had already drifted by stage 4b3.
+//
+// THE TWO WIRE FORMS. messageBus.deliverSignal hands the Temporal client raw []byte, which
+// the default converter tags binary/plain, and the SDK's ByteSlicePayloadConverter can
+// assign such a payload to nothing but a *[]byte — so a concrete-struct receive target
+// makes the SDK log "Corrupted signal received on channel operatorPauseRequested" and DROP
+// the message, which is not an error a workflow can see. A struct signalled directly
+// (PauseProject's SignalWithStartWorkflow, and every test written before 4b3) is json/plain
+// and arrives as map[string]any. Receiving into `any` serves BOTH; this reads what came
+// back. Deterministic — a receive plus a decode emits no workflow command at all.
+//
+// `decoded` reports the FACT, never the disposition: both callers deliberately fail SAFE on
+// false and say so at their own site, which is the opposite of the lease channels' drop
+// rule (pumpDecodeSignal) and must stay visibly opposite.
+func pauseSignalReason(raw any) (reason string, decoded bool) {
 	switch v := raw.(type) {
 	case []byte:
 		var sig operatorPauseSignal
 		if err := json.Unmarshal(v, &sig); err != nil {
-			return "", true
+			return "", false
 		}
 		return sig.Reason, true
 	case map[string]any:
+		// The reason is read off the map rather than re-marshalled: operatorPauseSignal
+		// carries no json tags, so the key is the field name.
 		r, _ := v["Reason"].(string)
 		return r, true
 	default:
-		return "", true
+		return "", false
 	}
 }
 

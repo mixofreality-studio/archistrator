@@ -12084,6 +12084,15 @@ type pauseRun struct {
 // pipeline and records the pause. busErr is what the relay's DeliverSignal answers;
 // setup (optional) adjusts the env before the run (e.g. an OnGetVersion override).
 func runPauseBranchRig(busErr error, setup func(*testsuite.TestWorkflowEnvironment)) pauseRun {
+	return runPauseBranchRigPayload(busErr, setup, nil)
+}
+
+// runPauseBranchRigPayload is runPauseBranchRig with the SIGNAL PAYLOAD open, because the
+// operatorPauseRequested channel carries two wire forms and only one of them is a struct:
+// PauseProject's SignalWithStartWorkflow sends json/plain, while relayPauseToPump sends
+// messageBus bytes (binary/plain). payload==nil keeps the struct form every other pause
+// case uses. The projectId is minted inside the rig, so the payload is a function of it.
+func runPauseBranchRigPayload(busErr error, setup func(*testsuite.TestWorkflowEnvironment), payload func(ProjectID) any) pauseRun {
 	var ts testsuite.WorkflowTestSuite
 	env := ts.NewTestWorkflowEnvironment()
 
@@ -12100,8 +12109,12 @@ func runPauseBranchRig(busErr error, setup func(*testsuite.TestWorkflowEnvironme
 	if setup != nil {
 		setup(env)
 	}
+	sent := any(operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+	if payload != nil {
+		sent = payload(pid)
+	}
 	env.RegisterDelayedCallback(func() {
-		env.SignalWorkflow(signalOperatorPauseRequested, operatorPauseSignal{ProjectID: pid, Reason: "operator halt"})
+		env.SignalWorkflow(signalOperatorPauseRequested, sent)
 	}, time.Millisecond)
 	env.ExecuteWorkflow(executionKindProjectSupervision, projectSupervisionInput{ProjectID: pid})
 	return pauseRun{err: env.GetWorkflowError(), ps: ps, pipe: pipe, bus: bus, order: order}
@@ -12281,6 +12294,60 @@ func isContinueAsNew(err error) bool {
 func (r cascadingPumpRig) atItsHistoryBudget() cascadingPumpRig {
 	r.env.SetCurrentHistoryLength(pumpHistoryBudget + 1)
 	return r
+}
+
+// Test_Supervision_ARelayedPauseIsNotDropped pins the LATENT half of the wire-form defect
+// (stage 4b3 Task 2). ProjectSupervisionWorkflow's operatorPauseRequested receive was
+// correct only because of WHICH producer happens to reach WHICH execution id — a fact no
+// local reading of this consumer can establish, and exactly the reason the arch gate keys
+// on the signal NAME rather than the target id. The same name is ALREADY delivered as raw
+// bytes by relayPauseToPump (to the pump's id), so the first relay aimed at
+// {projectId}:construction would have been dropped with nothing going red: the SDK logs
+// "Corrupted signal received on channel operatorPauseRequested … type
+// *delivery.operatorPauseSignal: type is not *[]byte" and the workflow waits forever.
+//
+// THREE SUB-CASES, ONE CHANNEL. The bus form and the struct form must BOTH reach the pause
+// branch, because both producers are real; and a body that decodes as neither must STILL
+// pause, because the channel name carries the operator's intent (the opposite of the lease
+// channels' drop rule — see pumpDecodeSignal).
+func Test_Supervision_ARelayedPauseIsNotDropped(t *testing.T) {
+	cases := []struct {
+		name       string
+		payload    func(ProjectID) any
+		wantReason string
+	}{
+		// The bus form: raw bytes, binary/plain — what relayPauseToPump really sends
+		// (pumpPausePayload marshals operatorPauseSignal and hands over the bytes).
+		{"busRawBytes", func(pid ProjectID) any {
+			b, err := json.Marshal(operatorPauseSignal{ProjectID: pid, Reason: "operator relayed"})
+			if err != nil {
+				panic(err)
+			}
+			return b
+		}, "operator relayed"},
+		// The façade form: a struct through SignalWithStartWorkflow, json/plain — what
+		// PauseProject sends (deliverymanager.go), and the only form the tests used to send.
+		{"directStruct", func(pid ProjectID) any {
+			return operatorPauseSignal{ProjectID: pid, Reason: "operator direct"}
+		}, "operator direct"},
+		// A body that is neither: the pause still happens, with no stated reason. Failing
+		// OPEN here would let the cascade keep dispatching through an operator halt.
+		{"unreadableBody", func(ProjectID) any { return []byte("not json at all") }, ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			r := runPauseBranchRigPayload(nil, nil, tc.payload)
+			if r.err != nil {
+				t.Fatalf("supervision error: %v", r.err)
+			}
+			if got := r.order.String(); got != "record→relay→cancel" {
+				t.Fatalf("the pause branch must run in full, got %q", got)
+			}
+			if len(r.ps.paused) != 1 || r.ps.paused[0] != tc.wantReason {
+				t.Fatalf("want one recordOperatorPaused(%q), got %v", tc.wantReason, r.ps.paused)
+			}
+		})
+	}
 }
 
 // M1 / I2 test 8 (version gate "pause-relays-to-pump", DefaultVersion branch). A
@@ -26885,22 +26952,22 @@ func pumpGuardCensusSupervision() []pumpGuard {
 		{"G-V1", "projectsupervision.go:40-44", "the sessionState Query handler is registered BEFORE the blocking Receive",
 			"a project-scope GetSessionState fails for every unpaused project",
 			"Test_Supervision_SessionStateIsQueryableWhileItWaitsForThePause"},
-		{"G-V2", "projectsupervision.go:74", "the pause-relays-to-pump fence: Default keeps cancel-then-record with no relay",
+		{"G-V2", "projectsupervision.go:92", "the pause-relays-to-pump fence: Default keeps cancel-then-record with no relay",
 			"non-determinism on a supervision run already inside the branch at deploy",
 			"Test_Pause_RelayGate_DefaultVersion_CancelThenRecord_NoRelay"},
-		{"G-V3", "projectsupervision.go:84-92", "RECORD then RELAY then CANCEL, in that order",
+		{"G-V3", "projectsupervision.go:102-110", "RECORD then RELAY then CANCEL, in that order",
 			"a pump started inside the relay window dispatches through an operator halt",
 			"Test_Pause_RecordsBeforeRelayingToPump"},
-		{"G-V4", "projectsupervision.go:84-92", "each step's error arm aborts the rest, and the pause STAYS recorded",
+		{"G-V4", "projectsupervision.go:102-110", "each step's error arm aborts the rest, and the pause STAYS recorded",
 			"a half-applied pause the next sweep tick overrides",
 			"Test_Pause_RelayFailsAfterRecord_PausedStaysRecorded_WorkflowFails"},
-		{"G-V5", "projectsupervision.go:152-155", "only a NotFound signal target is tolerated; every other delivery failure propagates",
+		{"G-V5", "projectsupervision.go:170-173", "only a NotFound signal target is tolerated; every other delivery failure propagates",
 			"a pause lost with no trace — and, generalised to completions, the react-by-signal pump's dropped-signal hole",
 			"Test_Pause_NoRunningPump_NotFoundTolerated"},
-		{"G-V6", "projectsupervision.go:125-127", "a plan that does not ask for the record writes NO head state",
+		{"G-V6", "projectsupervision.go:143-145", "a plan that does not ask for the record writes NO head state",
 			"a project paused in head-state that the engine never paused",
 			"Test_Pause_APlanThatDoesNotRecord_WritesNoPause"},
-		{"G-V7", "projectsupervision.go:66", "the intervention policy is threaded into ApplyPausePolicy",
+		{"G-V7", "projectsupervision.go:84", "the intervention policy is threaded into ApplyPausePolicy",
 			"the real engine rejects every pause with \"unknown policy mode\"",
 			"Test_ApplyPausePolicy_ZeroValuePolicy_IsTheOldBug"},
 	}

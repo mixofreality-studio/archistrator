@@ -43,11 +43,29 @@ func (wf *csWorkflows) ProjectSupervisionWorkflow(ctx workflow.Context, in proje
 		return err
 	}
 
+	// RECEIVED INTO `any`, NOT INTO operatorPauseSignal (stage 4b3 Task 2). The producer
+	// that reaches THIS execution sends a struct today, so nothing was being dropped — but
+	// operatorPauseRequested is ALSO a messageBus.deliverSignal name (relayPauseToPump, just
+	// below), and a bus payload is raw []byte tagged binary/plain, which a concrete-struct
+	// target can hold not at all: the SDK logs "Corrupted signal" and drops the message
+	// where no workflow can see it. WHICH producer reaches WHICH execution id is not a fact
+	// this file can establish, so the wire form is decided by the NAME, and the name has a
+	// bus producer. pauseSignalReason is the same normaliser the pump's own pause channel
+	// uses, so the one signal name keeps one decode.
 	pauseCh := workflow.GetSignalChannel(ctx, signalOperatorPauseRequested)
-	var sig operatorPauseSignal
-	pauseCh.Receive(ctx, &sig)
+	var raw any
+	pauseCh.Receive(ctx, &raw)
+	reason, decoded := pauseSignalReason(raw)
+	if !decoded {
+		// A PAUSE WHOSE BODY CANNOT BE READ IS STILL A PAUSE. The channel NAME carries the
+		// operator's intent, which is why this is the opposite of the lease channels' rule
+		// (an undecodable lease message names no activity, so the pump drops it —
+		// pumpDecodeSignal). The reason is lost; the pause is not.
+		workflow.GetLogger(ctx).Error("supervision: the pause payload could not be read; pausing with no stated reason",
+			"projectId", string(in.ProjectID))
+	}
 
-	return wf.runPauseBranch(ctx, in.ProjectID, sig.Reason, state)
+	return wf.runPauseBranch(ctx, in.ProjectID, reason, state)
 }
 
 // runPauseBranch runs the NCUC2 operator-pause branch: applyPausePolicy (DECIDE)
